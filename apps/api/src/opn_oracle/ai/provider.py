@@ -351,7 +351,7 @@ class SignalGovernedLLMProvider:
             schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")
         )
         context_json = json.dumps(request.context, ensure_ascii=False, separators=(",", ":"))
-        body = {
+        body: dict[str, Any] = {
             "task_key": request.agent,
             "input": {
                 "messages": [
@@ -375,6 +375,54 @@ class SignalGovernedLLMProvider:
             },
         }
         started = time.monotonic()
+        payload = self._run(body)
+        normalized_output = _signal_output(payload)
+        usage = _usage(payload)
+        try:
+            output = schema.model_validate_json(normalized_output)
+        except ValueError as validation_error:
+            repair_body = {
+                **body,
+                "input": {
+                    **body["input"],
+                    "messages": [
+                        *body["input"]["messages"],
+                        {"role": "assistant", "content": normalized_output},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Corrige únicamente el JSON anterior para que cumpla el esquema. "
+                                "No añadas explicaciones ni bloques Markdown. Errores: "
+                                f"{validation_error}"
+                            ),
+                        },
+                    ],
+                },
+            }
+            payload = self._run(repair_body)
+            repaired_usage = _usage(payload)
+            usage = {
+                "input_tokens": _usage_tokens(usage, "input")
+                + _usage_tokens(repaired_usage, "input"),
+                "output_tokens": _usage_tokens(usage, "output")
+                + _usage_tokens(repaired_usage, "output"),
+                "cost_micros": _non_negative_int(usage.get("cost_micros"))
+                + _non_negative_int(repaired_usage.get("cost_micros")),
+            }
+            output = schema.model_validate_json(_signal_output(payload))
+        elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
+        return LLMResult(
+            output=output,
+            input_tokens=_usage_tokens(usage, "input"),
+            output_tokens=_usage_tokens(usage, "output"),
+            cost_micros=_non_negative_int(usage.get("cost_micros") or payload.get("cost_micros")),
+            latency_ms=_non_negative_int(payload.get("latency_ms")) or elapsed_ms,
+            provider=str(payload.get("provider") or payload.get("actual_provider") or "signal"),
+            model=str(payload.get("model") or payload.get("actual_model") or request.model),
+            fallback_used=bool(payload.get("fallback_used", False)),
+        )
+
+    def _run(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
             response = httpx.post(
                 urljoin(self.base_url, "api/v1/ai/run"),
@@ -384,37 +432,11 @@ class SignalGovernedLLMProvider:
             )
             response.raise_for_status()
             payload = response.json()
-        except httpx.HTTPError as error:
+        except (httpx.HTTPError, ValueError) as error:
             raise AIUnavailable("Signal no esta disponible para ejecutar IA.") from error
-        result_payload = payload.get("result")
-        if not isinstance(result_payload, dict):
+        if not isinstance(payload, dict):
             raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
-        message = result_payload.get("message")
-        output_payload = message.get("content") if isinstance(message, dict) else None
-        output_payload = output_payload or result_payload.get("response")
-        if not isinstance(output_payload, str):
-            raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
-        usage = payload.get("usage", {})
-        if not isinstance(usage, dict):
-            usage = {}
-        elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
-        normalized_output = output_payload.strip()
-        if normalized_output.startswith("```"):
-            normalized_output = normalized_output.split("\n", 1)[1] if "\n" in normalized_output else ""
-            if normalized_output.endswith("```"):
-                normalized_output = normalized_output[:-3].strip()
-        return LLMResult(
-            output=schema.model_validate_json(normalized_output),
-            input_tokens=_non_negative_int(usage.get("input_tokens") or usage.get("prompt_tokens")),
-            output_tokens=_non_negative_int(
-                usage.get("output_tokens") or usage.get("completion_tokens")
-            ),
-            cost_micros=_non_negative_int(usage.get("cost_micros") or payload.get("cost_micros")),
-            latency_ms=_non_negative_int(payload.get("latency_ms")) or elapsed_ms,
-            provider=str(payload.get("provider") or payload.get("actual_provider") or "signal"),
-            model=str(payload.get("model") or payload.get("actual_model") or request.model),
-            fallback_used=bool(payload.get("fallback_used", False)),
-        )
+        return payload
 
     def embed(self, texts: list[str]) -> EmbeddingResult:
         del texts
@@ -429,6 +451,34 @@ def _non_negative_int(value: Any, *, divisor: int = 1) -> int:
         return max(0, int(value) // divisor)
     except (TypeError, ValueError):
         return 0
+
+
+def _usage(payload: dict[str, Any]) -> dict[str, Any]:
+    usage = payload.get("usage", {})
+    return usage if isinstance(usage, dict) else {}
+
+
+def _usage_tokens(usage: dict[str, Any], direction: str) -> int:
+    primary = f"{direction}_tokens"
+    fallback = "prompt_tokens" if direction == "input" else "completion_tokens"
+    return _non_negative_int(usage.get(primary) or usage.get(fallback))
+
+
+def _signal_output(payload: dict[str, Any]) -> str:
+    result_payload = payload.get("result")
+    if not isinstance(result_payload, dict):
+        raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
+    message = result_payload.get("message")
+    output_payload = message.get("content") if isinstance(message, dict) else None
+    output_payload = output_payload or result_payload.get("response")
+    if not isinstance(output_payload, str):
+        raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
+    normalized = output_payload.strip()
+    if normalized.startswith("```"):
+        normalized = normalized.split("\n", 1)[1] if "\n" in normalized else ""
+        if normalized.endswith("```"):
+            normalized = normalized[:-3].strip()
+    return normalized
 
 
 def provider_from_config(config: dict[str, Any]) -> LLMProvider:
