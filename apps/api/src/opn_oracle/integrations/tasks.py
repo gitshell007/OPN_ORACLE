@@ -237,7 +237,35 @@ def process_inbox(self: Any, *, inbox_id: str, tenant_id: str) -> dict[str, Any]
                 aad=inbox_aad(tenant_uuid, inbox.connection_id, inbox.provider_event_id),
             )
             envelope = json.loads(raw)
-            if envelope.get("event_type") not in {"signal.created", "signal.updated"}:
+            event_type = envelope.get("event_type")
+            if event_type == "monitor.status_changed":
+                monitor_data = envelope.get("data", {}).get("monitor", {})
+                monitor = db.session.scalar(
+                    select(SignalMonitor).where(
+                        SignalMonitor.tenant_id == tenant_uuid,
+                        SignalMonitor.connection_id == inbox.connection_id,
+                        SignalMonitor.external_id == monitor_data.get("id"),
+                    )
+                )
+                if monitor is None:
+                    inbox.status = "rejected"
+                    inbox.last_error = "monitor_not_found"
+                    db.session.commit()
+                    return {"status": "rejected"}
+                observed = str(monitor_data.get("new_status", ""))
+                if observed not in {"draft", "active", "paused", "disabled", "error"}:
+                    inbox.status = "rejected"
+                    inbox.last_error = "invalid_monitor_status"
+                    db.session.commit()
+                    return {"status": "rejected"}
+                monitor.observed_status = observed
+                monitor.last_error = None
+                inbox.status = "processed"
+                inbox.processed_at = datetime.now(UTC)
+                inbox.last_error = None
+                db.session.commit()
+                return {"status": "processed", "monitor_status": observed}
+            if event_type not in {"signal.created", "signal.updated"}:
                 inbox.status = "rejected"
                 inbox.last_error = "unsupported_event_type"
                 db.session.commit()
