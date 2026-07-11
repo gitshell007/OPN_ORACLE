@@ -717,7 +717,7 @@ def triage_dossier_signal(*, payload: dict[str, Any], job: BackgroundJob) -> dic
     )
     if artifact is None:
         raise SignalTriageRejected("No se encontró el resultado auditable del triage.")
-    output = SignalTriageOutput.model_validate(artifact.output)
+    output = SignalTriageOutput.model_validate_json(json.dumps(artifact.output))
     if not _triage_has_signal_evidence(output, evidence.id):
         artifact.status = "rejected"
         artifact.version += 1
