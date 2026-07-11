@@ -9,6 +9,7 @@ from typing import Any
 from apiflask import APIBlueprint
 from flask import g, jsonify, request
 from flask_login import current_user
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from opn_oracle.auth.permissions import recent_auth_required, require_permission
@@ -22,6 +23,7 @@ from opn_oracle.integrations.service import (
     stage_outbox,
     store_credential,
 )
+from opn_oracle.integrations.signal_avanza import MonitorSpec
 from opn_oracle.jobs.service import enqueue_job
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier, Watchlist
 from opn_oracle.oracle.policy import dossier_accessible
@@ -29,6 +31,70 @@ from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import IntegrationConnection
 
 bp = APIBlueprint("signal_integrations", __name__, url_prefix="/api/v1")
+
+_MONITOR_CONFIG_FIELDS = (
+    "query",
+    "keywords",
+    "entities",
+    "languages",
+    "geographies",
+    "source_types",
+    "cadence",
+    "retention_days",
+)
+_DEFAULT_MONITOR_CONFIG: dict[str, Any] = {
+    "query": "",
+    "keywords": [],
+    "entities": [],
+    "languages": [],
+    "geographies": [],
+    "source_types": ["news", "company_signal", "official_publication"],
+    "cadence": "daily",
+    "retention_days": 365,
+}
+
+
+def _monitor_spec_from_payload(
+    payload: dict[str, Any],
+    *,
+    oracle_monitor_id: str,
+    desired_status: str,
+    defaults: dict[str, Any] | None = None,
+) -> MonitorSpec:
+    """Build a complete, producer-compatible monitor snapshot.
+
+    The provider accepts PATCH requests, but Oracle persists immutable full
+    snapshots. Applying defaults here keeps partial user edits from silently
+    dropping keywords, entities or source restrictions.
+    """
+
+    baseline = {**_DEFAULT_MONITOR_CONFIG, **(defaults or {})}
+    config = {
+        field: payload[field] if field in payload else baseline[field]
+        for field in _MONITOR_CONFIG_FIELDS
+    }
+    return MonitorSpec.model_validate(
+        {
+            "oracle_monitor_id": oracle_monitor_id,
+            "status": desired_status,
+            **config,
+        }
+    )
+
+
+def _monitor_validation_problem(error: ValidationError) -> Any:
+    messages = [str(item.get("msg", "Configuración no válida.")) for item in error.errors()]
+    detail = "; ".join(messages[:3]) or "Configuración del monitor no válida."
+    return problem_response(
+        422,
+        detail=f"Configuración del monitor no válida: {detail}",
+        code="signal_monitor_config_invalid",
+    )
+
+
+def _watchlist_config(spec: MonitorSpec) -> dict[str, Any]:
+    snapshot = spec.model_dump(mode="json")
+    return {field: snapshot[field] for field in _MONITOR_CONFIG_FIELDS}
 
 
 def _connection_payload(item: IntegrationConnection) -> dict[str, Any]:
@@ -86,6 +152,10 @@ def list_connections() -> Any:
 @recent_auth_required
 def create_connection() -> Any:
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return problem_response(
+            422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
+        )
     mode = str(payload.get("adapter_mode", "mock"))
     if mode == "http" and not (
         __import__("flask").current_app.config["SIGNAL_AVANZA_ENABLED"]
@@ -311,6 +381,10 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
     ):
         return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return problem_response(
+            422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
+        )
     key = request.headers.get("Idempotency-Key", "")
     if len(key) < 8:
         return problem_response(
@@ -330,10 +404,14 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
     )
     if connection is None:
         return problem_response(422, detail="Conexión no válida.", code="validation_failed")
-    query = str(payload.get("query", "")).strip()
-    if not query:
-        return problem_response(422, detail="query es obligatoria.", code="validation_failed")
-    cadence = str(payload.get("cadence", "daily"))[:50]
+    try:
+        requested_spec = _monitor_spec_from_payload(
+            payload,
+            oracle_monitor_id="pending-monitor",
+            desired_status="active",
+        )
+    except ValidationError as error:
+        return _monitor_validation_problem(error)
     watchlist_name = str(payload.get("name", "Monitor Signal"))[:200]
     intention_hash = canonical_hash(
         {
@@ -342,8 +420,7 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
             "dossier_id": str(dossier.id),
             "connection_id": str(connection.id),
             "name": watchlist_name,
-            "query": query,
-            "cadence": cadence,
+            "config": _watchlist_config(requested_spec),
         }
     )
     lock_idempotency_key(tenant_id=dossier.tenant_id, idempotency_key=key)
@@ -371,8 +448,8 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
         tenant_id=dossier.tenant_id,
         dossier_id=dossier.id,
         name=watchlist_name,
-        query_config={"query": query},
-        cadence=cadence,
+        query_config=_watchlist_config(requested_spec),
+        cadence=requested_spec.cadence,
         status="active",
     )
     db.session.add(watchlist)
@@ -389,12 +466,11 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
     db.session.add(monitor)
     db.session.flush()
     snapshot = {
-        "oracle_monitor_id": str(monitor.id),
-        "query": query,
-        "status": "active",
-        "cadence": watchlist.cadence,
-        "source_types": ["news", "company_signal", "official_publication"],
+        **requested_spec.model_copy(update={"oracle_monitor_id": str(monitor.id)}).model_dump(
+            mode="json"
+        ),
         "oracle_watchlist_name": watchlist_name,
+        "config_version": 1,
     }
     db.session.add(
         SignalMonitorConfigVersion(
@@ -473,11 +549,14 @@ def update_monitor(monitor_id: uuid.UUID) -> Any:
     ):
         return problem_response(404, detail="Monitor no encontrado.", code="monitor_not_found")
     payload = request.get_json(silent=True) or {}
-    query = str(payload.get("query", "")).strip()
-    key = request.headers.get("Idempotency-Key", "")
-    if not query or len(key) < 8:
+    if not isinstance(payload, dict):
         return problem_response(
-            422, detail="query e Idempotency-Key son obligatorios.", code="validation_failed"
+            422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
+        )
+    key = request.headers.get("Idempotency-Key", "")
+    if len(key) < 8:
+        return problem_response(
+            422, detail="Idempotency-Key es obligatoria.", code="validation_failed"
         )
     connection = db.session.scalar(
         select(IntegrationConnection).where(
@@ -492,14 +571,30 @@ def update_monitor(monitor_id: uuid.UUID) -> Any:
         )
     watchlist = db.session.get(Watchlist, monitor.watchlist_id)
     assert watchlist is not None
+    current_config = db.session.scalar(
+        select(SignalMonitorConfigVersion.snapshot)
+        .where(
+            SignalMonitorConfigVersion.tenant_id == monitor.tenant_id,
+            SignalMonitorConfigVersion.monitor_id == monitor.id,
+        )
+        .order_by(SignalMonitorConfigVersion.version.desc())
+        .limit(1)
+    )
+    try:
+        requested_spec = _monitor_spec_from_payload(
+            payload,
+            oracle_monitor_id=str(monitor.id),
+            desired_status=monitor.desired_status,
+            defaults=current_config or watchlist.query_config,
+        )
+    except ValidationError as error:
+        return _monitor_validation_problem(error)
     intention_hash = canonical_hash(
         {
             "operation": "monitor.update",
             "tenant_id": str(monitor.tenant_id),
             "monitor_id": str(monitor.id),
-            "query": query,
-            "status": monitor.desired_status,
-            "cadence": watchlist.cadence,
+            "config": _watchlist_config(requested_spec),
         }
     )
     lock_idempotency_key(tenant_id=monitor.tenant_id, idempotency_key=key)
@@ -532,13 +627,12 @@ def update_monitor(monitor_id: uuid.UUID) -> Any:
             code="version_conflict",
         )
     monitor.version += 1
-    watchlist.query_config = {"query": query}
+    watchlist.query_config = _watchlist_config(requested_spec)
+    watchlist.cadence = requested_spec.cadence
     watchlist.version += 1
     snapshot = {
-        "client_monitor_id": str(monitor.id),
-        "query": query,
-        "status": monitor.desired_status,
-        "cadence": watchlist.cadence,
+        **requested_spec.model_dump(mode="json"),
+        "oracle_watchlist_name": watchlist.name,
         "config_version": monitor.version,
     }
     db.session.add(

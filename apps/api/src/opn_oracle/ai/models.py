@@ -202,7 +202,9 @@ class AITenantPolicy(TenantDomainMixin, Base):
     __tablename__ = "ai_tenant_policies"
     __table_args__ = (
         UniqueConstraint("tenant_id", name="uq_ai_policy_tenant"),
-        CheckConstraint("provider IN ('disabled','mock')", name="ai_policy_provider"),
+        CheckConstraint(
+            "provider IN ('disabled','mock','ollama','signal')", name="ai_policy_provider"
+        ),
         CheckConstraint("jsonb_typeof(allowed_models)='array'", name="ai_policy_models"),
         CheckConstraint(
             "max_classification IN ('public','internal')", name="ai_policy_classification"

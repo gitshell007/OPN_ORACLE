@@ -1,7 +1,15 @@
 "use client";
 
-import { ApiError, api, type BackendDossier, type SignalMonitor } from "@oracle/api-client";
-import { Archive, PauseCircle, PlayCircle, RefreshCw, Save } from "lucide-react";
+import {
+  ApiError,
+  api,
+  type BackendDossier,
+  type CreateSignalMonitorInput,
+  type SignalConnection,
+  type SignalMonitor,
+  type SignalMonitorSourceType,
+} from "@oracle/api-client";
+import { Archive, CirclePlus, PauseCircle, PlayCircle, RefreshCw, Save } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -10,10 +18,49 @@ import { productStatusLabel } from "@/lib/product-copy";
 const errorText = (reason: unknown, fallback: string) =>
   reason instanceof ApiError ? reason.problem.detail : fallback;
 
+const safeSourceTypes: Array<{ value: SignalMonitorSourceType; label: string; hint: string }> = [
+  { value: "news", label: "Noticias", hint: "Medios y publicaciones especializadas" },
+  { value: "company_signal", label: "Actividad corporativa", hint: "Webs y comunicados de organizaciones" },
+  { value: "official_publication", label: "Publicaciones oficiales", hint: "Boletines y diarios oficiales" },
+  { value: "regulatory_signal", label: "Regulación", hint: "Normativa, consultas y reguladores" },
+];
+
+type MonitorDraft = {
+  connection_id: string;
+  name: string;
+  query: string;
+  keywords: string;
+  entities: string;
+  cadence: CreateSignalMonitorInput["cadence"];
+  source_types: SignalMonitorSourceType[];
+  languages: string;
+  geographies: string;
+  retention_days: number;
+};
+
+const initialMonitorDraft = (): MonitorDraft => ({
+  connection_id: "",
+  name: "",
+  query: "",
+  keywords: "",
+  entities: "",
+  cadence: "daily",
+  source_types: ["news", "company_signal", "official_publication"],
+  languages: "es",
+  geographies: "ES",
+  retention_days: 90,
+});
+
+function commaSeparated(value: string) {
+  return [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))].slice(0, 30);
+}
+
 export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
   const [dossier, setDossier] = useState<BackendDossier | null>(null);
   const [monitors, setMonitors] = useState<SignalMonitor[]>([]);
+  const [connections, setConnections] = useState<SignalConnection[]>([]);
   const [form, setForm] = useState({ title: "", goal: "", description: "", status: "active" });
+  const [monitorForm, setMonitorForm] = useState<MonitorDraft>(initialMonitorDraft);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +75,13 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
         .monitors(dossierId)
         .then((value) => ({ value, available: true }))
         .catch(() => ({ value: { data: [] as SignalMonitor[] }, available: false }));
+      const connectionResult = await api.signalAvanza
+        .connections()
+        .then((value) => ({ value, available: true }))
+        .catch(() => ({ value: { items: [] as SignalConnection[] }, available: false }));
+      const activeConnections = connectionResult.value.items.filter(
+        (connection) => connection.status === "active",
+      );
       setDossier(resource);
       setForm({
         title: resource.title,
@@ -37,6 +91,12 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
       });
       setMonitors(monitorResult.value.data);
       setMonitorsUnavailable(!monitorResult.available);
+      setConnections(activeConnections);
+      setMonitorForm((current) =>
+        current.connection_id && activeConnections.some((item) => item.id === current.connection_id)
+          ? current
+          : { ...current, connection_id: activeConnections[0]?.id ?? "" },
+      );
       setError(null);
     } catch (reason) {
       setError(errorText(reason, "No se pudo cargar la configuración."));
@@ -91,6 +151,52 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
     }
   }
 
+  async function createMonitor(event: FormEvent) {
+    event.preventDefault();
+    const keywords = commaSeparated(monitorForm.keywords);
+    const entities = commaSeparated(monitorForm.entities);
+    if (!monitorForm.connection_id || !monitorForm.query.trim() || !monitorForm.name.trim()) return;
+    if (monitorForm.source_types.length === 0) {
+      setError("Selecciona al menos un tipo de fuente.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.signalAvanza.createMonitor(dossierId, {
+        connection_id: monitorForm.connection_id,
+        name: monitorForm.name.trim(),
+        query: monitorForm.query.trim(),
+        keywords,
+        entities: entities.map((name) => ({ type: "company", name })),
+        cadence: monitorForm.cadence,
+        source_types: monitorForm.source_types,
+        languages: commaSeparated(monitorForm.languages).map((item) => item.toLowerCase()),
+        geographies: commaSeparated(monitorForm.geographies).map((item) => item.toUpperCase()),
+        retention_days: monitorForm.retention_days,
+      });
+      setMonitorForm((current) => ({
+        ...initialMonitorDraft(),
+        connection_id: current.connection_id,
+      }));
+      setError(null);
+      toast.success("Monitor creado y preparado para la primera sincronización");
+      await load();
+    } catch (reason) {
+      setError(errorText(reason, "No se pudo crear el monitor."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleSourceType(sourceType: SignalMonitorSourceType) {
+    setMonitorForm((current) => ({
+      ...current,
+      source_types: current.source_types.includes(sourceType)
+        ? current.source_types.filter((item) => item !== sourceType)
+        : [...current.source_types, sourceType],
+    }));
+  }
+
   async function archive() {
     if (!dossier?.version || confirmation !== dossier.title) return;
     setBusy(true);
@@ -130,7 +236,25 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
           <button className="vector-primary" disabled={busy || archived}><Save size={15} /> Guardar cambios</button>
         </form>
       </PermissionGate>
-      <section className="settings-section"><header><h2>Monitores de Signal Avanza</h2><p>Estado deseado y observado permanecen separados.</p></header>{monitorsUnavailable ? <p className="reporting-hint">Los monitores no están disponibles con tus permisos actuales; la configuración general sigue accesible.</p> : monitors.length ? <div className="monitor-settings-list">{monitors.map((item) => <article key={item.id}><div><strong>{item.provider}</strong><span className={`status ${item.status}`}>{productStatusLabel(item.status)}</span><p>{item.last_error || `Última sincronización: ${item.last_synced_at ? new Date(item.last_synced_at).toLocaleString("es-ES") : "pendiente"}`}</p></div><PermissionGate permission="signal.review"><div>{item.status === "paused" ? <button disabled={busy} onClick={() => void actOnMonitor(item, "resume")}><PlayCircle size={14} /> Reanudar</button> : <button disabled={busy} onClick={() => void actOnMonitor(item, "pause")}><PauseCircle size={14} /> Pausar</button>}<button disabled={busy} onClick={() => void actOnMonitor(item, "sync")}><RefreshCw size={14} /> Sincronizar</button></div></PermissionGate></article>)}</div> : <p className="reporting-hint">No hay monitores configurados para este expediente.</p>}<button className="vector-secondary" onClick={() => void load()}><RefreshCw size={14} /> Actualizar</button></section>
+      <section className="settings-section"><header><h2>Monitores de Signal Avanza</h2><p>Estado deseado y observado permanecen separados.</p></header>
+        {!archived && <PermissionGate permission="signal.review">
+          <form className="dossier-monitor-create" onSubmit={createMonitor}>
+            <div className="dossier-monitor-create-heading"><CirclePlus size={17} aria-hidden="true" /><div><h3>Nuevo monitor</h3><p>Define qué vigilar y Oracle enviará la configuración a Signal Avanza.</p></div></div>
+            <label className="field"><span>Conexión activa</span><select required value={monitorForm.connection_id} onChange={(event) => setMonitorForm({ ...monitorForm, connection_id: event.target.value })} disabled={busy || connections.length === 0}><option value="">Selecciona una conexión</option>{connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select></label>
+            <label className="field"><span>Nombre del monitor</span><input required maxLength={200} value={monitorForm.name} onChange={(event) => setMonitorForm({ ...monitorForm, name: event.target.value })} placeholder="Ej. Competencia y regulación" disabled={busy || connections.length === 0} /></label>
+            <label className="field full"><span>Consulta principal</span><input required value={monitorForm.query} onChange={(event) => setMonitorForm({ ...monitorForm, query: event.target.value })} placeholder="Ej. almacenamiento energético España" disabled={busy || connections.length === 0} /><small>Usa una frase concreta; las palabras clave y entidades se aplicarán como filtros adicionales.</small></label>
+            <label className="field"><span>Palabras clave</span><textarea value={monitorForm.keywords} onChange={(event) => setMonitorForm({ ...monitorForm, keywords: event.target.value })} placeholder="baterías, subvenciones, almacenamiento" disabled={busy || connections.length === 0} /><small>Separadas por comas o líneas.</small></label>
+            <label className="field"><span>Competidores y entidades</span><textarea value={monitorForm.entities} onChange={(event) => setMonitorForm({ ...monitorForm, entities: event.target.value })} placeholder="Empresa A, Organismo B" disabled={busy || connections.length === 0} /><small>Se guardarán como organizaciones vigiladas.</small></label>
+            <label className="field"><span>Cadencia</span><select value={monitorForm.cadence} onChange={(event) => setMonitorForm({ ...monitorForm, cadence: event.target.value as MonitorDraft["cadence"] })} disabled={busy || connections.length === 0}><option value="hourly">Cada hora</option><option value="daily">Diaria</option><option value="weekly">Semanal</option></select></label>
+            <label className="field"><span>Conservación</span><select value={monitorForm.retention_days} onChange={(event) => setMonitorForm({ ...monitorForm, retention_days: Number(event.target.value) })} disabled={busy || connections.length === 0}><option value={30}>30 días</option><option value={90}>90 días</option><option value={180}>180 días</option><option value={365}>365 días</option></select></label>
+            <label className="field"><span>Idiomas</span><input value={monitorForm.languages} onChange={(event) => setMonitorForm({ ...monitorForm, languages: event.target.value })} placeholder="es, en" disabled={busy || connections.length === 0} /><small>Códigos ISO separados por comas.</small></label>
+            <label className="field"><span>Ámbitos geográficos</span><input value={monitorForm.geographies} onChange={(event) => setMonitorForm({ ...monitorForm, geographies: event.target.value })} placeholder="ES, EU" disabled={busy || connections.length === 0} /><small>Códigos de país o región separados por comas.</small></label>
+            <fieldset className="monitor-source-types full" disabled={busy || connections.length === 0}><legend>Fuentes a vigilar</legend><p>Solo se muestran fuentes compatibles y verificadas con Signal Avanza.</p><div>{safeSourceTypes.map((source) => <label key={source.value}><input type="checkbox" checked={monitorForm.source_types.includes(source.value)} onChange={() => toggleSourceType(source.value)} /><span><strong>{source.label}</strong><small>{source.hint}</small></span></label>)}</div></fieldset>
+            {connections.length === 0 && <p className="monitor-create-notice full" role="status">No hay una conexión activa disponible. Pide a la administración del tenant que active Signal Avanza.</p>}
+            <button className="vector-primary" disabled={busy || connections.length === 0}><CirclePlus size={15} /> Crear monitor</button>
+          </form>
+        </PermissionGate>}
+        {monitorsUnavailable ? <p className="reporting-hint">Los monitores no están disponibles con tus permisos actuales; la configuración general sigue accesible.</p> : monitors.length ? <div className="monitor-settings-list">{monitors.map((item) => <article key={item.id}><div><strong>{item.provider}</strong><span className={`status ${item.status}`}>{productStatusLabel(item.status)}</span><p>{item.last_error || `Última sincronización: ${item.last_synced_at ? new Date(item.last_synced_at).toLocaleString("es-ES") : "pendiente"}`}</p></div><PermissionGate permission="signal.review"><div>{item.status === "paused" ? <button disabled={busy} onClick={() => void actOnMonitor(item, "resume")}><PlayCircle size={14} /> Reanudar</button> : <button disabled={busy} onClick={() => void actOnMonitor(item, "pause")}><PauseCircle size={14} /> Pausar</button>}<button disabled={busy} onClick={() => void actOnMonitor(item, "sync")}><RefreshCw size={14} /> Sincronizar</button></div></PermissionGate></article>)}</div> : <p className="reporting-hint">No hay monitores configurados para este expediente.</p>}<button className="vector-secondary" onClick={() => void load()}><RefreshCw size={14} /> Actualizar</button></section>
       {!archived && <PermissionGate permission="dossier.archive"><section className="settings-section destructive-zone"><header><h2>Archivar expediente</h2><p>Quedará en modo lectura y conservará toda su trazabilidad.</p></header><label className="field"><span>Escribe «{dossier.title}» para confirmar</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button className="vector-danger" disabled={busy || confirmation !== dossier.title} onClick={() => void archive()}><Archive size={15} /> Archivar</button></section></PermissionGate>}
     </div>
   );

@@ -443,6 +443,31 @@ export interface SignalMonitor {
   version: number;
 }
 
+export type SignalMonitorSourceType =
+  | "news"
+  | "social_signal"
+  | "company_signal"
+  | "official_publication"
+  | "regulatory_signal";
+
+export interface SignalMonitorEntityInput {
+  type: "company" | "person" | "topic";
+  name: string;
+}
+
+export interface CreateSignalMonitorInput {
+  connection_id: string;
+  name: string;
+  query: string;
+  cadence: string;
+  keywords?: string[];
+  entities?: SignalMonitorEntityInput[];
+  source_types?: SignalMonitorSourceType[];
+  languages?: string[];
+  geographies?: string[];
+  retention_days?: number;
+}
+
 const signalAvanza = {
   connections: () =>
     request<{ items: SignalConnection[] }>(
@@ -520,12 +545,7 @@ const signalAvanza = {
     ),
   createMonitor: (
     dossierId: string,
-    input: {
-      connection_id: string;
-      name: string;
-      query: string;
-      cadence: string;
-    },
+    input: CreateSignalMonitorInput,
   ) =>
     request<{ id: string; outbox_event_id: string }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/signal-monitors`,

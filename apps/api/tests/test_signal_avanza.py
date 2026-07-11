@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 import pytest
 from cryptography.exceptions import InvalidTag
+from pydantic import ValidationError
 
 from opn_oracle.config import ConfigError, Settings
 from opn_oracle.integrations.crypto import (
@@ -68,6 +69,41 @@ def test_mock_is_deterministic_and_preserves_requested_signal_id() -> None:
         spec, idempotency_key="same"
     )
     assert adapter.get_signal("external/id").id == "external/id"
+
+
+@pytest.mark.unit
+def test_monitor_spec_normalizes_rich_config_and_rejects_unsupported_source_types() -> None:
+    spec = MonitorSpec.model_validate(
+        {
+            "oracle_monitor_id": "monitor-1",
+            "query": "",
+            "keywords": [" CATL ", "CATL"],
+            "entities": [{"type": "company", "name": "BYD"}],
+            "languages": ["ES", "es"],
+            "geographies": ["es", "ES"],
+            "source_types": ["NEWS", "company_signal", "news"],
+            "cadence": "daily",
+            "retention_days": 30,
+        }
+    )
+    assert spec.model_dump(mode="json") == {
+        "oracle_monitor_id": "monitor-1",
+        "query": "",
+        "status": "active",
+        "keywords": ["CATL"],
+        "entities": [{"type": "company", "name": "BYD"}],
+        "languages": ["es"],
+        "geographies": ["ES"],
+        "source_types": ["news", "company_signal"],
+        "cadence": "daily",
+        "retention_days": 30,
+    }
+    with pytest.raises(ValidationError, match="tender_or_grant"):
+        MonitorSpec(
+            oracle_monitor_id="monitor-1",
+            query="convocatorias",
+            source_types=["tender_or_grant"],
+        )
 
 
 @pytest.mark.unit
@@ -219,7 +255,7 @@ def test_http_contract_success_exercises_all_operations() -> None:
         "entities": [],
         "languages": [],
         "geographies": [],
-        "source_types": [],
+        "source_types": ["news"],
         "cadence": "daily",
         "subscription_id": None,
         "retention_days": 365,

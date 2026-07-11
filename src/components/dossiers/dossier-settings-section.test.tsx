@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   update: vi.fn(),
   archive: vi.fn(),
+  connections: vi.fn(),
   monitors: vi.fn(),
+  createMonitor: vi.fn(),
   monitorAction: vi.fn(),
   success: vi.fn(),
 }));
@@ -21,7 +23,9 @@ vi.mock("@oracle/api-client", () => ({
       archive: mocks.archive,
     },
     signalAvanza: {
+      connections: mocks.connections,
       monitors: mocks.monitors,
+      createMonitor: mocks.createMonitor,
       action: mocks.monitorAction,
     },
   },
@@ -56,7 +60,26 @@ describe("DossierSettingsSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.get.mockResolvedValue(dossier);
+    mocks.connections.mockResolvedValue({
+      items: [
+        {
+          id: "connection-1",
+          provider: "signal-avanza",
+          name: "Signal Avanza principal",
+          status: "active",
+          adapter_mode: "http",
+          api_version: "2026-07-01",
+          base_url: "https://signal.example.test",
+          circuit_state: "closed",
+          last_health_at: null,
+          last_success_at: null,
+          last_error: null,
+          version: 1,
+        },
+      ],
+    });
     mocks.monitors.mockResolvedValue({ data: [] });
+    mocks.createMonitor.mockResolvedValue({ id: "monitor-1", outbox_event_id: "event-1" });
     mocks.update.mockResolvedValue({ ...dossier, status: "paused", version: 5 });
   });
   afterEach(cleanup);
@@ -86,6 +109,46 @@ describe("DossierSettingsSection", () => {
         expect.objectContaining({ status: "paused", version: 4 }),
         4,
       ),
+    );
+  });
+
+  it("crea un monitor con la configuración de vigilancia compatible", async () => {
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+
+    await screen.findByRole("heading", { name: "Nuevo monitor" });
+    fireEvent.change(screen.getByLabelText("Nombre del monitor"), {
+      target: { value: "Competencia y regulación" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Consulta principal/), {
+      target: { value: "almacenamiento energético" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Palabras clave/), {
+      target: { value: "baterías, subvenciones" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Competidores y entidades/), {
+      target: { value: "Empresa Delta\nOrganismo Gamma" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Idiomas/), {
+      target: { value: "es, en" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear monitor" }));
+
+    await waitFor(() =>
+      expect(mocks.createMonitor).toHaveBeenCalledWith("dossier-1", {
+        connection_id: "connection-1",
+        name: "Competencia y regulación",
+        query: "almacenamiento energético",
+        keywords: ["baterías", "subvenciones"],
+        entities: [
+          { type: "company", name: "Empresa Delta" },
+          { type: "company", name: "Organismo Gamma" },
+        ],
+        cadence: "daily",
+        source_types: ["news", "company_signal", "official_publication"],
+        languages: ["es", "en"],
+        geographies: ["ES"],
+        retention_days: 90,
+      }),
     );
   });
 });

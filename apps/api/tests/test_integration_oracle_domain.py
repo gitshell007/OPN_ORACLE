@@ -1084,6 +1084,64 @@ def test_dossier_create_uses_active_default_workspace(
     assert response.get_json()["workspace_id"] == str(ids["workspace_a"])
 
 
+def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    _, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    response = client.post(
+        "/api/v1/dossiers",
+        json={
+            "workspace_id": str(ids["workspace_a"]),
+            "title": "Convocatoria de transición",
+            "type": "tender_or_grant",
+            "strategic_goal": "Presentar una propuesta sólida antes del plazo.",
+            "create_starter_profile": True,
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 201
+    dossier_id = response.get_json()["id"]
+
+    objectives = client.get(f"/api/v1/dossiers/{dossier_id}/objectives").get_json()["data"]
+    hypotheses = client.get(f"/api/v1/dossiers/{dossier_id}/hypotheses").get_json()["data"]
+    watchlists = client.get(f"/api/v1/dossiers/{dossier_id}/watchlists").get_json()["data"]
+
+    assert [row["title"] for row in objectives] == ["Preparar una respuesta competitiva y conforme"]
+    assert len(hypotheses) == 2
+    assert watchlists[0]["name"] == "Vigilancia inicial"
+    assert watchlists[0]["query_config"] == {
+        "profile_version": "v1",
+        "dossier_type": "tender_or_grant",
+        "keywords": ["Convocatoria de transición"],
+        "source_types": [
+            "tender_or_grant",
+            "official_publication",
+            "company_signal",
+            "relationship_signal",
+            "risk_signal",
+        ],
+        "requires_review": True,
+    }
+    assert (
+        client.get(
+            f"/api/v1/dossiers/{dossier_id}/watchlists/{watchlists[0]['id']}/monitors"
+        ).status_code
+        == 200
+    )
+
+    invalid = client.post(
+        "/api/v1/dossiers",
+        json={
+            "title": "Tipo no booleano",
+            "type": "project",
+            "create_starter_profile": "yes",
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert invalid.status_code == 422
+
+
 def test_dossier_crud_filters_concurrency_archive_and_idor(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

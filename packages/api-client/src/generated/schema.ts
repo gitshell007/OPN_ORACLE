@@ -21627,6 +21627,7 @@ export interface components {
         };
         DossierCreateInput: {
             collaborator_user_ids?: string[];
+            create_starter_profile?: boolean;
             description?: string;
             geography?: string[];
             languages?: string[];
@@ -22613,11 +22614,22 @@ export interface components {
             version?: number;
         };
         SignalMonitorCreateInput: {
-            cadence?: string;
+            /** @enum {string} */
+            cadence?: "hourly" | "daily" | "weekly";
             /** Format: uuid */
             connection_id: string;
+            entities?: {
+                name: string;
+                /** @enum {string} */
+                type: "company" | "person" | "topic";
+            }[];
+            geographies?: string[];
+            keywords?: string[];
+            languages?: string[];
             name?: string;
             query: string;
+            retention_days?: number;
+            source_types?: ("news" | "social_signal" | "company_signal" | "official_publication" | "regulatory_signal")[];
         };
         SignalMonitorResource: {
             /** Format: date-time */

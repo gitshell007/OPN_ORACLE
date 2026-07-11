@@ -23,13 +23,23 @@ from opn_oracle.ai.models import (
 )
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
-from opn_oracle.ai.schemas import AgentOutput, EvidenceReviewerOutput
+from opn_oracle.ai.schemas import AgentOutput, EvidenceReviewerOutput, SignalTriageOutput
 from opn_oracle.extensions import db
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
+from opn_oracle.oracle.links import EvidenceDossier
+from opn_oracle.oracle.models import DossierSignal, Evidence, Signal
+from opn_oracle.oracle.scoring import score_signal
+from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.tenants.context import require_tenant_id
 
 
 class AIPolicyDenied(RuntimeError):
+    pass
+
+
+class SignalTriageRejected(RuntimeError):
+    """The model output is valid JSON but cannot safely alter the live signal link."""
+
     pass
 
 
@@ -543,6 +553,8 @@ def execute_agent(
         db.session.rollback()
         raise AIPolicyDenied("La ejecución IA perdió su fencing antes de persistir.")
     final_audit.status, final_audit.output_hash = "succeeded", output_hash
+    final_audit.provider = result.provider or final_audit.provider
+    final_audit.model = result.model or final_audit.model
     final_audit.attempt_count = 1 if agent == "evidence_reviewer" else 2
     final_audit.input_tokens, final_audit.output_tokens = total_input, total_output
     final_audit.actual_cost_micros, final_audit.latency_ms = total_cost, result.latency_ms
@@ -562,6 +574,8 @@ def execute_agent(
         version=1,
     )
     db.session.add(artifact)
+    settled_usage.provider = final_audit.provider
+    settled_usage.model = final_audit.model
     settled_usage.input_tokens = total_input
     settled_usage.output_tokens = total_output
     settled_usage.actual_cost_micros = total_cost
@@ -577,4 +591,188 @@ def execute_agent(
         "artifact_id": str(artifact.id),
         "audit_log_id": str(final_audit.id),
         "status": artifact.status,
+    }
+
+
+def _signal_extract(signal: Signal) -> str:
+    """Build the smallest durable evidence record needed for a Signal triage."""
+
+    text = "\n\n".join(part for part in (signal.title.strip(), signal.summary.strip()) if part)
+    if not text:
+        raise SignalTriageRejected("La señal no contiene contenido analizable.")
+    return text[:12_000]
+
+
+def _ensure_signal_evidence(*, link: DossierSignal, signal: Signal) -> Evidence:
+    tenant_id = require_tenant_id()
+    existing = db.session.scalar(
+        select(Evidence)
+        .join(
+            EvidenceDossier,
+            (EvidenceDossier.tenant_id == Evidence.tenant_id)
+            & (EvidenceDossier.evidence_id == Evidence.id),
+        )
+        .where(
+            Evidence.tenant_id == tenant_id,
+            Evidence.signal_id == signal.id,
+            EvidenceDossier.dossier_id == link.dossier_id,
+        )
+        .order_by(Evidence.created_at.desc())
+    )
+    if existing is not None:
+        return existing
+    extract = _signal_extract(signal)
+    evidence = Evidence(
+        tenant_id=tenant_id,
+        signal_id=signal.id,
+        source_kind="signal",
+        source_url=signal.source_url,
+        extract=extract,
+        locator={
+            "provider": signal.provider,
+            "external_id": signal.external_id,
+            "source_name": signal.source_name,
+            "published_at": signal.published_at.isoformat() if signal.published_at else None,
+        },
+        checksum=hashlib.sha256(extract.encode()).digest(),
+        classification="public",
+        provenance={"created_by": "oracle.signal.triage", "signal_id": str(signal.id)},
+    )
+    db.session.add(evidence)
+    db.session.flush()
+    db.session.add(
+        EvidenceDossier(
+            tenant_id=tenant_id,
+            evidence_id=evidence.id,
+            dossier_id=link.dossier_id,
+        )
+    )
+    db.session.commit()
+    return evidence
+
+
+def _triage_has_signal_evidence(output: SignalTriageOutput, evidence_id: uuid.UUID) -> bool:
+    """Require at least one factual or inferential claim grounded in this Signal itself."""
+
+    return any(evidence_id in item.evidence_ids for item in output.facts) or any(
+        evidence_id in item.evidence_ids for item in output.inferences
+    )
+
+
+def triage_dossier_signal(*, payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """Run the audited AI pipeline, then conservatively project a triage onto one link.
+
+    Model recommendations never dismiss or promote a Signal. A concurrent human review wins and
+    leaves the generated artifact available for inspection without overwriting that review.
+    """
+
+    tenant_id = require_tenant_id()
+    try:
+        signal_id = uuid.UUID(str(payload["resource_id"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise SignalTriageRejected("La señal del trabajo no es válida.") from error
+    link = db.session.scalar(
+        select(DossierSignal)
+        .where(DossierSignal.tenant_id == tenant_id, DossierSignal.signal_id == signal_id)
+        .order_by(DossierSignal.created_at.desc())
+        .limit(1)
+    )
+    if link is None:
+        raise SignalTriageRejected("La señal ya no está vinculada a un expediente.")
+    requested_dossier = payload.get("dossier_id")
+    if requested_dossier is not None and str(link.dossier_id) != str(requested_dossier):
+        raise SignalTriageRejected("El expediente del trabajo no coincide con la señal.")
+    signal = db.session.scalar(
+        select(Signal).where(Signal.id == signal_id, Signal.tenant_id == tenant_id)
+    )
+    if signal is None:
+        raise SignalTriageRejected("La señal ya no está disponible.")
+    original_version = link.triage_version
+    evidence = _ensure_signal_evidence(link=link, signal=signal)
+    execution = execute_agent(
+        agent="signal_triage",
+        dossier_id=link.dossier_id,
+        job=job,
+        supplemental_context={
+            "signal": {
+                "id": str(signal.id),
+                "title": signal.title,
+                "source_type": signal.source_type,
+                "source_url": signal.source_url,
+                "evidence_id": str(evidence.id),
+            }
+        },
+        target_type="dossier_signal",
+        target_id=link.id,
+    )
+    artifact = db.session.scalar(
+        select(AIArtifact).where(
+            AIArtifact.id == uuid.UUID(execution["artifact_id"]),
+            AIArtifact.tenant_id == tenant_id,
+            AIArtifact.target_id == link.id,
+            AIArtifact.agent == "signal_triage",
+        )
+    )
+    if artifact is None:
+        raise SignalTriageRejected("No se encontró el resultado auditable del triage.")
+    output = SignalTriageOutput.model_validate(artifact.output)
+    if not _triage_has_signal_evidence(output, evidence.id):
+        artifact.status = "rejected"
+        artifact.version += 1
+        db.session.commit()
+        raise SignalTriageRejected("El triage no cita evidencia suficiente de la señal.")
+    current = db.session.scalar(
+        select(DossierSignal)
+        .where(DossierSignal.id == link.id, DossierSignal.tenant_id == tenant_id)
+        .with_for_update()
+    )
+    if current is None:
+        raise SignalTriageRejected("La vinculación de la señal ya no está disponible.")
+    if current.status != "new" or current.triage_version != original_version:
+        return execution | {"applied": False, "reason": "human_review_won"}
+    scores = output.scores
+    calculated = score_signal(
+        {
+            "relevance": scores.relevance,
+            "novelty": scores.novelty,
+            "strategic_impact": scores.strategic_impact,
+            "source_credibility": scores.source_credibility,
+            "confidence": scores.confidence,
+        }
+    )
+    current.relevance = scores.relevance
+    current.novelty = scores.novelty
+    current.strategic_impact = scores.strategic_impact
+    current.confidence = scores.confidence
+    current.overall_score = calculated.score
+    current.score_details = calculated.as_dict() | {
+        "triage": {
+            "artifact_id": str(artifact.id),
+            "audit_log_id": execution["audit_log_id"],
+            "category": output.category,
+            "recommended_status": output.recommended_status,
+            "model_overall": scores.overall,
+            "evidence_ids": [str(evidence.id)],
+            "warnings": output.warnings,
+        }
+    }
+    current.why_it_matters = output.why_it_matters[:5000]
+    current.recommended_action = output.recommended_next_action[:5000]
+    current.triage_version += 1
+    append_audit_event(
+        db.session,
+        action="signal.triaged",
+        resource_type="dossier_signal",
+        resource_id=current.id,
+        dossier_id=current.dossier_id,
+        result="success",
+        correlation_id=job.correlation_id,
+        metadata={"artifact_id": str(artifact.id), "evidence_id": str(evidence.id)},
+    )
+    db.session.commit()
+    return execution | {
+        "applied": True,
+        "dossier_signal_id": str(current.id),
+        "overall_score": current.overall_score,
+        "evidence_id": str(evidence.id),
     }

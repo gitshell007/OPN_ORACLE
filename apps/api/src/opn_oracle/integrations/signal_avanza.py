@@ -16,7 +16,7 @@ from typing import Any, Literal, Protocol
 from urllib.parse import quote, urlparse
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 
 class SignalContractError(RuntimeError):
@@ -27,18 +27,80 @@ class SignalTemporaryError(RuntimeError):
     """Retryable transport/provider error without secret-bearing detail."""
 
 
+SUPPORTED_SOURCE_TYPES = frozenset(
+    {
+        "news",
+        "social_signal",
+        "company_signal",
+        "official_publication",
+        "regulatory_signal",
+    }
+)
+SUPPORTED_CADENCES = frozenset({"hourly", "daily", "weekly"})
+
+
+class MonitorEntity(BaseModel):
+    """Entity shape accepted by the confirmed Signal Avanza monitor contract."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal["company", "person", "topic"]
+    name: str = Field(min_length=1, max_length=300)
+
+
 class MonitorSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     oracle_monitor_id: str = Field(min_length=1, max_length=120)
-    query: str = Field(min_length=1, max_length=4000)
+    query: str = Field(default="", max_length=1000)
     status: Literal["draft", "active", "paused", "disabled", "error"] = "active"
-    keywords: list[str] = Field(default_factory=list, max_length=100)
-    entities: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    keywords: list[str] = Field(default_factory=list, max_length=50)
+    entities: list[MonitorEntity] = Field(default_factory=list, max_length=50)
     languages: list[str] = Field(default_factory=list, max_length=20)
     geographies: list[str] = Field(default_factory=list, max_length=100)
     source_types: list[str] = Field(default_factory=lambda: ["news"], max_length=50)
-    cadence: str = Field(default="daily", max_length=50)
+    cadence: Literal["hourly", "daily", "weekly"] = "daily"
     retention_days: int = Field(default=365, ge=1, le=3650)
+
+    @field_validator("keywords", "languages", "geographies", "source_types", mode="before")
+    @classmethod
+    def normalize_string_lists(cls, value: Any, info: Any) -> list[str]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} debe ser una lista.")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError(f"{info.field_name} solo admite texto.")
+            item = item.strip()
+            if not item:
+                continue
+            if info.field_name in {"languages", "source_types"}:
+                item = item.lower()
+            elif info.field_name == "geographies":
+                item = item.upper()
+            if item not in seen:
+                normalized.append(item)
+                seen.add(item)
+        return normalized
+
+    @field_validator("source_types")
+    @classmethod
+    def reject_unsupported_source_types(cls, value: list[str]) -> list[str]:
+        unsupported = sorted(set(value) - SUPPORTED_SOURCE_TYPES)
+        if unsupported:
+            supported = ", ".join(sorted(SUPPORTED_SOURCE_TYPES))
+            raise ValueError(
+                f"Tipos de fuente no compatibles con Signal: {', '.join(unsupported)}. "
+                f"Compatibles: {supported}."
+            )
+        if not value:
+            raise ValueError("source_types no puede estar vacío.")
+        return value
+
+    @model_validator(mode="after")
+    def require_search_criteria(self) -> MonitorSpec:
+        if not self.query.strip() and not self.keywords and not self.entities:
+            raise ValueError("Se requiere query, keywords o entities.")
+        return self
 
 
 class ProviderMonitor(MonitorSpec):

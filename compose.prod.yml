@@ -49,8 +49,13 @@ x-app-environment: &app-environment
   SIGNAL_AVANZA_ALLOWED_HOSTS: ${SIGNAL_AVANZA_ALLOWED_HOSTS:-}
   SIGNAL_AVANZA_BASE_URL: ${SIGNAL_AVANZA_BASE_URL:-}
   SIGNAL_AVANZA_API_VERSION: ${SIGNAL_AVANZA_API_VERSION:-2026-07-01}
-  AI_ENABLED: "false"
-  AI_MODE: disabled
+  AI_ENABLED: ${ORACLE_AI_ENABLED:-false}
+  AI_MODE: ${ORACLE_AI_MODE:-disabled}
+  AI_DEFAULT_MODEL: ${ORACLE_AI_DEFAULT_MODEL:-mock-oracle-v1}
+  SIGNAL_AI_BASE_URL: ${ORACLE_SIGNAL_AI_BASE_URL:-}
+  SIGNAL_AI_ALLOWED_HOSTS: ${ORACLE_SIGNAL_AI_ALLOWED_HOSTS:-}
+  SIGNAL_AI_TIMEOUT_SECONDS: ${ORACLE_SIGNAL_AI_TIMEOUT_SECONDS:-120}
+  SIGNAL_AI_API_KEY_FILE: /run/secrets/oracle_signal_ai_api_key
   DOCUMENTS_ENABLED: "false"
   DOCUMENT_STORAGE_BACKEND: local
   DOCUMENT_LOCAL_ROOT: /tmp/oracle-storage
@@ -69,6 +74,7 @@ x-runtime-secrets: &runtime-secrets
   - oracle_celery_result_url
   - oracle_graph_client_secret
   - oracle_integration_encryption_keys
+  - oracle_signal_ai_api_key
 
 x-app-hardening: &app-hardening
   init: true
@@ -165,6 +171,7 @@ services:
       - oracle_database_migration_url
       - oracle_redis_url
       - oracle_session_redis_url
+      - oracle_signal_ai_api_key
       - oracle_ratelimit_redis_url
       - oracle_celery_broker_url
       - oracle_celery_result_url
@@ -375,3 +382,5 @@ secrets:
     file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_graph_client_secret
   oracle_integration_encryption_keys:
     file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_integration_encryption_keys
+  oracle_signal_ai_api_key:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_signal_ai_api_key

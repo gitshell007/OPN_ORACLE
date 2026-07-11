@@ -10,6 +10,7 @@ from datetime import timedelta
 from math import ceil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 class ConfigError(RuntimeError):
@@ -34,6 +35,7 @@ FILE_BACKED_SETTINGS = frozenset(
         "CELERY_BROKER_URL",
         "CELERY_RESULT_BACKEND",
         "INTEGRATION_ENCRYPTION_KEYS",
+        "SIGNAL_AI_API_KEY",
         "DOCUMENT_S3_ACCESS_KEY_ID",
         "DOCUMENT_S3_SECRET_ACCESS_KEY",
     }
@@ -167,6 +169,13 @@ class Settings:
     ai_mode: str
     ai_default_model: str
     ai_mock_seed: str
+    ollama_base_url: str
+    ollama_allowed_hosts: str
+    ollama_timeout_seconds: float
+    signal_ai_base_url: str
+    signal_ai_api_key: str
+    signal_ai_allowed_hosts: str
+    signal_ai_timeout_seconds: float
     signal_connect_timeout_seconds: float
     signal_read_timeout_seconds: float
     signal_webhook_tolerance_seconds: int
@@ -359,6 +368,21 @@ class Settings:
             ai_mode=str(values.get("AI_MODE", "disabled")).lower(),
             ai_default_model=str(values.get("AI_DEFAULT_MODEL", "mock-oracle-v1")),
             ai_mock_seed=str(values.get("AI_MOCK_SEED", "opn-oracle-deterministic")),
+            ollama_base_url=str(values.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
+            ollama_allowed_hosts=str(
+                values.get("OLLAMA_ALLOWED_HOSTS", "127.0.0.1,localhost,ollama")
+            ),
+            ollama_timeout_seconds=_as_float(
+                values.get("OLLAMA_TIMEOUT_SECONDS", 60.0),
+                name="OLLAMA_TIMEOUT_SECONDS",
+            ),
+            signal_ai_base_url=str(values.get("SIGNAL_AI_BASE_URL", "")),
+            signal_ai_api_key=str(values.get("SIGNAL_AI_API_KEY", "")),
+            signal_ai_allowed_hosts=str(values.get("SIGNAL_AI_ALLOWED_HOSTS", "")),
+            signal_ai_timeout_seconds=_as_float(
+                values.get("SIGNAL_AI_TIMEOUT_SECONDS", 120.0),
+                name="SIGNAL_AI_TIMEOUT_SECONDS",
+            ),
             signal_connect_timeout_seconds=_as_float(
                 values.get("SIGNAL_CONNECT_TIMEOUT_SECONDS", 2.0),
                 name="SIGNAL_CONNECT_TIMEOUT_SECONDS",
@@ -466,8 +490,50 @@ class Settings:
                 )
         if self.signal_avanza_mode not in {"mock", "http"}:
             raise ConfigError("SIGNAL_AVANZA_MODE debe ser mock o http.")
-        if self.ai_mode not in {"disabled", "mock"}:
-            raise ConfigError("AI_MODE solo admite disabled o mock en esta fase.")
+        if self.ai_mode not in {"disabled", "mock", "ollama", "signal"}:
+            raise ConfigError("AI_MODE solo admite disabled, mock, ollama o signal.")
+        if self.ai_mode == "ollama":
+            parsed = urlparse(self.ollama_base_url)
+            allowed_hosts = {
+                item.strip().lower()
+                for item in self.ollama_allowed_hosts.split(",")
+                if item.strip()
+            }
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or parsed.hostname.lower() not in allowed_hosts
+            ):
+                raise ConfigError(
+                    "OLLAMA_BASE_URL debe ser HTTP(S), sin credenciales, y usar un host permitido."
+                )
+            if not self.ai_enabled:
+                raise ConfigError("AI_MODE=ollama exige AI_ENABLED=true.")
+        if self.ai_mode == "signal":
+            parsed = urlparse(self.signal_ai_base_url)
+            allowed_hosts = {
+                item.strip().lower()
+                for item in self.signal_ai_allowed_hosts.split(",")
+                if item.strip()
+            }
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or parsed.hostname.lower() not in allowed_hosts
+            ):
+                raise ConfigError(
+                    "SIGNAL_AI_BASE_URL debe usar HTTPS, sin credenciales, y host permitido."
+                )
+            if not self.ai_enabled or not self.signal_ai_api_key:
+                raise ConfigError("AI_MODE=signal exige AI_ENABLED=true y SIGNAL_AI_API_KEY.")
         if self.document_storage_backend not in {"local", "s3"}:
             raise ConfigError("DOCUMENT_STORAGE_BACKEND debe ser local o s3.")
         if self.document_scanner_mode not in {"noop", "clamav"}:

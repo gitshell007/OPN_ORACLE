@@ -34,6 +34,7 @@ required_secrets=(
   oracle_secret_key oracle_database_url oracle_database_migration_url oracle_redis_url
   oracle_session_redis_url oracle_ratelimit_redis_url oracle_celery_broker_url
   oracle_celery_result_url oracle_graph_client_secret
+  oracle_signal_ai_api_key
 )
 for secret_name in "${required_secrets[@]}"; do
   if [[ ! -s "$secrets_dir/$secret_name" ]]; then
@@ -102,6 +103,7 @@ for secret_name in oracle_secret_key oracle_database_url oracle_database_migrati
   oracle_celery_broker_url oracle_celery_result_url oracle_graph_client_secret; do
   check_secret_metadata "$secret_name" 10001 10001
 done
+check_secret_metadata oracle_signal_ai_api_key 10001 10001
 
 "${compose[@]}" up -d --wait --wait-timeout 120 postgres redis
 "${compose[@]}" --profile release run --rm migrate

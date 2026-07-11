@@ -35,7 +35,11 @@ from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.extensions import db
 from opn_oracle.integrations import routes as signal_routes
 from opn_oracle.integrations.crypto import IntegrationKeyring
-from opn_oracle.integrations.models import IntegrationInboxEvent, IntegrationOutboxEvent
+from opn_oracle.integrations.models import (
+    IntegrationInboxEvent,
+    IntegrationOutboxEvent,
+    SignalMonitorConfigVersion,
+)
 from opn_oracle.integrations.service import (
     IdempotencyConflict,
     active_secrets,
@@ -44,7 +48,7 @@ from opn_oracle.integrations.service import (
     store_credential,
     sync_monitor,
 )
-from opn_oracle.integrations.signal_avanza import SignalTemporaryError
+from opn_oracle.integrations.signal_avanza import SignalContractError, SignalTemporaryError
 from opn_oracle.integrations.tasks import (
     dispatch_outbox,
     process_inbox,
@@ -56,7 +60,13 @@ from opn_oracle.jobs import tasks as job_tasks
 from opn_oracle.jobs.service import enqueue_job, publish_job, stage_job
 from opn_oracle.jobs.tasks import execute_durable
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob, JobSchedule
-from opn_oracle.oracle.models import SignalMonitor, StrategicDossier, Watchlist
+from opn_oracle.oracle.models import (
+    DossierSignal,
+    Signal,
+    SignalMonitor,
+    StrategicDossier,
+    Watchlist,
+)
 from opn_oracle.platform.models import (
     IntegrationConnection,
     Invitation,
@@ -177,6 +187,7 @@ def jobs_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID]]]:
         )
         db.session.commit()
         ids["monitor"] = monitor.id
+        ids["dossier"] = dossier.id
     celery = app.extensions["celery"]
     with start_worker(
         celery,
@@ -219,9 +230,31 @@ def test_real_worker_routing_result_and_idempotency(
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
     ):
+        signal = Signal(
+            tenant_id=ids["tenant"],
+            provider="signal-avanza-mock",
+            external_id="triage-worker-signal",
+            title="Nueva licitación de baterías",
+            summary="Se publica una convocatoria para almacenamiento energético.",
+            source_type="official_publication",
+            source_name="BOE",
+            source_url="https://example.test/triage-worker-signal",
+            raw_hash=hashlib.sha256(b"triage-worker-signal").digest(),
+            credibility=80,
+        )
+        db.session.add(signal)
+        db.session.flush()
+        db.session.add(
+            DossierSignal(
+                tenant_id=ids["tenant"],
+                dossier_id=ids["dossier"],
+                signal_id=signal.id,
+            )
+        )
+        db.session.commit()
         first = enqueue_job(
             "oracle.signal.triage",
-            payload={"resource_id": str(uuid.uuid4())},
+            payload={"resource_id": str(signal.id), "dossier_id": str(ids["dossier"])},
             idempotency_key="worker-real-idempotency",
             requested_by_user_id=ids["user"],
         )
@@ -229,7 +262,8 @@ def test_real_worker_routing_result_and_idempotency(
     finished = _wait_job(app, ids, job_id, "succeeded")
     assert finished.queue == "signals"
     assert finished.attempts == 1
-    assert finished.result_ref["kind"] == "signal_triage_deterministic_v1"
+    assert finished.result_ref["applied"] is True
+    assert finished.result_ref["overall_score"] > 0
     duplicate = (
         app.extensions["celery"]
         .tasks["oracle.signal.triage"]
@@ -243,7 +277,7 @@ def test_real_worker_routing_result_and_idempotency(
             throw=True,
         )
     )
-    assert duplicate.get()["kind"] == "signal_triage_deterministic_v1"
+    assert duplicate.get()["applied"] is True
     with (
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
@@ -547,7 +581,18 @@ def test_signal_route_bodies_cover_connection_and_monitor_contract(
         app.test_request_context(
             "/",
             method="POST",
-            json={"connection_id": str(connection_id), "query": "convocatorias", "name": "Radar"},
+            json={
+                "connection_id": str(connection_id),
+                "query": "convocatorias",
+                "name": "Radar",
+                "keywords": ["baterías", "CATL"],
+                "entities": [{"type": "company", "name": "BYD"}],
+                "languages": ["ES"],
+                "geographies": ["es"],
+                "source_types": ["news", "company_signal"],
+                "cadence": "weekly",
+                "retention_days": 30,
+            },
             headers={"Idempotency-Key": "route-monitor-create-v1"},
         ),
         tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
@@ -565,6 +610,20 @@ def test_signal_route_bodies_cover_connection_and_monitor_contract(
         assert status == 202
         monitor_id = uuid.UUID(response.get_json()["id"])
         create_event_id = response.get_json()["outbox_event_id"]
+        snapshot = db.session.scalar(
+            select(SignalMonitorConfigVersion.snapshot).where(
+                SignalMonitorConfigVersion.tenant_id == ids["tenant"],
+                SignalMonitorConfigVersion.monitor_id == monitor_id,
+                SignalMonitorConfigVersion.version == 1,
+            )
+        )
+        assert snapshot is not None
+        assert snapshot["keywords"] == ["baterías", "CATL"]
+        assert snapshot["entities"] == [{"type": "company", "name": "BYD"}]
+        assert snapshot["languages"] == ["es"]
+        assert snapshot["geographies"] == ["ES"]
+        assert snapshot["source_types"] == ["news", "company_signal"]
+        assert snapshot["retention_days"] == 30
         replay, replay_status = invoke(signal_routes.create_dossier_monitor, dossier_id)
         assert replay_status == 202 and replay.get_json()["duplicate"] is True
     with (
@@ -621,7 +680,11 @@ def test_signal_route_bodies_cover_connection_and_monitor_contract(
         app.test_request_context(
             "/",
             method="PATCH",
-            json={"query": "convocatorias europeas"},
+            json={
+                "query": "convocatorias europeas",
+                "languages": ["es", "pt"],
+                "retention_days": 90,
+            },
             headers={
                 "Idempotency-Key": "route-monitor-update-v2",
                 "If-Match": 'W/"1"',
@@ -636,6 +699,20 @@ def test_signal_route_bodies_cover_connection_and_monitor_contract(
         response, status = invoke(signal_routes.update_monitor, monitor_id)
         assert status == 202
         update_event_id = response.get_json()["outbox_event_id"]
+        snapshot = db.session.scalar(
+            select(SignalMonitorConfigVersion.snapshot).where(
+                SignalMonitorConfigVersion.tenant_id == ids["tenant"],
+                SignalMonitorConfigVersion.monitor_id == monitor_id,
+                SignalMonitorConfigVersion.version == 2,
+            )
+        )
+        assert snapshot is not None
+        assert snapshot["keywords"] == ["baterías", "CATL"]
+        assert snapshot["entities"] == [{"type": "company", "name": "BYD"}]
+        assert snapshot["languages"] == ["es", "pt"]
+        assert snapshot["geographies"] == ["ES"]
+        assert snapshot["source_types"] == ["news", "company_signal"]
+        assert snapshot["retention_days"] == 90
         replay, replay_status = invoke(signal_routes.update_monitor, monitor_id)
         assert replay_status == 202 and replay.get_json()["duplicate"] is True
     with (
@@ -825,12 +902,15 @@ def test_signal_outbox_fencing_and_failure_states(
             "webhook-second-123",
         ]
 
-        def event(status: str, key: str, **values: Any) -> IntegrationOutboxEvent:
+        def event(
+            status: str, key: str, *, monitor_id: uuid.UUID | None = None, **values: Any
+        ) -> IntegrationOutboxEvent:
             payload = {"external_id": "mock-monitor-1"}
             digest = canonical_hash({"event_type": "monitor.pause", "payload": payload})
             item = IntegrationOutboxEvent(
                 tenant_id=ids["tenant"],
                 connection_id=connection.id,
+                monitor_id=monitor_id,
                 event_type="monitor.pause",
                 payload=payload,
                 idempotency_key=key,
@@ -846,8 +926,9 @@ def test_signal_outbox_fencing_and_failure_states(
         delivered = event("delivered", "state-delivered")
         future = event("retrying", "state-not-due", next_attempt_at=now + timedelta(hours=1))
         claimed = event("processing", "state-claimed", claimed_at=now, claimed_by="worker")
-        unsupported = event("pending", "state-unsupported")
+        unsupported = event("pending", "state-unsupported", monitor_id=ids["monitor"])
         unsupported.event_type = "unsupported"
+        contract_failure = event("pending", "state-contract-error", monitor_id=ids["monitor"])
         transient = event("pending", "state-transient")
         disabled = IntegrationConnection(
             tenant_id=ids["tenant"],
@@ -919,6 +1000,7 @@ def test_signal_outbox_fencing_and_failure_states(
             future.id,
             claimed.id,
             unsupported.id,
+            contract_failure.id,
             unavailable.id,
             transient.id,
         ]
@@ -940,13 +1022,33 @@ def test_signal_outbox_fencing_and_failure_states(
         ).get()["status"]
         == "already_claimed"
     )
-    with pytest.raises(ValueError):
-        dispatch_outbox.apply(
-            kwargs={"event_id": str(event_ids[3]), "tenant_id": str(ids["tenant"])}, throw=True
-        ).get()
+    assert dispatch_outbox.apply(
+        kwargs={"event_id": str(event_ids[3]), "tenant_id": str(ids["tenant"])}, throw=True
+    ).get() == {"status": "failed", "reason": "permanent_failure"}
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        monitor = db.session.get(SignalMonitor, ids["monitor"])
+        assert monitor is not None
+        assert monitor.status == "error"
+        assert monitor.observed_status == "error"
+        assert monitor.last_error == (
+            "No se pudo aplicar la configuración en Signal. Revise los campos e inténtelo de nuevo."
+        )
+
+    class ContractAdapter:
+        def pause_monitor(self, monitor_id: str, *, idempotency_key: str) -> None:
+            del monitor_id, idempotency_key
+            raise SignalContractError("provider contract detail must not reach the monitor")
+
+    monkeypatch.setitem(app.extensions, "signal_avanza_adapter", ContractAdapter())
+    assert dispatch_outbox.apply(
+        kwargs={"event_id": str(event_ids[4]), "tenant_id": str(ids["tenant"])}, throw=True
+    ).get() == {"status": "failed", "reason": "signal_contract_error"}
     assert (
         dispatch_outbox.apply(
-            kwargs={"event_id": str(event_ids[4]), "tenant_id": str(ids["tenant"])}, throw=True
+            kwargs={"event_id": str(event_ids[5]), "tenant_id": str(ids["tenant"])}, throw=True
         ).get()["status"]
         == "failed"
     )
@@ -959,7 +1061,7 @@ def test_signal_outbox_fencing_and_failure_states(
     monkeypatch.setitem(app.extensions, "signal_avanza_adapter", TemporaryAdapter())
     with pytest.raises(Retry):
         dispatch_outbox.apply(
-            kwargs={"event_id": str(event_ids[5]), "tenant_id": str(ids["tenant"])}, throw=True
+            kwargs={"event_id": str(event_ids[6]), "tenant_id": str(ids["tenant"])}, throw=True
         ).get()
 
 

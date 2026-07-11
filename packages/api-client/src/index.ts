@@ -1,7 +1,13 @@
 export type { components, operations, paths } from "./generated/schema";
 export { ApiError, api, isProblem } from "./transport";
 export type { MembershipSummary, SessionIdentity } from "./transport";
-export type { SignalConnection, SignalMonitor } from "./transport";
+export type {
+  CreateSignalMonitorInput,
+  SignalConnection,
+  SignalMonitor,
+  SignalMonitorEntityInput,
+  SignalMonitorSourceType,
+} from "./transport";
 export type { DocumentSearchResult, OracleDocument } from "./transport";
 export type { BackendDossier } from "./transport";
 export type {

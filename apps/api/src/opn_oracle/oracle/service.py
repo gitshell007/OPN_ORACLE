@@ -24,7 +24,9 @@ from opn_oracle.oracle.links import (
 from opn_oracle.oracle.models import (
     Actor,
     DossierActor,
+    DossierObjective,
     DossierSignal,
+    Hypothesis,
     Meeting,
     Opportunity,
     Relationship,
@@ -33,6 +35,7 @@ from opn_oracle.oracle.models import (
     Signal,
     StatusHistory,
     StrategicDossier,
+    Watchlist,
 )
 from opn_oracle.oracle.policy import (
     active_membership_exists,
@@ -50,6 +53,10 @@ from opn_oracle.oracle.scoring import (
     score_opportunity,
     score_risk,
     score_signal,
+)
+from opn_oracle.oracle.starter_profiles import (
+    STARTER_PROFILE_VERSION,
+    starter_profile_for,
 )
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import Workspace
@@ -194,6 +201,9 @@ def create_dossier(
     scoring_config = payload.get("scoring_config", {})
     if not isinstance(scoring_config, dict):
         raise DomainValidationError("scoring_config debe ser un objeto.")
+    create_starter_profile = payload.get("create_starter_profile", False)
+    if not isinstance(create_starter_profile, bool):
+        raise DomainValidationError("create_starter_profile debe ser booleano.")
     _weights(scoring_config, "opportunity_weights", OPPORTUNITY_WEIGHTS)
     _weights(scoring_config, "risk_weights", RISK_WEIGHTS)
     _weights(scoring_config, "signal_weights", SIGNAL_WEIGHTS)
@@ -214,6 +224,8 @@ def create_dossier(
     )
     session.add(dossier)
     session.flush()
+    if create_starter_profile:
+        _apply_starter_profile(session, dossier)
     collaborators = payload.get("collaborator_user_ids", [])
     if not isinstance(collaborators, list):
         raise DomainValidationError("collaborator_user_ids debe ser una lista.")
@@ -238,6 +250,51 @@ def create_dossier(
     )
     session.commit()
     return dossier
+
+
+def _apply_starter_profile(session: Session, dossier: StrategicDossier) -> None:
+    """Add the explicitly requested editable starting context in this transaction."""
+
+    profile = starter_profile_for(dossier.dossier_type)
+    objective_description = (
+        f"{profile.objective_focus}\n\nObjetivo declarado: {dossier.strategic_goal}"
+    )
+    session.add(
+        DossierObjective(
+            tenant_id=dossier.tenant_id,
+            dossier_id=dossier.id,
+            title=profile.objective_title,
+            description=objective_description,
+            priority="high",
+            position=0,
+        )
+    )
+    for position, (statement, rationale) in enumerate(profile.hypotheses):
+        session.add(
+            Hypothesis(
+                tenant_id=dossier.tenant_id,
+                dossier_id=dossier.id,
+                statement=statement,
+                rationale=rationale,
+                confidence=50,
+                position=position,
+            )
+        )
+    session.add(
+        Watchlist(
+            tenant_id=dossier.tenant_id,
+            dossier_id=dossier.id,
+            name="Vigilancia inicial",
+            query_config={
+                "profile_version": STARTER_PROFILE_VERSION,
+                "dossier_type": dossier.dossier_type,
+                "keywords": [dossier.title],
+                "source_types": list(profile.source_types),
+                "requires_review": True,
+            },
+            cadence="daily",
+        )
+    )
 
 
 def update_dossier(

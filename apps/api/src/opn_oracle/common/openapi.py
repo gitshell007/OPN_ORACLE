@@ -1141,6 +1141,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 "sectors": string_array,
                 "languages": string_array,
                 "scoring_config": json_object,
+                "create_starter_profile": {"type": "boolean"},
             },
         },
         "DossierPatchInput": write(
@@ -1547,11 +1548,55 @@ def _oracle_schemas() -> dict[str, Any]:
             "connection_id": uuid,
             "query": string,
             "name": string,
-            "cadence": string,
+            "cadence": {"type": "string", "enum": ["hourly", "daily", "weekly"]},
+            "keywords": string_array,
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["company", "person", "topic"],
+                        },
+                        "name": string,
+                    },
+                    "required": ["type", "name"],
+                },
+            },
+            "languages": string_array,
+            "geographies": string_array,
+            "source_types": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": [
+                        "news",
+                        "social_signal",
+                        "company_signal",
+                        "official_publication",
+                        "regulatory_signal",
+                    ],
+                },
+            },
+            "retention_days": {"type": "integer", "minimum": 1, "maximum": 3650},
         },
         ["connection_id", "query"],
     )
-    schemas["SignalMonitorUpdateInput"] = write({"query": string, "version": version}, ["query"])
+    schemas["SignalMonitorUpdateInput"] = write(
+        {
+            "query": string,
+            "cadence": {"type": "string", "enum": ["hourly", "daily", "weekly"]},
+            "keywords": string_array,
+            "entities": schemas["SignalMonitorCreateInput"]["properties"]["entities"],
+            "languages": string_array,
+            "geographies": string_array,
+            "source_types": schemas["SignalMonitorCreateInput"]["properties"]["source_types"],
+            "retention_days": {"type": "integer", "minimum": 1, "maximum": 3650},
+            "version": version,
+        }
+    )
     schemas["SignalMonitorCommandResponse"] = write(
         {
             "id": uuid,

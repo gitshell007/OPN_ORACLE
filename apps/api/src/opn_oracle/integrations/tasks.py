@@ -21,6 +21,7 @@ from opn_oracle.integrations.models import (
 from opn_oracle.integrations.service import _ingest_item, adapter_for_connection
 from opn_oracle.integrations.signal_avanza import (
     MonitorSpec,
+    SignalContractError,
     SignalItem,
     SignalTemporaryError,
 )
@@ -28,6 +29,42 @@ from opn_oracle.integrations.webhooks import inbox_aad
 from opn_oracle.oracle.models import SignalMonitor
 from opn_oracle.platform.models import IntegrationConnection
 from opn_oracle.tenants.context import TenantContext, tenant_context
+
+_MONITOR_DELIVERY_ERROR = (
+    "No se pudo aplicar la configuración en Signal. Revise los campos e inténtelo de nuevo."
+)
+
+
+def _mark_permanent_outbox_failure(
+    *, event_id: uuid.UUID, tenant_id: uuid.UUID, error_code: str
+) -> dict[str, str]:
+    """Persist a safe terminal state that the monitor UI can surface.
+
+    Provider responses are intentionally not copied into the database: they may
+    contain implementation details and are not useful to an end user. The
+    outbox retains a stable diagnostic code while the monitor holds clear,
+    action-oriented Spanish copy.
+    """
+
+    event = db.session.get(IntegrationOutboxEvent, event_id)
+    assert event is not None
+    event.status = "failed"
+    event.last_error = error_code
+    event.claimed_at = None
+    event.claimed_by = None
+    if event.monitor_id:
+        monitor = db.session.scalar(
+            select(SignalMonitor).where(
+                SignalMonitor.id == event.monitor_id,
+                SignalMonitor.tenant_id == tenant_id,
+            )
+        )
+        if monitor is not None:
+            monitor.status = "error"
+            monitor.observed_status = "error"
+            monitor.last_error = _MONITOR_DELIVERY_ERROR
+    db.session.commit()
+    return {"status": "failed", "reason": error_code}
 
 
 @shared_task(
@@ -74,10 +111,11 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
             )
         )
         if connection is None:
-            event.status = "failed"
-            event.last_error = "connection_unavailable"
-            db.session.commit()
-            return {"status": "failed"}
+            return _mark_permanent_outbox_failure(
+                event_id=event_uuid,
+                tenant_id=tenant_uuid,
+                error_code="connection_unavailable",
+            )
         external_id = str(event.payload.get("external_id") or event.payload.get("monitor_id"))
         try:
             adapter = adapter_for_connection(connection)
@@ -101,8 +139,14 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
                         monitor.external_id = created.id
             elif event.event_type == "monitor.update":
                 spec_payload = {
-                    key: value for key, value in event.payload.items() if key != "external_id"
+                    key: value
+                    for key, value in event.payload.items()
+                    if key in MonitorSpec.model_fields
                 }
+                if "oracle_monitor_id" not in spec_payload and event.payload.get(
+                    "client_monitor_id"
+                ):
+                    spec_payload["oracle_monitor_id"] = event.payload["client_monitor_id"]
                 adapter.update_monitor(
                     external_id,
                     MonitorSpec.model_validate(spec_payload),
@@ -134,15 +178,18 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
             if event.status == "retrying":
                 raise self.retry(exc=exc, countdown=min(300, 2**event.attempts)) from exc
             return {"status": "failed"}
+        except SignalContractError:
+            return _mark_permanent_outbox_failure(
+                event_id=event_uuid,
+                tenant_id=tenant_uuid,
+                error_code="signal_contract_error",
+            )
         except Exception:
-            event = db.session.get(IntegrationOutboxEvent, event_uuid)
-            assert event is not None
-            event.status = "failed"
-            event.last_error = "permanent_failure"
-            event.claimed_at = None
-            event.claimed_by = None
-            db.session.commit()
-            raise
+            return _mark_permanent_outbox_failure(
+                event_id=event_uuid,
+                tenant_id=tenant_uuid,
+                error_code="permanent_failure",
+            )
         event = db.session.get(IntegrationOutboxEvent, event_uuid)
         assert event is not None
         event.status = "delivered"

@@ -27,6 +27,25 @@
 .monitor-settings-list p { margin: 5px 0 0; color: var(--va-muted); }
 .monitor-settings-list article > div:last-child { display: flex; gap: 6px; }
 .monitor-settings-list button { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); padding: 0 8px; }
+.dossier-monitor-create { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; padding: 16px 18px; border-bottom: 1px solid var(--va-border); background: #fafcff; }
+.dossier-monitor-create .full, .dossier-monitor-create-heading { grid-column: 1 / -1; }
+.dossier-monitor-create-heading { display: flex; align-items: flex-start; gap: 9px; color: var(--va-primary); }
+.dossier-monitor-create-heading h3 { margin: 0 0 2px; color: var(--va-text); font-size: 13px; }
+.dossier-monitor-create-heading p, .dossier-monitor-create small { margin: 0; color: var(--va-muted); font-size: 10px; }
+.dossier-monitor-create textarea { min-height: 68px; resize: vertical; }
+.dossier-monitor-create input, .dossier-monitor-create select, .dossier-monitor-create textarea { width: 100%; border: 1px solid #c9d5e1; border-radius: 7px; padding: 8px 10px; background: white; }
+.dossier-monitor-create input, .dossier-monitor-create select { min-height: 38px; }
+.dossier-monitor-create .field { display: grid; gap: 5px; }
+.dossier-monitor-create .field > span, .monitor-source-types legend { color: #43566c; font-size: 10px; font-weight: 700; }
+.monitor-source-types { margin: 0; padding: 11px; border: 1px solid #d8e2ec; border-radius: 7px; }
+.monitor-source-types > p { margin: 4px 0 9px; color: var(--va-muted); font-size: 10px; }
+.monitor-source-types > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.monitor-source-types label { display: flex; gap: 7px; align-items: flex-start; padding: 8px; border-radius: 6px; background: white; }
+.monitor-source-types input { width: auto; min-height: auto; margin-top: 2px; }
+.monitor-source-types span { display: grid; gap: 1px; }
+.monitor-source-types strong { color: var(--va-text); font-size: 10px; }
+.monitor-source-types small { color: var(--va-muted); font-size: 9px; }
+.monitor-create-notice { margin: 0; padding: 9px 10px; border-left: 3px solid #c27a00; color: #6d5100; background: #fff8e8; font-size: 10px; }
 .destructive-zone { border-color: #efc4c4; background: #fffafa; }
 .destructive-zone .field { max-width: 520px; margin-bottom: 10px; }
 .document-active-job { margin: 10px 0; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-soft); padding: 10px 12px; }

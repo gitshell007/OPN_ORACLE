@@ -17,7 +17,14 @@ from celery import Task, shared_task
 from flask import current_app
 from sqlalchemy import delete, or_, select, update
 
-from opn_oracle.ai.service import AIPolicyDenied, execute_agent, recover_stale_ai_executions
+from opn_oracle.ai.provider import AIUnavailable
+from opn_oracle.ai.service import (
+    AIPolicyDenied,
+    SignalTriageRejected,
+    execute_agent,
+    recover_stale_ai_executions,
+    triage_dossier_signal,
+)
 from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.documents.service import DocumentError, process_document
 from opn_oracle.extensions import db
@@ -298,7 +305,7 @@ def _stable_reset_token(job_id: uuid.UUID) -> str:
 
 HANDLERS: dict[str, Handler] = {
     "oracle.signal.sync_monitor": lambda payload, job: _sync_monitor(payload, job),
-    "oracle.signal.triage": _stub("signal_triage_deterministic_v1"),
+    "oracle.signal.triage": lambda payload, job: _triage_signal(payload, job),
     "oracle.memory.refresh": _stub("memory_refresh_stub_v1"),
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
@@ -378,6 +385,15 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
         return execute_agent(agent=agent, dossier_id=dossier_id, job=job)
     except (KeyError, ValueError, AIPolicyDenied) as error:
+        raise PermanentJobError(str(error)) from error
+
+
+def _triage_signal(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        return triage_dossier_signal(payload=payload, job=job)
+    except AIUnavailable as error:
+        raise RetriableJobError("Ollama no está disponible temporalmente.") from error
+    except (AIPolicyDenied, SignalTriageRejected, ValueError) as error:
         raise PermanentJobError(str(error)) from error
 
 
