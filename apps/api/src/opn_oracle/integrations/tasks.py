@@ -252,8 +252,16 @@ def process_inbox(self: Any, *, inbox_id: str, tenant_id: str) -> dict[str, Any]
                     inbox.last_error = "monitor_not_found"
                     db.session.commit()
                     return {"status": "rejected"}
-                observed = str(monitor_data.get("new_status", ""))
-                if observed not in {"draft", "active", "paused", "disabled", "error"}:
+                provider_status = str(monitor_data.get("new_status", ""))
+                status_map = {
+                    "draft": "pending",
+                    "active": "active",
+                    "paused": "paused",
+                    "disabled": "disabled",
+                    "error": "error",
+                }
+                observed = status_map.get(provider_status)
+                if observed is None:
                     inbox.status = "rejected"
                     inbox.last_error = "invalid_monitor_status"
                     db.session.commit()

@@ -51,6 +51,7 @@ from opn_oracle.integrations.tasks import (
     reconcile_inbox,
     reconcile_outbox,
 )
+from opn_oracle.integrations.webhooks import inbox_aad
 from opn_oracle.jobs import tasks as job_tasks
 from opn_oracle.jobs.service import enqueue_job, publish_job, stage_job
 from opn_oracle.jobs.tasks import execute_durable
@@ -342,6 +343,47 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
         event = db.session.get(IntegrationOutboxEvent, pause_id)
         assert monitor is not None and monitor.observed_status == "active"
         assert event is not None and event.status == "delivered"
+
+    status_envelope = {
+        "event_id": "event-phase08-monitor-status",
+        "event_type": "monitor.status_changed",
+        "data": {
+            "monitor": {
+                "id": "mock-monitor-1",
+                "new_status": "draft",
+            }
+        },
+    }
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        connection = db.session.get(IntegrationConnection, connection_id)
+        monitor = db.session.get(SignalMonitor, ids["monitor"])
+        assert connection is not None and monitor is not None
+        monitor.external_id = "mock-monitor-1"
+        ciphertext, nonce, key_version = keyring.encrypt(
+            json.dumps(status_envelope).encode(),
+            aad=inbox_aad(ids["tenant"], connection_id, status_envelope["event_id"]),
+        )
+        status_inbox = IntegrationInboxEvent(
+            tenant_id=ids["tenant"],
+            connection_id=connection_id,
+            provider_event_id=status_envelope["event_id"],
+            event_type=status_envelope["event_type"],
+            status="received",
+            raw_ciphertext=ciphertext,
+            raw_nonce=nonce,
+            key_version=key_version,
+        )
+        db.session.add(status_inbox)
+        db.session.commit()
+        status_inbox_id = status_inbox.id
+    status_result = process_inbox.apply(
+        kwargs={"inbox_id": str(status_inbox_id), "tenant_id": str(ids["tenant"])},
+        throw=True,
+    ).get()
+    assert status_result == {"status": "processed", "monitor_status": "pending"}
 
     now = datetime.now(UTC)
     signal_id = "webhook-signal-phase08"
