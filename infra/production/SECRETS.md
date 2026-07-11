@@ -18,6 +18,7 @@ salto de línea y deben ser regulares, legibles únicamente por el proceso neces
 | `oracle_celery_broker_url` | app/workers, `10001:10001 0400` | misma credencial, DB 3 |
 | `oracle_celery_result_url` | app/workers, `10001:10001 0400` | misma credencial, DB 4 |
 | `oracle_graph_client_secret` | app/workers, `10001:10001 0400` | secreto de cliente de la app Entra; nunca el object ID |
+| `oracle_integration_encryption_keys` | app/workers, `10001:10001 0400` | keyring `1:<base64 de 32 bytes>` para credenciales externas |
 
 Compose local usa mounts de archivos. No presupongas que `uid`, `gid` o `mode` declarados en YAML
 se aplicarán a un bind mount: verifica ownership numérico en el host y lectura desde los

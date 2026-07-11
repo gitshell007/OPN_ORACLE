@@ -16,6 +16,7 @@ x-app-environment: &app-environment
   CELERY_BROKER_URL_FILE: /run/secrets/oracle_celery_broker_url
   CELERY_RESULT_BACKEND_FILE: /run/secrets/oracle_celery_result_url
   GRAPH_CLIENT_SECRET_FILE: /run/secrets/oracle_graph_client_secret
+  INTEGRATION_ENCRYPTION_KEYS_FILE: /run/secrets/oracle_integration_encryption_keys
   RLS_ENABLED: "true"
   LOG_LEVEL: INFO
   LOG_FORMAT: json
@@ -67,6 +68,7 @@ x-runtime-secrets: &runtime-secrets
   - oracle_celery_broker_url
   - oracle_celery_result_url
   - oracle_graph_client_secret
+  - oracle_integration_encryption_keys
 
 x-app-hardening: &app-hardening
   init: true
@@ -370,3 +372,5 @@ secrets:
     file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_celery_result_url
   oracle_graph_client_secret:
     file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_graph_client_secret
+  oracle_integration_encryption_keys:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_integration_encryption_keys
