@@ -29,18 +29,16 @@ class SignalTemporaryError(RuntimeError):
 
 class MonitorSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    client_monitor_id: str = Field(min_length=1, max_length=255)
+    oracle_monitor_id: str = Field(min_length=1, max_length=120)
     query: str = Field(min_length=1, max_length=4000)
     status: Literal["draft", "active", "paused", "disabled", "error"] = "active"
     keywords: list[str] = Field(default_factory=list, max_length=100)
     entities: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     languages: list[str] = Field(default_factory=list, max_length=20)
     geographies: list[str] = Field(default_factory=list, max_length=100)
-    source_types: list[str] = Field(default_factory=list, max_length=50)
+    source_types: list[str] = Field(default_factory=lambda: ["news"], max_length=50)
     cadence: str = Field(default="daily", max_length=50)
-    callback_subscription_id: str | None = None
-    config_version: int = Field(default=1, ge=1)
-    config_hash: str | None = None
+    retention_days: int = Field(default=365, ge=1, le=3650)
 
 
 class ProviderMonitor(MonitorSpec):
@@ -48,10 +46,13 @@ class ProviderMonitor(MonitorSpec):
     id: str = Field(min_length=1, max_length=200)
     created_at: datetime
     updated_at: datetime
+    tenant_id: str
     last_run_at: datetime | None = None
-    cursor: str | None = None
-    health: str | None = None
-    error_code: str | None = None
+    cursor: str
+    config_version: int = Field(ge=1)
+    config_hash: str
+    subscription_id: str | None = None
+    health: dict[str, Any]
 
 
 class SourceItem(BaseModel):
@@ -131,10 +132,15 @@ class MockSignalAvanzaAdapter:
         now = datetime(2020, 1, 1, tzinfo=UTC)
         return ProviderMonitor(
             **spec.model_dump(),
-            id=hashlib.sha256(f"{idempotency_key}:{spec.client_monitor_id}".encode()).hexdigest()[
+            id=hashlib.sha256(f"{idempotency_key}:{spec.oracle_monitor_id}".encode()).hexdigest()[
                 :24
             ],
             created_at=now,
+            tenant_id="mock",
+            cursor="mock",
+            config_version=1,
+            config_hash="sha256:mock",
+            health={"state": "ok"},
             updated_at=now,
         )
 
@@ -143,16 +149,26 @@ class MockSignalAvanzaAdapter:
     ) -> ProviderMonitor:
         del idempotency_key
         now = datetime(2020, 1, 1, tzinfo=UTC)
-        return ProviderMonitor(**spec.model_dump(), id=monitor_id, created_at=now, updated_at=now)
+        return ProviderMonitor(
+            **spec.model_dump(),
+            id=monitor_id,
+            tenant_id="mock",
+            cursor="mock",
+            config_version=1,
+            config_hash="sha256:mock",
+            health={"state": "ok"},
+            created_at=now,
+            updated_at=now,
+        )
 
     def pause_monitor(self, monitor_id: str, *, idempotency_key: str) -> ProviderMonitor:
         del idempotency_key
-        spec = MonitorSpec(client_monitor_id=monitor_id, query="mock", status="paused")
+        spec = MonitorSpec(oracle_monitor_id=monitor_id, query="mock", status="paused")
         return self.update_monitor(monitor_id, spec, idempotency_key="mock-pause")
 
     def resume_monitor(self, monitor_id: str, *, idempotency_key: str) -> ProviderMonitor:
         del idempotency_key
-        spec = MonitorSpec(client_monitor_id=monitor_id, query="mock", status="active")
+        spec = MonitorSpec(oracle_monitor_id=monitor_id, query="mock", status="active")
         return self.update_monitor(monitor_id, spec, idempotency_key="mock-resume")
 
     def sync_signals(self, monitor_id: str, *, cursor: str | None) -> SignalPage:
@@ -206,6 +222,7 @@ class HttpSignalAvanzaAdapter:
         api_version: str,
         token: str,
         contract_confirmed: bool,
+        external_tenant_id: str = "test-tenant",
         connect_timeout: float = 2.0,
         read_timeout: float = 10.0,
         transport: httpx.BaseTransport | None = None,
@@ -234,13 +251,12 @@ class HttpSignalAvanzaAdapter:
                 not ipaddress.ip_address(value).is_global for value in addresses
             ):
                 raise SignalContractError("Signal base URL resuelve a una red no pública.")
-            raise SignalContractError(
-                "Transporte HTTP real bloqueado hasta disponer de pinning IP con Host/SNI seguro."
-            )
         self._token = token
+        self._external_tenant_id = external_tenant_id
+        self._api_version = api_version
         self._correlation_id = correlation_id
         self._client = httpx.Client(
-            base_url=f"{base_url.rstrip('/')}/{api_version.strip('/')}/",
+            base_url=f"{base_url.rstrip('/')}/",
             timeout=httpx.Timeout(read_timeout, connect=connect_timeout),
             follow_redirects=False,
             transport=transport,
@@ -254,12 +270,19 @@ class HttpSignalAvanzaAdapter:
         body: Mapping[str, Any] | None = None,
         params: Mapping[str, str] | None = None,
         idempotency_key: str | None = None,
+        extra_headers: Mapping[str, str] | None = None,
     ) -> Any:
-        headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json"}
+        headers = {
+            "X-API-Key": self._token,
+            "X-OPN-External-Tenant-ID": self._external_tenant_id,
+            "Accept": "application/json",
+        }
         if self._correlation_id:
             headers["X-Correlation-ID"] = self._correlation_id
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
+        if extra_headers:
+            headers.update(extra_headers)
         attempts = 2 if method == "GET" or idempotency_key else 1
         response: httpx.Response | None = None
         for attempt in range(attempts):
@@ -311,12 +334,28 @@ class HttpSignalAvanzaAdapter:
         self, monitor_id: str, spec: MonitorSpec, *, idempotency_key: str
     ) -> ProviderMonitor:
         external_id = quote(monitor_id, safe="")
+        current = ProviderMonitor.model_validate(self._request("GET", f"monitors/{external_id}"))
         return ProviderMonitor.model_validate(
             self._request(
                 "PATCH",
                 f"monitors/{external_id}",
-                body=spec.model_dump(mode="json"),
+                body={
+                    key: value
+                    for key, value in spec.model_dump(mode="json").items()
+                    if key
+                    in {
+                        "query",
+                        "keywords",
+                        "entities",
+                        "languages",
+                        "geographies",
+                        "source_types",
+                        "cadence",
+                        "retention_days",
+                    }
+                },
                 idempotency_key=idempotency_key,
+                extra_headers={"If-Match": str(current.config_version)},
             )
         )
 
@@ -352,7 +391,11 @@ class HttpSignalAvanzaAdapter:
 
     def health(self) -> bool:
         data = self._request("GET", "health")
-        return isinstance(data, dict) and data.get("status") == "healthy"
+        return (
+            isinstance(data, dict)
+            and data.get("status") == "ok"
+            and data.get("api_version") == self._api_version
+        )
 
     def close(self) -> None:
         self._client.close()

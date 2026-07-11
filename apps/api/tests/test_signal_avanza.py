@@ -63,7 +63,7 @@ def test_keyring_rejects_non_aes256_key() -> None:
 @pytest.mark.unit
 def test_mock_is_deterministic_and_preserves_requested_signal_id() -> None:
     adapter = MockSignalAvanzaAdapter()
-    spec = MonitorSpec(client_monitor_id="11111111-1111-1111-1111-111111111111", query="open calls")
+    spec = MonitorSpec(oracle_monitor_id="11111111-1111-1111-1111-111111111111", query="open calls")
     assert adapter.create_monitor(spec, idempotency_key="same") == adapter.create_monitor(
         spec, idempotency_key="same"
     )
@@ -117,7 +117,7 @@ def test_http_ssrf_dns_guards(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.unit
-def test_connection_factory_rejects_unpinned_http_adapter(
+def test_connection_factory_allows_confirmed_public_allowlisted_http_adapter(
     app: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     flask_app = app
@@ -141,8 +141,9 @@ def test_connection_factory_rejects_unpinned_http_adapter(
             "socket.getaddrinfo",
             lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 443))],
         )
-        with pytest.raises(SignalContractError):
-            adapter_for_connection(connection)
+        created = adapter_for_connection(connection)
+        assert isinstance(created, HttpSignalAvanzaAdapter)
+        created.close()
         monkeypatch.setattr(
             "opn_oracle.integrations.service.active_secrets", lambda *args, **kwargs: []
         )
@@ -210,7 +211,8 @@ def test_http_retries_retryable_status_once(status: int) -> None:
 def test_http_contract_success_exercises_all_operations() -> None:
     now = "2026-07-10T12:00:00Z"
     monitor = {
-        "client_monitor_id": "11111111-1111-1111-1111-111111111111",
+        "oracle_monitor_id": "11111111-1111-1111-1111-111111111111",
+        "tenant_id": "tenant-test",
         "query": "calls",
         "status": "active",
         "keywords": [],
@@ -219,16 +221,16 @@ def test_http_contract_success_exercises_all_operations() -> None:
         "geographies": [],
         "source_types": [],
         "cadence": "daily",
-        "callback_subscription_id": None,
+        "subscription_id": None,
+        "retention_days": 365,
         "config_version": 1,
-        "config_hash": None,
+        "config_hash": "sha256:test",
         "id": "external-monitor",
         "created_at": now,
         "updated_at": now,
         "last_run_at": None,
-        "cursor": None,
-        "health": "healthy",
-        "error_code": None,
+        "cursor": "start",
+        "health": {"state": "ok", "last_error_code": None, "last_error_at": None},
     }
     signal = {
         "id": "signal-1",
@@ -253,7 +255,7 @@ def test_http_contract_success_exercises_all_operations() -> None:
             return httpx.Response(
                 200,
                 headers={"Content-Type": "application/json"},
-                json={"status": "healthy", "checked_at": now},
+                json={"status": "ok", "api_version": "2026-07-01", "time": now},
             )
         if path.endswith("/signals"):
             return httpx.Response(
@@ -267,14 +269,14 @@ def test_http_contract_success_exercises_all_operations() -> None:
 
     adapter = HttpSignalAvanzaAdapter(
         base_url="https://signal.example",
-        api_version="v1",
+        api_version="2026-07-01",
         token="secret",
         contract_confirmed=True,
         allowed_hosts=frozenset({"signal.example"}),
         transport=httpx.MockTransport(handler),
         correlation_id="correlation",
     )
-    spec = MonitorSpec(client_monitor_id=monitor["client_monitor_id"], query="calls")
+    spec = MonitorSpec(oracle_monitor_id=monitor["oracle_monitor_id"], query="calls")
     assert (
         adapter.create_monitor(spec, idempotency_key="create-key-123456").id == "external-monitor"
     )

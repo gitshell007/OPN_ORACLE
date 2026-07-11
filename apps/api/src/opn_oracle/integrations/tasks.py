@@ -89,7 +89,7 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
                 spec_payload = {
                     key: value
                     for key, value in event.payload.items()
-                    if not key.startswith("oracle_")
+                    if key in MonitorSpec.model_fields
                 }
                 created = adapter.create_monitor(
                     MonitorSpec.model_validate(spec_payload),

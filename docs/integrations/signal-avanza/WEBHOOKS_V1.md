@@ -1,7 +1,7 @@
-# Webhooks Signal Avanza → OPN Oracle v1 (provisional)
+# Webhooks Signal Avanza → OPN Oracle · contrato 2026-07-01
 
-**Estado:** expectativa de receptor; pendiente de confirmación por Signal  
-**Última revisión:** 2026-07-10
+**Estado:** confirmado bilateralmente contra el productor Signal
+**Última revisión:** 2026-07-11
 
 ## 1. Endpoint y activación
 
@@ -57,10 +57,8 @@ Eventos candidatos: `signal.created`, `signal.updated`, `monitor.health_changed`
 Cabeceras orientativas:
 
 ```text
-X-Signal-Event-Id: evt_example
-X-Signal-Timestamp: 1783670400
-X-Signal-Signature: v1=<hex-hmac-sha256>
-X-Signal-Delivery-Id: del_example
+X-Opn-Signal-Timestamp: 1783670400
+X-Opn-Signal-Signature-V2: <hex-hmac-sha256>
 ```
 
 Contenido firmado, usando exactamente los bytes recibidos:

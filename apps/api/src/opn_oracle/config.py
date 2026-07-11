@@ -353,7 +353,7 @@ class Settings:
                 values.get("SIGNAL_AVANZA_CONTRACT_CONFIRMED", False)
             ),
             signal_avanza_base_url=str(values.get("SIGNAL_AVANZA_BASE_URL", "")),
-            signal_avanza_api_version=str(values.get("SIGNAL_AVANZA_API_VERSION", "v1")),
+            signal_avanza_api_version=str(values.get("SIGNAL_AVANZA_API_VERSION", "2026-07-01")),
             signal_avanza_allowed_hosts=str(values.get("SIGNAL_AVANZA_ALLOWED_HOSTS", "")),
             ai_enabled=_as_bool(values.get("AI_ENABLED", False)),
             ai_mode=str(values.get("AI_MODE", "disabled")).lower(),

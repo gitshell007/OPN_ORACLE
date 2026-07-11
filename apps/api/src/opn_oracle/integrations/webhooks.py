@@ -67,9 +67,13 @@ def webhook(subscription_key: str) -> Any:
             404, detail="Suscripción no encontrada.", code="subscription_not_found"
         )
     tenant_id, connection_id = resolved
-    event_id = request.headers.get("X-Signal-Event-Id", "")
-    timestamp = request.headers.get("X-Signal-Timestamp", "")
-    signature = request.headers.get("X-Signal-Signature", "")
+    timestamp = request.headers.get("X-Opn-Signal-Timestamp", "")
+    signature = request.headers.get("X-Opn-Signal-Signature-V2", "")
+    try:
+        preliminary = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return problem_response(400, detail="JSON no válido.", code="invalid_json")
+    event_id = str(preliminary.get("event_id", "")) if isinstance(preliminary, dict) else ""
     if not event_id or len(event_id) > 240:
         return problem_response(400, detail="Event ID no válido.", code="invalid_event_id")
     with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=None)):
@@ -94,10 +98,7 @@ def webhook(subscription_key: str) -> Any:
             tolerance_seconds=current_app.config["SIGNAL_WEBHOOK_TOLERANCE_SECONDS"],
         ):
             return problem_response(401, detail="Firma no válida.", code="invalid_signature")
-        try:
-            envelope = json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return problem_response(400, detail="JSON no válido.", code="invalid_json")
+        envelope = preliminary
         if not isinstance(envelope, dict) or envelope.get("event_id") != event_id:
             return problem_response(422, detail="Envelope no válido.", code="invalid_envelope")
         existing = db.session.scalar(
@@ -139,7 +140,7 @@ def webhook(subscription_key: str) -> Any:
             key_version=encrypted.key_version,
             raw_hash=hashlib.sha256(raw).digest(),
             safe_headers={
-                "delivery_id": request.headers.get("X-Signal-Delivery-Id", "")[:240],
+                "signature_version": "v2",
                 "timestamp": timestamp,
             },
             status="queued",

@@ -48,6 +48,7 @@ def adapter_for_connection(connection: IntegrationConnection) -> SignalAvanzaAda
         base_url=connection.base_url or "",
         api_version=connection.api_version,
         token=tokens[0],
+        external_tenant_id=str(connection.tenant_id),
         contract_confirmed=current_app.config["SIGNAL_AVANZA_CONTRACT_CONFIRMED"],
         connect_timeout=current_app.config["SIGNAL_CONNECT_TIMEOUT_SECONDS"],
         read_timeout=current_app.config["SIGNAL_READ_TIMEOUT_SECONDS"],

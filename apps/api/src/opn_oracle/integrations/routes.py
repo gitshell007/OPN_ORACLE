@@ -103,7 +103,7 @@ def create_connection() -> Any:
         status="active" if mode == "mock" else "pending",
         adapter_mode=mode,
         base_url=payload.get("base_url"),
-        api_version=str(payload.get("api_version", "v1"))[:30],
+        api_version=str(payload.get("api_version", "2026-07-01"))[:30],
         subscription_key=secrets.token_urlsafe(24),
     )
     db.session.add(connection)
@@ -389,11 +389,11 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
     db.session.add(monitor)
     db.session.flush()
     snapshot = {
-        "client_monitor_id": str(monitor.id),
+        "oracle_monitor_id": str(monitor.id),
         "query": query,
         "status": "active",
         "cadence": watchlist.cadence,
-        "config_version": 1,
+        "source_types": ["news", "company_signal", "official_publication"],
         "oracle_watchlist_name": watchlist_name,
     }
     db.session.add(

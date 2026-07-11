@@ -348,7 +348,7 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
     envelope = {
         "event_id": "event-phase08-1",
         "event_type": "signal.created",
-        "api_version": "v1",
+        "api_version": "2026-07-01",
         "occurred_at": now.isoformat(),
         "delivery_attempt": 1,
         "monitor_id": "mock-monitor-1",
@@ -382,9 +382,8 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
     ).hexdigest()
     headers = {
         "Content-Type": "application/json",
-        "X-Signal-Event-Id": "event-phase08-1",
-        "X-Signal-Timestamp": timestamp,
-        "X-Signal-Signature": f"v1={signature}",
+        "X-Opn-Signal-Timestamp": timestamp,
+        "X-Opn-Signal-Signature-V2": signature,
     }
     client = app.test_client()
     response = client.post(

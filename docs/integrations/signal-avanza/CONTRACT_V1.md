@@ -1,20 +1,23 @@
-# Contrato provisional v1 entre OPN Oracle y Signal Avanza
+# Contrato v1 entre OPN Oracle y Signal Avanza
 
-**Estado:** propuesta para validación bilateral; no congelado  
-**Versión del documento:** `0.1.0-provisional`  
-**Última revisión:** 2026-07-10  
-**Contrato OpenAPI asociado:** `openapi-signal-v1.yaml`
+**Estado:** confirmado bilateralmente contra el productor
+**Versión del contrato:** `2026-07-01`
+**Última revisión:** 2026-07-11
+**Fuente de verdad del productor:** `opn_signal/docs/integrations/oracle/openapi/v2026-07-01.json`
 
 ## 1. Alcance y gate de activación
 
-Este documento define la expectativa de consumidor de OPN Oracle sobre Signal Avanza. Signal ingiere, normaliza, deduplica y entrega señales; Oracle las interpreta en el contexto de un expediente. Signal no crea oportunidades, riesgos, decisiones ni acciones de Oracle.
+Este documento conserva el contexto de consumidor de OPN Oracle. El contrato normativo es el
+OpenAPI fechado del productor indicado arriba: base URL
+`https://signal.opnconsultoria.com/api/v1/oracle`, autenticación `X-API-Key`, tenant en
+`X-OPN-External-Tenant-ID` y scopes `monitor:write`, `signal:read`, `webhook:manage`.
 
-El contrato todavía no ha sido contrastado con el repositorio ni con un entorno real de Signal. Por tanto:
+El contrato fue contrastado con el repositorio y el entorno productivo de Signal. Por tanto:
 
-- los nombres y rutas externas son orientativos y configurables;
-- el adaptador HTTP real de Oracle permanece desactivado por defecto;
-- solo podrá habilitarse tras confirmar este contrato, importar el OpenAPI publicado por Signal y superar los contract tests y el E2E en ambos repositorios;
-- el mock determinista es la implementación permitida hasta superar ese gate.
+- el namespace y la versión quedan fijados por el OpenAPI fechado;
+- el modo HTTP exige host allowlisted, HTTPS, contrato confirmado y credenciales cifradas;
+- cada tenant de Oracle debe figurar expresamente en la allowlist del consumer `opn-oracle`;
+- polling y webhook HMAC V2 convergen en la misma ingesta idempotente.
 
 No deben introducirse credenciales, dominios reales de clientes ni payloads licenciados en estos documentos o fixtures.
 

@@ -3,7 +3,7 @@
 ## Bloqueantes de fase
 
 - Ninguna para completar auditoría y fundación Flask local.
-- El contrato y repositorio reales de Signal Avanza son necesarios antes de habilitar el adapter HTTP.
+- El contrato y repositorio reales de Signal Avanza quedaron confirmados el 11 de julio de 2026.
 - La política/proveedor IA son necesarios antes de permitir llamadas reales.
 - La Etapa B de producción requiere revisión del inventario/plan y autorización explícita posterior; la Etapa A y los artefactos locales están preparados.
 - La contraseña root expuesta debe rotarse/inutilizarse antes de cualquier despliegue; el hardening SSH necesita autorización separada y sesión de respaldo.
@@ -35,10 +35,11 @@
 
 ## Signal Avanza
 
-- URL base, versión, auth, scopes y tenant mapping.
-- Lifecycle exacto de monitor/task, cursor, límites y retención.
-- Firma HMAC, tolerancia temporal, rotación y política de reintentos.
-- Ubicación del repositorio Signal para ejecutar sus prompts en una sesión separada.
+- Resuelto: productor `/Users/gitshell/PycharmProjects/opn_signal`, contrato `2026-07-01`, URL
+  `https://signal.opnconsultoria.com/api/v1/oracle`, API key, scopes y allowlist de tenants.
+- Resuelto: cursor opaco ligado a tenant/monitor, retención de 365 días y límite 1–200.
+- Resuelto: HMAC-SHA256 V2 sobre `timestamp.raw_body`, tolerancia de cinco minutos y rotación con
+  solape máximo de 24 horas.
 
 ## IA y compliance
 
