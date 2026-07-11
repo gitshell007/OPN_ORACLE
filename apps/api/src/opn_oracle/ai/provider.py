@@ -398,8 +398,13 @@ class SignalGovernedLLMProvider:
         if not isinstance(usage, dict):
             usage = {}
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
+        normalized_output = output_payload.strip()
+        if normalized_output.startswith("```"):
+            normalized_output = normalized_output.split("\n", 1)[1] if "\n" in normalized_output else ""
+            if normalized_output.endswith("```"):
+                normalized_output = normalized_output[:-3].strip()
         return LLMResult(
-            output=schema.model_validate_json(output_payload),
+            output=schema.model_validate_json(normalized_output),
             input_tokens=_non_negative_int(usage.get("input_tokens") or usage.get("prompt_tokens")),
             output_tokens=_non_negative_int(
                 usage.get("output_tokens") or usage.get("completion_tokens")
