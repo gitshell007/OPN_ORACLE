@@ -51,6 +51,22 @@ residuales a backend, endpoint, score, RBAC, tenant, job, mock, probes, slug y c
 estados, planes, acciones de auditoría, monitores y revisiones documentales usan ahora etiquetas
 de negocio; URL se conserva únicamente como aclaración universal junto a «dirección base».
 
+## Mejora de creación de expedientes · perfiles iniciales por tipo
+
+- El selector de tipo deja de ser solo clasificatorio en el alta: Proyecto, Mercado, Cuenta
+  estratégica, Licitación o convocatoria, Alianza, Asunto regulatorio y Otro explican su alcance
+  y proponen una base de trabajo editable.
+- Con la opción confirmada, `POST /api/v1/dossiers` crea de forma atómica un objetivo, dos
+  hipótesis y una watchlist con palabras clave y fuentes sugeridas, marcada para revisión y
+  versionada como perfil `v1`. No hay migración ni variables nuevas.
+- La opción `create_starter_profile` es opt-in para consumidores de API y está activada por defecto
+  en el diálogo; desactivarla conserva un expediente vacío. No se crean monitores ni se contacta
+  Signal Avanza automáticamente.
+- Comprobaciones locales: OpenAPI y cliente regenerados sin drift; Ruff, formato y mypy focales;
+  contrato Flask 7/7 sin cobertura; ESLint, TypeScript, frontend 74/74 y build correctos. La
+  integración PostgreSQL/Redis focal no se ejecutó porque este entorno no tiene
+  `TEST_DATABASE_URL`, `TEST_RUNTIME_DATABASE_URL` ni `TEST_REDIS_URL` configuradas.
+
 ## Baseline conocido
 
 - Frontend Next.js/React/TypeScript ejecutable en la raíz.
@@ -481,15 +497,19 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   GPU17 como respaldo. Para `opn-oracle`, el modelo general es `qwen3.5:9b`, el respaldo
   `qwen3.6:27b`, los lotes económicos usan `qwen2.5:7b-instruct` y los embeddings
   `nomic-embed-text:latest`. No se permiten overrides de proveedor/modelo desde el consumidor.
-- La cadena de búsqueda exclusiva de `opn-oracle` es `searxng → ddg_html → ddg_lite`; no contiene
-  Brave ni Tavily. SearXNG es la instancia autoalojada accesible mediante el túnel privado del host.
-  DuckDuckGo queda solo como último recurso porque su protección anti-bot bloquea con frecuencia la
-  IP de producción.
+- La cadena de búsqueda exclusiva de `opn-oracle` es
+  `searxng → ddg_html → ddg_lite → brave`. SearXNG es la instancia autoalojada accesible mediante el
+  túnel privado del host. DuckDuckGo queda como respaldo gratuito pese a sus bloqueos anti-bot y
+  Brave se reserva como cuarto y último recurso. Oracle tiene un límite adicional de 10 consultas
+  de pago al día; se conservan los topes globales de 20 USD/mes y 4.000 solicitudes mensuales.
 - Prueba productiva aislada realizada con un consumidor efímero, eliminado al finalizar: la consulta
   `site:boe.es subvenciones digitalización empresas 2026` devolvió 5 resultados mediante SearXNG.
   El análisis de control respondió HTTP 200 con `ollama/qwen3.5:9b`, sin fallback y sin coste de API.
   Una segunda prueba combinó 3 resultados con el analizador del pipeline
   `ollama/qwen2.5:7b` y produjo JSON estructurado válido.
+- La prioridad de proveedores se volvió a verificar con una consulta real: respondió SearXNG y el
+  contador mensual de Brave no aumentó (`delta=0`). La configuración anterior del ledger se guardó
+  en `/opt/apps/opn_signal/var/search_usage.json.pre-oracle-brave-20260711T201058Z`.
 - Los servicios `opn-signal-api`, `opn-signal-worker` y `opn-signal-beat` se reiniciaron y quedaron
   activos. La configuración anterior se conservó en el host como
   `/opt/apps/opn_signal/settings.env.pre-ollama-20260711T195228Z` con modo `0600`.
