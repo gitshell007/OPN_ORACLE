@@ -449,3 +449,28 @@ de negocio; URL se conserva únicamente como aclaración universal junto a «dir
   traducción de procesos, estados e identificadores sin alertas visibles de aplicación.
 
 Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloqueos y el siguiente prompt. No se marca `done` por planificación o scaffolding incompleto.
+
+## Signal Avanza real · contrato productivo cerrado
+
+- Contrato productor confirmado y aplicado: base
+  `https://signal.opnconsultoria.com/api/v1/oracle`, versión `2026-07-01`, autenticación
+  `X-API-Key`/Bearer, tenant externo obligatorio y scopes `monitor:write`, `signal:read` y
+  `webhook:manage`. Los cursores son opacos, ligados a tenant y monitor, con páginas de 1–200 y
+  retención declarada de 365 días.
+- Consumidor productivo `opn-oracle` provisionado en Signal con allowlist del tenant real. La API
+  key y el secreto de webhook se transfirieron directamente entre hosts y se almacenaron cifrados;
+  no se escribieron en repositorio ni en salida de comandos.
+- Suscripción real creada con firma HMAC-SHA256 V2 sobre `timestamp.raw_body`, usando
+  `X-Opn-Signal-Timestamp` y `X-Opn-Signal-Signature-V2`. Oracle acepta replay idempotente y
+  mantiene inbox durable cifrado.
+- E2E productivo verificado con un monitor `draft`: creación `201`, replay idempotente `200`, pull
+  de señales `200` con cursor válido y webhook `monitor.status_changed` entregado por el worker real
+  de Signal. Oracle lo procesó como `processed`, sin error, normalizando `draft` a su estado interno
+  `pending`.
+- Release activo `20260711T214039Z-signal-status-normalization`; API y worker recreados sanos y
+  Celery respondió `pong`. No hubo cambios de esquema ni variables adicionales a las ya
+  documentadas.
+- Calidad del cierre: Ruff y mypy correctos. El test de integración focal quedó omitido localmente
+  por no estar definidos PostgreSQL/Redis de pruebas; el comando aislado terminó únicamente por el
+  umbral global de cobertura. La validación equivalente se ejecutó contra los dos servicios reales
+  de producción y quedó satisfactoria.
