@@ -652,8 +652,10 @@ def _ensure_signal_evidence(*, link: DossierSignal, signal: Signal) -> Evidence:
 
 
 def _triage_has_signal_evidence(output: SignalTriageOutput, evidence_id: uuid.UUID) -> bool:
-    """Require at least one factual or inferential claim grounded in this Signal itself."""
+    """Reject uncited claims while allowing a deliberately claim-free cautious triage."""
 
+    if not output.facts and not output.inferences:
+        return True
     return any(evidence_id in item.evidence_ids for item in output.facts) or any(
         evidence_id in item.evidence_ids for item in output.inferences
     )
