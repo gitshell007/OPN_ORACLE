@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:24-bookworm-slim AS dependencies
+
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+
+FROM node:24-bookworm-slim AS builder
+
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+
+FROM node:24-bookworm-slim AS runtime
+
+WORKDIR /app
+ENV HOSTNAME=0.0.0.0 \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production \
+    PORT=3000
+
+RUN groupadd --system --gid 10001 nodejs \
+    && useradd --system --uid 10001 --gid nodejs --home-dir /app nextjs \
+    && rm -rf /usr/local/lib/node_modules \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
+
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/login', {redirect: 'manual'}).then((response) => { if (response.status !== 200) process.exit(1) }).catch(() => process.exit(1))"]
+
+CMD ["node", "server.js"]

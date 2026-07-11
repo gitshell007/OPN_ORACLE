@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend and contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test -- --run
+      - run: npm run api:client:check
+      - run: npm run build
+
+  backend:
+    name: Backend, migrations and integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: oracle_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d oracle_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7.4-bookworm
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGPASSWORD: ci-postgres-only
+      POSTGRES_USER: postgres
+      POSTGRES_DB: oracle_test
+      ORACLE_MIGRATOR_PASSWORD: ci-migrator-only
+      ORACLE_APP_PASSWORD: ci-app-only
+      ORACLE_RUN_INTEGRATION: "1"
+      TEST_DATABASE_URL: postgresql+psycopg://oracle_migrator:ci-migrator-only@127.0.0.1:5432/oracle_test
+      TEST_RUNTIME_DATABASE_URL: postgresql+psycopg://oracle_app:ci-app-only@127.0.0.1:5432/oracle_test
+      TEST_REDIS_URL: redis://127.0.0.1:6379/14
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.25"
+          working-directory: apps/api
+          enable-cache: true
+      - working-directory: apps/api
+        run: uv sync --frozen
+      - name: Provision isolated runtime roles
+        run: sh infra/postgres/init/10-oracle-roles.sh
+      - name: Static checks
+        working-directory: apps/api
+        run: |
+          uv lock --check
+          uv run ruff check src tests migrations
+          uv run ruff format --check src tests migrations
+          uv run mypy src
+      - name: Tests with PostgreSQL, Redis and Celery
+        working-directory: apps/api
+        run: uv run pytest
+      - name: Migration drift
+        working-directory: apps/api
+        env:
+          APP_ENV: test
+          SECRET_KEY: ci-only-secret-key-not-for-production
+          DATABASE_URL: postgresql+psycopg://oracle_migrator:ci-migrator-only@127.0.0.1:5432/oracle_test
+          DATABASE_MIGRATION_URL: postgresql+psycopg://oracle_migrator:ci-migrator-only@127.0.0.1:5432/oracle_test
+          REDIS_URL: redis://127.0.0.1:6379/14
+        run: |
+          uv run flask --app opn_oracle.wsgi:app db upgrade
+          uv run flask --app opn_oracle.wsgi:app db check
+
+  security-and-images:
+    name: Security, images and SBOM
+    needs: [frontend, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.25"
+          working-directory: apps/api
+      - run: npm ci
+      - name: Dependency, SAST and secret scans
+        run: |
+          uv tool install semgrep==1.133.0
+          npm audit --audit-level=high
+          bash scripts/run-quality-scans.sh
+      - name: Build immutable candidate images
+        run: |
+          docker build -t opn-oracle-api:${GITHUB_SHA} apps/api
+          docker build -f Dockerfile.web -t opn-oracle-web:${GITHUB_SHA} .
+      - name: Scan API candidate
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: opn-oracle-api:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan web candidate
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: opn-oracle-web:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Generate SBOMs
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft:v1.30.1 opn-oracle-api:${GITHUB_SHA} -o cyclonedx-json=api-sbom.cdx.json
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft:v1.30.1 opn-oracle-web:${GITHUB_SHA} -o cyclonedx-json=web-sbom.cdx.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sbom-${{ github.sha }}
+          path: "*-sbom.cdx.json"
+          retention-days: 30

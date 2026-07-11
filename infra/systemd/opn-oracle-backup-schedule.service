@@ -1,0 +1,25 @@
+[Unit]
+Description=Enqueue the daily OPN Oracle backup
+Requires=docker.service
+After=docker.service network-online.target
+ConditionPathExists=/etc/opn-oracle/oracle.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/opn-oracle/backup.conf
+ExecStart=/opt/opn-oracle/current/scripts/enqueue-scheduled-backup.sh
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=5min
+

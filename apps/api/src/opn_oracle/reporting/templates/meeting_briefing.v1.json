@@ -1,0 +1,13 @@
+{
+  "key": "meeting_briefing",
+  "version": "v1",
+  "label": "Briefing de reunión",
+  "report_type": "briefing",
+  "input_contract": {"required": ["dossier_id", "meeting_id"], "properties": {"meeting_id": "uuid", "audience": "string?"}},
+  "sections": ["Contexto", "Objetivos", "Interlocutores", "Estrategia", "Preguntas", "Objeciones", "Límites de divulgación", "Cierre esperado"],
+  "evidence_policy": "Todo dato sobre interlocutores y contexto cita evidence_ids; hipótesis, preguntas y estrategia se diferencian de hechos.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

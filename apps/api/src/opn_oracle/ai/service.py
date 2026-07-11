@@ -1,0 +1,580 @@
+"""Audited, tenant-safe execution boundary for Oracle AI agents."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import uuid
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
+
+from flask import current_app
+from sqlalchemy import func, select, text
+
+from opn_oracle.ai.context import BuiltContext, build_context, validate_evidence
+from opn_oracle.ai.models import (
+    AIArtifact,
+    AIAttempt,
+    AIContextEvidence,
+    AIContextSnapshot,
+    AITenantPolicy,
+    AIUsageLedger,
+)
+from opn_oracle.ai.provider import LLMRequest, provider_from_config
+from opn_oracle.ai.registry import PromptRegistry
+from opn_oracle.ai.schemas import AgentOutput, EvidenceReviewerOutput
+from opn_oracle.extensions import db
+from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
+from opn_oracle.tenants.context import require_tenant_id
+
+
+class AIPolicyDenied(RuntimeError):
+    pass
+
+
+def recover_stale_ai_executions(*, now: datetime | None = None) -> int:
+    """Release expired reservations; fenced workers can no longer settle them."""
+    tenant_id = require_tenant_id()
+    current = now or datetime.now(UTC)
+    attempts = list(
+        db.session.scalars(
+            select(AIAttempt)
+            .where(
+                AIAttempt.tenant_id == tenant_id,
+                AIAttempt.status.in_(("reserved", "running")),
+                AIAttempt.lease_expires_at < current,
+            )
+            .with_for_update(skip_locked=True)
+        )
+    )
+    for attempt in attempts:
+        revoked_token = uuid.uuid4()
+        attempt.status = "abandoned"
+        attempt.error_code = "stale_execution"
+        attempt.completed_at = current
+        attempt.execution_token = revoked_token
+        audit = db.session.scalar(
+            select(AIAuditLog)
+            .where(AIAuditLog.id == attempt.audit_log_id, AIAuditLog.tenant_id == tenant_id)
+            .with_for_update()
+        )
+        if audit is not None and audit.status in {"pending", "running"}:
+            audit.status = "failed"
+            audit.error_code = "stale_execution"
+            audit.completed_at = current
+        ledger = db.session.scalar(
+            select(AIUsageLedger)
+            .where(
+                AIUsageLedger.audit_log_id == attempt.audit_log_id,
+                AIUsageLedger.tenant_id == tenant_id,
+                AIUsageLedger.status == "reserved",
+            )
+            .with_for_update()
+        )
+        if ledger is not None:
+            ledger.status = "released"
+            ledger.reserved_cost_micros = 0
+            ledger.execution_token = revoked_token
+    db.session.commit()
+    return len(attempts)
+
+
+def _canonical(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
+
+
+def _policy(tenant_id: uuid.UUID) -> AITenantPolicy:
+    policy = db.session.scalar(
+        select(AITenantPolicy).where(AITenantPolicy.tenant_id == tenant_id).with_for_update()
+    )
+    if policy is None or not policy.enabled or policy.kill_switch:
+        raise AIPolicyDenied("La IA está deshabilitada para este tenant.")
+    if policy.provider != current_app.config["AI_MODE"]:
+        raise AIPolicyDenied("El proveedor configurado no está autorizado.")
+    return policy
+
+
+def _enforce_quota(policy: AITenantPolicy, tenant_id: uuid.UUID, reservation_micros: int) -> bool:
+    now = datetime.now(UTC)
+    month = now.strftime("%Y-%m")
+    calls = (
+        db.session.scalar(
+            select(func.count(AIUsageLedger.id)).where(
+                AIUsageLedger.tenant_id == tenant_id,
+                func.date(AIUsageLedger.created_at) == now.date(),
+                AIUsageLedger.status.in_(("reserved", "settled")),
+            )
+        )
+        or 0
+    )
+    cost = (
+        db.session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(
+                        func.greatest(
+                            AIUsageLedger.actual_cost_micros,
+                            AIUsageLedger.reserved_cost_micros,
+                        )
+                    ),
+                    0,
+                )
+            ).where(AIUsageLedger.tenant_id == tenant_id, AIUsageLedger.period == month)
+        )
+        or 0
+    )
+    running = (
+        db.session.scalar(
+            select(func.count(AIAuditLog.id)).where(
+                AIAuditLog.tenant_id == tenant_id,
+                AIAuditLog.status == "running",
+            )
+        )
+        or 0
+    )
+    if running >= policy.max_concurrency:
+        raise AIPolicyDenied("Límite de concurrencia del agente alcanzado.")
+    if policy.daily_call_limit and calls >= policy.daily_call_limit:
+        raise AIPolicyDenied("Límite diario de llamadas alcanzado.")
+    if (
+        policy.monthly_hard_budget_micros
+        and cost + reservation_micros > policy.monthly_hard_budget_micros
+    ):
+        raise AIPolicyDenied("Presupuesto mensual agotado.")
+    return bool(policy.monthly_soft_budget_micros and cost >= policy.monthly_soft_budget_micros)
+
+
+def execute_agent(
+    *,
+    agent: str,
+    dossier_id: uuid.UUID,
+    job: BackgroundJob,
+    supplemental_context: dict[str, Any] | None = None,
+    context_override: BuiltContext | None = None,
+    context_factory: Callable[[int], BuiltContext] | None = None,
+    target_type: str = "dossier",
+    target_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    tenant_id = require_tenant_id()
+    # Serialize the idempotency slot before policy/quota reservation. The lock is
+    # transaction-scoped and never held across a provider call.
+    slot = f"{tenant_id}:{job.id}:{agent}"
+    db.session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:slot, 0))"), {"slot": slot}
+    )
+    existing = db.session.scalar(
+        select(AIAuditLog).where(
+            AIAuditLog.tenant_id == tenant_id,
+            AIAuditLog.background_job_id == job.id,
+            AIAuditLog.agent == agent,
+        )
+    )
+    if existing is not None:
+        artifact = db.session.scalar(
+            select(AIArtifact).where(AIArtifact.audit_log_id == existing.id)
+        )
+        if existing.status == "succeeded" and artifact is not None:
+            db.session.rollback()
+            return {
+                "artifact_id": str(artifact.id),
+                "audit_log_id": str(existing.id),
+                "status": artifact.status,
+            }
+        db.session.rollback()
+        raise AIPolicyDenied("La ejecución IA de este job ya fue reclamada.")
+    policy = _policy(tenant_id)
+    reservation_micros = 2 * (policy.max_context_tokens + policy.max_output_tokens)
+    soft_budget_warning = _enforce_quota(policy, tenant_id, reservation_micros)
+    prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(agent)
+    if policy.allowed_models and prompt.model not in policy.allowed_models:
+        raise AIPolicyDenied("Modelo no autorizado por la política del tenant.")
+    if context_override is not None and context_factory is not None:
+        raise AIPolicyDenied("Solo puede definirse un origen de contexto preconstruido.")
+    context = (
+        context_override
+        or (context_factory(policy.max_context_tokens) if context_factory else None)
+        or build_context(dossier_id, max_tokens=policy.max_context_tokens)
+    )
+    if str(context.manifest.get("dossier_id")) != str(dossier_id):
+        raise AIPolicyDenied("El contexto preconstruido no pertenece al expediente.")
+    if context.classification == "internal" and policy.max_classification == "public":
+        raise AIPolicyDenied("La clasificación del contexto excede la política.")
+    effective_payload = dict(context.payload)
+    if supplemental_context:
+        effective_payload["requested_scope"] = supplemental_context
+    effective_context_hash = hashlib.sha256(
+        _canonical(
+            {
+                "base_context_hash": context.context_hash.hex(),
+                "requested_scope": supplemental_context or {},
+            }
+        )
+    ).digest()
+    input_hash = hashlib.sha256(_canonical(effective_payload)).digest()
+    now = datetime.now(UTC)
+    execution_token = uuid.uuid4()
+    lease_seconds = max(30, min(int(current_app.config["CELERY_TASK_TIME_LIMIT"]), 600))
+    lease_expires_at = now + timedelta(seconds=lease_seconds)
+    audit = AIAuditLog(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        background_job_id=job.id,
+        requested_by_user_id=job.requested_by_user_id,
+        use_case=agent,
+        agent=agent,
+        action="generate",
+        provider=policy.provider,
+        model=prompt.model,
+        prompt_name=prompt.name,
+        prompt_version=prompt.version,
+        prompt_hash=prompt.sha256,
+        context_hash=effective_context_hash,
+        schema_name=prompt.output_schema_name,
+        schema_version="v1",
+        input_hash=input_hash,
+        source_ids=list(context.manifest["evidence_ids"]),
+        status="running",
+        data_classification=context.classification,
+        redaction_applied=bool(context.redaction_summary["matches"]),
+        redaction_summary=context.redaction_summary,
+        started_at=now,
+    )
+    db.session.add(audit)
+    db.session.flush()
+    snapshot = AIContextSnapshot(
+        tenant_id=tenant_id,
+        audit_log_id=audit.id,
+        dossier_id=dossier_id,
+        context_hash=effective_context_hash,
+        source_manifest=context.manifest
+        | {
+            "requested_scope_hash": hashlib.sha256(
+                _canonical(supplemental_context or {})
+            ).hexdigest()
+        },
+        classification=context.classification,
+        redaction_summary=context.redaction_summary,
+        estimated_tokens=context.estimated_tokens,
+        injection_indicators=list(context.injection_indicators),
+    )
+    db.session.add(snapshot)
+    db.session.flush()
+    for evidence in context.evidence:
+        db.session.add(
+            AIContextEvidence(
+                tenant_id=tenant_id,
+                snapshot_id=snapshot.id,
+                evidence_id=evidence.id,
+                dossier_id=dossier_id,
+                evidence_hash=bytes.fromhex(
+                    str(context.manifest["evidence_hashes"][str(evidence.id)])
+                ),
+            )
+        )
+    request = LLMRequest(
+        agent,
+        prompt.model,
+        prompt.text,
+        prompt.purpose,
+        effective_payload,
+        min(prompt.max_output_tokens, policy.max_output_tokens),
+        context.classification,
+    )
+    attempt = AIAttempt(
+        tenant_id=tenant_id,
+        audit_log_id=audit.id,
+        attempt_number=1,
+        kind="generate",
+        status="reserved",
+        request_hash=input_hash,
+        started_at=now,
+        execution_token=execution_token,
+        lease_expires_at=lease_expires_at,
+    )
+    db.session.add(attempt)
+    db.session.flush()
+    usage = AIUsageLedger(
+        tenant_id=tenant_id,
+        audit_log_id=audit.id,
+        period=now.strftime("%Y-%m"),
+        provider=policy.provider,
+        model=prompt.model,
+        input_tokens=0,
+        output_tokens=0,
+        # Conservative mock-independent reservation. A real adapter must expose its
+        # pricing estimator before it can be allowlisted.
+        reserved_cost_micros=reservation_micros,
+        actual_cost_micros=0,
+        status="reserved",
+        execution_token=execution_token,
+    )
+    db.session.add(usage)
+    db.session.commit()
+    audit_id, attempt_id, usage_id = audit.id, attempt.id, usage.id
+
+    def fail(error: BaseException, *, active_attempt_id: uuid.UUID) -> None:
+        """Fenced terminalization in a fresh transaction after any provider failure."""
+        db.session.rollback()
+        completed = datetime.now(UTC)
+        current_attempt = db.session.scalar(
+            select(AIAttempt)
+            .where(
+                AIAttempt.id == active_attempt_id,
+                AIAttempt.tenant_id == tenant_id,
+                AIAttempt.execution_token == execution_token,
+            )
+            .with_for_update()
+        )
+        current_audit = db.session.scalar(
+            select(AIAuditLog)
+            .where(AIAuditLog.id == audit_id, AIAuditLog.tenant_id == tenant_id)
+            .with_for_update()
+        )
+        current_usage = db.session.scalar(
+            select(AIUsageLedger)
+            .where(
+                AIUsageLedger.id == usage_id,
+                AIUsageLedger.tenant_id == tenant_id,
+                AIUsageLedger.execution_token == execution_token,
+                AIUsageLedger.status == "reserved",
+            )
+            .with_for_update()
+        )
+        if current_attempt is None or current_audit is None or current_usage is None:
+            db.session.rollback()
+            raise AIPolicyDenied("La lease de la ejecución IA ya no está activa.") from error
+        code = type(error).__name__[:100]
+        if current_attempt.status in {"reserved", "running"}:
+            current_attempt.status = "failed"
+            current_attempt.error_code = code
+            current_attempt.completed_at = completed
+        current_audit.status = "failed"
+        current_audit.error_code = code
+        current_audit.attempt_count = max(
+            current_audit.attempt_count, current_attempt.attempt_number
+        )
+        current_audit.completed_at = completed
+        current_usage.status = "released"
+        current_usage.reserved_cost_micros = 0
+        db.session.commit()
+
+    try:
+        attempt.status = "running"
+        db.session.commit()
+        provider = provider_from_config(current_app.config)
+        result = provider.generate_structured(request, prompt.schema)
+        validate_evidence(cast(AgentOutput, result.output), {item.id for item in context.evidence})
+    except Exception as error:
+        fail(error, active_attempt_id=attempt_id)
+        raise
+    output = result.output.model_dump(mode="json")
+    db.session.rollback()
+    checkpoint = datetime.now(UTC)
+    checked_attempt = db.session.scalar(
+        select(AIAttempt)
+        .where(
+            AIAttempt.id == attempt_id,
+            AIAttempt.tenant_id == tenant_id,
+            AIAttempt.execution_token == execution_token,
+            AIAttempt.status == "running",
+            AIAttempt.lease_expires_at >= checkpoint,
+        )
+        .with_for_update()
+    )
+    checked_audit = db.session.scalar(
+        select(AIAuditLog)
+        .where(
+            AIAuditLog.id == audit_id,
+            AIAuditLog.tenant_id == tenant_id,
+            AIAuditLog.status == "running",
+        )
+        .with_for_update()
+    )
+    checked_usage = db.session.scalar(
+        select(AIUsageLedger)
+        .where(
+            AIUsageLedger.id == usage_id,
+            AIUsageLedger.tenant_id == tenant_id,
+            AIUsageLedger.execution_token == execution_token,
+            AIUsageLedger.status == "reserved",
+        )
+        .with_for_update()
+    )
+    if checked_attempt is None or checked_audit is None or checked_usage is None:
+        db.session.rollback()
+        raise AIPolicyDenied("La lease de la ejecución IA expiró.")
+    checked_attempt.status = "succeeded"
+    checked_attempt.response_hash = hashlib.sha256(_canonical(output)).digest()
+    checked_attempt.input_tokens = result.input_tokens
+    checked_attempt.output_tokens = result.output_tokens
+    checked_attempt.cost_micros = result.cost_micros
+    checked_attempt.latency_ms = result.latency_ms
+    checked_attempt.completed_at = checkpoint
+    total_input, total_output, total_cost = (
+        result.input_tokens,
+        result.output_tokens,
+        result.cost_micros,
+    )
+    if agent != "evidence_reviewer":
+        reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
+            "evidence_reviewer"
+        )
+        reviewer_request = LLMRequest(
+            "evidence_reviewer",
+            reviewer_prompt.model,
+            reviewer_prompt.text,
+            reviewer_prompt.purpose,
+            effective_payload | {"candidate_output": output},
+            min(reviewer_prompt.max_output_tokens, policy.max_output_tokens),
+            context.classification,
+        )
+        reviewer_now = datetime.now(UTC)
+        reviewer_attempt = AIAttempt(
+            tenant_id=tenant_id,
+            audit_log_id=audit_id,
+            attempt_number=2,
+            kind="reviewer",
+            status="running",
+            request_hash=hashlib.sha256(_canonical(reviewer_request.context)).digest(),
+            started_at=reviewer_now,
+            execution_token=execution_token,
+            lease_expires_at=reviewer_now + timedelta(seconds=lease_seconds),
+        )
+        db.session.add(reviewer_attempt)
+        db.session.commit()
+        reviewer_attempt_id = reviewer_attempt.id
+        try:
+            reviewer_result = provider.generate_structured(reviewer_request, EvidenceReviewerOutput)
+            reviewer = cast(EvidenceReviewerOutput, reviewer_result.output)
+            validate_evidence(reviewer, {item.id for item in context.evidence})
+        except Exception as error:
+            fail(error, active_attempt_id=reviewer_attempt_id)
+            raise
+        total_input += reviewer_result.input_tokens
+        total_output += reviewer_result.output_tokens
+        total_cost += reviewer_result.cost_micros
+        reviewer_output = reviewer.model_dump(mode="json")
+        db.session.rollback()
+        reviewer_checkpoint = datetime.now(UTC)
+        checked_reviewer = db.session.scalar(
+            select(AIAttempt)
+            .where(
+                AIAttempt.id == reviewer_attempt_id,
+                AIAttempt.tenant_id == tenant_id,
+                AIAttempt.execution_token == execution_token,
+                AIAttempt.status == "running",
+                AIAttempt.lease_expires_at >= reviewer_checkpoint,
+            )
+            .with_for_update()
+        )
+        reviewer_audit = db.session.scalar(
+            select(AIAuditLog)
+            .where(
+                AIAuditLog.id == audit_id,
+                AIAuditLog.tenant_id == tenant_id,
+                AIAuditLog.status == "running",
+            )
+            .with_for_update()
+        )
+        reviewer_usage = db.session.scalar(
+            select(AIUsageLedger)
+            .where(
+                AIUsageLedger.id == usage_id,
+                AIUsageLedger.tenant_id == tenant_id,
+                AIUsageLedger.execution_token == execution_token,
+                AIUsageLedger.status == "reserved",
+            )
+            .with_for_update()
+        )
+        if checked_reviewer is None or reviewer_audit is None or reviewer_usage is None:
+            db.session.rollback()
+            raise AIPolicyDenied("La lease del revisor IA expiró.")
+        checked_reviewer.response_hash = hashlib.sha256(_canonical(reviewer_output)).digest()
+        checked_reviewer.input_tokens = reviewer_result.input_tokens
+        checked_reviewer.output_tokens = reviewer_result.output_tokens
+        checked_reviewer.cost_micros = reviewer_result.cost_micros
+        checked_reviewer.latency_ms = reviewer_result.latency_ms
+        checked_reviewer.completed_at = reviewer_checkpoint
+        if reviewer.verdict == "fail":
+            rejection_error = ValueError("El revisor de evidencia rechazó el output.")
+            fail(rejection_error, active_attempt_id=reviewer_attempt_id)
+            raise rejection_error
+        checked_reviewer.status = "succeeded"
+    if soft_budget_warning:
+        output["warnings"] = [
+            *output.get("warnings", []),
+            "Presupuesto blando mensual alcanzado.",
+        ]
+    output_hash = hashlib.sha256(_canonical(output)).digest()
+    settlement = datetime.now(UTC)
+    active_attempt_id = reviewer_attempt_id if agent != "evidence_reviewer" else attempt_id
+    active_attempt = db.session.scalar(
+        select(AIAttempt)
+        .where(
+            AIAttempt.id == active_attempt_id,
+            AIAttempt.tenant_id == tenant_id,
+            AIAttempt.execution_token == execution_token,
+            AIAttempt.status == "succeeded",
+            AIAttempt.lease_expires_at >= settlement,
+        )
+        .with_for_update()
+    )
+    final_audit = db.session.scalar(
+        select(AIAuditLog)
+        .where(
+            AIAuditLog.id == audit_id,
+            AIAuditLog.tenant_id == tenant_id,
+            AIAuditLog.status == "running",
+        )
+        .with_for_update()
+    )
+    settled_usage = db.session.scalar(
+        select(AIUsageLedger)
+        .where(
+            AIUsageLedger.id == usage_id,
+            AIUsageLedger.tenant_id == tenant_id,
+            AIUsageLedger.execution_token == execution_token,
+            AIUsageLedger.status == "reserved",
+        )
+        .with_for_update()
+    )
+    if active_attempt is None or final_audit is None or settled_usage is None:
+        db.session.rollback()
+        raise AIPolicyDenied("La ejecución IA perdió su fencing antes de persistir.")
+    final_audit.status, final_audit.output_hash = "succeeded", output_hash
+    final_audit.attempt_count = 1 if agent == "evidence_reviewer" else 2
+    final_audit.input_tokens, final_audit.output_tokens = total_input, total_output
+    final_audit.actual_cost_micros, final_audit.latency_ms = total_cost, result.latency_ms
+    final_audit.completed_at = settlement
+    artifact = AIArtifact(
+        tenant_id=tenant_id,
+        audit_log_id=final_audit.id,
+        dossier_id=dossier_id,
+        target_type=target_type,
+        target_id=target_id or dossier_id,
+        agent=agent,
+        schema_name=prompt.output_schema_name,
+        schema_version="v1",
+        output=output,
+        output_hash=output_hash,
+        status="candidate",
+        version=1,
+    )
+    db.session.add(artifact)
+    settled_usage.input_tokens = total_input
+    settled_usage.output_tokens = total_output
+    settled_usage.actual_cost_micros = total_cost
+    settled_usage.reserved_cost_micros = 0
+    settled_usage.status = "settled"
+    try:
+        db.session.commit()
+    except Exception as error:
+        active_id = reviewer_attempt_id if agent != "evidence_reviewer" else attempt_id
+        fail(error, active_attempt_id=active_id)
+        raise
+    return {
+        "artifact_id": str(artifact.id),
+        "audit_log_id": str(final_audit.id),
+        "status": artifact.status,
+    }

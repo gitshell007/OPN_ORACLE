@@ -1,0 +1,404 @@
+openapi: 3.1.0
+info:
+  title: Signal Avanza API esperada por OPN Oracle
+  version: 0.1.0-provisional
+  description: |
+    Consumer contract provisional. No es una afirmación de endpoints existentes en
+    Signal Avanza. Rutas, auth, límites y schemas deben ser confirmados en el repo
+    Signal. El adaptador HTTP real de Oracle permanece desactivado hasta superar
+    contract tests y E2E bilaterales.
+x-contract-status: provisional-unconfirmed
+x-http-adapter-enabled: false
+servers:
+  - url: https://signal.example.invalid/api/v1/oracle
+    description: Marcador sintético; la base URL real es configuración por conexión.
+security:
+  - serviceCredential: []
+paths:
+  /monitors:
+    post:
+      operationId: createMonitor
+      summary: Crea idempotentemente un monitor solicitado por Oracle
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitorInput'
+      responses:
+        '201':
+          description: Monitor creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '200':
+          description: Resultado previo para la misma clave y payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /monitors/{monitor_id}:
+    parameters:
+      - $ref: '#/components/parameters/MonitorId'
+      - $ref: '#/components/parameters/CorrelationId'
+    get:
+      operationId: getMonitor
+      summary: Recupera un monitor visible para la credencial
+      responses:
+        '200':
+          description: Monitor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateMonitor
+      summary: Actualiza configuración y versión del monitor
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: If-Match
+          in: header
+          required: false
+          schema: {type: string}
+          description: Mecanismo de concurrencia provisional; pendiente de confirmar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitorPatch'
+      responses:
+        '200':
+          description: Monitor actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /monitors/{monitor_id}/pause:
+    post:
+      operationId: pauseMonitor
+      summary: Pausa nuevos runs sin borrar histórico
+      parameters:
+        - $ref: '#/components/parameters/MonitorId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Monitor pausado o ya pausado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /monitors/{monitor_id}/resume:
+    post:
+      operationId: resumeMonitor
+      summary: Reactiva un monitor pausado
+      parameters:
+        - $ref: '#/components/parameters/MonitorId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Monitor activo o ya activo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /monitors/{monitor_id}/sync:
+    post:
+      operationId: requestMonitorSync
+      summary: Solicita una ejecución/sincronización idempotente
+      description: La forma síncrona o job externo queda abierta.
+      parameters:
+        - $ref: '#/components/parameters/MonitorId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '202':
+          description: Solicitud aceptada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /signals:
+    get:
+      operationId: listSignals
+      summary: Obtiene señales incrementales ligadas a un monitor
+      parameters:
+        - name: monitor_id
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 255}
+        - name: cursor
+          in: query
+          required: false
+          schema: {type: string, maxLength: 2048}
+          description: Cursor opaco ligado a credencial y monitor.
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 500, default: 100}
+          description: Máximo provisional; pendiente de confirmar.
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Página incremental
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalPage'
+        '400':
+          description: Cursor inválido o expirado; semántica definitiva abierta
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /signals/{signal_id}:
+    get:
+      operationId: getSignal
+      summary: Recupera una señal externa
+      parameters:
+        - name: signal_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 255}
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Señal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signal'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /health:
+    get:
+      operationId: integrationHealth
+      summary: Comprueba salud segura de la integración autenticada
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Salud sin detalles sensibles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+components:
+  securitySchemes:
+    serviceCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+      description: Esquema provisional; tipo de credencial y cabecera están abiertos.
+  parameters:
+    MonitorId:
+      name: monitor_id
+      in: path
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 255}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 16, maxLength: 255}
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      schema: {type: string, minLength: 1, maxLength: 128}
+  responses:
+    Invalid:
+      description: Entrada no válida
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Recurso no visible para la credencial
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Conflicto de idempotencia o versión
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Límite temporal
+      headers:
+        Retry-After:
+          schema: {type: string}
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    MonitorInput:
+      type: object
+      additionalProperties: false
+      required: [client_monitor_id, query, status]
+      properties:
+        client_monitor_id: {type: string, format: uuid}
+        query: {type: string, minLength: 1, maxLength: 4000}
+        keywords:
+          type: array
+          maxItems: 100
+          items: {type: string, minLength: 1, maxLength: 200}
+        entities:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/Entity'}
+        languages:
+          type: array
+          maxItems: 20
+          items: {type: string, minLength: 2, maxLength: 35}
+        geographies:
+          type: array
+          maxItems: 100
+          items: {type: string, minLength: 2, maxLength: 64}
+        source_types:
+          type: array
+          maxItems: 50
+          items: {type: string, minLength: 1, maxLength: 64}
+        cadence: {type: string, minLength: 1, maxLength: 64}
+        status: {$ref: '#/components/schemas/MonitorStatus'}
+        callback_subscription_id: {type: [string, 'null'], maxLength: 255}
+        config_version: {type: integer, minimum: 1}
+        config_hash: {type: [string, 'null'], maxLength: 128}
+    MonitorPatch:
+      allOf:
+        - $ref: '#/components/schemas/MonitorInput'
+      description: Provisionalmente representa snapshot completo; PATCH parcial está abierto.
+    Monitor:
+      allOf:
+        - $ref: '#/components/schemas/MonitorInput'
+        - type: object
+          required: [id, created_at, updated_at]
+          properties:
+            id: {type: string, minLength: 1, maxLength: 255}
+            last_run_at: {type: [string, 'null'], format: date-time}
+            cursor: {type: [string, 'null'], maxLength: 2048}
+            health: {type: [string, 'null'], maxLength: 64}
+            error_code: {type: [string, 'null'], maxLength: 128}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    MonitorStatus:
+      type: string
+      enum: [draft, active, paused, disabled, error]
+    Entity:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 500}
+        type: {type: [string, 'null'], maxLength: 100}
+        external_id: {type: [string, 'null'], maxLength: 255}
+    Signal:
+      type: object
+      additionalProperties: true
+      required: [id, monitor_id, type, title, source, content_hash, observed_at, created_at, provenance]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 255}
+        monitor_id: {type: string, minLength: 1, maxLength: 255}
+        type: {type: string, minLength: 1, maxLength: 64}
+        title: {type: string, minLength: 1, maxLength: 1000}
+        summary: {type: [string, 'null'], maxLength: 20000}
+        source: {$ref: '#/components/schemas/Source'}
+        language: {type: [string, 'null'], maxLength: 35}
+        entities:
+          type: array
+          items: {$ref: '#/components/schemas/Entity'}
+        tags:
+          type: array
+          items: {type: string, maxLength: 200}
+        categories:
+          type: array
+          items: {type: string, maxLength: 200}
+        content_hash: {type: string, minLength: 1, maxLength: 128}
+        observed_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        provenance: {$ref: '#/components/schemas/Provenance'}
+    Source:
+      type: object
+      additionalProperties: true
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 500}
+        url: {type: [string, 'null'], format: uri, maxLength: 4096}
+        published_at: {type: [string, 'null'], format: date-time}
+        credibility_score: {type: [number, 'null'], minimum: 0, maximum: 100}
+    Provenance:
+      type: object
+      additionalProperties: true
+      required: [connector, monitor_config_version]
+      properties:
+        connector: {type: string, minLength: 1, maxLength: 255}
+        monitor_config_version: {type: integer, minimum: 1}
+    SignalPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, has_more]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Signal'}
+        next_cursor: {type: [string, 'null'], maxLength: 2048}
+        has_more: {type: boolean}
+        counts:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+    SyncRequest:
+      type: object
+      additionalProperties: true
+      required: [status]
+      properties:
+        status: {type: string, enum: [accepted]}
+        external_job_id: {type: [string, 'null'], maxLength: 255}
+    Health:
+      type: object
+      additionalProperties: true
+      required: [status, checked_at]
+      properties:
+        status: {type: string, enum: [healthy, degraded, error]}
+        checked_at: {type: string, format: date-time}
+        api_version: {type: [string, 'null'], maxLength: 64}
+    Problem:
+      type: object
+      additionalProperties: true
+      required: [title, status, code, retryable]
+      properties:
+        type: {type: string, format: uri-reference}
+        title: {type: string}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string}
+        code: {type: string, minLength: 1, maxLength: 128}
+        request_id: {type: [string, 'null'], maxLength: 128}
+        retryable: {type: boolean}

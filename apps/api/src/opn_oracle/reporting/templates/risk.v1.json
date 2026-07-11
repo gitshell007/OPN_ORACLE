@@ -1,0 +1,13 @@
+{
+  "key": "risk",
+  "version": "v1",
+  "label": "Informe de riesgo",
+  "report_type": "risk",
+  "input_contract": {"required": ["dossier_id", "risk_id"], "properties": {"risk_id": "uuid", "horizon": "string?"}},
+  "sections": ["Situación", "Causas", "Impacto", "Probabilidad y velocidad", "Indicadores", "Mitigaciones", "Decisiones pendientes"],
+  "evidence_policy": "Hechos, indicadores y cambios de score requieren evidence_ids; escenarios se etiquetan como inferencia con confianza.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

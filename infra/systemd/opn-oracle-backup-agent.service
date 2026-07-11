@@ -1,0 +1,30 @@
+[Unit]
+Description=OPN Oracle privileged backup request processor
+Documentation=file:/opt/opn-oracle/current/docs/operations/BACKUP_RESTORE.md
+Requires=docker.service
+After=docker.service network-online.target
+ConditionPathExists=/etc/opn-oracle/oracle.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/opn-oracle/backup.conf
+ExecStart=/opt/opn-oracle/current/scripts/backup-host-agent.sh --process-one
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/backups/opn-oracle /run/lock
+NoNewPrivileges=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=3h
+

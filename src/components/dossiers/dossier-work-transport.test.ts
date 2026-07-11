@@ -1,0 +1,66 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+function json(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
+
+describe("transporte productivo del trabajo de expediente", () => {
+  it("pagina tareas dentro del expediente y codifica el identificador", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ data: [], meta: { page: 2, size: 25, total: 0 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.tasks.list("dossier/seguro", { page: 2, status: "open", search: "  propuesta " });
+
+    const [rawUrl] = fetchMock.mock.calls[0] as [string];
+    const url = new URL(rawUrl, "https://oracle.example.test");
+    expect(url.pathname).toBe("/api/v1/dossiers/dossier%2Fseguro/tasks");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      "page[number]": "2",
+      "page[size]": "25",
+      sort: "-updated_at",
+      "filter[status]": "open",
+      "filter[search]": "propuesta",
+    });
+  });
+
+  it("aplica CSRF y concurrencia optimista al completar una tarea", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
+      .mockResolvedValueOnce(json({ id: "task-1", status: "done", version: 4 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.tasks.update("task-1", { status: "done", version: 3 }, 3);
+
+    const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe("/api/v1/tasks/task-1");
+    expect(options.method).toBe("PATCH");
+    expect((options.headers as Headers).get("If-Match")).toBe('W/"3"');
+    expect((options.headers as Headers).get("X-CSRF-Token")).toBe("csrf-test");
+  });
+
+  it("crea briefing estructurado bajo una reunión", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
+      .mockResolvedValueOnce(json({ id: "briefing-1", version: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.meetings.createBriefing("meeting-1", { facts: [], evidence_status: "pending" });
+
+    const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe("/api/v1/meetings/meeting-1/briefings");
+    expect(JSON.parse(String(options.body))).toEqual({
+      content: { facts: [], evidence_status: "pending" },
+    });
+  });
+});

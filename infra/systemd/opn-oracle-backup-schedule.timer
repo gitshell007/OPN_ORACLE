@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily OPN Oracle backup schedule
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Europe/Madrid
+RandomizedDelaySec=30min
+Persistent=true
+Unit=opn-oracle-backup-schedule.service
+
+[Install]
+WantedBy=timers.target
+

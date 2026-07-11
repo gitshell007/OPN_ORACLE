@@ -1,0 +1,13 @@
+{
+  "key": "action_plan",
+  "version": "v1",
+  "label": "Plan de acción",
+  "report_type": "action_plan",
+  "input_contract": {"required": ["dossier_id"], "properties": {"horizon": "string?", "owner_user_ids": "uuid[]?"}},
+  "sections": ["Objetivo", "Prioridades", "Acciones", "Responsables propuestos", "Dependencias", "Hitos", "Riesgos de ejecución", "Decisiones necesarias"],
+  "evidence_policy": "El diagnóstico y las dependencias citan evidence_ids; responsables y acciones son propuestas hasta aprobación humana.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

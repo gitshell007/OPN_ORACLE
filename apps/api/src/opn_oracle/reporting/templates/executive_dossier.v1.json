@@ -1,0 +1,13 @@
+{
+  "key": "executive_dossier",
+  "version": "v1",
+  "label": "Informe ejecutivo de expediente",
+  "report_type": "executive",
+  "input_contract": {"required": ["dossier_id"], "properties": {"period_start": "date?", "period_end": "date?", "audience": "string?"}},
+  "sections": ["Estado actual", "Oportunidades principales", "Riesgos principales", "Actores clave", "Decisiones recomendadas", "Próximos pasos"],
+  "evidence_policy": "Cada hecho material cita al menos un evidence_id del snapshot; inferencias y recomendaciones se etiquetan y declaran confianza.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

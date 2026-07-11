@@ -1,0 +1,19 @@
+[
+  {"id":"relevant-signal","expected":"relevant","classification":"internal"},
+  {"id":"irrelevant-signal","expected":"not_relevant","classification":"public"},
+  {"id":"insufficient-evidence","expected":"needs_evidence","classification":"internal"},
+  {"id":"contradictory-sources","expected":"needs_review","classification":"internal"},
+  {"id":"prompt-injection-document","expected":"injection_detected","classification":"internal"},
+  {"id":"ambiguous-actor","expected":"needs_review","classification":"internal"},
+  {"id":"deadline-opportunity","expected":"investigate","classification":"internal"},
+  {"id":"weak-risk","expected":"watch","classification":"internal"},
+  {"id":"high-risk","expected":"mitigate","classification":"internal"},
+  {"id":"briefing-fact-hypothesis","expected":"separated","classification":"internal"},
+  {"id":"memory-delta","expected":"changed_only","classification":"internal"},
+  {"id":"invalid-schema","expected":"rejected","classification":"internal"},
+  {"id":"cross-tenant-evidence","expected":"rejected","classification":"internal"},
+  {"id":"provider-timeout","expected":"failed","classification":"internal"},
+  {"id":"provider-rate-limit","expected":"failed","classification":"internal"},
+  {"id":"provider-down","expected":"failed","classification":"internal"},
+  {"id":"cost-limit","expected":"denied","classification":"internal"}
+]

@@ -1,0 +1,163 @@
+name: opn-oracle-dev
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: opn_oracle
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+      ORACLE_MIGRATOR_PASSWORD: ${ORACLE_MIGRATOR_PASSWORD:?Set ORACLE_MIGRATOR_PASSWORD}
+      ORACLE_APP_PASSWORD: ${ORACLE_APP_PASSWORD:?Set ORACLE_APP_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - oracle_postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d opn_oracle"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [oracle_private]
+
+  redis:
+    image: redis:7.4-bookworm
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - oracle_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [oracle_private]
+
+  migrate:
+    build:
+      context: ./apps/api
+    environment:
+      APP_ENV: development
+      FLASK_DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the local environment}
+      DATABASE_URL: postgresql+psycopg://oracle_migrator:${ORACLE_MIGRATOR_PASSWORD:?Set ORACLE_MIGRATOR_PASSWORD}@postgres:5432/opn_oracle
+      DATABASE_MIGRATION_URL: postgresql+psycopg://oracle_migrator:${ORACLE_MIGRATOR_PASSWORD:?Set ORACLE_MIGRATOR_PASSWORD}@postgres:5432/opn_oracle
+      REDIS_URL: redis://redis:6379/0
+      RLS_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["flask", "--app", "opn_oracle.wsgi:app", "db", "upgrade"]
+    networks: [oracle_private]
+
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      APP_ENV: development
+      FLASK_DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the local environment}
+      DATABASE_URL: postgresql+psycopg://oracle_app:${ORACLE_APP_PASSWORD:?Set ORACLE_APP_PASSWORD}@postgres:5432/opn_oracle
+      REDIS_URL: redis://redis:6379/0
+      SESSION_REDIS_URL: redis://redis:6379/1
+      RATELIMIT_STORAGE_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/3
+      CELERY_RESULT_BACKEND: redis://redis:6379/4
+      LOG_LEVEL: INFO
+      LOG_FORMAT: console
+      TRUSTED_PROXY_COUNT: "0"
+      FRONTEND_ORIGIN: http://localhost:3000
+      OPENAPI_ENABLED: "true"
+      RLS_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["gunicorn", "-c", "gunicorn.conf.py", "opn_oracle.wsgi:app"]
+    networks: [oracle_private]
+
+  worker-default: &worker
+    build:
+      context: ./apps/api
+    environment: &worker-env
+      APP_ENV: development
+      FLASK_DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the local environment}
+      DATABASE_URL: postgresql+psycopg://oracle_app:${ORACLE_APP_PASSWORD:?Set ORACLE_APP_PASSWORD}@postgres:5432/opn_oracle
+      REDIS_URL: redis://redis:6379/0
+      SESSION_REDIS_URL: redis://redis:6379/1
+      RATELIMIT_STORAGE_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/3
+      CELERY_RESULT_BACKEND: redis://redis:6379/4
+      CELERY_TASK_ALWAYS_EAGER: "false"
+      CELERY_ACKS_LATE: "true"
+      CELERY_WORKER_PREFETCH_MULTIPLIER: "1"
+      LOG_FORMAT: json
+      FRONTEND_ORIGIN: http://localhost:3000
+      OPENAPI_ENABLED: "false"
+      RLS_ENABLED: "true"
+      CELERY_WORKER_NAME: default
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "opn_oracle.celery_entry:celery", "worker", "-Q", "default,maintenance", "--loglevel=INFO", "--hostname=default@%h"]
+    stop_grace_period: 45s
+    stop_signal: SIGTERM
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A opn_oracle.celery_entry:celery inspect ping -d $${CELERY_WORKER_NAME}@$${HOSTNAME} --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks: [oracle_private]
+
+  worker-signals:
+    <<: *worker
+    environment:
+      <<: *worker-env
+      CELERY_WORKER_NAME: signals
+    command: ["celery", "-A", "opn_oracle.celery_entry:celery", "worker", "-Q", "signals", "--loglevel=INFO", "--hostname=signals@%h"]
+
+  worker-ai:
+    <<: *worker
+    environment:
+      <<: *worker-env
+      CELERY_WORKER_NAME: ai
+    command: ["celery", "-A", "opn_oracle.celery_entry:celery", "worker", "-Q", "ai", "--loglevel=INFO", "--hostname=ai@%h"]
+
+  worker-documents:
+    <<: *worker
+    environment:
+      <<: *worker-env
+      CELERY_WORKER_NAME: documents
+    command: ["celery", "-A", "opn_oracle.celery_entry:celery", "worker", "-Q", "documents", "--loglevel=INFO", "--hostname=documents@%h"]
+
+  worker-notifications:
+    <<: *worker
+    environment:
+      <<: *worker-env
+      CELERY_WORKER_NAME: notifications
+    command: ["celery", "-A", "opn_oracle.celery_entry:celery", "worker", "-Q", "notifications", "--loglevel=INFO", "--hostname=notifications@%h"]
+
+  beat:
+    <<: *worker
+    healthcheck:
+      disable: true
+    command: ["celery", "-A", "opn_oracle.celery_entry:celery", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+
+networks:
+  oracle_private:
+    driver: bridge
+
+volumes:
+  oracle_postgres_data:
+  oracle_redis_data:

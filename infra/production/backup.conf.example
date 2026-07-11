@@ -1,0 +1,8 @@
+# Configuración no secreta del agente host. Instalar como /etc/opn-oracle/backup.conf.
+ORACLE_ENV_FILE=/etc/opn-oracle/oracle.env
+ORACLE_RELEASE_DIR=/opt/opn-oracle/current
+ORACLE_BACKUP_ROOT=/var/backups/opn-oracle
+ORACLE_RESTORE_EVIDENCE_ROOT=/var/backups/opn-oracle/restore-evidence
+ORACLE_RETENTION_DAYS=30
+ORACLE_BACKUP_WORKER_ID=oracle-production-backup-agent
+

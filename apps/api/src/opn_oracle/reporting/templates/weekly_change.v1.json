@@ -1,0 +1,13 @@
+{
+  "key": "weekly_change",
+  "version": "v1",
+  "label": "Resumen semanal: qué ha cambiado",
+  "report_type": "weekly_change",
+  "input_contract": {"required": ["dossier_id", "period_start", "period_end"], "properties": {"period_start": "date", "period_end": "date"}},
+  "sections": ["Cobertura", "Señales nuevas", "Qué cambió", "Impacto estratégico", "Qué hacer", "Pendientes"],
+  "evidence_policy": "Cada cambio confirmado cita evidence_ids y periodo; indicios pendientes e interpretaciones se etiquetan explícitamente.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

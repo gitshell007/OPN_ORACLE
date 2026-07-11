@@ -1,0 +1,13 @@
+[Unit]
+Description=Process OPN Oracle backup requests every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=opn-oracle-backup-agent.service
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,13 @@
+{
+  "key": "opportunity",
+  "version": "v1",
+  "label": "Informe de oportunidad",
+  "report_type": "opportunity",
+  "input_contract": {"required": ["dossier_id", "opportunity_id"], "properties": {"opportunity_id": "uuid", "audience": "string?"}},
+  "sections": ["Descripción", "Encaje estratégico", "Valor", "Requisitos", "Actores", "Riesgos", "Plazo", "Plan de acción"],
+  "evidence_policy": "Encaje, requisitos, plazos y valor deben citar evidence_ids permitidos; incógnitas quedan como preguntas abiertas.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

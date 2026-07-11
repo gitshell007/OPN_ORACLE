@@ -1,0 +1,369 @@
+name: opn-oracle-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app-environment: &app-environment
+  APP_ENV: production
+  FLASK_DEBUG: "false"
+  SECRET_KEY_FILE: /run/secrets/oracle_secret_key
+  REDIS_URL_FILE: /run/secrets/oracle_redis_url
+  SESSION_REDIS_URL_FILE: /run/secrets/oracle_session_redis_url
+  RATELIMIT_STORAGE_URL_FILE: /run/secrets/oracle_ratelimit_redis_url
+  CELERY_BROKER_URL_FILE: /run/secrets/oracle_celery_broker_url
+  CELERY_RESULT_BACKEND_FILE: /run/secrets/oracle_celery_result_url
+  GRAPH_CLIENT_SECRET_FILE: /run/secrets/oracle_graph_client_secret
+  RLS_ENABLED: "true"
+  LOG_LEVEL: INFO
+  LOG_FORMAT: json
+  TRUSTED_PROXY_COUNT: "1"
+  FRONTEND_ORIGIN: https://oracle.opnconsultoria.com
+  OPENAPI_ENABLED: "false"
+  APP_VERSION: ${ORACLE_APP_VERSION:?Set ORACLE_APP_VERSION in the Compose env file}
+  RELEASE: ${ORACLE_RELEASE:?Set ORACLE_RELEASE to an immutable release identifier}
+  HSTS_ENABLED: "false"
+  METRICS_ENABLED: "false"
+  SQLALCHEMY_POOL_SIZE: "3"
+  SQLALCHEMY_MAX_OVERFLOW: "2"
+  SQLALCHEMY_POOL_TIMEOUT_SECONDS: "2"
+  DEPENDENCY_TIMEOUT_SECONDS: "2"
+  MAIL_BACKEND: graph
+  GRAPH_TENANT_ID: 3b953a25-3fba-4d54-b6d0-38961d1d0141
+  GRAPH_CLIENT_ID: 326f998d-6d85-4ad6-842c-e7084cc4c7a4
+  GRAPH_SENDER_MAILBOX: ${ORACLE_GRAPH_SENDER_MAILBOX:?Set ORACLE_GRAPH_SENDER_MAILBOX}
+  GRAPH_TIMEOUT_SECONDS: "10"
+  CELERY_TASK_ALWAYS_EAGER: "false"
+  CELERY_TASK_EAGER_PROPAGATES: "false"
+  CELERY_ACKS_LATE: "true"
+  CELERY_WORKER_PREFETCH_MULTIPLIER: "1"
+  CELERY_TASK_SOFT_TIME_LIMIT: "270"
+  CELERY_TASK_TIME_LIMIT: "300"
+  CELERY_RESULT_EXPIRES: "3600"
+  SIGNAL_AVANZA_ENABLED: "false"
+  SIGNAL_AVANZA_MODE: mock
+  SIGNAL_AVANZA_CONTRACT_CONFIRMED: "false"
+  AI_ENABLED: "false"
+  AI_MODE: disabled
+  DOCUMENTS_ENABLED: "false"
+  DOCUMENT_STORAGE_BACKEND: local
+  DOCUMENT_LOCAL_ROOT: /tmp/oracle-storage
+  DOCUMENT_SCANNER_MODE: noop
+  REPORT_PDF_MODE: disabled
+  BACKUP_STORAGE_PATH: /var/backups/opn-oracle
+  BACKUP_RETENTION_DAYS: "30"
+
+x-runtime-secrets: &runtime-secrets
+  - oracle_secret_key
+  - oracle_database_url
+  - oracle_redis_url
+  - oracle_session_redis_url
+  - oracle_ratelimit_redis_url
+  - oracle_celery_broker_url
+  - oracle_celery_result_url
+  - oracle_graph_client_secret
+
+x-app-hardening: &app-hardening
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=96m
+  stop_signal: SIGTERM
+  stop_grace_period: 45s
+  logging: *default-logging
+  networks:
+    - oracle_internal
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: opn_oracle
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      ORACLE_MIGRATOR_PASSWORD_FILE: /run/secrets/postgres_migrator_password
+      ORACLE_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    secrets:
+      - postgres_admin_password
+      - postgres_migrator_password
+      - postgres_app_password
+    volumes:
+      - oracle_postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    shm_size: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d opn_oracle"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 768m
+    mem_reservation: 384m
+    cpus: 1.25
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks:
+      - oracle_internal
+
+  redis:
+    image: redis:7.4-bookworm
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/oracle-redis-entrypoint.sh"]
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
+    volumes:
+      - oracle_redis_data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./infra/redis/oracle-entrypoint.sh:/usr/local/bin/oracle-redis-entrypoint.sh:ro
+    tmpfs:
+      - /run/oracle-redis:rw,noexec,nosuid,nodev,size=1m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --user oracle --no-auth-warning ping | grep -qx PONG
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    mem_limit: 384m
+    mem_reservation: 192m
+    cpus: 0.50
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks:
+      - oracle_internal
+
+  migrate:
+    <<: *app-hardening
+    profiles: [release]
+    image: opn-oracle-api:${ORACLE_RELEASE}
+    environment:
+      <<: *app-environment
+      DATABASE_URL_FILE: /run/secrets/oracle_database_migration_url
+      DATABASE_MIGRATION_URL_FILE: /run/secrets/oracle_database_migration_url
+    secrets:
+      - oracle_secret_key
+      - oracle_database_migration_url
+      - oracle_redis_url
+      - oracle_session_redis_url
+      - oracle_ratelimit_redis_url
+      - oracle_celery_broker_url
+      - oracle_celery_result_url
+      - oracle_graph_client_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["flask", "--app", "opn_oracle.wsgi:app", "db", "upgrade"]
+    healthcheck:
+      disable: true
+    restart: "no"
+    mem_limit: 384m
+    mem_reservation: 128m
+    cpus: 0.50
+    pids_limit: 128
+
+  api:
+    <<: *app-hardening
+    image: opn-oracle-api:${ORACLE_RELEASE}
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      DATABASE_URL_FILE: /run/secrets/oracle_database_url
+      GUNICORN_WORKERS: "2"
+      GUNICORN_THREADS: "2"
+      GUNICORN_TIMEOUT: "30"
+    secrets: *runtime-secrets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    command: ["gunicorn", "-c", "gunicorn.conf.py", "opn_oracle.wsgi:app"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 640m
+    mem_reservation: 320m
+    cpus: 1.00
+    pids_limit: 256
+    networks:
+      - oracle_edge
+      - oracle_internal
+
+  web:
+    image: opn-oracle-web:${ORACLE_RELEASE}
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    read_only: true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/app').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 0.75
+    pids_limit: 192
+    logging: *default-logging
+    networks:
+      - oracle_edge
+
+  worker-core:
+    <<: *app-hardening
+    image: opn-oracle-api:${ORACLE_RELEASE}
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      DATABASE_URL_FILE: /run/secrets/oracle_database_url
+      CELERY_WORKER_NAME: core
+    secrets: *runtime-secrets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - celery
+      - -A
+      - opn_oracle.celery_entry:celery
+      - worker
+      - -Q
+      - default,maintenance,signals,documents,notifications
+      - --concurrency=1
+      - --loglevel=INFO
+      - --hostname=core@%h
+      - --without-gossip
+      - --without-mingle
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A opn_oracle.celery_entry:celery inspect ping -d core@$${HOSTNAME} --timeout 5 | grep -q pong
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 768m
+    mem_reservation: 320m
+    cpus: 1.00
+    pids_limit: 256
+    networks:
+      - oracle_egress
+      - oracle_internal
+
+  beat:
+    <<: *app-hardening
+    image: opn-oracle-api:${ORACLE_RELEASE}
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      DATABASE_URL_FILE: /run/secrets/oracle_database_url
+    secrets: *runtime-secrets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - celery
+      - -A
+      - opn_oracle.celery_entry:celery
+      - beat
+      - --loglevel=INFO
+      - --schedule=/tmp/celerybeat-schedule
+    healthcheck:
+      disable: true
+    mem_limit: 192m
+    mem_reservation: 96m
+    cpus: 0.25
+    pids_limit: 128
+
+networks:
+  oracle_edge:
+    driver: bridge
+  oracle_egress:
+    driver: bridge
+  oracle_internal:
+    driver: bridge
+    internal: true
+
+volumes:
+  oracle_postgres_data:
+  oracle_redis_data:
+
+secrets:
+  postgres_admin_password:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/postgres_admin_password
+  postgres_migrator_password:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/postgres_migrator_password
+  postgres_app_password:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/postgres_app_password
+  redis_password:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/redis_password
+  oracle_secret_key:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_secret_key
+  oracle_database_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_database_url
+  oracle_database_migration_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_database_migration_url
+  oracle_redis_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_redis_url
+  oracle_session_redis_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_session_redis_url
+  oracle_ratelimit_redis_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_ratelimit_redis_url
+  oracle_celery_broker_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_celery_broker_url
+  oracle_celery_result_url:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_celery_result_url
+  oracle_graph_client_secret:
+    file: ${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}/oracle_graph_client_secret

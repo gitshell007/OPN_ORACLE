@@ -1,0 +1,236 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  listDossier: vi.fn(),
+  templates: vi.fn(),
+  generate: vi.fn(),
+  get: vi.fn(),
+  retry: vi.fn(),
+  review: vi.fn(),
+  publish: vi.fn(),
+  downloadLink: vi.fn(),
+  dossiers: vi.fn(),
+  job: vi.fn(),
+  exportCreate: vi.fn(),
+  exportGet: vi.fn(),
+  push: vi.fn(),
+}));
+
+vi.mock("@oracle/api-client", () => {
+  class ApiError extends Error {
+    constructor(
+      public status: number,
+      public problem: { detail: string },
+    ) {
+      super(problem.detail);
+    }
+  }
+  return {
+    ApiError,
+    api: {
+      reports: {
+        list: mocks.list,
+        listDossier: mocks.listDossier,
+        templates: mocks.templates,
+        generate: mocks.generate,
+        get: mocks.get,
+        retry: mocks.retry,
+        review: mocks.review,
+        publish: mocks.publish,
+        downloadLink: mocks.downloadLink,
+      },
+      dossiers: { list: mocks.dossiers },
+      jobs: { get: mocks.job },
+      exports: { create: mocks.exportCreate, get: mocks.exportGet },
+    },
+  };
+});
+vi.mock("@/components/auth/auth-boundary", () => ({
+  PermissionGate: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({ id: "report-1" }),
+  useRouter: () => ({ push: mocks.push }),
+}));
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+import { ReportLibrary } from "./report-library";
+import { ReportViewer } from "./report-viewer";
+
+const template = {
+  key: "executive_dossier",
+  version: "v1",
+  label: "Informe ejecutivo de expediente",
+  report_type: "executive",
+  input_contract: {
+    required: ["dossier_id"],
+    properties: { audience: "string?" },
+  },
+  sections: ["Estado actual"],
+  evidence_policy: "Cada hecho material debe citar evidencia.",
+  output_schema: "ReportOutput/v1",
+  permissions: {},
+  formats: ["html", "pdf", "json"],
+  sha256: "abc",
+};
+
+const baseReport = {
+  id: "report-1",
+  dossier_id: "11111111-1111-4111-8111-111111111111",
+  title: "Informe ejecutivo",
+  status: "ready" as const,
+  report_type: "executive",
+  template_key: "executive_dossier",
+  template_version: "v1",
+  generation_version: 1,
+  classification: "internal" as const,
+  confidentiality_label: "Uso interno",
+  job_id: null,
+  parent_report_id: null,
+  ready_at: "2026-07-11T01:00:00Z",
+  reviewed_at: null,
+  published_at: null,
+  error_code: null,
+  version: 2,
+  revision: {
+    id: "revision-1",
+    content: {
+      title: "Informe ejecutivo",
+      executive_summary: "El expediente conserva impulso.",
+      confidence: 82,
+      sections: [
+        {
+          heading: "Estado actual",
+          paragraphs: [
+            {
+              text: "Existe una señal material confirmada.",
+              kind: "fact",
+              confidence: 91,
+              evidence_ids: ["evidence-1"],
+            },
+          ],
+        },
+      ],
+      open_questions: ["¿Qué cambia la próxima semana?"],
+      warnings: [],
+    },
+  },
+  artifacts: [
+    {
+      id: "artifact-1",
+      format: "html",
+      status: "available",
+      byte_size: 1200,
+      checksum: "checksum",
+      media_type: "text/html",
+    },
+  ],
+  reviews: [],
+  evidence: [
+    {
+      id: "evidence-1",
+      extract: "Extracto original trazable.",
+      locator: "página 2",
+      source_label: "Documento base",
+      classification: "internal",
+    },
+  ],
+  created_at: "2026-07-11T00:00:00Z",
+  updated_at: "2026-07-11T01:00:00Z",
+};
+
+describe("reports Vector", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.list.mockResolvedValue({ data: [], meta: { page: 1, size: 100, total: 0 } });
+    mocks.listDossier.mockResolvedValue({ data: [], meta: { page: 1, size: 100, total: 0 } });
+    mocks.templates.mockResolvedValue({ items: [template], capabilities: { pdf: false } });
+    mocks.dossiers.mockResolvedValue({
+      data: [
+        {
+          id: baseReport.dossier_id,
+          title: "Expediente Delta",
+          description: "",
+          dossier_type: "project",
+          status: "active",
+          strategic_goal: "",
+          health_score: 70,
+          opportunity_score: 80,
+          risk_score: 20,
+          updated_at: "2026-07-11T00:00:00Z",
+        },
+      ],
+      meta: { total: 1 },
+    });
+    mocks.generate.mockResolvedValue({
+      report: { ...baseReport, status: "generating", job_id: null, revision: null, artifacts: [], evidence: [] },
+      job_id: "job-1",
+      replayed: false,
+    });
+    mocks.get.mockResolvedValue(baseReport);
+    mocks.review.mockResolvedValue({
+      review_id: "review-1",
+      report: { ...baseReport, status: "reviewed", version: 3 },
+    });
+    mocks.publish.mockResolvedValue({ ...baseReport, status: "published", version: 4 });
+    mocks.downloadLink.mockResolvedValue({ url: "/api/v1/download?signed=1", expires_at: "2026-07-11T02:00:00Z" });
+  });
+  afterEach(cleanup);
+
+  it("muestra vacío y genera desde el contrato de plantilla sin ofrecer PDF deshabilitado", async () => {
+    render(<ReportLibrary routeBase="/app" />);
+    expect(await screen.findByText("Aún no hay informes")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Generar primer informe" }));
+    expect(screen.getByRole("dialog", { name: "Crear informe" })).toBeVisible();
+    expect(screen.getByLabelText(/PDF/i)).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Expediente"), {
+      target: { value: baseReport.dossier_id },
+    });
+    fireEvent.change(screen.getByLabelText("Audiencia"), {
+      target: { value: "Comité de dirección" },
+    });
+    fireEvent.change(screen.getByLabelText("Clasificación"), {
+      target: { value: "public" },
+    });
+    expect(screen.getByLabelText("Etiqueta de confidencialidad")).toHaveValue(
+      "Público",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Generar informe" }));
+    await waitFor(() =>
+      expect(mocks.generate).toHaveBeenCalledWith(
+        baseReport.dossier_id,
+        expect.objectContaining({
+          template_key: "executive_dossier",
+          options: expect.objectContaining({
+            audience: "Comité de dirección",
+            classification: "public",
+            confidentiality_label: "Público",
+            formats: ["html", "json"],
+          }),
+        }),
+        expect.stringContaining("report-"),
+      ),
+    );
+  });
+
+  it("abre citas, registra revisión, publica y solicita descarga firmada", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    render(<ReportViewer reportId="report-1" routeBase="/app" />);
+    expect(await screen.findByText("El expediente conserva impulso.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Abrir evidencia 1" }));
+    expect(screen.getByText("Extracto original trazable.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar evidencia" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar revisión" }));
+    await waitFor(() => expect(mocks.review).toHaveBeenCalledWith("report-1", expect.objectContaining({ decision: "approved", revision_id: "revision-1", version: 2 })));
+    fireEvent.click(await screen.findByRole("button", { name: "Publicar" }));
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith("report-1", 3));
+    fireEvent.click(screen.getByRole("button", { name: "Descargar artefacto html" }));
+    await waitFor(() => expect(mocks.downloadLink).toHaveBeenCalledWith("report-1", "artifact-1"));
+    expect(click).toHaveBeenCalled();
+  });
+});

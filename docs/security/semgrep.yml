@@ -1,0 +1,46 @@
+rules:
+  - id: oracle-python-dynamic-code-execution
+    languages: [python]
+    severity: ERROR
+    message: Dynamic eval/exec is forbidden in application code.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+    paths:
+      include: [/apps/api/src]
+
+  - id: oracle-python-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess with shell=True requires a dedicated security review.
+    pattern-either:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+      - pattern: $FUNC(..., shell=True, ...)
+    paths:
+      include: [/apps/api/src]
+
+  - id: oracle-python-unsafe-yaml-load
+    languages: [python]
+    severity: ERROR
+    message: Use yaml.safe_load for untrusted input.
+    patterns:
+      - pattern: yaml.load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+    paths:
+      include: [/apps/api/src]
+
+  - id: oracle-react-dangerous-html
+    languages: [typescript]
+    severity: ERROR
+    message: dangerouslySetInnerHTML is forbidden without an approved sanitizer boundary.
+    pattern: <$ELEMENT ... dangerouslySetInnerHTML={...} ... />
+    paths:
+      include: [src, packages]
+
+  - id: oracle-public-secret-environment
+    languages: [typescript]
+    severity: ERROR
+    message: A public Next.js environment variable must never be named as a secret or credential.
+    pattern-regex: 'NEXT_PUBLIC_[A-Z0-9_]*(SECRET|PASSWORD|TOKEN|CREDENTIAL|PRIVATE_KEY)[A-Z0-9_]*'
+    paths:
+      include: [src, packages, next.config.ts]

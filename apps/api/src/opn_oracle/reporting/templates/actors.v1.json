@@ -1,0 +1,13 @@
+{
+  "key": "actors",
+  "version": "v1",
+  "label": "Informe de actores",
+  "report_type": "actors",
+  "input_contract": {"required": ["dossier_id"], "properties": {"actor_ids": "uuid[]?", "relationship_scope": "string?"}},
+  "sections": ["Mapa de actores", "Roles", "Influencia", "Relaciones confirmadas", "Afinidades inferidas", "Movimientos recientes", "Siguientes acciones"],
+  "evidence_policy": "Roles, relaciones y movimientos citan evidence_ids; afinidad o accesibilidad se presentan solo como inferencia y nunca como atributo sensible.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

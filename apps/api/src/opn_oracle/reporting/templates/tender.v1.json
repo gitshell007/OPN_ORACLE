@@ -1,0 +1,13 @@
+{
+  "key": "tender",
+  "version": "v1",
+  "label": "Informe de convocatoria o licitación",
+  "report_type": "tender",
+  "input_contract": {"required": ["dossier_id"], "properties": {"opportunity_id": "uuid?", "deadline": "date?"}},
+  "sections": ["Resumen", "Entidad convocante", "Requisitos", "Elegibilidad", "Documentación", "Encaje", "Riesgos", "Go/no-go"],
+  "evidence_policy": "Entidad, requisitos, elegibilidad y deadline solo se presentan como hechos con evidence_ids; go/no-go es recomendación humana revisable.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {"generate": "report.generate", "read": "report.read", "review": "report.review", "publish": "report.publish"},
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: contrato inicial trazable"]
+}

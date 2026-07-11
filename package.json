@@ -1,0 +1,52 @@
+{
+  "name": "opn-oracle-ui-prototypes",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "quality:scan": "bash scripts/run-quality-scans.sh",
+    "api:openapi": "cd apps/api && uv run flask --app opn_oracle.wsgi:app export-openapi ../../docs/api/openapi.json",
+    "api:client:generate": "openapi-typescript docs/api/openapi.json -o packages/api-client/src/generated/schema.ts",
+    "api:client:check": "tmp=$(mktemp) && trap 'rm -f $tmp' EXIT && openapi-typescript docs/api/openapi.json -o $tmp >/dev/null && cmp -s $tmp packages/api-client/src/generated/schema.ts"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "latest",
+    "@radix-ui/react-dialog": "latest",
+    "@radix-ui/react-dropdown-menu": "latest",
+    "@radix-ui/react-popover": "latest",
+    "@radix-ui/react-switch": "latest",
+    "@radix-ui/react-tabs": "latest",
+    "@tanstack/react-table": "latest",
+    "lucide-react": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-hook-form": "latest",
+    "sonner": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "jsdom": "latest",
+    "openapi-typescript": "7.10.1",
+    "typescript": "latest",
+    "vitest": "latest"
+  },
+  "overrides": {
+    "postcss": "8.5.16"
+  }
+}
