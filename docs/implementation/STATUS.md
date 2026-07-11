@@ -474,3 +474,20 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   por no estar definidos PostgreSQL/Redis de pruebas; el comando aislado terminó únicamente por el
   umbral global de cobertura. La validación equivalente se ejecutó contra los dos servicios reales
   de producción y quedó satisfactoria.
+
+## Proveedores gratuitos temporales y prueba de búsqueda
+
+- Signal queda temporalmente fijado a IA local sin coste: Ollama GPU18 como primario y Ollama Titan
+  GPU17 como respaldo. Para `opn-oracle`, el modelo general es `qwen3.5:9b`, el respaldo
+  `qwen3.6:27b`, los lotes económicos usan `qwen2.5:7b-instruct` y los embeddings
+  `nomic-embed-text:latest`. No se permiten overrides de proveedor/modelo desde el consumidor.
+- La cadena de búsqueda exclusiva de `opn-oracle` es `searxng → ddg_html → ddg_lite`; no contiene
+  Brave ni Tavily. SearXNG es la instancia autoalojada accesible mediante el túnel privado del host.
+  DuckDuckGo queda solo como último recurso porque su protección anti-bot bloquea con frecuencia la
+  IP de producción.
+- Prueba productiva aislada realizada con un consumidor efímero, eliminado al finalizar: la consulta
+  `site:boe.es subvenciones digitalización empresas 2026` devolvió 5 resultados mediante SearXNG.
+  El análisis de control respondió HTTP 200 con `ollama/qwen3.5:9b`, sin fallback y sin coste de API.
+- Los servicios `opn-signal-api`, `opn-signal-worker` y `opn-signal-beat` se reiniciaron y quedaron
+  activos. La configuración anterior se conservó en el host como
+  `/opt/apps/opn_signal/settings.env.pre-ollama-20260711T195228Z` con modo `0600`.

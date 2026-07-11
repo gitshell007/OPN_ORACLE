@@ -43,7 +43,9 @@
 
 ## IA y compliance
 
-- Proveedor/modelos permitidos, región de datos y clasificación máxima autorizada.
+- Pendiente definir la política IA permanente, región de datos y clasificación máxima autorizada.
+  Mientras tanto producción usa exclusivamente Ollama/Ollama Titan propios para `opn-oracle` y para
+  el análisis del pipeline de búsquedas; no se autoriza fallback cloud.
 - Política de redacción/PII, retención de prompts y respuestas, presupuesto y kill switch.
 - Confirmar si la IA arranca deshabilitada en producción hasta aprobación formal.
 - Confirmar requisitos ENS y retención/auditoría aplicables al primer release.
