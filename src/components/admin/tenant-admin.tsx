@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { productAuditActionLabel, productStatusLabel } from "@/lib/product-copy";
 
 type Member = components["schemas"]["MemberResponse"];
 type Role = components["schemas"]["RoleResponse"];
@@ -220,7 +221,7 @@ export function MembersAdmin() {
                       <span
                         className={`status ${member.status === "active" ? "active" : ""}`}
                       >
-                        {member.status}
+                        {productStatusLabel(member.status)}
                       </span>
                     </td>
                     <td>
@@ -382,9 +383,9 @@ export function TenantAudit() {
                   <tr key={item.id}>
                     <td>{new Date(item.created_at).toLocaleString("es-ES")}</td>
                     <td>
-                      <code>{item.action}</code>
+                      {productAuditActionLabel(item.action)}
                     </td>
-                    <td>{item.result}</td>
+                    <td>{productStatusLabel(item.result)}</td>
                   </tr>
                 ))}
               </tbody>

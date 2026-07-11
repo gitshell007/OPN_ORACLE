@@ -20,6 +20,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminNav } from "@/components/admin/tenant-admin";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { productStatusLabel } from "@/lib/product-copy";
 
 type HealthState = "configured" | "healthy" | "degraded" | "error";
 
@@ -286,7 +287,7 @@ export function SignalAdmin() {
         },
       }));
     } catch (reason) {
-      setError(message(reason, "El job no admite reintento."));
+      setError(message(reason, "El proceso no admite reintento."));
     }
   }
 
@@ -346,12 +347,12 @@ export function SignalAdmin() {
                   })
                 }
               >
-                <option value="mock">Mock seguro</option>
-                <option value="http">HTTP confirmado</option>
+                <option value="mock">Simulación segura</option>
+                <option value="http">Conexión remota confirmada</option>
               </select>
             </label>
             <label className="field">
-              <span>URL base</span>
+              <span>Dirección base (URL)</span>
               <input
                 type="url"
                 value={create.base_url}
@@ -359,7 +360,7 @@ export function SignalAdmin() {
               />
             </label>
             <label className="field">
-              <span>Token API</span>
+              <span>Clave de acceso</span>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -368,7 +369,7 @@ export function SignalAdmin() {
               />
             </label>
             <label className="field">
-              <span>Secreto webhook</span>
+              <span>Clave de recepción automática</span>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -401,7 +402,7 @@ export function SignalAdmin() {
           <div className="signal-empty">
             <ShieldCheck size={25} />
             <strong>Signal Avanza no está configurado</strong>
-            <p>Crea una conexión mock o HTTP cuando el contrato esté confirmado.</p>
+            <p>Crea una conexión de simulación o una conexión remota cuando el contrato esté confirmado.</p>
           </div>
         ) : (
           <div className="connection-grid">
@@ -413,7 +414,7 @@ export function SignalAdmin() {
                     <span className={`health-dot ${state}`} aria-hidden="true" />
                     <div>
                       <strong>{connection.name}</strong>
-                      <small>{connection.adapter_mode.toUpperCase()} · {connection.api_version}</small>
+                      <small>{connection.adapter_mode === "mock" ? "Simulación" : "Conexión remota"} · contrato {connection.api_version}</small>
                     </div>
                     <span className={`health-badge ${state}`} data-status={state}>
                       {healthLabels[state]}
@@ -422,7 +423,7 @@ export function SignalAdmin() {
                   <dl>
                     <div><dt>Última salud</dt><dd>{when(connection.last_health_at)}</dd></div>
                     <div><dt>Último éxito</dt><dd>{when(connection.last_success_at)}</dd></div>
-                    <div><dt>Circuito</dt><dd>{connection.circuit_state}</dd></div>
+                    <div><dt>Circuito</dt><dd>{productStatusLabel(connection.circuit_state)}</dd></div>
                   </dl>
                   {connection.last_error && (
                     <p className="connection-error" role="status">{connection.last_error}</p>
@@ -470,8 +471,8 @@ export function SignalAdmin() {
                             })
                           }
                         >
-                          <option value="api_token">Token API</option>
-                          <option value="webhook_secret">Secreto webhook</option>
+                          <option value="api_token">Clave de acceso</option>
+                          <option value="webhook_secret">Clave de recepción automática</option>
                         </select>
                       </label>
                       <label className="field">
@@ -518,12 +519,12 @@ export function SignalAdmin() {
         </header>
         <form className="monitor-lookup" onSubmit={loadMonitors}>
           <label className="field">
-            <span>ID de expediente</span>
+            <span>Identificador del expediente</span>
             <input
               required
               value={dossierId}
               onChange={(event) => setDossierId(event.target.value)}
-              placeholder="UUID del expediente"
+              placeholder="Identificador único del expediente"
             />
           </label>
           <button className="vector-secondary" disabled={busy === "load-monitors"}>
@@ -624,12 +625,12 @@ export function SignalAdmin() {
                         {monitor.last_error && <span className="monitor-error">{monitor.last_error}</span>}
                       </td>
                       <td>
-                        <span className={`status ${monitor.status}`}>{monitor.status}</span>
-                        <small>Remoto: {monitor.observed_status}</small>
+                        <span className={`status ${monitor.status}`}>{productStatusLabel(monitor.status)}</span>
+                        <small>Estado observado: {productStatusLabel(monitor.observed_status)}</small>
                       </td>
                       <td>
                         {when(monitor.last_synced_at)}
-                        {tracked && <small role="status">Job: {tracked.status}</small>}
+                        {tracked && <small role="status">Proceso: {productStatusLabel(tracked.status)}</small>}
                       </td>
                       <td>
                         <div className="row-actions signal-row-actions">
@@ -650,7 +651,7 @@ export function SignalAdmin() {
                           >{monitor.status === "paused" ? <Play size={15} /> : <Pause size={15} />}</button>
                           {tracked?.status === "failed" && (
                             <button className="text-action" onClick={() => void retryJob(tracked.id)}>
-                              Reintentar job
+                              Reintentar proceso
                             </button>
                           )}
                         </div>

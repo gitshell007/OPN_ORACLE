@@ -56,8 +56,7 @@ export function TenantRoles() {
               <ShieldCheck size={20} aria-hidden="true" />
               <div>
                 <h2>{role.name}</h2>
-                <code>{role.key}</code>
-                <p>{role.description || "Rol administrado por la política RBAC de Oracle."}</p>
+                <p>{(role.description || "Rol protegido por la política de permisos de Oracle.").replaceAll("tenant", "organización").replaceAll("briefings", "documentos preparatorios").replaceAll("memberships", "accesos")}</p>
               </div>
             </article>
           ))

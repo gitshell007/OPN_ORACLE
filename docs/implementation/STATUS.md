@@ -46,6 +46,11 @@ briefing se sustituyeron en las rutas productivas por microcopy comprensible.
 El QA real con el owner detectó además el rol crudo `owner` en el pie de navegación y
 el estado transitorio `portfolio`; ambos se corrigieron a `Propietario` y `cartera`.
 
+Segunda auditoría lingüística: se retiraron de las superficies productivas las referencias
+residuales a backend, endpoint, score, RBAC, tenant, job, mock, probes, slug y checksum. Los
+estados, planes, acciones de auditoría, monitores y revisiones documentales usan ahora etiquetas
+de negocio; URL se conserva únicamente como aclaración universal junto a «dirección base».
+
 ## Baseline conocido
 
 - Frontend Next.js/React/TypeScript ejecutable en la raíz.
@@ -431,5 +436,16 @@ el estado transitorio `portfolio`; ambos se corrigieron a `Propietario` y `carte
   frontend lint/tipos/build y **67/67**; ShellCheck y test estático de infraestructura correctos.
 
 ## Política de actualización
+
+## Cierre de auditoría lingüística de interfaz
+
+- Segunda revisión transversal de Vector completada: se sustituyeron códigos y anglicismos visibles
+  de estados, planes, acciones de auditoría, roles, conexiones, procesos, puntuaciones, documentos y
+  plataforma por terminología de negocio en español. `URL` se conserva únicamente cuando identifica
+  una dirección web y se acompaña de una etiqueta comprensible.
+- Calidad frontend: TypeScript, ESLint, **72/72 pruebas** y build optimizado de Next.js correctos.
+- Release inmutable activo: `20260711T190709Z-spanish-terminology`; checksums, seis servicios, HTTPS,
+  readiness, worker y beat verificados. Smoke autenticado en Inicio y Signal Avanza confirmó la
+  traducción de procesos, estados e identificadores sin alertas visibles de aplicación.
 
 Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloqueos y el siguiente prompt. No se marca `done` por planificación o scaffolding incompleto.

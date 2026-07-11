@@ -1,11 +1,9 @@
 export function PlatformPlaceholder({
   title,
   description,
-  api,
 }: {
   title: string;
   description: string;
-  api: string;
 }) {
   return (
     <div className="platform-page">
@@ -21,13 +19,13 @@ export function PlatformPlaceholder({
           <div>
             <h2>Estructura preparada</h2>
             <p>
-              La integración visual y de permisos está cerrada. La fuente se
-              conecta en fase 12 solo si el backend la ofrece de forma segura.
+              La estructura visual y los permisos están preparados. La fuente de
+              información se conectará cuando pueda garantizarse un acceso seguro.
             </p>
           </div>
         </header>
         <p>
-          <strong>Fuente prevista:</strong> {api}
+          <strong>Disponibilidad prevista:</strong> pendiente de conexión segura
         </p>
       </section>
     </div>

@@ -21,7 +21,7 @@ export default function ProductError({
         <strong>No se pudo abrir esta vista</strong>
         <p>
           Tu sesión continúa activa. Reintenta la carga; si el servicio sigue
-          degradado, conserva el identificador de la solicitud mostrado por la API.
+          degradado, conserva el identificador de la solicitud que aparece en el mensaje de error.
         </p>
         <button className="vector-primary" onClick={reset}>
           <RefreshCw size={15} /> Reintentar

@@ -9,13 +9,11 @@ export function ProductPlaceholder({
   eyebrow,
   title,
   description,
-  api,
   actions = [],
 }: {
   eyebrow: string;
   title: string;
   description: string;
-  api: string;
   actions?: readonly PlaceholderAction[];
 }) {
   return (
@@ -32,18 +30,18 @@ export function ProductPlaceholder({
           <h2 id="screen-status-title">Estructura de producto preparada</h2>
           <p>
             La ruta, permisos y navegación ya son definitivos. Su tabla y flujos
-            conectados se completan en la fase 12; esta pantalla no muestra datos
-            simulados como si fueran autoritativos.
+            conectados se completarán en una próxima actualización; esta pantalla
+            no muestra datos simulados como si fueran reales.
           </p>
         </header>
         <dl className="placeholder-contract">
           <div>
             <dt>Fuente prevista</dt>
-            <dd>{api}</dd>
+            <dd>Información autorizada de Oracle</dd>
           </div>
           <div>
             <dt>Estado</dt>
-            <dd>Preparada para conexión frontend</dd>
+            <dd>Preparada para su próxima activación</dd>
           </div>
         </dl>
         {actions.length > 0 && (

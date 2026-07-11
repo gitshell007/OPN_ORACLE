@@ -28,6 +28,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { productScoreDetailLabel } from "@/lib/product-copy";
 
 export type IntelligenceSectionKind = "signals" | "opportunities" | "risks";
 type ScoredResource = OracleOpportunity | OracleRisk;
@@ -673,7 +674,7 @@ export function DossierIntelligenceSection({
           <Dialog.Content className="dialog-content intelligence-action-dialog">
             <Dialog.Title>Promover señal</Dialog.Title>
             <Dialog.Description>
-              Crea un recurso vinculado a la señal revisada. El score inicial será calculado por Oracle.
+              Crea un recurso vinculado a la señal revisada. Oracle calculará su puntuación inicial.
             </Dialog.Description>
             <Dialog.Close className="dialog-close" aria-label="Cerrar"><X size={18} /></Dialog.Close>
             <form onSubmit={promote}>
@@ -711,18 +712,18 @@ function ScoreExplanation({
   kind: IntelligenceSectionKind;
 }) {
   const entries = Object.entries(resource.score_details ?? {}).filter(
-    ([, value]) => typeof value === "number" || typeof value === "string",
+    ([key, value]) => productScoreDetailLabel(key) && typeof value === "number",
   );
   return (
     <section className="intelligence-detail-block score-explanation">
-      <h2>Explicación del score</h2>
+      <h2>Explicación de la puntuación</h2>
       {entries.length === 0 ? (
-        <p>El backend no ha devuelto todavía el desglose de este score.</p>
+        <p>Oracle todavía no dispone de un desglose explicativo para esta puntuación.</p>
       ) : (
         <dl>
           {entries.map(([key, value]) => (
             <div key={key}>
-              <dt>{key.replaceAll("_", " ")}</dt>
+              <dt>{productScoreDetailLabel(key)}</dt>
               <dd>
                 {typeof value === "number"
                   ? Math.round(value * 100) / 100
@@ -736,8 +737,8 @@ function ScoreExplanation({
       )}
       <p>
         {kind === "opportunities"
-          ? "El score orienta la cualificación; la decisión final sigue siendo humana."
-          : "El score ayuda a priorizar vigilancia y mitigación; no sustituye la evaluación humana."}
+          ? "La puntuación orienta la cualificación; la decisión final sigue siendo humana."
+          : "La puntuación ayuda a priorizar vigilancia y mitigación; no sustituye la evaluación humana."}
       </p>
     </section>
   );

@@ -5,23 +5,19 @@ import { PlatformBackups } from "@/components/platform/platform-backups";
 const sections = {
   jobs: {
     title: "Trabajos y colas",
-    description: "Salud global de trabajos, colas y reintentos sin payload sensible.",
-    api: "Agregado global de jobs pendiente de contrato",
+    description: "Salud global de trabajos, colas y reintentos sin información sensible.",
   },
   integrations: {
     title: "Integraciones",
     description: "Salud agregada de conexiones e incidencias de integración.",
-    api: "Agregado global de integraciones pendiente de contrato",
   },
   system: {
     title: "Salud técnica",
     description: "Estado resumido de servicios y dependencias permitidas.",
-    api: "GET /health y GET /meta",
   },
   backups: {
     title: "Copias de seguridad",
     description: "Creación, retención y recuperación de copias de plataforma.",
-    api: "GET y POST /api/v1/platform/backups",
   },
 } as const;
 

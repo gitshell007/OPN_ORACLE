@@ -66,7 +66,7 @@ describe("DossierDocumentsSection", () => {
     mocks.params = new URLSearchParams("selected=document-1");
     render(<DossierDocumentsSection dossierId="dossier-1" />);
     const detail = await screen.findByRole("dialog", { name: "convocatoria.pdf" });
-    expect(within(detail).getByText(/Checksum:/)).toBeVisible();
+    expect(within(detail).getByText(/Huella de integridad:/)).toBeVisible();
     expect(within(detail).getByRole("link", { name: /Descargar/ })).toHaveAttribute(
       "href",
       "/api/v1/documents/document-1/download",

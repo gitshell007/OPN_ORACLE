@@ -119,7 +119,7 @@ describe("SignalAdmin", () => {
     mocks.action.mockResolvedValue({ job_id: "job-1", status: "queued" });
     render(<SignalAdmin />);
     await screen.findByText("Saludable");
-    fireEvent.change(screen.getByLabelText("ID de expediente"), {
+    fireEvent.change(screen.getByLabelText("Identificador del expediente"), {
       target: { value: "dossier-1" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Cargar monitores" }));
@@ -128,7 +128,7 @@ describe("SignalAdmin", () => {
     await waitFor(() =>
       expect(mocks.action).toHaveBeenCalledWith("monitor-1", "sync"),
     );
-    expect(await screen.findByText("Job: queued")).toHaveAttribute("role", "status");
+    expect(await screen.findByText("Proceso: En cola")).toHaveAttribute("role", "status");
   });
 
   it("ofrece reconciliación real cuando la conexión está degradada", async () => {

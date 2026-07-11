@@ -6,6 +6,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { productAuditActionLabel, productPlanLabel, productStatusLabel } from "@/lib/product-copy";
 
 type Tenant = components["schemas"]["TenantResponse"];
 
@@ -18,7 +19,7 @@ export function PlatformTenants() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [plan, setPlan] = useState("");
+  const [plan, setPlan] = useState("enterprise");
   const [confirmStatus, setConfirmStatus] = useState<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,7 +62,7 @@ export function PlatformTenants() {
       setCreating(false);
       setName("");
       setSlug("");
-      setPlan("");
+      setPlan("enterprise");
       await load();
       toast.success("Organización creada");
     } catch (reason) {
@@ -98,8 +99,8 @@ export function PlatformTenants() {
           <p className="eyebrow">Plataforma</p>
           <h1>Organizaciones</h1>
           <p>
-            Gestiona el ciclo de vida de los tenants sin abrir sus datos de
-            negocio.
+            Gestiona el ciclo de vida de las organizaciones sin abrir su
+            información estratégica.
           </p>
         </div>
         <button className="platform-primary" onClick={() => setCreating(true)}>
@@ -131,7 +132,7 @@ export function PlatformTenants() {
               />
             </label>
             <label className="field">
-              <span>Slug opcional</span>
+              <span>Identificador web opcional</span>
               <input
                 value={slug}
                 onChange={(event) => setSlug(event.target.value)}
@@ -139,12 +140,14 @@ export function PlatformTenants() {
             </label>
             <label className="field">
               <span>Plan</span>
-              <input
-                value={plan}
-                onChange={(event) => setPlan(event.target.value)}
-              />
+              <select value={plan} onChange={(event) => setPlan(event.target.value)}>
+                <option value="enterprise">Empresarial</option>
+                <option value="professional">Profesional</option>
+                <option value="starter">Inicial</option>
+                <option value="trial">Evaluación</option>
+              </select>
             </label>
-            <button className="platform-primary">Crear tenant</button>
+            <button className="platform-primary">Crear organización</button>
           </form>
         </section>
       )}
@@ -186,10 +189,10 @@ export function PlatformTenants() {
                       <span
                         className={`status ${item.status === "active" ? "active" : ""}`}
                       >
-                        {item.status}
+                        {productStatusLabel(item.status)}
                       </span>
                     </td>
-                    <td>{item.plan || "Sin plan"}</td>
+                    <td>{productPlanLabel(item.plan)}</td>
                     <td>
                       {confirmStatus === item.id ? (
                         <div className="row-actions">
@@ -292,19 +295,19 @@ export function PlatformTenantDetail({ id }: { id: string }) {
           <p className="eyebrow">Datos de plataforma</p>
           <h1>{tenant.name}</h1>
           <p>
-            ID {tenant.id} · slug {tenant.slug}
+            Identificador {tenant.id} · dirección web {tenant.slug}
           </p>
         </div>
         <span
           className={`status ${tenant.status === "active" ? "active" : ""}`}
         >
-          {tenant.status}
+          {productStatusLabel(tenant.status)}
         </span>
       </header>
       <section className="platform-summary">
         <article>
           <span>Plan</span>
-          <strong>{tenant.plan || "Sin plan asignado"}</strong>
+          <strong>{productPlanLabel(tenant.plan)}</strong>
         </article>
         <article>
           <span>Alcance</span>
@@ -414,8 +417,8 @@ export function PlatformAudit() {
       headers={["Fecha", "Acción", "Resultado"]}
       rows={items.map((item) => [
         new Date(item.created_at).toLocaleString("es-ES"),
-        <code key="action">{item.action}</code>,
-        item.result,
+        productAuditActionLabel(item.action),
+        productStatusLabel(item.result),
       ])}
     />
   );
@@ -431,9 +434,9 @@ export function PlatformSystem() {
   }, []);
   return (
     <div className="platform-page">
-      <header className="admin-heading"><div><p className="eyebrow">Plataforma</p><h1>Salud técnica</h1><p>Probes autorizadas sin configuración sensible.</p></div></header>
+      <header className="admin-heading"><div><p className="eyebrow">Plataforma</p><h1>Salud técnica</h1><p>Comprobaciones autorizadas sin mostrar configuración sensible.</p></div></header>
       {error && <div className="inline-error" role="alert">{error}</div>}
-      {!system ? <p role="status">Consultando dependencias…</p> : <section className="platform-summary"><article><span>Proceso</span><strong>{system.live.status}</strong></article><article><span>Dependencias</span><strong>{system.ready.status}</strong></article><article><span>Release</span><strong>{system.meta.release}</strong></article></section>}
+      {!system ? <p role="status">Consultando dependencias…</p> : <section className="platform-summary"><article><span>Proceso</span><strong>{productStatusLabel(system.live.status)}</strong></article><article><span>Dependencias</span><strong>{productStatusLabel(system.ready.status)}</strong></article><article><span>Versión desplegada</span><strong>{system.meta.release}</strong></article></section>}
     </div>
   );
 }

@@ -51,8 +51,9 @@ export function ProductPreferences() {
           <div className="eyebrow">Preferencias personales</div>
           <h1>Apariencia y navegación</h1>
           <p>
-            Estas opciones son locales al dispositivo. Idioma, zona horaria y
-            accesibilidad durable se habilitarán cuando exista su endpoint.
+            Estas opciones se guardan únicamente en este dispositivo. El idioma,
+            la zona horaria y la accesibilidad avanzada estarán disponibles en
+            una próxima actualización.
           </p>
         </div>
       </section>
