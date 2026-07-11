@@ -488,6 +488,8 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Prueba productiva aislada realizada con un consumidor efímero, eliminado al finalizar: la consulta
   `site:boe.es subvenciones digitalización empresas 2026` devolvió 5 resultados mediante SearXNG.
   El análisis de control respondió HTTP 200 con `ollama/qwen3.5:9b`, sin fallback y sin coste de API.
+  Una segunda prueba combinó 3 resultados con el analizador del pipeline
+  `ollama/qwen2.5:7b` y produjo JSON estructurado válido.
 - Los servicios `opn-signal-api`, `opn-signal-worker` y `opn-signal-beat` se reiniciaron y quedaron
   activos. La configuración anterior se conservó en el host como
   `/opt/apps/opn_signal/settings.env.pre-ollama-20260711T195228Z` con modo `0600`.
