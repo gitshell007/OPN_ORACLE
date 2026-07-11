@@ -169,6 +169,7 @@ services:
       - oracle_celery_broker_url
       - oracle_celery_result_url
       - oracle_graph_client_secret
+      - oracle_integration_encryption_keys
     depends_on:
       postgres:
         condition: service_healthy
