@@ -11,6 +11,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { api } from "@oracle/api-client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -61,9 +62,30 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
   const [compact, setCompact] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [dossierBreadcrumb, setDossierBreadcrumb] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
   const crumbs = useMemo(() => breadcrumbsForPath(pathname), [pathname]);
+  const dossierId = useMemo(() => {
+    const match = canonical
+      ? pathname.match(/^\/app\/dossiers\/([^/]+)(?:\/[^/]+)?$/)
+      : null;
+    return match ? decodeURIComponent(match[1]) : null;
+  }, [canonical, pathname]);
+  const visibleCrumbs = useMemo(
+    () =>
+      dossierBreadcrumb?.id === dossierId
+        ? crumbs.map((crumb) =>
+            crumb.label === "Expediente"
+              ? { ...crumb, label: dossierBreadcrumb.title }
+              : crumb,
+          )
+        : crumbs,
+    [crumbs, dossierBreadcrumb, dossierId],
+  );
   const user = auth.identity!.user;
   const activeMembership = auth.identity!.memberships.find(
     (item) => item.tenant_id === auth.identity!.active_tenant_id,
@@ -88,6 +110,24 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("oracle:navigation-preference", loadPreference);
     };
   }, [canonical, user.id]);
+
+  useEffect(() => {
+    let current = true;
+    if (!dossierId) return () => {
+      current = false;
+    };
+    void api.dossiers
+      .get(dossierId)
+      .then((dossier) => {
+        if (current) setDossierBreadcrumb({ id: dossierId, title: dossier.title });
+      })
+      .catch(() => {
+        // Keep the neutral label when the dossier no longer exists or is not accessible.
+      });
+    return () => {
+      current = false;
+    };
+  }, [dossierId]);
 
   useEffect(
     () => () => {
@@ -385,7 +425,7 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
           </button>
           <nav className="breadcrumbs" aria-label="Migas de pan">
             <Link href={canonical ? "/app" : "/concept-a/portfolio"}>Oracle</Link>
-            {crumbs.map((crumb) => (
+            {visibleCrumbs.map((crumb) => (
               <span key={`${crumb.href ?? "current"}-${crumb.label}`} className="breadcrumb-part">
                 <i>/</i>
                 {crumb.href ? (

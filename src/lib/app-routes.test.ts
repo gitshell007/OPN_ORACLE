@@ -40,7 +40,7 @@ describe("registro de rutas", () => {
     );
     expect(breadcrumbsForPath("/app/dossiers/abc/signals")).toEqual([
       { label: "Expedientes", href: "/app/dossiers" },
-      { label: "Expediente · abc", href: "/app/dossiers/abc" },
+      { label: "Expediente", href: "/app/dossiers/abc" },
       { label: "Señales" },
     ]);
   });

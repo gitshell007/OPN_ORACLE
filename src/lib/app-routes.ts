@@ -297,11 +297,9 @@ export function breadcrumbsForPath(pathname: string): BreadcrumbItem[] {
   if (dossierMatch) {
     const [, dossierId, section = ""] = dossierMatch;
     const tab = DOSSIER_TABS.find((item) => item.segment === section);
-    const decodedId = decodeURIComponent(dossierId);
-    const dossierLabel = decodedId.length > 20 ? decodedId.slice(0, 8) : decodedId;
     return [
       { label: "Expedientes", href: "/app/dossiers" },
-      { label: `Expediente · ${dossierLabel}`, href: dossierTabHref(dossierId, "") },
+      { label: "Expediente", href: dossierTabHref(dossierId, "") },
       ...(tab && tab.segment ? [{ label: tab.label }] : []),
     ];
   }
