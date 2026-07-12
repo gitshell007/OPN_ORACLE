@@ -30,6 +30,13 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
 
 
+def _validated_summary_payload(value: dict[str, Any]) -> dict[str, Any]:
+    """Rehydrate JSONB with JSON semantics so strict UUID/date fields remain valid."""
+
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return DossierSituationSummaryOutput.model_validate_json(encoded).model_dump(mode="json")
+
+
 def _collect_evidence_ids(value: Any) -> set[uuid.UUID]:
     if isinstance(value, dict):
         cited: set[uuid.UUID] = set()
@@ -251,7 +258,7 @@ def process_summary_refresh(dossier_id: uuid.UUID, job: BackgroundJob) -> dict[s
     )
     if artifact is None:
         raise ValueError("Artefacto de resumen no disponible.")
-    output = DossierSituationSummaryOutput.model_validate(artifact.output).model_dump(mode="json")
+    output = _validated_summary_payload(artifact.output)
     existing_version = (
         db.session.scalar(
             select(func.coalesce(func.max(AIArtifact.version), 0)).where(

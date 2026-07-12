@@ -29,6 +29,7 @@ from opn_oracle.ai.schemas import (
     ReportOutput,
     SignalTriageOutput,
 )
+from opn_oracle.oracle.summary import _validated_summary_payload
 
 
 def _request(agent: str, evidence: list[str]) -> LLMRequest:
@@ -60,6 +61,17 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("dossier_situation_summary", "v3").max_output_tokens == 1600
     assert registry.get("dossier_situation_summary", "v4").max_output_tokens == 1900
     assert registry.get("dossier_situation_summary").max_output_tokens == 2600
+
+
+def test_persisted_summary_json_rehydrates_strict_uuid_fields() -> None:
+    evidence_id = UUID("00000000-0000-4000-8000-000000000001")
+    result = MockLLMProvider("summary-jsonb").generate_structured(
+        _request("dossier_situation_summary", [str(evidence_id)]),
+        DossierSituationSummaryOutput,
+    )
+    persisted = result.output.model_dump(mode="json")
+
+    assert _validated_summary_payload(persisted)["facts"][0]["evidence_ids"] == [str(evidence_id)]
 
 
 def test_disabled_provider_is_closed_by_default() -> None:
