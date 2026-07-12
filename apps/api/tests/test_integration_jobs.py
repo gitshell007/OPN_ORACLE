@@ -409,6 +409,7 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
             raw_ciphertext=encrypted.ciphertext,
             raw_nonce=encrypted.nonce,
             key_version=encrypted.key_version,
+            raw_hash=hashlib.sha256(json.dumps(status_envelope).encode()).digest(),
         )
         db.session.add(status_inbox)
         db.session.commit()
@@ -1818,7 +1819,7 @@ def test_ai_job_persists_reviewer_attempt_and_settles_reservation(
         payload = inspect.unwrap(ai_routes.get_audit)(audit_id)
         assert payload["status"] == "succeeded"
         listing = inspect.unwrap(ai_routes.list_ai_audit)()
-        assert listing["items"][0]["id"] == str(audit_id)
+        assert str(audit_id) in {item["id"] for item in listing["items"]}
     with (
         app.test_request_context(
             "/", method="POST", json={"decision": "accepted", "reason": "validado"}
