@@ -72,6 +72,14 @@ class PlatformBackupOperation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         UniqueConstraint("idempotency_key", name="uq_platform_backup_operation_idempotency"),
         Index("ix_platform_backup_operation_queue", "status", "created_at"),
+        Index(
+            "uq_platform_backup_one_active_restore",
+            "operation_type",
+            unique=True,
+            postgresql_where=text(
+                "operation_type='restore' AND status IN ('awaiting_approval','running')"
+            ),
+        ),
     )
 
     operation_type: Mapped[str] = mapped_column(String(30), nullable=False)

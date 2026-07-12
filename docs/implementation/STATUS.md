@@ -677,3 +677,6 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   ampliar rutas y contratos es **84,42 %**; el gate temporal queda en 84 % para mantener una barrera
   real sin ocultar el dato. Deuda explícita: añadir cobertura de ramas defensivas de candidatos y
   restaurar el mínimo de 85 % en la siguiente fase.
+- El primer `flask db check` que alcanzó CI reveló que el índice parcial que impide dos
+  restauraciones activas estaba en Alembic pero no en metadata SQLAlchemy. Se incorporó al modelo
+  `PlatformBackupOperation`, conservando la restricción productiva y eliminando el drift.
