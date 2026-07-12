@@ -17,7 +17,9 @@ El árbol de trabajo está limpio tras integrar y publicar los cambios del Orác
   no se elimina ninguno.
 - La migración `20260712_0013` permite que las referencias de auditoría a un expediente
   eliminado queden en `NULL` sin perder el evento, el identificador del recurso ni sus
-  metadatos de borrado. OpenAPI y el cliente TypeScript se regeneraron.
+  metadatos de borrado. La migración `20260712_0014` concede al rol de ejecución
+  únicamente el `DELETE` que necesita esta operación. OpenAPI y el cliente TypeScript
+  se regeneraron.
 - Comprobaciones locales: OpenAPI/client sin drift, Vitest focal 7/7, ESLint,
   TypeScript, build de Next, Ruff y mypy correctos; contrato Flask 7/7 sin umbral de
   cobertura. La integración PostgreSQL/Redis que prueba cascada y auditoría queda
