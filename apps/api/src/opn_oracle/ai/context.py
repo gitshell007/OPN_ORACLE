@@ -12,15 +12,23 @@ from typing import Any, cast
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from opn_oracle.ai.schemas import AgentOutput
 from opn_oracle.extensions import db
 from opn_oracle.oracle.links import EvidenceDossier
 from opn_oracle.oracle.models import (
+    Actor,
+    Decision,
+    DossierActor,
     DossierObjective,
+    DossierSignal,
     Evidence,
     Hypothesis,
     LivingSummary,
+    Meeting,
+    Opportunity,
+    RiskItem,
+    Signal,
     StrategicDossier,
+    Task,
 )
 from opn_oracle.tenants.context import require_tenant_id
 
@@ -118,7 +126,9 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
 
 
-def build_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+def build_context(
+    dossier_id: uuid.UUID, *, max_tokens: int, include_living_summary: bool = True
+) -> BuiltContext:
     tenant_id = require_tenant_id()
     dossier = db.session.scalar(
         select(StrategicDossier).where(
@@ -145,15 +155,31 @@ def build_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
     objectives = list(
         db.session.scalars(
             select(DossierObjective)
-            .where(DossierObjective.dossier_id == dossier_id)
+            .where(
+                DossierObjective.tenant_id == tenant_id,
+                DossierObjective.dossier_id == dossier_id,
+            )
             .order_by(DossierObjective.position)
             .limit(10)
         )
     )
     hypotheses = list(
-        db.session.scalars(select(Hypothesis).where(Hypothesis.dossier_id == dossier_id).limit(10))
+        db.session.scalars(
+            select(Hypothesis)
+            .where(Hypothesis.tenant_id == tenant_id, Hypothesis.dossier_id == dossier_id)
+            .limit(10)
+        )
     )
-    summary = db.session.scalar(select(LivingSummary).where(LivingSummary.dossier_id == dossier_id))
+    summary = (
+        db.session.scalar(
+            select(LivingSummary).where(
+                LivingSummary.tenant_id == tenant_id,
+                LivingSummary.dossier_id == dossier_id,
+            )
+        )
+        if include_living_summary
+        else None
+    )
     indicators: list[str] = []
     evidence_payload: list[dict[str, Any]] = []
     selected: list[Evidence] = []
@@ -217,6 +243,213 @@ def build_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
         {"matches": redactions},
         tuple(sorted(set(indicators))),
         max(1, len(encoded) // 4),
+    )
+
+
+def _small_text(value: str, limit: int = 1200) -> str:
+    return value[:limit]
+
+
+def build_dossier_situation_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+    """Build the contextual Oracle snapshot for a single dossier situation summary."""
+
+    tenant_id = require_tenant_id()
+    base = build_context(dossier_id, max_tokens=max_tokens, include_living_summary=False)
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id, StrategicDossier.tenant_id == tenant_id
+        )
+    )
+    if dossier is None:
+        raise ValueError("Expediente no disponible.")
+    previous_summary = db.session.scalar(
+        select(LivingSummary).where(
+            LivingSummary.tenant_id == tenant_id,
+            LivingSummary.dossier_id == dossier_id,
+        )
+    )
+    signals = list(
+        db.session.execute(
+            select(DossierSignal, Signal)
+            .join(Signal, Signal.id == DossierSignal.signal_id)
+            .where(
+                DossierSignal.tenant_id == tenant_id,
+                DossierSignal.dossier_id == dossier_id,
+            )
+            .order_by(DossierSignal.updated_at.desc())
+            .limit(20)
+        )
+    )
+    opportunities = list(
+        db.session.scalars(
+            select(Opportunity)
+            .where(Opportunity.tenant_id == tenant_id, Opportunity.dossier_id == dossier_id)
+            .order_by(Opportunity.overall_score.desc(), Opportunity.updated_at.desc())
+            .limit(12)
+        )
+    )
+    risks = list(
+        db.session.scalars(
+            select(RiskItem)
+            .where(RiskItem.tenant_id == tenant_id, RiskItem.dossier_id == dossier_id)
+            .order_by(RiskItem.overall_score.desc(), RiskItem.updated_at.desc())
+            .limit(12)
+        )
+    )
+    actors = list(
+        db.session.execute(
+            select(DossierActor, Actor)
+            .join(Actor, Actor.id == DossierActor.actor_id)
+            .where(DossierActor.tenant_id == tenant_id, DossierActor.dossier_id == dossier_id)
+            .order_by(DossierActor.priority.desc(), DossierActor.updated_at.desc())
+            .limit(15)
+        )
+    )
+    meetings = list(
+        db.session.scalars(
+            select(Meeting)
+            .where(Meeting.tenant_id == tenant_id, Meeting.dossier_id == dossier_id)
+            .order_by(Meeting.updated_at.desc())
+            .limit(10)
+        )
+    )
+    decisions = list(
+        db.session.scalars(
+            select(Decision)
+            .where(Decision.tenant_id == tenant_id, Decision.dossier_id == dossier_id)
+            .order_by(Decision.updated_at.desc())
+            .limit(10)
+        )
+    )
+    tasks = list(
+        db.session.scalars(
+            select(Task)
+            .where(Task.tenant_id == tenant_id, Task.dossier_id == dossier_id)
+            .order_by(Task.updated_at.desc())
+            .limit(12)
+        )
+    )
+    enriched_payload = dict(base.payload)
+    enriched_payload["snapshot"] = {
+        "dossier_version": dossier.version,
+        "generated_for": "dossier_situation_summary",
+        "signals": [
+            {
+                "link_id": str(link.id),
+                "signal_id": str(signal.id),
+                "title": signal.title,
+                "summary": _small_text(signal.summary),
+                "source_type": signal.source_type,
+                "status": link.status,
+                "overall_score": link.overall_score,
+                "why_it_matters": _small_text(link.why_it_matters),
+                "updated_at": link.updated_at.isoformat(),
+            }
+            for link, signal in signals
+        ],
+        "opportunities": [
+            {
+                "id": str(item.id),
+                "title": item.title,
+                "status": item.status,
+                "overall_score": item.overall_score,
+                "confidence": item.confidence,
+                "description": _small_text(item.description),
+                "deadline": item.deadline.isoformat() if item.deadline else None,
+                "next_action": _small_text(item.next_action),
+                "updated_at": item.updated_at.isoformat(),
+            }
+            for item in opportunities
+        ],
+        "risks": [
+            {
+                "id": str(item.id),
+                "title": item.title,
+                "status": item.status,
+                "overall_score": item.overall_score,
+                "confidence": item.confidence,
+                "description": _small_text(item.description),
+                "due_date": item.due_date.isoformat() if item.due_date else None,
+                "mitigation": _small_text(item.mitigation),
+                "updated_at": item.updated_at.isoformat(),
+            }
+            for item in risks
+        ],
+        "actors": [
+            {
+                "actor_id": str(actor.id),
+                "name": actor.canonical_name,
+                "roles": link.roles,
+                "priority": link.priority,
+                "notes": _small_text(link.notes),
+                "updated_at": link.updated_at.isoformat(),
+            }
+            for link, actor in actors
+        ],
+        "meetings": [
+            {
+                "id": str(item.id),
+                "title": item.title,
+                "status": item.status,
+                "scheduled_at": item.scheduled_at.isoformat() if item.scheduled_at else None,
+                "objective": _small_text(item.objective),
+                "notes": _small_text(item.notes),
+            }
+            for item in meetings
+        ],
+        "decisions": [
+            {
+                "id": str(item.id),
+                "title": item.title,
+                "status": item.status,
+                "rationale": _small_text(item.rationale),
+                "decided_at": item.decided_at.isoformat() if item.decided_at else None,
+            }
+            for item in decisions
+        ],
+        "tasks": [
+            {
+                "id": str(item.id),
+                "title": item.title,
+                "status": item.status,
+                "priority": item.priority,
+                "due_date": item.due_date.isoformat() if item.due_date else None,
+                "origin": item.origin,
+            }
+            for item in tasks
+        ],
+    }
+    enriched_payload["previous_summary"] = previous_summary.summary if previous_summary else {}
+    enriched_indicators: list[str] = []
+    payload, redactions = _sanitize(enriched_payload, enriched_indicators)
+    fitted_payload = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted_payload)
+    material_payload = dict(fitted_payload)
+    material_payload.pop("previous_summary", None)
+    material_hash = hashlib.sha256(_canonical(material_payload)).hexdigest()
+    manifest = base.manifest | {
+        "snapshot_kind": "dossier_situation_summary",
+        "dossier_version": dossier.version,
+        "signal_link_ids": [str(link.id) for link, _ in signals],
+        "opportunity_ids": [str(item.id) for item in opportunities],
+        "risk_ids": [str(item.id) for item in risks],
+        "actor_link_ids": [str(link.id) for link, _ in actors],
+        "meeting_ids": [str(item.id) for item in meetings],
+        "decision_ids": [str(item.id) for item in decisions],
+        "task_ids": [str(item.id) for item in tasks],
+        "material_hash": material_hash,
+    }
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=manifest,
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(
+            sorted(set(base.injection_indicators) | set(enriched_indicators))
+        ),
+        estimated_tokens=max(1, len(encoded) // 4),
     )
 
 
@@ -291,14 +524,7 @@ def build_frozen_context(
     )
 
 
-def validate_evidence(output: AgentOutput, allowed: set[uuid.UUID]) -> None:
-    for fact in output.facts:
-        if not fact.evidence_ids or not set(fact.evidence_ids).issubset(allowed):
-            raise ValueError("Un hecho cita evidencia no autorizada.")
-    for inference in output.inferences:
-        if not set(inference.evidence_ids).issubset(allowed):
-            raise ValueError("Una inferencia cita evidencia no autorizada.")
-
+def validate_evidence(output: BaseModel, allowed: set[uuid.UUID]) -> None:
     def nested_ids(value: Any) -> set[uuid.UUID]:
         if isinstance(value, BaseModel):
             cited: set[uuid.UUID] = set()

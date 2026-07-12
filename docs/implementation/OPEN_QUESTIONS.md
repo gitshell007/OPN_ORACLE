@@ -43,9 +43,14 @@
 
 ## IA y compliance
 
-- Pendiente definir la política IA permanente, región de datos y clasificación máxima autorizada.
-  Mientras tanto producción usa exclusivamente Ollama/Ollama Titan propios para `opn-oracle` y para
-  el análisis del pipeline de búsquedas; no se autoriza fallback cloud.
+- Pendiente definir región de datos, clasificación máxima, redacción y presupuesto permanente.
+  Se ha autorizado diseñar `dossier_situation_summary` con Ollama `qwen3.5:9b` primario y OpenRouter
+  `google/gemini-3.5-flash` secundario. La activación cloud sigue cerrada hasta resolver esos gates;
+  el resto de tareas de `opn-oracle` conserva su política vigente.
+- Resuelto en código en Signal: la task homóloga `dossier_situation_summary` dispone de
+  catálogo/allowlist aislado, sanitización de `per_task_settings`, fallback elegible, límite de
+  coste y propagación de proveedor/modelo reales. Sigue pendiente únicamente el E2E con consumer
+  efímero y los gates de activación cloud indicados arriba.
 - Política de redacción/PII, retención de prompts y respuestas, presupuesto y kill switch.
 - Confirmar si la IA arranca deshabilitada en producción hasta aprobación formal.
 - Confirmar requisitos ENS y retención/auditoría aplicables al primer release.

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date as CalendarDate
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -29,6 +30,73 @@ class Recommendation(StrictModel):
     action: str = Field(min_length=1, max_length=2000)
     rationale: str = Field(min_length=1, max_length=4000)
     priority: Literal["low", "medium", "high", "critical"]
+
+
+class SituationFact(StrictModel):
+    text: str = Field(min_length=1, max_length=4000)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationInference(StrictModel):
+    text: str = Field(min_length=1, max_length=4000)
+    reasoning_summary: str = Field(min_length=1, max_length=4000)
+    confidence: int = Field(ge=0, le=100)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationChange(StrictModel):
+    change: str = Field(min_length=1, max_length=4000)
+    importance: Literal["low", "medium", "high", "critical"]
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationOpportunity(StrictModel):
+    title: str = Field(min_length=1, max_length=500)
+    rationale: str = Field(min_length=1, max_length=4000)
+    urgency: Literal["low", "medium", "high", "critical"]
+    confidence: int = Field(ge=0, le=100)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationRisk(StrictModel):
+    title: str = Field(min_length=1, max_length=500)
+    rationale: str = Field(min_length=1, max_length=4000)
+    severity: Literal["low", "medium", "high", "critical"]
+    confidence: int = Field(ge=0, le=100)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationActor(StrictModel):
+    actor_id: UUID | None = None
+    name: str = Field(min_length=1, max_length=500)
+    relevance: str = Field(min_length=1, max_length=2000)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationMilestone(StrictModel):
+    label: str = Field(min_length=1, max_length=500)
+    date: CalendarDate | None = None
+    status: str = Field(min_length=1, max_length=200)
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationDecision(StrictModel):
+    decision: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=4000)
+    urgency: Literal["low", "medium", "high", "critical"]
+    evidence_ids: list[UUID] = Field(min_length=1)
+
+
+class SituationAction(StrictModel):
+    action: str = Field(min_length=1, max_length=2000)
+    rationale: str = Field(min_length=1, max_length=4000)
+    priority: Literal["low", "medium", "high", "critical"]
+
+
+class EvidenceCoverage(StrictModel):
+    cited_items: int = Field(ge=0)
+    available_items: int = Field(ge=0)
+    limitations: list[str] = Field(default_factory=list)
 
 
 class EntityMention(StrictModel):
@@ -138,7 +206,7 @@ class CandidateActor(StrictModel):
 class NextBestAction(StrictModel):
     action: str = Field(min_length=1, max_length=2000)
     owner_role: str = Field(min_length=1, max_length=500)
-    due_date: date | None = None
+    due_date: CalendarDate | None = None
     rationale: str = Field(min_length=1, max_length=4000)
 
 
@@ -158,7 +226,7 @@ class OpportunityAnalysisOutput(AgentOutput):
     summary: str = ""
     recommendation: Literal["go", "investigate", "hold", "no_go"]
     scores: OpportunityScores
-    deadline: date | None = None
+    deadline: CalendarDate | None = None
     confirmed_requirements: list[str] = Field(default_factory=list)
     unknown_requirements: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
@@ -210,7 +278,7 @@ class RiskAnalysisOutput(AgentOutput):
     scores: RiskScores
     leading_indicators: list[str] = Field(default_factory=list)
     suggested_owner_role: str = ""
-    suggested_review_date: date | None = None
+    suggested_review_date: CalendarDate | None = None
     scenarios: list[RiskScenario] = Field(default_factory=list)
     mitigations: list[RiskMitigation] = Field(default_factory=list)
 
@@ -378,7 +446,27 @@ class WeeklyChangeOutput(AgentOutput):
     no_change_areas: list[str] = Field(default_factory=list)
 
 
-AGENT_SCHEMAS: dict[str, type[AgentOutput]] = {
+class DossierSituationSummaryOutput(StrictModel):
+    headline: str = Field(min_length=1, max_length=500)
+    executive_summary: str = Field(min_length=1, max_length=8000)
+    situation_status: Literal["stable", "advancing", "blocked", "deteriorating", "uncertain"]
+    facts: list[SituationFact] = Field(default_factory=list)
+    inferences: list[SituationInference] = Field(default_factory=list)
+    material_changes: list[SituationChange] = Field(default_factory=list)
+    opportunities: list[SituationOpportunity] = Field(default_factory=list)
+    risks: list[SituationRisk] = Field(default_factory=list)
+    relevant_actors: list[SituationActor] = Field(default_factory=list)
+    deadlines_and_milestones: list[SituationMilestone] = Field(default_factory=list)
+    decisions_required: list[SituationDecision] = Field(default_factory=list)
+    recommended_actions: list[SituationAction] = Field(default_factory=list)
+    knowledge_gaps: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    confidence: int = Field(ge=0, le=100)
+    evidence_coverage: EvidenceCoverage
+    warnings: list[str] = Field(default_factory=list)
+
+
+AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
     "entity_resolution": EntityResolutionOutput,
@@ -390,4 +478,5 @@ AGENT_SCHEMAS: dict[str, type[AgentOutput]] = {
     "memory_curator": MemoryCuratorOutput,
     "evidence_reviewer": EvidenceReviewerOutput,
     "weekly_change": WeeklyChangeOutput,
+    "dossier_situation_summary": DossierSituationSummaryOutput,
 }

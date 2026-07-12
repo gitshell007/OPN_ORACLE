@@ -82,6 +82,13 @@ from opn_oracle.oracle.service import (
     update_dossier_actor,
     update_scored_resource,
 )
+from opn_oracle.oracle.summary import (
+    create_summary_feedback,
+    enqueue_summary_refresh,
+    get_current_summary,
+    get_summary_version,
+    list_summary_versions,
+)
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.reporting.service import (
     ReportConflictError,
@@ -2436,6 +2443,60 @@ def living_summary_get(dossier_id: uuid.UUID) -> Any:
     if row is None:
         return problem_response(404, detail="Resumen no encontrado.", code="not_found")
     return _serialize(row)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/oracle-summary")
+@require_permission("dossier.read")
+def oracle_summary_get(dossier_id: uuid.UUID) -> Any:
+    if _dossier_or_404(dossier_id) is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    return get_current_summary(dossier_id)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/oracle-summary/refresh")
+@require_permission("ai.execute")
+def oracle_summary_refresh(dossier_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if dossier.status == "archived":
+        return _domain_error(DomainValidationError("Un expediente archivado es de solo lectura."))
+    try:
+        job = enqueue_summary_refresh(dossier_id)
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {"job_id": str(job.id), "status": job.status}, 202
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/oracle-summary/versions")
+@require_permission("dossier.read")
+def oracle_summary_versions(dossier_id: uuid.UUID) -> Any:
+    if _dossier_or_404(dossier_id) is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    return list_summary_versions(dossier_id)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/oracle-summary/versions/<uuid:version_id>")
+@require_permission("dossier.read")
+def oracle_summary_version_get(dossier_id: uuid.UUID, version_id: uuid.UUID) -> Any:
+    if _dossier_or_404(dossier_id) is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    row = get_summary_version(dossier_id, version_id)
+    if row is None:
+        return problem_response(404, detail="Versión no encontrada.", code="not_found")
+    return row
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/oracle-summary/<uuid:version_id>/feedback")
+@require_permission("dossier.write")
+def oracle_summary_feedback(dossier_id: uuid.UUID, version_id: uuid.UUID) -> Any:
+    if _dossier_or_404(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    try:
+        row = create_summary_feedback(dossier_id, version_id, _payload())
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {"feedback_id": str(row.id)}, 201
 
 
 @bp.put("/dossiers/<uuid:dossier_id>/living-summary")

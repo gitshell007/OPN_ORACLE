@@ -5,6 +5,7 @@ import { ArrowLeft, FileText, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { DossierOracleSummaryPanel } from "@/components/dossiers/dossier-oracle-summary-panel";
 import { productStatusLabel } from "@/lib/product-copy";
 
 export function ProductDossier() {
@@ -100,6 +101,7 @@ export function ProductDossier() {
           </Link>
         </div>
       </header>
+      <DossierOracleSummaryPanel dossierId={id} />
       <section className="vector-panel situation-panel">
         <header>
           <div>

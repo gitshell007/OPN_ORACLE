@@ -108,6 +108,60 @@ class MockLLMProvider:
             "open_questions": [] if evidence else ["Falta evidencia suficiente."],
             "warnings": ["Resultado generado por proveedor mock determinista."],
         }
+        if request.agent == "dossier_situation_summary":
+            output = schema.model_validate(
+                {
+                    "headline": "Situacion sintetica del expediente",
+                    "executive_summary": (
+                        "Analisis determinista sujeto a revision humana. "
+                        "La cobertura depende de las evidencias disponibles."
+                    ),
+                    "situation_status": "advancing" if evidence else "uncertain",
+                    "facts": (
+                        [
+                            {
+                                "text": "Hay al menos una evidencia autorizada en el snapshot.",
+                                "evidence_ids": [evidence[0]],
+                            }
+                        ]
+                        if evidence
+                        else []
+                    ),
+                    "inferences": [],
+                    "material_changes": [],
+                    "opportunities": [],
+                    "risks": [],
+                    "relevant_actors": [],
+                    "deadlines_and_milestones": [],
+                    "decisions_required": [],
+                    "recommended_actions": [
+                        {
+                            "action": "Revisar el analisis asistido con la persona responsable.",
+                            "rationale": "El proveedor mock no ejecuta acciones ni decide.",
+                            "priority": "medium",
+                        }
+                    ],
+                    "knowledge_gaps": [] if evidence else ["Falta evidencia suficiente."],
+                    "open_questions": [] if evidence else ["Que fuentes deben incorporarse?"],
+                    "confidence": confidence,
+                    "evidence_coverage": {
+                        "cited_items": 1 if evidence else 0,
+                        "available_items": len(evidence),
+                        "limitations": [] if evidence else ["Sin evidencias citables."],
+                    },
+                    "warnings": ["Resultado generado por proveedor mock determinista."],
+                }
+            )
+            fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
+            return LLMResult(
+                output,
+                100 + fingerprint[0],
+                50 + fingerprint[1],
+                0,
+                1,
+                provider="mock",
+                model=self.model,
+            )
         extras: dict[str, dict[str, Any]] = {
             "intake": {
                 "proposed_title": "Expediente propuesto",

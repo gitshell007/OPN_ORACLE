@@ -67,6 +67,60 @@ de negocio; URL se conserva únicamente como aclaración universal junto a «dir
   integración PostgreSQL/Redis focal no se ejecutó porque este entorno no tiene
   `TEST_DATABASE_URL`, `TEST_RUNTIME_DATABASE_URL` ni `TEST_REDIS_URL` configuradas.
 
+## Task preparada · Oráculo contextual del expediente
+
+- Prompt ejecutable creado en `docs/implementation/prompts/17_DOSSIER_ORACLE_ASSISTANT.md` y task
+  Oracle en `docs/implementation/tasks/ORACLE_DOSSIER_ASSISTANT.md`.
+- Frontera acordada: Oracle controla retrieval, permisos, evidencia, persistencia y UI; Signal
+  gobierna la inferencia con la task `dossier_situation_summary`.
+- Política de catálogo: Ollama `qwen3.5:9b` primario y OpenRouter
+  `google/gemini-3.5-flash` secundario gated. El preset y la configuración productiva mantienen
+  únicamente Ollama/Ollama Titan; no se activa gasto cloud sin presupuesto, clasificación,
+  redacción, tratamiento de datos y autorización adicional.
+- La task coordinada de Signal se registra en su propio repositorio. El estado de implementación
+  Oracle queda detallado en el bloque siguiente.
+
+## Task implementada · Oráculo contextual del expediente
+
+- Oracle incorpora el agente `dossier_situation_summary/v1` con schema Pydantic estricto,
+  prompt versionado, validación recursiva de `evidence_ids` y adapter `SignalGovernedLLMProvider`
+  sobre `POST /api/v1/ai/run`. No hay llamadas directas a Ollama/OpenRouter desde Oracle.
+- El snapshot del expediente amplía el context builder con objetivos, hipótesis, memoria viva,
+  evidencias, señales vinculadas, oportunidades, riesgos, actores, reuniones, decisiones y tareas,
+  con redacción y detección de prompt injection heredadas del runtime IA.
+- `oracle.dossier_summary.refresh` sustituye el stub de `oracle.memory.refresh` para este flujo:
+  encola en `ai`, deduplica por hash de snapshot, persiste `AIContextSnapshot`/`AIArtifact`/
+  `AIAuditLog`, publica solo outputs validados como versión visible en `LivingSummary` y conserva
+  la versión anterior si una ejecución falla.
+- API añadida bajo `/api/v1/dossiers/{dossier_id}/oracle-summary`: lectura actual, refresh,
+  versiones, detalle de versión con snapshot y feedback atribuido. OpenAPI y cliente TypeScript
+  regenerados sin drift.
+- Vector muestra el panel «Oráculo del expediente» en la portada del expediente, con titular,
+  resumen, cobertura, confianza, bloques escaneables, historial, estado de refresh, aviso de
+  proveedor secundario y feedback.
+- Configuración nueva: `AI_MODE=signal`, `SIGNAL_AI_BASE_URL`, `SIGNAL_AI_ALLOWED_HOSTS`,
+  `SIGNAL_AI_API_KEY(_FILE)` y `SIGNAL_AI_TIMEOUT_SECONDS`. Producción usa Signal para las tareas
+  autorizadas con modelos Ollama propios; el fallback cloud permanece deshabilitado.
+- Toolchain frontend fijada exactamente a `typescript@5.8.3` para evitar la rotura de `typescript@latest`
+  con OpenAPI/ESLint.
+- Comprobaciones locales: Ruff, mypy, OpenAPI/client check, runtime IA y proveedor 29/29,
+  backend 104/104 con 65 integraciones omitidas por entorno, frontend focal 2/2, ESLint,
+  typecheck y build Next correctos. No se ejecutó smoke visual autenticado porque este entorno no
+  tiene stack Flask/PostgreSQL/Redis de UAT ni sesión real activa.
+- La dependencia homóloga de Signal queda implementada y validada: catálogo aislado para
+  `opn-oracle`, preset productivo Ollama/Titan sin cloud y suite completa de Signal con 466/466
+  tests. Se corrigió además la prueba Oracle del adapter para reflejar el contrato HTTP real de
+  Signal (`task_key` + `input`, identidad derivada de la API key y respuesta bajo `result`).
+
+## Fase implementada · Señales reales y triaje con Ollama gobernado
+
+- Los expedientes de mercado y licitación pueden inicializar perfiles de partida trazables.
+- La configuración de monitores Signal acepta únicamente tipos de fuente soportados y conserva
+  consultas, entidades, palabras clave, idiomas, geografías, cadencia y retención.
+- Los errores de entrega de la bandeja de salida dejan el monitor en estado visible de error.
+- El triaje de señales se ejecuta mediante la task gobernada `signal_triage` de Signal, con
+  evidencia y auditoría; en producción requiere habilitar la política del tenant y el consumer.
+
 ## Baseline conocido
 
 - Frontend Next.js/React/TypeScript ejecutable en la raíz.

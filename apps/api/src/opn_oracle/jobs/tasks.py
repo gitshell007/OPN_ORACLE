@@ -39,6 +39,7 @@ from opn_oracle.jobs.service import (
 from opn_oracle.notifications.email import EmailPermanentError
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 from opn_oracle.oracle.models import SignalMonitor
+from opn_oracle.oracle.summary import process_summary_refresh
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import (
     Invitation,
@@ -306,7 +307,8 @@ def _stable_reset_token(job_id: uuid.UUID) -> str:
 HANDLERS: dict[str, Handler] = {
     "oracle.signal.sync_monitor": lambda payload, job: _sync_monitor(payload, job),
     "oracle.signal.triage": lambda payload, job: _triage_signal(payload, job),
-    "oracle.memory.refresh": _stub("memory_refresh_stub_v1"),
+    "oracle.memory.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
+    "oracle.dossier_summary.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
     "oracle.document.process": lambda payload, job: _process_document(payload, job),
@@ -329,6 +331,7 @@ HANDLERS: dict[str, Handler] = {
             "memory_curator",
             "evidence_reviewer",
             "weekly_change",
+            "dossier_situation_summary",
         )
     },
 }
@@ -394,6 +397,13 @@ def _triage_signal(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any
     except AIUnavailable as error:
         raise RetriableJobError("Ollama no está disponible temporalmente.") from error
     except (AIPolicyDenied, SignalTriageRejected, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+
+
+def _refresh_dossier_summary(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        return process_summary_refresh(uuid.UUID(str(payload["dossier_id"])), job)
+    except (KeyError, ValueError, AIPolicyDenied) as error:
         raise PermanentJobError(str(error)) from error
 
 
@@ -710,6 +720,7 @@ def _durable_task(name: str) -> Any:
 signal_sync_monitor = _durable_task("oracle.signal.sync_monitor")
 signal_triage = _durable_task("oracle.signal.triage")
 memory_refresh = _durable_task("oracle.memory.refresh")
+dossier_summary_refresh = _durable_task("oracle.dossier_summary.refresh")
 report_generate = _durable_task("oracle.report.generate")
 export_generate = _durable_task("oracle.export.generate")
 document_process = _durable_task("oracle.document.process")
@@ -732,6 +743,7 @@ AI_DURABLE_TASKS = {
         "memory_curator",
         "evidence_reviewer",
         "weekly_change",
+        "dossier_situation_summary",
     )
 }
 

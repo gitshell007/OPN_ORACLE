@@ -797,6 +797,9 @@
             },
             "type": "array"
           },
+          "create_starter_profile": {
+            "type": "boolean"
+          },
           "description": {
             "type": "string"
           },
@@ -3249,6 +3252,254 @@
         },
         "type": "object"
       },
+      "OracleSummaryAuditResource": {
+        "additionalProperties": false,
+        "properties": {
+          "context_hash": {
+            "nullable": true,
+            "type": "string"
+          },
+          "cost_micros": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "latency_ms": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "prompt_hash": {
+            "type": "string"
+          },
+          "prompt_name": {
+            "type": "string"
+          },
+          "prompt_version": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id"
+        ],
+        "type": "object"
+      },
+      "OracleSummaryCitationResource": {
+        "additionalProperties": false,
+        "properties": {
+          "classification": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "extract": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id"
+        ],
+        "type": "object"
+      },
+      "OracleSummaryCurrentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_refreshed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "living_summary_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "empty",
+              "ready"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OracleSummaryVersion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "OracleSummaryFeedbackInput": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "correction": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "rating": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "OracleSummaryFeedbackResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "feedback_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feedback_id"
+        ],
+        "type": "object"
+      },
+      "OracleSummaryRefreshInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "OracleSummaryVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "audit": {
+            "$ref": "#/components/schemas/OracleSummaryAuditResource"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/OracleSummaryCitationResource"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "output": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id"
+        ],
+        "type": "object"
+      },
+      "OracleSummaryVersionList": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OracleSummaryVersion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
       "PageMeta": {
         "additionalProperties": false,
         "properties": {
@@ -4321,17 +4572,82 @@
         "additionalProperties": false,
         "properties": {
           "cadence": {
+            "enum": [
+              "hourly",
+              "daily",
+              "weekly"
+            ],
             "type": "string"
           },
           "connection_id": {
             "format": "uuid",
             "type": "string"
           },
+          "entities": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "company",
+                    "person",
+                    "topic"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "geographies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "type": "string"
           },
           "query": {
             "type": "string"
+          },
+          "retention_days": {
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source_types": {
+            "items": {
+              "enum": [
+                "news",
+                "social_signal",
+                "company_signal",
+                "official_publication",
+                "regulatory_signal"
+              ],
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -4400,17 +4716,82 @@
       "SignalMonitorUpdateInput": {
         "additionalProperties": false,
         "properties": {
+          "cadence": {
+            "enum": [
+              "hourly",
+              "daily",
+              "weekly"
+            ],
+            "type": "string"
+          },
+          "entities": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "company",
+                    "person",
+                    "topic"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "geographies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "query": {
             "type": "string"
+          },
+          "retention_days": {
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source_types": {
+            "items": {
+              "enum": [
+                "news",
+                "social_signal",
+                "company_signal",
+                "official_publication",
+                "regulatory_signal"
+              ],
+              "type": "string"
+            },
+            "type": "array"
           },
           "version": {
             "minimum": 1,
             "type": "integer"
           }
         },
-        "required": [
-          "query"
-        ],
         "type": "object"
       },
       "SignalMonitorWriteInput": {
@@ -14466,6 +14847,495 @@
           }
         ],
         "summary": "<Lambda>",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/oracle-summary": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OracleSummaryCurrentResponse"
+                }
+              }
+            },
+            "description": "Resumen del Or\u00e1culo"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Oracle Summary Get",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/oracle-summary/refresh": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OracleSummaryRefreshInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIJobEnqueueResponse"
+                }
+              }
+            },
+            "description": "Refresh encolado"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Oracle Summary Refresh",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/oracle-summary/versions": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OracleSummaryVersionList"
+                }
+              }
+            },
+            "description": "Historial del Or\u00e1culo"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Oracle Summary Versions",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/oracle-summary/versions/{version_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OracleSummaryVersion"
+                }
+              }
+            },
+            "description": "Versi\u00f3n del Or\u00e1culo"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Oracle Summary Version Get",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/oracle-summary/{version_id}/feedback": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OracleSummaryFeedbackInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OracleSummaryFeedbackResponse"
+                }
+              }
+            },
+            "description": "Feedback registrado"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Oracle Summary Feedback",
         "tags": [
           "Oracle"
         ]

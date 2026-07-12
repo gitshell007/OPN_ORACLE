@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -16,11 +17,14 @@ from opn_oracle.ai.provider import (
     DisabledLLMProvider,
     LLMRequest,
     MockLLMProvider,
+    OllamaLLMProvider,
+    SignalGovernedLLMProvider,
     provider_from_config,
 )
 from opn_oracle.ai.registry import PromptRegistry
 from opn_oracle.ai.schemas import (
     AGENT_SCHEMAS,
+    DossierSituationSummaryOutput,
     MeetingBriefingOutput,
     ReportOutput,
     SignalTriageOutput,
@@ -42,13 +46,14 @@ def _request(agent: str, evidence: list[str]) -> LLMRequest:
 def test_registry_has_complete_immutable_metadata() -> None:
     registry = PromptRegistry()
     assert {item.name for item in registry.all()} == set(AGENT_SCHEMAS)
-    assert len({(item.name, item.version) for item in registry.all()}) == 11
+    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS)
     for item in registry.all():
         assert len(item.sha256) == 32
         assert item.input_contract
         assert item.output_schema_name == item.schema.__name__
         assert item.changelog.startswith("v1:")
         assert "## Reglas" in item.text
+    assert registry.get("dossier_situation_summary").max_output_tokens == 3000
 
 
 def test_disabled_provider_is_closed_by_default() -> None:
@@ -71,6 +76,105 @@ def test_provider_factory_and_mock_embeddings_are_deterministic() -> None:
     assert provider.health().status == "healthy"
     assert provider.embed(["uno"]) == provider.embed(["uno"])
     assert isinstance(provider_from_config(config | {"AI_ENABLED": False}), DisabledLLMProvider)
+
+
+def test_ollama_provider_requires_schema_valid_json_and_reports_local_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_id = UUID("00000000-0000-4000-8000-000000000001")
+    output = (
+        MockLLMProvider("fixture")
+        .generate_structured(_request("signal_triage", [str(evidence_id)]), SignalTriageOutput)
+        .output
+    )
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        assert url == "http://ollama.test/api/chat"
+        body = kwargs["json"]
+        assert isinstance(body, dict) and body["format"] == SignalTriageOutput.model_json_schema()
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "message": {"content": output.model_dump_json()},
+                "prompt_eval_count": 123,
+                "eval_count": 45,
+                "total_duration": 2_000_000,
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = OllamaLLMProvider(
+        base_url="http://ollama.test", model="qwen3.5:9b", timeout_seconds=3
+    )
+    result = provider.generate_structured(
+        _request("signal_triage", [str(evidence_id)]), SignalTriageOutput
+    )
+    assert result.output == output
+    assert (result.input_tokens, result.output_tokens, result.cost_micros) == (123, 45, 0)
+    assert result.latency_ms == 2
+
+
+def test_ollama_provider_fails_closed_when_json_does_not_match_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        del kwargs
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={"message": {"content": "{}"}},
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = OllamaLLMProvider(
+        base_url="http://ollama.test", model="qwen3.5:9b", timeout_seconds=3
+    )
+    with pytest.raises(AIUnavailable, match="estructurada"):
+        provider.generate_structured(_request("signal_triage", []), SignalTriageOutput)
+
+
+def test_signal_governed_provider_uses_signal_ai_run_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_id = UUID("00000000-0000-4000-8000-000000000001")
+    output = MockLLMProvider("fixture").generate_structured(
+        _request("dossier_situation_summary", [str(evidence_id)]),
+        AGENT_SCHEMAS["dossier_situation_summary"],
+    )
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        assert url == "https://signal.test/api/v1/ai/run"
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        assert body["task_key"] == "dossier_situation_summary"
+        assert body["input"]["format"] == "json"
+        assert "messages" in body["input"]
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "fallback_used": False,
+                "usage": {"input_tokens": 123, "output_tokens": 45, "cost_micros": 0},
+                "result": {"message": {"content": output.output.model_dump_json()}},
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+    result = provider.generate_structured(
+        _request("dossier_situation_summary", [str(evidence_id)]),
+        AGENT_SCHEMAS["dossier_situation_summary"],
+    )
+    assert result.output == output.output
+    assert (result.provider, result.model, result.cost_micros) == ("ollama", "qwen3.5:9b", 0)
+    validate_evidence(result.output, {evidence_id})
 
 
 def test_mock_provider_is_deterministic_and_grounded() -> None:
@@ -118,6 +222,44 @@ def test_schema_rejects_unknown_fields_and_out_of_range_scores() -> None:
                 },
                 "why_it_matters": "x",
                 "unexpected": True,
+            }
+        )
+
+
+def test_dossier_summary_requires_evidence_for_material_claims() -> None:
+    base = {
+        "headline": "Situación",
+        "executive_summary": "Resumen ejecutivo.",
+        "situation_status": "uncertain",
+        "facts": [],
+        "inferences": [],
+        "material_changes": [],
+        "opportunities": [],
+        "risks": [],
+        "relevant_actors": [],
+        "deadlines_and_milestones": [],
+        "decisions_required": [],
+        "recommended_actions": [],
+        "knowledge_gaps": [],
+        "open_questions": [],
+        "confidence": 20,
+        "evidence_coverage": {"cited_items": 0, "available_items": 0, "limitations": []},
+        "warnings": [],
+    }
+
+    with pytest.raises(ValidationError):
+        DossierSituationSummaryOutput.model_validate(
+            base
+            | {
+                "opportunities": [
+                    {
+                        "title": "Oportunidad sin apoyo",
+                        "rationale": "No tiene evidencia.",
+                        "urgency": "low",
+                        "confidence": 10,
+                        "evidence_ids": [],
+                    }
+                ]
             }
         )
 

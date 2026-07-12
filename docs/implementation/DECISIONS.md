@@ -121,3 +121,41 @@
   mientras no exista un canal de despliegue aprobado.
 - **Consecuencias:** CI no necesita credenciales productivas y no se introduce un bypass de los
   gates operativos ni una clave SSH en el repositorio.
+
+## D-014 — Perfiles iniciales explícitos por tipo de expediente
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-11
+- **Contexto:** el tipo de expediente era únicamente una clasificación. Al crear un expediente,
+  el usuario necesitaba un punto de partida coherente sin imponer un sector ni automatizar
+  vigilancia externa.
+- **Decisión:** el alta ofrece una base inicial editable, activada explícitamente desde la
+  interfaz. En la misma transacción crea un objetivo, dos hipótesis y una watchlist con fuentes
+  sugeridas y versión de perfil. No crea monitores ni realiza llamadas a proveedores externos.
+- **Alternativas:** crear solo una etiqueta; crear monitores automáticamente; imponer plantillas
+  inmutables por sector.
+- **Consecuencias:** los expedientes API existentes conservan el comportamiento vacío por defecto;
+  la interfaz informa del contenido antes de crearlo y permite desactivar la base inicial.
+
+## D-015 — Oráculo contextual gobernado por Signal
+
+- **Estado:** implemented; activación cloud gated
+- **Fecha:** 2026-07-11
+- **Contexto:** cada expediente necesita sintetizar documentación, señales y dominio en una visión
+  actual, similar al patrón de Oráculo de Nexus, pero con evidencia y aislamiento propios de Oracle.
+- **Decisión:** Oracle construirá el contexto, las citas, la auditoría y la UX; Signal será el único
+  proxy de modelos mediante `dossier_situation_summary`. El primario será Ollama
+  `qwen3.5:9b` y el fallback activo Ollama Titan `qwen3.6:27b`. OpenRouter/Gemini queda diseñado
+  como opción futura, pero sin política activa.
+- **Consecuencias:** no habrá llamadas directas a proveedores desde Oracle. El fallback cloud no se
+  activa hasta fijar presupuesto, clasificación/redacción y política de tratamiento de datos.
+
+## D-016 — TypeScript estable para toolchain frontend
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-11
+- **Contexto:** `typescript@latest` resolvió a 7.0.2 y rompió `openapi-typescript` y ESLint por
+  APIs internas todavía no compatibles.
+- **Decisión:** fijar `typescript@5.8.3` en devDependencies.
+- **Consecuencias:** `npm run api:client:generate`, `npm run api:client:check`, `npm run lint`,
+  `npm run typecheck`, tests y build vuelven a ser reproducibles sin workarounds temporales.

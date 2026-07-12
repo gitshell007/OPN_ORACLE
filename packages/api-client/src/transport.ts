@@ -677,6 +677,40 @@ const dossiers = {
     ),
 };
 
+export type OracleSummaryCurrent =
+  components["schemas"]["OracleSummaryCurrentResponse"];
+export type OracleSummaryVersion =
+  components["schemas"]["OracleSummaryVersion"];
+
+const oracleSummary = {
+  get: (dossierId: string) =>
+    request<OracleSummaryCurrent>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/oracle-summary`,
+    ),
+  refresh: (dossierId: string, idempotencyKey: string) =>
+    request<components["schemas"]["AIJobEnqueueResponse"]>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/oracle-summary/refresh`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  versions: (dossierId: string) =>
+    request<components["schemas"]["OracleSummaryVersionList"]>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/oracle-summary/versions`,
+    ),
+  version: (dossierId: string, versionId: string) =>
+    request<OracleSummaryVersion>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/oracle-summary/versions/${encodeURIComponent(versionId)}`,
+    ),
+  feedback: (
+    dossierId: string,
+    versionId: string,
+    input: components["schemas"]["OracleSummaryFeedbackInput"],
+  ) =>
+    request<components["schemas"]["OracleSummaryFeedbackResponse"]>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/oracle-summary/${encodeURIComponent(versionId)}/feedback`,
+      { method: "POST", body: input },
+    ),
+};
+
 export type DossierSignalEnvelope =
   components["schemas"]["DossierSignalEnvelope"];
 export type DossierSignalLink =
@@ -1179,6 +1213,7 @@ export const api = {
   jobs,
   signalAvanza,
   dossiers,
+  oracleSummary,
   dossierSignals,
   opportunities,
   risks,

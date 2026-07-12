@@ -22,6 +22,7 @@ TASK_QUEUES = {
     "oracle.signal.sync_monitor": "signals",
     "oracle.signal.triage": "signals",
     "oracle.memory.refresh": "ai",
+    "oracle.dossier_summary.refresh": "ai",
     "oracle.report.generate": "ai",
     "oracle.export.generate": "documents",
     "oracle.document.process": "documents",
@@ -44,6 +45,7 @@ TASK_QUEUES = {
             "memory_curator",
             "evidence_reviewer",
             "weekly_change",
+            "dossier_situation_summary",
         )
     },
 }

@@ -43,7 +43,7 @@
     "eslint-config-next": "latest",
     "jsdom": "latest",
     "openapi-typescript": "7.10.1",
-    "typescript": "latest",
+    "typescript": "5.8.3",
     "vitest": "latest"
   },
   "overrides": {

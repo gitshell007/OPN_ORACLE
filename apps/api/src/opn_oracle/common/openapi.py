@@ -559,6 +559,9 @@ def _declare_oracle_operation(
         )
     ):
         return
+    if "/oracle-summary" in path:
+        _declare_oracle_summary_operation(path, method, operation, problem_content)
+        return
     resource = _oracle_resource_for_path(path)
     m2m_target = _oracle_m2m_target(path)
     signal_monitor_create = (
@@ -763,6 +766,86 @@ def _declare_oracle_operation(
     operation.setdefault("responses", {}).setdefault(
         "409", _problem("Conflicto de versión o idempotencia", problem_content)
     )
+
+
+def _declare_oracle_summary_operation(
+    path: str, method: str, operation: dict[str, Any], problem_content: dict[str, Any]
+) -> None:
+    responses = operation.setdefault("responses", {})
+    for status in tuple(responses):
+        if status.startswith("2"):
+            responses.pop(status)
+    if method == "post" and path.endswith("/feedback"):
+        operation["requestBody"] = {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/OracleSummaryFeedbackInput"}
+                }
+            },
+        }
+        responses["201"] = {
+            "description": "Feedback registrado",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/OracleSummaryFeedbackResponse"}
+                }
+            },
+        }
+    elif method == "post":
+        operation["requestBody"] = {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/OracleSummaryRefreshInput"}
+                }
+            },
+        }
+        responses["202"] = {
+            "description": "Refresh encolado",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/AIJobEnqueueResponse"}
+                }
+            },
+        }
+        _upsert_parameter(
+            operation,
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": False,
+                "schema": {"type": "string", "minLength": 8, "maxLength": 200},
+            },
+        )
+    elif path.endswith("/versions/{version_id}"):
+        responses["200"] = {
+            "description": "Versión del Oráculo",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/OracleSummaryVersion"}
+                }
+            },
+        }
+    elif path.endswith("/versions"):
+        responses["200"] = {
+            "description": "Historial del Oráculo",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/OracleSummaryVersionList"}
+                }
+            },
+        }
+    else:
+        responses["200"] = {
+            "description": "Resumen del Oráculo",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/OracleSummaryCurrentResponse"}
+                }
+            },
+        }
+    responses["404"] = _problem("Recurso no encontrado", problem_content)
 
 
 def _upsert_parameter(operation: dict[str, Any], parameter: dict[str, Any]) -> None:
@@ -1449,6 +1532,26 @@ def _oracle_schemas() -> dict[str, Any]:
                 "nullable": True,
             },
         },
+        "OracleSummaryCitation": {
+            "source_kind": string,
+            "source_url": {"type": "string", "nullable": True},
+            "locator": json_object,
+            "extract": string,
+            "classification": string,
+        },
+        "OracleSummaryAudit": {
+            "provider": string,
+            "model": string,
+            "prompt_name": string,
+            "prompt_version": string,
+            "prompt_hash": string,
+            "context_hash": {"type": "string", "nullable": True},
+            "input_tokens": {"type": "integer"},
+            "output_tokens": {"type": "integer"},
+            "cost_micros": {"type": "integer"},
+            "latency_ms": {"type": "integer", "nullable": True},
+            "status": string,
+        },
         "StatusHistory": {
             "dossier_id": uuid,
             "resource_type": string,
@@ -1462,6 +1565,63 @@ def _oracle_schemas() -> dict[str, Any]:
     }
     for name, properties in resource_properties.items():
         schemas[f"{name}Resource"] = resource(properties)
+
+    schemas["OracleSummaryVersion"] = resource(
+        {
+            "dossier_id": uuid,
+            "version": {"type": "integer", "minimum": 1},
+            "status": string,
+            "output": json_object,
+            "citations": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/OracleSummaryCitationResource"},
+            },
+            "audit": {"$ref": "#/components/schemas/OracleSummaryAuditResource"},
+            "snapshot": json_object,
+        }
+    )
+    schemas["OracleSummaryCurrentResponse"] = write(
+        {
+            "state": {"type": "string", "enum": ["empty", "ready"]},
+            "summary": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/OracleSummaryVersion"},
+                    {"type": "null"},
+                ]
+            },
+            "living_summary_version": {"type": "integer", "nullable": True},
+            "last_refreshed_at": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": True,
+            },
+            "job": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/JobResponse"},
+                    {"type": "null"},
+                ]
+            },
+        },
+        ["state"],
+    )
+    schemas["OracleSummaryVersionList"] = write(
+        {
+            "data": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/OracleSummaryVersion"},
+            }
+        },
+        ["data"],
+    )
+    schemas["OracleSummaryRefreshInput"] = write({})
+    schemas["OracleSummaryFeedbackInput"] = write(
+        {
+            "rating": {"type": "integer"},
+            "correction": json_object,
+            "comment": string,
+        }
+    )
+    schemas["OracleSummaryFeedbackResponse"] = write({"feedback_id": uuid}, ["feedback_id"])
 
     common_child = {"title": string, "status": string, "content": json_object}
     write_properties: dict[str, dict[str, Any]] = {

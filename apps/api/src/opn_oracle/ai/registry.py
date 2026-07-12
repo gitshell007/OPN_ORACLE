@@ -6,7 +6,9 @@ import hashlib
 from dataclasses import dataclass
 from importlib.resources import files
 
-from opn_oracle.ai.schemas import AGENT_SCHEMAS, AgentOutput
+from pydantic import BaseModel
+
+from opn_oracle.ai.schemas import AGENT_SCHEMAS
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +24,7 @@ class PromptDefinition:
     max_output_tokens: int
     text: str
     sha256: bytes
-    schema: type[AgentOutput]
+    schema: type[BaseModel]
     changelog: str
 
 
@@ -38,6 +40,7 @@ PURPOSES = {
     "memory_curator": "Actualizar memoria viva sin borrar historia.",
     "evidence_reviewer": "Revisar groundedness y seguridad de un output.",
     "weekly_change": "Resumir cambios estratégicos del periodo.",
+    "dossier_situation_summary": "Sintetizar la situación actual trazable de un expediente.",
 }
 
 INPUT_CONTRACTS = {
@@ -62,6 +65,12 @@ INPUT_CONTRACTS = {
         "dossier_id",
         "period_start",
         "period_end",
+        "allowed_evidence_ids",
+    ),
+    "dossier_situation_summary": (
+        "tenant_id",
+        "dossier_id",
+        "snapshot",
         "allowed_evidence_ids",
     ),
 }
@@ -90,7 +99,7 @@ class PromptRegistry:
                 classification="internal",
                 model=model,
                 temperature=0.0,
-                max_output_tokens=2000,
+                max_output_tokens=3000 if name == "dossier_situation_summary" else 2000,
                 text=combined,
                 sha256=hashlib.sha256(combined.encode()).digest(),
                 schema=schema,
