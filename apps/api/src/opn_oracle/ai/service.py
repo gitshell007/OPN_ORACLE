@@ -426,6 +426,7 @@ def execute_agent(
         result.output_tokens,
         result.cost_micros,
     )
+    reviewer_attempt_id: uuid.UUID | None = None
     if agent != "evidence_reviewer" and not result.safe_fallback_used:
         reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
             "evidence_reviewer"
@@ -518,7 +519,7 @@ def execute_agent(
         ]
     output_hash = hashlib.sha256(_canonical(output)).digest()
     settlement = datetime.now(UTC)
-    active_attempt_id = reviewer_attempt_id if agent != "evidence_reviewer" else attempt_id
+    active_attempt_id = reviewer_attempt_id or attempt_id
     active_attempt = db.session.scalar(
         select(AIAttempt)
         .where(
@@ -555,7 +556,7 @@ def execute_agent(
     final_audit.status, final_audit.output_hash = "succeeded", output_hash
     final_audit.provider = result.provider or final_audit.provider
     final_audit.model = result.model or final_audit.model
-    final_audit.attempt_count = 1 if agent == "evidence_reviewer" else 2
+    final_audit.attempt_count = 2 if reviewer_attempt_id is not None else 1
     final_audit.input_tokens, final_audit.output_tokens = total_input, total_output
     final_audit.actual_cost_micros, final_audit.latency_ms = total_cost, result.latency_ms
     final_audit.completed_at = settlement
@@ -584,7 +585,7 @@ def execute_agent(
     try:
         db.session.commit()
     except Exception as error:
-        active_id = reviewer_attempt_id if agent != "evidence_reviewer" else attempt_id
+        active_id = reviewer_attempt_id or attempt_id
         fail(error, active_attempt_id=active_id)
         raise
     return {
