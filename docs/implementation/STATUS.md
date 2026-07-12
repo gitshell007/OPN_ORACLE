@@ -24,6 +24,11 @@ El árbol de trabajo está limpio tras integrar y publicar los cambios del Orác
   TypeScript, build de Next, Ruff y mypy correctos; contrato Flask 7/7 sin umbral de
   cobertura. La integración PostgreSQL/Redis que prueba cascada y auditoría queda
   preparada pero no se ejecutó porque faltan las tres variables `TEST_*` en local.
+- Producción: release inmutable `20260712T075929Z-grant-dossier-delete`, migración
+  `20260712_0014`, health interno/público y Celery correctos. La prueba Playwright
+  eliminó un expediente sintético mediante la suma `7 + 9`: el listado pasó de cinco a
+  cuatro resultados, la fila desapareció y PostgreSQL confirmó tanto el borrado como el
+  evento de auditoría conservado con `dossier_id = NULL`.
 
 | Fase | Estado | Fecha | Responsable | Comprobaciones | Bloqueos | Siguiente paso |
 |---|---|---|---|---|---|---|
