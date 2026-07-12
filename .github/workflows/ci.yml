@@ -154,8 +154,8 @@ jobs:
           exit-code: "1"
       - name: Generate SBOMs
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft:v1.46.0 opn-oracle-api:${GITHUB_SHA} -o cyclonedx-json=api-sbom.cdx.json
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft:v1.46.0 opn-oracle-web:${GITHUB_SHA} -o cyclonedx-json=web-sbom.cdx.json
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" anchore/syft:v1.46.0 opn-oracle-api:${GITHUB_SHA} -o cyclonedx-json=/out/api-sbom.cdx.json
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" anchore/syft:v1.46.0 opn-oracle-web:${GITHUB_SHA} -o cyclonedx-json=/out/web-sbom.cdx.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom-${{ github.sha }}

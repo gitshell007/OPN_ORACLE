@@ -687,3 +687,6 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Los builds y escaneos Trivy de ambas imágenes pasaron. La generación SBOM no arrancó porque el
   tag histórico `anchore/syft:v1.30.1` no existe; se actualizó al release oficial disponible
   `v1.46.0`, manteniendo la salida CycloneDX JSON.
+- La siguiente ejecución CI quedó verde, pero reveló que los SBOM se escribían dentro del
+  contenedor efímero. El workflow monta el workspace en `/out` para que ambos CycloneDX queden
+  disponibles y se suban como artefacto del commit.
