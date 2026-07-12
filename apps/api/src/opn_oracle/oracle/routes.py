@@ -1457,6 +1457,7 @@ def _model_page(model: type[Any], *, criteria: tuple[Any, ...] = ()) -> dict[str
             "scheduled_at",
             "decided_at",
             "priority",
+            "position",
         )
         if hasattr(model, key)
     }
