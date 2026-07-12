@@ -426,7 +426,7 @@ def execute_agent(
         result.output_tokens,
         result.cost_micros,
     )
-    if agent != "evidence_reviewer":
+    if agent != "evidence_reviewer" and not result.safe_fallback_used:
         reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
             "evidence_reviewer"
         )

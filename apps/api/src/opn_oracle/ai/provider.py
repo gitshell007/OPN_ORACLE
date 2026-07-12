@@ -42,6 +42,7 @@ class LLMResult:
     provider: str | None = None
     model: str | None = None
     fallback_used: bool = False
+    safe_fallback_used: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,6 +562,7 @@ class SignalGovernedLLMProvider:
             },
         }
         started = time.monotonic()
+        safe_fallback_used = False
         payload = self._run(body)
         normalized_output = _signal_output(payload)
         usage = _usage(payload)
@@ -632,6 +634,7 @@ class SignalGovernedLLMProvider:
                     if allowed_evidence_ids:
                         raise
                     output = _safe_empty_evidence_summary(request, schema)
+                    safe_fallback_used = True
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
         return LLMResult(
             output=output,
@@ -642,6 +645,7 @@ class SignalGovernedLLMProvider:
             provider=str(payload.get("provider") or payload.get("actual_provider") or "signal"),
             model=str(payload.get("model") or payload.get("actual_model") or request.model),
             fallback_used=bool(payload.get("fallback_used", False)),
+            safe_fallback_used=safe_fallback_used,
         )
 
     def _run(self, body: dict[str, Any]) -> dict[str, Any]:

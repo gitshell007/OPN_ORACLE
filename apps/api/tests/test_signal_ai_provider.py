@@ -202,4 +202,5 @@ def test_signal_governed_provider_uses_safe_summary_after_two_invalid_empty_evid
     assert result.output.confidence == 0
     assert result.output.facts == []
     assert "fallback seguro" in " ".join(result.output.warnings)
+    assert result.safe_fallback_used is True
     assert calls == 2
