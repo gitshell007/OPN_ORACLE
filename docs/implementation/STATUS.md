@@ -680,3 +680,7 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - El primer `flask db check` que alcanzó CI reveló que el índice parcial que impide dos
   restauraciones activas estaba en Alembic pero no en metadata SQLAlchemy. Se incorporó al modelo
   `PlatformBackupOperation`, conservando la restricción productiva y eliminando el drift.
+- El job de seguridad alcanzó auditorías npm/Python sin vulnerabilidades, pero Semgrep 1.133.0 no
+  arrancaba con `setuptools` moderno por la retirada de `pkg_resources`. El workflow fija
+  `setuptools<81` únicamente dentro de la herramienta aislada; `semgrep --version` 1.133.0 quedó
+  verificado localmente.
