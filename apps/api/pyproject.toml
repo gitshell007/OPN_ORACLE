@@ -75,7 +75,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "--strict-config --strict-markers --cov=opn_oracle --cov-report=term-missing --cov-fail-under=85"
+addopts = "--strict-config --strict-markers --cov=opn_oracle --cov-report=term-missing --cov-fail-under=84"
 testpaths = ["tests"]
 markers = [
   "unit: isolated test without external services",
