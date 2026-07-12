@@ -55,7 +55,7 @@ def test_registry_has_complete_immutable_metadata() -> None:
         assert "## Reglas" in item.text
     assert registry.get("dossier_situation_summary").version == "v2"
     assert registry.get("dossier_situation_summary", "v1").version == "v1"
-    assert registry.get("dossier_situation_summary").max_output_tokens == 3000
+    assert registry.get("dossier_situation_summary").max_output_tokens == 2000
 
 
 def test_disabled_provider_is_closed_by_default() -> None:

@@ -110,7 +110,7 @@ class PromptRegistry:
                     classification="internal",
                     model=model,
                     temperature=0.0,
-                    max_output_tokens=3000 if name == "dossier_situation_summary" else 2000,
+                    max_output_tokens=2000,
                     text=combined,
                     sha256=hashlib.sha256(combined.encode()).digest(),
                     schema=schema,

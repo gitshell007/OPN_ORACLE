@@ -380,7 +380,7 @@ class Settings:
             signal_ai_api_key=str(values.get("SIGNAL_AI_API_KEY", "")),
             signal_ai_allowed_hosts=str(values.get("SIGNAL_AI_ALLOWED_HOSTS", "")),
             signal_ai_timeout_seconds=_as_float(
-                values.get("SIGNAL_AI_TIMEOUT_SECONDS", 120.0),
+                values.get("SIGNAL_AI_TIMEOUT_SECONDS", 210.0),
                 name="SIGNAL_AI_TIMEOUT_SECONDS",
             ),
             signal_connect_timeout_seconds=_as_float(
