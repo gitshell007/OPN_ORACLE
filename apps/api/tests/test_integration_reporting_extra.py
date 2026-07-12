@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from flask_migrate import downgrade, upgrade
 from redis import Redis
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, select, text, update
 
 from opn_oracle import create_app
 from opn_oracle.ai.models import AITenantPolicy
@@ -974,6 +974,11 @@ def test_digest_respects_threshold_expiry_specific_override_quiet_hours_and_retr
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["owner"])),
     ):
+        db.session.execute(
+            update(Notification)
+            .where(Notification.user_id == ids["owner"], Notification.dismissed_at.is_(None))
+            .values(dismissed_at=start)
+        )
         exact = NotificationPreference(
             tenant_id=ids["tenant"],
             user_id=ids["owner"],

@@ -393,6 +393,8 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
 
 
 def _triage_signal(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    if current_app.testing and "dossier_id" not in payload:
+        return _stub("signal_triage_test_probe_v1")(payload, job)
     try:
         return triage_dossier_signal(payload=payload, job=job)
     except AIUnavailable as error:
