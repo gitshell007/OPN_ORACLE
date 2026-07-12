@@ -1,6 +1,6 @@
 # Task Oracle — Oráculo contextual dentro de cada expediente
 
-**Estado:** implemented-oracle / pending-signal  
+**Estado:** implemented / nightly-refresh-enabled
 **Prioridad:** alta  
 **Dependencia externa:** task homóloga de Signal `dossier_situation_summary`  
 **Prompt ejecutable:** `docs/implementation/prompts/17_DOSSIER_ORACLE_ASSISTANT.md`
@@ -25,7 +25,7 @@ reuniones, decisiones y tareas del propio expediente.
 ## Política acordada
 
 - primario: `ollama/qwen3.5:9b`;
-- secundario: `openrouter/google/gemini-3.5-flash`;
+- secundario técnico: perfil Ollama Titan con `qwen3.6:27b`;
 - fallback solo por fallos técnicos/política, nunca por preferencia semántica;
 - el gasto cloud requiere límites específicos y gate de privacidad antes de activación.
 
@@ -43,4 +43,6 @@ Implementado en Oracle: adapter gobernado por Signal, snapshot tenant/dossier-sc
 `dossier_situation_summary/v1`, job Celery durable, persistencia versionada en artefactos IA,
 publicación visible en `LivingSummary`, API, cliente TypeScript, panel Vector y tests locales.
 
-Pendiente externo: task homóloga en Signal y gates de activación cloud/presupuesto/privacidad.
+La task homóloga está disponible en Signal. La ejecución nocturna genera una versión persistente
+por expediente no archivado y la regeneración diurna solo se solicita mediante «Actualizar
+análisis». No hay fallback cloud activo.

@@ -9,6 +9,7 @@ import {
 import { AlertCircle, CheckCircle2, History, RefreshCw, Send, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { PermissionGate } from "@/components/auth/auth-boundary";
 
 type SummaryOutput = {
   headline?: string;
@@ -100,7 +101,10 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
     () => new Map((current?.citations ?? []).map((citation) => [citation.id, citation])),
     [current],
   );
-  const fallbackUsed = current?.audit?.provider === "openrouter";
+  const fallbackUsed =
+    current?.audit?.provider === "ollama_titan" ||
+    current?.audit?.model === "qwen3.6:27b" ||
+    current?.audit?.provider === "openrouter";
   const jobRunning = Boolean(state?.job && ["queued", "running", "retrying"].includes(state.job.status));
 
   useEffect(() => {
@@ -149,9 +153,11 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           <span className="section-kicker">Análisis asistido</span>
           <h2 id="oracle-summary-title">Oráculo del expediente</h2>
         </div>
-        <button className="vector-secondary" onClick={() => void refresh()} disabled={busy || jobRunning}>
-          <RefreshCw size={15} /> {jobRunning ? "Actualizando" : "Actualizar análisis"}
-        </button>
+        <PermissionGate permission="ai.execute">
+          <button className="vector-secondary" onClick={() => void refresh()} disabled={busy || jobRunning}>
+            <RefreshCw size={15} /> {jobRunning ? "Actualizando" : "Actualizar análisis"}
+          </button>
+        </PermissionGate>
       </header>
       {loading ? (
         <p role="status">Cargando análisis del expediente...</p>
@@ -160,8 +166,8 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
       ) : !current ? (
         <div className="oracle-empty">
           <Sparkles size={18} />
-          <strong>Aún no hay análisis publicado</strong>
-          <p>Se generará con la información autorizada de este expediente y conservará citas trazables.</p>
+          <strong>{jobRunning ? "Preparando el primer análisis…" : "Aún no hay análisis publicado"}</strong>
+          <p>El análisis se prepara automáticamente cada noche con la información autorizada. Si tienes permiso, también puedes solicitarlo ahora.</p>
         </div>
       ) : (
         <>
@@ -176,6 +182,16 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
               <div><dt>Actualizado</dt><dd>{formatDate(current.updated_at)}</dd></div>
             </dl>
           </div>
+          <p className="reporting-hint">
+            {state?.generation_trigger === "nightly"
+              ? "Generación nocturna"
+              : state?.generation_trigger === "manual"
+                ? "Actualización manual"
+                : "Origen de la versión anterior no registrado"}
+          </p>
+          {jobRunning && (
+            <p className="oracle-warning"><RefreshCw size={15} /> Actualización en curso; la última versión seguirá visible hasta publicar la nueva.</p>
+          )}
           {fallbackUsed && (
             <p className="oracle-warning"><AlertCircle size={15} /> Se usó proveedor secundario por indisponibilidad técnica del primario.</p>
           )}

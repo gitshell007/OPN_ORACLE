@@ -159,3 +159,16 @@
 - **Decisión:** fijar `typescript@5.8.3` en devDependencies.
 - **Consecuencias:** `npm run api:client:generate`, `npm run api:client:check`, `npm run lint`,
   `npm run typecheck`, tests y build vuelven a ser reproducibles sin workarounds temporales.
+
+## D-017 — Resumen persistente nocturno del expediente
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-12
+- **Contexto:** el Oráculo ya publicaba versiones persistentes, pero dependía de una petición
+  manual y reutilizaba indefinidamente un trabajo exitoso si el contexto no cambiaba.
+- **Decisión:** Celery Beat crea cada noche, a las 03:15 en `Europe/Madrid`, un trabajo durable por
+  expediente no archivado. La clave nocturna se limita a expediente y fecha local. El botón usa
+  `Idempotency-Key`: repetir la misma petición deduplica, una nueva pulsación crea otra versión.
+- **Consecuencias:** entrar en el expediente es siempre lectura; la versión anterior permanece
+  visible durante la generación o si Signal/Ollama falla. El primario es `qwen3.5:9b` y el
+  fallback técnico es Ollama Titan `qwen3.6:27b`, ambos gobernados por Signal.

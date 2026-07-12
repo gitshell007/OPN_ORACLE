@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from celery import Celery, Task
+from celery.schedules import crontab
 from flask import Flask
 from kombu import Queue
 
@@ -33,13 +34,70 @@ def celery_init_app(app: Flask) -> Celery:
                 return self.run(*args, **kwargs)
 
     celery = Celery(app.import_name, task_cls=FlaskTask)
+    beat_schedule = {
+        "dispatch-due-jobs": {
+            "task": "maintenance.dispatch_due_jobs",
+            "schedule": 60.0,
+            "options": {"queue": "maintenance"},
+        },
+        "dispatch-queued-jobs": {
+            "task": "maintenance.dispatch_queued_jobs",
+            "schedule": 30.0,
+            "options": {"queue": "maintenance"},
+        },
+        "cleanup-tokens": {
+            "task": "maintenance.cleanup_tokens",
+            "schedule": 3600.0,
+            "options": {"queue": "maintenance"},
+        },
+        "expire-sessions": {
+            "task": "maintenance.expire_sessions",
+            "schedule": 900.0,
+            "options": {"queue": "maintenance"},
+        },
+        "recover-stale-jobs": {
+            "task": "maintenance.recover_stale_jobs",
+            "schedule": 300.0,
+            "options": {"queue": "maintenance"},
+        },
+        "documents-retention": {
+            "task": "maintenance.documents_retention",
+            "schedule": 3600.0,
+            "options": {"queue": "maintenance"},
+        },
+        "reconcile-signal-outbox": {
+            "task": "maintenance.signal_reconcile_outbox",
+            "schedule": 30.0,
+            "options": {"queue": "maintenance"},
+        },
+        "reconcile-signal-inbox": {
+            "task": "maintenance.signal_reconcile_inbox",
+            "schedule": 30.0,
+            "options": {"queue": "maintenance"},
+        },
+        "schedule-alert-evaluations": {
+            "task": "maintenance.schedule_alert_evaluations",
+            "schedule": 300.0,
+            "options": {"queue": "maintenance"},
+        },
+    }
+    if app.config["NIGHTLY_SUMMARIES_ENABLED"]:
+        beat_schedule["schedule-nightly-dossier-summaries"] = {
+            "task": "maintenance.schedule_nightly_dossier_summaries",
+            "schedule": crontab(
+                hour=app.config["NIGHTLY_SUMMARIES_HOUR"],
+                minute=app.config["NIGHTLY_SUMMARIES_MINUTE"],
+            ),
+            "options": {"queue": "maintenance"},
+        }
+
     celery.conf.update(
         broker_url=app.config["CELERY_BROKER_URL"],
         result_backend=app.config["CELERY_RESULT_BACKEND"],
         task_serializer="json",
         result_serializer="json",
         accept_content=["json"],
-        timezone="UTC",
+        timezone=app.config["CELERY_TIMEZONE"],
         enable_utc=True,
         task_always_eager=app.config["CELERY_TASK_ALWAYS_EAGER"],
         task_eager_propagates=app.config["CELERY_TASK_EAGER_PROPAGATES"],
@@ -52,53 +110,7 @@ def celery_init_app(app: Flask) -> Celery:
         task_queues=tuple(Queue(name) for name in QUEUES),
         task_routes=TASK_ROUTES,
         broker_connection_retry_on_startup=True,
-        beat_schedule={
-            "dispatch-due-jobs": {
-                "task": "maintenance.dispatch_due_jobs",
-                "schedule": 60.0,
-                "options": {"queue": "maintenance"},
-            },
-            "dispatch-queued-jobs": {
-                "task": "maintenance.dispatch_queued_jobs",
-                "schedule": 30.0,
-                "options": {"queue": "maintenance"},
-            },
-            "cleanup-tokens": {
-                "task": "maintenance.cleanup_tokens",
-                "schedule": 3600.0,
-                "options": {"queue": "maintenance"},
-            },
-            "expire-sessions": {
-                "task": "maintenance.expire_sessions",
-                "schedule": 900.0,
-                "options": {"queue": "maintenance"},
-            },
-            "recover-stale-jobs": {
-                "task": "maintenance.recover_stale_jobs",
-                "schedule": 300.0,
-                "options": {"queue": "maintenance"},
-            },
-            "documents-retention": {
-                "task": "maintenance.documents_retention",
-                "schedule": 3600.0,
-                "options": {"queue": "maintenance"},
-            },
-            "reconcile-signal-outbox": {
-                "task": "maintenance.signal_reconcile_outbox",
-                "schedule": 30.0,
-                "options": {"queue": "maintenance"},
-            },
-            "reconcile-signal-inbox": {
-                "task": "maintenance.signal_reconcile_inbox",
-                "schedule": 30.0,
-                "options": {"queue": "maintenance"},
-            },
-            "schedule-alert-evaluations": {
-                "task": "maintenance.schedule_alert_evaluations",
-                "schedule": 300.0,
-                "options": {"queue": "maintenance"},
-            },
-        },
+        beat_schedule=beat_schedule,
     )
     celery.set_default()
     celery.autodiscover_tasks(

@@ -21,6 +21,7 @@ from opn_oracle.jobs.service import enqueue_job, serialize_job
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.models import Evidence, Feedback, LivingSummary
 from opn_oracle.platform.audit import append_audit_event
+from opn_oracle.tenants.context import require_tenant_id
 
 SUMMARY_AGENT = "dossier_situation_summary"
 SUMMARY_JOB = "oracle.dossier_summary.refresh"
@@ -142,11 +143,15 @@ def get_current_summary(dossier_id: uuid.UUID) -> dict[str, Any]:
         .order_by(BackgroundJob.created_at.desc())
         .limit(1)
     )
+    generation_trigger = living.summary.get("generation_trigger") if living else None
+    if generation_trigger not in {"manual", "nightly"}:
+        generation_trigger = None
     if row is None:
         return {
             "state": "empty",
             "summary": None,
             "living_summary_version": living.version if living else None,
+            "generation_trigger": generation_trigger,
             "job": serialize_job(job) if job else None,
         }
     artifact, audit = row
@@ -154,6 +159,7 @@ def get_current_summary(dossier_id: uuid.UUID) -> dict[str, Any]:
         "state": "ready",
         "summary": serialize_summary_artifact(artifact, audit),
         "living_summary_version": living.version if living else None,
+        "generation_trigger": generation_trigger,
         "last_refreshed_at": living.last_refreshed_at.isoformat()
         if living and living.last_refreshed_at
         else None,
@@ -161,64 +167,54 @@ def get_current_summary(dossier_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-def enqueue_summary_refresh(dossier_id: uuid.UUID) -> BackgroundJob:
-    context = build_dossier_situation_context(dossier_id, max_tokens=8000)
-    material_hash = str(context.manifest.get("material_hash") or context.context_hash.hex())
-    key_prefix = f"oracle-summary:{dossier_id}:{material_hash}"
-    previous_jobs = list(
-        db.session.scalars(
-            select(BackgroundJob)
-            .where(
-                BackgroundJob.tenant_id == g.active_tenant_id,
-                BackgroundJob.dossier_id == dossier_id,
-                BackgroundJob.job_type == SUMMARY_JOB,
-                BackgroundJob.idempotency_key.like(f"{key_prefix}%"),
-            )
-            .order_by(BackgroundJob.created_at.desc())
+def enqueue_summary_refresh(
+    dossier_id: uuid.UUID,
+    *,
+    trigger: str,
+    invocation_key: str,
+    requested_by_user_id: uuid.UUID | None,
+    scheduled_for: str | None = None,
+    request_id: str | None = None,
+    correlation_id: str | None = None,
+) -> BackgroundJob:
+    """Queue exactly one generation for a user action or nightly occurrence.
+
+    The previous material-hash key reused successful generations indefinitely, so a
+    manual refresh could not create a new version when the dossier had not changed.
+    A client idempotency key now deduplicates only the same click/request, while the
+    nightly scheduler uses one stable occurrence key per calendar night.
+    """
+
+    if trigger not in {"manual", "nightly"}:
+        raise ValueError("Origen de actualización no válido.")
+    normalized_key = invocation_key.strip()
+    if not normalized_key or len(normalized_key) > 500:
+        raise ValueError("La clave de actualización no es válida.")
+    digest = hashlib.sha256(normalized_key.encode()).hexdigest()[:32]
+    key = f"oracle-summary:{trigger}:{dossier_id}:{digest}"
+    tenant_id = require_tenant_id()
+    reused = db.session.scalar(
+        select(BackgroundJob.id).where(
+            BackgroundJob.tenant_id == tenant_id,
+            BackgroundJob.dossier_id == dossier_id,
+            BackgroundJob.job_type == SUMMARY_JOB,
+            BackgroundJob.idempotency_key == key,
         )
     )
-    reusable = next(
-        (
-            item
-            for item in previous_jobs
-            if item.status in {"queued", "running", "retrying", "succeeded"}
-        ),
-        None,
-    )
-    if reusable is not None:
-        append_audit_event(
-            db.session,
-            action="oracle_summary.refresh_requested",
-            resource_type="oracle_summary",
-            resource_id=dossier_id,
-            dossier_id=dossier_id,
-            result="success",
-            request_id=getattr(g, "request_id", None),
-            correlation_id=getattr(g, "correlation_id", None),
-            metadata={
-                "job_id": str(reusable.id),
-                "snapshot_hash": context.context_hash.hex(),
-                "material_hash": material_hash,
-                "reused": True,
-            },
-        )
-        db.session.commit()
-        return reusable
-    key = key_prefix if not previous_jobs else f"{key_prefix}:retry:{len(previous_jobs)}"
     job = enqueue_job(
         SUMMARY_JOB,
         payload={
             "dossier_id": str(dossier_id),
-            "snapshot_hash": context.context_hash.hex(),
-            "material_hash": material_hash,
+            "trigger": trigger,
+            **({"scheduled_for": scheduled_for} if scheduled_for else {}),
         },
         idempotency_key=key,
-        requested_by_user_id=current_user.id,
+        requested_by_user_id=requested_by_user_id,
         dossier_id=dossier_id,
         resource_type="oracle_summary",
         resource_id=dossier_id,
-        correlation_id=getattr(g, "correlation_id", None),
-        request_id=getattr(g, "request_id", None),
+        correlation_id=correlation_id,
+        request_id=request_id,
     )
     append_audit_event(
         db.session,
@@ -227,12 +223,13 @@ def enqueue_summary_refresh(dossier_id: uuid.UUID) -> BackgroundJob:
         resource_id=dossier_id,
         dossier_id=dossier_id,
         result="success",
-        request_id=getattr(g, "request_id", None),
-        correlation_id=getattr(g, "correlation_id", None),
+        request_id=request_id,
+        correlation_id=correlation_id,
         metadata={
             "job_id": str(job.id),
-            "snapshot_hash": context.context_hash.hex(),
-            "material_hash": material_hash,
+            "trigger": trigger,
+            "scheduled_for": scheduled_for,
+            "reused": reused is not None,
         },
     )
     db.session.commit()
@@ -290,6 +287,7 @@ def process_summary_refresh(dossier_id: uuid.UUID, job: BackgroundJob) -> dict[s
     )
     summary_payload = {
         "kind": "dossier_situation_summary",
+        "generation_trigger": str(job.input_payload.get("trigger", "manual")),
         "artifact_id": str(artifact.id),
         "headline": output["headline"],
         "executive_summary": output["executive_summary"],
@@ -319,7 +317,11 @@ def process_summary_refresh(dossier_id: uuid.UUID, job: BackgroundJob) -> dict[s
         dossier_id=dossier_id,
         result="success",
         correlation_id=job.correlation_id,
-        metadata={"version": artifact.version, "job_id": str(job.id)},
+        metadata={
+            "version": artifact.version,
+            "job_id": str(job.id),
+            "trigger": str(job.input_payload.get("trigger", "manual")),
+        },
     )
     db.session.commit()
     return {"artifact_id": str(artifact.id), "version": artifact.version, "status": "valid"}

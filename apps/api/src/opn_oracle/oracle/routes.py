@@ -2483,8 +2483,22 @@ def oracle_summary_refresh(dossier_id: uuid.UUID) -> Any:
         return problem_response(404, detail="Expediente no encontrado.", code="not_found")
     if dossier.status == "archived":
         return _domain_error(DomainValidationError("Un expediente archivado es de solo lectura."))
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+    if not 8 <= len(idempotency_key) <= 200:
+        return problem_response(
+            422,
+            detail="Idempotency-Key es obligatoria y debe tener entre 8 y 200 caracteres.",
+            code="validation_error",
+        )
     try:
-        job = enqueue_summary_refresh(dossier_id)
+        job = enqueue_summary_refresh(
+            dossier_id,
+            trigger="manual",
+            invocation_key=idempotency_key,
+            requested_by_user_id=current_user.id,
+            request_id=getattr(g, "request_id", None),
+            correlation_id=getattr(g, "correlation_id", None),
+        )
     except ValueError as error:
         return problem_response(422, detail=str(error), code="validation_error")
     return {"job_id": str(job.id), "status": job.status}, 202

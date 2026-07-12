@@ -9,7 +9,23 @@ La fase 09 funciona cerrada por defecto y no configura ningún proveedor externo
 - `AI_DEFAULT_MODEL=mock-oracle-v1`: debe pertenecer al allowlist de la política del tenant.
 - `AI_MOCK_SEED=opn-oracle-deterministic`: semilla estable del mock.
 
-`AI_MODE=mock` falla al arrancar en producción. No existe adapter real ni fallback externo en esta fase. Habilitar un proveedor real requiere otra implementación, revisión de privacidad/clasificación, estimador de coste, allowlists y credenciales confirmadas.
+`AI_MODE=mock` falla al arrancar en producción. El modo real aprobado para el Oráculo es
+`AI_MODE=signal`: Oracle entrega la tarea gobernada `dossier_situation_summary` a Signal, que usa
+Ollama `qwen3.5:9b` como primario y el perfil Ollama Titan (`qwen3.6:27b`) como respaldo técnico.
+Oracle no llama directamente a los modelos y conserva proveedor, modelo, tokens, latencia y uso de
+fallback en la auditoría.
+
+## Resumen nocturno de expedientes
+
+Celery Beat encola cada noche un trabajo durable por expediente no archivado. El horario por
+defecto es 03:15 en `Europe/Madrid`; puede ajustarse con
+`ORACLE_NIGHTLY_SUMMARIES_HOUR`, `ORACLE_NIGHTLY_SUMMARIES_MINUTE` y
+`ORACLE_CELERY_TIMEZONE`. `ORACLE_NIGHTLY_SUMMARIES_ENABLED=false` detiene únicamente este lote.
+
+Cada fecha local tiene una clave idempotente propia: repetir Beat no duplica el resumen de esa
+noche y la noche siguiente crea una nueva versión aunque el contexto no haya cambiado. Abrir un
+expediente solo lee el último `AIArtifact`/`LivingSummary`. «Actualizar análisis» usa una clave de
+petición distinta y fuerza una nueva versión sin esperar a la siguiente noche.
 
 ## Guardrails durables
 

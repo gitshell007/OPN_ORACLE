@@ -11,6 +11,7 @@ from math import ceil
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class ConfigError(RuntimeError):
@@ -159,6 +160,10 @@ class Settings:
     celery_task_time_limit: int
     celery_result_expires: int
     celery_default_queue: str
+    celery_timezone: str
+    nightly_summaries_enabled: bool
+    nightly_summaries_hour: int
+    nightly_summaries_minute: int
     signal_avanza_enabled: bool
     signal_avanza_mode: str
     signal_avanza_contract_confirmed: bool
@@ -356,6 +361,23 @@ class Settings:
                 minimum=60,
             ),
             celery_default_queue=str(values.get("CELERY_DEFAULT_QUEUE", "default")),
+            celery_timezone=str(
+                values.get(
+                    "CELERY_TIMEZONE",
+                    "Europe/Madrid" if app_env == "production" else "UTC",
+                )
+            ),
+            nightly_summaries_enabled=_as_bool(
+                values.get("NIGHTLY_SUMMARIES_ENABLED", True)
+            ),
+            nightly_summaries_hour=_as_int(
+                values.get("NIGHTLY_SUMMARIES_HOUR", 3),
+                name="NIGHTLY_SUMMARIES_HOUR",
+            ),
+            nightly_summaries_minute=_as_int(
+                values.get("NIGHTLY_SUMMARIES_MINUTE", 15),
+                name="NIGHTLY_SUMMARIES_MINUTE",
+            ),
             signal_avanza_enabled=_as_bool(values.get("SIGNAL_AVANZA_ENABLED", False)),
             signal_avanza_mode=str(values.get("SIGNAL_AVANZA_MODE", "mock")).lower(),
             signal_avanza_contract_confirmed=_as_bool(
@@ -470,6 +492,14 @@ class Settings:
         return settings
 
     def validate(self) -> None:
+        try:
+            ZoneInfo(self.celery_timezone)
+        except ZoneInfoNotFoundError:
+            raise ConfigError("CELERY_TIMEZONE no es una zona horaria válida.") from None
+        if not 0 <= self.nightly_summaries_hour <= 23:
+            raise ConfigError("NIGHTLY_SUMMARIES_HOUR debe estar entre 0 y 23.")
+        if not 0 <= self.nightly_summaries_minute <= 59:
+            raise ConfigError("NIGHTLY_SUMMARIES_MINUTE debe estar entre 0 y 59.")
         if self.log_format not in {"console", "json"}:
             raise ConfigError("LOG_FORMAT debe ser console o json.")
         if self.metrics_enabled and len(self.metrics_token) < 32:

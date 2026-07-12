@@ -3399,6 +3399,14 @@
       "OracleSummaryCurrentResponse": {
         "additionalProperties": false,
         "properties": {
+          "generation_trigger": {
+            "enum": [
+              "manual",
+              "nightly"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
           "job": {
             "oneOf": [
               {
@@ -15107,7 +15115,7 @@
           {
             "in": "header",
             "name": "Idempotency-Key",
-            "required": false,
+            "required": true,
             "schema": {
               "maxLength": 200,
               "minLength": 8,

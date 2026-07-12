@@ -90,6 +90,11 @@ def test_alert_jobs_are_registered_on_durable_notification_queue(app: Any) -> No
     schedule = app.extensions["celery"].conf.beat_schedule["schedule-alert-evaluations"]
     assert schedule["task"] == "maintenance.schedule_alert_evaluations"
     assert schedule["options"] == {"queue": "maintenance"}
+    nightly = app.extensions["celery"].conf.beat_schedule[
+        "schedule-nightly-dossier-summaries"
+    ]
+    assert nightly["task"] == "maintenance.schedule_nightly_dossier_summaries"
+    assert nightly["options"] == {"queue": "maintenance"}
 
 
 def test_tenant_alert_policy_openapi_contract(client: Any) -> None:

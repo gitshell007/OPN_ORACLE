@@ -30,6 +30,9 @@ vi.mock("@oracle/api-client", () => ({
 }));
 
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error } }));
+vi.mock("@/components/auth/auth-boundary", () => ({
+  PermissionGate: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 import { DossierOracleSummaryPanel } from "./dossier-oracle-summary-panel";
 
@@ -93,6 +96,7 @@ describe("DossierOracleSummaryPanel", () => {
       summary: version,
       living_summary_version: 3,
       last_refreshed_at: "2026-07-11T10:05:00Z",
+      generation_trigger: "nightly",
       job: null,
     });
     mocks.versions.mockResolvedValue({ data: [version] });
@@ -111,11 +115,29 @@ describe("DossierOracleSummaryPanel", () => {
     expect(screen.getByText("1/3")).toBeVisible();
     expect(screen.getByText("La convocatoria está abierta.")).toBeVisible();
     expect(screen.getByText("Alta")).toBeVisible();
+    expect(screen.getByText("Generación nocturna")).toBeVisible();
+    expect(mocks.refresh).not.toHaveBeenCalled();
     expect(screen.queryByText("high")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Fuente #eeeeeeee" })).toHaveAttribute(
       "href",
       "https://example.com/fuente",
     );
+  });
+
+  it("conserva la versión publicada mientras una regeneración está en curso", async () => {
+    mocks.get.mockResolvedValueOnce({
+      state: "ready",
+      summary: version,
+      living_summary_version: 3,
+      last_refreshed_at: "2026-07-11T10:05:00Z",
+      generation_trigger: "manual",
+      job: { id: "job-1", status: "running" },
+    });
+    render(<DossierOracleSummaryPanel dossierId="dossier-1" />);
+
+    expect(await screen.findByText("Avance con una decisión pendiente")).toBeVisible();
+    expect(screen.getByText(/Actualización en curso/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Actualizando" })).toBeDisabled();
   });
 
   it("encola refresh durable y registra feedback", async () => {

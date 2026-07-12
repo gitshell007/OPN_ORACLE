@@ -281,6 +281,13 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "200",
         "201",
     }
+    oracle_refresh = spec["paths"][
+        "/api/v1/dossiers/{dossier_id}/oracle-summary/refresh"
+    ]["post"]
+    assert any(
+        parameter["name"] == "Idempotency-Key" and parameter["required"] is True
+        for parameter in oracle_refresh["parameters"]
+    )
 
     status_history = spec["paths"]["/api/v1/dossiers/{dossier_id}/status-history"]["get"]
     assert status_history["responses"]["200"]["content"]["application/json"]["schema"][

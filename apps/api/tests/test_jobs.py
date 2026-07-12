@@ -6,10 +6,17 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from opn_oracle.ai.provider import AIUnavailable
 from opn_oracle.celery_app import QUEUES, TASK_ROUTES, celery_init_app
 from opn_oracle.integrations.signal_avanza import MockSignalAvanzaAdapter
+from opn_oracle.jobs import tasks
 from opn_oracle.jobs.service import claim_job_for_publish, payload_digest, validate_payload
-from opn_oracle.jobs.tasks import PermanentJobError, execute_durable, retry_delay
+from opn_oracle.jobs.tasks import (
+    PermanentJobError,
+    RetriableJobError,
+    execute_durable,
+    retry_delay,
+)
 from opn_oracle.notifications.email import SMTPEmailSender
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 
@@ -173,6 +180,20 @@ def test_mock_signal_adapter_is_deterministic_and_cursor_aware() -> None:
     assert first == repeated
     assert (first.received, first.created, first.duplicates) == (2, 2, 0)
     assert (incremental.received, incremental.created, incremental.duplicates) == (2, 1, 1)
+
+
+@pytest.mark.unit
+def test_summary_provider_outage_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tasks,
+        "process_summary_refresh",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AIUnavailable("temporal")),
+    )
+    with pytest.raises(RetriableJobError):
+        tasks._refresh_dossier_summary(
+            {"dossier_id": str(__import__("uuid").uuid4())},
+            BackgroundJob(),
+        )
 
 
 @pytest.mark.unit

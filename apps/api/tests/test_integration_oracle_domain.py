@@ -45,7 +45,7 @@ from opn_oracle.documents.storage import (
 )
 from opn_oracle.extensions import db
 from opn_oracle.jobs.service import enqueue_job, stage_job
-from opn_oracle.jobs.tasks import dispatch_queued_jobs
+from opn_oracle.jobs.tasks import dispatch_queued_jobs, schedule_nightly_dossier_summaries
 from opn_oracle.notifications.email import CaptureEmailSender
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import DossierCollaborator
@@ -1064,6 +1064,61 @@ def _enable_mock_ai(app: Any, ids: dict[str, uuid.UUID]) -> None:
             policy.max_classification = "internal"
             policy.kill_switch = False
         db.session.commit()
+
+
+def test_oracle_summary_is_read_only_on_entry_and_refresh_keys_force_new_jobs(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Resumen nocturno e idempotencia manual")
+    endpoint = f"/api/v1/dossiers/{dossier['id']}/oracle-summary"
+
+    before = create_engine(os.environ["TEST_DATABASE_URL"])
+    with before.connect() as connection:
+        count_before = connection.scalar(
+            text("SELECT count(*) FROM background_jobs WHERE dossier_id=:id"),
+            {"id": dossier["id"]},
+        )
+    assert client.get(endpoint).status_code == 200
+    with before.connect() as connection:
+        assert connection.scalar(
+            text("SELECT count(*) FROM background_jobs WHERE dossier_id=:id"),
+            {"id": dossier["id"]},
+        ) == count_before
+    before.dispose()
+
+    headers = {"X-CSRF-Token": _csrf(client), "Idempotency-Key": "manual-summary-one"}
+    first = client.post(f"{endpoint}/refresh", json={}, headers=headers)
+    duplicate = client.post(f"{endpoint}/refresh", json={}, headers=headers)
+    second = client.post(
+        f"{endpoint}/refresh",
+        json={},
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": "manual-summary-two",
+        },
+    )
+    assert first.status_code == duplicate.status_code == second.status_code == 202
+    assert first.get_json()["job_id"] == duplicate.get_json()["job_id"]
+    assert first.get_json()["job_id"] != second.get_json()["job_id"]
+
+    with app.app_context():
+        schedule_nightly_dossier_summaries.run("2026-07-12T01:15:00+00:00")
+        schedule_nightly_dossier_summaries.run("2026-07-12T01:15:00+00:00")
+        schedule_nightly_dossier_summaries.run("2026-07-13T01:15:00+00:00")
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.connect() as connection:
+        nightly_jobs = connection.scalar(
+            text(
+                "SELECT count(*) FROM background_jobs "
+                "WHERE dossier_id=:id AND input_payload->>'trigger'='nightly'"
+            ),
+            {"id": dossier["id"]},
+        )
+    engine.dispose()
+    assert nightly_jobs == 2
 
 
 def test_dossier_create_uses_active_default_workspace(

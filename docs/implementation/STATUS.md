@@ -6,6 +6,24 @@ Interfaz canónica: `CANONICAL_UI=vector`
 
 El árbol de trabajo está limpio tras integrar y publicar los cambios del Oráculo contextual.
 
+## Mejora implementada · resumen nocturno persistente del expediente
+
+- Celery Beat solicita cada noche, a las 03:15 en `Europe/Madrid`, una generación durable para
+  todos los expedientes no archivados de cada organización activa con política IA habilitada.
+- Cada expediente y fecha local comparten una clave idempotente: una repetición de Beat no duplica
+  el trabajo, pero la noche siguiente crea una nueva versión aunque no cambie el contexto.
+- Entrar en un expediente solo lee el último `AIArtifact`/`LivingSummary`. «Actualizar análisis»
+  exige `Idempotency-Key`: repetir la misma petición deduplica y una nueva pulsación fuerza otra
+  generación. La versión anterior se conserva durante el proceso o ante fallo.
+- Signal gobierna `qwen3.5:9b` como primario y Ollama Titan `qwen3.6:27b` como fallback técnico;
+  una indisponibilidad temporal ahora activa retry/backoff en lugar de fallo definitivo.
+- No hay migración ni secretos nuevos. Configuración: `ORACLE_CELERY_TIMEZONE`,
+  `ORACLE_NIGHTLY_SUMMARIES_ENABLED`, `ORACLE_NIGHTLY_SUMMARIES_HOUR` y
+  `ORACLE_NIGHTLY_SUMMARIES_MINUTE`.
+- Comprobaciones locales: Ruff, mypy, contrato/OpenAPI/cliente sin drift, 25 pruebas backend,
+  3 pruebas frontend, ESLint, TypeScript y build correctos. La integración PostgreSQL/Redis focal
+  queda preparada y se omitió al no existir las variables `TEST_*` locales.
+
 ## Mejora implementada · eliminación múltiple de expedientes
 
 - El listado muestra «Eliminar seleccionados» al marcar uno o varios expedientes de la

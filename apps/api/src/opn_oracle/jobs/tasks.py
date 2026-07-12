@@ -17,6 +17,7 @@ from celery import Task, shared_task
 from flask import current_app
 from sqlalchemy import delete, or_, select, update
 
+from opn_oracle.ai.models import AITenantPolicy
 from opn_oracle.ai.provider import AIUnavailable
 from opn_oracle.ai.service import (
     AIPolicyDenied,
@@ -38,8 +39,8 @@ from opn_oracle.jobs.service import (
 )
 from opn_oracle.notifications.email import EmailPermanentError
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
-from opn_oracle.oracle.models import SignalMonitor
-from opn_oracle.oracle.summary import process_summary_refresh
+from opn_oracle.oracle.models import SignalMonitor, StrategicDossier
+from opn_oracle.oracle.summary import enqueue_summary_refresh, process_summary_refresh
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import (
     Invitation,
@@ -403,6 +404,10 @@ def _triage_signal(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any
 def _refresh_dossier_summary(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
         return process_summary_refresh(uuid.UUID(str(payload["dossier_id"])), job)
+    except AIUnavailable as error:
+        raise RetriableJobError(
+            "El proveedor de análisis no está disponible temporalmente."
+        ) from error
     except (KeyError, ValueError, AIPolicyDenied) as error:
         raise PermanentJobError(str(error)) from error
 
@@ -901,6 +906,76 @@ def schedule_alert_evaluations() -> int:
             publish_job(job)
         db.session.remove()
     return len(staged)
+
+
+@shared_task(name="maintenance.schedule_nightly_dossier_summaries")
+def schedule_nightly_dossier_summaries(scheduled_for: str | None = None) -> int:
+    """Fan out one durable Oracle summary generation per non-archived dossier."""
+
+    if scheduled_for:
+        try:
+            now = datetime.fromisoformat(scheduled_for)
+        except ValueError as error:
+            raise PermanentJobError("La fecha del lote nocturno no es válida.") from error
+        if now.tzinfo is None:
+            raise PermanentJobError("La fecha del lote nocturno debe incluir zona horaria.")
+        now = now.astimezone(UTC)
+    else:
+        now = datetime.now(UTC)
+    try:
+        zone = ZoneInfo(str(current_app.config["CELERY_TIMEZONE"]))
+    except ZoneInfoNotFoundError as error:
+        raise PermanentJobError("La zona horaria del lote nocturno no es válida.") from error
+    local_date = now.astimezone(zone).date().isoformat()
+    queued = 0
+    for tenant_id in _active_tenant_ids():
+        with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=None)):
+            policy = db.session.scalar(
+                select(AITenantPolicy).where(AITenantPolicy.tenant_id == tenant_id)
+            )
+            if (
+                policy is None
+                or not policy.enabled
+                or policy.kill_switch
+                or policy.provider != current_app.config["AI_MODE"]
+            ):
+                logger.info(
+                    "nightly_summaries_skipped",
+                    extra={"event_fields": {"tenant_id": str(tenant_id), "reason": "ai_policy"}},
+                )
+                db.session.rollback()
+                continue
+            dossier_ids = list(
+                db.session.scalars(
+                    select(StrategicDossier.id)
+                    .where(StrategicDossier.status != "archived")
+                    .order_by(StrategicDossier.id)
+                )
+            )
+            for dossier_id in dossier_ids:
+                try:
+                    enqueue_summary_refresh(
+                        dossier_id,
+                        trigger="nightly",
+                        invocation_key=f"{local_date}:{dossier_id}",
+                        requested_by_user_id=None,
+                        scheduled_for=now.isoformat(),
+                        correlation_id=f"nightly-summary:{local_date}",
+                    )
+                    queued += 1
+                except ValueError:
+                    db.session.rollback()
+                    logger.exception(
+                        "nightly_summary_enqueue_failed",
+                        extra={
+                            "event_fields": {
+                                "tenant_id": str(tenant_id),
+                                "dossier_id": str(dossier_id),
+                            }
+                        },
+                    )
+        db.session.remove()
+    return queued
 
 
 @shared_task(name="maintenance.recover_stale_jobs")

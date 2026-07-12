@@ -7254,7 +7254,7 @@ export interface paths {
                 query?: never;
                 header: {
                     "X-CSRF-Token": string;
-                    "Idempotency-Key"?: string;
+                    "Idempotency-Key": string;
                 };
                 path: {
                     dossier_id: string;
@@ -22886,6 +22886,8 @@ export interface components {
             updated_at?: string;
         };
         OracleSummaryCurrentResponse: {
+            /** @enum {string|null} */
+            generation_trigger?: "manual" | "nightly" | null;
             job?: components["schemas"]["JobResponse"] | null;
             /** Format: date-time */
             last_refreshed_at?: string | null;

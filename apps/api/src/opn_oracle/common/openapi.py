@@ -820,7 +820,7 @@ def _declare_oracle_summary_operation(
             {
                 "name": "Idempotency-Key",
                 "in": "header",
-                "required": False,
+                "required": True,
                 "schema": {"type": "string", "minLength": 8, "maxLength": 200},
             },
         )
@@ -1619,6 +1619,11 @@ def _oracle_schemas() -> dict[str, Any]:
                 ]
             },
             "living_summary_version": {"type": "integer", "nullable": True},
+            "generation_trigger": {
+                "type": "string",
+                "enum": ["manual", "nightly"],
+                "nullable": True,
+            },
             "last_refreshed_at": {
                 "type": "string",
                 "format": "date-time",
