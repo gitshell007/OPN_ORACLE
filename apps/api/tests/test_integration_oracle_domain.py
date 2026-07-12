@@ -1181,12 +1181,7 @@ def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(
         ],
         "requires_review": True,
     }
-    assert (
-        client.get(
-            f"/api/v1/dossiers/{dossier_id}/watchlists/{watchlists[0]['id']}/monitors"
-        ).status_code
-        == 200
-    )
+    assert client.get(f"/api/v1/watchlists/{watchlists[0]['id']}/monitors").status_code == 200
 
     invalid = client.post(
         "/api/v1/dossiers",
@@ -2196,7 +2191,7 @@ def test_core_resource_crud_actions_and_actor_merge(
     assert decision["status"] == "proposed"
     assert task["status"] == "open"
     assert insight["status"] == "draft"
-    assert client.get(f"/api/v1/reports/{report['id']}").get_json()["status"] == "failed"
+    assert client.get(f"/api/v1/reports/{report['id']}").get_json()["status"] == "ready"
     for resource, row in (("decisions", decision), ("tasks", task), ("reports", report)):
         assert client.get(f"/api/v1/{resource}/{row['id']}").status_code == 200
     assert (

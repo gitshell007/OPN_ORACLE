@@ -397,7 +397,7 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
         assert connection is not None and monitor is not None
         monitor.external_id = "mock-monitor-1"
         ciphertext, nonce, key_version = keyring.encrypt(
-            json.dumps(status_envelope).encode(),
+            json.dumps(status_envelope),
             aad=inbox_aad(ids["tenant"], connection_id, status_envelope["event_id"]),
         )
         status_inbox = IntegrationInboxEvent(

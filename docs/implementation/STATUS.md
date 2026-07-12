@@ -668,3 +668,8 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Calidad local: Ruff y mypy correctos; backend **108 passed, 171 skipped**; frontend **86/86**,
   ESLint, TypeScript, cliente generado y build optimizado correctos. Las integraciones PostgreSQL,
   Redis y RLS quedaron omitidas al no existir variables `TEST_*` en este entorno.
+- La primera ejecución CI del release detectó tres expectativas de integración desactualizadas: el
+  cifrado del inbox recibía bytes en lugar de texto, la ruta de monitores conservaba un prefijo
+  antiguo y los informes seguros sin evidencia ya terminan `ready`. Las tres pruebas se alinearon
+  con los contratos vigentes; la suite completa con PostgreSQL/Redis se revalida en GitHub antes del
+  despliegue.
