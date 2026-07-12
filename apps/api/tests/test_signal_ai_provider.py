@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from opn_oracle.ai.provider import LLMRequest, MockLLMProvider, SignalGovernedLLMProvider
-from opn_oracle.ai.schemas import SignalTriageOutput
+from opn_oracle.ai.schemas import DossierSituationSummaryOutput, SignalTriageOutput
 
 
 def test_signal_governed_provider_uses_the_confirmed_ai_run_contract(
@@ -161,4 +161,45 @@ def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
 
     assert result.output.facts == []
     assert "citas no autorizadas" in " ".join(result.output.warnings)
+    assert calls == 2
+
+
+def test_signal_governed_provider_uses_safe_summary_after_two_invalid_empty_evidence_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = LLMRequest(
+        agent="dossier_situation_summary",
+        model="qwen3.5:9b",
+        system_prompt="Devuelve JSON estricto.",
+        task_prompt="Resume el expediente.",
+        context={"allowed_evidence_ids": []},
+        max_output_tokens=500,
+        classification="internal",
+    )
+    calls = 0
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "result": {"message": {"content": '{"headline":7}'}},
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+
+    result = provider.generate_structured(request, DossierSituationSummaryOutput)
+
+    assert result.output.confidence == 0
+    assert result.output.facts == []
+    assert "fallback seguro" in " ".join(result.output.warnings)
     assert calls == 2

@@ -457,6 +457,52 @@ def _strip_unauthorized_evidence_blocks(
     return type(output).model_validate(payload)
 
 
+def _safe_empty_evidence_summary(request: LLMRequest, schema: type[T]) -> T:
+    if request.agent != "dossier_situation_summary":
+        raise ValueError("No existe fallback seguro para este contrato IA.")
+    return schema.model_validate(
+        {
+            "headline": "Evidencia insuficiente para completar el análisis",
+            "executive_summary": (
+                "El expediente no dispone todavía de evidencias vinculadas suficientes para "
+                "publicar hechos, cambios, oportunidades o riesgos trazables."
+            ),
+            "situation_status": "uncertain",
+            "facts": [],
+            "inferences": [],
+            "material_changes": [],
+            "opportunities": [],
+            "risks": [],
+            "relevant_actors": [],
+            "deadlines_and_milestones": [],
+            "decisions_required": [],
+            "recommended_actions": [
+                {
+                    "action": "Vincular evidencias verificables al expediente",
+                    "rationale": (
+                        "El análisis necesita fuentes autorizadas para producir conclusiones "
+                        "trazables."
+                    ),
+                    "priority": "high",
+                }
+            ],
+            "knowledge_gaps": ["No hay evidencias vinculadas al expediente."],
+            "open_questions": [
+                "¿Qué documentos o señales verificables deben sustentar el análisis?"
+            ],
+            "confidence": 0,
+            "evidence_coverage": {
+                "cited_items": 0,
+                "available_items": 0,
+                "limitations": ["No hay evidencia autorizada disponible."],
+            },
+            "warnings": [
+                "El modelo no produjo una salida publicable y se aplicó un fallback seguro."
+            ],
+        }
+    )
+
+
 class SignalGovernedLLMProvider:
     """Adapter for Signal's governed `/api/v1/ai/run` proxy."""
 
@@ -573,12 +619,19 @@ class SignalGovernedLLMProvider:
                 "cost_micros": _non_negative_int(usage.get("cost_micros"))
                 + _non_negative_int(repaired_usage.get("cost_micros")),
             }
-            output = schema.model_validate_json(_signal_output(payload))
             try:
+                output = schema.model_validate_json(_signal_output(payload))
                 _validate_allowed_evidence(output, allowed_evidence_ids)
             except ValueError:
-                output = _strip_unauthorized_evidence_blocks(output, allowed_evidence_ids)
-                _validate_allowed_evidence(output, allowed_evidence_ids)
+                try:
+                    output = _strip_unauthorized_evidence_blocks(
+                        output, allowed_evidence_ids
+                    )
+                    _validate_allowed_evidence(output, allowed_evidence_ids)
+                except (UnboundLocalError, ValueError):
+                    if allowed_evidence_ids:
+                        raise
+                    output = _safe_empty_evidence_summary(request, schema)
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
         return LLMResult(
             output=output,
