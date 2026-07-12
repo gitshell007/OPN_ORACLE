@@ -25,6 +25,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -110,6 +111,23 @@ function score(item: SelectedItem): number {
   return Number(isSignal(item) ? item.link.overall_score : item.overall_score) || 0;
 }
 
+function signalScoringState(item: SelectedItem): "pending" | "provisional" | "reviewed" {
+  if (!isSignal(item)) return "reviewed";
+  return item.link.scoring_state ?? "reviewed";
+}
+
+function scoreLabel(item: SelectedItem): string {
+  return isSignal(item) && signalScoringState(item) === "pending"
+    ? "Sin puntuar"
+    : String(Math.round(score(item)));
+}
+
+function confidenceLabel(item: SelectedItem): string {
+  if (isSignal(item) && signalScoringState(item) === "pending") return "Pendiente de triaje";
+  const value = confidence(item);
+  return value === null ? "No disponible" : `${Math.round(value)} %`;
+}
+
 function title(item: SelectedItem): string {
   return (isSignal(item) ? item.signal.title : item.title) || "Sin título";
 }
@@ -128,6 +146,10 @@ function apiErrorMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
 }
 
+function isVersionConflict(reason: unknown): boolean {
+  return reason instanceof ApiError && reason.problem.code === "version_conflict";
+}
+
 function formatDate(value?: string | null): string {
   if (!value) return "Sin fecha registrada";
   const date = new Date(value);
@@ -136,6 +158,21 @@ function formatDate(value?: string | null): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatSourceDate(value?: string | null): string {
+  return value ? formatDate(value) : "Fecha no disponible en la fuente";
+}
+
+function dedupeSignals(items: DossierSignalEnvelope[]): DossierSignalEnvelope[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.signal.source_url ?? ""}|${item.signal.title?.trim().toLocaleLowerCase("es-ES") ?? ""}`;
+    if (!key || key === "|") return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function safeSourceUrl(value?: string | null): string | null {
@@ -187,6 +224,10 @@ export function DossierIntelligenceSection({
     "opportunity",
   );
   const [promotionTitle, setPromotionTitle] = useState("");
+  const [promotionResult, setPromotionResult] = useState<{
+    kind: "opportunity" | "risk";
+    id: string;
+  } | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualTitle, setManualTitle] = useState("");
   const [manualDescription, setManualDescription] = useState("");
@@ -214,7 +255,7 @@ export function DossierIntelligenceSection({
           : kind === "opportunities"
             ? await api.opportunities.list(dossierId, input)
             : await api.risks.list(dossierId, input);
-      setItems(result.data);
+      setItems(kind === "signals" ? dedupeSignals(result.data as DossierSignalEnvelope[]) : result.data);
       setMeta(result.meta);
     } catch (reason) {
       setItems([]);
@@ -251,6 +292,7 @@ export function DossierIntelligenceSection({
     setSelected(item);
     setEvidence([]);
     setMutationError(null);
+    setPromotionResult(null);
     setNextStatus("");
     if (isSignal(item)) return;
     setEvidenceLoading(true);
@@ -296,23 +338,60 @@ export function DossierIntelligenceSection({
     setPage(1);
   }
 
+  async function reviewSignalWithRecovery(
+    item: DossierSignalEnvelope,
+    nextStatus: "reviewed" | "dismissed",
+  ): Promise<"completed" | "refreshed"> {
+    const submit = (current: DossierSignalEnvelope) =>
+      api.dossierSignals.review(current.link.id, {
+        confidence: Number(current.link.confidence) || 0,
+        novelty: Number(current.link.novelty) || 0,
+        relevance: Number(current.link.relevance) || 0,
+        strategic_impact: Number(current.link.strategic_impact) || 0,
+        recommended_action: current.link.recommended_action,
+        why_it_matters: current.link.why_it_matters,
+        version: Number(current.link.triage_version) || 0,
+        status: nextStatus,
+      });
+    try {
+      await submit(item);
+      return "completed";
+    } catch (reason) {
+      if (!isVersionConflict(reason)) throw reason;
+    }
+
+    const fresh = await api.dossierSignals.list(dossierId, {
+      page: 1,
+      size: 25,
+      selectedIds: [item.link.id],
+    });
+    const refreshed = fresh.data.find((candidate) => candidate.link.id === item.link.id);
+    const refreshedStatus = refreshed?.link.status ?? "";
+    if (!refreshed || !["new", "reviewed"].includes(refreshedStatus)) {
+      if (refreshed) setSelected(refreshed);
+      setConfirmAction(null);
+      setMutationError(
+        "La señal se actualizó; hemos recargado los datos. Revisa su estado antes de confirmar de nuevo.",
+      );
+      await load();
+      return "refreshed";
+    }
+    setSelected(refreshed);
+    await submit(refreshed);
+    return "completed";
+  }
+
   async function performConfirmedAction() {
     if (!selected || !confirmAction) return;
     setBusy(true);
     setMutationError(null);
     try {
       if (isSignal(selected)) {
-        const link = selected.link;
-        await api.dossierSignals.review(link.id, {
-          confidence: Number(link.confidence) || 0,
-          novelty: Number(link.novelty) || 0,
-          relevance: Number(link.relevance) || 0,
-          strategic_impact: Number(link.strategic_impact) || 0,
-          recommended_action: link.recommended_action,
-          why_it_matters: link.why_it_matters,
-          version: Number(link.triage_version) || 0,
-          status: confirmAction === "dismiss" ? "dismissed" : "reviewed",
-        });
+        const result = await reviewSignalWithRecovery(
+          selected,
+          confirmAction === "dismiss" ? "dismissed" : "reviewed",
+        );
+        if (result === "refreshed") return;
         toast.success(
           confirmAction === "dismiss" ? "Señal descartada" : "Señal revisada",
         );
@@ -352,7 +431,7 @@ export function DossierIntelligenceSection({
     setBusy(true);
     setMutationError(null);
     try {
-      await api.dossierSignals.promote(
+      const result = await api.dossierSignals.promote(
         selected.link.id,
         { kind: promotionKind, title: promotionTitle.trim() },
         typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -366,11 +445,39 @@ export function DossierIntelligenceSection({
         { description: "La señal conserva el vínculo y la trazabilidad." },
       );
       setPromotionOpen(false);
-      closeDetail();
+      setPromotionResult({ kind: result.kind, id: result.resource.id });
+      setSelected({
+        ...selected,
+        link: {
+          ...selected.link,
+          status: "promoted",
+        },
+      });
       setPromotionTitle("");
       await load();
     } catch (reason) {
       setMutationError(apiErrorMessage(reason, "No se pudo promover la señal."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function beginPromotion(kind: "opportunity" | "risk") {
+    if (!selected || !isSignal(selected)) return;
+    setBusy(true);
+    setMutationError(null);
+    try {
+      if (selected.link.status === "new") {
+        const result = await reviewSignalWithRecovery(selected, "reviewed");
+        if (result === "refreshed") return;
+        toast.success("Señal revisada", { description: "Ya puedes convertirla en trabajo estratégico." });
+        await load();
+      }
+      setPromotionKind(kind);
+      setPromotionTitle(selected.signal.title || "");
+      setPromotionOpen(true);
+    } catch (reason) {
+      setMutationError(apiErrorMessage(reason, "No se pudo preparar la promoción de la señal."));
     } finally {
       setBusy(false);
     }
@@ -553,8 +660,8 @@ export function DossierIntelligenceSection({
                         </small>
                       </td>
                       <td><span className={`intelligence-status status-${status(item)}`}>{STATUS_LABELS[status(item)] ?? status(item)}</span></td>
-                      <td><strong className="intelligence-score">{Math.round(score(item))}</strong></td>
-                      <td>{confidence(item) === null ? "—" : `${Math.round(confidence(item) ?? 0)} %`}</td>
+                      <td><strong className="intelligence-score">{scoreLabel(item)}</strong>{isSignal(item) && signalScoringState(item) === "provisional" && <small>Provisional</small>}</td>
+                      <td>{confidenceLabel(item)}</td>
                       <td>{formatDate(isSignal(item) ? item.link.updated_at : item.updated_at)}</td>
                       <td>
                         <button className="text-button" onClick={() => void openDetail(item)} aria-label={`Inspeccionar ${title(item)}`}>
@@ -571,10 +678,10 @@ export function DossierIntelligenceSection({
                 <article key={isSignal(item) ? item.link.id : item.id}>
                   <header>
                     <span className={`intelligence-status status-${status(item)}`}>{STATUS_LABELS[status(item)] ?? status(item)}</span>
-                    <strong className="intelligence-score">{Math.round(score(item))}</strong>
+                    <strong className="intelligence-score">{scoreLabel(item)}</strong>
                   </header>
                   <h2>{title(item)}</h2>
-                  <p>Confianza {confidence(item) === null ? "no disponible" : `${Math.round(confidence(item) ?? 0)} %`}</p>
+                  <p>Confianza {confidenceLabel(item).toLowerCase()}</p>
                   <button className="vector-secondary" onClick={() => void openDetail(item)}>
                     Inspeccionar
                   </button>
@@ -640,8 +747,8 @@ export function DossierIntelligenceSection({
                 <div className="intelligence-drawer-body">
                   <dl className="intelligence-facts">
                     <div><dt>Estado</dt><dd>{STATUS_LABELS[status(selected)] ?? status(selected)}</dd></div>
-                    <div><dt>Puntuación</dt><dd>{Math.round(score(selected))} / 100</dd></div>
-                    <div><dt>Confianza</dt><dd>{confidence(selected) === null ? "No disponible" : `${Math.round(confidence(selected) ?? 0)} %`}</dd></div>
+                    <div><dt>Puntuación</dt><dd>{isSignal(selected) && signalScoringState(selected) === "pending" ? "Sin puntuar" : `${scoreLabel(selected)} / 100`}</dd></div>
+                    <div><dt>Confianza</dt><dd>{confidenceLabel(selected)}</dd></div>
                     <div><dt>Actualización</dt><dd>{formatDate(isSignal(selected) ? selected.link.updated_at : selected.updated_at)}</dd></div>
                   </dl>
 
@@ -653,13 +760,13 @@ export function DossierIntelligenceSection({
                       </section>
                       <section className="intelligence-detail-block">
                         <h2>Por qué importa</h2>
-                        <p>{selected.link.why_it_matters || "Pendiente de revisión humana."}</p>
+                        <p>{selected.link.why_it_matters || (signalScoringState(selected) === "pending" ? "Pendiente de triaje automático." : "Pendiente de revisión humana.")}</p>
                         {selected.link.recommended_action && <p><strong>Acción recomendada:</strong> {selected.link.recommended_action}</p>}
                       </section>
                       <section className="intelligence-detail-block evidence-block">
                         <h2>Fuente y evidencia</h2>
                         <p>{selected.signal.source_name || selected.signal.provider || "Fuente no identificada"}</p>
-                        <p>{productSignalTypeLabel(selected.signal.source_type)} · {formatDate(selected.signal.published_at)}</p>
+                        <p>{productSignalTypeLabel(selected.signal.source_type)} · {formatSourceDate(selected.signal.published_at)}</p>
                         {safeSourceUrl(selected.signal.source_url) ? (
                           <a href={safeSourceUrl(selected.signal.source_url) ?? undefined} target="_blank" rel="noreferrer">
                             Abrir fuente original <ExternalLink size={13} aria-hidden="true" />
@@ -704,12 +811,40 @@ export function DossierIntelligenceSection({
                           )}
                         </PermissionGate>
                         <PermissionGate permission="signal.promote">
-                          {status(selected) === "reviewed" && (
-                            <button className="vector-primary" onClick={() => { setPromotionTitle(selected.signal.title || ""); setPromotionOpen(true); }} disabled={busy}>
-                              <Sparkles size={15} /> Promover
-                            </button>
+                          {["new", "reviewed"].includes(status(selected)) && (
+                            <div className="signal-promotion-actions">
+                              {status(selected) === "new" ? (
+                                <PermissionGate permission="signal.review">
+                                  <button className="vector-primary" onClick={() => void beginPromotion("opportunity")} disabled={busy}>
+                                    <Sparkles size={15} /> Promover a oportunidad
+                                  </button>
+                                  <button className="vector-secondary" onClick={() => void beginPromotion("risk")} disabled={busy}>
+                                    <ShieldAlert size={15} /> Promover a riesgo
+                                  </button>
+                                </PermissionGate>
+                              ) : (
+                                <>
+                                  <button className="vector-primary" onClick={() => void beginPromotion("opportunity")} disabled={busy}>
+                                    <Sparkles size={15} /> Promover a oportunidad
+                                  </button>
+                                  <button className="vector-secondary" onClick={() => void beginPromotion("risk")} disabled={busy}>
+                                    <ShieldAlert size={15} /> Promover a riesgo
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           )}
                         </PermissionGate>
+                        <PermissionGate permission="actor.write">
+                          <Link className="vector-secondary" href={`/app/dossiers/${dossierId}/actors?view=candidates&signal_id=${selected.signal.id}`}>
+                            Registrar actor
+                          </Link>
+                        </PermissionGate>
+                        {promotionResult && (
+                          <Link className="text-button" href={`/app/dossiers/${dossierId}/${promotionResult.kind === "opportunity" ? "opportunities" : "risks"}?selected=${promotionResult.id}`}>
+                            Ver {promotionResult.kind === "opportunity" ? "la oportunidad creada" : "el riesgo creado"} <ArrowRight size={14} aria-hidden="true" />
+                          </Link>
+                        )}
                         <PermissionGate permission="signal.review">
                           {status(selected) !== "promoted" && status(selected) !== "dismissed" && (
                             <button className="vector-danger" onClick={() => setConfirmAction("dismiss")} disabled={busy}>
@@ -764,19 +899,12 @@ export function DossierIntelligenceSection({
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content className="dialog-content intelligence-action-dialog">
-            <Dialog.Title>Promover señal</Dialog.Title>
+            <Dialog.Title>{promotionKind === "opportunity" ? "Promover a oportunidad" : "Promover a riesgo"}</Dialog.Title>
             <Dialog.Description>
               Crea un recurso vinculado a la señal revisada. Oracle calculará su puntuación inicial.
             </Dialog.Description>
             <Dialog.Close className="dialog-close" aria-label="Cerrar"><X size={18} /></Dialog.Close>
             <form onSubmit={promote}>
-              <label className="field">
-                <span>Tipo de recurso</span>
-                <select value={promotionKind} onChange={(event) => setPromotionKind(event.target.value as "opportunity" | "risk")}>
-                  <option value="opportunity">Oportunidad</option>
-                  <option value="risk">Riesgo</option>
-                </select>
-              </label>
               <label className="field">
                 <span>Título</span>
                 <input required minLength={2} maxLength={300} value={promotionTitle} onChange={(event) => setPromotionTitle(event.target.value)} autoFocus />

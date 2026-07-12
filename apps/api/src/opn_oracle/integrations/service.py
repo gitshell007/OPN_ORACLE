@@ -284,6 +284,19 @@ def _link_and_stage_triage(
         )
 
 
+def _matches_monitor_language(monitor: SignalMonitor, item: SignalItem) -> bool:
+    """Keep provider output inside the monitor's explicit language scope when known."""
+    watchlist = db.session.get(Watchlist, monitor.watchlist_id)
+    config = (
+        watchlist.query_config
+        if watchlist and isinstance(watchlist.query_config, dict)
+        else {}
+    )
+    allowed = {str(value).strip().casefold() for value in config.get("languages", []) if value}
+    detected = (item.language or "").strip().casefold()
+    return not allowed or not detected or detected in allowed
+
+
 def _ingest_item(
     monitor: SignalMonitor,
     run: SignalSyncRun,
@@ -405,6 +418,8 @@ def sync_monitor(monitor: SignalMonitor, *, job_id: uuid.UUID | None = None) -> 
     for _ in range(current_app.config["SIGNAL_SYNC_MAX_PAGES"]):
         page = adapter.sync_signals(monitor.external_id or str(monitor.id), cursor=cursor)
         for item in page.items:
+            if not _matches_monitor_language(monitor, item):
+                continue
             _, was_created = _ingest_item(monitor, run, item)
             created += int(was_created)
             duplicates += int(not was_created)

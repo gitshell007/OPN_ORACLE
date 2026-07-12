@@ -1357,6 +1357,14 @@
             "minimum": 0,
             "type": "integer"
           },
+          "scoring_state": {
+            "enum": [
+              "pending",
+              "provisional",
+              "reviewed"
+            ],
+            "type": "string"
+          },
           "signal_id": {
             "format": "uuid",
             "type": "string"

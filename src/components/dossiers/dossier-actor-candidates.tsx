@@ -127,7 +127,7 @@ export function DossierActorCandidates({
         <div className="work-empty">
           <ScanSearch size={24} />
           <h2>No hay candidatos detectados</h2>
-          <p>Cuando una señal incluya personas u organizaciones estructuradas, aparecerán aquí con su procedencia.</p>
+          <p>Las empresas, personas y organismos mencionados en las señales vinculadas aparecerán aquí con su procedencia.</p>
         </div>
       ) : (
         <>

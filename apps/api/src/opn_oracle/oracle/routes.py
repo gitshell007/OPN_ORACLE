@@ -128,6 +128,15 @@ def _serialize(row: Any) -> dict[str, Any]:
             else attribute.key
         )
         result[key] = value
+    if isinstance(row, DossierSignal):
+        details = row.score_details if isinstance(row.score_details, dict) else {}
+        result["scoring_state"] = (
+            "pending"
+            if row.status == "new" and not isinstance(details.get("triage"), dict)
+            else "provisional"
+            if row.status == "new"
+            else "reviewed"
+        )
     return result
 
 

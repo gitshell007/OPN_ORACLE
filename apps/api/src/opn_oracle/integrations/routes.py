@@ -342,8 +342,8 @@ def list_dossier_monitors(dossier_id: uuid.UUID) -> Any:
         db.session(), dossier, current_user.id, write=False
     ):
         return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
-    monitors = db.session.scalars(
-        select(SignalMonitor)
+    monitors = db.session.execute(
+        select(SignalMonitor, Watchlist)
         .join(Watchlist, Watchlist.id == SignalMonitor.watchlist_id)
         .where(
             Watchlist.dossier_id == dossier.id,
@@ -355,6 +355,9 @@ def list_dossier_monitors(dossier_id: uuid.UUID) -> Any:
             "items": [
                 {
                     "id": str(item.id),
+                    "name": watchlist.name,
+                    "provider": item.provider,
+                    "status": item.status,
                     "connection_id": str(item.connection_id) if item.connection_id else None,
                     "external_id": item.external_id,
                     "desired_status": item.desired_status,
@@ -362,7 +365,7 @@ def list_dossier_monitors(dossier_id: uuid.UUID) -> Any:
                     "last_synced_at": item.last_synced_at,
                     "last_error": item.last_error,
                 }
-                for item in monitors
+                for item, watchlist in monitors
             ]
         }
     )

@@ -203,3 +203,27 @@
 - **Consecuencias:** señales antiguas como la de CATL/Stellantis producen candidatos sin una llamada
   externa y los descartes sobreviven a recargas. Los patrones pueden omitir menciones ambiguas, por
   lo que Signal continúa siendo la fuente preferente de entidades estructuradas.
+
+## D-020 — Promoción encadenada, no atómica, desde una señal nueva
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-12
+- **Contexto:** promover exige una señal revisada, pero obligar a cerrar y reabrir el drawer añadía
+  fricción al flujo central.
+- **Decisión:** la interfaz encadena revisión y apertura del formulario de promoción usando las
+  mutaciones existentes, cada una con sus garantías propias. La promoción conserva su
+  `Idempotency-Key`; no se añade un endpoint compuesto.
+- **Consecuencias:** el usuario puede convertir una señal nueva con continuidad visible, sin ocultar
+  la revisión humana ni debilitar la idempotencia o concurrencia del backend.
+
+## D-021 — Pre-scoring de triaje marcado como provisional
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-12
+- **Contexto:** `signal_triage` ya calcula una valoración auditable con evidencia, pero mientras el
+  job no termina el valor persistido `0` se confundía con una valoración real de cero.
+- **Decisión:** exponer un estado calculado de puntuación en la API sin alterar el valor numérico:
+  pendiente antes de triaje, provisional tras triaje y revisado tras intervención humana.
+- **Consecuencias:** la UI no inventa puntuaciones, puede priorizar las señales que ya tienen una
+  valoración provisional y comunica con honestidad cuándo aún espera el triaje local gobernado por
+  Signal.

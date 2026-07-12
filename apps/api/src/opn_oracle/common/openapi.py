@@ -1458,6 +1458,10 @@ def _oracle_schemas() -> dict[str, Any]:
             "confidence": score,
             "strategic_impact": score,
             "overall_score": score,
+            "scoring_state": {
+                "type": "string",
+                "enum": ["pending", "provisional", "reviewed"],
+            },
             "triage_version": {"type": "integer"},
             "why_it_matters": string,
             "recommended_action": string,

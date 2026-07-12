@@ -136,6 +136,16 @@ describe("DossierWorkSection", () => {
     }));
   });
 
+  it("ofrece candidatos detectados aunque todavía no haya actores vinculados", async () => {
+    render(<DossierWorkSection dossierId="dossier-1" kind="actors" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ver candidatos detectados" }));
+
+    expect(await screen.findByText("No hay candidatos detectados")).toBeVisible();
+    expect(screen.getByText(
+      "Las empresas, personas y organismos mencionados en las señales vinculadas aparecerán aquí con su procedencia.",
+    )).toBeVisible();
+  });
+
   it("explica la creación de tareas con lenguaje de negocio", async () => {
     render(<DossierWorkSection dossierId="dossier-1" kind="tasks" />);
 

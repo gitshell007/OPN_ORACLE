@@ -136,7 +136,7 @@ async function fetchCsrf(signal?: AbortSignal): Promise<string> {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   retry?: boolean;
@@ -431,6 +431,7 @@ export interface SignalMonitor {
   watchlist_id: string;
   connection_id: string | null;
   provider: string;
+  name?: string;
   external_id: string | null;
   status: "active" | "paused" | "error";
   desired_status: string;
@@ -725,6 +726,8 @@ export type OracleOpportunity =
   components["schemas"]["OpportunityResource"];
 export type OracleRisk = components["schemas"]["RiskResource"];
 export type OracleEvidence = components["schemas"]["EvidenceResource"];
+export type OracleObjective = components["schemas"]["ObjectiveResource"];
+export type OracleHypothesis = components["schemas"]["HypothesisResource"];
 
 export interface DossierResourceQuery {
   page?: number;
@@ -794,6 +797,58 @@ const dossierSignals = {
     request<components["schemas"]["PromotionResponse"]>(
       `/api/v1/signals/${encodeURIComponent(linkId)}/promote`,
       { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
+const objectives = {
+  list: (dossierId: string, input: DossierResourceQuery = {}) =>
+    request<DossierResourcePage<OracleObjective>>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/objectives?${dossierResourceQuery(input)}`,
+    ),
+  create: (dossierId: string, input: components["schemas"]["ObjectiveWriteInput"]) =>
+    request<OracleObjective>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/objectives`,
+      { method: "POST", body: input },
+    ),
+  update: (id: string, input: components["schemas"]["ObjectiveWriteInput"], version: number) =>
+    request<OracleObjective>(`/api/v1/objectives/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: input,
+      ifMatch: version,
+    }),
+};
+
+const hypotheses = {
+  list: (dossierId: string, input: DossierResourceQuery = {}) =>
+    request<DossierResourcePage<OracleHypothesis>>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/hypotheses?${dossierResourceQuery(input)}`,
+    ),
+  create: (dossierId: string, input: components["schemas"]["HypothesisWriteInput"]) =>
+    request<OracleHypothesis>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/hypotheses`,
+      { method: "POST", body: input },
+    ),
+  update: (id: string, input: components["schemas"]["HypothesisWriteInput"], version: number) =>
+    request<OracleHypothesis>(`/api/v1/hypotheses/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: input,
+      ifMatch: version,
+    }),
+  evidence: (id: string) =>
+    request<DossierResourcePage<OracleEvidence>>(
+      `/api/v1/hypotheses/${encodeURIComponent(id)}/evidence?page%5Bnumber%5D=1&page%5Bsize%5D=100`,
+    ),
+  linkEvidence: (id: string, evidenceId: string) =>
+    request<{ linked: true }>(
+      `/api/v1/hypotheses/${encodeURIComponent(id)}/evidence/${encodeURIComponent(evidenceId)}`,
+      { method: "PUT" },
+    ),
+};
+
+const dossierEvidence = {
+  list: (dossierId: string) =>
+    request<DossierResourcePage<OracleEvidence>>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/evidence?page%5Bnumber%5D=1&page%5Bsize%5D=100`,
     ),
 };
 
@@ -1259,6 +1314,9 @@ export const api = {
   dossiers,
   oracleSummary,
   dossierSignals,
+  objectives,
+  hypotheses,
+  dossierEvidence,
   opportunities,
   risks,
   home: productHome,

@@ -21,7 +21,7 @@ vi.mock("@oracle/api-client", () => {
   class ApiError extends Error {
     constructor(
       public status: number,
-      public problem: { detail: string },
+      public problem: { detail: string; code?: string },
     ) {
       super(problem.detail);
     }
@@ -65,6 +65,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+import { ApiError } from "@oracle/api-client";
 import { DossierIntelligenceSection } from "./dossier-intelligence-section";
 
 const signal = {
@@ -115,6 +116,10 @@ describe("DossierIntelligenceSection", () => {
       meta: { page: 1, size: 25, total: 1 },
     });
     mocks.signalReview.mockResolvedValue({ ...signal.link, status: "reviewed" });
+    mocks.signalPromote.mockResolvedValue({
+      kind: "opportunity",
+      resource: { id: "op-from-signal" },
+    });
     mocks.opportunityList.mockResolvedValue({
       data: [opportunity],
       meta: { page: 1, size: 25, total: 1 },
@@ -171,6 +176,117 @@ describe("DossierIntelligenceSection", () => {
           confidence: 76,
         }),
       ),
+    );
+  });
+
+  it("distingue una señal pendiente de triaje de una puntuación real", async () => {
+    mocks.signalList.mockResolvedValue({
+      data: [{
+        ...signal,
+        link: {
+          ...signal.link,
+          overall_score: 0,
+          confidence: 0,
+          scoring_state: "pending",
+          why_it_matters: "",
+        },
+      }],
+      meta: { page: 1, size: 25, total: 1 },
+    });
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
+
+    expect((await screen.findAllByText("Sin puntuar"))[0]).toBeVisible();
+    expect((await screen.findAllByText("Pendiente de triaje"))[0]).toBeVisible();
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Inspeccionar Publicada una nueva convocatoria",
+      })[0],
+    );
+    expect(await screen.findByText("Pendiente de triaje automático.")).toBeVisible();
+  });
+
+  it("recarga y reintenta una revisión cuando el triaje avanzó", async () => {
+    const refreshed = {
+      ...signal,
+      link: { ...signal.link, triage_version: 3, relevance: 85 },
+    };
+    mocks.signalList
+      .mockResolvedValueOnce({ data: [signal], meta: { page: 1, size: 25, total: 1 } })
+      .mockResolvedValueOnce({ data: [refreshed], meta: { page: 1, size: 25, total: 1 } });
+    mocks.signalReview
+      .mockRejectedValueOnce(
+        new ApiError(409, {
+          type: "about:blank",
+          title: "Conflicto de versión",
+          status: 409,
+          detail: "La revisión de señal cambió.",
+          code: "version_conflict",
+          instance: "",
+          request_id: "request-1",
+        }),
+      )
+      .mockResolvedValueOnce({ ...refreshed.link, status: "reviewed" });
+
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
+    fireEvent.click(
+      (await screen.findAllByRole("button", {
+        name: "Inspeccionar Publicada una nueva convocatoria",
+      }))[0],
+    );
+    const detail = await screen.findByRole("dialog", {
+      name: "Publicada una nueva convocatoria",
+    });
+    fireEvent.click(within(detail).getByRole("button", { name: "Marcar revisada" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() =>
+      expect(mocks.signalReview).toHaveBeenNthCalledWith(
+        2,
+        "link-1",
+        expect.objectContaining({ version: 3, relevance: 85, status: "reviewed" }),
+      ),
+    );
+    expect(mocks.signalReview).toHaveBeenNthCalledWith(
+      1,
+      "link-1",
+      expect.objectContaining({ version: 2, status: "reviewed" }),
+    );
+  });
+
+  it("revisa y prepara una oportunidad desde una señal nueva", async () => {
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
+    fireEvent.click(
+      (await screen.findAllByRole("button", {
+        name: "Inspeccionar Publicada una nueva convocatoria",
+      }))[0],
+    );
+    const detail = await screen.findByRole("dialog", {
+      name: "Publicada una nueva convocatoria",
+    });
+    expect(within(detail).getByRole("link", { name: "Registrar actor" })).toHaveAttribute(
+      "href",
+      "/app/dossiers/dossier-1/actors?view=candidates&signal_id=signal-1",
+    );
+    fireEvent.click(within(detail).getByRole("button", { name: "Promover a oportunidad" }));
+
+    await waitFor(() => expect(mocks.signalReview).toHaveBeenCalledWith(
+      "link-1",
+      expect.objectContaining({ status: "reviewed", version: 2 }),
+    ));
+    const promotion = await screen.findByRole("dialog", { name: "Promover a oportunidad" });
+    fireEvent.change(within(promotion).getByLabelText("Título"), {
+      target: { value: "Alianza industrial CATL-Stellantis" },
+    });
+    fireEvent.click(within(promotion).getByRole("button", { name: "Crear recurso" }));
+
+    await waitFor(() => expect(mocks.signalPromote).toHaveBeenCalledWith(
+      "link-1",
+      expect.objectContaining({ kind: "opportunity", title: "Alianza industrial CATL-Stellantis" }),
+      expect.any(String),
+    ));
+    expect(await screen.findByRole("link", { name: "Ver la oportunidad creada" })).toHaveAttribute(
+      "href",
+      "/app/dossiers/dossier-1/opportunities?selected=op-from-signal",
     );
   });
 

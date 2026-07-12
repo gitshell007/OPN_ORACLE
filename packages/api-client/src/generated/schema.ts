@@ -22562,6 +22562,8 @@ export interface components {
             overall_score?: number;
             recommended_action?: string;
             relevance?: number;
+            /** @enum {string} */
+            scoring_state?: "pending" | "provisional" | "reviewed";
             /** Format: uuid */
             signal_id?: string;
             status?: string;

@@ -690,3 +690,86 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - La siguiente ejecución CI quedó verde, pero reveló que los SBOM se escribían dentro del
   contenedor efímero. El workflow monta el workspace en `/out` para que ambos CycloneDX queden
   disponibles y se suban como artefacto del commit.
+
+## UX 19 · Revisión de señales resistente al triaje concurrente
+
+- El cliente Vector trata `409/version_conflict` al revisar o descartar una señal como una
+  actualización recuperable: recarga el enlace del expediente, sincroniza su `triage_version` y
+  reintenta una sola vez cuando su estado sigue siendo accionable.
+- Si otra persona ya cambió la señal a un estado incompatible, el drawer permanece abierto con
+  datos frescos y un aviso accionable; el mensaje técnico de conflicto ya no es un callejón sin
+  salida. La garantía de concurrencia del backend se conserva sin semántica de última escritura.
+- Verificación focal: `npm run typecheck`, `npm run lint` y el test de componente de señales
+  correctos (**6/6**). El contrato backend ya publica `409` con `code=version_conflict`; no se
+  requirió migración ni cambio de OpenAPI.
+
+## UX 20 · Arco visible de señal a acción estratégica
+
+- El drawer de una señal ofrece ahora acciones separadas para promover a oportunidad o a riesgo,
+  además de un enlace directo a los candidatos de actor del expediente. Una señal nueva se revisa
+  de forma explícita y recuperable antes de abrir el formulario de promoción, sin promoción
+  automática.
+- Al completar la promoción, el drawer conserva feedback, refleja el estado `Promovida` y enlaza
+  directamente al recurso creado. Flask mantiene la evidencia, la fuente y la idempotencia ya
+  existentes en `promote_signal_link`.
+- Verificación focal: TypeScript, ESLint y tests de señales/actores correctos (**12/12**). La
+  integración de dominio (`tests/test_integration_oracle_domain.py`) quedó íntegramente omitida por
+  falta de `TEST_*` locales; no hubo migración ni cambio de contrato.
+
+## UX 21 · Estado explícito de puntuación de señales
+
+- Flask expone `scoring_state` en cada vínculo de señal: `pending` antes del triaje,
+  `provisional` cuando el triaje de Signal/Ollama ya aportó evidencia y `reviewed` tras revisión
+  humana. No se usan valores inventados ni se modifica el esquema persistido.
+- Vector muestra «Sin puntuar» y «Pendiente de triaje» para el estado pendiente; las
+  valoraciones provisionales se identifican como tales. Los filtros de puntuación continúan
+  excluyendo los pendientes porque no representan una puntuación conocida.
+- OpenAPI y el cliente se regeneraron. Verificación focal correcta: backend **10/10** y frontend
+  de señales **8/8**, además de Ruff, mypy, ESLint, TypeScript y comprobación de drift.
+
+## UX 22 · Candidatos de actor descubiertos desde las señales
+
+- La pestaña Actores ofrece siempre «Ver candidatos detectados» cuando aún no hay actores
+  vinculados; el estado vacío explica que las empresas, personas y organismos mencionados en
+  señales aparecerán con su procedencia.
+- El detalle de señal enlaza al mismo subflujo. La derivación existente cubre entidades de Signal,
+  payload y patrones conservadores, incluido CATL/Stellantis, sin crear actores automáticamente.
+- Verificación focal: frontend de Actores/candidatos **8/8** y backend de extracción **3/3**,
+  junto a TypeScript, ESLint y Ruff. La integración PostgreSQL continúa pendiente de `TEST_*`.
+
+## UX 23 · Inicio accionable y KPIs coherentes
+
+- Cuando no hay expedientes, Inicio sustituye las métricas a cero por un primer paso accionable
+  para crear el radar estratégico inicial. No se inventan resultados ni se ocultan permisos.
+- El bloque mixto de señales, oportunidades, riesgos, reuniones y tareas pasa a llamarse «Trabajo
+  que requiere atención», identifica el tipo de cada elemento y mantiene tanto sus enlaces de
+  detalle como el acceso coherente a la cartera.
+- Verificación focal: pruebas de Inicio **2/2**, TypeScript y ESLint correctos. No fue necesario
+  modificar el read model ni el contrato de Flask.
+
+## UX 24 · Objetivos e hipótesis visibles y gestionables
+
+- El Resumen del expediente incorpora el panel «Objetivos e hipótesis», por lo que la base inicial
+  deja visibles su objetivo y sus dos hipótesis sin depender de Configuración.
+- La interfaz permite crear y editar hipótesis, cambiar estado/confianza y vincular evidencia ya
+  disponible en el expediente. Aprovecha endpoints y auditoría existentes de Flask; el cliente
+  TypeScript expone ahora objetivos, hipótesis y evidencia contextual.
+- Verificación focal: componente de contexto **2/2**, TypeScript y ESLint correctos. No hubo
+  migración ni regeneración de OpenAPI porque el contrato ya existía; `api:client:check` se
+  ejecutará en la verificación integral.
+
+## UX 25 y cierre · Coherencia de vigilancia, fuentes y señales
+
+- Configuración conserva su posición al actualizar porque sus mutaciones refrescan datos locales,
+  sin navegación ni scroll al inicio. El shell Vector ya resuelve el título real del expediente en
+  las migas, por lo que ambos hallazgos quedan verificados sin cambio adicional.
+- El API de vigilancias devuelve el nombre configurado y Vector lo muestra como información
+  principal, dejando la conexión como contexto secundario. Las fechas ausentes de una señal se
+  presentan como «Fecha no disponible en la fuente».
+- La bandeja del expediente consolida en presentación los elementos con la misma URL/título, sin
+  borrar registros ni afectar auditoría. La sincronización descarta señales con idioma detectado
+  fuera de la lista explícita del monitor; cuando no hay idioma detectado, conserva la señal para
+  no inventar una clasificación.
+- Cierre local: Ruff y mypy correctos; backend **108 passed, 174 skipped** (integraciones sin
+  `TEST_*`); frontend **94/94**, ESLint, TypeScript, build Next.js y drift del cliente OpenAPI
+  correctos. `git diff --check` correcto.

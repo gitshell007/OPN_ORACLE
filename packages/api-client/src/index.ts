@@ -26,6 +26,8 @@ export type {
   DossierSignalEnvelope,
   DossierSignalLink,
   OracleEvidence,
+  OracleHypothesis,
+  OracleObjective,
   OracleOpportunity,
   OracleRisk,
   OracleSignal,

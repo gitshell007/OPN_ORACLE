@@ -18,7 +18,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CreateProductDossierDialog } from "./create-product-dossier-dialog";
-import { productJobTypeLabel, productStatusLabel } from "@/lib/product-copy";
+import {
+  productJobTypeLabel,
+  productLinkedResourceLabel,
+  productStatusLabel,
+} from "@/lib/product-copy";
 
 type Job = components["schemas"]["JobResponse"];
 type Home = components["schemas"]["HomeResponse"];
@@ -72,6 +76,7 @@ export function ProductHome() {
   }, [load]);
 
   const failedJobs = jobs.filter((item) => item.status === "failed").length;
+  const isFirstRun = home?.dossier_total === 0;
 
   if (loading) {
     return <div className="product-home-loading" role="status">Cargando situación de la cartera…</div>;
@@ -105,6 +110,18 @@ export function ProductHome() {
         </div>
       )}
 
+      {isFirstRun ? (
+        <section className="vector-panel home-onboarding" aria-labelledby="home-onboarding-title">
+          <span className="section-kicker">Primer paso</span>
+          <h2 id="home-onboarding-title">Tu primer radar estratégico empieza aquí</h2>
+          <p>Crea un expediente para reunir señales, actores, oportunidades y decisiones en un mismo contexto trazable.</p>
+          {auth.can("dossier.write") && (
+            <button className="vector-primary" onClick={() => setCreateOpen(true)}>
+              <Plus size={16} /> Crear el primer expediente
+            </button>
+          )}
+        </section>
+      ) : <>
       <section className="home-metrics" aria-label="Resumen operativo">
         {home?.metrics.filter((metric) => metric.available).map((metric) => (
           <Link href={metric.href} key={metric.key}>
@@ -120,14 +137,14 @@ export function ProductHome() {
       <div className="home-grid">
         <section className="vector-panel home-attention">
           <header>
-            <div><span className="section-kicker">Cartera activa</span><h2>Requieren atención</h2></div>
-            <Link className="text-button" href="/app/dossiers">Ver expedientes</Link>
+            <div><span className="section-kicker">Priorización operativa</span><h2>Trabajo que requiere atención</h2></div>
+            <Link className="text-button" href="/app/dossiers">Ver cartera</Link>
           </header>
           {home?.attention.length ? (
             <div className="home-dossier-list">
               {home.attention.map((item) => (
                 <Link href={item.href} key={`${item.kind}:${item.id}`}>
-                  <span><strong>{item.title}</strong><small>{item.dossier_title} · {productStatusLabel(item.status)}</small></span>
+                  <span><strong>{item.title}</strong><small>{productLinkedResourceLabel(item.kind)} · {item.dossier_title} · {productStatusLabel(item.status)}</small></span>
                   <span>{item.score === null ? "Siguiente hito" : `Puntuación ${item.score}`} · {item.due_at ? new Date(item.due_at).toLocaleDateString("es-ES") : "Sin fecha"}</span>
                 </Link>
               ))}
@@ -160,6 +177,7 @@ export function ProductHome() {
           </section>
         </aside>
       </div>
+      </>}
       <CreateProductDossierDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );

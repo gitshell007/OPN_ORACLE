@@ -240,9 +240,13 @@ export function productActorTypeLabel(type?: string | null): string {
 export function productLinkedResourceLabel(type?: string | null): string {
   const labels: Record<string, string> = {
     opportunity: "oportunidad",
+    opportunities: "oportunidad",
     risk: "riesgo",
+    risks: "riesgo",
     signal: "señal",
+    signals: "señal",
     meeting: "reunión",
+    meetings: "reunión",
     decision: "decisión",
     document: "documento",
   };

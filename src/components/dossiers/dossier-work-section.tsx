@@ -221,7 +221,9 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   const [detail, setDetail] = useState("");
   const [priority, setPriority] = useState("medium");
   const [actorId, setActorId] = useState("");
-  const [actorView, setActorView] = useState<"linked" | "candidates">("linked");
+  const [actorView, setActorView] = useState<"linked" | "candidates">(
+    searchParams.get("view") === "candidates" ? "candidates" : "linked",
+  );
   const [actorCreateMode, setActorCreateMode] = useState<"new" | "existing">("new");
   const [actorType, setActorType] = useState<ActorType>("organization");
   const [actorTags, setActorTags] = useState("");
@@ -501,7 +503,12 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
         <div className="work-empty">
           {kind === "actors" ? <UsersRound size={24} /> : <CheckCircle2 size={24} />}
           <h2>{appliedQuery || status ? "No hay coincidencias" : `Aún no hay ${copy.title.toLowerCase()}`}</h2>
-          <p>{appliedQuery || status ? "Ajusta los filtros y vuelve a intentarlo." : `Usa «${copy.create}» para empezar a construir este contexto.`}</p>
+          <p>{appliedQuery || status ? "Ajusta los filtros y vuelve a intentarlo." : kind === "actors" ? "Crea un actor manualmente o revisa las entidades detectadas en las señales vinculadas." : `Usa «${copy.create}» para empezar a construir este contexto.`}</p>
+          {kind === "actors" && !appliedQuery && !status && (
+            <button className="vector-secondary" type="button" onClick={() => setActorView("candidates")}>
+              Ver candidatos detectados
+            </button>
+          )}
         </div>
       ) : (
         <>
