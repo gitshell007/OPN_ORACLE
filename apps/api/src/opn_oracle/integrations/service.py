@@ -288,9 +288,7 @@ def _matches_monitor_language(monitor: SignalMonitor, item: SignalItem) -> bool:
     """Keep provider output inside the monitor's explicit language scope when known."""
     watchlist = db.session.get(Watchlist, monitor.watchlist_id)
     config = (
-        watchlist.query_config
-        if watchlist and isinstance(watchlist.query_config, dict)
-        else {}
+        watchlist.query_config if watchlist and isinstance(watchlist.query_config, dict) else {}
     )
     allowed = {str(value).strip().casefold() for value in config.get("languages", []) if value}
     detected = (item.language or "").strip().casefold()

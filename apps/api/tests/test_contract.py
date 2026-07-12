@@ -223,9 +223,9 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "requestBody"
     ]["content"]["application/json"]["schema"]
     assert opportunity_input == {"$ref": "#/components/schemas/OpportunityWriteInput"}
-    assert spec["components"]["schemas"]["DossierSignalResource"]["properties"][
-        "scoring_state"
-    ]["enum"] == ["pending", "provisional", "reviewed"]
+    assert spec["components"]["schemas"]["DossierSignalResource"]["properties"]["scoring_state"][
+        "enum"
+    ] == ["pending", "provisional", "reviewed"]
     actor_candidates = spec["paths"]["/api/v1/dossiers/{dossier_id}/actor-candidates"]
     assert any(
         parameter["name"] == "include_dismissed"
