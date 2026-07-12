@@ -1190,6 +1190,65 @@ def test_dossier_crud_filters_concurrency_archive_and_idor(
     assert client.get(f"/api/v1/dossiers/{other}").status_code == 404
 
 
+def test_bulk_dossier_delete_is_atomic_scoped_and_keeps_audit_trail(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    _, ids, _ = oracle_stack
+    owner = _client(oracle_stack)
+    first = _create_dossier(owner, ids, "Eliminar uno")
+    second = _create_dossier(owner, ids, "Eliminar dos")
+    ids_to_delete = [first["id"], second["id"]]
+
+    deleted = owner.post(
+        "/api/v1/dossiers/bulk-delete",
+        json={"dossier_ids": ids_to_delete},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert deleted.status_code == 200, deleted.get_json()
+    assert set(deleted.get_json()["deleted_ids"]) == set(ids_to_delete)
+    assert deleted.get_json()["deleted_count"] == 2
+    assert all(
+        owner.get(f"/api/v1/dossiers/{dossier_id}").status_code == 404
+        for dossier_id in ids_to_delete
+    )
+
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.connect() as connection:
+        audit_rows = (
+            connection.execute(
+                text(
+                    "SELECT tenant_id, dossier_id, resource_id, metadata->>'deleted_dossier_id' AS deleted_id "
+                    "FROM audit_events WHERE action='dossier.deleted' AND resource_id = ANY(:ids)"
+                ).bindparams(ids=ids_to_delete)
+            )
+            .mappings()
+            .all()
+        )
+    engine.dispose()
+    assert {str(row["resource_id"]) for row in audit_rows} == set(ids_to_delete)
+    assert all(
+        row["tenant_id"] == ids["tenant_a"] and row["dossier_id"] is None for row in audit_rows
+    )
+    assert {row["deleted_id"] for row in audit_rows} == set(ids_to_delete)
+
+    unavailable = _create_dossier(owner, ids, "No borrar parcialmente")
+    limited = _client_as(oracle_stack, "domain-limited@example.test")
+    denied = limited.post(
+        "/api/v1/dossiers/bulk-delete",
+        json={"dossier_ids": [unavailable["id"]]},
+        headers={"X-CSRF-Token": _csrf(limited)},
+    )
+    assert denied.status_code == 404
+    assert owner.get(f"/api/v1/dossiers/{unavailable['id']}").status_code == 200
+
+    invalid = owner.post(
+        "/api/v1/dossiers/bulk-delete",
+        json={"dossier_ids": [unavailable["id"], unavailable["id"]]},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert invalid.status_code == 422
+
+
 def test_signal_many_to_many_review_promote_idempotency_and_audit(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

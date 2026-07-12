@@ -342,7 +342,7 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
         ForeignKeyConstraint(
             ("dossier_id", "tenant_id"),
             ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
-            ondelete="RESTRICT",
+            ondelete="SET NULL (dossier_id)",
             name="fk_audit_events_dossier_tenant",
         ),
     )

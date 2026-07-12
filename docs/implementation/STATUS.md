@@ -6,6 +6,23 @@ Interfaz canónica: `CANONICAL_UI=vector`
 
 El árbol de trabajo está limpio tras integrar y publicar los cambios del Oráculo contextual.
 
+## Mejora implementada · eliminación múltiple de expedientes
+
+- El listado muestra «Eliminar seleccionados» al marcar uno o varios expedientes de la
+  página visible. El diálogo exige resolver una suma variable y avisa de que la
+  eliminación es permanente y solo recuperable desde copia de seguridad.
+- `POST /api/v1/dossiers/bulk-delete` acepta hasta 100 UUID, requiere
+  `dossier.delete`, verifica que la persona sea propietaria o administradora de todos
+  ellos y bloquea las filas en una única transacción. Si uno deja de estar disponible,
+  no se elimina ninguno.
+- La migración `20260712_0013` permite que las referencias de auditoría a un expediente
+  eliminado queden en `NULL` sin perder el evento, el identificador del recurso ni sus
+  metadatos de borrado. OpenAPI y el cliente TypeScript se regeneraron.
+- Comprobaciones locales: OpenAPI/client sin drift, Vitest focal 7/7, ESLint,
+  TypeScript, build de Next, Ruff y mypy correctos; contrato Flask 7/7 sin umbral de
+  cobertura. La integración PostgreSQL/Redis que prueba cascada y auditoría queda
+  preparada pero no se ejecutó porque faltan las tres variables `TEST_*` en local.
+
 | Fase | Estado | Fecha | Responsable | Comprobaciones | Bloqueos | Siguiente paso |
 |---|---|---|---|---|---|---|
 | 00 · Orquestación | done | 2026-07-10 | Codex | Pack completo leído; decisiones, preguntas, checklist y baseline creados | Ninguno | Fase 01 |

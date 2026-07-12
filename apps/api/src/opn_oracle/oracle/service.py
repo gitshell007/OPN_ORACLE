@@ -386,6 +386,59 @@ def archive_dossier(
     return dossier
 
 
+def delete_dossiers(
+    session: Session, dossier_ids: list[uuid.UUID], *, actor_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """Permanently remove a bounded, fully authorized set of dossiers.
+
+    The database owns the dependent-record cascade. Audit events deliberately remain:
+    their dossier reference is set to null by the foreign-key policy, while their
+    resource id and immutable metadata preserve the deletion trail.
+    """
+
+    tenant_id = require_tenant_id()
+    unique_ids = list(dict.fromkeys(dossier_ids))
+    if not unique_ids or len(unique_ids) > 100:
+        raise DomainValidationError("Selecciona entre uno y cien expedientes para eliminar.")
+    dossiers = list(
+        session.scalars(
+            select(StrategicDossier)
+            .where(
+                StrategicDossier.tenant_id == tenant_id,
+                StrategicDossier.id.in_(unique_ids),
+            )
+            .order_by(StrategicDossier.id)
+            .with_for_update()
+        )
+    )
+    if len(dossiers) != len(unique_ids) or any(
+        not dossier_manageable(session, dossier, actor_id) for dossier in dossiers
+    ):
+        # Keep unavailable resources indistinguishable from missing ones and avoid
+        # a partial deletion if the selection changed between listing and submission.
+        raise ResourceNotFound("Uno o varios expedientes ya no están disponibles.")
+
+    deleted_ids: list[uuid.UUID] = []
+    for dossier in dossiers:
+        append_audit_event(
+            session,
+            action="dossier.deleted",
+            resource_type="strategic_dossier",
+            resource_id=dossier.id,
+            dossier_id=dossier.id,
+            result="success",
+            metadata={
+                "deleted_dossier_id": str(dossier.id),
+                "title": dossier.title,
+                "dossier_type": dossier.dossier_type,
+            },
+        )
+        deleted_ids.append(dossier.id)
+        session.delete(dossier)
+    session.commit()
+    return deleted_ids
+
+
 def review_signal_link(
     session: Session, link_id: uuid.UUID, payload: dict[str, Any], *, actor_id: uuid.UUID
 ) -> DossierSignal:

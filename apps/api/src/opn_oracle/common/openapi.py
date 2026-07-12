@@ -581,6 +581,8 @@ def _declare_oracle_operation(
         schema = f"{resource}WriteInput"
         if path == "/api/v1/dossiers" and method == "post":
             schema = "DossierCreateInput"
+        elif path == "/api/v1/dossiers/bulk-delete" and method == "post":
+            schema = "DossierBulkDeleteInput"
         elif path == "/api/v1/dossiers/{dossier_id}" and method == "patch":
             schema = "DossierPatchInput"
         elif path.endswith("/review"):
@@ -605,6 +607,8 @@ def _declare_oracle_operation(
         }
     if signal_monitor_create or signal_monitor_update or signal_monitor_action:
         status = "202"
+    elif path == "/api/v1/dossiers/bulk-delete" and method == "post":
+        status = "200"
     else:
         status = (
             "201"
@@ -647,6 +651,8 @@ def _declare_oracle_operation(
             response = {"$ref": f"#/components/schemas/{response_name}"}
         elif m2m_target and method == "put" and path.endswith("/{target_id}"):
             response = {"$ref": "#/components/schemas/LinkMutationResponse"}
+        elif path == "/api/v1/dossiers/bulk-delete":
+            response = {"$ref": "#/components/schemas/DossierBulkDeleteResponse"}
         elif path.endswith("/promote"):
             response = {"$ref": "#/components/schemas/PromotionResponse"}
         elif path.endswith("/retriage"):
@@ -1241,6 +1247,29 @@ def _oracle_schemas() -> dict[str, Any]:
                 "scoring_config": json_object,
             }
         ),
+        "DossierBulkDeleteInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["dossier_ids"],
+            "properties": {
+                "dossier_ids": {
+                    "type": "array",
+                    "items": uuid,
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "uniqueItems": True,
+                }
+            },
+        },
+        "DossierBulkDeleteResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deleted_ids", "deleted_count"],
+            "properties": {
+                "deleted_ids": {"type": "array", "items": uuid},
+                "deleted_count": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+        },
         "SignalReviewInput": {
             "type": "object",
             "additionalProperties": False,

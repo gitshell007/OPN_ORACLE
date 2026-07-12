@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  bulkDelete: vi.fn(),
   replace: vi.fn(),
   params: "",
 }));
@@ -16,8 +17,10 @@ vi.mock("@oracle/api-client", () => {
       super(problem.detail);
     }
   }
-  return { ApiError, api: { dossiers: { list: mocks.list } } };
+  return { ApiError, api: { dossiers: { list: mocks.list, bulkDelete: mocks.bulkDelete } } };
 });
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/app/dossiers",
@@ -77,6 +80,10 @@ describe("DossierInventory", () => {
       data: [dossier],
       meta: { page: 1, size: 25, total: 1 },
     });
+    mocks.bulkDelete.mockResolvedValue({
+      deleted_ids: [dossier.id],
+      deleted_count: 1,
+    });
   });
   afterEach(cleanup);
 
@@ -132,7 +139,7 @@ describe("DossierInventory", () => {
     );
   });
 
-  it("ofrece selección accesible, densidad y columnas sin acciones masivas ficticias", async () => {
+  it("ofrece selección accesible, densidad, columnas y eliminación real", async () => {
     render(<DossierInventory />);
     await screen.findAllByText("Expansión Delta");
 
@@ -141,12 +148,33 @@ describe("DossierInventory", () => {
     );
     expect(screen.getByText("1 seleccionados")).toBeVisible();
     expect(screen.getByText("La selección se limita a esta página.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Eliminar seleccionados" })).toBeVisible();
 
     fireEvent.change(screen.getByLabelText("Densidad de filas"), {
       target: { value: "compact" },
     });
     expect(screen.getByLabelText("Densidad de filas")).toHaveValue("compact");
     expect(screen.getByText("Columnas")).toBeVisible();
+  });
+
+  it("exige resolver una suma antes de eliminar la selección", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    render(<DossierInventory />);
+    await screen.findAllByText("Expansión Delta");
+    fireEvent.click(screen.getByLabelText("Seleccionar todos los expedientes de esta página"));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar seleccionados" }));
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("resultado de 2 + 2");
+    const confirm = screen.getByRole("button", { name: "Eliminar definitivamente" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Resultado de la suma de confirmación"), {
+      target: { value: "4" },
+    });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(mocks.bulkDelete).toHaveBeenCalledWith([dossier.id]));
+    vi.restoreAllMocks();
   });
 
   it("distingue 403 de un fallo recuperable", async () => {

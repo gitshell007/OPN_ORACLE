@@ -1,5 +1,6 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   ApiError,
   api,
@@ -17,10 +18,13 @@ import {
   FilePlus2,
   RefreshCw,
   Search,
+  Trash2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CreateProductDossierDialog } from "@/components/navigation/create-product-dossier-dialog";
@@ -57,6 +61,7 @@ const PAGE_SIZES = [10, 25, 50] as const;
 const OPTIONAL_COLUMNS = ["type", "health", "opportunity", "risk", "owner", "updated"] as const;
 type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
 type Density = "compact" | "balanced" | "comfortable";
+type DeleteChallenge = { left: number; right: number };
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Borrador",
@@ -133,6 +138,13 @@ function SortIcon({ active, descending }: { active: boolean; descending: boolean
   return descending ? <ArrowDown size={14} aria-hidden="true" /> : <ArrowUp size={14} aria-hidden="true" />;
 }
 
+function nextDeleteChallenge(): DeleteChallenge {
+  return {
+    left: Math.floor(Math.random() * 8) + 2,
+    right: Math.floor(Math.random() * 8) + 2,
+  };
+}
+
 export function DossierInventory() {
   const router = useRouter();
   const pathname = usePathname();
@@ -155,6 +167,10 @@ export function DossierInventory() {
     ...OPTIONAL_COLUMNS,
   ]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteChallenge, setDeleteChallenge] = useState<DeleteChallenge>({ left: 0, right: 0 });
+  const [deleteAnswer, setDeleteAnswer] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const densityKey = `oracle:ui:density:${userId}`;
   const columnsKey = `oracle:dossiers:columns:${userId}`;
 
@@ -265,6 +281,40 @@ export function DossierInventory() {
       ? "Tú"
       : "Equipo";
 
+  const deleteResult = deleteChallenge.left + deleteChallenge.right;
+  const deleteConfirmed = /^\d+$/.test(deleteAnswer.trim())
+    && Number(deleteAnswer) === deleteResult;
+
+  function openDeleteDialog() {
+    setDeleteChallenge(nextDeleteChallenge());
+    setDeleteAnswer("");
+    setDeleteOpen(true);
+  }
+
+  async function deleteSelected() {
+    if (!deleteConfirmed || selected.length === 0) return;
+    setDeleteBusy(true);
+    try {
+      const result = await api.dossiers.bulkDelete(selected);
+      setDeleteOpen(false);
+      setSelected([]);
+      setItems((current) => current.filter((item) => !result.deleted_ids.includes(item.id)));
+      setTotal((current) => Math.max(0, current - result.deleted_count));
+      setRequestVersion((value) => value + 1);
+      toast.success(
+        result.deleted_count === 1 ? "Expediente eliminado" : `${result.deleted_count} expedientes eliminados`,
+      );
+    } catch (reason) {
+      toast.error(
+        reason instanceof ApiError
+          ? reason.problem.detail
+          : "No se pudieron eliminar los expedientes seleccionados.",
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <div className="dossier-inventory" data-density={density}>
       <header className="page-heading dossier-inventory-heading">
@@ -374,6 +424,11 @@ export function DossierInventory() {
           <div className="dossier-selection" role="status">
             <strong>{selected.length} seleccionados</strong>
             <span>La selección se limita a esta página.</span>
+            <PermissionGate permission="dossier.delete">
+              <button className="vector-danger" onClick={openDeleteDialog}>
+                <Trash2 size={15} aria-hidden="true" /> Eliminar seleccionados
+              </button>
+            </PermissionGate>
             <button className="vector-secondary" onClick={() => setSelected([])}>Limpiar selección</button>
           </div>
         )}
@@ -484,6 +539,47 @@ export function DossierInventory() {
         )}
       </section>
       <CreateProductDossierDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <Dialog.Root
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!open && !deleteBusy) setDeleteOpen(false);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content dossier-delete-dialog">
+            <Dialog.Title>Eliminar expedientes</Dialog.Title>
+            <Dialog.Description>
+              Se eliminarán de forma permanente {selected.length === 1 ? "el expediente seleccionado" : `los ${selected.length} expedientes seleccionados`} y sus datos asociados. La acción queda registrada en la auditoría.
+            </Dialog.Description>
+            <Dialog.Close className="dialog-close" aria-label="Cerrar" disabled={deleteBusy}>
+              <X size={18} />
+            </Dialog.Close>
+            <div className="dossier-delete-summary">
+              <strong>{selected.length} {selected.length === 1 ? "expediente" : "expedientes"}</strong>
+              <span>La recuperación posterior requiere una copia de seguridad.</span>
+            </div>
+            <label className="field">
+              <span>Para confirmar, escribe el resultado de {deleteChallenge.left} + {deleteChallenge.right}</span>
+              <input
+                aria-label="Resultado de la suma de confirmación"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={deleteAnswer}
+                onChange={(event) => setDeleteAnswer(event.target.value)}
+                autoFocus
+                disabled={deleteBusy}
+              />
+            </label>
+            <div className="dialog-actions">
+              <Dialog.Close className="vector-secondary" disabled={deleteBusy}>Cancelar</Dialog.Close>
+              <button className="vector-danger" disabled={!deleteConfirmed || deleteBusy} onClick={() => void deleteSelected()}>
+                <Trash2 size={15} aria-hidden="true" /> {deleteBusy ? "Eliminando…" : "Eliminar definitivamente"}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

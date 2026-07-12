@@ -194,6 +194,13 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
     assert spec["paths"]["/api/v1/dossiers"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ] == {"$ref": "#/components/schemas/DossierCreateInput"}
+    bulk_delete = spec["paths"]["/api/v1/dossiers/bulk-delete"]["post"]
+    assert bulk_delete["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/DossierBulkDeleteInput"
+    }
+    assert bulk_delete["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/DossierBulkDeleteResponse"
+    }
     assert spec["paths"]["/api/v1/signals/{link_id}/promote"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"] == {"$ref": "#/components/schemas/SignalPromoteInput"}

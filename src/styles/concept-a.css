@@ -3155,9 +3155,19 @@
   font-size: 12px;
 }
 
-.dossier-selection button {
-  margin-left: auto;
-}
+.dossier-selection button { margin-left: 0; }
+.dossier-selection button:first-of-type { margin-left: auto; }
+
+.dossier-delete-dialog { max-width: 510px; }
+.dossier-delete-dialog > p { max-width: 58ch; margin: 8px 0 0; color: var(--va-muted); line-height: 1.5; }
+.dossier-delete-summary { display: grid; gap: 4px; margin: 18px 0; border: 1px solid #efc4c4; border-radius: 8px; background: #fffafa; padding: 12px; }
+.dossier-delete-summary strong { color: var(--va-danger); }
+.dossier-delete-summary span { color: var(--va-muted); font-size: 12px; }
+.dossier-delete-dialog .field { display: grid; gap: 6px; }
+.dossier-delete-dialog .field > span { color: var(--va-text); font-size: 13px; font-weight: 700; }
+.dossier-delete-dialog input { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; padding: 0 10px; color: var(--va-text); }
+.dossier-delete-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.dossier-delete-dialog button:disabled { cursor: not-allowed; opacity: .58; }
 
 .dossier-inventory-loading,
 .dossier-inventory-state {

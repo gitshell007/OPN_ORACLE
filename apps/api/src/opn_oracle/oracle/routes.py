@@ -73,6 +73,7 @@ from opn_oracle.oracle.service import (
     create_dossier,
     create_dossier_actor,
     create_scored_resource,
+    delete_dossiers,
     list_page,
     merge_actors,
     promote_signal_link,
@@ -888,6 +889,27 @@ def dossiers_create() -> Any:
         dossier = create_dossier(db.session(), _payload(), actor_id=current_user.id)
         return _serialize(dossier), 201, {"ETag": f'W/"{dossier.version}"'}
     except (DomainValidationError, ResourceNotFound) as error:
+        db.session.rollback()
+        return _domain_error(error)
+
+
+@bp.post("/dossiers/bulk-delete")
+@require_permission("dossier.delete")
+def dossiers_bulk_delete() -> Any:
+    payload = _payload()
+    values = payload.get("dossier_ids")
+    if not isinstance(values, list):
+        return _domain_error(DomainValidationError("dossier_ids debe ser una lista de UUID."))
+    try:
+        dossier_ids = [uuid.UUID(str(value)) for value in values]
+        if len(dossier_ids) != len(set(dossier_ids)):
+            raise DomainValidationError("La selección contiene expedientes repetidos.")
+        deleted_ids = delete_dossiers(db.session(), dossier_ids, actor_id=current_user.id)
+        return {
+            "deleted_ids": [str(dossier_id) for dossier_id in deleted_ids],
+            "deleted_count": len(deleted_ids),
+        }
+    except (DomainValidationError, ResourceNotFound, ValueError, TypeError) as error:
         db.session.rollback()
         return _domain_error(error)
 

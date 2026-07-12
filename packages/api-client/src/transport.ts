@@ -675,6 +675,11 @@ const dossiers = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/archive`,
       { method: "POST", ifMatch: version },
     ),
+  bulkDelete: (dossierIds: string[]) =>
+    request<components["schemas"]["DossierBulkDeleteResponse"]>(
+      "/api/v1/dossiers/bulk-delete",
+      { method: "POST", body: { dossier_ids: dossierIds } },
+    ),
 };
 
 export type OracleSummaryCurrent =
