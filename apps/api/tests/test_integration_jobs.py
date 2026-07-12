@@ -396,7 +396,7 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
         monitor = db.session.get(SignalMonitor, ids["monitor"])
         assert connection is not None and monitor is not None
         monitor.external_id = "mock-monitor-1"
-        ciphertext, nonce, key_version = keyring.encrypt(
+        encrypted = keyring.encrypt(
             json.dumps(status_envelope),
             aad=inbox_aad(ids["tenant"], connection_id, status_envelope["event_id"]),
         )
@@ -406,9 +406,9 @@ def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
             provider_event_id=status_envelope["event_id"],
             event_type=status_envelope["event_type"],
             status="received",
-            raw_ciphertext=ciphertext,
-            raw_nonce=nonce,
-            key_version=key_version,
+            raw_ciphertext=encrypted.ciphertext,
+            raw_nonce=encrypted.nonce,
+            key_version=encrypted.key_version,
         )
         db.session.add(status_inbox)
         db.session.commit()
@@ -1780,10 +1780,23 @@ def test_ai_job_persists_reviewer_attempt_and_settles_reservation(
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
     ):
-        artifact = db.session.scalar(select(AIArtifact))
-        attempts = list(db.session.scalars(select(AIAttempt).order_by(AIAttempt.attempt_number)))
-        ledger = db.session.scalar(select(AIUsageLedger))
-        assert artifact is not None and [row.kind for row in attempts] == ["generate", "reviewer"]
+        artifact = db.session.scalar(
+            select(AIArtifact)
+            .where(AIArtifact.dossier_id == dossier_id, AIArtifact.agent == "opportunity")
+            .order_by(AIArtifact.created_at.desc())
+        )
+        assert artifact is not None
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == artifact.audit_log_id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        ledger = db.session.scalar(
+            select(AIUsageLedger).where(AIUsageLedger.audit_log_id == artifact.audit_log_id)
+        )
+        assert [row.kind for row in attempts] == ["generate", "reviewer"]
         assert all(row.status == "succeeded" and row.completed_at for row in attempts)
         assert ledger is not None and ledger.status == "settled"
         assert ledger.reserved_cost_micros == 0
