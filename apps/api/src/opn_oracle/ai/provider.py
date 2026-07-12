@@ -569,6 +569,9 @@ class SignalGovernedLLMProvider:
         try:
             output = schema.model_validate_json(normalized_output)
             _validate_allowed_evidence(output, allowed_evidence_ids)
+            if request.agent == "dossier_situation_summary" and not allowed_evidence_ids:
+                output = _safe_empty_evidence_summary(request, schema)
+                safe_fallback_used = True
         except ValueError as validation_error:
             repair_errors: list[dict[str, Any]]
             if isinstance(validation_error, ValidationError):

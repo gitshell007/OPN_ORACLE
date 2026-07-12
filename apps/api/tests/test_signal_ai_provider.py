@@ -204,3 +204,42 @@ def test_signal_governed_provider_uses_safe_summary_after_two_invalid_empty_evid
     assert "fallback seguro" in " ".join(result.output.warnings)
     assert result.safe_fallback_used is True
     assert calls == 2
+
+
+def test_signal_governed_provider_never_publishes_model_claims_without_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = LLMRequest(
+        agent="dossier_situation_summary",
+        model="qwen3.5:9b",
+        system_prompt="Devuelve JSON estricto.",
+        task_prompt="Resume el expediente.",
+        context={"allowed_evidence_ids": []},
+        max_output_tokens=500,
+        classification="internal",
+    )
+    candidate = MockLLMProvider("fixture").generate_structured(
+        request, DossierSituationSummaryOutput
+    ).output
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "result": {"message": {"content": candidate.model_dump_json()}},
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+
+    result = provider.generate_structured(request, DossierSituationSummaryOutput)
+
+    assert result.safe_fallback_used is True
+    assert result.output.confidence == 0
+    assert result.output.recommended_actions[0].action.startswith("Vincular evidencias")
