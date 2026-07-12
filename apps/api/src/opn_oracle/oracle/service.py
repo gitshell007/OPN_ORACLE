@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, actor_canonical_key, clean_labels
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import (
     DossierCollaborator,
@@ -977,17 +978,66 @@ def create_dossier_actor(
     dossier = _require_dossier_access(session, dossier_id, actor_id)
     if dossier.status == "archived":
         raise DomainValidationError("Un expediente archivado es de solo lectura.")
-    try:
-        linked_actor_id = uuid.UUID(str(payload["actor_id"]))
-    except (KeyError, ValueError) as error:
-        raise DomainValidationError("actor_id es obligatorio y debe ser UUID.") from error
-    if (
-        session.scalar(
-            select(Actor.id).where(Actor.id == linked_actor_id, Actor.tenant_id == tenant_id)
+    actor: Actor | None = None
+    if payload.get("actor_id"):
+        try:
+            linked_actor_id = uuid.UUID(str(payload["actor_id"]))
+        except ValueError as error:
+            raise DomainValidationError("actor_id debe ser UUID.") from error
+        actor = session.scalar(
+            select(Actor).where(Actor.id == linked_actor_id, Actor.tenant_id == tenant_id)
         )
-        is None
-    ):
-        raise ResourceNotFound("Actor no encontrado.")
+        if actor is None:
+            raise ResourceNotFound("Actor no encontrado.")
+    else:
+        canonical_name = " ".join(str(payload.get("canonical_name", "")).strip().split())
+        actor_type = str(payload.get("actor_type", "organization")).strip().lower()
+        if not canonical_name:
+            raise DomainValidationError("canonical_name es obligatorio.")
+        if actor_type not in ACTOR_TYPES:
+            raise DomainValidationError("actor_type no es válido.")
+        canonical_key = actor_canonical_key(canonical_name)
+        actor = session.scalar(
+            select(Actor).where(
+                Actor.tenant_id == tenant_id,
+                Actor.canonical_key == canonical_key,
+            )
+        )
+        labels = clean_labels(payload.get("tags", []))
+        if actor is None:
+            actor = Actor(
+                tenant_id=tenant_id,
+                actor_type=actor_type,
+                canonical_name=canonical_name[:300],
+                canonical_key=canonical_key,
+                aliases=[],
+                identifiers={},
+                actor_metadata={"tags": labels},
+                provenance=dict(payload.get("provenance", {})),
+            )
+            session.add(actor)
+            session.flush()
+        elif labels:
+            metadata = dict(actor.actor_metadata or {})
+            metadata["tags"] = clean_labels([*clean_labels(metadata.get("tags", [])), *labels])
+            actor.actor_metadata = metadata
+            actor.version += 1
+        linked_actor_id = actor.id
+    existing_link = session.scalar(
+        select(DossierActor).where(
+            DossierActor.tenant_id == tenant_id,
+            DossierActor.dossier_id == dossier_id,
+            DossierActor.actor_id == linked_actor_id,
+        )
+    )
+    requested_roles = clean_labels(payload.get("roles", []))
+    if existing_link is not None:
+        existing_link.roles = clean_labels([*clean_labels(existing_link.roles), *requested_roles])
+        if payload.get("notes"):
+            existing_link.notes = str(payload["notes"])[:5000]
+        existing_link.version += 1
+        session.commit()
+        return existing_link
     components = {key: int(payload.get(key, 0)) for key in ACTOR_PRIORITY_WEIGHTS}
     result = score_actor_priority(
         components,
@@ -997,13 +1047,22 @@ def create_dossier_actor(
         tenant_id=tenant_id,
         dossier_id=dossier_id,
         actor_id=linked_actor_id,
-        roles=list(payload.get("roles", [])),
+        roles=requested_roles,
         notes=str(payload.get("notes", ""))[:5000],
         priority=result.score,
         score_details=result.as_dict(),
         **components,
     )
     session.add(row)
+    append_audit_event(
+        session,
+        action="actor.linked",
+        resource_type="actor",
+        resource_id=linked_actor_id,
+        dossier_id=dossier_id,
+        result="success",
+        metadata={"created_from_name": payload.get("actor_id") is None},
+    )
     session.commit()
     return row
 

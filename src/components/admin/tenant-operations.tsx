@@ -43,7 +43,7 @@ export function TenantRoles() {
         <div>
           <div className="eyebrow">Administración de la organización</div>
           <h1>Roles y permisos</h1>
-          <p>Roles autoritativos disponibles para asignar a los miembros.</p>
+          <p>Roles disponibles para asignar a los miembros.</p>
         </div>
       </section>
       {error && <div className="inline-error" role="alert">{error}</div>}

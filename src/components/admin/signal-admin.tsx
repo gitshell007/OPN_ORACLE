@@ -528,13 +528,13 @@ export function SignalAdmin() {
             />
           </label>
           <button className="vector-secondary" disabled={busy === "load-monitors"}>
-            Cargar monitores
+            Cargar vigilancias
           </button>
         </form>
         {dossierId && (
           <form className="monitor-create" onSubmit={createMonitor}>
             <label className="field">
-              <span>Nombre del monitor</span>
+              <span>Nombre de la vigilancia</span>
               <input
                 required
                 value={monitorDraft.name}
@@ -590,15 +590,15 @@ export function SignalAdmin() {
               </select>
             </label>
             <button className="vector-primary" disabled={busy === "create-monitor"}>
-              Crear monitor
+              Crear vigilancia
             </button>
           </form>
         )}
         {monitors.length === 0 ? (
           <div className="signal-empty compact">
             <Activity size={22} />
-            <strong>No hay monitores cargados</strong>
-            <p>Introduce un expediente para consultar sus monitores.</p>
+            <strong>No hay vigilancias cargadas</strong>
+            <p>Introduce un expediente para consultar sus vigilancias.</p>
           </div>
         ) : (
           <div className="table-scroll">

@@ -377,7 +377,7 @@ export function ReportViewer({
                 <span>{artifact.format.toUpperCase()}</span>
                 <div>
                   <strong>{artifact.media_type}</strong>
-                  <small>{formatBytes(artifact.byte_size)} · checksum verificado</small>
+                  <small>{formatBytes(artifact.byte_size)} · huella verificada</small>
                 </div>
                 <button
                   className="icon-button bordered"

@@ -1083,10 +1083,13 @@ def test_oracle_summary_is_read_only_on_entry_and_refresh_keys_force_new_jobs(
         )
     assert client.get(endpoint).status_code == 200
     with before.connect() as connection:
-        assert connection.scalar(
-            text("SELECT count(*) FROM background_jobs WHERE dossier_id=:id"),
-            {"id": dossier["id"]},
-        ) == count_before
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM background_jobs WHERE dossier_id=:id"),
+                {"id": dossier["id"]},
+            )
+            == count_before
+        )
     before.dispose()
 
     headers = {"X-CSRF-Token": _csrf(client), "Idempotency-Key": "manual-summary-one"}
@@ -1423,6 +1426,7 @@ def test_nested_api_seed_idempotency_and_listing_performance(
     first = runner.invoke(args=["seed-oracle-demo", "--tenant-id", str(ids["tenant_a"])])
     second = runner.invoke(args=["seed-oracle-demo", "--tenant-id", str(ids["tenant_a"])])
     assert first.exit_code == second.exit_code == 0
+
     repaired_hypothesis = stable_id(f"{ids['tenant_a']}:hypothesis:expansion-regional")
     repair_engine = create_engine(os.environ["TEST_DATABASE_URL"])
     with repair_engine.begin() as connection:
@@ -1478,6 +1482,106 @@ def test_nested_api_seed_idempotency_and_listing_performance(
             )
     runtime.dispose()
     assert all(count >= 8 for count in counts.values())
+
+
+def test_actor_candidates_are_source_backed_and_imported_atomically(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    _, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Candidatos de actores")
+    other = _create_dossier(client, ids, "Otro expediente")
+    signal_id, link_id = uuid.uuid4(), uuid.uuid4()
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO signals(id,tenant_id,provider,external_id,title,summary,source_type,source_name,source_url,ingested_at,tags,entities,categories,raw_hash,credibility,raw_payload,created_at,updated_at) "
+                "VALUES (:id,:tenant,'synthetic','actor-source','Mercado baterías LFP Europa','CATL defiende su planta de baterías en Zaragoza con una inversión de 4.100 millones de euros junto a Stellantis.','news','Fuente sectorial','https://example.test/catl',now(),CAST(:tags AS jsonb),CAST(:entities AS jsonb),CAST(:categories AS jsonb),:hash,80,'{}',now(),now())"
+            ),
+            {
+                "id": signal_id,
+                "tenant": ids["tenant_a"],
+                "tags": '["baterías"]',
+                "entities": "[]",
+                "categories": '["inversión industrial"]',
+                "hash": hashlib.sha256(b"actor-source").digest(),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO dossier_signals(id,tenant_id,dossier_id,signal_id,status,relevance,novelty,confidence,strategic_impact,why_it_matters,recommended_action,feedback,triage_version,created_at,updated_at) "
+                "VALUES (:id,:tenant,:dossier,:signal,'new',70,50,80,75,'','','{}',1,now(),now())"
+            ),
+            {
+                "id": link_id,
+                "tenant": ids["tenant_a"],
+                "dossier": uuid.UUID(dossier["id"]),
+                "signal": signal_id,
+            },
+        )
+    engine.dispose()
+
+    response = client.get(f"/api/v1/dossiers/{dossier['id']}/actor-candidates")
+    assert response.status_code == 200
+    candidates = response.get_json()["data"]
+    assert {item["name"] for item in candidates} == {"CATL", "Stellantis"}
+    assert client.get(f"/api/v1/dossiers/{other['id']}/actor-candidates").get_json()["data"] == []
+    catl = next(item for item in candidates if item["name"] == "CATL")
+    assert catl["suggested_actor_type"] == "organization"
+    assert catl["extraction_methods"] == ["text_pattern"]
+    assert catl["sources"][0]["signal_id"] == str(signal_id)
+
+    imported = client.post(
+        f"/api/v1/dossiers/{dossier['id']}/actor-candidates/{catl['id']}/import",
+        json={
+            "actor_type": "organization",
+            "tags": ["fabricante", "baterías"],
+            "roles": ["competidor"],
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert imported.status_code == 201
+    payload = imported.get_json()
+    assert payload["actor"]["canonical_name"] == "CATL"
+    assert payload["actor"]["metadata"]["tags"] == ["fabricante", "baterías"]
+    assert payload["link"]["roles"] == ["competidor"]
+    refreshed = client.get(f"/api/v1/dossiers/{dossier['id']}/actor-candidates").get_json()
+    assert next(item for item in refreshed["data"] if item["name"] == "CATL")["status"] == "linked"
+
+    stellantis = next(item for item in candidates if item["name"] == "Stellantis")
+    dismissed = client.post(
+        f"/api/v1/dossiers/{dossier['id']}/actor-candidates/{stellantis['id']}/review",
+        json={"status": "dismissed"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert dismissed.status_code == 200
+    assert dismissed.get_json()["candidate"]["status"] == "dismissed"
+    assert all(
+        item["name"] != "Stellantis"
+        for item in client.get(f"/api/v1/dossiers/{dossier['id']}/actor-candidates").get_json()[
+            "data"
+        ]
+    )
+    with_dismissed = client.get(
+        f"/api/v1/dossiers/{dossier['id']}/actor-candidates?include_dismissed=true"
+    ).get_json()["data"]
+    assert (
+        next(item for item in with_dismissed if item["name"] == "Stellantis")["status"]
+        == "dismissed"
+    )
+    restored = client.post(
+        f"/api/v1/dossiers/{dossier['id']}/actor-candidates/{stellantis['id']}/review",
+        json={"status": "candidate"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert restored.status_code == 200
+    assert any(
+        item["name"] == "Stellantis"
+        for item in client.get(f"/api/v1/dossiers/{dossier['id']}/actor-candidates").get_json()[
+            "data"
+        ]
+    )
 
 
 def test_resource_policy_membership_and_archived_child_guard(

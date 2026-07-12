@@ -367,9 +367,7 @@ class Settings:
                     "Europe/Madrid" if app_env == "production" else "UTC",
                 )
             ),
-            nightly_summaries_enabled=_as_bool(
-                values.get("NIGHTLY_SUMMARIES_ENABLED", True)
-            ),
+            nightly_summaries_enabled=_as_bool(values.get("NIGHTLY_SUMMARIES_ENABLED", True)),
             nightly_summaries_hour=_as_int(
                 values.get("NIGHTLY_SUMMARIES_HOUR", 3),
                 name="NIGHTLY_SUMMARIES_HOUR",

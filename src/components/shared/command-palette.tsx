@@ -32,7 +32,7 @@ export function CommandPalette({
     () => {
       return [
         {
-          label: "Ir al portfolio",
+          label: "Ir a la cartera",
           detail: "Navegación",
           run: () => router.push(`/concept-${concept}/portfolio`),
         },

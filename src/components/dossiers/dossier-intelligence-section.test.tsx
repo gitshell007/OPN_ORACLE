@@ -8,9 +8,11 @@ const mocks = vi.hoisted(() => ({
   opportunityList: vi.fn(),
   opportunityEvidence: vi.fn(),
   opportunityUpdate: vi.fn(),
+  opportunityCreate: vi.fn(),
   riskList: vi.fn(),
   riskEvidence: vi.fn(),
   riskUpdate: vi.fn(),
+  riskCreate: vi.fn(),
   success: vi.fn(),
   replace: vi.fn(),
 }));
@@ -36,11 +38,13 @@ vi.mock("@oracle/api-client", () => {
         list: mocks.opportunityList,
         evidence: mocks.opportunityEvidence,
         update: mocks.opportunityUpdate,
+        create: mocks.opportunityCreate,
       },
       risks: {
         list: mocks.riskList,
         evidence: mocks.riskEvidence,
         update: mocks.riskUpdate,
+        create: mocks.riskCreate,
       },
     },
   };
@@ -131,9 +135,11 @@ describe("DossierIntelligenceSection", () => {
       status: "qualified",
       version: 5,
     });
+    mocks.opportunityCreate.mockResolvedValue({ id: "op-2" });
     mocks.riskList.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
     mocks.riskEvidence.mockResolvedValue({ data: [] });
     mocks.riskUpdate.mockResolvedValue({});
+    mocks.riskCreate.mockResolvedValue({ id: "risk-1" });
   });
 
   afterEach(cleanup);
@@ -219,5 +225,43 @@ describe("DossierIntelligenceSection", () => {
         scoreMin: 70,
       }),
     );
+  });
+
+  it("crea una oportunidad manual con valoración humana inicial", async () => {
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="opportunities" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva oportunidad" }));
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: "Acuerdo con fabricante" } });
+    fireEvent.change(screen.getByLabelText("Descripción"), { target: { value: "Explorar alianza europea" } });
+    fireEvent.change(screen.getByLabelText("Siguiente acción"), { target: { value: "Preparar contacto" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear" }));
+
+    await waitFor(() => expect(mocks.opportunityCreate).toHaveBeenCalledWith(
+      "dossier-1",
+      expect.objectContaining({
+        title: "Acuerdo con fabricante",
+        description: "Explorar alianza europea",
+        next_action: "Preparar contacto",
+        strategic_fit: 50,
+        urgency: 50,
+      }),
+    ));
+  });
+
+  it("crea un riesgo manual con mitigación inicial", async () => {
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="risks" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Nuevo riesgo" }));
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: "Dependencia tecnológica" } });
+    fireEvent.change(screen.getByLabelText("Mitigación inicial"), { target: { value: "Diversificar socios" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear" }));
+
+    await waitFor(() => expect(mocks.riskCreate).toHaveBeenCalledWith(
+      "dossier-1",
+      expect.objectContaining({
+        title: "Dependencia tecnológica",
+        mitigation: "Diversificar socios",
+        impact: 50,
+        likelihood: 50,
+      }),
+    ));
   });
 });

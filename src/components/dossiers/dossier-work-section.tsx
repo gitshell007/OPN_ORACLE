@@ -27,8 +27,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { productLinkedResourceLabel } from "@/lib/product-copy";
+import { DossierActorCandidates } from "./dossier-actor-candidates";
 
 export type DossierWorkKind = "actors" | "meetings" | "tasks" | "decisions";
+type ActorType = "person" | "organization" | "institution" | "program" | "other";
 type RawResource = OracleDossierActor | OracleMeeting | OracleTask | OracleDecision;
 
 interface WorkRow {
@@ -41,14 +44,23 @@ interface WorkRow {
   updatedAt?: string;
   raw: RawResource;
   actor?: OracleActor;
+  labels?: string[];
 }
+
+const ACTOR_TYPE_LABELS: Record<string, string> = {
+  person: "Persona",
+  organization: "Empresa u organización",
+  institution: "Organismo o institución",
+  program: "Programa o iniciativa",
+  other: "Otro",
+};
 
 const COPY = {
   actors: {
     eyebrow: "Mapa relacional",
     title: "Actores",
     description: "Personas, organizaciones e instituciones vinculadas al contexto estratégico.",
-    create: "Vincular actor",
+    create: "Nuevo actor",
     permission: "actor.write",
   },
   meetings: {
@@ -131,16 +143,21 @@ function normalize(
     const link = item as OracleDossierActor;
     const actor = link.actor_id ? actors.get(link.actor_id) : undefined;
     const confidence = actorConfidence(link);
+    const metadata = actor?.metadata as Record<string, unknown> | undefined;
+    const labels = Array.isArray(metadata?.tags)
+      ? metadata.tags.map((value) => String(value)).filter(Boolean)
+      : [];
     return {
       id: link.id,
       title: actor?.canonical_name || "Actor sin nombre disponible",
       status: "linked",
       detail: (link.roles ?? []).join(", ") || "Rol pendiente de documentar",
-      secondary: `Influencia ${link.influence ?? 0} · Relevancia ${link.relevance_to_dossier ?? 0}${confidence === null ? "" : ` · Confianza ${confidence} %`}`,
+      secondary: `${ACTOR_TYPE_LABELS[actor?.actor_type ?? "other"] ?? "Otro"} · Influencia ${link.influence ?? 0} · Relevancia ${link.relevance_to_dossier ?? 0}${confidence === null ? "" : ` · Confianza ${confidence} %`}`,
       version: link.version ?? 1,
       updatedAt: link.updated_at,
       raw: link,
       actor,
+      labels,
     };
   }
   if (kind === "meetings") {
@@ -163,7 +180,7 @@ function normalize(
       title: row.title || "Tarea sin título",
       status: row.status || "open",
       detail: row.linked_resource_type
-        ? `Vinculada a ${row.linked_resource_type}`
+        ? `Vinculada a una ${productLinkedResourceLabel(row.linked_resource_type)}`
         : "Acción manual del expediente",
       secondary: `${row.priority === "high" ? "Prioridad alta" : row.priority === "low" ? "Prioridad baja" : "Prioridad media"} · ${row.due_date ? formatDate(row.due_date) : "Sin vencimiento"}`,
       version: row.version ?? 1,
@@ -204,6 +221,11 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   const [detail, setDetail] = useState("");
   const [priority, setPriority] = useState("medium");
   const [actorId, setActorId] = useState("");
+  const [actorView, setActorView] = useState<"linked" | "candidates">("linked");
+  const [actorCreateMode, setActorCreateMode] = useState<"new" | "existing">("new");
+  const [actorType, setActorType] = useState<ActorType>("organization");
+  const [actorTags, setActorTags] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
   const [briefings, setBriefings] = useState<OracleBriefing[]>([]);
   const [briefingsLoading, setBriefingsLoading] = useState(false);
   const requestedSelection = searchParams.get("selected");
@@ -302,10 +324,15 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
     setDetail("");
     setPriority("medium");
     setActorId("");
+    setActorCreateMode("new");
+    setActorType("organization");
+    setActorTags("");
+    setCreateError(null);
   }
 
   async function openCreate() {
     setCreateOpen(true);
+    setCreateError(null);
     if (kind !== "actors" || actorCatalog.length) return;
     try {
       setActorCatalog((await api.actors.list({ page: 1, size: 100, sort: "canonical_name" })).data);
@@ -317,11 +344,21 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   async function create(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    setError(null);
+    setCreateError(null);
     try {
       if (kind === "actors") {
-        await api.actors.attach(dossierId, {
+        const roles = detail.trim() ? detail.split(",").map((role) => role.trim()).filter(Boolean) : [];
+        const tags = actorTags.trim() ? actorTags.split(",").map((tag) => tag.trim()).filter(Boolean) : [];
+        await api.actors.attach(dossierId, actorCreateMode === "existing" ? {
           actor_id: actorId,
+          roles,
+          influence: 50,
+          relevance_to_dossier: 50,
+        } : {
+          canonical_name: title.trim(),
+          actor_type: actorType,
+          tags,
+          provenance: { source: "manual" },
           roles: detail.trim() ? detail.split(",").map((role) => role.trim()).filter(Boolean) : [],
           influence: 50,
           relevance_to_dossier: 50,
@@ -338,7 +375,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
       resetCreate();
       await load();
     } catch (reason) {
-      setError(message(reason, "No se pudo crear el registro."));
+      setCreateError(message(reason, "No se pudo crear el registro."));
     } finally {
       setBusy(false);
     }
@@ -427,6 +464,16 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
         </PermissionGate>
       </header>
 
+      {kind === "actors" && (
+        <div className="segmented actor-view-switch" role="group" aria-label="Vista de actores">
+          <button type="button" aria-pressed={actorView === "linked"} onClick={() => setActorView("linked")}>Actores vinculados</button>
+          <button type="button" aria-pressed={actorView === "candidates"} onClick={() => setActorView("candidates")}>Candidatos detectados</button>
+        </div>
+      )}
+
+      {kind === "actors" && actorView === "candidates" ? (
+        <DossierActorCandidates dossierId={dossierId} onImported={() => void load()} />
+      ) : <>
       <form className="intelligence-filters" role="search" onSubmit={applyFilters}>
         <label className="intelligence-search">
           <span className="sr-only">Buscar en {copy.title.toLowerCase()}</span>
@@ -465,7 +512,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
                 <tr key={row.id}>
                   <td><strong>{row.title}</strong><small>{row.secondary}</small></td>
                   <td><span className={`intelligence-status status-${row.status}`}>{LABELS[row.status] ?? row.status}</span></td>
-                  <td>{row.detail}</td>
+                  <td>{row.detail}{row.labels?.length ? <div className="actor-labels">{row.labels.map((label) => <span key={label}>{label}</span>)}</div> : null}</td>
                   <td>{formatDate(row.updatedAt)}</td>
                   <td><Link className="vector-secondary compact" href={`${pathname}?selected=${encodeURIComponent(row.id)}`} scroll={false}>Abrir <ArrowRight size={13} /></Link></td>
                 </tr>
@@ -475,26 +522,31 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
           <div className="work-mobile-list">{rows.map((row) => (
             <article key={row.id}>
               <header><span className={`intelligence-status status-${row.status}`}>{LABELS[row.status] ?? row.status}</span><small>{formatDate(row.updatedAt)}</small></header>
-              <h2>{row.title}</h2><p>{row.detail}</p><small>{row.secondary}</small>
+              <h2>{row.title}</h2><p>{row.detail}</p>{row.labels?.length ? <div className="actor-labels">{row.labels.map((label) => <span key={label}>{label}</span>)}</div> : null}<small>{row.secondary}</small>
               <Link className="vector-secondary" href={`${pathname}?selected=${encodeURIComponent(row.id)}`} scroll={false}>Abrir detalle</Link>
             </article>
           ))}</div>
           <footer className="intelligence-pagination"><p>Página {page} de {pages} · {meta?.total ?? rows.length} registros</p><div><button className="icon-button bordered" disabled={page <= 1} aria-label="Página anterior" onClick={() => setPage((value) => value - 1)}>‹</button><button className="icon-button bordered" disabled={page >= pages} aria-label="Página siguiente" onClick={() => setPage((value) => value + 1)}>›</button></div></footer>
         </>
       )}
+      </>}
 
       <Dialog.Root open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) resetCreate(); }}>
         <Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content work-dialog">
           <div className="dialog-header"><div><span className="section-kicker">{copy.eyebrow}</span><Dialog.Title>{copy.create}</Dialog.Title><Dialog.Description>Quedará incorporado al expediente activo y será visible para las personas autorizadas.</Dialog.Description></div><Dialog.Close className="icon-button" aria-label="Cerrar"><X /></Dialog.Close></div>
           <form onSubmit={create}>
             {kind === "actors" ? (
-              <label>Actor existente<select required value={actorId} onChange={(event) => setActorId(event.target.value)}><option value="">Selecciona un actor</option>{actorCatalog.map((actor) => <option key={actor.id} value={actor.id}>{actor.canonical_name}</option>)}</select></label>
+              <>
+                <div className="segmented" role="group" aria-label="Modo de alta de actor"><button type="button" aria-pressed={actorCreateMode === "new"} onClick={() => setActorCreateMode("new")}>Crear nuevo</button><button type="button" aria-pressed={actorCreateMode === "existing"} onClick={() => setActorCreateMode("existing")}>Vincular existente</button></div>
+                {actorCreateMode === "existing" ? <label>Actor existente<select required value={actorId} onChange={(event) => setActorId(event.target.value)}><option value="">Selecciona un actor</option>{actorCatalog.map((actor) => <option key={actor.id} value={actor.id}>{actor.canonical_name}</option>)}</select></label> : <><label>Nombre<input required minLength={2} maxLength={300} value={title} onChange={(event) => setTitle(event.target.value)} autoFocus /></label><label>Tipo<select value={actorType} onChange={(event) => setActorType(event.target.value as ActorType)}><option value="person">Persona</option><option value="organization">Empresa u organización</option><option value="institution">Organismo o institución</option><option value="program">Programa o iniciativa</option><option value="other">Otro</option></select></label><label>Etiquetas (separadas por comas)<input value={actorTags} onChange={(event) => setActorTags(event.target.value)} placeholder="fabricante, socio industrial" /></label></>}
+              </>
             ) : (
               <label>Título<input required minLength={3} maxLength={300} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
             )}
             {kind !== "tasks" && <label>{kind === "actors" ? "Roles (separados por comas)" : kind === "meetings" ? "Objetivo" : "Justificación"}<textarea value={detail} onChange={(event) => setDetail(event.target.value)} /></label>}
             {kind === "tasks" && <label>Prioridad<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label>}
-            <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button></div>
+            {createError && <p className="form-error" role="alert">{createError}</p>}
+            <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy || (kind === "actors" ? actorCreateMode === "new" ? title.trim().length < 2 : !actorId : title.trim().length < 3)}>{busy ? "Guardando…" : "Guardar"}</button></div>
           </form>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
@@ -507,7 +559,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             <section className="intelligence-detail-block"><h2>Contexto</h2><p>{selected.detail}</p><p>{selected.secondary}</p></section>
             {kind === "actors" && <section className="intelligence-detail-block"><h2>Confianza y procedencia</h2><p>{actorConfidence(selected.raw as OracleDossierActor) === null ? "La confianza no está documentada todavía." : `${actorConfidence(selected.raw as OracleDossierActor)} % de confianza registrada.`}</p><p>{selected.actor?.provenance && Object.keys(selected.actor.provenance).length ? Object.entries(selected.actor.provenance).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") : "Sin procedencia explícita. No uses este actor como hecho verificado hasta añadir una fuente."}</p></section>}
             {kind === "actors" && <PermissionGate permission="actor.write"><section className="intelligence-detail-block"><h2>Ajustar contexto</h2><p>Aumenta diez puntos la relevancia para este expediente, sin modificar la ficha canónica del actor.</p><button className="vector-secondary" disabled={busy || ((selected.raw as OracleDossierActor).relevance_to_dossier ?? 0) >= 100} onClick={() => void reinforceActorRelevance()}>Reforzar relevancia</button></section></PermissionGate>}
-            {kind === "meetings" && <section className="intelligence-detail-block"><h2>Documentos preparatorios</h2>{briefingsLoading ? <p role="status">Cargando documentos preparatorios…</p> : briefings.length ? <ul className="work-briefings">{briefings.map((briefing) => <li key={briefing.id}><FileCheck2 size={15} /><span>Documento preparatorio v{briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></li>)}</ul> : <p>Aún no hay un documento preparatorio. La plantilla mantendrá hechos, inferencias y recomendaciones separados.</p>}<PermissionGate permission="meeting.write"><button className="vector-secondary" disabled={busy} onClick={() => void createBriefing()}><FileCheck2 size={15} /> Preparar documento</button></PermissionGate></section>}
+            {kind === "meetings" && <section className="intelligence-detail-block"><h2>Preparación de la reunión</h2>{briefingsLoading ? <p role="status">Cargando la preparación…</p> : briefings.length ? <ul className="work-briefings">{briefings.map((briefing) => <li key={briefing.id}><FileCheck2 size={15} /><span>Documento preparatorio {briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></li>)}</ul> : <p>Aún no hay una preparación. Cuando la crees, mantendrá separados los hechos, las interpretaciones y las recomendaciones.</p>}<PermissionGate permission="meeting.write"><button className="vector-secondary" disabled={busy} onClick={() => void createBriefing()}><FileCheck2 size={15} /> Preparar reunión</button></PermissionGate></section>}
             {transitions.length > 0 && <PermissionGate permission={copy.permission}><section className="intelligence-detail-block"><h2>Siguientes acciones permitidas</h2><div className="work-transitions">{transitions.map((next) => <button key={next} className={next === "cancelled" || next === "rejected" ? "vector-danger" : "vector-secondary"} disabled={busy} onClick={() => void transition(next)}>{LABELS[next] ?? next}</button>)}</div></section></PermissionGate>}
           </div></>}
         </Dialog.Content></Dialog.Portal>

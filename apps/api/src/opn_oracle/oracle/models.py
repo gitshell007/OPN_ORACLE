@@ -576,6 +576,51 @@ class DossierActor(TenantDomainMixin, Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+class ActorCandidateReview(TenantDomainMixin, Base):
+    __tablename__ = "actor_candidate_reviews"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_actor_candidate_reviews_id_tenant"),
+        UniqueConstraint(
+            "tenant_id",
+            "dossier_id",
+            "canonical_key",
+            name="uq_actor_candidate_review_key",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_actor_candidate_reviews_dossier_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("tenant_id", "reviewed_by_user_id"),
+            ("tenant_memberships.tenant_id", "tenant_memberships.user_id"),
+            name="fk_actor_candidate_reviews_reviewer_membership",
+        ),
+        CheckConstraint("status IN ('dismissed','imported')", name="actor_candidate_review_status"),
+        CheckConstraint("version >= 1", name="actor_candidate_review_version_positive"),
+        Index(
+            "ix_actor_candidate_reviews_dossier_status",
+            "tenant_id",
+            "dossier_id",
+            "status",
+        ),
+    )
+    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    canonical_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    candidate_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_signal_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    review_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
+    reviewed_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
 class Relationship(TenantDomainMixin, Base):
     __tablename__ = "relationships"
     __table_args__ = (

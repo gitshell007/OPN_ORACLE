@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   productJobTypeLabel,
   productAuditActionLabel,
+  productDossierTypeLabel,
   productPlanLabel,
   productQueueLabel,
   productRoleLabel,
+  productSignalTypeLabel,
   productStatusLabel,
 } from "./product-copy";
 
@@ -27,5 +29,11 @@ describe("copias de producto", () => {
     expect(productRoleLabel("owner")).toBe("Propietario");
     expect(productPlanLabel("enterprise")).toBe("Empresarial");
     expect(productAuditActionLabel("tenant.member.invited")).toBe("Miembro invitado");
+  });
+
+  it("oculta los códigos internos de expedientes y fuentes", () => {
+    expect(productDossierTypeLabel("strategic_account")).toBe("Cuenta estratégica");
+    expect(productSignalTypeLabel("company_signal")).toBe("Actividad de una organización");
+    expect(productSignalTypeLabel("unknown_source")).toBe("Fuente externa");
   });
 });

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DossierOracleSummaryPanel } from "@/components/dossiers/dossier-oracle-summary-panel";
-import { productStatusLabel } from "@/lib/product-copy";
+import { productDossierTypeLabel, productStatusLabel } from "@/lib/product-copy";
 
 export function ProductDossier() {
   const { id } = useParams<{ id: string }>();
@@ -83,7 +83,7 @@ export function ProductDossier() {
             <span className={`status ${dossier.status === "active" ? "active" : ""}`}>
               {productStatusLabel(dossier.status)}
             </span>
-            <span>{dossier.dossier_type === "project" ? "Proyecto" : dossier.dossier_type === "account" ? "Organización" : "Expediente estratégico"}</span>
+            <span>{productDossierTypeLabel(dossier.dossier_type)}</span>
             <span>
               Actualizado{" "}
               {new Intl.DateTimeFormat("es-ES", {
@@ -105,7 +105,7 @@ export function ProductDossier() {
       <section className="vector-panel situation-panel">
         <header>
           <div>
-            <span className="section-kicker">Resumen autoritativo</span>
+            <span className="section-kicker">Resumen de situación</span>
             <h2>Situación del expediente</h2>
           </div>
         </header>

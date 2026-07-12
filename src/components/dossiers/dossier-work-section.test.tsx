@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   actorGet: vi.fn(),
   actorList: vi.fn(),
   actorAttach: vi.fn(),
+  actorCandidates: vi.fn(),
+  actorImportCandidate: vi.fn(),
   actorUpdateLink: vi.fn(),
   meetingsList: vi.fn(),
   meetingCreate: vi.fn(),
@@ -37,6 +39,8 @@ vi.mock("@oracle/api-client", () => ({
       get: mocks.actorGet,
       list: mocks.actorList,
       attach: mocks.actorAttach,
+      candidates: mocks.actorCandidates,
+      importCandidate: mocks.actorImportCandidate,
       updateLink: mocks.actorUpdateLink,
     },
     meetings: {
@@ -90,6 +94,7 @@ describe("DossierWorkSection", () => {
       meta: { page: 1, size: 100, total: 1 },
     });
     mocks.actorAttach.mockResolvedValue({ id: "link-1", tenant_id: "tenant-1" });
+    mocks.actorCandidates.mockResolvedValue({ data: [], meta: { total: 0 } });
     mocks.meetingsList.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
     mocks.decisionsList.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
   });
@@ -116,7 +121,8 @@ describe("DossierWorkSection", () => {
 
   it("vincula un actor existente sin enviar tenant desde el navegador", async () => {
     render(<DossierWorkSection dossierId="dossier-1" kind="actors" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Vincular actor" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Nuevo actor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Vincular existente" }));
     await screen.findByRole("option", { name: "Consorcio Lumen" });
     fireEvent.change(screen.getByLabelText("Actor existente"), { target: { value: "actor-1" } });
     fireEvent.change(screen.getByLabelText("Roles (separados por comas)"), { target: { value: "socio, prescriptor" } });
@@ -141,5 +147,44 @@ describe("DossierWorkSection", () => {
     )).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Cerrar" })).toBeInTheDocument();
     expect(within(dialog).queryByText(/Flask|tenant/i)).not.toBeInTheDocument();
+  });
+
+  it("crea y vincula un actor nuevo con tipo, etiquetas y roles", async () => {
+    render(<DossierWorkSection dossierId="dossier-1" kind="actors" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Nuevo actor" }));
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "CATL" } });
+    fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "organization" } });
+    fireEvent.change(screen.getByLabelText("Etiquetas (separadas por comas)"), {
+      target: { value: "fabricante, baterías" },
+    });
+    fireEvent.change(screen.getByLabelText("Roles (separados por comas)"), {
+      target: { value: "competidor, socio potencial" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(mocks.actorAttach).toHaveBeenCalledWith("dossier-1", {
+      canonical_name: "CATL",
+      actor_type: "organization",
+      tags: ["fabricante", "baterías"],
+      provenance: { source: "manual" },
+      roles: ["competidor", "socio potencial"],
+      influence: 50,
+      relevance_to_dossier: 50,
+    }));
+  });
+
+  it("crea una tarea manual con título y prioridad", async () => {
+    mocks.taskCreate.mockResolvedValue({ id: "task-2", title: "Llamar a socio" });
+    render(<DossierWorkSection dossierId="dossier-1" kind="tasks" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Nueva tarea" }));
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: "Llamar a socio" } });
+    fireEvent.change(screen.getByLabelText("Prioridad"), { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(mocks.taskCreate).toHaveBeenCalledWith("dossier-1", {
+      title: "Llamar a socio",
+      priority: "high",
+    }));
   });
 });

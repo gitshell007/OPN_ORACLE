@@ -120,18 +120,22 @@ def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
         max_output_tokens=500,
         classification="public",
     )
-    invalid = MockLLMProvider("fixture").generate_structured(
-        LLMRequest(
-            agent=request.agent,
-            model=request.model,
-            system_prompt=request.system_prompt,
-            task_prompt=request.task_prompt,
-            context={"allowed_evidence_ids": [str(invented_id)]},
-            max_output_tokens=request.max_output_tokens,
-            classification=request.classification,
-        ),
-        SignalTriageOutput,
-    ).output
+    invalid = (
+        MockLLMProvider("fixture")
+        .generate_structured(
+            LLMRequest(
+                agent=request.agent,
+                model=request.model,
+                system_prompt=request.system_prompt,
+                task_prompt=request.task_prompt,
+                context={"allowed_evidence_ids": [str(invented_id)]},
+                max_output_tokens=request.max_output_tokens,
+                classification=request.classification,
+            ),
+            SignalTriageOutput,
+        )
+        .output
+    )
     calls = 0
 
     def post(url: str, **kwargs: object) -> httpx.Response:
@@ -218,9 +222,11 @@ def test_signal_governed_provider_never_publishes_model_claims_without_evidence(
         max_output_tokens=500,
         classification="internal",
     )
-    candidate = MockLLMProvider("fixture").generate_structured(
-        request, DossierSituationSummaryOutput
-    ).output
+    candidate = (
+        MockLLMProvider("fixture")
+        .generate_structured(request, DossierSituationSummaryOutput)
+        .output
+    )
 
     def post(url: str, **kwargs: object) -> httpx.Response:
         return httpx.Response(

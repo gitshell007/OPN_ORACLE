@@ -122,7 +122,7 @@ describe("SignalAdmin", () => {
     fireEvent.change(screen.getByLabelText("Identificador del expediente"), {
       target: { value: "dossier-1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Cargar monitores" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cargar vigilancias" }));
     expect(await screen.findByText("Timeout saneado")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Sincronizar radar-europa" }));
     await waitFor(() =>

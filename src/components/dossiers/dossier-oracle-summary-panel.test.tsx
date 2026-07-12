@@ -110,7 +110,7 @@ describe("DossierOracleSummaryPanel", () => {
     render(<DossierOracleSummaryPanel dossierId="dossier-1" />);
 
     expect(await screen.findByRole("heading", { name: "Oráculo del expediente" })).toBeVisible();
-    expect(screen.getByText("Avance con una decisión pendiente")).toBeVisible();
+    expect(await screen.findByText("Avance con una decisión pendiente")).toBeVisible();
     expect(screen.getByText("78%")).toBeVisible();
     expect(screen.getByText("1/3")).toBeVisible();
     expect(screen.getByText("La convocatoria está abierta.")).toBeVisible();
@@ -147,10 +147,10 @@ describe("DossierOracleSummaryPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Actualizar análisis/i }));
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledWith("dossier-1", expect.stringMatching(/^oracle-summary-/)));
 
-    fireEvent.change(screen.getByLabelText("Feedback sobre el análisis"), {
+    fireEvent.change(screen.getByLabelText("Comentario sobre el análisis"), {
       target: { value: "La oportunidad necesita más contexto documental." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Enviar feedback/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Enviar comentario/i }));
     await waitFor(() =>
       expect(mocks.feedback).toHaveBeenCalledWith(
         "dossier-1",

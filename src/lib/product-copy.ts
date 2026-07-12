@@ -112,6 +112,45 @@ const PLAN_LABELS: Record<string, string> = {
   trial: "Evaluación",
 };
 
+const DOSSIER_TYPE_LABELS: Record<string, string> = {
+  project: "Proyecto",
+  strategic_account: "Cuenta estratégica",
+  market: "Mercado",
+  technology: "Tecnología",
+  tender_or_grant: "Licitación o convocatoria",
+  investment: "Inversión",
+  partnership: "Alianza",
+  product_launch: "Lanzamiento de producto",
+  regulatory_affair: "Asunto regulatorio",
+  risk_watch: "Seguimiento de riesgos",
+  custom: "Otro",
+};
+
+const SIGNAL_TYPE_LABELS: Record<string, string> = {
+  news: "Noticias y prensa",
+  official_publication: "Publicación oficial",
+  social_signal: "Redes sociales",
+  company_signal: "Actividad de una organización",
+  market_signal: "Cambios de mercado",
+  regulatory_signal: "Cambios regulatorios",
+  tender_or_grant: "Licitación o convocatoria",
+  relationship_signal: "Relación entre actores",
+  internal_document: "Documento interno",
+  risk_signal: "Señal de riesgo",
+  opportunity_signal: "Señal de oportunidad",
+};
+
+const ACTOR_TYPE_LABELS: Record<string, string> = {
+  person: "Persona",
+  organization: "Organización",
+  company: "Empresa",
+  institution: "Institución",
+  public_body: "Organismo público",
+  technology: "Tecnología",
+  place: "Lugar",
+  other: "Otro",
+};
+
 const SCORE_DETAIL_LABELS: Record<string, string> = {
   confidence: "Confianza",
   human_override: "Ajuste humano",
@@ -181,6 +220,46 @@ export function productRoleLabel(role?: string | null): string {
 export function productPlanLabel(plan?: string | null): string {
   if (!plan) return "Sin plan asignado";
   return PLAN_LABELS[plan] ?? "Plan personalizado";
+}
+
+export function productDossierTypeLabel(type?: string | null): string {
+  if (!type) return "Expediente estratégico";
+  return DOSSIER_TYPE_LABELS[type] ?? "Expediente estratégico";
+}
+
+export function productSignalTypeLabel(type?: string | null): string {
+  if (!type) return "Tipo de fuente no indicado";
+  return SIGNAL_TYPE_LABELS[type] ?? "Fuente externa";
+}
+
+export function productActorTypeLabel(type?: string | null): string {
+  if (!type) return "Actor";
+  return ACTOR_TYPE_LABELS[type] ?? "Actor";
+}
+
+export function productLinkedResourceLabel(type?: string | null): string {
+  const labels: Record<string, string> = {
+    opportunity: "oportunidad",
+    risk: "riesgo",
+    signal: "señal",
+    meeting: "reunión",
+    decision: "decisión",
+    document: "documento",
+  };
+  return labels[type ?? ""] ?? "elemento del expediente";
+}
+
+export function productResourceKindLabel(value?: string | null): string {
+  const labels: Record<string, string> = {
+    high: "Prioridad alta",
+    medium: "Prioridad media",
+    low: "Prioridad baja",
+    meeting: "Reunión",
+    task: "Tarea",
+    opportunity: "Oportunidad",
+    risk: "Riesgo",
+  };
+  return labels[value ?? ""] ?? "Elemento del expediente";
 }
 
 export function productScoreDetailLabel(key: string): string | null {

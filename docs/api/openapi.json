@@ -23,6 +23,226 @@
         "properties": {},
         "type": "object"
       },
+      "ActorCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_key": {
+            "type": "string"
+          },
+          "existing_actor_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "extraction_methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_count": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ActorCandidateSource"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "candidate",
+              "existing",
+              "linked",
+              "dismissed"
+            ],
+            "type": "string"
+          },
+          "suggested_actor_type": {
+            "enum": [
+              "person",
+              "organization",
+              "institution",
+              "program",
+              "other"
+            ],
+            "type": "string"
+          },
+          "suggested_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "canonical_key",
+          "name",
+          "suggested_actor_type",
+          "suggested_labels",
+          "labels",
+          "status",
+          "source_count",
+          "extraction_methods",
+          "sources"
+        ],
+        "type": "object"
+      },
+      "ActorCandidateImportInput": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_type": {
+            "enum": [
+              "person",
+              "organization",
+              "institution",
+              "program",
+              "other"
+            ],
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ActorCandidateImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/ActorResource"
+          },
+          "link": {
+            "$ref": "#/components/schemas/DossierActorResource"
+          }
+        },
+        "required": [
+          "actor",
+          "link"
+        ],
+        "type": "object"
+      },
+      "ActorCandidateListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ActorCandidate"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "total": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "type": "object"
+      },
+      "ActorCandidateReviewInput": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "candidate",
+              "dismissed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "ActorCandidateReviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/ActorCandidate"
+          }
+        },
+        "required": [
+          "candidate"
+        ],
+        "type": "object"
+      },
+      "ActorCandidateSource": {
+        "additionalProperties": false,
+        "properties": {
+          "dossier_signal_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "signal_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "source_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dossier_signal_id",
+          "signal_id",
+          "title",
+          "source_name",
+          "excerpt"
+        ],
+        "type": "object"
+      },
       "ActorMergeInput": {
         "additionalProperties": false,
         "properties": {
@@ -749,10 +969,26 @@
             "format": "uuid",
             "type": "string"
           },
+          "actor_type": {
+            "enum": [
+              "person",
+              "organization",
+              "institution",
+              "program",
+              "other"
+            ],
+            "type": "string"
+          },
+          "canonical_name": {
+            "type": "string"
+          },
           "influence": {
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/JsonObject"
           },
           "recent_activity": {
             "maximum": 100,
@@ -779,6 +1015,12 @@
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "version": {
             "minimum": 1,
@@ -3204,6 +3446,9 @@
             "minimum": 0,
             "type": "integer"
           },
+          "description": {
+            "type": "string"
+          },
           "effort": {
             "maximum": 100,
             "minimum": 0,
@@ -3240,6 +3485,12 @@
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "next_action": {
+            "type": "string"
+          },
+          "opportunity_type": {
+            "type": "string"
           },
           "relationship_leverage": {
             "maximum": 100,
@@ -4343,6 +4594,9 @@
             "minimum": 0,
             "type": "integer"
           },
+          "category": {
+            "type": "string"
+          },
           "confidence": {
             "maximum": 100,
             "minimum": 0,
@@ -4352,6 +4606,9 @@
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "description": {
+            "type": "string"
           },
           "effort": {
             "maximum": 100,
@@ -4389,6 +4646,9 @@
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "mitigation": {
+            "type": "string"
           },
           "relationship_leverage": {
             "maximum": 100,
@@ -10964,6 +11224,325 @@
           }
         ],
         "summary": "Dossier Patch",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/actor-candidates": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Incluye candidatos descartados para permitir su restauraci\u00f3n.",
+            "in": "query",
+            "name": "include_dismissed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorCandidateListResponse"
+                }
+              }
+            },
+            "description": "Candidatos detectados en fuentes del expediente"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Expediente o candidato no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Dossier Actor Candidates",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/import": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorCandidateImportInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorCandidateImportResponse"
+                }
+              }
+            },
+            "description": "Candidato importado y vinculado"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Expediente o candidato no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Dossier Actor Candidate Import",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/review": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorCandidateReviewInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorCandidateReviewResponse"
+                }
+              }
+            },
+            "description": "Revisi\u00f3n del candidato actualizada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Expediente o candidato no encontrado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Dossier Actor Candidate Review",
         "tags": [
           "Oracle"
         ]

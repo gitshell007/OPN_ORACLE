@@ -25,6 +25,7 @@ from opn_oracle.integrations.signal_avanza import (
     SignalItem,
 )
 from opn_oracle.jobs.service import stage_job
+from opn_oracle.oracle.actor_candidates import extract_signal_entities
 from opn_oracle.oracle.models import DossierSignal, Signal, SignalMonitor, Watchlist
 from opn_oracle.platform.models import ApiCredential, IntegrationConnection
 
@@ -292,6 +293,9 @@ def _ingest_item(
 ) -> tuple[Signal, bool]:
     raw = item.model_dump(mode="json")
     digest = canonical_hash(raw)
+    entities = item.entities or extract_signal_entities(
+        [], raw_payload=raw, title=item.title, summary=item.summary or ""
+    )
     ingestion = db.session.scalar(
         select(SignalIngestionRecord).where(
             SignalIngestionRecord.tenant_id == monitor.tenant_id,
@@ -316,7 +320,7 @@ def _ingest_item(
         signal.published_at = item.source.published_at
         signal.language = item.language
         signal.tags = item.tags
-        signal.entities = item.entities
+        signal.entities = entities
         signal.categories = item.categories
         signal.raw_hash = digest
         signal.raw_payload = raw
@@ -343,7 +347,7 @@ def _ingest_item(
         published_at=item.source.published_at,
         language=item.language,
         tags=item.tags,
-        entities=item.entities,
+        entities=entities,
         categories=item.categories,
         raw_hash=digest,
         credibility=int(item.source.credibility_score or 50),

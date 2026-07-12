@@ -4,7 +4,33 @@ Actualizado: 2026-07-12
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
-El árbol de trabajo está limpio tras integrar y publicar los cambios del Oráculo contextual.
+Revisión lingüística de la aplicación actualizada el 2026-07-12: se sustituyeron códigos de
+fuente como `company_signal`, subtítulos técnicos de las áreas globales y mensajes como «Directorio
+canónico» por textos de negocio en español. Las claves internas se conservan únicamente en tipos,
+configuración y contratos no visibles para el usuario.
+
+El árbol de trabajo contiene la mejora en curso descrita a continuación y otros cambios locales
+preservados; no se ha realizado commit ni despliegue en esta fase.
+
+## Mejora implementada · actores desde fuentes y altas manuales
+
+- Actores separa «Actores vinculados» de «Candidatos detectados». La segunda vista deduplica las
+  entidades estructuradas de las señales del expediente, propone tipo y etiquetas y conserva las
+  fuentes concretas que originaron cada candidato.
+- La importación requiere revisión humana y crea o reutiliza el actor canónico, lo vincula al
+  expediente y registra tipo, etiquetas, roles, procedencia y auditoría. La misma pantalla permite
+  crear actores manuales o vincular actores ya existentes.
+- Oportunidades y Riesgos incorporan alta manual con descripción, valoración inicial y siguiente
+  acción o mitigación. Tareas mantiene su alta manual y ahora muestra la validación dentro del
+  diálogo en lugar de ocultarla tras la superposición.
+- API nueva: lectura de `/dossiers/{id}/actor-candidates` e importación mediante
+  `/dossiers/{id}/actor-candidates/{candidate_id}/import`. OpenAPI y cliente TypeScript se
+  regeneraron sin drift. No hay migración ni variables nuevas: las etiquetas usan los metadatos
+  JSON estructurados del actor y los candidatos se derivan de fuentes autorizadas.
+- Comprobaciones locales: Ruff, mypy sobre 97 módulos, contrato backend 8/8, backend 106/106 con
+  169 integraciones omitidas por entorno, frontend 85/85, ESLint, TypeScript y build correctos.
+  La integración PostgreSQL/Redis de candidatos queda preparada y no se ejecutó por falta de las
+  variables `TEST_*` locales.
 
 ## Mejora implementada · resumen nocturno persistente del expediente
 
@@ -626,3 +652,19 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Los servicios `opn-signal-api`, `opn-signal-worker` y `opn-signal-beat` se reiniciaron y quedaron
   activos. La configuración anterior se conservó en el host como
   `/opt/apps/opn_signal/settings.env.pre-ollama-20260711T195228Z` con modo `0600`.
+
+## Ampliación de actores desde fuentes · extracción y revisión persistente
+
+- La ingesta de Signal conserva sus entidades estructuradas y, cuando faltan, recupera menciones
+  conservadoras desde contenedores conocidos del payload y patrones textuales de organización. Las
+  señales ya persistidas usan la misma recuperación al consultar candidatos, sin reingesta previa.
+- El caso real de texto `CATL ... junto a Stellantis` queda cubierto como dos candidatos con método
+  de extracción y fuente explícitos. Ninguna mención se convierte automáticamente en actor.
+- La migración `20260712_0015` añade `actor_candidate_reviews`, aislada por tenant mediante RLS y
+  vinculada al expediente y al revisor. Permite descartar, consultar descartados y restaurarlos; las
+  importaciones y revisiones quedan auditadas.
+- OpenAPI y cliente TypeScript incluyen lectura con `include_dismissed`, importación y revisión. El
+  panel Vector ofrece descarte/restauración tanto en tabla como en móvil.
+- Calidad local: Ruff y mypy correctos; backend **108 passed, 171 skipped**; frontend **86/86**,
+  ESLint, TypeScript, cliente generado y build optimizado correctos. Las integraciones PostgreSQL,
+  Redis y RLS quedaron omitidas al no existir variables `TEST_*` en este entorno.

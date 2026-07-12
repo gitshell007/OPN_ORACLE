@@ -14,7 +14,7 @@ import { ChevronLeft, ChevronRight, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { productStatusLabel } from "@/lib/product-copy";
+import { productActorTypeLabel, productResourceKindLabel, productSignalTypeLabel, productStatusLabel } from "@/lib/product-copy";
 
 export type GlobalResourceSection =
   | "signals"
@@ -37,12 +37,12 @@ interface Row {
 }
 
 const sectionCopy: Record<GlobalResourceSection, { title: string; description: string }> = {
-  signals: { title: "Señales", description: "Bandeja global de señales vinculadas a expedientes autorizados." },
-  opportunities: { title: "Oportunidades", description: "Cartera agregada para priorizar el siguiente movimiento." },
-  risks: { title: "Riesgos", description: "Riesgos que protegen el avance de los expedientes activos." },
-  actors: { title: "Actores", description: "Directorio canónico limitado a contextos estratégicos accesibles." },
-  meetings: { title: "Reuniones", description: "Agenda y seguimiento de reuniones entre expedientes." },
-  tasks: { title: "Tareas", description: "Trabajo pendiente de la organización con origen y prioridad visibles." },
+  signals: { title: "Señales", description: "Noticias, avisos y cambios que pueden afectar a tus expedientes." },
+  opportunities: { title: "Oportunidades", description: "Opciones de avance que puedes valorar y convertir en acciones." },
+  risks: { title: "Riesgos", description: "Situaciones que pueden frenar tus expedientes y requieren seguimiento." },
+  actors: { title: "Actores", description: "Personas, empresas y organismos relacionados con tus expedientes." },
+  meetings: { title: "Reuniones", description: "Reuniones relacionadas con tus expedientes y sus próximos pasos." },
+  tasks: { title: "Tareas", description: "Acciones pendientes, responsables y fechas de cada expediente." },
 };
 
 const sectionStatuses: Record<Exclude<GlobalResourceSection, "actors">, Array<[string, string]>> = {
@@ -58,13 +58,17 @@ function dossierMap(items: { id: string; title: string }[]) {
 }
 
 function signalRow(item: DossierSignalEnvelope, dossiers: Map<string, string>): Row {
+  const sourceName = item.signal.source_name;
+  const sourceKind = sourceName && !sourceName.includes("_")
+    ? sourceName
+    : productSignalTypeLabel(item.signal.source_type || sourceName);
   return {
     id: item.link.id,
     title: item.signal.title || "Señal sin título",
     dossierId: item.link.dossier_id,
     dossierTitle: item.link.dossier_id ? dossiers.get(item.link.dossier_id) : undefined,
     status: item.link.status || "new",
-    kind: item.signal.source_name || item.signal.source_type || "Señal",
+    kind: sourceKind,
     score: item.link.overall_score,
     date: item.signal.published_at,
     updatedAt: item.link.updated_at,
@@ -91,7 +95,7 @@ function ownedRow(
     dossierId: item.dossier_id,
     dossierTitle: item.dossier_id ? dossiers.get(item.dossier_id) : undefined,
     status: item.status || "—",
-    kind: kind || section.slice(0, -1),
+    kind: productResourceKindLabel(kind || section.slice(0, -1)),
     score,
     date,
     updatedAt: item.updated_at,
@@ -134,7 +138,7 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
           id: item.id,
           title: item.canonical_name || "Actor sin nombre",
           status: "Activo",
-          kind: item.actor_type || "Actor",
+          kind: productActorTypeLabel(item.actor_type),
           updatedAt: item.updated_at,
         })));
         setTotal(result.meta?.total ?? result.data.length);
@@ -194,7 +198,7 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
       <section className="global-inventory-panel" aria-busy={loading}>
         {loading ? <p className="global-inventory-state" role="status">Cargando {copy.title.toLowerCase()}…</p> : rows.length ? (
           <>
-            <div className="table-scroll global-inventory-table"><table><thead><tr><th>Elemento</th><th>Expediente</th><th>Estado / tipo</th><th>Puntuación / fecha</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className={row.id === selectedId ? "selected-resource" : undefined} aria-selected={row.id === selectedId}><td><strong>{row.title}</strong><small>{row.updatedAt ? `Actualizado ${new Date(row.updatedAt).toLocaleDateString("es-ES")}` : row.id}</small></td><td>{row.dossierId ? <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link> : "Directorio global"}</td><td><span className="status">{productStatusLabel(row.status)}</span><small>{row.kind}</small></td><td>{row.score === undefined ? "—" : row.score}{row.date && <small>{new Date(row.date).toLocaleDateString("es-ES")}</small>}</td></tr>)}</tbody></table></div>
+            <div className="table-scroll global-inventory-table"><table><thead><tr><th>Elemento</th><th>Expediente</th><th>Estado / tipo</th><th>Puntuación / fecha</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className={row.id === selectedId ? "selected-resource" : undefined} aria-selected={row.id === selectedId}><td><strong>{row.title}</strong><small>{row.updatedAt ? `Actualizado ${new Date(row.updatedAt).toLocaleDateString("es-ES")}` : "Sin fecha registrada"}</small></td><td>{row.dossierId ? <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link> : "Todos los expedientes"}</td><td><span className="status">{productStatusLabel(row.status)}</span><small>{row.kind}</small></td><td>{row.score === undefined ? "—" : row.score}{row.date && <small>{new Date(row.date).toLocaleDateString("es-ES")}</small>}</td></tr>)}</tbody></table></div>
             <div className="global-inventory-cards">{rows.map((row) => <article key={row.id} className={row.id === selectedId ? "selected-resource" : undefined}><header><strong>{row.title}</strong><span className="status">{productStatusLabel(row.status)}</span></header><p>{row.kind}{row.score === undefined ? "" : ` · Puntuación ${row.score}`}</p>{row.dossierId && <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link>}</article>)}</div>
           </>
         ) : <div className="global-inventory-state"><strong>No hay resultados</strong><p>Ajusta los filtros o revisa otro expediente.</p></div>}

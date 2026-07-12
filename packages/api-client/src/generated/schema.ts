@@ -4525,6 +4525,272 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/actor-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dossier Actor Candidates */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Incluye candidatos descartados para permitir su restauración. */
+                    include_dismissed?: boolean;
+                };
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Candidatos detectados en fuentes del expediente */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorCandidateListResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Expediente o candidato no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dossier Actor Candidate Import */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                    candidate_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ActorCandidateImportInput"];
+                };
+            };
+            responses: {
+                /** @description Candidato importado y vinculado */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorCandidateImportResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Expediente o candidato no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dossier Actor Candidate Review */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                    candidate_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ActorCandidateReviewInput"];
+                };
+            };
+            responses: {
+                /** @description Revisión del candidato actualizada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorCandidateReviewResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Expediente o candidato no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/actors": {
         parameters: {
             query?: never;
@@ -21926,6 +22192,58 @@ export interface components {
             status: string;
         };
         AIRetriageInput: Record<string, never>;
+        ActorCandidate: {
+            canonical_key: string;
+            /** Format: uuid */
+            existing_actor_id?: string | null;
+            extraction_methods: string[];
+            /** Format: uuid */
+            id: string;
+            labels: string[];
+            name: string;
+            source_count: number;
+            sources: components["schemas"]["ActorCandidateSource"][];
+            /** @enum {string} */
+            status: "candidate" | "existing" | "linked" | "dismissed";
+            /** @enum {string} */
+            suggested_actor_type: "person" | "organization" | "institution" | "program" | "other";
+            suggested_labels: string[];
+        };
+        ActorCandidateImportInput: {
+            /** @enum {string} */
+            actor_type?: "person" | "organization" | "institution" | "program" | "other";
+            roles?: string[];
+            tags?: string[];
+        };
+        ActorCandidateImportResponse: {
+            actor: components["schemas"]["ActorResource"];
+            link: components["schemas"]["DossierActorResource"];
+        };
+        ActorCandidateListResponse: {
+            data: components["schemas"]["ActorCandidate"][];
+            meta: {
+                total: number;
+            };
+        };
+        ActorCandidateReviewInput: {
+            /** @enum {string} */
+            status: "candidate" | "dismissed";
+        };
+        ActorCandidateReviewResponse: {
+            candidate: components["schemas"]["ActorCandidate"];
+        };
+        ActorCandidateSource: {
+            /** Format: uuid */
+            dossier_signal_id: string;
+            excerpt: string;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: uuid */
+            signal_id: string;
+            source_name: string;
+            source_url?: string | null;
+            title: string;
+        };
         ActorMergeInput: {
             reason: string;
             /** Format: uuid */
@@ -22143,12 +22461,17 @@ export interface components {
             accessibility?: number;
             /** Format: uuid */
             actor_id?: string;
+            /** @enum {string} */
+            actor_type?: "person" | "organization" | "institution" | "program" | "other";
+            canonical_name?: string;
             influence?: number;
+            provenance?: components["schemas"]["JsonObject"];
             recent_activity?: number;
             relationship_strength?: number;
             relevance_to_dossier?: number;
             roles?: string[];
             strategic_alignment?: number;
+            tags?: string[];
             version?: number;
         };
         DossierBulkDeleteInput: {
@@ -22829,6 +23152,7 @@ export interface components {
             blocking_risk?: number;
             confidence?: number;
             controllability?: number;
+            description?: string;
             effort?: number;
             execution_effort?: number;
             expected_value?: number;
@@ -22837,6 +23161,8 @@ export interface components {
             /** @enum {string} */
             kind?: "opportunity" | "risk";
             likelihood?: number;
+            next_action?: string;
+            opportunity_type?: string;
             relationship_leverage?: number;
             score_override?: number;
             score_override_reason?: string;
@@ -23150,8 +23476,10 @@ export interface components {
         RiskWriteInput: {
             actionability?: number;
             blocking_risk?: number;
+            category?: string;
             confidence?: number;
             controllability?: number;
+            description?: string;
             effort?: number;
             execution_effort?: number;
             expected_value?: number;
@@ -23160,6 +23488,7 @@ export interface components {
             /** @enum {string} */
             kind?: "opportunity" | "risk";
             likelihood?: number;
+            mitigation?: string;
             relationship_leverage?: number;
             score_override?: number;
             score_override_reason?: string;

@@ -30,6 +30,7 @@ export type {
   OracleRisk,
   OracleSignal,
   OracleActor,
+  OracleActorCandidate,
   OracleBriefing,
   OracleDecision,
   OracleDossierActor,

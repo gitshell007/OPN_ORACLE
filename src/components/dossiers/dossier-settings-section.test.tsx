@@ -90,7 +90,7 @@ describe("DossierSettingsSection", () => {
 
     expect(await screen.findByRole("heading", { name: "Configuración" })).toBeVisible();
     expect(screen.getByLabelText("Título")).toHaveValue("Expansión Delta");
-    expect(screen.getByText(/monitores no están disponibles con tus permisos/i)).toBeVisible();
+    expect(screen.getByText(/no puedes consultar las vigilancias con tus permisos/i)).toBeVisible();
   });
 
   it("solo ofrece transiciones de estado admitidas por el backend", async () => {
@@ -115,8 +115,8 @@ describe("DossierSettingsSection", () => {
   it("crea un monitor con la configuración de vigilancia compatible", async () => {
     render(<DossierSettingsSection dossierId="dossier-1" />);
 
-    await screen.findByRole("heading", { name: "Nuevo monitor" });
-    fireEvent.change(screen.getByLabelText("Nombre del monitor"), {
+    await screen.findByRole("heading", { name: "Nueva vigilancia" });
+    fireEvent.change(screen.getByLabelText("Nombre de la vigilancia"), {
       target: { value: "Competencia y regulación" },
     });
     fireEvent.change(screen.getByLabelText(/^Consulta principal/), {
@@ -131,7 +131,7 @@ describe("DossierSettingsSection", () => {
     fireEvent.change(screen.getByLabelText(/^Idiomas/), {
       target: { value: "es, en" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Crear monitor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Crear vigilancia" }));
 
     await waitFor(() =>
       expect(mocks.createMonitor).toHaveBeenCalledWith("dossier-1", {

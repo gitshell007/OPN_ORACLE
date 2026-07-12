@@ -254,7 +254,7 @@ export function SessionsSettings() {
       <section className="settings-section">
         <header>
           <h2>Dispositivos conectados</h2>
-          <p>Las fechas proceden del registro autoritativo de sesión.</p>
+          <p>Las fechas proceden del registro seguro de sesiones.</p>
         </header>
         {loading ? (
           <p role="status">Cargando sesiones…</p>

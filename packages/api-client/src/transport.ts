@@ -816,6 +816,14 @@ const opportunities = {
     request<OracleOpportunity>(
       `/api/v1/opportunities/${encodeURIComponent(resourceId)}`,
     ),
+  create: (
+    dossierId: string,
+    input: components["schemas"]["OpportunityWriteInput"],
+  ) =>
+    request<OracleOpportunity>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities`,
+      { method: "POST", body: input },
+    ),
   update: (
     resourceId: string,
     input: components["schemas"]["OpportunityWriteInput"],
@@ -839,6 +847,14 @@ const risks = {
     ),
   get: (resourceId: string) =>
     request<OracleRisk>(`/api/v1/risks/${encodeURIComponent(resourceId)}`),
+  create: (
+    dossierId: string,
+    input: components["schemas"]["RiskWriteInput"],
+  ) =>
+    request<OracleRisk>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/risks`,
+      { method: "POST", body: input },
+    ),
   update: (
     resourceId: string,
     input: components["schemas"]["RiskWriteInput"],
@@ -860,6 +876,7 @@ export type OracleDossierActor =
     notes?: string;
     score_details?: Record<string, unknown>;
   };
+export type OracleActorCandidate = components["schemas"]["ActorCandidate"];
 export type OracleDecision = components["schemas"]["DecisionResource"] & {
   content?: Record<string, unknown>;
   rationale?: string;
@@ -999,6 +1016,28 @@ const actors = {
   ) =>
     request<OracleDossierActor>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/actors`,
+      { method: "POST", body: input },
+    ),
+  candidates: (dossierId: string, includeDismissed = false) =>
+    request<components["schemas"]["ActorCandidateListResponse"]>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/actor-candidates?include_dismissed=${includeDismissed}`,
+    ),
+  importCandidate: (
+    dossierId: string,
+    candidateId: string,
+    input: components["schemas"]["ActorCandidateImportInput"],
+  ) =>
+    request<components["schemas"]["ActorCandidateImportResponse"]>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/actor-candidates/${encodeURIComponent(candidateId)}/import`,
+      { method: "POST", body: input },
+    ),
+  reviewCandidate: (
+    dossierId: string,
+    candidateId: string,
+    input: components["schemas"]["ActorCandidateReviewInput"],
+  ) =>
+    request<components["schemas"]["ActorCandidateReviewResponse"]>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/actor-candidates/${encodeURIComponent(candidateId)}/review`,
       { method: "POST", body: input },
     ),
   updateLink: (

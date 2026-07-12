@@ -418,9 +418,7 @@ def _validate_allowed_evidence(output: BaseModel, allowed_values: list[str]) -> 
         )
 
 
-def _strip_unauthorized_evidence_blocks(
-    output: T, allowed_values: list[str]
-) -> T:
+def _strip_unauthorized_evidence_blocks(output: T, allowed_values: list[str]) -> T:
     """Drop complete claim blocks that cite evidence outside the snapshot.
 
     This is a last-resort safety net after the governed model has already received one
@@ -629,9 +627,7 @@ class SignalGovernedLLMProvider:
                 _validate_allowed_evidence(output, allowed_evidence_ids)
             except ValueError:
                 try:
-                    output = _strip_unauthorized_evidence_blocks(
-                        output, allowed_evidence_ids
-                    )
+                    output = _strip_unauthorized_evidence_blocks(output, allowed_evidence_ids)
                     _validate_allowed_evidence(output, allowed_evidence_ids)
                 except (UnboundLocalError, ValueError):
                     if allowed_evidence_ids:

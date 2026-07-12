@@ -138,9 +138,9 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
         comment: feedback.trim(),
       });
       setFeedback("");
-      toast.success("Feedback registrado");
+      toast.success("Comentario registrado");
     } catch (reason) {
-      toast.error(message(reason, "No se pudo registrar el feedback."));
+      toast.error(message(reason, "No se pudo registrar el comentario."));
     } finally {
       setBusy(false);
     }
@@ -178,8 +178,8 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
             </div>
             <dl>
               <div><dt>Confianza</dt><dd>{output.confidence ?? 0}%</dd></div>
-              <div><dt>Cobertura</dt><dd>{output.evidence_coverage?.cited_items ?? 0}/{output.evidence_coverage?.available_items ?? 0}</dd></div>
-              <div><dt>Actualizado</dt><dd>{formatDate(current.updated_at)}</dd></div>
+              <div><dt>Fuentes utilizadas</dt><dd>{output.evidence_coverage?.cited_items ?? 0}/{output.evidence_coverage?.available_items ?? 0}</dd></div>
+              <div><dt>Generado</dt><dd>{formatDate(state?.last_refreshed_at ?? current.updated_at)}</dd></div>
             </dl>
           </div>
           <p className="reporting-hint">
@@ -204,11 +204,11 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
             <Block title="Siguientes acciones" citations={citations} items={(output.recommended_actions ?? []).map((item) => ({ title: item.action ?? "", meta: item.rationale ?? "" }))} />
           </div>
           <details className="oracle-history">
-            <summary><History size={15} /> Historial de versiones ({versions.length})</summary>
+            <summary><History size={15} /> Historial de análisis ({versions.length})</summary>
             <ul>
               {versions.map((version) => (
                 <li key={version.id}>
-                  <span>v{version.version} · {formatDate(version.created_at)}</span>
+                  <span>Análisis {version.version} · {formatDate(version.created_at)}</span>
                   <span>{asOutput(version).confidence ?? 0}% confianza</span>
                 </li>
               ))}
@@ -216,13 +216,13 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           </details>
           <div className="oracle-feedback">
             <textarea
-              aria-label="Feedback sobre el análisis"
-              placeholder="Añade una corrección o matiz sobre este análisis"
+              aria-label="Comentario sobre el análisis"
+              placeholder="Añade una corrección o un matiz sobre este análisis"
               value={feedback}
               onChange={(event) => setFeedback(event.target.value)}
             />
             <button className="vector-secondary" onClick={() => void sendFeedback()} disabled={busy || !feedback.trim()}>
-              <Send size={15} /> Enviar feedback
+              <Send size={15} /> Enviar comentario
             </button>
           </div>
         </>

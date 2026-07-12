@@ -296,7 +296,7 @@ export function PlatformBackups() {
             <dl className="backup-restore-details">
               <div><dt>Copia</dt><dd>{restore.backup_name}</dd></div>
               <div><dt>Creada</dt><dd>{formatDate(restore.backup_created_at)}</dd></div>
-              <div><dt>Checksum</dt><dd><code>{restore.sha256}</code></dd></div>
+              <div><dt>Huella de integridad</dt><dd><code>{restore.sha256}</code></dd></div>
             </dl>
             <form onSubmit={submitRestore}>
               <label className="field">

@@ -99,7 +99,7 @@ export function ProductChanges() {
               <h2>{item.dossier_title}</h2>
               <p><strong>{RESOURCE_LABELS[item.resource_type] ?? item.resource_type}</strong> cambió de <span className="status">{STATUS_LABELS[item.from_status] ?? item.from_status}</span> a <span className="status">{STATUS_LABELS[item.to_status] ?? item.to_status}</span>.</p>
               <blockquote>{item.reason || "Transición registrada sin motivo adicional."}</blockquote>
-              <footer><span>Confianza: evento durable de estado</span><Link href={item.href}>Abrir contexto <ArrowRight size={14} /></Link></footer>
+              <footer><span>Cambio registrado en el historial</span><Link href={item.href}>Ver detalle <ArrowRight size={14} /></Link></footer>
             </div>
           </article>
         )) : <div className="global-inventory-state"><strong>No hay cambios para este periodo</strong><p>Amplía la fecha o ajusta los filtros.</p></div>}

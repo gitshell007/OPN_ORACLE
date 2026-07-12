@@ -172,3 +172,34 @@
 - **Consecuencias:** entrar en el expediente es siempre lectura; la versión anterior permanece
   visible durante la generación o si Signal/Ollama falla. El primario es `qwen3.5:9b` y el
   fallback técnico es Ollama Titan `qwen3.6:27b`, ambos gobernados por Signal.
+
+## D-018 — Candidatos de actor derivados de fuentes
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-12
+- **Contexto:** el directorio de actores solo permitía vincular registros previamente existentes y
+  no ofrecía una revisión intermedia de empresas, personas u organismos mencionados en señales.
+- **Decisión:** las entidades estructuradas de señales vinculadas se presentan como candidatos
+  tenant/dossier-scoped. La lista es derivada y reproducible; importarla exige confirmación humana
+  de tipo, etiquetas y roles, crea o reutiliza el actor canónico y conserva la procedencia.
+- **Alternativas:** crear actores automáticamente al ingerir; ejecutar NER libre sobre cada visita;
+  persistir una segunda copia de todas las entidades detectadas.
+- **Consecuencias:** no se confunde una mención con un actor confirmado, no se añade una tabla
+  duplicada de candidatos y la procedencia de cada mención permanece visible.
+
+## D-019 — Recuperación conservadora y ledger de revisión de candidatos
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-12
+- **Contexto:** algunas señales históricas o contratos parciales no contienen `entities`, aunque el
+  título o resumen nombren claramente organizaciones. Además, un candidato descartado reaparecía al
+  derivar de nuevo la lista desde sus fuentes.
+- **Decisión:** normalizar primero entidades de Signal y payloads conocidos; solo ante ausencia se
+  aplican patrones textuales conservadores, siempre como candidatos pendientes. Los descartes e
+  importaciones se registran por tenant, expediente y clave canónica en un ledger con RLS, revisor,
+  fuentes y auditoría. El ledger no copia el contenido completo del candidato.
+- **Alternativas:** crear actores automáticamente; ejecutar un NER remoto durante cada lectura;
+  ocultar descartes solo en estado de frontend.
+- **Consecuencias:** señales antiguas como la de CATL/Stellantis producen candidatos sin una llamada
+  externa y los descartes sobreviven a recargas. Los patrones pueden omitir menciones ambiguas, por
+  lo que Signal continúa siendo la fuente preferente de entidades estructuradas.

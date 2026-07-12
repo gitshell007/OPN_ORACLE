@@ -16,6 +16,12 @@ from opn_oracle.auth.permissions import current_permissions, require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.documents.models import Document
 from opn_oracle.extensions import db
+from opn_oracle.oracle.actor_candidates import (
+    ACTOR_TYPES,
+    clean_labels,
+    list_actor_candidates,
+    set_actor_candidate_review,
+)
 from opn_oracle.oracle.links import (
     DecisionEvidence,
     DossierActorEvidence,
@@ -116,7 +122,12 @@ def _serialize(row: Any) -> dict[str, Any]:
             value = value.isoformat()
         elif isinstance(value, bytes):
             continue
-        result[attribute.key] = value
+        key = (
+            "metadata"
+            if isinstance(row, Actor) and attribute.key == "actor_metadata"
+            else attribute.key
+        )
+        result[key] = value
     return result
 
 
@@ -1606,6 +1617,155 @@ def _register_nested_routes() -> None:
 
 
 _register_nested_routes()
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/actor-candidates")
+@require_permission("actor.read")
+def dossier_actor_candidates(dossier_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    candidates = list_actor_candidates(
+        db.session(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        include_dismissed=request.args.get("include_dismissed", "false").lower() == "true",
+    )
+    return {"data": candidates, "meta": {"total": len(candidates)}}
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/actor-candidates/<uuid:candidate_id>/import")
+@require_permission("actor.write")
+def dossier_actor_candidate_import(dossier_id: uuid.UUID, candidate_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if dossier.status == "archived":
+        return problem_response(
+            422, detail="Un expediente archivado es de solo lectura.", code="domain_validation"
+        )
+    candidates = list_actor_candidates(
+        db.session(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        include_dismissed=True,
+    )
+    candidate = next((item for item in candidates if item["id"] == str(candidate_id)), None)
+    if candidate is None:
+        return problem_response(404, detail="Candidato no encontrado.", code="not_found")
+    payload = _payload()
+    actor_type = str(payload.get("actor_type", candidate["suggested_actor_type"])).strip().lower()
+    if actor_type not in ACTOR_TYPES:
+        return problem_response(422, detail="Tipo de actor no válido.", code="validation_error")
+    labels = clean_labels(payload.get("tags", candidate["suggested_labels"]))
+    roles = clean_labels(payload.get("roles", []))
+    try:
+        link = create_dossier_actor(
+            db.session(),
+            dossier_id,
+            {
+                "canonical_name": candidate["name"],
+                "actor_type": actor_type,
+                "tags": labels,
+                "roles": roles,
+                "influence": 50,
+                "relevance_to_dossier": 50,
+                "provenance": {
+                    "source": "actor_candidate",
+                    "candidate_id": str(candidate_id),
+                    "signal_ids": [source["signal_id"] for source in candidate["sources"]],
+                },
+            },
+            actor_id=current_user.id,
+        )
+        actor = db.session.scalar(
+            select(Actor).where(
+                Actor.id == link.actor_id,
+                Actor.tenant_id == g.active_tenant_id,
+            )
+        )
+        set_actor_candidate_review(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            dossier_id=dossier_id,
+            candidate=candidate,
+            status="imported",
+            reviewed_by_user_id=current_user.id,
+        )
+        append_audit_event(
+            db.session(),
+            action="actor_candidate.imported",
+            resource_type="actor",
+            resource_id=link.actor_id,
+            dossier_id=dossier_id,
+            result="success",
+            metadata={
+                "candidate_id": str(candidate_id),
+                "source_signal_ids": [source["signal_id"] for source in candidate["sources"]],
+                "tags": labels,
+            },
+        )
+        db.session.commit()
+        return {"actor": _serialize(actor), "link": _serialize(link)}, 201
+    except (DomainValidationError, ResourceNotFound, IntegrityError) as error:
+        db.session.rollback()
+        return _domain_error(error)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/actor-candidates/<uuid:candidate_id>/review")
+@require_permission("actor.write")
+def dossier_actor_candidate_review(dossier_id: uuid.UUID, candidate_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if dossier.status == "archived":
+        return problem_response(
+            422, detail="Un expediente archivado es de solo lectura.", code="domain_validation"
+        )
+    candidates = list_actor_candidates(
+        db.session(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        include_dismissed=True,
+    )
+    candidate = next((item for item in candidates if item["id"] == str(candidate_id)), None)
+    if candidate is None:
+        return problem_response(404, detail="Candidato no encontrado.", code="not_found")
+    requested_status = str(_payload().get("status", "")).strip().lower()
+    if requested_status not in {"candidate", "dismissed"}:
+        return problem_response(
+            422, detail="El estado debe ser candidate o dismissed.", code="validation_error"
+        )
+    try:
+        set_actor_candidate_review(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            dossier_id=dossier_id,
+            candidate=candidate,
+            status="dismissed" if requested_status == "dismissed" else None,
+            reviewed_by_user_id=current_user.id,
+        )
+        append_audit_event(
+            db.session(),
+            action=(
+                "actor_candidate.dismissed"
+                if requested_status == "dismissed"
+                else "actor_candidate.restored"
+            ),
+            resource_type="actor_candidate",
+            resource_id=candidate_id,
+            dossier_id=dossier_id,
+            result="success",
+            metadata={
+                "canonical_key": candidate["canonical_key"],
+                "source_signal_ids": [source["signal_id"] for source in candidate["sources"]],
+            },
+        )
+        db.session.commit()
+        return {"candidate": candidate | {"status": requested_status}}
+    except IntegrityError as error:
+        db.session.rollback()
+        return _domain_error(error)
 
 
 DETAIL: dict[str, tuple[type[Any], str, str]] = {

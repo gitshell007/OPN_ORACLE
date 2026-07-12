@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ExternalLink,
   Filter,
+  Plus,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -28,7 +29,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { productScoreDetailLabel } from "@/lib/product-copy";
+import { productScoreDetailLabel, productSignalTypeLabel } from "@/lib/product-copy";
 
 export type IntelligenceSectionKind = "signals" | "opportunities" | "risks";
 type ScoredResource = OracleOpportunity | OracleRisk;
@@ -76,14 +77,14 @@ const SECTION_COPY = {
     eyebrow: "Avance ofensivo",
     title: "Oportunidades",
     description:
-      "Cualifica oportunidades con score explicable y evidencias verificables.",
+      "Valora oportunidades con una puntuación explicada y fuentes verificables.",
     permission: "opportunity.write",
   },
   risks: {
     eyebrow: "Protección del avance",
     title: "Riesgos",
     description:
-      "Vigila bloqueos, mitigaciones y cambios de estado sin perder trazabilidad.",
+      "Sigue los problemas que pueden frenar el avance y cómo se están gestionando.",
     permission: "risk.write",
   },
 } as const;
@@ -128,9 +129,9 @@ function apiErrorMessage(reason: unknown, fallback: string): string {
 }
 
 function formatDate(value?: string | null): string {
-  if (!value) return "Fecha no disponible";
+  if (!value) return "Sin fecha registrada";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Fecha no disponible";
+  if (Number.isNaN(date.getTime())) return "Sin fecha registrada";
   return new Intl.DateTimeFormat("es-ES", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -186,6 +187,14 @@ export function DossierIntelligenceSection({
     "opportunity",
   );
   const [promotionTitle, setPromotionTitle] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualResponse, setManualResponse] = useState("");
+  const [manualPrimary, setManualPrimary] = useState(50);
+  const [manualSecondary, setManualSecondary] = useState(50);
+  const [manualConfidence, setManualConfidence] = useState(50);
+  const [manualError, setManualError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -367,6 +376,65 @@ export function DossierIntelligenceSection({
     }
   }
 
+  function resetManual() {
+    setManualTitle("");
+    setManualDescription("");
+    setManualResponse("");
+    setManualPrimary(50);
+    setManualSecondary(50);
+    setManualConfidence(50);
+    setManualError(null);
+  }
+
+  async function createManual(event: FormEvent) {
+    event.preventDefault();
+    if (kind === "signals") return;
+    setBusy(true);
+    setManualError(null);
+    try {
+      if (kind === "opportunities") {
+        await api.opportunities.create(dossierId, {
+          title: manualTitle.trim(),
+          description: manualDescription.trim(),
+          opportunity_type: "custom",
+          next_action: manualResponse.trim(),
+          strategic_fit: manualPrimary,
+          urgency: manualSecondary,
+          expected_value: 50,
+          actionability: 50,
+          relationship_leverage: 50,
+          timing: 50,
+          confidence: manualConfidence,
+          execution_effort: 50,
+          blocking_risk: 50,
+        });
+        toast.success("Oportunidad creada");
+      } else {
+        await api.risks.create(dossierId, {
+          title: manualTitle.trim(),
+          description: manualDescription.trim(),
+          category: "strategic",
+          mitigation: manualResponse.trim(),
+          impact: manualPrimary,
+          likelihood: manualSecondary,
+          velocity: 50,
+          exposure: 50,
+          uncertainty: 50,
+          controllability: 50,
+          confidence: manualConfidence,
+        });
+        toast.success("Riesgo creado");
+      }
+      setManualOpen(false);
+      resetManual();
+      await load();
+    } catch (reason) {
+      setManualError(apiErrorMessage(reason, "No se pudo crear el registro."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="intelligence-section" aria-labelledby={`${kind}-title`}>
       <header className="intelligence-heading">
@@ -375,9 +443,12 @@ export function DossierIntelligenceSection({
           <h1 id={`${kind}-title`}>{copy.title}</h1>
           <p>{copy.description}</p>
         </div>
-        <button className="vector-secondary" onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={15} aria-hidden="true" /> Actualizar
-        </button>
+        <div className="intelligence-heading-actions">
+          {kind !== "signals" && <PermissionGate permission={copy.permission}><button className="vector-primary" onClick={() => { resetManual(); setManualOpen(true); }}><Plus size={15} /> {kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}</button></PermissionGate>}
+          <button className="vector-secondary" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={15} aria-hidden="true" /> Actualizar
+          </button>
+        </div>
       </header>
 
       <div className="vector-panel intelligence-panel">
@@ -435,7 +506,7 @@ export function DossierIntelligenceSection({
 
         {loading ? (
           <div className="intelligence-loading" role="status">
-            <span className="auth-spinner" /> Cargando datos desde Oracle…
+            <span className="auth-spinner" /> Cargando información…
           </div>
         ) : error ? (
           <div className="intelligence-state" role="alert">
@@ -478,7 +549,7 @@ export function DossierIntelligenceSection({
                         <small>
                           {isSignal(item)
                             ? item.signal.source_name || item.signal.provider || "Fuente sin identificar"
-                            : "Puntuación calculada por Oracle"}
+                            : "Valor orientativo según la información disponible"}
                         </small>
                       </td>
                       <td><span className={`intelligence-status status-${status(item)}`}>{STATUS_LABELS[status(item)] ?? status(item)}</span></td>
@@ -528,6 +599,27 @@ export function DossierIntelligenceSection({
         )}
       </div>
 
+      <Dialog.Root open={manualOpen} onOpenChange={(open) => { setManualOpen(open); if (!open) resetManual(); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content work-dialog intelligence-manual-dialog">
+            <div className="dialog-header"><div><span className="section-kicker">Registro manual</span><Dialog.Title>{kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}</Dialog.Title><Dialog.Description>Registra una valoración humana inicial. Podrás enlazar evidencias y actores después.</Dialog.Description></div><Dialog.Close className="icon-button" aria-label="Cerrar"><X /></Dialog.Close></div>
+            <form onSubmit={createManual}>
+              <label>Título<input required minLength={3} maxLength={300} value={manualTitle} onChange={(event) => setManualTitle(event.target.value)} autoFocus /></label>
+              <label>Descripción<textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} /></label>
+              <div className="manual-score-grid">
+                <label>{kind === "opportunities" ? "Encaje estratégico" : "Impacto"}<output>{manualPrimary}</output><input type="range" min="0" max="100" value={manualPrimary} onChange={(event) => setManualPrimary(Number(event.target.value))} /></label>
+                <label>{kind === "opportunities" ? "Urgencia" : "Probabilidad"}<output>{manualSecondary}</output><input type="range" min="0" max="100" value={manualSecondary} onChange={(event) => setManualSecondary(Number(event.target.value))} /></label>
+                <label>Confianza inicial<output>{manualConfidence}</output><input type="range" min="0" max="100" value={manualConfidence} onChange={(event) => setManualConfidence(Number(event.target.value))} /></label>
+              </div>
+              <label>{kind === "opportunities" ? "Siguiente acción" : "Mitigación inicial"}<textarea value={manualResponse} onChange={(event) => setManualResponse(event.target.value)} /></label>
+              {manualError && <p className="form-error" role="alert">{manualError}</p>}
+              <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy || manualTitle.trim().length < 3}>{busy ? "Guardando…" : "Crear"}</button></div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <Dialog.Root open={Boolean(selected)} onOpenChange={(open) => !open && closeDetail()}>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
@@ -536,10 +628,10 @@ export function DossierIntelligenceSection({
               <>
                 <header>
                   <div>
-                    <span className="section-kicker">Inspección contextual</span>
+                    <span className="section-kicker">Detalle del elemento</span>
                     <Dialog.Title>{title(selected)}</Dialog.Title>
                     <Dialog.Description>
-                      Hechos, puntuación y trazabilidad consolidados por Oracle.
+                      Resumen de lo observado, su valoración y las fuentes utilizadas.
                     </Dialog.Description>
                   </div>
                   <Dialog.Close className="dialog-close" aria-label="Cerrar detalle"><X size={18} /></Dialog.Close>
@@ -567,7 +659,7 @@ export function DossierIntelligenceSection({
                       <section className="intelligence-detail-block evidence-block">
                         <h2>Fuente y evidencia</h2>
                         <p>{selected.signal.source_name || selected.signal.provider || "Fuente no identificada"}</p>
-                        <p>{selected.signal.source_type || "Tipo de fuente no disponible"} · {formatDate(selected.signal.published_at)}</p>
+                        <p>{productSignalTypeLabel(selected.signal.source_type)} · {formatDate(selected.signal.published_at)}</p>
                         {safeSourceUrl(selected.signal.source_url) ? (
                           <a href={safeSourceUrl(selected.signal.source_url) ?? undefined} target="_blank" rel="noreferrer">
                             Abrir fuente original <ExternalLink size={13} aria-hidden="true" />

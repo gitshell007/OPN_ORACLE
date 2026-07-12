@@ -42,7 +42,7 @@ export function CreateProductDossierDialog({
       setDescription("");
       setCreateStarterProfile(true);
       toast.success("Expediente creado", {
-        description: "Se ha creado como borrador en el workspace predeterminado.",
+        description: "Se ha creado como borrador en el espacio de trabajo principal.",
       });
       router.push(`/app/dossiers/${dossier.id}`);
     } catch (reason) {

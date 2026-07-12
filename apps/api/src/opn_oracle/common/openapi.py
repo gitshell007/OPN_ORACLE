@@ -562,6 +562,66 @@ def _declare_oracle_operation(
     if "/oracle-summary" in path:
         _declare_oracle_summary_operation(path, method, operation, problem_content)
         return
+    if "/actor-candidates" in path:
+        if method == "post":
+            is_review = path.endswith("/review")
+            operation["requestBody"] = {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": (
+                                "#/components/schemas/ActorCandidateReviewInput"
+                                if is_review
+                                else "#/components/schemas/ActorCandidateImportInput"
+                            )
+                        }
+                    }
+                },
+            }
+            operation.setdefault("responses", {})["200" if is_review else "201"] = {
+                "description": (
+                    "Revisión del candidato actualizada"
+                    if is_review
+                    else "Candidato importado y vinculado"
+                ),
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": (
+                                "#/components/schemas/ActorCandidateReviewResponse"
+                                if is_review
+                                else "#/components/schemas/ActorCandidateImportResponse"
+                            )
+                        }
+                    }
+                },
+            }
+            if not is_review:
+                operation["responses"].pop("200", None)
+        else:
+            operation.setdefault("parameters", []).append(
+                {
+                    "name": "include_dismissed",
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "boolean", "default": False},
+                    "description": "Incluye candidatos descartados para permitir su restauración.",
+                }
+            )
+            operation.setdefault("responses", {})["200"] = {
+                "description": "Candidatos detectados en fuentes del expediente",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/ActorCandidateListResponse"}
+                    }
+                },
+            }
+        operation.setdefault("responses", {})["404"] = _problem(
+            "Expediente o candidato no encontrado", problem_content
+        )
+        operation["responses"]["422"] = _problem("Entrada no válida", problem_content)
+        return
     resource = _oracle_resource_for_path(path)
     m2m_target = _oracle_m2m_target(path)
     signal_monitor_create = (
@@ -1656,6 +1716,89 @@ def _oracle_schemas() -> dict[str, Any]:
         }
     )
     schemas["OracleSummaryFeedbackResponse"] = write({"feedback_id": uuid}, ["feedback_id"])
+    schemas["ActorCandidateSource"] = write(
+        {
+            "dossier_signal_id": uuid,
+            "signal_id": uuid,
+            "title": string,
+            "source_name": string,
+            "source_url": {"type": "string", "nullable": True},
+            "excerpt": string,
+            "published_at": {"type": "string", "format": "date-time", "nullable": True},
+        },
+        ["dossier_signal_id", "signal_id", "title", "source_name", "excerpt"],
+    )
+    schemas["ActorCandidate"] = write(
+        {
+            "id": uuid,
+            "canonical_key": string,
+            "name": string,
+            "suggested_actor_type": {
+                "type": "string",
+                "enum": ["person", "organization", "institution", "program", "other"],
+            },
+            "suggested_labels": string_array,
+            "labels": string_array,
+            "status": {
+                "type": "string",
+                "enum": ["candidate", "existing", "linked", "dismissed"],
+            },
+            "extraction_methods": string_array,
+            "source_count": {"type": "integer", "minimum": 1},
+            "existing_actor_id": nullable_uuid,
+            "sources": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/ActorCandidateSource"},
+            },
+        },
+        [
+            "id",
+            "canonical_key",
+            "name",
+            "suggested_actor_type",
+            "suggested_labels",
+            "labels",
+            "status",
+            "source_count",
+            "extraction_methods",
+            "sources",
+        ],
+    )
+    schemas["ActorCandidateListResponse"] = write(
+        {
+            "data": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/ActorCandidate"},
+            },
+            "meta": write({"total": {"type": "integer", "minimum": 0}}, ["total"]),
+        },
+        ["data", "meta"],
+    )
+    schemas["ActorCandidateImportInput"] = write(
+        {
+            "actor_type": {
+                "type": "string",
+                "enum": ["person", "organization", "institution", "program", "other"],
+            },
+            "tags": string_array,
+            "roles": string_array,
+        }
+    )
+    schemas["ActorCandidateImportResponse"] = write(
+        {
+            "actor": {"$ref": "#/components/schemas/ActorResource"},
+            "link": {"$ref": "#/components/schemas/DossierActorResource"},
+        },
+        ["actor", "link"],
+    )
+    schemas["ActorCandidateReviewInput"] = write(
+        {"status": {"type": "string", "enum": ["candidate", "dismissed"]}},
+        ["status"],
+    )
+    schemas["ActorCandidateReviewResponse"] = write(
+        {"candidate": {"$ref": "#/components/schemas/ActorCandidate"}},
+        ["candidate"],
+    )
 
     common_child = {"title": string, "status": string, "content": json_object}
     write_properties: dict[str, dict[str, Any]] = {
@@ -1669,9 +1812,21 @@ def _oracle_schemas() -> dict[str, Any]:
         "Watchlist": {"name": string, "cadence": string, "query_config": json_object},
         "SignalMonitor": {"provider": string, "external_id": string, "status": string},
         "Opportunity": schemas["SignalPromoteInput"]["properties"]
-        | {"version": {"type": "integer"}, "status": string},
+        | {
+            "version": {"type": "integer"},
+            "status": string,
+            "description": string,
+            "opportunity_type": string,
+            "next_action": string,
+        },
         "Risk": schemas["SignalPromoteInput"]["properties"]
-        | {"version": {"type": "integer"}, "status": string},
+        | {
+            "version": {"type": "integer"},
+            "status": string,
+            "description": string,
+            "category": string,
+            "mitigation": string,
+        },
         "Actor": {
             "canonical_name": string,
             "actor_type": string,
@@ -1680,7 +1835,17 @@ def _oracle_schemas() -> dict[str, Any]:
             "metadata": json_object,
             "provenance": json_object,
         },
-        "DossierActor": {"actor_id": uuid, "roles": string_array}
+        "DossierActor": {
+            "actor_id": uuid,
+            "canonical_name": string,
+            "actor_type": {
+                "type": "string",
+                "enum": ["person", "organization", "institution", "program", "other"],
+            },
+            "tags": string_array,
+            "provenance": json_object,
+            "roles": string_array,
+        }
         | {
             key: score
             for key in (

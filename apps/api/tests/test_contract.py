@@ -175,6 +175,9 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "/api/v1/dossiers/{dossier_id}/status-history",
         "/api/v1/opportunities/{resource_id}/actors",
         "/api/v1/opportunities/{resource_id}/actors/{target_id}",
+        "/api/v1/dossiers/{dossier_id}/actor-candidates",
+        "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/import",
+        "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/review",
     }
     assert required_paths.issubset(spec["paths"])
     expected_global_responses = {
@@ -220,6 +223,20 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "requestBody"
     ]["content"]["application/json"]["schema"]
     assert opportunity_input == {"$ref": "#/components/schemas/OpportunityWriteInput"}
+    actor_candidates = spec["paths"]["/api/v1/dossiers/{dossier_id}/actor-candidates"]
+    assert any(
+        parameter["name"] == "include_dismissed"
+        for parameter in actor_candidates["get"]["parameters"]
+    )
+    actor_candidate_review = spec["paths"][
+        "/api/v1/dossiers/{dossier_id}/actor-candidates/{candidate_id}/review"
+    ]["post"]
+    assert actor_candidate_review["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ActorCandidateReviewInput"
+    }
+    assert actor_candidate_review["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ActorCandidateReviewResponse"
+    }
 
     expected_write_schemas = {
         "/api/v1/objectives/{resource_id}": "ObjectiveWriteInput",
@@ -281,9 +298,7 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "200",
         "201",
     }
-    oracle_refresh = spec["paths"][
-        "/api/v1/dossiers/{dossier_id}/oracle-summary/refresh"
-    ]["post"]
+    oracle_refresh = spec["paths"]["/api/v1/dossiers/{dossier_id}/oracle-summary/refresh"]["post"]
     assert any(
         parameter["name"] == "Idempotency-Key" and parameter["required"] is True
         for parameter in oracle_refresh["parameters"]
