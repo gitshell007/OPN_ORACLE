@@ -46,13 +46,15 @@ def _request(agent: str, evidence: list[str]) -> LLMRequest:
 def test_registry_has_complete_immutable_metadata() -> None:
     registry = PromptRegistry()
     assert {item.name for item in registry.all()} == set(AGENT_SCHEMAS)
-    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS)
+    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS) + 1
     for item in registry.all():
         assert len(item.sha256) == 32
         assert item.input_contract
         assert item.output_schema_name == item.schema.__name__
-        assert item.changelog.startswith("v1:")
+        assert item.changelog.startswith(f"{item.version}:")
         assert "## Reglas" in item.text
+    assert registry.get("dossier_situation_summary").version == "v2"
+    assert registry.get("dossier_situation_summary", "v1").version == "v1"
     assert registry.get("dossier_situation_summary").max_output_tokens == 3000
 
 

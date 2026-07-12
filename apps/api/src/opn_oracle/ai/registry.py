@@ -75,6 +75,11 @@ INPUT_CONTRACTS = {
     ),
 }
 
+PROMPT_VERSIONS = {
+    name: (("v1", "v2") if name == "dossier_situation_summary" else ("v1",))
+    for name in AGENT_SCHEMAS
+}
+
 
 class PromptRegistry:
     def __init__(self, model: str = "mock-oracle-v1") -> None:
@@ -82,36 +87,43 @@ class PromptRegistry:
         self.system = root.joinpath("common/system_v1.md").read_text(encoding="utf-8")
         self._items: dict[tuple[str, str], PromptDefinition] = {}
         for name, schema in AGENT_SCHEMAS.items():
-            key = (name, "v1")
-            if key in self._items:
-                raise ValueError(f"Prompt duplicado: {name}/v1")
-            text = root.joinpath(f"{name}/v1.md").read_text(encoding="utf-8")
-            for section in ("## Tarea", "## Reglas", "## Contrato de salida"):
-                if section not in text:
-                    raise ValueError(f"Prompt incompleto {name}/v1: falta {section}")
-            combined = self.system + "\n\n" + text
-            item = PromptDefinition(
-                name=name,
-                version="v1",
-                purpose=PURPOSES[name],
-                input_contract=INPUT_CONTRACTS[name],
-                output_schema_name=schema.__name__,
-                classification="internal",
-                model=model,
-                temperature=0.0,
-                max_output_tokens=3000 if name == "dossier_situation_summary" else 2000,
-                text=combined,
-                sha256=hashlib.sha256(combined.encode()).digest(),
-                schema=schema,
-                changelog="v1: contrato inicial derivado del runtime canónico de Fase 09.",
-            )
-            self._items[key] = item
+            for version in PROMPT_VERSIONS[name]:
+                key = (name, version)
+                if key in self._items:
+                    raise ValueError(f"Prompt duplicado: {name}/{version}")
+                text = root.joinpath(f"{name}/{version}.md").read_text(encoding="utf-8")
+                for section in ("## Tarea", "## Reglas", "## Contrato de salida"):
+                    if section not in text:
+                        raise ValueError(f"Prompt incompleto {name}/{version}: falta {section}")
+                combined = self.system + "\n\n" + text
+                changelog = (
+                    "v2: salida compacta y completa para modelos locales."
+                    if version == "v2"
+                    else "v1: contrato inicial derivado del runtime canónico de Fase 09."
+                )
+                item = PromptDefinition(
+                    name=name,
+                    version=version,
+                    purpose=PURPOSES[name],
+                    input_contract=INPUT_CONTRACTS[name],
+                    output_schema_name=schema.__name__,
+                    classification="internal",
+                    model=model,
+                    temperature=0.0,
+                    max_output_tokens=3000 if name == "dossier_situation_summary" else 2000,
+                    text=combined,
+                    sha256=hashlib.sha256(combined.encode()).digest(),
+                    schema=schema,
+                    changelog=changelog,
+                )
+                self._items[key] = item
 
-    def get(self, name: str, version: str = "v1") -> PromptDefinition:
+    def get(self, name: str, version: str | None = None) -> PromptDefinition:
+        selected_version = version or PROMPT_VERSIONS.get(name, ("v1",))[-1]
         try:
-            return self._items[(name, version)]
+            return self._items[(name, selected_version)]
         except KeyError as error:
-            raise KeyError(f"Prompt no registrado: {name}/{version}") from error
+            raise KeyError(f"Prompt no registrado: {name}/{selected_version}") from error
 
     def all(self) -> tuple[PromptDefinition, ...]:
         return tuple(self._items.values())

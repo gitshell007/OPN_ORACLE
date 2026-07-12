@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeVar
 from urllib.parse import urljoin, urlparse
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -435,19 +435,41 @@ class SignalGovernedLLMProvider:
         try:
             output = schema.model_validate_json(normalized_output)
         except ValueError as validation_error:
+            repair_errors: list[dict[str, Any]]
+            if isinstance(validation_error, ValidationError):
+                repair_errors = [
+                    dict(item)
+                    for item in validation_error.errors(
+                        include_input=False,
+                        include_url=False,
+                    )
+                ]
+            else:
+                repair_errors = [{"type": "invalid_json", "msg": str(validation_error)[:1000]}]
+            repair_errors_json = json.dumps(
+                repair_errors, ensure_ascii=False, separators=(",", ":")
+            )
             repair_body = {
                 **body,
                 "input": {
                     **body["input"],
                     "messages": [
-                        *body["input"]["messages"],
-                        {"role": "assistant", "content": normalized_output},
+                        {
+                            "role": "system",
+                            "content": (
+                                "Eres un reparador de JSON. Devuelve exclusivamente un objeto JSON "
+                                "válido que cumpla exactamente el esquema, sin Markdown ni campos "
+                                "adicionales. Conserva el significado y no inventes evidence_ids. "
+                                f"Esquema: {schema_json}"
+                            ),
+                        },
                         {
                             "role": "user",
                             "content": (
-                                "Corrige únicamente el JSON anterior para que cumpla el esquema. "
-                                "No añadas explicaciones ni bloques Markdown. Errores: "
-                                f"{validation_error}"
+                                "Repara este JSON candidato:\n"
+                                f"{normalized_output}\n\n"
+                                "Errores de validación (JSON):\n"
+                                f"{repair_errors_json}"
                             ),
                         },
                     ],

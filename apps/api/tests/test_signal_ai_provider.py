@@ -76,7 +76,13 @@ def test_signal_governed_provider_repairs_one_invalid_structured_response(
         body = kwargs["json"]
         assert isinstance(body, dict)
         if calls == 2:
-            assert body["input"]["messages"][-1]["role"] == "user"
+            messages = body["input"]["messages"]
+            assert len(messages) == 2
+            assert messages[0]["role"] == "system"
+            assert "reparador de JSON" in messages[0]["content"]
+            assert messages[1]["role"] == "user"
+            assert "allowed_evidence_ids" not in messages[1]["content"]
+            assert "literal_error" in messages[1]["content"]
         content = '{"category": 7}' if calls == 1 else output.model_dump_json()
         return httpx.Response(
             200,
