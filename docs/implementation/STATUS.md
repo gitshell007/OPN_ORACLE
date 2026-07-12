@@ -684,3 +684,6 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   arrancaba con `setuptools` moderno por la retirada de `pkg_resources`. El workflow fija
   `setuptools<81` únicamente dentro de la herramienta aislada; `semgrep --version` 1.133.0 quedó
   verificado localmente.
+- Los builds y escaneos Trivy de ambas imágenes pasaron. La generación SBOM no arrancó porque el
+  tag histórico `anchore/syft:v1.30.1` no existe; se actualizó al release oficial disponible
+  `v1.46.0`, manteniendo la salida CycloneDX JSON.
