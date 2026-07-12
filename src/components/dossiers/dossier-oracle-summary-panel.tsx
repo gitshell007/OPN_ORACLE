@@ -36,6 +36,18 @@ function formatDate(value?: string | null): string {
   return new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+const LEVEL_LABELS: Record<string, string> = {
+  low: "Baja",
+  medium: "Media",
+  high: "Alta",
+  critical: "Crítica",
+};
+
+function levelLabel(value?: string): string {
+  if (!value) return "Media";
+  return LEVEL_LABELS[value.toLowerCase()] ?? value;
+}
+
 function asOutput(version?: OracleSummaryVersion | null): SummaryOutput {
   return (version?.output ?? {}) as SummaryOutput;
 }
@@ -169,7 +181,7 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           )}
           <div className="oracle-summary-grid">
             <Block title="Hechos confirmados" citations={citations} items={(output.facts ?? []).map((item) => ({ title: item.text ?? "", evidenceIds: item.evidence_ids }))} />
-            <Block title="Cambios materiales" citations={citations} items={(output.material_changes ?? []).map((item) => ({ title: item.change ?? "", meta: item.importance ?? "media", evidenceIds: item.evidence_ids }))} />
+            <Block title="Cambios materiales" citations={citations} items={(output.material_changes ?? []).map((item) => ({ title: item.change ?? "", meta: levelLabel(item.importance), evidenceIds: item.evidence_ids }))} />
             <Block title="Oportunidades" citations={citations} items={(output.opportunities ?? []).map((item) => ({ title: item.title ?? "", meta: item.rationale ?? "" }))} />
             <Block title="Riesgos" citations={citations} items={(output.risks ?? []).map((item) => ({ title: item.title ?? "", meta: item.rationale ?? "" }))} />
             <Block title="Decisiones pendientes" citations={citations} items={(output.decisions_required ?? []).map((item) => ({ title: item.decision ?? "", meta: item.reason ?? "" }))} />

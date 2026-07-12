@@ -111,10 +111,19 @@ de negocio; URL se conserva únicamente como aclaración universal junto a «dir
   `opn-oracle`, preset productivo Ollama/Titan sin cloud y suite completa de Signal con 466/466
   tests. Se corrigió además la prueba Oracle del adapter para reflejar el contrato HTTP real de
   Signal (`task_key` + `input`, identidad derivada de la API key y respuesta bajo `result`).
-- Despliegue productivo en curso el 2026-07-12: API y web compilaron desde el release
-  `20260712T004253Z-oracle-summary-buildfix` y quedaron saludables. La verificación previa al
-  E2E detectó que `worker-core` no consumía la cola declarada `ai`; se añade esa cola al proceso
-  productivo, se cubre el contrato con un test y se desplegará antes de encolar el primer resumen.
+- Despliegue productivo completado el 2026-07-12. La verificación previa al E2E detectó que
+  `worker-core` no consumía la cola declarada `ai`; el release
+  `20260712T004620Z-ai-worker-queue` añadió las seis colas y un test de paridad Compose/Celery.
+- El E2E real sobre el expediente de mercado permitió ajustar el runtime local sin activar cloud:
+  prompt ejecutivo versionado hasta `v5`, `qwen3.5:9b` primario, Titan 27B secundario, reparación
+  JSON compacta, timeout 210 s y presupuesto de 2.600 tokens. Los intentos inválidos quedaron en
+  auditoría y nunca se publicaron.
+- La rehidratación de UUID desde JSONB usa ahora semántica JSON estricta. El reintento operatorio
+  auditado reutilizó el artefacto ya validado sin repetir inferencia: job
+  `4df20429-3f37-4d45-bed5-aab5dd2d52ae` `succeeded`, artefacto versión 1 `valid`, resumen vivo
+  publicado con confianza 72 y cobertura 4/4. El smoke autenticado mostró el panel completo, sus
+  fuentes, historial y feedback sin errores de consola; las prioridades visibles se traducen a
+  español.
 
 ## Fase implementada · Señales reales y triaje con Ollama gobernado
 

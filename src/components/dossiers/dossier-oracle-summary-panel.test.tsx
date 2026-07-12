@@ -46,7 +46,7 @@ const version = {
     executive_summary: "El expediente avanza con evidencia suficiente.",
     situation_status: "advancing",
     facts: [{ text: "La convocatoria está abierta.", evidence_ids: ["eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"] }],
-    material_changes: [],
+    material_changes: [{ change: "Se ha publicado la convocatoria.", importance: "high", evidence_ids: [] }],
     opportunities: [{ title: "Preparar propuesta", rationale: "Encaja con el objetivo.", urgency: "high" }],
     risks: [],
     decisions_required: [{ decision: "Aprobar presentación", reason: "Hay plazo próximo.", urgency: "high" }],
@@ -110,6 +110,8 @@ describe("DossierOracleSummaryPanel", () => {
     expect(screen.getByText("78%")).toBeVisible();
     expect(screen.getByText("1/3")).toBeVisible();
     expect(screen.getByText("La convocatoria está abierta.")).toBeVisible();
+    expect(screen.getByText("Alta")).toBeVisible();
+    expect(screen.queryByText("high")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Fuente #eeeeeeee" })).toHaveAttribute(
       "href",
       "https://example.com/fuente",
