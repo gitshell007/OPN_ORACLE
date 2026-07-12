@@ -384,6 +384,39 @@ class OllamaLLMProvider:
         return ProviderHealth("healthy", self.model)
 
 
+def _validate_allowed_evidence(output: BaseModel, allowed_values: list[str]) -> None:
+    """Reject model citations that are not part of the authorized context snapshot."""
+
+    allowed: set[uuid.UUID] = set()
+    for value in allowed_values:
+        try:
+            allowed.add(uuid.UUID(value))
+        except ValueError:
+            continue
+
+    def nested_ids(value: Any) -> set[uuid.UUID]:
+        if isinstance(value, BaseModel):
+            cited: set[uuid.UUID] = set()
+            for name in type(value).model_fields:
+                child = getattr(value, name)
+                if name == "evidence_ids" and isinstance(child, list):
+                    cited.update(item for item in child if isinstance(item, uuid.UUID))
+                else:
+                    cited.update(nested_ids(child))
+            return cited
+        if isinstance(value, (list, tuple)):
+            return {item for child in value for item in nested_ids(child)}
+        if isinstance(value, dict):
+            return {item for child in value.values() for item in nested_ids(child)}
+        return set()
+
+    unauthorized = nested_ids(output) - allowed
+    if unauthorized:
+        raise ValueError(
+            "El JSON candidato cita evidence_ids no autorizados; elimina los bloques afectados."
+        )
+
+
 class SignalGovernedLLMProvider:
     """Adapter for Signal's governed `/api/v1/ai/run` proxy."""
 
@@ -405,6 +438,18 @@ class SignalGovernedLLMProvider:
             schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")
         )
         context_json = json.dumps(request.context, ensure_ascii=False, separators=(",", ":"))
+        allowed_evidence_ids = [
+            str(item) for item in request.context.get("allowed_evidence_ids", [])
+        ]
+        allowed_evidence_json = json.dumps(
+            allowed_evidence_ids, ensure_ascii=False, separators=(",", ":")
+        )
+        evidence_rule = (
+            "Los únicos evidence_ids permitidos son: "
+            f"{allowed_evidence_json}. No inventes ni copies otros UUID. "
+            "Si la lista está vacía, deja vacías todas las secciones cuyos elementos "
+            "exijan evidence_ids."
+        )
         body: dict[str, Any] = {
             "task_key": request.agent,
             "input": {
@@ -413,6 +458,7 @@ class SignalGovernedLLMProvider:
                         "role": "system",
                         "content": (
                             f"{request.system_prompt}\n\n"
+                            f"{evidence_rule}\n\n"
                             "Devuelve exclusivamente JSON válido que cumpla este esquema: "
                             f"{schema_json}"
                         ),
@@ -434,6 +480,7 @@ class SignalGovernedLLMProvider:
         usage = _usage(payload)
         try:
             output = schema.model_validate_json(normalized_output)
+            _validate_allowed_evidence(output, allowed_evidence_ids)
         except ValueError as validation_error:
             repair_errors: list[dict[str, Any]]
             if isinstance(validation_error, ValidationError):
@@ -460,6 +507,7 @@ class SignalGovernedLLMProvider:
                                 "Eres un reparador de JSON. Devuelve exclusivamente un objeto JSON "
                                 "válido que cumpla exactamente el esquema, sin Markdown ni campos "
                                 "adicionales. Conserva el significado y no inventes evidence_ids. "
+                                f"{evidence_rule} "
                                 f"Esquema: {schema_json}"
                             ),
                         },
@@ -486,6 +534,7 @@ class SignalGovernedLLMProvider:
                 + _non_negative_int(repaired_usage.get("cost_micros")),
             }
             output = schema.model_validate_json(_signal_output(payload))
+            _validate_allowed_evidence(output, allowed_evidence_ids)
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
         return LLMResult(
             output=output,

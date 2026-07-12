@@ -105,3 +105,63 @@ def test_signal_governed_provider_repairs_one_invalid_structured_response(
     assert result.output == output
     assert calls == 2
     assert (result.input_tokens, result.output_tokens) == (20, 10)
+
+
+def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invented_id = UUID("00000000-0000-4000-8000-000000000099")
+    request = LLMRequest(
+        agent="signal_triage",
+        model="qwen3.5:9b",
+        system_prompt="Devuelve JSON estricto.",
+        task_prompt="Evalúa la señal.",
+        context={"allowed_evidence_ids": []},
+        max_output_tokens=500,
+        classification="public",
+    )
+    invalid = MockLLMProvider("fixture").generate_structured(
+        LLMRequest(
+            agent=request.agent,
+            model=request.model,
+            system_prompt=request.system_prompt,
+            task_prompt=request.task_prompt,
+            context={"allowed_evidence_ids": [str(invented_id)]},
+            max_output_tokens=request.max_output_tokens,
+            classification=request.classification,
+        ),
+        SignalTriageOutput,
+    ).output
+    repaired = MockLLMProvider("fixture").generate_structured(
+        request, SignalTriageOutput
+    ).output
+    calls = 0
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        if calls == 2:
+            assert "lista está vacía" in body["input"]["messages"][0]["content"]
+        output = invalid if calls == 1 else repaired
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "result": {"message": {"content": output.model_dump_json()}},
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+
+    result = provider.generate_structured(request, SignalTriageOutput)
+
+    assert result.output == repaired
+    assert calls == 2
