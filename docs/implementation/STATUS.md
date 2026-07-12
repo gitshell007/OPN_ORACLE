@@ -23,6 +23,10 @@ El árbol de trabajo está limpio tras integrar y publicar los cambios del Orác
 - Comprobaciones locales: Ruff, mypy, contrato/OpenAPI/cliente sin drift, 25 pruebas backend,
   3 pruebas frontend, ESLint, TypeScript y build correctos. La integración PostgreSQL/Redis focal
   queda preparada y se omitió al no existir las variables `TEST_*` locales.
+- Producción: release `20260712T085932Z-settle-safe-summary`; cuatro expedientes no archivados con
+  `LivingSummary` persistido y artefacto `valid` en `qwen3.5:9b`. Smoke interno/público, worker,
+  Beat, manifest, Compose, Nginx, permisos de secretos y exposición de red validados. El smoke
+  visual confirmó carga sin regeneración al entrar y cero errores de consola.
 
 ## Mejora implementada · eliminación múltiple de expedientes
 
