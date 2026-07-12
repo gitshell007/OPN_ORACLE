@@ -46,19 +46,20 @@ def _request(agent: str, evidence: list[str]) -> LLMRequest:
 def test_registry_has_complete_immutable_metadata() -> None:
     registry = PromptRegistry()
     assert {item.name for item in registry.all()} == set(AGENT_SCHEMAS)
-    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS) + 3
+    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS) + 4
     for item in registry.all():
         assert len(item.sha256) == 32
         assert item.input_contract
         assert item.output_schema_name == item.schema.__name__
         assert item.changelog.startswith(f"{item.version}:")
         assert "## Reglas" in item.text
-    assert registry.get("dossier_situation_summary").version == "v4"
+    assert registry.get("dossier_situation_summary").version == "v5"
     assert registry.get("dossier_situation_summary", "v1").version == "v1"
     assert registry.get("dossier_situation_summary", "v1").max_output_tokens == 3000
     assert registry.get("dossier_situation_summary", "v2").max_output_tokens == 2000
     assert registry.get("dossier_situation_summary", "v3").max_output_tokens == 1600
-    assert registry.get("dossier_situation_summary").max_output_tokens == 1900
+    assert registry.get("dossier_situation_summary", "v4").max_output_tokens == 1900
+    assert registry.get("dossier_situation_summary").max_output_tokens == 2600
 
 
 def test_disabled_provider_is_closed_by_default() -> None:

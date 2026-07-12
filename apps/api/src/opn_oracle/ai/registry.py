@@ -76,7 +76,7 @@ INPUT_CONTRACTS = {
 }
 
 PROMPT_VERSIONS = {
-    name: (("v1", "v2", "v3", "v4") if name == "dossier_situation_summary" else ("v1",))
+    name: (("v1", "v2", "v3", "v4", "v5") if name == "dossier_situation_summary" else ("v1",))
     for name in AGENT_SCHEMAS
 }
 
@@ -84,7 +84,7 @@ PROMPT_VERSIONS = {
 def _max_output_tokens(name: str, version: str) -> int:
     if name != "dossier_situation_summary":
         return 2000
-    return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900}[version]
+    return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900, "v5": 2600}[version]
 
 
 class PromptRegistry:
@@ -108,6 +108,7 @@ class PromptRegistry:
                         "v2": "v2: salida compacta y completa para modelos locales.",
                         "v3": "v3: parte ejecutivo acotado para inferencia local fiable.",
                         "v4": "v4: cierre JSON breve con margen de terminación medido.",
+                        "v5": "v5: presupuesto completo para el contrato ejecutivo de 18 bloques.",
                     }[version]
                     if name == "dossier_situation_summary"
                     else "v1: contrato inicial derivado del runtime canónico de Fase 09."
