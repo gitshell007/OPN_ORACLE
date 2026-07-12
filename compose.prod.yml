@@ -291,7 +291,7 @@ services:
       - opn_oracle.celery_entry:celery
       - worker
       - -Q
-      - default,maintenance,signals,documents,notifications
+      - default,signals,ai,documents,notifications,maintenance
       - --concurrency=1
       - --loglevel=INFO
       - --hostname=core@%h

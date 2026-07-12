@@ -12,6 +12,8 @@ QUEUES = ("default", "signals", "ai", "documents", "notifications", "maintenance
 TASK_ROUTES = {
     "oracle.signal.*": {"queue": "signals"},
     "oracle.memory.*": {"queue": "ai"},
+    "oracle.dossier_summary.*": {"queue": "ai"},
+    "oracle.ai.*": {"queue": "ai"},
     "oracle.report.*": {"queue": "ai"},
     "oracle.export.*": {"queue": "documents"},
     "oracle.document.*": {"queue": "documents"},

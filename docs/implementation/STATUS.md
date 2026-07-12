@@ -1,10 +1,10 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-11  
+Actualizado: 2026-07-12
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
-El árbol de trabajo contiene cambios previos sin commit del prototipo frontend. Deben preservarse y revisarse antes de cualquier commit o movimiento de estructura.
+El árbol de trabajo está limpio tras integrar y publicar los cambios del Oráculo contextual.
 
 | Fase | Estado | Fecha | Responsable | Comprobaciones | Bloqueos | Siguiente paso |
 |---|---|---|---|---|---|---|
@@ -111,6 +111,10 @@ de negocio; URL se conserva únicamente como aclaración universal junto a «dir
   `opn-oracle`, preset productivo Ollama/Titan sin cloud y suite completa de Signal con 466/466
   tests. Se corrigió además la prueba Oracle del adapter para reflejar el contrato HTTP real de
   Signal (`task_key` + `input`, identidad derivada de la API key y respuesta bajo `result`).
+- Despliegue productivo en curso el 2026-07-12: API y web compilaron desde el release
+  `20260712T004253Z-oracle-summary-buildfix` y quedaron saludables. La verificación previa al
+  E2E detectó que `worker-core` no consumía la cola declarada `ai`; se añade esa cola al proceso
+  productivo, se cubre el contrato con un test y se desplegará antes de encolar el primer resumen.
 
 ## Fase implementada · Señales reales y triaje con Ollama gobernado
 

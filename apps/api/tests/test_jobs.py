@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -22,6 +23,13 @@ def test_celery_factory_is_singleton_and_json_utc(app: object) -> None:
     assert first.conf.accept_content == ["json"]
     assert first.conf.timezone == "UTC"
     assert {queue.name for queue in first.conf.task_queues} == set(QUEUES)
+
+
+@pytest.mark.unit
+def test_production_worker_consumes_every_declared_queue() -> None:
+    compose = Path(__file__).parents[3] / "compose.prod.yml"
+    contents = compose.read_text(encoding="utf-8")
+    assert f"- {','.join(QUEUES)}" in contents
 
 
 @pytest.mark.unit
@@ -122,6 +130,8 @@ def test_wall_clock_schedules_respect_europe_madrid_dst_contract() -> None:
 @pytest.mark.unit
 def test_routes_and_publish_claim_are_explicit_and_idempotent() -> None:
     assert TASK_ROUTES["oracle.signal.*"] == {"queue": "signals"}
+    assert TASK_ROUTES["oracle.dossier_summary.*"] == {"queue": "ai"}
+    assert TASK_ROUTES["oracle.ai.*"] == {"queue": "ai"}
     assert TASK_ROUTES["notifications.*"] == {"queue": "notifications"}
     job = BackgroundJob(
         tenant_id=__import__("uuid").uuid4(),
