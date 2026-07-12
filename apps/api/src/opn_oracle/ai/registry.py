@@ -76,9 +76,15 @@ INPUT_CONTRACTS = {
 }
 
 PROMPT_VERSIONS = {
-    name: (("v1", "v2") if name == "dossier_situation_summary" else ("v1",))
+    name: (("v1", "v2", "v3") if name == "dossier_situation_summary" else ("v1",))
     for name in AGENT_SCHEMAS
 }
+
+
+def _max_output_tokens(name: str, version: str) -> int:
+    if name != "dossier_situation_summary":
+        return 2000
+    return {"v1": 3000, "v2": 2000, "v3": 1600}[version]
 
 
 class PromptRegistry:
@@ -97,8 +103,12 @@ class PromptRegistry:
                         raise ValueError(f"Prompt incompleto {name}/{version}: falta {section}")
                 combined = self.system + "\n\n" + text
                 changelog = (
-                    "v2: salida compacta y completa para modelos locales."
-                    if version == "v2"
+                    {
+                        "v1": "v1: contrato inicial derivado del runtime canónico de Fase 09.",
+                        "v2": "v2: salida compacta y completa para modelos locales.",
+                        "v3": "v3: parte ejecutivo acotado para inferencia local fiable.",
+                    }[version]
+                    if name == "dossier_situation_summary"
                     else "v1: contrato inicial derivado del runtime canónico de Fase 09."
                 )
                 item = PromptDefinition(
@@ -110,7 +120,7 @@ class PromptRegistry:
                     classification="internal",
                     model=model,
                     temperature=0.0,
-                    max_output_tokens=2000,
+                    max_output_tokens=_max_output_tokens(name, version),
                     text=combined,
                     sha256=hashlib.sha256(combined.encode()).digest(),
                     schema=schema,
