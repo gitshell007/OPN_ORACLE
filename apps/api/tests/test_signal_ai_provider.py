@@ -132,9 +132,6 @@ def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
         ),
         SignalTriageOutput,
     ).output
-    repaired = MockLLMProvider("fixture").generate_structured(
-        request, SignalTriageOutput
-    ).output
     calls = 0
 
     def post(url: str, **kwargs: object) -> httpx.Response:
@@ -144,7 +141,6 @@ def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
         assert isinstance(body, dict)
         if calls == 2:
             assert "lista está vacía" in body["input"]["messages"][0]["content"]
-        output = invalid if calls == 1 else repaired
         return httpx.Response(
             200,
             request=httpx.Request("POST", url),
@@ -152,7 +148,7 @@ def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
                 "provider": "ollama",
                 "model": "qwen3.5:9b",
                 "usage": {"input_tokens": 10, "output_tokens": 5},
-                "result": {"message": {"content": output.model_dump_json()}},
+                "result": {"message": {"content": invalid.model_dump_json()}},
             },
         )
 
@@ -163,5 +159,6 @@ def test_signal_governed_provider_repairs_unauthorized_evidence_citations(
 
     result = provider.generate_structured(request, SignalTriageOutput)
 
-    assert result.output == repaired
+    assert result.output.facts == []
+    assert "citas no autorizadas" in " ".join(result.output.warnings)
     assert calls == 2

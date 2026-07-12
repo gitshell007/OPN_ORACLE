@@ -417,6 +417,46 @@ def _validate_allowed_evidence(output: BaseModel, allowed_values: list[str]) -> 
         )
 
 
+def _strip_unauthorized_evidence_blocks(
+    output: T, allowed_values: list[str]
+) -> T:
+    """Drop complete claim blocks that cite evidence outside the snapshot.
+
+    This is a last-resort safety net after the governed model has already received one
+    repair attempt. Keeping the surrounding claim without its citation would turn an
+    unsupported statement into a seemingly valid one, so the whole block is removed.
+    """
+
+    allowed = set(allowed_values)
+    dropped = object()
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            evidence = value.get("evidence_ids")
+            if isinstance(evidence, list) and any(str(item) not in allowed for item in evidence):
+                return dropped
+            cleaned: dict[str, Any] = {}
+            for key, child in value.items():
+                candidate = clean(child)
+                if candidate is not dropped:
+                    cleaned[key] = candidate
+            return cleaned
+        if isinstance(value, list):
+            cleaned_items = [clean(item) for item in value]
+            return [item for item in cleaned_items if item is not dropped]
+        return value
+
+    payload = clean(output.model_dump(mode="json"))
+    if not isinstance(payload, dict):
+        raise ValueError("No se pudo sanear la salida estructurada.")
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        warning = "Se omitieron bloques con citas no autorizadas por el expediente."
+        if warning not in warnings:
+            warnings.append(warning)
+    return type(output).model_validate(payload)
+
+
 class SignalGovernedLLMProvider:
     """Adapter for Signal's governed `/api/v1/ai/run` proxy."""
 
@@ -534,7 +574,11 @@ class SignalGovernedLLMProvider:
                 + _non_negative_int(repaired_usage.get("cost_micros")),
             }
             output = schema.model_validate_json(_signal_output(payload))
-            _validate_allowed_evidence(output, allowed_evidence_ids)
+            try:
+                _validate_allowed_evidence(output, allowed_evidence_ids)
+            except ValueError:
+                output = _strip_unauthorized_evidence_blocks(output, allowed_evidence_ids)
+                _validate_allowed_evidence(output, allowed_evidence_ids)
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
         return LLMResult(
             output=output,
