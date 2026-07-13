@@ -801,3 +801,62 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Cierre local: Ruff y mypy correctos; backend **108 passed, 174 skipped** (integraciones sin
   `TEST_*`); frontend **94/94**, ESLint, TypeScript, build Next.js y drift del cliente OpenAPI
   correctos. `git diff --check` correcto.
+
+## Prompt 27 · Promoción accionable desde señales
+
+- Release productivo activado: `20260713T103600Z-p27-10b789b`, construido desde `10b789b` y con la
+  mejora previa de candidatos `4fc6acb` incluida. El despliegue usó el modo rápido UAT de D-022 con
+  backup local, restore aislado, release inmutable y `oracle-control update`.
+- La promoción de señal a oportunidad acepta ahora siguiente acción, fecha objetivo y creación de
+  tarea enlazada. La traza de promoción queda persistida en el contenido de la tarea, sin exponer
+  detalles técnicos al usuario final.
+- Verificación funcional inicial en producción detectó un defecto real: el modal mostraba fecha,
+  pero el submit no enviaba `due_date` por falta de nombres de formulario estables. Se corrigió en
+  `src/components/dossiers/dossier-intelligence-section.tsx` y la corrección viajó en el release
+  del prompt 28.
+- Verificación post-fix en producción con señal UAT marcada:
+  `0b087e6c-b289-4312-9361-fb259eb91053`. La UI mostró «Oportunidad creada» y la base confirmó
+  oportunidad `be4cc416-248b-4d64-ad7d-42b92f92981e` con `deadline=2026-07-21` y tarea
+  `1a955891-6acc-4748-8a09-4578d911f7a1` con `due_date=2026-07-21`, `origin=signal` y vínculo a
+  la oportunidad.
+- Verificación específica de candidatos CATL: en
+  `/app/dossiers/292d85e5-3dc1-4c2f-81a5-8a73a29e1fb4/actors?view=candidates` aparecen
+  **CATL** y **Stellantis** como candidatos detectados, ambos con 2 fuentes.
+- Checks locales focales: test de componente de señales **8/8**, `npm run typecheck`,
+  `npm run lint` y `git diff --check` correctos.
+
+## Prompt 28 · Deduplicación de señales en ingesta
+
+- Release productivo activado: `20260713T110700Z-p28-800dbdb`, construido desde
+  `800dbdbe5b6fedb7a6a298578701dd2e357dbe8e`. CI verde en GitHub Actions run
+  `29244552826`: frontend/contract, backend+migraciones+integración PostgreSQL/Redis/Celery,
+  seguridad, imágenes y SBOM.
+- Despliegue D-022 ejecutado con backup local
+  `/var/backups/opn-oracle/20260713T110342Z-20260713T103600Z-p27-10b789b/MANIFEST.txt` y restore
+  aislado
+  `/var/backups/opn-oracle/restore-evidence/20260713T110342Z-20260713T103600Z-p27-10b789b.RESTORE_EVIDENCE.txt`.
+  `oracle-control validate`, `oracle-control update`, `oracle-control health` y
+  `scripts/smoke-production.sh` correctos. El release activo queda en
+  `/opt/opn-oracle/releases/20260713T110700Z-p28-800dbdb`.
+- Migración aplicada: `20260713_0016`. Añade `signals.canonical_source_url`,
+  `signals.dedupe_key` e índice parcial `ix_signals_tenant_connection_dedupe`. Verificación SQL en
+  producción confirmó head, columnas e índice. `flask db current` con el usuario runtime no pudo
+  leer `alembic_version` por privilegios restrictivos; la comprobación del head se hizo con el
+  usuario administrativo de PostgreSQL dentro del contenedor.
+- La ingesta reutiliza una `Signal` existente del mismo tenant+conexión por URL canónica o, si no
+  hay URL, por título normalizado + fuente. Cada item recibido conserva su
+  `SignalIngestionRecord`; al reutilizar no duplica `DossierSignal` y solo reencola triaje si cambia
+  el contenido.
+- Verificación funcional en producción: desde Ajustes del expediente CATL
+  `292d85e5-3dc1-4c2f-81a5-8a73a29e1fb4` se pulsó «Sincronizar» dos veces en el monitor activo
+  `c09a5d80-281b-4d33-b7f4-6077634f58fc`. Ambas ejecuciones terminaron `succeeded` con
+  `received=1`, `created=0`, `duplicates=1`; el registro de ingesta existente quedó como
+  `duplicate` con `occurrence_count=3` y la URL del artículo de El Español conserva **1 señal** y
+  **1 vínculo** de expediente.
+- La bandeja global sigue mostrando duplicados históricos de otras URLs, por ejemplo
+  `forococheselectricos.com/...catl-defiende...` y `catl.com`, porque este prompt no retro-fusiona
+  datos existentes. Queda como deuda operativa si se decide limpiar UAT manualmente.
+- Checks locales: `uv run pytest --no-cov tests/test_signal_ingest_dedupe.py -q` **2/2**,
+  `uv run ruff check`, `uv run ruff format --check`, `uv run mypy` en servicios/modelos afectados,
+  test frontend de señales **8/8**, `npm run typecheck`, `npm run lint` y `git diff --check`
+  correctos.

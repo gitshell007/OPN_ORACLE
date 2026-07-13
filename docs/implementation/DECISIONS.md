@@ -242,3 +242,24 @@
 - **Consecuencias:** los cambios pequeños pueden desplegarse casi al ritmo de copiar el commit y
   reiniciar servicios, sin perder rollback ni restore probado. La pérdida total del servidor sigue
   siendo riesgo aceptado para UAT y debe cerrarse antes de operación estable con datos críticos.
+
+## D-023 — Deduplicación de ingesta por URL canónica y título/fuente
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-13
+- **Contexto:** Signal Avanza y los buscadores pueden entregar la misma historia con IDs de
+  proveedor distintos, por búsquedas o fuentes diferentes. La idempotencia por `provider_signal_id`
+  y `external_id` evita replays exactos, pero no evita duplicados semánticamente idénticos de la
+  misma URL.
+- **Decisión:** añadir una clave secundaria de deduplicación persistida en `signals.dedupe_key`.
+  Cuando hay URL, se usa `url:<canonical_source_url>`; la canonicalización baja esquema/host a
+  minúsculas, elimina fragmento, puerto por defecto, barra final y parámetros de tracking
+  (`utm_*`, `gclid`, `fbclid`, `gbraid`, `wbraid`, `msclkid`, `mc_cid`, `mc_eid`). Cuando no hay
+  URL, se usa `title:<source_name_normalized>:<title_normalized>` con `casefold` y espacios
+  colapsados. La búsqueda queda indexada por `tenant_id`, `provider_connection_id` y `dedupe_key`.
+- **Alternativas:** matching difuso/semántico, índice funcional sin columna persistida o limpieza
+  automática de duplicados históricos.
+- **Consecuencias:** se conserva una única señal nueva por historia dentro de una misma
+  conexión+tenant, pero cada entrega mantiene su `SignalIngestionRecord` y sus contadores. No se
+  fusionan datos históricos ni historias de fuentes distintas sin URL; una limpieza retroactiva
+  deberá ser una operación explícita con evidencia y rollback.
