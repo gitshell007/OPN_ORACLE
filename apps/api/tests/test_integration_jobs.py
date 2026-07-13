@@ -441,6 +441,13 @@ def test_signal_ingest_reuses_canonical_url_and_title_source_dedupe(
         )
         assert changed_record is not None
         assert changed_record.status == "changed"
+        db.session.execute(
+            delete(BackgroundJob).where(
+                BackgroundJob.tenant_id == ids["tenant"],
+                BackgroundJob.idempotency_key.like(f"signal-triage:{monitor.id}:%"),
+            )
+        )
+        db.session.commit()
 
 
 def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
