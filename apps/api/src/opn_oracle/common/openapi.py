@@ -667,10 +667,19 @@ def _declare_oracle_operation(
             "required": True,
             "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/{schema}"}}},
         }
-    if signal_monitor_create or signal_monitor_update or signal_monitor_action or (path in {
-        "/api/v1/changes/digest",
-        "/api/v1/meetings/{meeting_id}/briefings",
-    } and method == "post"):
+    if (
+        signal_monitor_create
+        or signal_monitor_update
+        or signal_monitor_action
+        or (
+            path
+            in {
+                "/api/v1/changes/digest",
+                "/api/v1/meetings/{meeting_id}/briefings",
+            }
+            and method == "post"
+        )
+    ):
         status = "202"
     elif path == "/api/v1/dossiers/bulk-delete" and method == "post":
         status = "200"
@@ -712,9 +721,7 @@ def _declare_oracle_operation(
         elif path in {
             "/api/v1/meetings/{meeting_id}/briefings",
             "/api/v1/meetings/{meeting_id}/briefing-state",
-        } and (
-            method == "post" or path.endswith("/briefing-state")
-        ):
+        } and (method == "post" or path.endswith("/briefing-state")):
             response = {"$ref": "#/components/schemas/MeetingBriefingGenerationResponse"}
         elif path == "/api/v1/signals" and method == "get":
             response = {"$ref": "#/components/schemas/GlobalSignalListResponse"}

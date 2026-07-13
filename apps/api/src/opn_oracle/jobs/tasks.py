@@ -312,9 +312,7 @@ HANDLERS: dict[str, Handler] = {
     "oracle.signal.triage": lambda payload, job: _triage_signal(payload, job),
     "oracle.memory.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
     "oracle.dossier_summary.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
-    "oracle.meeting_briefing.refresh": lambda payload, job: _refresh_meeting_briefing(
-        payload, job
-    ),
+    "oracle.meeting_briefing.refresh": lambda payload, job: _refresh_meeting_briefing(payload, job),
     "oracle.weekly_change.refresh": lambda payload, job: _refresh_weekly_change(payload, job),
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
