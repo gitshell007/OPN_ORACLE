@@ -31,8 +31,8 @@ producción ni Alembic downgrade.
 2. **Backup pre-release verificado:** crea backup local y prueba restore aislado; conserva el
    manifiesto y la evidencia. En el host:
    ```bash
-   sudo /opt/opn-oracle/current/scripts/oracle-control.sh backup
-   sudo /opt/opn-oracle/current/scripts/oracle-control.sh restore-test
+   sudo oracle-control backup
+   sudo oracle-control restore-test
    ```
 3. **Preparar el release** desde el commit `5ceae64` como artefacto inmutable en
    `/opt/opn-oracle/releases/<release-id>` con su `RELEASE_SHA256SUMS`, siguiendo el modelo de
@@ -47,18 +47,18 @@ producción ni Alembic downgrade.
    ```
 5. **Activar** el release (el activador restaura punteros si falla):
    ```bash
-   sudo /opt/opn-oracle/current/scripts/oracle-control.sh update <release-id>
+   sudo oracle-control update <release-id>
    ```
    Como no hay migración nueva, Alembic no debe aplicar cambios de esquema; verifica que el head
    sigue siendo `20260712_0015` y que no se ejecuta ningún downgrade.
 6. **Smoke y salud:**
    ```bash
    ./scripts/smoke-production.sh https://oracle.opnconsultoria.com
-   sudo /opt/opn-oracle/current/scripts/oracle-control.sh health
+   sudo oracle-control health
    ```
    Confirma HTTPS 200, un único beat, Celery `pong`, API/web solo en loopback y PostgreSQL/Redis sin
    puertos publicados.
-7. **Rollback si algo falla:** `sudo /opt/opn-oracle/current/scripts/oracle-control.sh rollback`
+7. **Rollback si algo falla:** `sudo oracle-control rollback`
    (solo aplicación; nunca esquema). Sigue `ROLLBACK.md`.
 
 > Nota operativa 2026-07-13: durante UAT el receipt off-host cifrado no bloquea este despliegue.
