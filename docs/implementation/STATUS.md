@@ -32,6 +32,13 @@ configuración y contratos no visibles para el usuario.
 - Smoke HTTPS, liveness/readiness, login web, Celery y un único Beat correctos. La comprobación
   autenticada del expediente CATL confirmó el panel «Objetivos e hipótesis» con un objetivo y dos
   hipótesis, sin «Paginación u ordenación no válida» ni errores de consola.
+- Reejecución del prompt 26 completada el 2026-07-13: producción ya estaba en el release objetivo
+  `20260713T045300Z-p24-5ceae64`, por lo que no se reactivó el mismo artefacto. Se creó el backup
+  local `/var/backups/opn-oracle/20260713T084438Z-20260713T045300Z-p24-5ceae64/MANIFEST.txt`, su
+  restore aislado quedó validado en
+  `/var/backups/opn-oracle/restore-evidence/20260713T084438Z-20260713T045300Z-p24-5ceae64.RESTORE_EVIDENCE.txt`,
+  y se repitieron smoke público, `oracle-control health`, `oracle-control validate`, Alembic head
+  `20260712_0015` y verificación visual autenticada del panel CATL sin errores de consola.
 
 ## Mejora implementada · actores desde fuentes y altas manuales
 
