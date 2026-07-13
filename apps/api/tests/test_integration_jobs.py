@@ -38,6 +38,7 @@ from opn_oracle.integrations.crypto import IntegrationKeyring
 from opn_oracle.integrations.models import (
     IntegrationInboxEvent,
     IntegrationOutboxEvent,
+    SignalIngestionRecord,
     SignalMonitorConfigVersion,
 )
 from opn_oracle.integrations.service import (
@@ -48,7 +49,14 @@ from opn_oracle.integrations.service import (
     store_credential,
     sync_monitor,
 )
-from opn_oracle.integrations.signal_avanza import SignalContractError, SignalTemporaryError
+from opn_oracle.integrations.signal_avanza import (
+    ProvenanceItem,
+    SignalContractError,
+    SignalItem,
+    SignalPage,
+    SignalTemporaryError,
+    SourceItem,
+)
 from opn_oracle.integrations.tasks import (
     dispatch_outbox,
     process_inbox,
@@ -319,6 +327,120 @@ def test_signal_sync_job_uses_replaceable_mock_and_persists_cursor(
         assert monitor is not None
         assert monitor.cursor == finished.result_ref["next_cursor"]
         assert monitor.last_synced_at is not None
+
+
+class _PageAdapter:
+    def __init__(self, pages: list[SignalPage]) -> None:
+        self.pages = pages
+        self.calls = 0
+
+    def sync_signals(self, monitor_id: str, *, cursor: str | None) -> SignalPage:
+        del monitor_id, cursor
+        page = self.pages[min(self.calls, len(self.pages) - 1)]
+        self.calls += 1
+        return page
+
+
+def _signal_item(
+    item_id: str,
+    *,
+    title: str = "CATL defiende su fábrica de baterías en España",
+    url: str | None = "https://example.test/noticia?utm_source=feed",
+    source_name: str = "Medio",
+    summary: str = "Resumen inicial",
+) -> SignalItem:
+    return SignalItem(
+        id=item_id,
+        monitor_id="mock-monitor-1",
+        type="news",
+        title=title,
+        summary=summary,
+        source=SourceItem(name=source_name, url=url, published_at=datetime.now(UTC)),
+        language="es",
+        tags=[],
+        entities=[],
+        categories=[],
+        content_hash=hashlib.sha256(f"{item_id}:{summary}".encode()).hexdigest(),
+        observed_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+        provenance=ProvenanceItem(connector="test", monitor_config_version=1),
+    )
+
+
+def test_signal_ingest_reuses_canonical_url_and_title_source_dedupe(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+) -> None:
+    app, ids = jobs_stack
+    same_url = SignalPage(
+        items=[
+            _signal_item("url-a", url="https://Example.test/noticia/?utm_source=feed#frag"),
+            _signal_item("url-b", url="https://example.test/noticia"),
+            _signal_item("url-c", url="https://example.test/otra"),
+        ],
+        has_more=False,
+        next_cursor="url-page",
+    )
+    same_title = SignalPage(
+        items=[
+            _signal_item(
+                "title-a", title="  Aviso industrial relevante  ", url=None, source_name="BOE"
+            ),
+            _signal_item(
+                "title-b", title="aviso   industrial RELEVANTE", url=None, source_name="BOE"
+            ),
+            _signal_item(
+                "title-c", title="aviso industrial relevante", url=None, source_name="Otro"
+            ),
+        ],
+        has_more=False,
+        next_cursor="title-page",
+    )
+    changed_url = SignalPage(
+        items=[
+            _signal_item(
+                "url-d",
+                url="https://example.test/noticia?utm_campaign=otra",
+                summary="Resumen actualizado",
+            )
+        ],
+        has_more=False,
+        next_cursor="changed-page",
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        app.extensions["signal_avanza_adapter"] = _PageAdapter([same_url, same_title, changed_url])
+        monitor = db.session.get(SignalMonitor, ids["monitor"])
+        assert monitor is not None
+        result_url = sync_monitor(monitor)
+        assert result_url["created"] == 2
+        assert result_url["duplicates"] == 1
+        assert db.session.scalar(select(func.count(Signal.id))) == 2
+        assert db.session.scalar(select(func.count(DossierSignal.id))) == 2
+        assert db.session.scalar(select(func.count(SignalIngestionRecord.id))) == 3
+        reused = db.session.scalar(select(Signal).where(Signal.external_id == "url-a"))
+        assert reused is not None
+        assert reused.canonical_source_url == "https://example.test/noticia"
+        assert reused.dedupe_key == "url:https://example.test/noticia"
+
+        result_title = sync_monitor(monitor)
+        assert result_title["created"] == 2
+        assert result_title["duplicates"] == 1
+        assert db.session.scalar(select(func.count(Signal.id))) == 4
+        assert db.session.scalar(select(func.count(DossierSignal.id))) == 4
+
+        result_changed = sync_monitor(monitor)
+        assert result_changed["created"] == 0
+        assert result_changed["duplicates"] == 1
+        assert db.session.scalar(select(func.count(Signal.id))) == 4
+        db.session.refresh(reused)
+        assert reused.summary == "Resumen actualizado"
+        changed_record = db.session.scalar(
+            select(SignalIngestionRecord).where(SignalIngestionRecord.provider_signal_id == "url-d")
+        )
+        assert changed_record is not None
+        assert changed_record.status == "changed"
 
 
 def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(

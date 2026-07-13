@@ -431,6 +431,11 @@ export function DossierIntelligenceSection({
   async function promote(event: FormEvent) {
     event.preventDefault();
     if (!selected || !isSignal(selected)) return;
+    const form = new FormData(event.currentTarget as HTMLFormElement);
+    const submittedTitle = String(form.get("title") ?? "").trim();
+    const submittedAction = String(form.get("action") ?? "").trim();
+    const submittedDueDate = String(form.get("due_date") ?? "").trim();
+    const submittedCreateTask = form.get("create_task") === "on" && submittedAction.length > 0;
     setBusy(true);
     setMutationError(null);
     try {
@@ -438,12 +443,12 @@ export function DossierIntelligenceSection({
         selected.link.id,
         {
           kind: promotionKind,
-          title: promotionTitle.trim(),
+          title: submittedTitle,
           ...(promotionKind === "opportunity"
-            ? { next_action: promotionAction.trim() }
-            : { mitigation: promotionAction.trim() }),
-          ...(promotionDueDate ? { due_date: promotionDueDate } : {}),
-          create_task: promotionCreateTask && promotionAction.trim().length > 0,
+            ? { next_action: submittedAction }
+            : { mitigation: submittedAction }),
+          ...(submittedDueDate ? { due_date: submittedDueDate } : {}),
+          create_task: submittedCreateTask,
         },
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
@@ -934,11 +939,12 @@ export function DossierIntelligenceSection({
             <form onSubmit={promote}>
               <label className="field">
                 <span>Título</span>
-                <input required minLength={2} maxLength={300} value={promotionTitle} onChange={(event) => setPromotionTitle(event.target.value)} autoFocus />
+                <input name="title" required minLength={2} maxLength={300} value={promotionTitle} onChange={(event) => setPromotionTitle(event.target.value)} autoFocus />
               </label>
               <label className="field">
                 <span>{promotionKind === "opportunity" ? "Siguiente acción" : "Mitigación"}</span>
                 <textarea
+                  name="action"
                   maxLength={5000}
                   rows={3}
                   value={promotionAction}
@@ -952,10 +958,11 @@ export function DossierIntelligenceSection({
               </label>
               <label className="field">
                 <span>Fecha objetivo</span>
-                <input type="date" value={promotionDueDate} onChange={(event) => setPromotionDueDate(event.target.value)} />
+                <input name="due_date" type="date" value={promotionDueDate} onChange={(event) => setPromotionDueDate(event.target.value)} />
               </label>
               <label className="inline-check">
                 <input
+                  name="create_task"
                   type="checkbox"
                   checked={promotionCreateTask && promotionAction.trim().length > 0}
                   disabled={!promotionAction.trim()}

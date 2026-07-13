@@ -7,6 +7,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import current_app
 from sqlalchemy import or_, select, text
@@ -32,6 +33,20 @@ from opn_oracle.platform.models import ApiCredential, IntegrationConnection
 
 class IdempotencyConflict(RuntimeError):
     pass
+
+
+TRACKING_QUERY_PREFIXES = ("utm_",)
+TRACKING_QUERY_KEYS = frozenset(
+    {
+        "fbclid",
+        "gclid",
+        "gbraid",
+        "mc_cid",
+        "mc_eid",
+        "msclkid",
+        "wbraid",
+    }
+)
 
 
 def adapter_for_connection(connection: IntegrationConnection) -> SignalAvanzaAdapter:
@@ -61,6 +76,48 @@ def canonical_hash(value: Any) -> bytes:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
     ).digest()
+
+
+def canonical_source_url(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    parsed = urlsplit(str(value).strip())
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return None
+    port = parsed.port
+    netloc = hostname
+    if port is not None and not (
+        (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    ):
+        netloc = f"{hostname}:{port}"
+    path = parsed.path or ""
+    path = path.rstrip("/") if path != "/" else ""
+    query_items = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() not in TRACKING_QUERY_KEYS
+        and not key.lower().startswith(TRACKING_QUERY_PREFIXES)
+    ]
+    query = urlencode(query_items, doseq=True)
+    return urlunsplit((scheme, netloc, path, query, ""))
+
+
+def normalized_signal_title(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def signal_dedupe_key(item: SignalItem, canonical_url: str | None) -> str | None:
+    if canonical_url:
+        return f"url:{canonical_url}"
+    title = normalized_signal_title(item.title)
+    source_name = " ".join(item.source.name.casefold().split())
+    if not title or not source_name:
+        return None
+    return f"title:{source_name}:{title}"
 
 
 def outbox_request_hash(
@@ -304,6 +361,9 @@ def _ingest_item(
 ) -> tuple[Signal, bool]:
     raw = item.model_dump(mode="json")
     digest = canonical_hash(raw)
+    source_url = str(item.source.url) if item.source.url else None
+    canonical_url = canonical_source_url(source_url)
+    dedupe_key = signal_dedupe_key(item, canonical_url)
     entities = item.entities or extract_signal_entities(
         [], raw_payload=raw, title=item.title, summary=item.summary or ""
     )
@@ -327,7 +387,9 @@ def _ingest_item(
         ingestion.status = "changed"
         signal.title = item.title
         signal.summary = item.summary or ""
-        signal.source_url = str(item.source.url) if item.source.url else None
+        signal.source_url = source_url
+        signal.canonical_source_url = canonical_url
+        signal.dedupe_key = dedupe_key
         signal.published_at = item.source.published_at
         signal.language = item.language
         signal.tags = item.tags
@@ -344,6 +406,17 @@ def _ingest_item(
             Signal.external_id == item.id,
         )
     )
+    if existing is None and dedupe_key is not None:
+        existing = db.session.scalar(
+            select(Signal)
+            .where(
+                Signal.tenant_id == monitor.tenant_id,
+                Signal.provider_connection_id == monitor.connection_id,
+                Signal.dedupe_key == dedupe_key,
+            )
+            .order_by(Signal.ingested_at.asc(), Signal.id.asc())
+            .limit(1)
+        )
     created = existing is None
     signal = existing or Signal(
         tenant_id=monitor.tenant_id,
@@ -354,7 +427,9 @@ def _ingest_item(
         summary=item.summary or "",
         source_type=item.type,
         source_name=item.source.name,
-        source_url=str(item.source.url) if item.source.url else None,
+        source_url=source_url,
+        canonical_source_url=canonical_url,
+        dedupe_key=dedupe_key,
         published_at=item.source.published_at,
         language=item.language,
         tags=item.tags,
@@ -364,6 +439,24 @@ def _ingest_item(
         credibility=int(item.source.credibility_score or 50),
         raw_payload=raw,
     )
+    changed_existing = False
+    if not created and signal.raw_hash != digest:
+        changed_existing = True
+        signal.title = item.title
+        signal.summary = item.summary or ""
+        signal.source_type = item.type
+        signal.source_name = item.source.name
+        signal.source_url = source_url
+        signal.canonical_source_url = canonical_url
+        signal.dedupe_key = dedupe_key
+        signal.published_at = item.source.published_at
+        signal.language = item.language
+        signal.tags = item.tags
+        signal.entities = entities
+        signal.categories = item.categories
+        signal.raw_hash = digest
+        signal.credibility = int(item.source.credibility_score or signal.credibility or 50)
+        signal.raw_payload = raw
     if created:
         db.session.add(signal)
         db.session.flush()
@@ -375,10 +468,10 @@ def _ingest_item(
         inbox_event_id=inbox_event_id,
         provider_signal_id=item.id,
         content_hash=digest,
-        status="created" if created else "duplicate",
+        status="created" if created else "changed" if changed_existing else "duplicate",
     )
     db.session.add(record)
-    _link_and_stage_triage(monitor, signal, item, digest, force=created)
+    _link_and_stage_triage(monitor, signal, item, digest, force=created or changed_existing)
     return signal, created
 
 

@@ -228,6 +228,13 @@ class Signal(TenantDomainMixin, Base):
         ),
         CheckConstraint("credibility BETWEEN 0 AND 100", name="signal_credibility"),
         Index("ix_signals_tenant_published", "tenant_id", "published_at"),
+        Index(
+            "ix_signals_tenant_connection_dedupe",
+            "tenant_id",
+            "provider_connection_id",
+            "dedupe_key",
+            postgresql_where=text("dedupe_key IS NOT NULL"),
+        ),
     )
     provider: Mapped[str] = mapped_column(String(80), nullable=False)
     provider_connection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
@@ -237,6 +244,8 @@ class Signal(TenantDomainMixin, Base):
     source_type: Mapped[str] = mapped_column(String(80), nullable=False)
     source_name: Mapped[str] = mapped_column(String(240), nullable=False)
     source_url: Mapped[str | None] = mapped_column(String(1500))
+    canonical_source_url: Mapped[str | None] = mapped_column(String(1500))
+    dedupe_key: Mapped[str | None] = mapped_column(String(2000))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
