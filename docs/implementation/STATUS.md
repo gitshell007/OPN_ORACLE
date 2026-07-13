@@ -1,6 +1,6 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-12
+Actualizado: 2026-07-13
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
@@ -9,8 +9,17 @@ fuente como `company_signal`, subtítulos técnicos de las áreas globales y men
 canónico» por textos de negocio en español. Las claves internas se conservan únicamente en tipos,
 configuración y contratos no visibles para el usuario.
 
-El árbol de trabajo contiene la mejora en curso descrita a continuación y otros cambios locales
-preservados; no se ha realizado commit ni despliegue en esta fase.
+## Redespliegue P24 · objetivos e hipótesis
+
+- El fix de ordenación de objetivos e hipótesis (`5ceae64d87bfdb8441510319c8addf3b168df9e4`)
+  superó CI y quedó activo como release inmutable
+  `20260713T045300Z-p24-5ceae64`. No introduce migración: la base permanece en
+  `20260712_0015`.
+- Gate de operación superado con backup previo, restauración aislada y recibo de copia cifrada
+  externa. Se validaron manifest, Compose, Nginx, permisos de secretos y exposición de red.
+- Smoke HTTPS, liveness/readiness, login web, Celery y un único Beat correctos. La comprobación
+  autenticada del expediente CATL confirmó el panel «Objetivos e hipótesis» con un objetivo y dos
+  hipótesis, sin «Paginación u ordenación no válida» ni errores de consola.
 
 ## Mejora implementada · actores desde fuentes y altas manuales
 
