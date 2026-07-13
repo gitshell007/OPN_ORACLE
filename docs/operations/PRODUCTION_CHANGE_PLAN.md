@@ -12,7 +12,8 @@ aprobación separada y una sesión de respaldo.
 
 1. Rotar inmediatamente la contraseña root expuesta, por consola/sesión interactiva y sin historial.
 2. Confirmar email de Let's Encrypt y autorización para aceptar términos/emitir certificado.
-3. Confirmar destino, cifrado, retención, RPO y RTO de backups off-host.
+3. Confirmar destino, cifrado, retención, RPO y RTO de backups off-host antes de operación estable
+   con datos críticos; no bloquea el modo rápido UAT.
 4. Confirmar método de entrega: build versionado en servidor o imágenes de registry.
 5. Confirmar email/nombre del primer superadmin; contraseña solo interactiva.
 6. Confirmar Microsoft Graph (`Mail.Send`, consentimiento, client secret) y remitente. Signal HTTP, IA real y documentos deben seguir deshabilitados hasta
@@ -45,7 +46,7 @@ y demasiados workers para este host. Se conservará para desarrollo.
 | `/opt/opn-oracle/current` | symlink root:root | activar release atómicamente |
 | `/etc/opn-oracle/oracle.env` | root:oracle-deploy 0640 o más restrictivo | config sin imprimir valores |
 | `/etc/opn-oracle/secrets/*` | UID del consumidor y 0400, ver manifiesto | DB, Redis, Flask, integrations |
-| `/var/backups/opn-oracle` | root:oracle-deploy 0750 | staging local, no copia única |
+| `/var/backups/opn-oracle` | root:oracle-deploy 0750 | backups locales UAT, rotación y restore aislado |
 | `/etc/nginx/sites-available/oracle.conf` | root:root 0644 | proxy/ACME/TLS sin secretos |
 | `oracle-deploy` | password bloqueado, key-only | usuario de despliegue tras validar segunda sesión |
 
@@ -130,8 +131,8 @@ Internet -> Nginx host :80/:443
 - Crear backup lógico inicial PostgreSQL + manifiesto/checksum y probar restore en un entorno
   aislado antes de aceptar datos reales.
 - El storage documental sigue deshabilitado; cuando se habilite, backup incluye objetos y claves.
-- La copia local no cuenta como backup; destino off-host y credencial write-limited se definen en
-  F15.
+- La copia local verificada cuenta como gate de despliegue rápido/UAT. El destino off-host y la
+  credencial write-limited se definen antes de operar datos críticos.
 
 ## Orden de aplicación propuesto
 
@@ -175,7 +176,8 @@ Internet -> Nginx host :80/:443
 - Host único: sin HA; caída del host implica indisponibilidad.
 - 4 GiB es ajustado para parsing/IA; producción completa puede requerir upgrade.
 - Password root actualmente comprometido y auth por password habilitado: blocker absoluto.
-- Sin backup off-host/restore, no hay autorización para datos reales.
+- Sin backup off-host/restore descargado, no hay autorización para operación estable con datos
+  críticos.
 - CSP enforcement, HSTS, S3/ClamAV/sandbox, Trivy/SBOM y carga staging siguen abiertos.
 - Docker group equivale prácticamente a root; el modelo de permisos del deploy debe aprobarse.
 

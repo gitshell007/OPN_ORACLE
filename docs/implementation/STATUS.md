@@ -4,6 +4,18 @@ Actualizado: 2026-07-13
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Operación · despliegue rápido UAT
+
+- El runbook de producción pasa a tener un modo rápido por defecto para construcción/UAT: release
+  nuevo en `/opt/opn-oracle/releases`, backup lógico local en `/var/backups/opn-oracle`, restore
+  aislado validado, `oracle-control update` y health/smoke.
+- El receipt de copia cifrada off-host deja de bloquear despliegues rápidos. Se conserva como modo
+  estricto mediante `ORACLE_REQUIRE_OFFSITE_RECEIPT=1` y vuelve a ser obligatorio antes de operación
+  estable con datos críticos.
+- `scripts/deploy-production.sh`, `scripts/backup-production.sh` y `scripts/oracle-control.sh`
+  quedan alineados con esa política: backup local + evidencia de restore son obligatorios; receipt
+  remoto es opcional salvo modo estricto.
+
 Revisión lingüística de la aplicación actualizada el 2026-07-12: se sustituyeron códigos de
 fuente como `company_signal`, subtítulos técnicos de las áreas globales y mensajes como «Directorio
 canónico» por textos de negocio en español. Las claves internas se conservan únicamente en tipos,

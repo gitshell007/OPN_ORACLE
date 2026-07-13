@@ -20,10 +20,14 @@ con objetos, metadatos y claves de cifrado.
 - genera `MANIFEST.txt`, `ARTIFACT_CHECKSUMS.sha256` y `CONFIG_CHECKSUMS.sha256`;
 - escribe primero en un directorio `.partial` y lo mueve al nombre final solo tras validar todo.
 
-El resultado local no es por sí solo un backup. Debe copiarse cifrado a un destino off-host con
-credencial de escritura limitada, retención/inmutabilidad y monitorización. El destino, RPO, RTO,
-rotación y procedimiento de borrado continúan siendo decisiones operativas explícitas; no se
-simula una copia remota cuando no existe proveedor configurado.
+Para la fase actual de construcción/UAT, el resultado local verificado sí habilita un despliegue
+rápido: manifiesto local, checksums y restore aislado. La copia cifrada off-host queda recomendada,
+pero no bloquea releases salvo que el operador active `ORACLE_REQUIRE_OFFSITE_RECEIPT=1`.
+
+Cuando haya uso estable con datos que no puedan perderse, debe volver a exigirse una copia cifrada a
+un destino off-host con credencial de escritura limitada, retención/inmutabilidad y monitorización.
+El destino, RPO, RTO, rotación y procedimiento de borrado continúan siendo decisiones operativas
+explícitas; no se simula una copia remota cuando no existe proveedor configurado.
 
 `scripts/restore-test-production.sh` no acepta host, URL ni nombre de destino. Siempre crea:
 
@@ -77,17 +81,16 @@ Para validar después que una evidencia pertenece exactamente al manifiesto y du
 ```
 
 Cambiar un byte del dump, manifiesto, snapshot o evidencia invalida el gate. La evidencia local no
-demuestra la copia off-host; el pipeline de backup debe adjuntar además el receipt/version ID del
-proveedor y verificar periódicamente una descarga desde ese destino.
+demuestra la copia off-host; en modo estricto el pipeline de backup debe adjuntar además el
+receipt/version ID del proveedor y verificar periódicamente una descarga desde ese destino.
 
 ## Gate de release
 
-En un upgrade con volumen PostgreSQL existente, antes de Alembic se exigen cuatro pruebas:
+En un upgrade rápido con volumen PostgreSQL existente, antes de Alembic se exigen tres pruebas:
 
 1. `MANIFEST.txt` y todos sus checksums válidos;
 2. evidencia válida de restore aislado para ese mismo hash;
-3. receipt comprobado de la copia cifrada off-host;
-4. release anterior y procedimiento de rollback disponibles.
+3. release anterior y procedimiento de rollback disponibles.
 
 El verificador local del punto 2 es:
 
@@ -96,9 +99,13 @@ El verificador local del punto 2 es:
   "$ORACLE_BACKUP_MANIFEST" "$ORACLE_BACKUP_RESTORE_EVIDENCE"
 ```
 
+El modo estricto añade una cuarta prueba: receipt comprobado de la copia cifrada off-host. Se activa
+con `ORACLE_REQUIRE_OFFSITE_RECEIPT=1` y `ORACLE_BACKUP_OFFSITE_RECEIPT=/ruta/receipt`.
+
 El primer despliegue en un host auditado sin volumen previo debe usar un gate de bootstrap vacío
 distinto; no debe fabricar un manifiesto ni relajar el gate de upgrades. Inmediatamente después de
-migrar y antes de cargar datos reales, crea backup, restore aislado y copia off-host.
+migrar y antes de cargar datos reales, crea backup y restore aislado. La copia off-host se configura
+cuando el proyecto pase de UAT a operación estable.
 
 ## Automatización diaria y retención de 30 días
 

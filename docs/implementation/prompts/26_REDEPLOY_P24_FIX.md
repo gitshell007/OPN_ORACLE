@@ -28,8 +28,8 @@ producción ni Alembic downgrade.
 
 1. **Prerrequisito CI:** confirma que el pipeline de GitHub Actions está **verde** en `5ceae64`
    (frontend, backend con PostgreSQL/Redis/Celery, migraciones, scans, imágenes, SBOM).
-2. **Backup pre-release verificado:** crea backup y prueba restore aislado; conserva el manifiesto y
-   el receipt off-host cifrado. En el host:
+2. **Backup pre-release verificado:** crea backup local y prueba restore aislado; conserva el
+   manifiesto y la evidencia. En el host:
    ```bash
    sudo /opt/opn-oracle/current/scripts/oracle-control.sh backup
    sudo /opt/opn-oracle/current/scripts/oracle-control.sh restore-test
@@ -61,6 +61,10 @@ producción ni Alembic downgrade.
 7. **Rollback si algo falla:** `sudo /opt/opn-oracle/current/scripts/oracle-control.sh rollback`
    (solo aplicación; nunca esquema). Sigue `ROLLBACK.md`.
 
+> Nota operativa 2026-07-13: durante UAT el receipt off-host cifrado no bloquea este despliegue.
+> Para volver al gate estricto, ejecutar con `ORACLE_REQUIRE_OFFSITE_RECEIPT=1` y aportar
+> `ORACLE_BACKUP_OFFSITE_RECEIPT`.
+
 ## Verificación específica del fix (obligatoria)
 
 Autenticado en Vector, entra en un expediente con base inicial (por ejemplo el de prueba
@@ -77,7 +81,8 @@ Autenticado en Vector, entra en un expediente con base inicial (por ejemplo el d
       migración nueva.
 - [ ] Smoke público, health, worker y beat correctos.
 - [ ] Panel «Objetivos e hipótesis» funcional en producción.
-- [ ] Backup pre-release + restore aislado + receipt off-host registrados.
+- [ ] Backup pre-release local + restore aislado registrados; receipt off-host solo si se activa el
+      modo estricto.
 - [ ] `docs/implementation/STATUS.md` actualizado con release-id, comandos ejecutados y resultado.
 
 ## No hacer

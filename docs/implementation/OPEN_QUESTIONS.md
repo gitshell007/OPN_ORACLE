@@ -22,7 +22,8 @@
 - Hostname, fingerprint SSH y DNS A ya fueron confirmados en la auditoría del 11 de julio de 2026; no existe AAAA.
 - Let's Encrypt usa `info@opnconsultoria.com`; certificado y dry-run se verificaron el 11 de julio de 2026.
 - Falta email/nombre del primer superadmin; su contraseña debe introducirse de forma interactiva.
-- Falta destino y política de retención de backups offsite.
+- Falta destino y política de retención de backups offsite; ya no bloquea UAT/despliegue rápido,
+  pero sí debe cerrarse antes de operación estable con datos críticos.
 - Falta proveedor/registry y estrategia de despliegue.
 - Microsoft Graph está elegido: tenant/client IDs configurados y remitente previsto `info@opnconsultoria.com`; falta crear/materializar client secret y verificar `Mail.Send` application + admin consent.
 - No registrar en este documento la contraseña SSH ya facilitada por el usuario.

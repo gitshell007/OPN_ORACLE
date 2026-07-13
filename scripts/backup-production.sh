@@ -15,8 +15,14 @@ umask 077
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="${ORACLE_ENV_FILE:-/etc/opn-oracle/oracle.env}"
 backup_root="${ORACLE_BACKUP_ROOT:-/var/backups/opn-oracle}"
+require_offsite_receipt="${ORACLE_REQUIRE_OFFSITE_RECEIPT:-0}"
 postgres_image="postgres:17-bookworm"
 database_name="opn_oracle"
+
+if [[ "$require_offsite_receipt" != "0" && "$require_offsite_receipt" != "1" ]]; then
+  echo "ORACLE_REQUIRE_OFFSITE_RECEIPT solo admite 0 o 1." >&2
+  exit 2
+fi
 
 for command_name in docker sha256sum date awk grep cp mkdir mv chmod find sort xargs rm wc; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -178,7 +184,7 @@ manifest="$staging_dir/MANIFEST.txt"
   printf 'dump_bytes=%s\n' "$dump_bytes"
   printf 'config_checksum_file=CONFIG_CHECKSUMS.sha256\n'
   printf 'restore_test_required=true\n'
-  printf 'offsite_copy_required=true\n'
+  printf 'offsite_copy_required=%s\n' "$require_offsite_receipt"
 } > "$manifest"
 
 (
@@ -194,4 +200,4 @@ trap - EXIT INT TERM
 
 echo "Backup lógico creado y verificado localmente."
 echo "Manifiesto: $final_dir/MANIFEST.txt"
-echo "Pendiente obligatorio: restore aislado y copia cifrada off-host."
+echo "Pendiente recomendado: restore aislado. La copia cifrada off-host solo bloquea si ORACLE_REQUIRE_OFFSITE_RECEIPT=1."

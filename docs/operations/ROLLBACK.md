@@ -4,8 +4,10 @@ Rollback no autoriza pérdida de datos ni downgrade improvisado. Antes de cada r
 artefacto anterior, el Compose renderizado sin valores, la configuración Nginx y un backup
 verificado. Mantén una sesión SSH de respaldo durante cambios de red.
 
-El backup solo se considera verificado cuando su checksum, restore aislado y copia cifrada off-host
-cumplen `BACKUP_RESTORE.md`; un dump presente en el mismo servidor no habilita un rollback de datos.
+En el modo rápido actual, el backup se considera operativo para rollback de aplicación cuando su
+checksum y restore aislado cumplen `BACKUP_RESTORE.md`. Un dump presente pero no restaurado no es
+suficiente. La copia cifrada off-host vuelve a ser obligatoria únicamente con
+`ORACLE_REQUIRE_OFFSITE_RECEIPT=1`.
 
 ## Aplicación
 

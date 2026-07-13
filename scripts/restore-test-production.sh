@@ -76,7 +76,9 @@ done < "$manifest"
 if [[ "$format_version" != "1" || "$dump_format" != "postgresql_custom" || \
       "$dump_compression" != "gzip_level_6" || \
       ( -n "$dump_acl" && "$dump_acl" != "preserved" ) || \
-      "$restore_test_required" != "true" || "$offsite_copy_required" != "true" ]]; then
+      "$restore_test_required" != "true" || \
+      ( "$offsite_copy_required" != "true" && "$offsite_copy_required" != "false" && \
+        "$offsite_copy_required" != "0" && "$offsite_copy_required" != "1" ) ]]; then
   echo "El manifiesto no cumple el contrato de backup productivo." >&2
   exit 2
 fi
@@ -284,4 +286,4 @@ mv "$evidence_tmp" "$evidence_file"
 check_evidence "$evidence_file"
 echo "Restore completado en contenedor efímero sin puertos publicados."
 echo "Evidencia: $evidence_file"
-echo "La copia off-host cifrada sigue siendo un gate independiente."
+echo "La copia off-host cifrada solo bloquea si ORACLE_REQUIRE_OFFSITE_RECEIPT=1."

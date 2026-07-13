@@ -29,7 +29,7 @@ por defecto documentados.
 | `tls` | Subject, issuer, SAN, vigencia y estado del timer Certbot. |
 | `start`, `stop`, `restart` | Gestiona solo API, web, worker y beat; preserva PostgreSQL/Redis. |
 | `restart-service SERVICIO` | Reinicia un servicio de la allowlist; DB/Redis requieren frase exacta. |
-| `backup` | Ejecuta el backup lógico existente y ofrece un restore aislado. |
+| `backup` | Ejecuta el backup lógico local y ofrece un restore aislado. |
 | `restore-test` | Restaura en red, volumen y contenedor efímeros sin puertos publicados. |
 | `update` | Activa un release inmutable después de checksums y gates de backup. |
 | `rollback` | Cambia solo la aplicación; jamás ejecuta downgrade de esquema. |
@@ -41,21 +41,30 @@ Cada mutación terminada se registra en `/var/log/opn-oracle-control.log` con ac
 resultado, release y duración, sin argumentos ni secretos. El fichero es `root:root 0600` y se
 rechaza si es un enlace simbólico.
 
-## Actualización segura
+## Actualización rápida y segura
 
-La consola no hace `git pull` sobre producción. Primero debe existir un release completo e
-inmutable en `/opt/opn-oracle/releases/<release-id>` con `RELEASE_SHA256SUMS`. Después:
+La consola no modifica el release activo in-place. Primero debe existir un release completo en
+`/opt/opn-oracle/releases/<release-id>` con `RELEASE_SHA256SUMS`; puede prepararse desde un
+`git archive` del commit validado o copiando el árbol ya probado desde el equipo operador. Después:
 
 ```bash
 sudo oracle-control update <release-id>
 ```
 
-La operación solicita tres ficheros regulares: manifiesto de backup, evidencia del restore aislado
-y receipt de copia cifrada off-host. Verifica la correspondencia backup/restore, pide la frase
+La operación solicita manifiesto de backup local y evidencia del restore aislado. El receipt
+off-host es opcional por defecto. Verifica la correspondencia backup/restore, pide la frase
 `ACTIVAR <release-id>`, cambia `current` y `ORACLE_RELEASE` de forma atómica y delega la migración y
 el despliegue al script productivo. Si el despliegue falla, restaura los punteros de aplicación,
 pero nunca intenta revertir automáticamente una migración; se debe diagnosticar y aplicar un
 forward-fix compatible.
+
+Para volver al gate estricto:
+
+```bash
+sudo ORACLE_REQUIRE_OFFSITE_RECEIPT=1 oracle-control update <release-id>
+```
+
+En ese modo la consola vuelve a exigir el receipt de copia cifrada off-host.
 
 ## Rollback
 
@@ -70,8 +79,8 @@ anterior. Consulta también `docs/operations/ROLLBACK.md`.
 ## Límites deliberados
 
 La consola nunca ejecuta `docker compose down`, `down -v`, `DROP DATABASE`, `pg_restore` sobre la
-base productiva, `git pull`, fuerza un push ni imprime contenido de secret files. PostgreSQL y Redis
-quedan activos en las paradas normales. Los servicios aceptados son exactamente `api`, `web`,
+base productiva, fuerza un push ni imprime contenido de secret files. PostgreSQL y Redis quedan
+activos en las paradas normales. Los servicios aceptados son exactamente `api`, `web`,
 `worker-core`, `beat`, `postgres` y `redis`; ningún texto del usuario se evalúa como un comando.
 
 ## Instalación en el host

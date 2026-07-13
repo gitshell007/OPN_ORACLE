@@ -48,12 +48,52 @@ ss -lntp
 files, la configuración no secreta puede ser operativamente sensible. Confirma que 5432/6379 no
 están publicados y que 3000/8000 solo se enlazarán a `127.0.0.1`.
 
+## Modo rápido de despliegue
+
+Mientras Oracle está en construcción/UAT, el camino normal es rápido y local:
+
+1. preparar un release nuevo desde el commit validado, sin `.git`, `.env`, secretos ni artefactos de
+   tests;
+2. crear backup lógico local en `/var/backups/opn-oracle`;
+3. verificar restore aislado para ese mismo backup;
+4. activar con `oracle-control update <release-id>`;
+5. ejecutar health/smoke público.
+
+No se parchea el release activo in-place. Si el cambio es pequeño, el release puede prepararse desde
+un `git archive` o copiando el árbol validado a `/opt/opn-oracle/releases/<release-id>` y generando
+`RELEASE_SHA256SUMS`. Esto cuesta poco más que un `git pull`, pero mantiene rollback mediante el
+symlink `/opt/opn-oracle/current`.
+
+Ejemplo desde una copia local ya validada y pusheada:
+
+```bash
+commit="$(git rev-parse --short HEAD)"
+release="$(date -u +%Y%m%dT%H%M%SZ)-quick-$commit"
+git archive --format=tar HEAD | ssh root@oracle.opnconsultoria.com \
+  "install -d -m 0750 /opt/opn-oracle/releases/$release && tar -x -C /opt/opn-oracle/releases/$release"
+ssh root@oracle.opnconsultoria.com \
+  "cd /opt/opn-oracle/releases/$release && find . -type f ! -name RELEASE_SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > RELEASE_SHA256SUMS"
+ssh root@oracle.opnconsultoria.com \
+  "install -o root -g root -m 0755 /opt/opn-oracle/releases/$release/scripts/oracle-control.sh /usr/local/sbin/oracle-control"
+```
+
+Después, en el host:
+
+```bash
+release_id="ID_DEL_RELEASE_PREPARADO"
+sudo oracle-control backup
+sudo oracle-control restore-test /var/backups/opn-oracle/ID_BACKUP/MANIFEST.txt
+sudo oracle-control update "$release_id"
+sudo oracle-control health
+/opt/opn-oracle/current/scripts/smoke-production.sh https://oracle.opnconsultoria.com
+```
+
 ## Backup gate
 
-La fase 15 debe producir un manifiesto con timestamp, release, snapshot/`pg_dump`, checksum,
-destino off-host y evidencia de restore aislado. Una copia en el mismo volumen no cuenta. El script
-de despliegue exige `ORACLE_BACKUP_MANIFEST` legible y se niega a actuar sin la frase de gate; esto
-no valida por sí solo la calidad del backup.
+El gate rápido exige un manifiesto local con timestamp, release, snapshot/`pg_dump`, checksum y
+evidencia de restore aislado. El script de despliegue exige `ORACLE_BACKUP_MANIFEST` y
+`ORACLE_BACKUP_RESTORE_EVIDENCE` legibles y valida que la evidencia corresponde al manifiesto antes
+de tocar la aplicación.
 
 El flujo reproducible, sus garantías y el gate separado para un bootstrap vacío están definidos en
 `docs/operations/BACKUP_RESTORE.md`. Para upgrades, valida además que la evidencia corresponde
@@ -64,7 +104,14 @@ exactamente al manifiesto antes de ejecutar Alembic:
   "$ORACLE_BACKUP_MANIFEST" "$ORACLE_BACKUP_RESTORE_EVIDENCE"
 ```
 
-La evidencia de restore no sustituye el receipt verificable de una copia cifrada off-host.
+La copia cifrada off-host queda como modo estricto opcional. Para activarlo:
+
+```bash
+export ORACLE_REQUIRE_OFFSITE_RECEIPT=1
+```
+
+En ese modo, `oracle-control update` y `deploy-production.sh` vuelven a exigir
+`ORACLE_BACKUP_OFFSITE_RECEIPT`.
 
 ## Aplicación
 
@@ -75,6 +122,7 @@ cd /opt/opn-oracle/current
 ORACLE_ENV_FILE=/etc/opn-oracle/oracle.env \
 ORACLE_SECRETS_DIR=/etc/opn-oracle/secrets \
 ORACLE_BACKUP_MANIFEST=/ruta/al/manifiesto-verificado \
+ORACLE_BACKUP_RESTORE_EVIDENCE=/ruta/a/evidencia-restore \
 ./scripts/deploy-production.sh --apply-authorized-stage-b
 ```
 

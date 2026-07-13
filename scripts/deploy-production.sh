@@ -6,7 +6,8 @@ if [[ "$mode" != "--apply-authorized-stage-b" && \
       "$mode" != "--bootstrap-authorized-empty" ]]; then
   echo "Modo seguro: no se ha aplicado nada." >&2
   echo "Bootstrap vacío: $0 --bootstrap-authorized-empty" >&2
-  echo "Upgrade: ORACLE_BACKUP_MANIFEST=... ORACLE_BACKUP_RESTORE_EVIDENCE=... ORACLE_BACKUP_OFFSITE_RECEIPT=... $0 --apply-authorized-stage-b" >&2
+  echo "Upgrade rápido: ORACLE_BACKUP_MANIFEST=... ORACLE_BACKUP_RESTORE_EVIDENCE=... $0 --apply-authorized-stage-b" >&2
+  echo "Upgrade estricto: ORACLE_REQUIRE_OFFSITE_RECEIPT=1 ORACLE_BACKUP_OFFSITE_RECEIPT=... ..." >&2
   exit 2
 fi
 
@@ -16,6 +17,12 @@ secrets_dir="${ORACLE_SECRETS_DIR:-/etc/opn-oracle/secrets}"
 backup_manifest="${ORACLE_BACKUP_MANIFEST:-}"
 backup_evidence="${ORACLE_BACKUP_RESTORE_EVIDENCE:-}"
 offsite_receipt="${ORACLE_BACKUP_OFFSITE_RECEIPT:-}"
+require_offsite_receipt="${ORACLE_REQUIRE_OFFSITE_RECEIPT:-0}"
+
+if [[ "$require_offsite_receipt" != "0" && "$require_offsite_receipt" != "1" ]]; then
+  echo "ORACLE_REQUIRE_OFFSITE_RECEIPT solo admite 0 o 1." >&2
+  exit 2
+fi
 
 for command_name in docker curl; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -64,12 +71,18 @@ if [[ "$mode" == "--bootstrap-authorized-empty" ]]; then
     fi
   fi
 else
-  for gate_file in "$backup_manifest" "$backup_evidence" "$offsite_receipt"; do
+  for gate_file in "$backup_manifest" "$backup_evidence"; do
     if [[ -z "$gate_file" || ! -f "$gate_file" || ! -r "$gate_file" || -L "$gate_file" ]]; then
-      echo "Upgrade rechazado: falta backup, evidencia de restore o receipt off-host válido." >&2
+      echo "Upgrade rechazado: falta backup local o evidencia de restore válida." >&2
       exit 2
     fi
   done
+  if [[ "$require_offsite_receipt" == "1" || -n "$offsite_receipt" ]]; then
+    if [[ -z "$offsite_receipt" || ! -f "$offsite_receipt" || ! -r "$offsite_receipt" || -L "$offsite_receipt" ]]; then
+      echo "Upgrade rechazado: falta receipt off-host válido en modo estricto." >&2
+      exit 2
+    fi
+  fi
   "$repo_root/scripts/restore-test-production.sh" \
     --check-evidence "$backup_manifest" "$backup_evidence"
 fi

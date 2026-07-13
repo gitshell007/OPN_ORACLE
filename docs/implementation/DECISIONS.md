@@ -117,8 +117,8 @@
 - **Contexto:** el remote autoritativo es GitHub y no existía pipeline versionado.
 - **Decisión:** PR/push ejecutan frontend, integración PostgreSQL/Redis/Celery, migraciones, scans,
   imágenes y SBOM. `workflow_dispatch` publica candidatos GHCR etiquetados solo por commit.
-  Producción conserva `oracle-control.sh` y los tres gates de backup; el workflow falla cerrado
-  mientras no exista un canal de despliegue aprobado.
+  Producción conserva `oracle-control.sh`; el workflow falla cerrado mientras no exista un canal de
+  despliegue aprobado.
 - **Consecuencias:** CI no necesita credenciales productivas y no se introduce un bypass de los
   gates operativos ni una clave SSH en el repositorio.
 
@@ -227,3 +227,18 @@
 - **Consecuencias:** la UI no inventa puntuaciones, puede priorizar las señales que ya tienen una
   valoración provisional y comunica con honestidad cuándo aún espera el triaje local gobernado por
   Signal.
+
+## D-022 — Despliegue rápido con backup local verificado
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-13
+- **Contexto:** los despliegues de iteración estaban quedando bloqueados por un receipt off-host
+  cifrado que todavía no tiene proveedor automatizado. La evidencia manual en OneDrive añadía
+  fricción y no mejoraba proporcionalmente el ciclo UAT.
+- **Decisión:** el modo normal de despliegue durante construcción/UAT exige backup lógico local,
+  checksums y restore aislado, pero no receipt off-host. Los releases siguen preparándose como
+  artefactos separados en `/opt/opn-oracle/releases` y se activan con `oracle-control update` para
+  mantener rollback. El modo estricto se conserva con `ORACLE_REQUIRE_OFFSITE_RECEIPT=1`.
+- **Consecuencias:** los cambios pequeños pueden desplegarse casi al ritmo de copiar el commit y
+  reiniciar servicios, sin perder rollback ni restore probado. La pérdida total del servidor sigue
+  siendo riesgo aceptado para UAT y debe cerrarse antes de operación estable con datos críticos.

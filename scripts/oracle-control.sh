@@ -13,6 +13,7 @@ BACKUP_ROOT="${ORACLE_BACKUP_ROOT:-/var/backups/opn-oracle}"
 DOMAIN="${ORACLE_DOMAIN:-oracle.opnconsultoria.com}"
 AUDIT_LOG="${ORACLE_CONTROL_AUDIT_LOG:-/var/log/opn-oracle-control.log}"
 LOCK_FILE="${ORACLE_CONTROL_LOCK:-/run/lock/opn-oracle-control.lock}"
+REQUIRE_OFFSITE_RECEIPT="${ORACLE_REQUIRE_OFFSITE_RECEIPT:-0}"
 
 APP_SERVICES=(api web worker-core beat)
 ALL_SERVICES=(api web worker-core beat postgres redis)
@@ -60,7 +61,7 @@ Comandos operativos interactivos:
   restart-service <nombre>  Reiniciar un servicio permitido
   backup                    Crear backup y ofrecer restore aislado
   restore-test              Probar un backup en contenedor efímero
-  update                    Activar un release ya preparado y verificado
+  update                    Activar un release con backup local y restore
   rollback                  Rollback solo de aplicación, nunca de esquema
   nginx-reload              nginx -t y reload seguro
   tls-dry-run               Ensayo de renovación Certbot
@@ -68,8 +69,8 @@ Comandos operativos interactivos:
 
 Servicios permitidos: api web worker-core beat postgres redis
 
-Nunca ejecuta git pull, docker compose down, down -v, DROP DATABASE,
-pg_restore sobre producción ni Alembic downgrade.
+No muta un release activo in-place. Nunca ejecuta docker compose down,
+down -v, DROP DATABASE, pg_restore sobre producción ni Alembic downgrade.
 EOF
 }
 
@@ -95,6 +96,8 @@ ensure_root() {
 }
 
 ensure_layout() {
+  [[ "$REQUIRE_OFFSITE_RECEIPT" == "0" || "$REQUIRE_OFFSITE_RECEIPT" == "1" ]] || \
+    die "ORACLE_REQUIRE_OFFSITE_RECEIPT solo admite 0 o 1."
   [[ -d "$RELEASES_DIR" ]] || die "No existe el directorio de releases: $RELEASES_DIR"
   [[ -L "$CURRENT_LINK" ]] || die "No existe el symlink current: $CURRENT_LINK"
   [[ -r "$ENV_FILE" && ! -L "$ENV_FILE" ]] || die "oracle.env no es regular/legible."
@@ -453,7 +456,7 @@ create_backup() {
   [[ -f "$manifest" && ! -L "$manifest" ]] || die "Manifiesto inválido."
   audit_event backup success "$started"
   success "Backup creado: $manifest"
-  warn "Sigue siendo obligatoria una copia cifrada off-host con receipt."
+  warn "La copia cifrada off-host queda recomendada; solo bloquea con ORACLE_REQUIRE_OFFSITE_RECEIPT=1."
   if confirm "¿Probar ahora el restore aislado?"; then
     "$CURRENT_DIR/scripts/restore-test-production.sh" --verify-isolated "$manifest"
   fi
@@ -549,17 +552,27 @@ activate_release() {
   acquire_lock
   ensure_layout
   local release="${1:-}" old_release target manifest evidence receipt started
+  local -a deploy_env
   started=$(date +%s); old_release="$(current_release)"
   [[ -n "$release" ]] || release="$(choose_release)" || return 0
   [[ "$release" != "$old_release" ]] || die "Ese release ya está activo."
   validate_release_dir "$release"
   target="$RELEASES_DIR/$release"
-  warn "No se ejecutará git pull. Se activará un release inmutable ya preparado."
+  warn "Se activará un release preparado; no se modificará el release activo in-place."
   heading "Gates obligatorios de upgrade"
   printf 'Manifest de backup: '; IFS= read -r manifest
   printf 'Evidencia de restore: '; IFS= read -r evidence
-  printf 'Receipt de copia off-host: '; IFS= read -r receipt
-  for path in "$manifest" "$evidence" "$receipt"; do [[ -f "$path" && -r "$path" && ! -L "$path" ]] || die "Gate ausente o inválido."; done
+  if [[ "$REQUIRE_OFFSITE_RECEIPT" == "1" ]]; then
+    printf 'Receipt de copia off-host: '; IFS= read -r receipt
+  else
+    printf 'Receipt de copia off-host [opcional]: '; IFS= read -r receipt
+  fi
+  for path in "$manifest" "$evidence"; do
+    [[ -f "$path" && -r "$path" && ! -L "$path" ]] || die "Gate ausente o inválido."
+  done
+  if [[ "$REQUIRE_OFFSITE_RECEIPT" == "1" || -n "$receipt" ]]; then
+    [[ -f "$receipt" && -r "$receipt" && ! -L "$receipt" ]] || die "Receipt off-host ausente o inválido."
+  fi
   "$CURRENT_DIR/scripts/restore-test-production.sh" --check-evidence "$manifest" "$evidence"
   confirm_phrase "Se migrará una sola vez y se activará $release." "ACTIVAR $release" || { warn "Cancelado."; return 0; }
   printf '%s\n' "$old_release" >"$APP_ROOT/PREVIOUS_RELEASE"
@@ -569,8 +582,13 @@ activate_release() {
   update_env_release "$release"
   update_release_marker "$release"
   ensure_layout
-  if ORACLE_BACKUP_MANIFEST="$manifest" ORACLE_BACKUP_RESTORE_EVIDENCE="$evidence" \
-      ORACLE_BACKUP_OFFSITE_RECEIPT="$receipt" "$CURRENT_DIR/scripts/deploy-production.sh" --apply-authorized-stage-b; then
+  deploy_env=(
+    "ORACLE_BACKUP_MANIFEST=$manifest"
+    "ORACLE_BACKUP_RESTORE_EVIDENCE=$evidence"
+    "ORACLE_REQUIRE_OFFSITE_RECEIPT=$REQUIRE_OFFSITE_RECEIPT"
+  )
+  [[ -z "$receipt" ]] || deploy_env+=("ORACLE_BACKUP_OFFSITE_RECEIPT=$receipt")
+  if env "${deploy_env[@]}" "$CURRENT_DIR/scripts/deploy-production.sh" --apply-authorized-stage-b; then
     audit_event activate-release success "$started"
     success "Release $release activado."
     show_health || warn "Revisa health antes de dar el cambio por cerrado."

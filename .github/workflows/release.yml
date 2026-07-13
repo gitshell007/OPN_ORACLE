@@ -71,6 +71,7 @@ jobs:
     steps:
       - name: Fail closed until protected deploy channel is configured
         run: |
-          echo "Production activation requires the host-side backup, restore and offsite gates."
+          echo "Production activation requires the host-side backup and restore gates."
+          echo "Offsite receipt is optional unless ORACLE_REQUIRE_OFFSITE_RECEIPT=1 is enabled on the host."
           echo "Use oracle-control.sh from the approved operator channel."
           exit 1
