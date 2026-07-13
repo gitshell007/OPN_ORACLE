@@ -1,6 +1,6 @@
 "use client";
 
-import { ApiError, api, type OracleChange } from "@oracle/api-client";
+import { ApiError, api, type OracleChange, type WeeklyChangeDigest } from "@oracle/api-client";
 import { ArrowRight, History, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -30,6 +30,29 @@ const STATUS_LABELS: Record<string, string> = {
   planned: "planificado",
 };
 
+type WeeklyChangeOutput = {
+  period_start?: string;
+  period_end?: string;
+  coverage_summary?: string;
+  changes?: Array<{
+    area?: string;
+    change?: string;
+    significance?: string;
+    previous_state?: string;
+    current_state?: string;
+  }>;
+  no_change_areas?: string[];
+};
+
+function digestOutput(digest: WeeklyChangeDigest | null): WeeklyChangeOutput | null {
+  const output = digest?.digest?.output;
+  return output && typeof output === "object" ? (output as WeeklyChangeOutput) : null;
+}
+
+function jobInProgress(digest: WeeklyChangeDigest | null) {
+  return ["queued", "running", "retrying"].includes(String(digest?.job?.status ?? ""));
+}
+
 export function ProductChanges() {
   const router = useRouter();
   const params = useSearchParams();
@@ -41,10 +64,16 @@ export function ProductChanges() {
   const [items, setItems] = useState<OracleChange[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [digest, setDigest] = useState<WeeklyChangeDigest | null>(null);
+  const [digestLoading, setDigestLoading] = useState(true);
+  const [digestRefreshing, setDigestRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const output = digestOutput(digest);
+  const digestBusy = digestRefreshing || jobInProgress(digest);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setDigestLoading(true);
     try {
       const result = await api.changes.list({ page, size: 10, type: type || undefined, since: since || undefined, search: query || undefined });
       setItems(result.data);
@@ -54,6 +83,13 @@ export function ProductChanges() {
       setError(reason instanceof ApiError ? reason.problem.detail : "No se pudieron cargar los cambios.");
     } finally {
       setLoading(false);
+    }
+    try {
+      setDigest(await api.changes.digest());
+    } catch {
+      setDigest(null);
+    } finally {
+      setDigestLoading(false);
     }
   }, [page, query, since, type]);
 
@@ -76,12 +112,60 @@ export function ProductChanges() {
     update({ q: search.trim() || undefined, page: undefined });
   }
 
+  async function refreshDigest() {
+    setDigestRefreshing(true);
+    try {
+      const next = await api.changes.refreshDigest({
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setDigest(next);
+      window.setTimeout(() => void api.changes.digest().then(setDigest).catch(() => undefined), 3500);
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.problem.detail : "No se pudo solicitar el digest estratégico.");
+    } finally {
+      setDigestRefreshing(false);
+    }
+  }
+
   const pages = Math.max(1, Math.ceil(total / 10));
   return (
     <div className="product-changes">
       <section className="page-heading">
         <div><div className="eyebrow">Prioridad y trazabilidad</div><h1>Qué ha cambiado</h1><p>Transiciones semánticas recientes, acotadas y vinculadas a su expediente.</p></div>
         <button className="vector-secondary" disabled={loading} onClick={() => void load()}><RefreshCw size={15} /> Actualizar</button>
+      </section>
+      <section className="changes-digest vector-panel" aria-busy={digestLoading || digestBusy}>
+        <header>
+          <div>
+            <span className="section-kicker">Digest estratégico</span>
+            <h2>Resumen semanal de cambios</h2>
+            <p>{digest?.dossier_title ? `Expediente: ${digest.dossier_title}` : "Se prepara sobre el expediente con actividad reciente."}</p>
+          </div>
+          <button className="vector-secondary" disabled={digestLoading || digestBusy} onClick={() => void refreshDigest()}><RefreshCw size={15} /> {digestBusy ? "Preparando…" : "Actualizar digest"}</button>
+        </header>
+        {digestLoading ? (
+          <p role="status">Consultando el último digest…</p>
+        ) : output ? (
+          <div className="changes-digest-content">
+            <p>{output.coverage_summary || "Digest generado sin comentario de cobertura."}</p>
+            <div className="changes-digest-grid">
+              {(output.changes ?? []).slice(0, 4).map((item, index) => (
+                <article key={`${item.area}-${index}`}>
+                  <span>{item.significance ? item.significance.toUpperCase() : "CAMBIO"}</span>
+                  <h3>{item.area || "Área estratégica"}</h3>
+                  <p>{item.change}</p>
+                  <small>{item.previous_state} → {item.current_state}</small>
+                </article>
+              ))}
+            </div>
+            {!(output.changes ?? []).length && <p>No se han detectado cambios estratégicos materiales en el periodo.</p>}
+          </div>
+        ) : (
+          <div className="global-inventory-state">
+            <strong>Aún no hay digest estratégico</strong>
+            <p>Solicita la primera generación y la pantalla conservará la versión anterior mientras se recalcula.</p>
+          </div>
+        )}
       </section>
       <form className="changes-filters" role="search" onSubmit={submit}>
         <label><span className="sr-only">Buscar cambios</span><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por motivo o expediente…" /></label>

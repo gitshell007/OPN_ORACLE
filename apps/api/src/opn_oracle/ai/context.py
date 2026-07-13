@@ -7,13 +7,14 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from opn_oracle.extensions import db
-from opn_oracle.oracle.links import EvidenceDossier
+from opn_oracle.oracle.links import EvidenceDossier, MeetingActor
 from opn_oracle.oracle.models import (
     Actor,
     Decision,
@@ -27,6 +28,7 @@ from opn_oracle.oracle.models import (
     Opportunity,
     RiskItem,
     Signal,
+    StatusHistory,
     StrategicDossier,
     Task,
 )
@@ -437,6 +439,159 @@ def build_dossier_situation_context(dossier_id: uuid.UUID, *, max_tokens: int) -
         "meeting_ids": [str(item.id) for item in meetings],
         "decision_ids": [str(item.id) for item in decisions],
         "task_ids": [str(item.id) for item in tasks],
+        "material_hash": material_hash,
+    }
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=manifest,
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(
+            sorted(set(base.injection_indicators) | set(enriched_indicators))
+        ),
+        estimated_tokens=max(1, len(encoded) // 4),
+    )
+
+
+def build_meeting_briefing_context(meeting_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+    """Build a dossier snapshot focused on one meeting and its declared participants."""
+
+    tenant_id = require_tenant_id()
+    meeting = db.session.scalar(
+        select(Meeting).where(Meeting.id == meeting_id, Meeting.tenant_id == tenant_id)
+    )
+    if meeting is None:
+        raise ValueError("Reunión no disponible.")
+    base = build_dossier_situation_context(meeting.dossier_id, max_tokens=max_tokens)
+    participants = list(
+        db.session.execute(
+            select(MeetingActor, Actor)
+            .join(Actor, Actor.id == MeetingActor.actor_id)
+            .where(
+                MeetingActor.tenant_id == tenant_id,
+                MeetingActor.meeting_id == meeting_id,
+            )
+            .order_by(Actor.canonical_name.asc())
+        )
+    )
+    enriched_payload = dict(base.payload)
+    enriched_payload["meeting_briefing"] = {
+        "meeting": {
+            "id": str(meeting.id),
+            "title": meeting.title,
+            "objective": _small_text(meeting.objective, 2000),
+            "status": meeting.status,
+            "scheduled_at": meeting.scheduled_at.isoformat() if meeting.scheduled_at else None,
+            "notes": _small_text(meeting.notes, 3000),
+            "content": meeting.content,
+        },
+        "participants": [
+            {
+                "actor_id": str(actor.id),
+                "name": actor.canonical_name,
+                "actor_type": actor.actor_type,
+                "provenance": actor.provenance,
+            }
+            for _, actor in participants
+        ],
+        "preparation_instruction": (
+            "Genera una preparación accionable para esta reunión concreta. "
+            "Si faltan datos o evidencias, decláralo como límite y pregunta, no lo inventes."
+        ),
+    }
+    enriched_indicators: list[str] = []
+    payload, redactions = _sanitize(enriched_payload, enriched_indicators)
+    fitted_payload = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted_payload)
+    material_hash = hashlib.sha256(_canonical(fitted_payload)).hexdigest()
+    manifest = base.manifest | {
+        "snapshot_kind": "meeting_briefing",
+        "meeting_id": str(meeting.id),
+        "meeting_version": meeting.version,
+        "participant_actor_ids": [str(actor.id) for _, actor in participants],
+        "material_hash": material_hash,
+    }
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=manifest,
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(
+            sorted(set(base.injection_indicators) | set(enriched_indicators))
+        ),
+        estimated_tokens=max(1, len(encoded) // 4),
+    )
+
+
+def build_weekly_change_context(
+    dossier_id: uuid.UUID,
+    *,
+    period_start: datetime,
+    period_end: datetime,
+    max_tokens: int,
+) -> BuiltContext:
+    """Build a strategic weekly-change snapshot for one dossier and period."""
+
+    tenant_id = require_tenant_id()
+    if period_end <= period_start:
+        raise ValueError("El periodo de cambios no es válido.")
+    base = build_dossier_situation_context(dossier_id, max_tokens=max_tokens)
+    status_changes = list(
+        db.session.scalars(
+            select(StatusHistory)
+            .where(
+                StatusHistory.tenant_id == tenant_id,
+                StatusHistory.dossier_id == dossier_id,
+                StatusHistory.created_at >= period_start,
+                StatusHistory.created_at <= period_end,
+            )
+            .order_by(StatusHistory.created_at.desc())
+            .limit(100)
+        )
+    )
+    enriched_payload = dict(base.payload)
+    enriched_payload["weekly_change"] = {
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "status_changes": [
+            {
+                "id": str(item.id),
+                "resource_type": item.resource_type,
+                "resource_id": str(item.resource_id),
+                "from_status": item.from_status,
+                "to_status": item.to_status,
+                "reason": _small_text(item.reason, 1200),
+                "occurred_at": item.created_at.isoformat(),
+            }
+            for item in status_changes
+        ],
+        "digest_instruction": (
+            "Resume únicamente cambios con impacto estratégico. "
+            "La actividad administrativa debe aparecer como sin cambio material."
+        ),
+    }
+    enriched_indicators: list[str] = []
+    payload, redactions = _sanitize(enriched_payload, enriched_indicators)
+    fitted_payload = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted_payload)
+    material_hash = hashlib.sha256(
+        _canonical(
+            {
+                "dossier": fitted_payload.get("dossier", {}),
+                "snapshot": fitted_payload.get("snapshot", {}),
+                "weekly_change": fitted_payload.get("weekly_change", {}),
+            }
+        )
+    ).hexdigest()
+    manifest = base.manifest | {
+        "snapshot_kind": "weekly_change",
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "status_history_ids": [str(item.id) for item in status_changes],
         "material_hash": material_hash,
     }
     return BuiltContext(

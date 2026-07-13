@@ -219,6 +219,8 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [priority, setPriority] = useState("medium");
   const [actorId, setActorId] = useState("");
   const [actorView, setActorView] = useState<"linked" | "candidates">(
@@ -230,6 +232,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   const [createError, setCreateError] = useState<string | null>(null);
   const [briefings, setBriefings] = useState<OracleBriefing[]>([]);
   const [briefingsLoading, setBriefingsLoading] = useState(false);
+  const [briefingRunning, setBriefingRunning] = useState(false);
   const requestedSelection = searchParams.get("selected");
 
   const load = useCallback(async () => {
@@ -324,6 +327,8 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   function resetCreate() {
     setTitle("");
     setDetail("");
+    setScheduledAt("");
+    setParticipantIds([]);
     setPriority("medium");
     setActorId("");
     setActorCreateMode("new");
@@ -335,7 +340,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   async function openCreate() {
     setCreateOpen(true);
     setCreateError(null);
-    if (kind !== "actors" || actorCatalog.length) return;
+    if (!["actors", "meetings"].includes(kind) || actorCatalog.length) return;
     try {
       setActorCatalog((await api.actors.list({ page: 1, size: 100, sort: "canonical_name" })).data);
     } catch (reason) {
@@ -366,7 +371,12 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
           relevance_to_dossier: 50,
         });
       } else if (kind === "meetings") {
-        await api.meetings.create(dossierId, { title: title.trim(), objective: detail.trim() });
+        await api.meetings.create(dossierId, {
+          title: title.trim(),
+          objective: detail.trim(),
+          ...(scheduledAt ? { scheduled_at: new Date(scheduledAt).toISOString() } : {}),
+          ...(participantIds.length ? { actor_ids: participantIds } : {}),
+        });
       } else if (kind === "tasks") {
         await api.tasks.create(dossierId, { title: title.trim(), priority });
       } else {
@@ -433,22 +443,35 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   async function createBriefing() {
     if (!selected || kind !== "meetings") return;
     setBusy(true);
+    setBriefingRunning(true);
     try {
-      const briefing = await api.meetings.createBriefing(selected.id, {
-        title: `Preparación · ${selected.title}`,
-        objective: selected.detail,
-        facts: [],
-        inferences: [],
-        recommendations: [],
-        evidence_status: "pending",
-      });
-      setBriefings((current) => [briefing, ...current]);
-      toast.success("Documento preparatorio creado", { description: "Añade hechos y evidencias antes de usarlo para decidir." });
+      const response = await api.meetings.createBriefing(selected.id, crypto.randomUUID());
+      if (response.briefing) {
+        setBriefings((current) => [response.briefing!, ...current.filter((item) => item.id !== response.briefing!.id)]);
+      }
+      toast.success("Preparación solicitada", { description: "Oracle conservará la versión anterior hasta publicar el nuevo briefing." });
+      window.setTimeout(() => {
+        void api.meetings.briefings(selected.id)
+          .then((result) => setBriefings(result.data))
+          .finally(() => setBriefingRunning(false));
+      }, 5000);
     } catch (reason) {
       setError(message(reason, "No se pudo preparar el documento."));
+      setBriefingRunning(false);
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleParticipant(actorId: string) {
+    setParticipantIds((current) =>
+      current.includes(actorId) ? current.filter((item) => item !== actorId) : [...current, actorId],
+    );
+  }
+
+  function briefingOutput(briefing: OracleBriefing) {
+    const content = briefing.content as { output?: Record<string, unknown>; state?: string } | undefined;
+    return content?.output;
   }
 
   return (
@@ -551,6 +574,15 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
               <label>Título<input required minLength={3} maxLength={300} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
             )}
             {kind !== "tasks" && <label>{kind === "actors" ? "Roles (separados por comas)" : kind === "meetings" ? "Objetivo" : "Justificación"}<textarea value={detail} onChange={(event) => setDetail(event.target.value)} /></label>}
+            {kind === "meetings" && <>
+              <label>Fecha y hora<input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label>
+              <fieldset className="meeting-participants">
+                <legend>Participantes</legend>
+                {actorCatalog.length ? actorCatalog.slice(0, 12).map((actor) => (
+                  <label key={actor.id}><input type="checkbox" checked={participantIds.includes(actor.id)} onChange={() => toggleParticipant(actor.id)} />{actor.canonical_name}</label>
+                )) : <p>No hay actores disponibles todavía. Puedes vincularlos después desde el detalle.</p>}
+              </fieldset>
+            </>}
             {kind === "tasks" && <label>Prioridad<select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label>}
             {createError && <p className="form-error" role="alert">{createError}</p>}
             <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy || (kind === "actors" ? actorCreateMode === "new" ? title.trim().length < 2 : !actorId : title.trim().length < 3)}>{busy ? "Guardando…" : "Guardar"}</button></div>
@@ -566,7 +598,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             <section className="intelligence-detail-block"><h2>Contexto</h2><p>{selected.detail}</p><p>{selected.secondary}</p></section>
             {kind === "actors" && <section className="intelligence-detail-block"><h2>Confianza y procedencia</h2><p>{actorConfidence(selected.raw as OracleDossierActor) === null ? "La confianza no está documentada todavía." : `${actorConfidence(selected.raw as OracleDossierActor)} % de confianza registrada.`}</p><p>{selected.actor?.provenance && Object.keys(selected.actor.provenance).length ? Object.entries(selected.actor.provenance).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") : "Sin procedencia explícita. No uses este actor como hecho verificado hasta añadir una fuente."}</p></section>}
             {kind === "actors" && <PermissionGate permission="actor.write"><section className="intelligence-detail-block"><h2>Ajustar contexto</h2><p>Aumenta diez puntos la relevancia para este expediente, sin modificar la ficha canónica del actor.</p><button className="vector-secondary" disabled={busy || ((selected.raw as OracleDossierActor).relevance_to_dossier ?? 0) >= 100} onClick={() => void reinforceActorRelevance()}>Reforzar relevancia</button></section></PermissionGate>}
-            {kind === "meetings" && <section className="intelligence-detail-block"><h2>Preparación de la reunión</h2>{briefingsLoading ? <p role="status">Cargando la preparación…</p> : briefings.length ? <ul className="work-briefings">{briefings.map((briefing) => <li key={briefing.id}><FileCheck2 size={15} /><span>Documento preparatorio {briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></li>)}</ul> : <p>Aún no hay una preparación. Cuando la crees, mantendrá separados los hechos, las interpretaciones y las recomendaciones.</p>}<PermissionGate permission="meeting.write"><button className="vector-secondary" disabled={busy} onClick={() => void createBriefing()}><FileCheck2 size={15} /> Preparar reunión</button></PermissionGate></section>}
+            {kind === "meetings" && <section className="intelligence-detail-block"><h2>Preparación de la reunión</h2>{briefingRunning && <p role="status">Generando briefing con Oracle… La versión anterior seguirá disponible.</p>}{briefingsLoading ? <p role="status">Cargando la preparación…</p> : briefings.length ? <div className="work-briefings">{briefings.map((briefing) => { const output = briefingOutput(briefing); return <article key={briefing.id}><header><FileCheck2 size={15} /><span>Briefing v{briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></header>{output ? <><p>{String(output.meeting_objective ?? "Objetivo pendiente de documentar.")}</p><ul>{(Array.isArray(output.key_messages) ? output.key_messages : []).slice(0, 3).map((item) => <li key={String(item)}>{String(item)}</li>)}</ul><small>Confianza {String(output.confidence ?? "—")} % · {Array.isArray(output.questions) ? output.questions.length : 0} preguntas preparadas</small></> : <p>Preparación en curso o pendiente de publicar.</p>}</article>; })}</div> : <p>Aún no hay una preparación. Cuando la crees, mantendrá separados los hechos, las interpretaciones y las recomendaciones.</p>}<PermissionGate permission="meeting.write"><button className="vector-secondary" disabled={busy || briefingRunning} onClick={() => void createBriefing()}><FileCheck2 size={15} /> {briefingRunning ? "Preparando…" : "Preparar reunión"}</button></PermissionGate></section>}
             {transitions.length > 0 && <PermissionGate permission={copy.permission}><section className="intelligence-detail-block"><h2>Siguientes acciones permitidas</h2><div className="work-transitions">{transitions.map((next) => <button key={next} className={next === "cancelled" || next === "rejected" ? "vector-danger" : "vector-secondary"} disabled={busy} onClick={() => void transition(next)}>{LABELS[next] ?? next}</button>)}</div></section></PermissionGate>}
           </div></>}
         </Dialog.Content></Dialog.Portal>

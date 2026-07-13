@@ -39,6 +39,7 @@ export type {
   OracleMeeting,
   OracleTask,
   OracleChange,
+  WeeklyChangeDigest,
   GlobalSearchResult,
   SignalReviewActionInput,
 } from "./transport";

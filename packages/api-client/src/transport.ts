@@ -939,7 +939,11 @@ export type OracleDecision = components["schemas"]["DecisionResource"] & {
   decided_by_user_id?: string | null;
 };
 export type OracleBriefing = components["schemas"]["BriefingResource"];
+export type MeetingBriefingGeneration =
+  components["schemas"]["MeetingBriefingGenerationResponse"];
 export type OracleChange = components["schemas"]["ChangeItem"];
+export type WeeklyChangeDigest =
+  components["schemas"]["WeeklyChangeDigestResponse"];
 export type GlobalSearchResult = components["schemas"]["GlobalSearchResult"];
 
 const productHome = {
@@ -968,6 +972,31 @@ const changes = {
       `/api/v1/changes?${query.toString()}`,
     );
   },
+  digest: (input: { dossierId?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (input.dossierId) query.set("filter[dossier_id]", input.dossierId);
+    const suffix = query.toString();
+    return request<WeeklyChangeDigest>(
+      `/api/v1/changes/digest${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  refreshDigest: (
+    input: {
+      dossierId?: string;
+      periodStart?: string;
+      periodEnd?: string;
+      idempotencyKey?: string;
+    } = {},
+  ) =>
+    request<WeeklyChangeDigest>("/api/v1/changes/digest", {
+      method: "POST",
+      body: {
+        ...(input.dossierId ? { dossier_id: input.dossierId } : {}),
+        ...(input.periodStart ? { period_start: input.periodStart } : {}),
+        ...(input.periodEnd ? { period_end: input.periodEnd } : {}),
+      },
+      idempotencyKey: input.idempotencyKey,
+    }),
 };
 
 const globalSearch = {
@@ -1018,10 +1047,14 @@ const meetings = {
     request<DossierResourcePage<OracleBriefing>>(
       `/api/v1/meetings/${encodeURIComponent(meetingId)}/briefings?page%5Bnumber%5D=1&page%5Bsize%5D=25&sort=-created_at`,
     ),
-  createBriefing: (meetingId: string, content: Record<string, unknown>) =>
-    request<OracleBriefing>(
+  briefingState: (meetingId: string) =>
+    request<MeetingBriefingGeneration>(
+      `/api/v1/meetings/${encodeURIComponent(meetingId)}/briefing-state`,
+    ),
+  createBriefing: (meetingId: string, idempotencyKey?: string) =>
+    request<MeetingBriefingGeneration>(
       `/api/v1/meetings/${encodeURIComponent(meetingId)}/briefings`,
-      { method: "POST", body: { content } },
+      { method: "POST", body: {}, idempotencyKey },
     ),
 };
 

@@ -16,11 +16,24 @@ from opn_oracle.auth.permissions import current_permissions, require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.documents.models import Document
 from opn_oracle.extensions import db
+from opn_oracle.jobs.service import serialize_job
 from opn_oracle.oracle.actor_candidates import (
     ACTOR_TYPES,
     clean_labels,
     list_actor_candidates,
     set_actor_candidate_review,
+)
+from opn_oracle.oracle.briefings import (
+    enqueue_meeting_briefing,
+    latest_briefing,
+    latest_briefing_job,
+    serialize_briefing_response,
+)
+from opn_oracle.oracle.change_digest import (
+    enqueue_weekly_change_digest,
+    get_current_digest,
+    parse_period,
+    resolve_digest_dossier_id,
 )
 from opn_oracle.oracle.links import (
     DecisionEvidence,
@@ -110,6 +123,15 @@ bp = APIBlueprint("oracle", __name__, url_prefix="/api/v1", tag="Oracle")
 def _payload() -> dict[str, Any]:
     value = request.get_json(silent=True)
     return value if isinstance(value, dict) else {}
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _serialize(row: Any) -> dict[str, Any]:
@@ -690,6 +712,65 @@ def changes_read_model() -> Any:
         }
     except DomainValidationError as error:
         return _domain_error(error)
+
+
+@bp.get("/changes/digest")
+@require_permission("dossier.read")
+def change_digest_current() -> Any:
+    try:
+        dossier_id = _requested_dossier_id()
+        resolved = resolve_digest_dossier_id(
+            user_id=current_user.id,
+            requested_dossier_id=dossier_id,
+        )
+        if resolved is None:
+            return {"state": "empty", "scope": "dossier", "digest": None, "job": None}
+        return get_current_digest(resolved)
+    except ValueError as error:
+        return _domain_error(DomainValidationError(str(error)))
+
+
+@bp.post("/changes/digest")
+@require_permission("dossier.write")
+def change_digest_refresh() -> Any:
+    payload = _payload()
+    try:
+        dossier_id = (
+            uuid.UUID(str(payload["dossier_id"]))
+            if payload.get("dossier_id")
+            else _requested_dossier_id()
+        )
+        resolved = resolve_digest_dossier_id(
+            user_id=current_user.id,
+            requested_dossier_id=dossier_id,
+        )
+        if resolved is None:
+            return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+        dossier = _dossier_or_404(resolved, write=True)
+        if dossier is None:
+            return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+        if dossier.status == "archived":
+            return _domain_error(
+                DomainValidationError("Un expediente archivado es de solo lectura.")
+            )
+        period_start, period_end = parse_period(payload)
+        job = enqueue_weekly_change_digest(
+            resolved,
+            period_start=period_start,
+            period_end=period_end,
+            requested_by_user_id=current_user.id,
+            invocation_key=request.headers.get("Idempotency-Key")
+            or getattr(g, "request_id", "")
+            or datetime.now(UTC).isoformat(),
+            request_id=getattr(g, "request_id", None),
+            correlation_id=getattr(g, "correlation_id", None),
+        )
+        response = get_current_digest(resolved)
+        response["job"] = serialize_job(job)
+        return response, 202
+    except (ValueError, DomainValidationError) as error:
+        db.session.rollback()
+        return _domain_error(DomainValidationError(str(error)))
 
 
 @bp.get("/search")
@@ -1301,23 +1382,20 @@ def briefing_create(meeting_id: uuid.UUID) -> Any:
         return problem_response(404, detail="Reunión no encontrada.", code="not_found")
     if dossier.status == "archived":
         return _domain_error(DomainValidationError("Un expediente archivado es de solo lectura."))
-    row = Briefing(
-        tenant_id=g.active_tenant_id,
-        meeting_id=meeting_id,
-        content=dict(_payload().get("content", {})),
-    )
-    db.session.add(row)
-    db.session.flush()
-    append_audit_event(
-        db.session,
-        action="briefing.created",
-        resource_type="briefing",
-        resource_id=row.id,
-        dossier_id=dossier.id,
-        result="success",
-    )
-    db.session.commit()
-    return _serialize(row), 201
+    try:
+        job = enqueue_meeting_briefing(
+            meeting,
+            requested_by_user_id=current_user.id,
+            invocation_key=request.headers.get("Idempotency-Key")
+            or getattr(g, "request_id", "")
+            or datetime.now(UTC).isoformat(),
+            request_id=getattr(g, "request_id", None),
+            correlation_id=getattr(g, "correlation_id", None),
+        )
+        return serialize_briefing_response(latest_briefing(meeting_id), job), 202
+    except (ValueError, DomainValidationError) as error:
+        db.session.rollback()
+        return _domain_error(DomainValidationError(str(error)))
 
 
 @bp.get("/meetings/<uuid:meeting_id>/briefings")
@@ -1330,6 +1408,15 @@ def briefings_list(meeting_id: uuid.UUID) -> Any:
         return _model_page(Briefing, criteria=(Briefing.meeting_id == meeting_id,))
     except DomainValidationError as error:
         return _domain_error(error)
+
+
+@bp.get("/meetings/<uuid:meeting_id>/briefing-state")
+@require_permission("meeting.read")
+def briefing_state(meeting_id: uuid.UUID) -> Any:
+    meeting = db.session.scalar(select(Meeting).where(Meeting.id == meeting_id))
+    if meeting is None or _dossier_or_404(meeting.dossier_id) is None:
+        return problem_response(404, detail="Reunión no encontrada.", code="not_found")
+    return serialize_briefing_response(latest_briefing(meeting_id), latest_briefing_job(meeting_id))
 
 
 @bp.post("/evidence")
@@ -1566,6 +1653,25 @@ def _nested_create(resource: str, dossier_id: uuid.UUID) -> Any:
             owner_id = uuid.UUID(str(payload["owner_user_id"]))
             if not active_membership_exists(db.session(), g.active_tenant_id, owner_id):
                 raise DomainValidationError("owner_user_id debe ser un miembro activo.")
+        actor_ids: list[uuid.UUID] = []
+        if model is Meeting:
+            if "scheduled_at" in payload:
+                payload["scheduled_at"] = _parse_datetime_value(payload.get("scheduled_at"))
+            raw_actor_ids = payload.get("actor_ids", [])
+            if raw_actor_ids:
+                if not isinstance(raw_actor_ids, list):
+                    raise DomainValidationError("actor_ids debe ser una lista.")
+                actor_ids = [uuid.UUID(str(item)) for item in raw_actor_ids]
+                existing = set(
+                    db.session.scalars(
+                        select(Actor.id).where(
+                            Actor.tenant_id == g.active_tenant_id,
+                            Actor.id.in_(actor_ids),
+                        )
+                    )
+                )
+                if len(existing) != len(set(actor_ids)):
+                    raise DomainValidationError("Uno o más participantes no están disponibles.")
         defaults = {
             Meeting: "planned",
             Decision: "proposed",
@@ -1578,6 +1684,15 @@ def _nested_create(resource: str, dossier_id: uuid.UUID) -> Any:
             row.status = defaults[model]
         db.session.add(row)
         db.session.flush()
+        if model is Meeting:
+            for actor_id in sorted(set(actor_ids), key=str):
+                db.session.add(
+                    MeetingActor(
+                        tenant_id=g.active_tenant_id,
+                        meeting_id=row.id,
+                        actor_id=actor_id,
+                    )
+                )
         append_audit_event(
             db.session,
             action=f"{resource}.created",
@@ -2011,6 +2126,11 @@ def _detail(resource: str, resource_id: uuid.UUID) -> Any:
     ):
         return _domain_error(DomainValidationError("Transición de estado no válida."))
     previous_status = str(row.status) if "status" in payload else None
+    if isinstance(row, Meeting) and "scheduled_at" in payload:
+        try:
+            payload["scheduled_at"] = _parse_datetime_value(payload.get("scheduled_at"))
+        except ValueError:
+            return _domain_error(DomainValidationError("scheduled_at no es una fecha ISO válida."))
     for key, value in payload.items():
         if key in allowed:
             setattr(row, key, value)

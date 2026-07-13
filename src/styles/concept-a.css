@@ -132,6 +132,16 @@
 .changes-filters > label:first-child input { width: 100%; min-height: 38px; border: 0; outline: 0; }
 .changes-filters select, .changes-date input { min-height: 40px; border: 1px solid var(--va-border); border-radius: 6px; padding: 0 9px; background: var(--va-panel); color: var(--va-text); }
 .changes-date { display: grid; gap: 3px; color: var(--va-muted); font-size: 10px; font-weight: 700; }
+.changes-digest { margin-bottom: 14px; }
+.changes-digest header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.changes-digest h2 { margin: 2px 0; font-size: 17px; }
+.changes-digest p { margin: 0; color: var(--va-muted); }
+.changes-digest-content { display: grid; gap: 10px; }
+.changes-digest-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.changes-digest-grid article { border: 1px solid var(--va-border); border-radius: 8px; padding: 10px; background: var(--va-soft); }
+.changes-digest-grid span { color: var(--va-primary); font-size: 10px; font-weight: 800; letter-spacing: .05em; }
+.changes-digest-grid h3 { margin: 4px 0; font-size: 13px; }
+.changes-digest-grid small { color: var(--va-muted); }
 .changes-list { display: grid; gap: 8px; }
 .changes-list > article { display: grid; grid-template-columns: auto 1fr; gap: 13px; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: var(--va-panel); padding: 15px; }
 .change-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--va-soft); color: var(--va-primary); }
@@ -4688,20 +4698,42 @@
   padding: 0;
   list-style: none;
 }
+.work-briefings article {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.work-briefings article header,
 .work-briefings li {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 8px;
+}
+.work-briefings li {
   border: 1px solid var(--va-border);
   border-radius: 7px;
   padding: 9px;
   color: var(--va-text);
   font-size: 11px;
 }
+.work-briefings article p { margin: 0; }
+.work-briefings article ul { margin: 0; padding-left: 18px; color: var(--va-muted); }
 .work-briefings small {
   color: var(--va-muted);
 }
+.meeting-participants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.meeting-participants legend { padding: 0 4px; color: var(--va-muted); font-size: 11px; font-weight: 800; }
+.meeting-participants label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; }
 .work-transitions {
   display: flex;
   flex-wrap: wrap;

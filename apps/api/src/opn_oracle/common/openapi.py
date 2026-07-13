@@ -661,11 +661,16 @@ def _declare_oracle_operation(
             schema = "SignalMonitorUpdateInput"
         elif path == "/api/v1/meetings/{meeting_id}/briefings":
             schema = "BriefingWriteInput"
+        elif path == "/api/v1/changes/digest":
+            schema = "WeeklyChangeRefreshInput"
         operation["requestBody"] = {
             "required": True,
             "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/{schema}"}}},
         }
-    if signal_monitor_create or signal_monitor_update or signal_monitor_action:
+    if signal_monitor_create or signal_monitor_update or signal_monitor_action or (path in {
+        "/api/v1/changes/digest",
+        "/api/v1/meetings/{meeting_id}/briefings",
+    } and method == "post"):
         status = "202"
     elif path == "/api/v1/dossiers/bulk-delete" and method == "post":
         status = "200"
@@ -679,7 +684,19 @@ def _declare_oracle_operation(
         operation.setdefault("responses", {}).pop("200", None)
         operation["responses"]["204"] = {"description": "Recurso eliminado"}
     elif method in {"get", "post", "put", "patch"}:
-        if signal_monitor_create or signal_monitor_update or signal_monitor_action:
+        if (
+            signal_monitor_create
+            or signal_monitor_update
+            or signal_monitor_action
+            or (
+                path
+                in {
+                    "/api/v1/changes/digest",
+                    "/api/v1/meetings/{meeting_id}/briefings",
+                }
+                and method == "post"
+            )
+        ):
             for existing_status in tuple(operation.setdefault("responses", {})):
                 if existing_status.startswith("2") and existing_status != status:
                     operation["responses"].pop(existing_status)
@@ -690,6 +707,15 @@ def _declare_oracle_operation(
             response = {"$ref": "#/components/schemas/GlobalSearchResponse"}
         elif path == "/api/v1/changes" and method == "get":
             response = {"$ref": "#/components/schemas/ChangeListResponse"}
+        elif path == "/api/v1/changes/digest":
+            response = {"$ref": "#/components/schemas/WeeklyChangeDigestResponse"}
+        elif path in {
+            "/api/v1/meetings/{meeting_id}/briefings",
+            "/api/v1/meetings/{meeting_id}/briefing-state",
+        } and (
+            method == "post" or path.endswith("/briefing-state")
+        ):
+            response = {"$ref": "#/components/schemas/MeetingBriefingGenerationResponse"}
         elif path == "/api/v1/signals" and method == "get":
             response = {"$ref": "#/components/schemas/GlobalSignalListResponse"}
         elif (
@@ -1874,7 +1900,13 @@ def _oracle_schemas() -> dict[str, Any]:
             "strength": score,
             "confidence": score,
         },
-        "Meeting": common_child | {"version": {"type": "integer"}, "objective": string},
+        "Meeting": common_child
+        | {
+            "version": {"type": "integer"},
+            "objective": string,
+            "scheduled_at": {"type": "string", "format": "date-time", "nullable": True},
+            "actor_ids": uuid_array,
+        },
         "Briefing": {"content": json_object},
         "Decision": common_child | {"version": {"type": "integer"}, "rationale": string},
         "Task": common_child
@@ -2176,6 +2208,75 @@ def _oracle_schemas() -> dict[str, Any]:
             "meta": {"$ref": "#/components/schemas/ChangeMeta"},
         },
         ["data", "meta"],
+    )
+    schemas["MeetingBriefingGenerationResponse"] = write(
+        {
+            "briefing": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/BriefingResource"},
+                    {"type": "null"},
+                ]
+            },
+            "job": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/JobResponse"},
+                    {"type": "null"},
+                ]
+            },
+        },
+        ["briefing", "job"],
+    )
+    schemas["WeeklyChangeDigestArtifact"] = write(
+        {
+            "id": uuid,
+            "tenant_id": uuid,
+            "dossier_id": uuid,
+            "version": {"type": "integer", "minimum": 1},
+            "status": string,
+            "created_at": {"type": "string", "format": "date-time"},
+            "updated_at": {"type": "string", "format": "date-time"},
+            "output": json_object,
+            "audit": json_object,
+        },
+        [
+            "id",
+            "tenant_id",
+            "dossier_id",
+            "version",
+            "status",
+            "created_at",
+            "updated_at",
+            "output",
+            "audit",
+        ],
+    )
+    schemas["WeeklyChangeDigestResponse"] = write(
+        {
+            "state": {"type": "string", "enum": ["empty", "ready"]},
+            "scope": {"type": "string", "enum": ["dossier"]},
+            "dossier_id": {"type": "string", "format": "uuid", "nullable": True},
+            "dossier_title": {"type": "string", "nullable": True},
+            "digest": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/WeeklyChangeDigestArtifact"},
+                    {"type": "null"},
+                ]
+            },
+            "job": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/JobResponse"},
+                    {"type": "null"},
+                ]
+            },
+        },
+        ["state", "scope", "digest", "job"],
+    )
+    schemas["WeeklyChangeRefreshInput"] = write(
+        {
+            "dossier_id": uuid,
+            "period_start": {"type": "string", "format": "date-time"},
+            "period_end": {"type": "string", "format": "date-time"},
+        }
     )
     schemas["LinkMutationResponse"] = write(
         {"linked": {"type": "boolean", "enum": [True]}}, ["linked"]

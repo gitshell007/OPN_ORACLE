@@ -2170,14 +2170,13 @@ def test_core_resource_crud_actions_and_actor_merge(
     assert meeting["status"] == "planned"
     briefing = client.post(
         f"/api/v1/meetings/{meeting['id']}/briefings",
-        json={"content": {"questions": ["¿Siguiente acción?"]}},
+        json={},
         headers={"X-CSRF-Token": _csrf(client)},
     )
-    assert briefing.status_code == 201
-    assert client.get(f"/api/v1/briefings/{briefing.get_json()['id']}").status_code == 200
-    assert (
-        client.get(f"/api/v1/meetings/{meeting['id']}/briefings").get_json()["meta"]["total"] == 1
-    )
+    assert briefing.status_code == 202
+    assert briefing.get_json()["job"]["job_type"] == "oracle.meeting_briefing.refresh"
+    assert briefing.get_json()["briefing"] is None
+    assert client.get(f"/api/v1/meetings/{meeting['id']}/briefing-state").status_code == 200
     meeting_patch = client.patch(
         f"/api/v1/meetings/{meeting['id']}",
         json={"status": "completed"},

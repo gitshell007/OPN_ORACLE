@@ -2724,6 +2724,36 @@
         ],
         "type": "object"
       },
+      "MeetingBriefingGenerationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "briefing": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BriefingResource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "briefing",
+          "job"
+        ],
+        "type": "object"
+      },
       "MeetingResource": {
         "additionalProperties": false,
         "properties": {
@@ -2780,10 +2810,22 @@
       "MeetingWriteInput": {
         "additionalProperties": false,
         "properties": {
+          "actor_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
           "content": {
             "$ref": "#/components/schemas/JsonObject"
           },
           "objective": {
+            "type": "string"
+          },
+          "scheduled_at": {
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "status": {
@@ -5814,6 +5856,128 @@
           }
         },
         "type": "object"
+      },
+      "WeeklyChangeDigestArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "audit": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "output": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "dossier_id",
+          "version",
+          "status",
+          "created_at",
+          "updated_at",
+          "output",
+          "audit"
+        ],
+        "type": "object"
+      },
+      "WeeklyChangeDigestResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WeeklyChangeDigestArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "dossier_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "enum": [
+              "dossier"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "empty",
+              "ready"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "scope",
+          "digest",
+          "job"
+        ],
+        "type": "object"
+      },
+      "WeeklyChangeRefreshInput": {
+        "additionalProperties": false,
+        "properties": {
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -8544,6 +8708,196 @@
           }
         ],
         "summary": "Read-only, bounded projection of durable semantic status transitions.",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/changes/digest": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyChangeDigestResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Change Digest Current",
+        "tags": [
+          "Oracle"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeeklyChangeRefreshInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyChangeDigestResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Change Digest Refresh",
         "tags": [
           "Oracle"
         ]
@@ -22308,6 +22662,101 @@
         ]
       }
     },
+    "/api/v1/meetings/{meeting_id}/briefing-state": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingBriefingGenerationResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Briefing State",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
     "/api/v1/meetings/{meeting_id}/briefings": {
       "get": {
         "parameters": [
@@ -22544,11 +22993,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BriefingResource"
+                  "$ref": "#/components/schemas/MeetingBriefingGenerationResponse"
                 }
               }
             },

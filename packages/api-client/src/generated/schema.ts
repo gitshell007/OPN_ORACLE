@@ -2416,6 +2416,176 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/changes/digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Change Digest Current */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WeeklyChangeDigestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Change Digest Refresh */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WeeklyChangeRefreshInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WeeklyChangeDigestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decisions/{resource_id}": {
         parameters: {
             query?: never;
@@ -12532,6 +12702,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meetings/{meeting_id}/briefing-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Briefing State */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    meeting_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingBriefingGenerationResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/meetings/{meeting_id}/briefings": {
         parameters: {
             query?: never;
@@ -12652,12 +12914,12 @@ export interface paths {
             };
             responses: {
                 /** @description Operación de dominio completada */
-                201: {
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["BriefingResource"];
+                        "application/json": components["schemas"]["MeetingBriefingGenerationResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -22946,6 +23208,10 @@ export interface components {
             roles: string[];
             user: components["schemas"]["SessionUserResponse"];
         };
+        MeetingBriefingGenerationResponse: {
+            briefing: components["schemas"]["BriefingResource"] | null;
+            job: components["schemas"]["JobResponse"] | null;
+        };
         MeetingResource: {
             content?: components["schemas"]["JsonObject"];
             /** Format: date-time */
@@ -22967,8 +23233,11 @@ export interface components {
             version?: number;
         };
         MeetingWriteInput: {
+            actor_ids?: string[];
             content?: components["schemas"]["JsonObject"];
             objective?: string;
+            /** Format: date-time */
+            scheduled_at?: string | null;
             status?: string;
             title?: string;
             version?: number;
@@ -23818,6 +24087,41 @@ export interface components {
             name?: string;
             query_config?: components["schemas"]["JsonObject"];
             version?: number;
+        };
+        WeeklyChangeDigestArtifact: {
+            audit: components["schemas"]["JsonObject"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            dossier_id: string;
+            /** Format: uuid */
+            id: string;
+            output: components["schemas"]["JsonObject"];
+            status: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: number;
+        };
+        WeeklyChangeDigestResponse: {
+            digest: components["schemas"]["WeeklyChangeDigestArtifact"] | null;
+            /** Format: uuid */
+            dossier_id?: string | null;
+            dossier_title?: string | null;
+            job: components["schemas"]["JobResponse"] | null;
+            /** @enum {string} */
+            scope: "dossier";
+            /** @enum {string} */
+            state: "empty" | "ready";
+        };
+        WeeklyChangeRefreshInput: {
+            /** Format: uuid */
+            dossier_id?: string;
+            /** Format: date-time */
+            period_end?: string;
+            /** Format: date-time */
+            period_start?: string;
         };
     };
     responses: never;

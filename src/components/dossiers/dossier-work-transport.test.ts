@@ -48,19 +48,18 @@ describe("transporte productivo del trabajo de expediente", () => {
     expect((options.headers as Headers).get("X-CSRF-Token")).toBe("csrf-test");
   });
 
-  it("crea briefing estructurado bajo una reunión", async () => {
+  it("solicita un briefing IA bajo una reunión", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
-      .mockResolvedValueOnce(json({ id: "briefing-1", version: 1 }));
+      .mockResolvedValueOnce(json({ briefing: null, job: { id: "job-1", status: "queued" } }));
     vi.stubGlobal("fetch", fetchMock);
     const { api } = await import("@oracle/api-client");
 
-    await api.meetings.createBriefing("meeting-1", { facts: [], evidence_status: "pending" });
+    await api.meetings.createBriefing("meeting-1", "briefing-test-key");
 
     const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe("/api/v1/meetings/meeting-1/briefings");
-    expect(JSON.parse(String(options.body))).toEqual({
-      content: { facts: [], evidence_status: "pending" },
-    });
+    expect((options.headers as Headers).get("Idempotency-Key")).toBe("briefing-test-key");
+    expect(JSON.parse(String(options.body))).toEqual({});
   });
 });

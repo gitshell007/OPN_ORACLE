@@ -150,6 +150,7 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
     required_paths = {
         "/api/v1/home",
         "/api/v1/changes",
+        "/api/v1/changes/digest",
         "/api/v1/search",
         "/api/v1/signals",
         "/api/v1/opportunities",
@@ -166,6 +167,7 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "/api/v1/actors/{target_id}/merge",
         "/api/v1/watchlists/{watchlist_id}/monitors",
         "/api/v1/meetings/{meeting_id}/briefings",
+        "/api/v1/meetings/{meeting_id}/briefing-state",
         "/api/v1/objectives/{resource_id}",
         "/api/v1/hypotheses/{resource_id}",
         "/api/v1/signal-monitors/{monitor_id}",
@@ -290,8 +292,8 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
     assert briefing_create["requestBody"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/BriefingWriteInput"
     }
-    assert briefing_create["responses"]["201"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/BriefingResource"
+    assert briefing_create["responses"]["202"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/MeetingBriefingGenerationResponse"
     }
     living_summary = spec["paths"]["/api/v1/dossiers/{dossier_id}/living-summary"]
     assert living_summary["put"]["requestBody"]["content"]["application/json"]["schema"] == {

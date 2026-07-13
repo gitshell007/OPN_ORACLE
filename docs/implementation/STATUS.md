@@ -860,3 +860,29 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   `uv run ruff check`, `uv run ruff format --check`, `uv run mypy` en servicios/modelos afectados,
   test frontend de señales **8/8**, `npm run typecheck`, `npm run lint` y `git diff --check`
   correctos.
+
+## Prompts 29 y 30 · Briefing IA de reuniones y digest estratégico semanal
+
+- Implementación local completada pendiente de commit/despliegue. «Preparar reunión» deja de crear
+  un documento manual vacío: ahora encola `oracle.meeting_briefing.refresh` en cola `ai`, ejecuta el
+  agente `meeting_briefing` con contexto del expediente, fecha, objetivo y participantes, valida
+  `MeetingBriefingOutput`, publica `Briefing.content.kind=meeting_briefing` y conserva versiones
+  anteriores.
+- El alta de reuniones admite `scheduled_at` y `actor_ids`; los participantes se guardan en
+  `meeting_actors` y se incorporan al snapshot IA. La UI permite elegir fecha/hora y participantes
+  desde el modal de creación.
+- «Qué ha cambiado» incorpora un panel de digest estratégico semanal sobre el expediente accesible
+  con actividad reciente. `GET/POST /api/v1/changes/digest` consulta o encola
+  `oracle.weekly_change.refresh`, valida `WeeklyChangeOutput` y publica un `AIArtifact` versionado
+  por expediente/periodo sin mezclarlo con el historial técnico.
+- Sin migración: se reutilizan `AIArtifact.target_type/target_id`, `AIAuditLog`, `BackgroundJob`,
+  `Briefing.content` y `MeetingActor`.
+- Contrato actualizado: OpenAPI y cliente TypeScript regenerados. Nuevos schemas
+  `MeetingBriefingGenerationResponse`, `WeeklyChangeDigestResponse` y
+  `WeeklyChangeRefreshInput`; `MeetingWriteInput` expone `scheduled_at` y `actor_ids`.
+- Checks locales correctos: `uv run ruff check src tests`, `uv run mypy src`, `npm run typecheck`,
+  `npm run lint`, `npm run build`, Vitest completo **94/94**, pytest backend funcional
+  `--no-cov` **111 passed, 177 skipped**, y pruebas backend focalizadas de contrato/cambios/briefing
+  **3/3**. `uv run pytest` completo ejecuta los mismos tests funcionales pero falla el gate de
+  cobertura local (40% < 84%) porque las suites de integración quedan saltadas sin variables
+  `TEST_*`; no se observan fallos funcionales.

@@ -23,6 +23,8 @@ TASK_QUEUES = {
     "oracle.signal.triage": "signals",
     "oracle.memory.refresh": "ai",
     "oracle.dossier_summary.refresh": "ai",
+    "oracle.meeting_briefing.refresh": "ai",
+    "oracle.weekly_change.refresh": "ai",
     "oracle.report.generate": "ai",
     "oracle.export.generate": "documents",
     "oracle.document.process": "documents",

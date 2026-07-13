@@ -38,6 +38,8 @@ from opn_oracle.jobs.service import (
     stage_job,
 )
 from opn_oracle.notifications.email import EmailPermanentError
+from opn_oracle.oracle.briefings import process_meeting_briefing
+from opn_oracle.oracle.change_digest import process_weekly_change_digest
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier
 from opn_oracle.oracle.summary import enqueue_summary_refresh, process_summary_refresh
@@ -310,6 +312,10 @@ HANDLERS: dict[str, Handler] = {
     "oracle.signal.triage": lambda payload, job: _triage_signal(payload, job),
     "oracle.memory.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
     "oracle.dossier_summary.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
+    "oracle.meeting_briefing.refresh": lambda payload, job: _refresh_meeting_briefing(
+        payload, job
+    ),
+    "oracle.weekly_change.refresh": lambda payload, job: _refresh_weekly_change(payload, job),
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
     "oracle.document.process": lambda payload, job: _process_document(payload, job),
@@ -406,6 +412,28 @@ def _triage_signal(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any
 def _refresh_dossier_summary(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
         return process_summary_refresh(uuid.UUID(str(payload["dossier_id"])), job)
+    except AIUnavailable as error:
+        raise RetriableJobError(
+            "El proveedor de análisis no está disponible temporalmente."
+        ) from error
+    except (KeyError, ValueError, AIPolicyDenied) as error:
+        raise PermanentJobError(str(error)) from error
+
+
+def _refresh_meeting_briefing(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        return process_meeting_briefing(uuid.UUID(str(payload["meeting_id"])), job)
+    except AIUnavailable as error:
+        raise RetriableJobError(
+            "El proveedor de análisis no está disponible temporalmente."
+        ) from error
+    except (KeyError, ValueError, AIPolicyDenied) as error:
+        raise PermanentJobError(str(error)) from error
+
+
+def _refresh_weekly_change(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        return process_weekly_change_digest(uuid.UUID(str(payload["dossier_id"])), job)
     except AIUnavailable as error:
         raise RetriableJobError(
             "El proveedor de análisis no está disponible temporalmente."
@@ -728,6 +756,8 @@ signal_sync_monitor = _durable_task("oracle.signal.sync_monitor")
 signal_triage = _durable_task("oracle.signal.triage")
 memory_refresh = _durable_task("oracle.memory.refresh")
 dossier_summary_refresh = _durable_task("oracle.dossier_summary.refresh")
+meeting_briefing_refresh = _durable_task("oracle.meeting_briefing.refresh")
+weekly_change_refresh = _durable_task("oracle.weekly_change.refresh")
 report_generate = _durable_task("oracle.report.generate")
 export_generate = _durable_task("oracle.export.generate")
 document_process = _durable_task("oracle.document.process")
