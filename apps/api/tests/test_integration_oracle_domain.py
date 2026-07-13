@@ -1390,13 +1390,17 @@ def test_signal_many_to_many_review_promote_idempotency_and_audit(
     assert first.get_json()["resource"]["deadline"] == "2026-07-20"
     with engine.connect() as connection:
         promoted_id = uuid.UUID(first.get_json()["resource"]["id"])
-        task_rows = connection.execute(
-            text(
-                "SELECT title,due_date,linked_resource_type,linked_resource_id,origin "
-                "FROM tasks WHERE tenant_id=:t AND dossier_id=:d"
-            ),
-            {"t": ids["tenant_a"], "d": uuid.UUID(one["id"])},
-        ).mappings().all()
+        task_rows = (
+            connection.execute(
+                text(
+                    "SELECT title,due_date,linked_resource_type,linked_resource_id,origin "
+                    "FROM tasks WHERE tenant_id=:t AND dossier_id=:d"
+                ),
+                {"t": ids["tenant_a"], "d": uuid.UUID(one["id"])},
+            )
+            .mappings()
+            .all()
+        )
         assert len(task_rows) == 1
         assert task_rows[0]["title"] == "Preparar reunión con compras"
         assert str(task_rows[0]["due_date"]) == "2026-07-20"
