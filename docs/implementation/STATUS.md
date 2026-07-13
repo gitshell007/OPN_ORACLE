@@ -863,8 +863,15 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 
 ## Prompts 29 y 30 · Briefing IA de reuniones y digest estratégico semanal
 
-- Implementación local completada pendiente de commit/despliegue. «Preparar reunión» deja de crear
-  un documento manual vacío: ahora encola `oracle.meeting_briefing.refresh` en cola `ai`, ejecuta el
+- Release productivo activado: `20260713T160310Z-p29-p30-7fc17b2`, construido desde `7fc17b2`.
+  Despliegue D-022 con backup local
+  `/var/backups/opn-oracle/20260713T160359Z-20260713T110700Z-p28-800dbdb/MANIFEST.txt` y restore
+  aislado
+  `/var/backups/opn-oracle/restore-evidence/20260713T160359Z-20260713T110700Z-p28-800dbdb.RESTORE_EVIDENCE.txt`.
+  `oracle-control update`, loopback smoke, HTTPS login/live, readiness, Celery ping y beat único
+  correctos. Sin receipt off-host por modo UAT D-022.
+- «Preparar reunión» deja de crear un documento manual vacío: ahora encola
+  `oracle.meeting_briefing.refresh` en cola `ai`, ejecuta el
   agente `meeting_briefing` con contexto del expediente, fecha, objetivo y participantes, valida
   `MeetingBriefingOutput`, publica `Briefing.content.kind=meeting_briefing` y conserva versiones
   anteriores.
