@@ -893,3 +893,27 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   **3/3**. `uv run pytest` completo ejecuta los mismos tests funcionales pero falla el gate de
   cobertura local (40% < 84%) porque las suites de integración quedan saltadas sin variables
   `TEST_*`; no se observan fallos funcionales.
+
+## Prompt 31 · Gobierno Signal de tasks IA Oracle
+
+- Arreglo realizado en el repositorio productor Signal (`/Users/gitshell/PycharmProjects/opn_signal`),
+  sin tocar código Oracle: commit `1fae7cf` (`feat(ai): govern Oracle report and briefing tasks`)
+  desplegado en `signal.opnconsultoria.com`.
+- Signal añade al catálogo y preset de `opn-oracle` las tasks `report_writer`,
+  `meeting_briefing` y `weekly_change`, junto a `dossier_situation_summary`, con primario
+  `ollama/qwen3.5:9b`, fallback `ollama_titan/qwen3.6:27b`, JSON estructurado, logging de
+  prompts/respuestas desactivado y cloud/OpenRouter cerrado.
+- La fila persistida del consumidor productivo se sincronizó con
+  `python scripts/sync_oracle_ai_task_catalog.py`; resultado: `ai_settings_id=12`,
+  tareas gobernadas `dossier_situation_summary,meeting_briefing,report_writer,weekly_change` y
+  proveedores `ollama,ollama_titan`.
+- Verificación productiva: resolución de las cuatro tasks ignora overrides de payload
+  (`openrouter`/modelo malicioso) y devuelve siempre `ollama/qwen3.5:9b` → `ollama_titan/qwen3.6:27b`
+  con timeouts/tokens esperados: resumen 180s/3000, reunión 180s/3500, informe 300s/6500 y digest
+  240s/4200.
+- Salud post-despliegue: `https://signal.opnconsultoria.com/healthz` 200, servicios
+  `opn-signal-api`, `opn-signal-worker` y `opn-signal-beat` activos, un único beat y logs posteriores
+  al restart sin tracebacks de despliegue. `/api/v1/oracle/health` devuelve 401 sin API key, esperado
+  para endpoint protegido.
+- Checks Signal antes del despliegue: Ruff focal, `py_compile` del script de sincronización, tests
+  focales **44/44** y suite completa **480/480**.
