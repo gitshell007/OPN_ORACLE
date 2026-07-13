@@ -410,44 +410,112 @@ def test_signal_ingest_reuses_canonical_url_and_title_source_dedupe(
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
     ):
-        app.extensions["signal_avanza_adapter"] = _PageAdapter([same_url, same_title, changed_url])
+        original_adapter = app.extensions.get("signal_avanza_adapter")
         monitor = db.session.get(SignalMonitor, ids["monitor"])
         assert monitor is not None
-        result_url = sync_monitor(monitor)
-        assert result_url["created"] == 2
-        assert result_url["duplicates"] == 1
-        assert db.session.scalar(select(func.count(Signal.id))) == 2
-        assert db.session.scalar(select(func.count(DossierSignal.id))) == 2
-        assert db.session.scalar(select(func.count(SignalIngestionRecord.id))) == 3
-        reused = db.session.scalar(select(Signal).where(Signal.external_id == "url-a"))
-        assert reused is not None
-        assert reused.canonical_source_url == "https://example.test/noticia"
-        assert reused.dedupe_key == "url:https://example.test/noticia"
-
-        result_title = sync_monitor(monitor)
-        assert result_title["created"] == 2
-        assert result_title["duplicates"] == 1
-        assert db.session.scalar(select(func.count(Signal.id))) == 4
-        assert db.session.scalar(select(func.count(DossierSignal.id))) == 4
-
-        result_changed = sync_monitor(monitor)
-        assert result_changed["created"] == 0
-        assert result_changed["duplicates"] == 1
-        assert db.session.scalar(select(func.count(Signal.id))) == 4
-        db.session.refresh(reused)
-        assert reused.summary == "Resumen actualizado"
-        changed_record = db.session.scalar(
-            select(SignalIngestionRecord).where(SignalIngestionRecord.provider_signal_id == "url-d")
-        )
-        assert changed_record is not None
-        assert changed_record.status == "changed"
-        db.session.execute(
-            delete(BackgroundJob).where(
-                BackgroundJob.tenant_id == ids["tenant"],
-                BackgroundJob.idempotency_key.like(f"signal-triage:{monitor.id}:%"),
+        provider_ids = {"url-a", "url-b", "url-c", "title-a", "title-b", "title-c", "url-d"}
+        try:
+            app.extensions["signal_avanza_adapter"] = _PageAdapter(
+                [same_url, same_title, changed_url]
             )
-        )
-        db.session.commit()
+            result_url = sync_monitor(monitor)
+            assert result_url["created"] == 2
+            assert result_url["duplicates"] == 1
+            url_signals = db.session.scalars(
+                select(Signal).where(Signal.external_id.in_(["url-a", "url-c"]))
+            ).all()
+            assert len(url_signals) == 2
+            assert (
+                db.session.scalar(
+                    select(func.count(DossierSignal.id)).where(
+                        DossierSignal.signal_id.in_([signal.id for signal in url_signals])
+                    )
+                )
+                == 2
+            )
+            assert (
+                db.session.scalar(
+                    select(func.count(SignalIngestionRecord.id)).where(
+                        SignalIngestionRecord.provider_signal_id.in_(["url-a", "url-b", "url-c"])
+                    )
+                )
+                == 3
+            )
+            reused = db.session.scalar(select(Signal).where(Signal.external_id == "url-a"))
+            assert reused is not None
+            assert reused.canonical_source_url == "https://example.test/noticia"
+            assert reused.dedupe_key == "url:https://example.test/noticia"
+
+            result_title = sync_monitor(monitor)
+            assert result_title["created"] == 2
+            assert result_title["duplicates"] == 1
+            scoped_signals = db.session.scalars(
+                select(Signal).where(
+                    Signal.external_id.in_(["url-a", "url-c", "title-a", "title-c"])
+                )
+            ).all()
+            assert len(scoped_signals) == 4
+            assert (
+                db.session.scalar(
+                    select(func.count(DossierSignal.id)).where(
+                        DossierSignal.signal_id.in_([signal.id for signal in scoped_signals])
+                    )
+                )
+                == 4
+            )
+
+            result_changed = sync_monitor(monitor)
+            assert result_changed["created"] == 0
+            assert result_changed["duplicates"] == 1
+            assert (
+                db.session.scalar(
+                    select(func.count(Signal.id)).where(
+                        Signal.external_id.in_(["url-a", "url-c", "title-a", "title-c"])
+                    )
+                )
+                == 4
+            )
+            db.session.refresh(reused)
+            assert reused.summary == "Resumen actualizado"
+            changed_record = db.session.scalar(
+                select(SignalIngestionRecord).where(
+                    SignalIngestionRecord.provider_signal_id == "url-d"
+                )
+            )
+            assert changed_record is not None
+            assert changed_record.status == "changed"
+        finally:
+            if original_adapter is not None:
+                app.extensions["signal_avanza_adapter"] = original_adapter
+            db.session.execute(
+                delete(BackgroundJob).where(
+                    BackgroundJob.tenant_id == ids["tenant"],
+                    BackgroundJob.idempotency_key.like(f"signal-triage:{monitor.id}:%"),
+                )
+            )
+            db.session.execute(
+                delete(SignalIngestionRecord).where(
+                    SignalIngestionRecord.tenant_id == ids["tenant"],
+                    SignalIngestionRecord.provider_signal_id.in_(provider_ids),
+                )
+            )
+            signal_ids = select(Signal.id).where(
+                Signal.tenant_id == ids["tenant"],
+                Signal.external_id.in_(["url-a", "url-c", "title-a", "title-c"]),
+            )
+            db.session.execute(
+                delete(DossierSignal).where(
+                    DossierSignal.tenant_id == ids["tenant"],
+                    DossierSignal.signal_id.in_(signal_ids),
+                )
+            )
+            db.session.execute(
+                delete(Signal).where(
+                    Signal.tenant_id == ids["tenant"],
+                    Signal.external_id.in_(["url-a", "url-c", "title-a", "title-c"]),
+                )
+            )
+            db.session.commit()
 
 
 def test_signal_connection_outbox_webhook_replay_and_polling_dedupe(
