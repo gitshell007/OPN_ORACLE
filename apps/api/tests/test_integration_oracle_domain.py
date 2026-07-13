@@ -1384,7 +1384,8 @@ def test_signal_many_to_many_review_promote_idempotency_and_audit(
         json=payload,
         headers={"X-CSRF-Token": _csrf(client), "Idempotency-Key": "promote-one"},
     )
-    assert first.status_code == retry.status_code == 200
+    assert first.status_code == 200, first.get_json()
+    assert retry.status_code == 200, retry.get_json()
     assert first.get_json()["resource"]["id"] == retry.get_json()["resource"]["id"]
     assert first.get_json()["resource"]["next_action"] == "Preparar reunión con compras"
     assert first.get_json()["resource"]["deadline"] == "2026-07-20"
