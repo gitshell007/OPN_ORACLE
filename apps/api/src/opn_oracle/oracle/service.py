@@ -659,10 +659,14 @@ def promote_signal_link(
             tenant_id=tenant_id,
             dossier_id=link.dossier_id,
             title=action_text[:300],
-            description=(
-                f"Creada al promover la señal «{title}». "
-                f"Recurso vinculado: {'oportunidad' if kind == 'opportunity' else 'riesgo'}."
-            )[:10000],
+            content={
+                "source": "signal_promotion",
+                "dossier_signal_id": str(link.id),
+                "signal_id": str(link.signal_id),
+                "promoted_resource_type": kind,
+                "promoted_resource_id": str(resource.id),
+                "promoted_resource_title": title,
+            },
             status="open",
             owner_user_id=actor_id,
             due_date=due_date,
