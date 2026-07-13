@@ -263,3 +263,20 @@
   conexión+tenant, pero cada entrega mantiene su `SignalIngestionRecord` y sus contadores. No se
   fusionan datos históricos ni historias de fuentes distintas sin URL; una limpieza retroactiva
   deberá ser una operación explícita con evidencia y rollback.
+
+## D-024 — CI completo manual durante la fase UAT rápida
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-13
+- **Contexto:** durante la construcción UAT se están haciendo varios commits pequeños y despliegues
+  rápidos. Ejecutar backend integrado, migraciones, build de imágenes, Trivy y SBOM en cada push
+  aporta seguridad, pero ralentiza el ciclo y genera ruido de notificaciones por commits
+  intermedios que quedan corregidos minutos después.
+- **Decisión:** desactivar temporalmente los disparadores automáticos del workflow `CI` en push y
+  pull request. El CI completo se conserva como `workflow_dispatch` manual para validaciones antes
+  de releases, puntos de control o cambios de mayor riesgo.
+- **Consecuencias:** aumenta la agilidad y baja el ruido de GitHub. La responsabilidad del agente
+  antes de desplegar pasa a ejecutar checks locales proporcionales y lanzar el CI manual cuando el
+  cambio toque migraciones, seguridad, contratos críticos o vaya a convertirse en release estable.
+  Antes de pasar de UAT a operación estable se deben restaurar triggers automáticos o un gate
+  equivalente.

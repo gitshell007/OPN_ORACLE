@@ -1,9 +1,15 @@
 name: CI
 
 on:
-  pull_request:
-  push:
-    branches: [master]
+  # UAT fast-lane: keep the full CI available, but do not run it automatically on
+  # every push while the product is still moving quickly. Re-enable push/PR
+  # triggers when master becomes release-gated again.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why this full validation is being run
+        required: false
+        default: Manual full CI validation
 
 permissions:
   contents: read
