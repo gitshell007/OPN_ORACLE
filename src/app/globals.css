@@ -218,6 +218,19 @@ table {
   font-size: 12px;
   color: #b42318;
 }
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+}
+.inline-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #0f5f78;
+}
 .form-actions {
   display: flex;
   justify-content: flex-end;

@@ -277,11 +277,23 @@ describe("DossierIntelligenceSection", () => {
     fireEvent.change(within(promotion).getByLabelText("Título"), {
       target: { value: "Alianza industrial CATL-Stellantis" },
     });
+    fireEvent.change(within(promotion).getByLabelText("Siguiente acción"), {
+      target: { value: "Preparar reunión con compras" },
+    });
+    fireEvent.change(within(promotion).getByLabelText("Fecha objetivo"), {
+      target: { value: "2026-07-20" },
+    });
     fireEvent.click(within(promotion).getByRole("button", { name: "Crear recurso" }));
 
     await waitFor(() => expect(mocks.signalPromote).toHaveBeenCalledWith(
       "link-1",
-      expect.objectContaining({ kind: "opportunity", title: "Alianza industrial CATL-Stellantis" }),
+      expect.objectContaining({
+        kind: "opportunity",
+        title: "Alianza industrial CATL-Stellantis",
+        next_action: "Preparar reunión con compras",
+        due_date: "2026-07-20",
+        create_task: true,
+      }),
       expect.any(String),
     ));
     expect(await screen.findByRole("link", { name: "Ver la oportunidad creada" })).toHaveAttribute(

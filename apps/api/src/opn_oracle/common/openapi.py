@@ -1351,6 +1351,11 @@ def _oracle_schemas() -> dict[str, Any]:
             "properties": {
                 "kind": {"type": "string", "enum": ["opportunity", "risk"]},
                 "title": {"type": "string", "minLength": 1},
+                "description": string,
+                "next_action": string,
+                "mitigation": string,
+                "due_date": {"type": "string", "format": "date", "nullable": True},
+                "create_task": {"type": "boolean"},
                 "strategic_fit": score,
                 "urgency": score,
                 "expected_value": score,

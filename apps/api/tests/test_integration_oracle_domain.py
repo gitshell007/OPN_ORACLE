@@ -1361,6 +1361,9 @@ def test_signal_many_to_many_review_promote_idempotency_and_audit(
     payload = {
         "kind": "opportunity",
         "title": "Oportunidad promovida",
+        "next_action": "Preparar reunión con compras",
+        "due_date": "2026-07-20",
+        "create_task": True,
         "strategic_fit": 80,
         "urgency": 70,
         "expected_value": 75,
@@ -1383,6 +1386,23 @@ def test_signal_many_to_many_review_promote_idempotency_and_audit(
     )
     assert first.status_code == retry.status_code == 200
     assert first.get_json()["resource"]["id"] == retry.get_json()["resource"]["id"]
+    assert first.get_json()["resource"]["next_action"] == "Preparar reunión con compras"
+    assert first.get_json()["resource"]["deadline"] == "2026-07-20"
+    with engine.connect() as connection:
+        promoted_id = uuid.UUID(first.get_json()["resource"]["id"])
+        task_rows = connection.execute(
+            text(
+                "SELECT title,due_date,linked_resource_type,linked_resource_id,origin "
+                "FROM tasks WHERE tenant_id=:t AND dossier_id=:d"
+            ),
+            {"t": ids["tenant_a"], "d": uuid.UUID(one["id"])},
+        ).mappings().all()
+        assert len(task_rows) == 1
+        assert task_rows[0]["title"] == "Preparar reunión con compras"
+        assert str(task_rows[0]["due_date"]) == "2026-07-20"
+        assert task_rows[0]["linked_resource_type"] == "opportunity"
+        assert task_rows[0]["linked_resource_id"] == promoted_id
+        assert task_rows[0]["origin"] == "signal"
     unauthorized_client = _client_as(oracle_stack, "domain-limited@example.test")
     unauthorized = unauthorized_client.post(
         f"/api/v1/signals/{link_one}/promote",

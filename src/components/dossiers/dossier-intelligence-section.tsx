@@ -224,6 +224,9 @@ export function DossierIntelligenceSection({
     "opportunity",
   );
   const [promotionTitle, setPromotionTitle] = useState("");
+  const [promotionAction, setPromotionAction] = useState("");
+  const [promotionDueDate, setPromotionDueDate] = useState("");
+  const [promotionCreateTask, setPromotionCreateTask] = useState(false);
   const [promotionResult, setPromotionResult] = useState<{
     kind: "opportunity" | "risk";
     id: string;
@@ -433,7 +436,15 @@ export function DossierIntelligenceSection({
     try {
       const result = await api.dossierSignals.promote(
         selected.link.id,
-        { kind: promotionKind, title: promotionTitle.trim() },
+        {
+          kind: promotionKind,
+          title: promotionTitle.trim(),
+          ...(promotionKind === "opportunity"
+            ? { next_action: promotionAction.trim() }
+            : { mitigation: promotionAction.trim() }),
+          ...(promotionDueDate ? { due_date: promotionDueDate } : {}),
+          create_task: promotionCreateTask && promotionAction.trim().length > 0,
+        },
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `promotion-${selected.link.id}-${Date.now()}`,
@@ -454,6 +465,9 @@ export function DossierIntelligenceSection({
         },
       });
       setPromotionTitle("");
+      setPromotionAction("");
+      setPromotionDueDate("");
+      setPromotionCreateTask(false);
       await load();
     } catch (reason) {
       setMutationError(apiErrorMessage(reason, "No se pudo promover la señal."));
@@ -475,6 +489,9 @@ export function DossierIntelligenceSection({
       }
       setPromotionKind(kind);
       setPromotionTitle(selected.signal.title || "");
+      setPromotionAction(selected.link.recommended_action || "");
+      setPromotionDueDate("");
+      setPromotionCreateTask(Boolean(selected.link.recommended_action?.trim()));
       setPromotionOpen(true);
     } catch (reason) {
       setMutationError(apiErrorMessage(reason, "No se pudo preparar la promoción de la señal."));
@@ -895,7 +912,17 @@ export function DossierIntelligenceSection({
         onConfirm={() => void performConfirmedAction()}
       />
 
-      <Dialog.Root open={promotionOpen} onOpenChange={setPromotionOpen}>
+      <Dialog.Root
+        open={promotionOpen}
+        onOpenChange={(open) => {
+          setPromotionOpen(open);
+          if (!open) {
+            setPromotionAction("");
+            setPromotionDueDate("");
+            setPromotionCreateTask(false);
+          }
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content className="dialog-content intelligence-action-dialog">
@@ -908,6 +935,33 @@ export function DossierIntelligenceSection({
               <label className="field">
                 <span>Título</span>
                 <input required minLength={2} maxLength={300} value={promotionTitle} onChange={(event) => setPromotionTitle(event.target.value)} autoFocus />
+              </label>
+              <label className="field">
+                <span>{promotionKind === "opportunity" ? "Siguiente acción" : "Mitigación"}</span>
+                <textarea
+                  maxLength={5000}
+                  rows={3}
+                  value={promotionAction}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setPromotionAction(value);
+                    setPromotionCreateTask(value.trim().length > 0);
+                  }}
+                  placeholder={promotionKind === "opportunity" ? "Ej.: Preparar contacto con compras y validar encaje." : "Ej.: Confirmar alternativa y responsable de seguimiento."}
+                />
+              </label>
+              <label className="field">
+                <span>Fecha objetivo</span>
+                <input type="date" value={promotionDueDate} onChange={(event) => setPromotionDueDate(event.target.value)} />
+              </label>
+              <label className="inline-check">
+                <input
+                  type="checkbox"
+                  checked={promotionCreateTask && promotionAction.trim().length > 0}
+                  disabled={!promotionAction.trim()}
+                  onChange={(event) => setPromotionCreateTask(event.target.checked)}
+                />
+                <span>Crear tarea con esta acción</span>
               </label>
               {mutationError && <p className="form-error" role="alert">{mutationError}</p>}
               <div className="dialog-actions">

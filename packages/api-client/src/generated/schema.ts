@@ -23154,7 +23154,10 @@ export interface components {
             blocking_risk?: number;
             confidence?: number;
             controllability?: number;
+            create_task?: boolean;
             description?: string;
+            /** Format: date */
+            due_date?: string | null;
             effort?: number;
             execution_effort?: number;
             expected_value?: number;
@@ -23163,6 +23166,7 @@ export interface components {
             /** @enum {string} */
             kind?: "opportunity" | "risk";
             likelihood?: number;
+            mitigation?: string;
             next_action?: string;
             opportunity_type?: string;
             relationship_leverage?: number;
@@ -23481,7 +23485,10 @@ export interface components {
             category?: string;
             confidence?: number;
             controllability?: number;
+            create_task?: boolean;
             description?: string;
+            /** Format: date */
+            due_date?: string | null;
             effort?: number;
             execution_effort?: number;
             expected_value?: number;
@@ -23491,6 +23498,7 @@ export interface components {
             kind?: "opportunity" | "risk";
             likelihood?: number;
             mitigation?: string;
+            next_action?: string;
             relationship_leverage?: number;
             score_override?: number;
             score_override_reason?: string;
@@ -23620,6 +23628,10 @@ export interface components {
             blocking_risk?: number;
             confidence?: number;
             controllability?: number;
+            create_task?: boolean;
+            description?: string;
+            /** Format: date */
+            due_date?: string | null;
             effort?: number;
             execution_effort?: number;
             expected_value?: number;
@@ -23628,6 +23640,8 @@ export interface components {
             /** @enum {string} */
             kind: "opportunity" | "risk";
             likelihood?: number;
+            mitigation?: string;
+            next_action?: string;
             relationship_leverage?: number;
             score_override?: number;
             score_override_reason?: string;

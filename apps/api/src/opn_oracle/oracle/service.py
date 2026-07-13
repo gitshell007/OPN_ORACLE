@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, cast
 
 from sqlalchemy import func, select
@@ -36,6 +36,7 @@ from opn_oracle.oracle.models import (
     Signal,
     StatusHistory,
     StrategicDossier,
+    Task,
     Watchlist,
 )
 from opn_oracle.oracle.policy import (
@@ -111,6 +112,23 @@ class VersionConflict(RuntimeError):
 
 class ResourceNotFound(LookupError):
     pass
+
+
+def _optional_date(value: Any, field: str) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError as error:
+        raise DomainValidationError(f"{field} debe ser una fecha ISO.") from error
+
+
+def _bounded_text(payload: dict[str, Any], field: str, limit: int = 5000) -> str:
+    return str(payload.get(field, "")).strip()[:limit]
 
 
 def _override(payload: dict[str, Any], actor_id: uuid.UUID) -> tuple[int | None, str | None]:
@@ -553,7 +571,12 @@ def promote_signal_link(
     title = str(payload.get("title", "")).strip()
     if not title or kind not in {"opportunity", "risk"}:
         raise DomainValidationError("Título y tipo de promoción son obligatorios.")
+    create_task = payload.get("create_task", False)
+    if not isinstance(create_task, bool):
+        raise DomainValidationError("create_task debe ser booleano.")
     if kind == "opportunity":
+        next_action = _bounded_text(payload, "next_action")
+        due_date = _optional_date(payload.get("due_date", payload.get("deadline")), "due_date")
         effort_value = payload.get("execution_effort", payload.get("effort", 50))
         components = {
             key: int(effort_value if key == "effort" else payload.get(key, 50))
@@ -580,6 +603,8 @@ def promote_signal_link(
             dossier_id=link.dossier_id,
             title=title,
             description=str(payload.get("description", "")),
+            deadline=due_date,
+            next_action=next_action,
             source_dossier_signal_id=link.id,
             overall_score=result.score,
             score_details=result.as_dict(),
@@ -589,6 +614,8 @@ def promote_signal_link(
             **components,
         )
     else:
+        mitigation = _bounded_text(payload, "mitigation")
+        due_date = _optional_date(payload.get("due_date"), "due_date")
         components = {
             key: int(payload.get(key, 50))
             for key in (
@@ -612,6 +639,8 @@ def promote_signal_link(
             dossier_id=link.dossier_id,
             title=title,
             description=str(payload.get("description", "")),
+            mitigation=mitigation,
+            due_date=due_date,
             source_dossier_signal_id=link.id,
             confidence=confidence,
             overall_score=result.score,
@@ -623,6 +652,28 @@ def promote_signal_link(
         )
     session.add(resource)
     session.flush()
+    action_text = next_action if kind == "opportunity" else mitigation
+    task_id: uuid.UUID | None = None
+    if create_task and action_text:
+        task = Task(
+            tenant_id=tenant_id,
+            dossier_id=link.dossier_id,
+            title=action_text[:300],
+            description=(
+                f"Creada al promover la señal «{title}». "
+                f"Recurso vinculado: {'oportunidad' if kind == 'opportunity' else 'riesgo'}."
+            )[:10000],
+            status="open",
+            owner_user_id=actor_id,
+            due_date=due_date,
+            priority="high" if kind == "risk" else "medium",
+            linked_resource_type=kind,
+            linked_resource_id=resource.id,
+            origin="signal",
+        )
+        session.add(task)
+        session.flush()
+        task_id = task.id
     if kind == "opportunity":
         session.add(
             OpportunitySignal(
@@ -684,6 +735,7 @@ def promote_signal_link(
                 "request_hash": request_hash,
                 "kind": kind,
                 "resource_id": str(resource.id),
+                "task_id": str(task_id) if task_id is not None else None,
             },
         )
     )

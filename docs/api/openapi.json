@@ -3454,7 +3454,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "create_task": {
+            "type": "boolean"
+          },
           "description": {
+            "type": "string"
+          },
+          "due_date": {
+            "format": "date",
+            "nullable": true,
             "type": "string"
           },
           "effort": {
@@ -3493,6 +3501,9 @@
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "mitigation": {
+            "type": "string"
           },
           "next_action": {
             "type": "string"
@@ -4615,7 +4626,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "create_task": {
+            "type": "boolean"
+          },
           "description": {
+            "type": "string"
+          },
+          "due_date": {
+            "format": "date",
+            "nullable": true,
             "type": "string"
           },
           "effort": {
@@ -4656,6 +4675,9 @@
             "type": "integer"
           },
           "mitigation": {
+            "type": "string"
+          },
+          "next_action": {
             "type": "string"
           },
           "relationship_leverage": {
@@ -5153,6 +5175,17 @@
             "minimum": 0,
             "type": "integer"
           },
+          "create_task": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "due_date": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
           "effort": {
             "maximum": 100,
             "minimum": 0,
@@ -5189,6 +5222,12 @@
             "maximum": 100,
             "minimum": 0,
             "type": "integer"
+          },
+          "mitigation": {
+            "type": "string"
+          },
+          "next_action": {
+            "type": "string"
           },
           "relationship_leverage": {
             "maximum": 100,
