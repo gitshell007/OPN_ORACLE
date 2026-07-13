@@ -58,7 +58,10 @@ _ORGANIZATION_NAME = (
 _CONTEXT_PATTERNS = (
     re.compile(
         rf"\b(?P<name>{_ORGANIZATION_NAME})\s+"
-        r"(?i:anuncia|defiende|desarrolla|firma|impulsa|invierte|lanza|presenta|produce)\b",
+        r"(?i:acuerda|acuerdan|adquiere|adquieren|anuncia|anuncian|colabora|colaboran"
+        r"|compra|compran|construye|construyen|crea|crean|defiende|defienden|desarrolla"
+        r"|desarrollan|firma|firman|impulsa|impulsan|invierte|invierten|lanza|lanzan"
+        r"|marca|marcan|participa|participan|presenta|presentan|produce|producen)\b",
     ),
     re.compile(
         rf"\b(?i:alianza con|en colaboración con|junto a|junto con|por parte de)\s+"
@@ -69,6 +72,12 @@ _CONTEXT_PATTERNS = (
         r"(?i:GmbH|Inc\.?|Ltd\.?|PLC|S\.?A\.?|S\.?L\.?))\b",
     ),
 )
+# A coordinated run of organizations ("A y B", "A, B y C") plus a single token, so a
+# confirmed organization can pull in the partners it appears with even without a trigger verb.
+_COORDINATION_RUN = re.compile(
+    rf"{_ORGANIZATION_NAME}(?:\s*(?:,|\by\b|\be\b)\s*{_ORGANIZATION_NAME})+",
+)
+_ORGANIZATION_TOKEN = re.compile(_ORGANIZATION_NAME)
 
 
 def actor_canonical_key(value: str) -> str:
@@ -167,6 +176,13 @@ def extract_signal_entities(
     for pattern in _CONTEXT_PATTERNS:
         for match in pattern.finditer(text):
             add({"name": match.group("name"), "type": "organization"}, "text_pattern")
+    # Coordination bridging: if any organization in a coordinated run is already confirmed,
+    # accept the partners it appears alongside. Requiring a confirmed anchor keeps noise low.
+    for run in _COORDINATION_RUN.finditer(text):
+        names = _ORGANIZATION_TOKEN.findall(run.group(0))
+        if any(actor_canonical_key(name) in normalized for name in names):
+            for name in names:
+                add({"name": name, "type": "organization"}, "text_coordination")
     return list(normalized.values())[:100]
 
 
