@@ -991,3 +991,45 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   `uv run pytest tests/test_contract.py -q --no-cov` **7/7**, test de integración nuevo preparado
   pero saltado sin `ORACLE_RUN_INTEGRATION=1`, Vitest focal **11/11**, `npm run lint`,
   `npm run typecheck`, `npm run api:client:check`, `npm run build` y `git diff --check` correctos.
+
+## Prompt 33 · Ajuste de pipeline IA y asentamiento de informes
+
+- Release productivo activo: `20260714T112748Z-p33c-e01d985`, construido desde `e01d985`.
+  Despliegue D-022 con backup local
+  `/var/backups/opn-oracle/20260714T112837Z-20260714T110858Z-p33b-885c348/MANIFEST.txt` y restore
+  aislado
+  `/var/backups/opn-oracle/restore-evidence/20260714T112837Z-20260714T110858Z-p33b-885c348.RESTORE_EVIDENCE.txt`.
+  Sin receipt off-host por modo UAT D-022.
+- `oracle-control update` activó el release y confirmó loopback smoke, liveness/readiness, HTTPS
+  login/live, Celery ping y beat único. Verificación posterior: `scripts/smoke-production.sh`
+  correcto, `oracle-control health` correcto y Alembic confirmado en `20260714_0017` mediante
+  PostgreSQL administrativo dentro del contenedor. El comando `flask db current` con usuario runtime
+  no puede leer `alembic_version`, esperado por privilegios restrictivos.
+- CI manual verde para `e01d985`: GitHub Actions run
+  `https://github.com/gitshell007/OPN_ORACLE/actions/runs/29328593141`, con
+  frontend/contract, backend+migraciones+integración PostgreSQL/Redis/Celery y seguridad/imágenes/SBOM
+  correctos.
+- Se corrigió el fallo raíz del informe CATL: el provider gobernado por Signal ya no puede caer en
+  `UnboundLocalError` si la reparación JSON falla; los reintentos IA reabren de forma controlada el
+  mismo `AIAuditLog` fallido creando nuevos `AIAttempt`; y los errores IA conservan causa real en
+  vez de quedar ocultos como fallo genérico de job.
+- Se subió el presupuesto productivo de salidas IA para agentes largos: política tenant
+  `max_output_tokens=6500`, `report_writer v3=6500`, `meeting_briefing v2=3500` y
+  `weekly_change v2=4200`. `SIGNAL_AI_TIMEOUT_SECONDS` queda en 300 s y Celery en 690/720 s.
+- Se añadió normalización segura de deriva de forma para `report_writer`: cadenas o prioridades
+  no canónicas se convierten al contrato estricto, evidencias inventadas se descartan, hechos sin
+  cita pasan a inferencia acotada y el índice de fuentes del modelo se ignora para reconstruirlo
+  desde el snapshot inmutable.
+- Verificación funcional en producción sobre CATL `292d85e5-3dc1-4c2f-81a5-8a73a29e1fb4`:
+  - reintento real de informe `action_plan` terminado `succeeded/completed`; informe
+    `4d95bdbc-8b75-4ae6-9ae2-3edfa148ad14` quedó `ready`, con revisión
+    `1d7c360e-47ec-47e9-9627-815c04c4d97d`, artefacto `337696c6-9268-4e07-b9b6-fc180fac9e1f`,
+    8 secciones, 1 fuente y **0 hechos sin cita**;
+  - briefing de la reunión `2268aa4c-dc06-4357-b423-cfd4d9fa9ce2` terminado
+    `succeeded/completed`, auditoría `meeting_briefing v2` con generación y reviewer correctos,
+    briefing publicado `a9416eac-5b84-4e8f-af91-bef7ba4edfb0`;
+  - digest semanal terminado `succeeded/completed`, auditoría `weekly_change v2`, artefacto
+    `8afa0fb0-1f1c-484e-aac7-399559d0a8e5` en estado `valid`.
+- Checks locales focales correctos: `uv run ruff format --check`, `uv run ruff check`,
+  `uv run mypy` en módulos afectados y `uv run pytest tests/test_ai_runtime.py
+  tests/test_signal_ai_provider.py tests/test_reporting_routes_extra.py -q --no-cov` **48/48**.

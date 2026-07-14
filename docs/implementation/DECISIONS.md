@@ -297,3 +297,20 @@
 - **Consecuencias:** los reintentos Celery vuelven a invocar realmente al proveedor gobernado. La
   no duplicación se mantiene para ejecuciones activas y artefactos ya publicados, y la auditoría
   conserva los intentos fallidos con su `error_code` original en `AIAttempt`.
+
+## D-026 — Normalización segura de salidas IA para informes
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-14
+- **Contexto:** `report_writer` usa modelos locales gobernados por Signal que pueden devolver JSON
+  semánticamente útil pero con deriva de forma: listas de strings donde el contrato exige objetos,
+  prioridades no canónicas, índices de fuente inventados o párrafos marcados como `fact` sin
+  evidencia. Rechazar todo el informe al final hacía fallar el flujo de usuario aunque existiera una
+  versión publicable como inferencia trazable.
+- **Decisión:** Oracle normaliza solo deriva recuperable antes de la validación Pydantic estricta:
+  convierte strings a objetos mínimos, normaliza prioridades, elimina evidencias no autorizadas,
+  degrada hechos sin cita a inferencias acotadas y reconstruye siempre `source_index` desde el
+  snapshot inmutable de evidencias. La validación estricta y el reviewer siguen siendo obligatorios.
+- **Consecuencias:** se reduce fragilidad ante modelos locales sin publicar hechos no citados ni
+  aceptar fuentes inventadas. Si la salida no puede normalizarse de forma segura, el job sigue
+  fallando y queda auditado para diagnóstico.
