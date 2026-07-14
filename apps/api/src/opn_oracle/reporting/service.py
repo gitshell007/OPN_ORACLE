@@ -116,9 +116,26 @@ def _validate_report_output(
         )
 
 
+def _normalize_report_paragraph_claims(output: ReportOutput) -> ReportOutput:
+    """Avoid publishing uncited facts by downgrading them to bounded inferences."""
+
+    payload = output.model_dump(mode="json")
+    changed = False
+    for section in payload.get("sections", []):
+        for paragraph in section.get("paragraphs", []):
+            if paragraph.get("kind") == "fact" and not paragraph.get("evidence_ids"):
+                paragraph["kind"] = "inference"
+                paragraph["confidence"] = min(int(paragraph.get("confidence", 0)), 70)
+                changed = True
+    if not changed:
+        return output
+    return ReportOutput.model_validate_json(_canonical(payload))
+
+
 def _authoritative_source_index(
     output: ReportOutput, snapshot_rows: list[ReportSnapshotEvidence]
 ) -> ReportOutput:
+    output = _normalize_report_paragraph_claims(output)
     cited = _claim_evidence_ids(output)
     by_id = {item.evidence_id: item for item in snapshot_rows}
     payload = output.model_dump(mode="json")

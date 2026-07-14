@@ -79,8 +79,10 @@ PROMPT_VERSIONS = {
     name: (
         ("v1", "v2", "v3", "v4", "v5")
         if name == "dossier_situation_summary"
+        else ("v1", "v2", "v3")
+        if name == "report_writer"
         else ("v1", "v2")
-        if name in {"meeting_briefing", "report_writer", "weekly_change"}
+        if name in {"meeting_briefing", "weekly_change"}
         else ("v1",)
     )
     for name in AGENT_SCHEMAS
@@ -88,7 +90,7 @@ PROMPT_VERSIONS = {
 
 
 def _max_output_tokens(name: str, version: str) -> int:
-    if name == "report_writer" and version == "v2":
+    if name == "report_writer" and version in {"v2", "v3"}:
         return 6500
     if name == "meeting_briefing" and version == "v2":
         return 3500
@@ -124,9 +126,17 @@ class PromptRegistry:
                     }[version]
                     if name == "dossier_situation_summary"
                     else (
-                        "v2: contrato compacto y presupuesto ajustado para Signal/Ollama local."
-                        if version == "v2"
-                        else "v1: contrato inicial derivado del runtime canónico de Fase 09."
+                        {
+                            "v1": "v1: contrato inicial derivado del runtime canónico de Fase 09.",
+                            "v2": (
+                                "v2: contrato compacto y presupuesto ajustado para "
+                                "Signal/Ollama local."
+                            ),
+                            "v3": (
+                                "v3: párrafos factuales con evidencia obligatoria y "
+                                "contrato compacto."
+                            ),
+                        }[version]
                     )
                 )
                 item = PromptDefinition(

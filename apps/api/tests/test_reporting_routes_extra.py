@@ -44,6 +44,7 @@ from opn_oracle.reporting.registry import ReportTemplateRegistry
 from opn_oracle.reporting.service import (
     ReportWorkflowError,
     _all_evidence_ids,
+    _authoritative_source_index,
     _validate_options,
 )
 
@@ -367,6 +368,62 @@ def test_report_output_collects_citations_from_every_supported_location() -> Non
         }
     )
     assert _all_evidence_ids(output) == set(evidence_ids)
+
+
+def test_report_output_downgrades_uncited_factual_paragraphs_before_validation() -> None:
+    evidence_id = uuid.uuid4()
+    output = ReportOutput.model_validate(
+        {
+            "facts": [{"statement": "Hecho citado.", "evidence_ids": [evidence_id]}],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 70,
+            "open_questions": [],
+            "warnings": [],
+            "title": "Informe",
+            "executive_summary": "Resumen",
+            "sections": [
+                {
+                    "heading": "Objetivo",
+                    "paragraphs": [
+                        {
+                            "text": "Afirmación sin cita directa.",
+                            "kind": "fact",
+                            "confidence": 95,
+                            "evidence_ids": [],
+                        },
+                        {
+                            "text": "Hecho con cita.",
+                            "kind": "fact",
+                            "confidence": 90,
+                            "evidence_ids": [evidence_id],
+                        },
+                    ],
+                }
+            ],
+            "top_opportunities": [],
+            "top_risks": [],
+            "recommended_actions": [],
+            "decisions_required": [],
+            "source_index": [],
+        }
+    )
+    snapshot = [
+        SimpleNamespace(
+            evidence_id=evidence_id,
+            source_label="Fuente",
+            locator={"kind": "test"},
+        )
+    ]
+
+    normalized = _authoritative_source_index(output, snapshot)
+
+    first, second = normalized.sections[0].paragraphs
+    assert first.kind == "inference"
+    assert first.confidence == 70
+    assert first.evidence_ids == []
+    assert second.kind == "fact"
+    assert normalized.source_index[0].evidence_id == evidence_id
 
 
 def test_notification_serialization_quiet_windows_and_timezone_validation() -> None:
