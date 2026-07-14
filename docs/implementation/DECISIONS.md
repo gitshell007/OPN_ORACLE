@@ -296,4 +296,5 @@
   un índice no único equivalente.
 - **Consecuencias:** los reintentos Celery vuelven a invocar realmente al proveedor gobernado. La
   no duplicación se mantiene para ejecuciones activas y artefactos ya publicados, y la auditoría
-  conserva todos los intentos fallidos con su `error_code` original.
+  conserva todos los intentos fallidos con su `error_code` original. El downgrade de la migración
+  no recrea la constraint antigua si ya existen duplicados, para no borrar evidencia inmutable.

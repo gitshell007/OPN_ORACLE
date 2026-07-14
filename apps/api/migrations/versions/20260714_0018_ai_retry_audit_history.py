@@ -14,19 +14,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("uq_ai_audit_job_agent", "ai_audit_logs", type_="unique")
-    op.create_index(
-        "ix_ai_audit_job_agent",
-        "ai_audit_logs",
-        ["tenant_id", "background_job_id", "agent", "created_at"],
-        unique=False,
+    op.execute("ALTER TABLE ai_audit_logs DROP CONSTRAINT IF EXISTS uq_ai_audit_job_agent")
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_ai_audit_job_agent
+        ON ai_audit_logs (tenant_id, background_job_id, agent, created_at)
+        """
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_ai_audit_job_agent", table_name="ai_audit_logs")
-    op.create_unique_constraint(
-        "uq_ai_audit_job_agent",
-        "ai_audit_logs",
-        ["tenant_id", "background_job_id", "agent"],
+    # Do not delete immutable AI audit evidence to recreate the old uniqueness contract.
+    # Once retries have produced multiple rows per (tenant, job, agent), the prior
+    # constraint is not safely restorable. Keeping the lookup index preserves runtime
+    # behavior and allows test/restore cycles to downgrade without data loss.
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_ai_audit_job_agent
+        ON ai_audit_logs (tenant_id, background_job_id, agent, created_at)
+        """
     )
