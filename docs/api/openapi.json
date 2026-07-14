@@ -808,8 +808,21 @@
       "DecisionResource": {
         "additionalProperties": false,
         "properties": {
+          "content": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
           "created_at": {
             "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "decided_by_user_id": {
+            "format": "uuid",
+            "nullable": true,
             "type": "string"
           },
           "dossier_id": {
@@ -818,6 +831,9 @@
           },
           "id": {
             "format": "uuid",
+            "type": "string"
+          },
+          "rationale": {
             "type": "string"
           },
           "status": {
@@ -2751,6 +2767,120 @@
         "required": [
           "briefing",
           "job"
+        ],
+        "type": "object"
+      },
+      "MeetingCompleteInput": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingOutcomeDecisionInput"
+            },
+            "maxItems": 25,
+            "type": "array"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingOutcomeTaskInput"
+            },
+            "maxItems": 25,
+            "type": "array"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "MeetingCompleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionResource"
+            },
+            "type": "array"
+          },
+          "meeting": {
+            "$ref": "#/components/schemas/MeetingResource"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskResource"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "meeting",
+          "decisions",
+          "tasks",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "MeetingOutcomeDecisionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "MeetingOutcomeTaskInput": {
+        "additionalProperties": false,
+        "properties": {
+          "due_date": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "owner_user_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "priority": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
         ],
         "type": "object"
       },
@@ -5606,8 +5736,14 @@
           "content": {
             "$ref": "#/components/schemas/JsonObject"
           },
+          "due_date": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
           "owner_user_id": {
             "format": "uuid",
+            "nullable": true,
             "type": "string"
           },
           "priority": {
@@ -23070,6 +23206,139 @@
           }
         ],
         "summary": "Briefing Create",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/complete": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingCompleteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingCompleteResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Meeting Complete",
         "tags": [
           "Oracle"
         ]

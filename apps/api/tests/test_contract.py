@@ -168,6 +168,7 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         "/api/v1/watchlists/{watchlist_id}/monitors",
         "/api/v1/meetings/{meeting_id}/briefings",
         "/api/v1/meetings/{meeting_id}/briefing-state",
+        "/api/v1/meetings/{meeting_id}/complete",
         "/api/v1/objectives/{resource_id}",
         "/api/v1/hypotheses/{resource_id}",
         "/api/v1/signal-monitors/{monitor_id}",
@@ -295,6 +296,21 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
     assert briefing_create["responses"]["202"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/MeetingBriefingGenerationResponse"
     }
+    meeting_complete = spec["paths"]["/api/v1/meetings/{meeting_id}/complete"]["post"]
+    assert meeting_complete["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/MeetingCompleteInput"
+    }
+    assert meeting_complete["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/MeetingCompleteResponse"
+    }
+    assert any(
+        parameter["name"] == "If-Match" and parameter["required"] is True
+        for parameter in meeting_complete["parameters"]
+    )
+    assert any(
+        parameter["name"] == "Idempotency-Key" and parameter["required"] is True
+        for parameter in meeting_complete["parameters"]
+    )
     living_summary = spec["paths"]["/api/v1/dossiers/{dossier_id}/living-summary"]
     assert living_summary["put"]["requestBody"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/LivingSummaryWriteInput"

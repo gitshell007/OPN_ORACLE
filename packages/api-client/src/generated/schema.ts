@@ -12984,6 +12984,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meetings/{meeting_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Meeting Complete */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    "If-Match": string;
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    meeting_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MeetingCompleteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MeetingCompleteResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/meetings/{resource_id}": {
         parameters: {
             query?: never;
@@ -22672,12 +22772,18 @@ export interface components {
             csrf_token: string;
         };
         DecisionResource: {
+            content?: components["schemas"]["JsonObject"];
             /** Format: date-time */
             created_at?: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            decided_by_user_id?: string | null;
             /** Format: uuid */
             dossier_id?: string;
             /** Format: uuid */
             id: string;
+            rationale?: string;
             status?: string;
             /** Format: uuid */
             tenant_id: string;
@@ -23211,6 +23317,32 @@ export interface components {
         MeetingBriefingGenerationResponse: {
             briefing: components["schemas"]["BriefingResource"] | null;
             job: components["schemas"]["JobResponse"] | null;
+        };
+        MeetingCompleteInput: {
+            decisions?: components["schemas"]["MeetingOutcomeDecisionInput"][];
+            notes?: string;
+            tasks?: components["schemas"]["MeetingOutcomeTaskInput"][];
+            version?: number;
+        };
+        MeetingCompleteResponse: {
+            decisions: components["schemas"]["DecisionResource"][];
+            meeting: components["schemas"]["MeetingResource"];
+            replayed: boolean;
+            tasks: components["schemas"]["TaskResource"][];
+        };
+        MeetingOutcomeDecisionInput: {
+            evidence_ids?: string[];
+            rationale?: string;
+            title: string;
+        };
+        MeetingOutcomeTaskInput: {
+            /** Format: date */
+            due_date?: string | null;
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            /** @enum {string} */
+            priority?: "low" | "medium" | "high" | "critical";
+            title: string;
         };
         MeetingResource: {
             content?: components["schemas"]["JsonObject"];
@@ -24015,8 +24147,10 @@ export interface components {
         };
         TaskWriteInput: {
             content?: components["schemas"]["JsonObject"];
+            /** Format: date */
+            due_date?: string | null;
             /** Format: uuid */
-            owner_user_id?: string;
+            owner_user_id?: string | null;
             priority?: string;
             status?: string;
             title?: string;

@@ -1066,6 +1066,93 @@ def _enable_mock_ai(app: Any, ids: dict[str, uuid.UUID]) -> None:
         db.session.commit()
 
 
+def test_meeting_completion_creates_linked_decisions_and_tasks_idempotently(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    _, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Cierre de reunión")
+    create_meeting = client.post(
+        f"/api/v1/dossiers/{dossier['id']}/meetings",
+        json={
+            "title": "Reunión de posicionamiento",
+            "objective": "Cerrar siguientes pasos y decisiones",
+            "scheduled_at": "2026-07-20T09:00:00+00:00",
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert create_meeting.status_code == 201, create_meeting.get_json()
+    meeting = create_meeting.get_json()
+    payload = {
+        "notes": "Se acuerda avanzar con una propuesta de valor y preparar contacto técnico.",
+        "decisions": [
+            {
+                "title": "Priorizar el encaje industrial",
+                "rationale": "La reunión valida que el valor está en el encaje territorial.",
+            }
+        ],
+        "tasks": [
+            {
+                "title": "Preparar dossier ejecutivo para el equipo técnico",
+                "owner_user_id": str(ids["user"]),
+                "due_date": "2026-07-24",
+                "priority": "high",
+            }
+        ],
+    }
+
+    complete = client.post(
+        f"/api/v1/meetings/{meeting['id']}/complete",
+        json=payload,
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "If-Match": 'W/"1"',
+            "Idempotency-Key": "meeting-outcomes-positioning-001",
+        },
+    )
+    assert complete.status_code == 200, complete.get_json()
+    body = complete.get_json()
+    assert body["replayed"] is False
+    assert body["meeting"]["status"] == "completed"
+    assert body["meeting"]["notes"] == payload["notes"]
+    assert body["meeting"]["version"] == 2
+    assert body["decisions"][0]["status"] == "proposed"
+    assert body["decisions"][0]["rationale"] == payload["decisions"][0]["rationale"]
+    assert body["decisions"][0]["content"]["source"] == "meeting_outcome"
+    assert body["decisions"][0]["content"]["meeting_id"] == meeting["id"]
+    assert body["tasks"][0]["origin"] == "meeting"
+    assert body["tasks"][0]["linked_resource_type"] == "meeting"
+    assert body["tasks"][0]["linked_resource_id"] == meeting["id"]
+    assert body["tasks"][0]["owner_user_id"] == str(ids["user"])
+
+    replay = client.post(
+        f"/api/v1/meetings/{meeting['id']}/complete",
+        json=payload,
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "If-Match": 'W/"1"',
+            "Idempotency-Key": "meeting-outcomes-positioning-001",
+        },
+    )
+    assert replay.status_code == 200, replay.get_json()
+    assert replay.get_json()["replayed"] is True
+
+    assert (
+        client.get(f"/api/v1/dossiers/{dossier['id']}/decisions").get_json()["meta"]["total"] == 1
+    )
+    assert client.get(f"/api/v1/dossiers/{dossier['id']}/tasks").get_json()["meta"]["total"] == 1
+    conflict = client.post(
+        f"/api/v1/meetings/{meeting['id']}/complete",
+        json=payload | {"notes": "Otro cierre con la misma clave."},
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "If-Match": 'W/"1"',
+            "Idempotency-Key": "meeting-outcomes-positioning-001",
+        },
+    )
+    assert conflict.status_code == 409
+
+
 def test_oracle_summary_is_read_only_on_entry_and_refresh_keys_force_new_jobs(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

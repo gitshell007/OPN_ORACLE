@@ -27,6 +27,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { useAuth } from "@/components/auth/auth-provider";
 import { productLinkedResourceLabel } from "@/lib/product-copy";
 import { DossierActorCandidates } from "./dossier-actor-candidates";
 
@@ -45,6 +46,18 @@ interface WorkRow {
   raw: RawResource;
   actor?: OracleActor;
   labels?: string[];
+}
+
+interface OutcomeDecisionDraft {
+  title: string;
+  rationale: string;
+}
+
+interface OutcomeTaskDraft {
+  title: string;
+  dueDate: string;
+  priority: "low" | "medium" | "high" | "critical";
+  assignToMe: boolean;
 }
 
 const ACTOR_TYPE_LABELS: Record<string, string> = {
@@ -189,20 +202,42 @@ function normalize(
     };
   }
   const row = item as OracleDecision;
+  const content = row.content as Record<string, unknown> | undefined;
+  const meetingTitle = content?.source === "meeting_outcome" ? String(content.meeting_title ?? "") : "";
   return {
     id: row.id,
     title: row.title || "Decisión sin título",
     status: row.status || "proposed",
     detail: row.rationale || "Justificación pendiente de documentar",
-    secondary: row.decided_at ? `Decidida ${formatDate(row.decided_at)}` : "Registro humano pendiente",
+    secondary: meetingTitle
+      ? `Origen: reunión «${meetingTitle}»`
+      : row.decided_at
+        ? `Decidida ${formatDate(row.decided_at)}`
+        : "Registro humano pendiente",
     version: row.version ?? 1,
     updatedAt: row.updated_at,
     raw: row,
   };
 }
 
+function emptyDecisionDraft(): OutcomeDecisionDraft {
+  return { title: "", rationale: "" };
+}
+
+function emptyTaskDraft(): OutcomeTaskDraft {
+  return { title: "", dueDate: "", priority: "medium", assignToMe: true };
+}
+
+function meetingOutcomes(row: OracleMeeting) {
+  const content = row.content as
+    | { outcomes?: { decisions?: { id: string; title: string }[]; tasks?: { id: string; title: string }[] } }
+    | undefined;
+  return content?.outcomes;
+}
+
 export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kind: DossierWorkKind }) {
   const copy = COPY[kind];
+  const { identity } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -233,6 +268,13 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   const [briefings, setBriefings] = useState<OracleBriefing[]>([]);
   const [briefingsLoading, setBriefingsLoading] = useState(false);
   const [briefingRunning, setBriefingRunning] = useState(false);
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [completionNotes, setCompletionNotes] = useState("");
+  const [completionDecisions, setCompletionDecisions] = useState<OutcomeDecisionDraft[]>([
+    emptyDecisionDraft(),
+  ]);
+  const [completionTasks, setCompletionTasks] = useState<OutcomeTaskDraft[]>([emptyTaskDraft()]);
+  const [completionError, setCompletionError] = useState<string | null>(null);
   const requestedSelection = searchParams.get("selected");
 
   const load = useCallback(async () => {
@@ -321,7 +363,16 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   }
 
   function closeDetail() {
+    resetCompletion();
     router.replace(pathname, { scroll: false });
+  }
+
+  function resetCompletion() {
+    setCompletionOpen(false);
+    setCompletionNotes("");
+    setCompletionDecisions([emptyDecisionDraft()]);
+    setCompletionTasks([emptyTaskDraft()]);
+    setCompletionError(null);
   }
 
   function resetCreate() {
@@ -395,6 +446,14 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
 
   async function transition(nextStatus: string) {
     if (!selected) return;
+    if (kind === "meetings" && nextStatus === "completed") {
+      setCompletionNotes("");
+      setCompletionDecisions([emptyDecisionDraft()]);
+      setCompletionTasks([emptyTaskDraft()]);
+      setCompletionOpen(true);
+      setCompletionError(null);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -413,6 +472,58 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
     } finally {
       setBusy(false);
     }
+  }
+
+  async function completeMeeting(event: FormEvent) {
+    event.preventDefault();
+    if (!selected || kind !== "meetings") return;
+    const decisions = completionDecisions
+      .map((item) => ({ title: item.title.trim(), rationale: item.rationale.trim() }))
+      .filter((item) => item.title.length > 0);
+    const tasks = completionTasks
+      .map((item) => ({
+        title: item.title.trim(),
+        due_date: item.dueDate || undefined,
+        priority: item.priority,
+        owner_user_id: item.assignToMe ? identity?.user.id : undefined,
+      }))
+      .filter((item) => item.title.length > 0);
+    setBusy(true);
+    setCompletionError(null);
+    try {
+      await api.meetings.complete(
+        selected.id,
+        {
+          version: selected.version,
+          notes: completionNotes.trim(),
+          decisions,
+          tasks,
+        },
+        selected.version,
+        crypto.randomUUID(),
+      );
+      toast.success("Reunión cerrada", {
+        description: "Las decisiones y tareas vinculadas ya están disponibles en sus secciones.",
+      });
+      closeDetail();
+      await load();
+    } catch (reason) {
+      setCompletionError(message(reason, "No se pudieron registrar los resultados."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateCompletionDecision(index: number, patch: Partial<OutcomeDecisionDraft>) {
+    setCompletionDecisions((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+    );
+  }
+
+  function updateCompletionTask(index: number, patch: Partial<OutcomeTaskDraft>) {
+    setCompletionTasks((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+    );
   }
 
   async function reinforceActorRelevance() {
@@ -599,6 +710,8 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             {kind === "actors" && <section className="intelligence-detail-block"><h2>Confianza y procedencia</h2><p>{actorConfidence(selected.raw as OracleDossierActor) === null ? "La confianza no está documentada todavía." : `${actorConfidence(selected.raw as OracleDossierActor)} % de confianza registrada.`}</p><p>{selected.actor?.provenance && Object.keys(selected.actor.provenance).length ? Object.entries(selected.actor.provenance).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") : "Sin procedencia explícita. No uses este actor como hecho verificado hasta añadir una fuente."}</p></section>}
             {kind === "actors" && <PermissionGate permission="actor.write"><section className="intelligence-detail-block"><h2>Ajustar contexto</h2><p>Aumenta diez puntos la relevancia para este expediente, sin modificar la ficha canónica del actor.</p><button className="vector-secondary" disabled={busy || ((selected.raw as OracleDossierActor).relevance_to_dossier ?? 0) >= 100} onClick={() => void reinforceActorRelevance()}>Reforzar relevancia</button></section></PermissionGate>}
             {kind === "meetings" && <section className="intelligence-detail-block"><h2>Preparación de la reunión</h2>{briefingRunning && <p role="status">Generando briefing con Oracle… La versión anterior seguirá disponible.</p>}{briefingsLoading ? <p role="status">Cargando la preparación…</p> : briefings.length ? <div className="work-briefings">{briefings.map((briefing) => { const output = briefingOutput(briefing); return <article key={briefing.id}><header><FileCheck2 size={15} /><span>Briefing v{briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></header>{output ? <><p>{String(output.meeting_objective ?? "Objetivo pendiente de documentar.")}</p><ul>{(Array.isArray(output.key_messages) ? output.key_messages : []).slice(0, 3).map((item) => <li key={String(item)}>{String(item)}</li>)}</ul><small>Confianza {String(output.confidence ?? "—")} % · {Array.isArray(output.questions) ? output.questions.length : 0} preguntas preparadas</small></> : <p>Preparación en curso o pendiente de publicar.</p>}</article>; })}</div> : <p>Aún no hay una preparación. Cuando la crees, mantendrá separados los hechos, las interpretaciones y las recomendaciones.</p>}<PermissionGate permission="meeting.write"><button className="vector-secondary" disabled={busy || briefingRunning} onClick={() => void createBriefing()}><FileCheck2 size={15} /> {briefingRunning ? "Preparando…" : "Preparar reunión"}</button></PermissionGate></section>}
+            {kind === "meetings" && meetingOutcomes(selected.raw as OracleMeeting) && <section className="intelligence-detail-block"><h2>Resultados registrados</h2>{(selected.raw as OracleMeeting).notes ? <p>{(selected.raw as OracleMeeting).notes}</p> : <p>Reunión cerrada sin notas detalladas.</p>}<div className="work-outcomes">{(meetingOutcomes(selected.raw as OracleMeeting)?.decisions ?? []).length > 0 && <div><h3>Decisiones resultantes</h3><ul>{(meetingOutcomes(selected.raw as OracleMeeting)?.decisions ?? []).map((item) => <li key={item.id}><Link href={`/app/dossiers/${dossierId}/decisions?selected=${encodeURIComponent(item.id)}`}>{item.title}</Link></li>)}</ul></div>}{(meetingOutcomes(selected.raw as OracleMeeting)?.tasks ?? []).length > 0 && <div><h3>Tareas resultantes</h3><ul>{(meetingOutcomes(selected.raw as OracleMeeting)?.tasks ?? []).map((item) => <li key={item.id}><Link href={`/app/dossiers/${dossierId}/tasks?selected=${encodeURIComponent(item.id)}`}>{item.title}</Link></li>)}</ul></div>}</div></section>}
+            {kind === "meetings" && completionOpen && <PermissionGate permission="meeting.write"><section className="intelligence-detail-block"><h2>Cerrar reunión</h2><p>Registra resultados, decisiones propuestas y siguientes acciones. Si reintentas el envío, Oracle evitará duplicados.</p><form className="meeting-outcome-form" onSubmit={completeMeeting}><label>Resultados de la reunión<textarea value={completionNotes} onChange={(event) => setCompletionNotes(event.target.value)} placeholder="Acuerdos, señales relevantes y próximos pasos tratados." /></label><fieldset><legend>Decisiones propuestas</legend>{completionDecisions.map((item, index) => <div className="outcome-row" key={`decision-${index}`}><label>Título<input value={item.title} onChange={(event) => updateCompletionDecision(index, { title: event.target.value })} placeholder="Ej. Priorizar contacto con el equipo técnico" /></label><label>Justificación<textarea value={item.rationale} onChange={(event) => updateCompletionDecision(index, { rationale: event.target.value })} placeholder="Motivo de negocio o evidencia comentada." /></label></div>)}<button className="vector-secondary compact" type="button" onClick={() => setCompletionDecisions((current) => [...current, emptyDecisionDraft()])}>Añadir decisión</button></fieldset><fieldset><legend>Tareas de seguimiento</legend>{completionTasks.map((item, index) => <div className="outcome-row" key={`task-${index}`}><label>Título<input value={item.title} onChange={(event) => updateCompletionTask(index, { title: event.target.value })} placeholder="Ej. Preparar propuesta ejecutiva" /></label><label>Vencimiento<input type="date" value={item.dueDate} onChange={(event) => updateCompletionTask(index, { dueDate: event.target.value })} /></label><label>Prioridad<select value={item.priority} onChange={(event) => updateCompletionTask(index, { priority: event.target.value as OutcomeTaskDraft["priority"] })}><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option><option value="critical">Crítica</option></select></label><label className="inline-check"><input type="checkbox" checked={item.assignToMe} onChange={(event) => updateCompletionTask(index, { assignToMe: event.target.checked })} />Asignarme como responsable</label></div>)}<button className="vector-secondary compact" type="button" onClick={() => setCompletionTasks((current) => [...current, emptyTaskDraft()])}>Añadir tarea</button></fieldset>{completionError && <p className="form-error" role="alert">{completionError}</p>}<div className="dialog-actions"><button className="vector-secondary" type="button" onClick={resetCompletion}>Cancelar cierre</button><button className="vector-primary" disabled={busy}>{busy ? "Registrando…" : "Cerrar reunión y crear seguimiento"}</button></div></form></section></PermissionGate>}
             {transitions.length > 0 && <PermissionGate permission={copy.permission}><section className="intelligence-detail-block"><h2>Siguientes acciones permitidas</h2><div className="work-transitions">{transitions.map((next) => <button key={next} className={next === "cancelled" || next === "rejected" ? "vector-danger" : "vector-secondary"} disabled={busy} onClick={() => void transition(next)}>{LABELS[next] ?? next}</button>)}</div></section></PermissionGate>}
           </div></>}
         </Dialog.Content></Dialog.Portal>

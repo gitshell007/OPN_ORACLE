@@ -924,6 +924,9 @@ const risks = {
 };
 
 export type OracleMeeting = components["schemas"]["MeetingResource"];
+export type MeetingCompleteInput = components["schemas"]["MeetingCompleteInput"];
+export type MeetingCompleteResponse =
+  components["schemas"]["MeetingCompleteResponse"];
 export type OracleTask = components["schemas"]["TaskResource"];
 export type OracleActor = components["schemas"]["ActorResource"];
 export type OracleDossierActor =
@@ -1043,6 +1046,21 @@ const meetings = {
       body: input,
       ifMatch: version,
     }),
+  complete: (
+    meetingId: string,
+    input: MeetingCompleteInput,
+    version: number,
+    idempotencyKey: string,
+  ) =>
+    request<MeetingCompleteResponse>(
+      `/api/v1/meetings/${encodeURIComponent(meetingId)}/complete`,
+      {
+        method: "POST",
+        body: input,
+        ifMatch: version,
+        idempotencyKey,
+      },
+    ),
   briefings: (meetingId: string) =>
     request<DossierResourcePage<OracleBriefing>>(
       `/api/v1/meetings/${encodeURIComponent(meetingId)}/briefings?page%5Bnumber%5D=1&page%5Bsize%5D=25&sort=-created_at`,

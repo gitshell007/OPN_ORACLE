@@ -62,4 +62,37 @@ describe("transporte productivo del trabajo de expediente", () => {
     expect((options.headers as Headers).get("Idempotency-Key")).toBe("briefing-test-key");
     expect(JSON.parse(String(options.body))).toEqual({});
   });
+
+  it("cierra una reunión con If-Match e idempotencia", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
+      .mockResolvedValueOnce(json({
+        meeting: { id: "meeting-1", status: "completed", version: 2 },
+        decisions: [],
+        tasks: [],
+        replayed: false,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.meetings.complete(
+      "meeting-1",
+      { notes: "Resultados", decisions: [], tasks: [], version: 1 },
+      1,
+      "meeting-complete-key",
+    );
+
+    const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe("/api/v1/meetings/meeting-1/complete");
+    expect(options.method).toBe("POST");
+    expect((options.headers as Headers).get("If-Match")).toBe('W/"1"');
+    expect((options.headers as Headers).get("Idempotency-Key")).toBe("meeting-complete-key");
+    expect((options.headers as Headers).get("X-CSRF-Token")).toBe("csrf-test");
+    expect(JSON.parse(String(options.body))).toEqual({
+      notes: "Resultados",
+      decisions: [],
+      tasks: [],
+      version: 1,
+    });
+  });
 });

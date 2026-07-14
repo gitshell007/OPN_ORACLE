@@ -917,3 +917,24 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   para endpoint protegido.
 - Checks Signal antes del despliegue: Ruff focal, `py_compile` del script de sincronización, tests
   focales **44/44** y suite completa **480/480**.
+
+## Prompt 32 · Resultados, decisiones y tareas desde reuniones
+
+- Implementación local preparada para despliegue: cierre de reunión mediante
+  `POST /api/v1/meetings/{meeting_id}/complete` con `If-Match`, `Idempotency-Key`, permisos
+  `meeting.write` + `task.write`, auditoría, `StatusHistory` e idempotencia durable en
+  `BackgroundJob`.
+- El cierre acepta notas/resultados, decisiones propuestas con justificación y evidencias
+  opcionales, y tareas de seguimiento con responsable opcional, vencimiento y prioridad. Las tareas
+  quedan vinculadas a la reunión (`linked_resource_type=meeting`, `origin=meeting`) y las decisiones
+  conservan `content.source=meeting_outcome`.
+- La UI Vector de reuniones ya no marca una reunión como completada con un cambio seco de estado:
+  abre un formulario de cierre con resultados, N decisiones y N tareas. Las decisiones/tareas creadas
+  se muestran enlazadas desde el detalle de la reunión y aparecen en sus secciones normales.
+- Contrato actualizado: OpenAPI y cliente TypeScript regenerados con `MeetingCompleteInput`,
+  `MeetingCompleteResponse`, `MeetingOutcomeDecisionInput` y `MeetingOutcomeTaskInput`; `Decision`
+  expone `content`, `rationale`, `decided_at` y `decided_by_user_id`.
+- Checks locales: `uv run ruff check` focal correcto, `uv run mypy` focal correcto,
+  `uv run pytest tests/test_contract.py -q --no-cov` **7/7**, test de integración nuevo preparado
+  pero saltado sin `ORACLE_RUN_INTEGRATION=1`, Vitest focal **11/11**, `npm run lint`,
+  `npm run typecheck`, `npm run api:client:check`, `npm run build` y `git diff --check` correctos.

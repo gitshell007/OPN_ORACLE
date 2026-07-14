@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   meetingsList: vi.fn(),
   meetingCreate: vi.fn(),
   meetingUpdate: vi.fn(),
+  meetingComplete: vi.fn(),
   briefings: vi.fn(),
   createBriefing: vi.fn(),
   tasksList: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@oracle/api-client", () => ({
       list: mocks.meetingsList,
       create: mocks.meetingCreate,
       update: mocks.meetingUpdate,
+      complete: mocks.meetingComplete,
       briefings: mocks.briefings,
       createBriefing: mocks.createBriefing,
     },
@@ -66,6 +68,11 @@ vi.mock("@oracle/api-client", () => ({
 vi.mock("sonner", () => ({ toast: { success: mocks.success } }));
 vi.mock("@/components/auth/auth-boundary", () => ({
   PermissionGate: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    identity: { user: { id: "user-1" } },
+  }),
 }));
 
 import { DossierWorkSection } from "./dossier-work-section";
@@ -96,6 +103,13 @@ describe("DossierWorkSection", () => {
     mocks.actorAttach.mockResolvedValue({ id: "link-1", tenant_id: "tenant-1" });
     mocks.actorCandidates.mockResolvedValue({ data: [], meta: { total: 0 } });
     mocks.meetingsList.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
+    mocks.meetingComplete.mockResolvedValue({
+      meeting: { id: "meeting-1", status: "completed", version: 2 },
+      decisions: [],
+      tasks: [],
+      replayed: false,
+    });
+    mocks.briefings.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
     mocks.decisionsList.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
   });
 
@@ -117,6 +131,60 @@ describe("DossierWorkSection", () => {
       "/app/dossiers/dossier-1/tasks",
       { scroll: false },
     );
+  });
+
+  it("cierra una reunión creando resultados, decisiones y tareas vinculadas", async () => {
+    mocks.params = new URLSearchParams("selected=meeting-1");
+    mocks.meetingsList.mockResolvedValue({
+      data: [{
+        id: "meeting-1",
+        tenant_id: "tenant-1",
+        dossier_id: "dossier-1",
+        title: "Reunión con Gobierno de Aragón",
+        status: "planned",
+        objective: "Validar encaje",
+        version: 1,
+        updated_at: "2026-07-11T09:00:00Z",
+      }],
+      meta: { page: 1, size: 25, total: 1 },
+    });
+    render(<DossierWorkSection dossierId="dossier-1" kind="meetings" />);
+
+    const detail = await screen.findByRole("dialog", { name: "Reunión con Gobierno de Aragón" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Completada" }));
+    fireEvent.change(within(detail).getByLabelText("Resultados de la reunión"), {
+      target: { value: "Se valida preparar una propuesta ejecutiva." },
+    });
+    const titleInputs = within(detail).getAllByLabelText("Título");
+    fireEvent.change(titleInputs[0], { target: { value: "Priorizar encaje territorial" } });
+    fireEvent.change(within(detail).getByLabelText("Justificación"), {
+      target: { value: "El interlocutor confirma interés en enfoque industrial." },
+    });
+    fireEvent.change(titleInputs[1], { target: { value: "Enviar propuesta ejecutiva" } });
+    fireEvent.change(within(detail).getByLabelText("Vencimiento"), {
+      target: { value: "2026-07-24" },
+    });
+    fireEvent.click(within(detail).getByRole("button", { name: "Cerrar reunión y crear seguimiento" }));
+
+    await waitFor(() => expect(mocks.meetingComplete).toHaveBeenCalledWith(
+      "meeting-1",
+      {
+        version: 1,
+        notes: "Se valida preparar una propuesta ejecutiva.",
+        decisions: [{
+          title: "Priorizar encaje territorial",
+          rationale: "El interlocutor confirma interés en enfoque industrial.",
+        }],
+        tasks: [{
+          title: "Enviar propuesta ejecutiva",
+          due_date: "2026-07-24",
+          priority: "medium",
+          owner_user_id: "user-1",
+        }],
+      },
+      1,
+      expect.any(String),
+    ));
   });
 
   it("vincula un actor existente sin enviar tenant desde el navegador", async () => {

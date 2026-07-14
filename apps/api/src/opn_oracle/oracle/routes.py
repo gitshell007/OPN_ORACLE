@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
@@ -35,6 +37,7 @@ from opn_oracle.oracle.change_digest import (
     parse_period,
     resolve_digest_dossier_id,
 )
+from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import (
     DecisionEvidence,
     DossierActorEvidence,
@@ -132,6 +135,16 @@ def _parse_datetime_value(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _parse_date_value(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
 
 
 def _serialize(row: Any) -> dict[str, Any]:
@@ -1889,6 +1902,289 @@ def dossier_actor_candidate_review(dossier_id: uuid.UUID, candidate_id: uuid.UUI
         db.session.commit()
         return {"candidate": candidate | {"status": requested_status}}
     except IntegrityError as error:
+        db.session.rollback()
+        return _domain_error(error)
+
+
+def _meeting_complete_operation_key(meeting_id: uuid.UUID, raw_key: str) -> str:
+    if len(raw_key.strip()) < 8:
+        raise DomainValidationError("Idempotency-Key es obligatorio para cerrar reuniones.")
+    digest = hashlib.sha256(raw_key.strip().encode()).hexdigest()
+    return f"meeting.complete:{meeting_id}:{digest[:48]}"
+
+
+def _meeting_complete_request_hash(payload: dict[str, Any], expected_version: int) -> bytes:
+    normalized = json.dumps(
+        {"expected_version": expected_version, "payload": payload},
+        default=str,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(normalized.encode()).digest()
+
+
+def _clean_outcome_items(
+    payload: dict[str, Any], key: str, *, limit: int = 25
+) -> list[dict[str, Any]]:
+    raw = payload.get(key, [])
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list):
+        raise DomainValidationError(f"{key} debe ser una lista.")
+    if len(raw) > limit:
+        raise DomainValidationError(f"{key} admite como máximo {limit} elementos.")
+    cleaned: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise DomainValidationError(f"Cada elemento de {key} debe ser un objeto.")
+        title = str(item.get("title", "")).strip()
+        if title:
+            cleaned.append(item | {"title": title[:300]})
+    return cleaned
+
+
+def _validate_dossier_evidence_ids(dossier_id: uuid.UUID, evidence_ids: list[uuid.UUID]) -> None:
+    if not evidence_ids:
+        return
+    existing = set(
+        db.session.scalars(
+            select(EvidenceDossier.evidence_id).where(
+                EvidenceDossier.tenant_id == g.active_tenant_id,
+                EvidenceDossier.dossier_id == dossier_id,
+                EvidenceDossier.evidence_id.in_(evidence_ids),
+            )
+        )
+    )
+    if existing != set(evidence_ids):
+        raise DomainValidationError("Una o más evidencias no pertenecen al expediente.")
+
+
+def _meeting_complete_response(job: BackgroundJob, *, replayed: bool) -> dict[str, Any]:
+    result = job.result_ref if isinstance(job.result_ref, dict) else {}
+    meeting = db.session.get(Meeting, uuid.UUID(str(result["meeting_id"])))
+    if meeting is None:
+        raise ResourceNotFound("Reunión no encontrada.")
+    decisions = [
+        row
+        for row in (
+            db.session.get(Decision, uuid.UUID(str(item)))
+            for item in result.get("decision_ids", [])
+        )
+        if row is not None
+    ]
+    tasks = [
+        row
+        for row in (
+            db.session.get(Task, uuid.UUID(str(item))) for item in result.get("task_ids", [])
+        )
+        if row is not None
+    ]
+    return {
+        "meeting": _serialize(meeting),
+        "decisions": [_serialize(row) for row in decisions],
+        "tasks": [_serialize(row) for row in tasks],
+        "replayed": replayed,
+    }
+
+
+@bp.post("/meetings/<uuid:meeting_id>/complete")
+@require_permission("meeting.write")
+def meeting_complete(meeting_id: uuid.UUID) -> Any:
+    permissions = current_permissions(current_user.id, g.active_tenant_id)
+    if "task.write" not in permissions:
+        return problem_response(403, detail="Permiso denegado.", code="forbidden")
+    payload = _payload()
+    try:
+        expected = _expected_version()
+        operation_key = _meeting_complete_operation_key(
+            meeting_id, request.headers.get("Idempotency-Key", "")
+        )
+        request_hash = _meeting_complete_request_hash(payload, expected)
+        existing_job = db.session.scalar(
+            select(BackgroundJob).where(
+                BackgroundJob.tenant_id == g.active_tenant_id,
+                BackgroundJob.idempotency_key == operation_key,
+            )
+        )
+        if existing_job is not None:
+            if existing_job.payload_hash != request_hash:
+                raise VersionConflict("La clave de idempotencia ya se usó con otro contenido.")
+            return _meeting_complete_response(existing_job, replayed=True), 200
+
+        meeting = db.session.scalar(
+            select(Meeting)
+            .where(Meeting.tenant_id == g.active_tenant_id, Meeting.id == meeting_id)
+            .with_for_update()
+        )
+        if meeting is None:
+            return problem_response(404, detail="Reunión no encontrada.", code="not_found")
+        dossier = _dossier_or_404(meeting.dossier_id, write=True)
+        if dossier is None:
+            return problem_response(404, detail="Reunión no encontrada.", code="not_found")
+        if dossier.status == "archived":
+            raise DomainValidationError("Un expediente archivado es de solo lectura.")
+        if meeting.version != expected:
+            raise VersionConflict("La reunión fue modificada por otro usuario.")
+        if meeting.status != "planned":
+            raise DomainValidationError("Solo una reunión planificada puede cerrarse.")
+
+        decisions_payload = _clean_outcome_items(payload, "decisions")
+        tasks_payload = _clean_outcome_items(payload, "tasks")
+        notes = str(payload.get("notes", "")).strip()
+        if not notes and not decisions_payload and not tasks_payload:
+            notes = "Reunión cerrada sin resultados detallados."
+
+        decision_rows: list[Decision] = []
+        task_rows: list[Task] = []
+        meeting_content = dict(meeting.content or {})
+        outcomes: dict[str, Any] = {
+            "completed_at": datetime.now(UTC).isoformat(),
+            "completed_by_user_id": str(current_user.id),
+            "decisions": [],
+            "source": "meeting_completion",
+            "tasks": [],
+        }
+        meeting_content["outcomes"] = outcomes
+
+        previous_status = meeting.status
+        meeting.status = "completed"
+        meeting.notes = notes[:20000]
+        meeting.version += 1
+
+        for item in decisions_payload:
+            raw_evidence_ids = item.get("evidence_ids", [])
+            if raw_evidence_ids in (None, ""):
+                raw_evidence_ids = []
+            if not isinstance(raw_evidence_ids, list):
+                raise DomainValidationError("evidence_ids debe ser una lista.")
+            evidence_ids = [uuid.UUID(str(value)) for value in raw_evidence_ids]
+            _validate_dossier_evidence_ids(meeting.dossier_id, evidence_ids)
+            decision = Decision(
+                tenant_id=g.active_tenant_id,
+                dossier_id=meeting.dossier_id,
+                title=item["title"],
+                status="proposed",
+                rationale=str(item.get("rationale", "")).strip()[:20000],
+                content={
+                    "meeting_id": str(meeting.id),
+                    "meeting_title": meeting.title,
+                    "source": "meeting_outcome",
+                },
+            )
+            db.session.add(decision)
+            db.session.flush()
+            for evidence_id in evidence_ids:
+                db.session.add(
+                    DecisionEvidence(
+                        tenant_id=g.active_tenant_id,
+                        decision_id=decision.id,
+                        evidence_id=evidence_id,
+                    )
+                )
+            decision_rows.append(decision)
+            outcomes["decisions"].append({"id": str(decision.id), "title": decision.title})
+
+        for item in tasks_payload:
+            owner_id = (
+                uuid.UUID(str(item["owner_user_id"]))
+                if item.get("owner_user_id") not in (None, "")
+                else None
+            )
+            if owner_id is not None and not active_membership_exists(
+                db.session(), g.active_tenant_id, owner_id
+            ):
+                raise DomainValidationError("owner_user_id debe ser un miembro activo.")
+            try:
+                due_date = _parse_date_value(item.get("due_date"))
+            except ValueError as error:
+                raise DomainValidationError("due_date no es una fecha válida.") from error
+            priority = str(item.get("priority", "medium")).strip() or "medium"
+            if priority not in {"low", "medium", "high", "critical"}:
+                raise DomainValidationError("priority no válido.")
+            task = Task(
+                tenant_id=g.active_tenant_id,
+                dossier_id=meeting.dossier_id,
+                title=item["title"],
+                status="open",
+                owner_user_id=owner_id,
+                due_date=due_date,
+                priority=priority,
+                linked_resource_type="meeting",
+                linked_resource_id=meeting.id,
+                origin="meeting",
+                content={
+                    "meeting_id": str(meeting.id),
+                    "meeting_notes_excerpt": meeting.notes[:500],
+                    "meeting_title": meeting.title,
+                    "source": "meeting_outcome",
+                },
+            )
+            db.session.add(task)
+            db.session.flush()
+            task_rows.append(task)
+            outcomes["tasks"].append({"id": str(task.id), "title": task.title})
+
+        meeting.content = meeting_content
+        record_status_change(
+            db.session(),
+            dossier_id=meeting.dossier_id,
+            resource_type="meeting",
+            resource_id=meeting.id,
+            from_status=previous_status,
+            to_status="completed",
+            actor_id=current_user.id,
+            reason="Resultados de reunión registrados.",
+        )
+        append_audit_event(
+            db.session,
+            action="meeting.completed",
+            resource_type="meeting",
+            resource_id=meeting.id,
+            dossier_id=meeting.dossier_id,
+            result="success",
+            metadata={"decision_count": len(decision_rows), "task_count": len(task_rows)},
+        )
+        finished_at = datetime.now(UTC)
+        job = BackgroundJob(
+            tenant_id=g.active_tenant_id,
+            dossier_id=meeting.dossier_id,
+            job_type="meeting.complete",
+            status="succeeded",
+            queue="default",
+            idempotency_key=operation_key,
+            progress=100,
+            stage="completed",
+            resource_type="meeting",
+            resource_id=meeting.id,
+            payload_hash=request_hash,
+            input_payload={"meeting_id": str(meeting.id)},
+            attempts=1,
+            max_attempts=1,
+            retryable=False,
+            started_at=finished_at,
+            finished_at=finished_at,
+            requested_by_user_id=current_user.id,
+            result_ref={
+                "decision_ids": [str(row.id) for row in decision_rows],
+                "meeting_id": str(meeting.id),
+                "request_hash": request_hash.hex(),
+                "task_ids": [str(row.id) for row in task_rows],
+            },
+        )
+        db.session.add(job)
+        db.session.commit()
+        return (
+            _meeting_complete_response(job, replayed=False),
+            200,
+            {"ETag": f'W/"{meeting.version}"'},
+        )
+    except (
+        DomainValidationError,
+        ResourceNotFound,
+        VersionConflict,
+        IntegrityError,
+        ValueError,
+    ) as error:
         db.session.rollback()
         return _domain_error(error)
 

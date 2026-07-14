@@ -661,6 +661,8 @@ def _declare_oracle_operation(
             schema = "SignalMonitorUpdateInput"
         elif path == "/api/v1/meetings/{meeting_id}/briefings":
             schema = "BriefingWriteInput"
+        elif path == "/api/v1/meetings/{meeting_id}/complete":
+            schema = "MeetingCompleteInput"
         elif path == "/api/v1/changes/digest":
             schema = "WeeklyChangeRefreshInput"
         operation["requestBody"] = {
@@ -681,7 +683,14 @@ def _declare_oracle_operation(
         )
     ):
         status = "202"
-    elif path == "/api/v1/dossiers/bulk-delete" and method == "post":
+    elif (
+        path
+        in {
+            "/api/v1/dossiers/bulk-delete",
+            "/api/v1/meetings/{meeting_id}/complete",
+        }
+        and method == "post"
+    ):
         status = "200"
     else:
         status = (
@@ -723,6 +732,8 @@ def _declare_oracle_operation(
             "/api/v1/meetings/{meeting_id}/briefing-state",
         } and (method == "post" or path.endswith("/briefing-state")):
             response = {"$ref": "#/components/schemas/MeetingBriefingGenerationResponse"}
+        elif path == "/api/v1/meetings/{meeting_id}/complete":
+            response = {"$ref": "#/components/schemas/MeetingCompleteResponse"}
         elif path == "/api/v1/signals" and method == "get":
             response = {"$ref": "#/components/schemas/GlobalSignalListResponse"}
         elif (
@@ -799,7 +810,11 @@ def _declare_oracle_operation(
     operation.setdefault("responses", {})["404"] = _problem(
         "Recurso no encontrado", problem_content
     )
-    if path == "/api/v1/dossiers/{dossier_id}/archive" or signal_monitor_update:
+    if (
+        path == "/api/v1/dossiers/{dossier_id}/archive"
+        or path == "/api/v1/meetings/{meeting_id}/complete"
+        or signal_monitor_update
+    ):
         _upsert_parameter(
             operation,
             {
@@ -822,9 +837,13 @@ def _declare_oracle_operation(
                 "schema": {"type": "string", "pattern": '^W/"[1-9][0-9]*"$'},
             },
         )
-    if path.endswith("/promote") or (
-        method in {"post", "patch"}
-        and (signal_monitor_create or signal_monitor_update or signal_monitor_action)
+    if (
+        path.endswith("/promote")
+        or path == "/api/v1/meetings/{meeting_id}/complete"
+        or (
+            method in {"post", "patch"}
+            and (signal_monitor_create or signal_monitor_update or signal_monitor_action)
+        )
     ):
         _upsert_parameter(
             operation,
@@ -1605,6 +1624,10 @@ def _oracle_schemas() -> dict[str, Any]:
             "dossier_id": uuid,
             "title": string,
             "status": string,
+            "content": json_object,
+            "rationale": string,
+            "decided_at": {"type": "string", "format": "date-time", "nullable": True},
+            "decided_by_user_id": nullable_uuid,
             "version": {"type": "integer"},
         },
         "Task": {
@@ -1917,7 +1940,12 @@ def _oracle_schemas() -> dict[str, Any]:
         "Briefing": {"content": json_object},
         "Decision": common_child | {"version": {"type": "integer"}, "rationale": string},
         "Task": common_child
-        | {"version": {"type": "integer"}, "priority": string, "owner_user_id": uuid},
+        | {
+            "version": {"type": "integer"},
+            "priority": string,
+            "owner_user_id": nullable_uuid,
+            "due_date": {"type": "string", "format": "date", "nullable": True},
+        },
         "Insight": common_child
         | {"facts": json_array, "inferences": json_array, "recommendation": string},
         "Report": common_child | {"report_type": string, "template_key": string},
@@ -1950,6 +1978,54 @@ def _oracle_schemas() -> dict[str, Any]:
         if name not in {"Collaborator", "DossierSignal"}:
             properties = properties | {"version": version}
         schemas[f"{name}WriteInput"] = write(properties)
+    schemas["MeetingOutcomeDecisionInput"] = write(
+        {
+            "title": {"type": "string", "minLength": 1, "maxLength": 300},
+            "rationale": string,
+            "evidence_ids": uuid_array,
+        },
+        ["title"],
+    )
+    schemas["MeetingOutcomeTaskInput"] = write(
+        {
+            "title": {"type": "string", "minLength": 1, "maxLength": 300},
+            "owner_user_id": nullable_uuid,
+            "due_date": {"type": "string", "format": "date", "nullable": True},
+            "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+        },
+        ["title"],
+    )
+    schemas["MeetingCompleteInput"] = write(
+        {
+            "version": version,
+            "notes": string,
+            "decisions": {
+                "type": "array",
+                "maxItems": 25,
+                "items": {"$ref": "#/components/schemas/MeetingOutcomeDecisionInput"},
+            },
+            "tasks": {
+                "type": "array",
+                "maxItems": 25,
+                "items": {"$ref": "#/components/schemas/MeetingOutcomeTaskInput"},
+            },
+        }
+    )
+    schemas["MeetingCompleteResponse"] = write(
+        {
+            "meeting": {"$ref": "#/components/schemas/MeetingResource"},
+            "decisions": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/DecisionResource"},
+            },
+            "tasks": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/TaskResource"},
+            },
+            "replayed": {"type": "boolean"},
+        },
+        ["meeting", "decisions", "tasks", "replayed"],
+    )
     schemas["SignalMonitorCreateInput"] = write(
         {
             "connection_id": uuid,

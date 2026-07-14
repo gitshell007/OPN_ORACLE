@@ -4734,6 +4734,50 @@
 }
 .meeting-participants legend { padding: 0 4px; color: var(--va-muted); font-size: 11px; font-weight: 800; }
 .meeting-participants label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; }
+.meeting-outcome-form,
+.meeting-outcome-form fieldset {
+  display: grid;
+  gap: 12px;
+}
+.meeting-outcome-form fieldset {
+  border: 1px solid var(--va-border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.meeting-outcome-form legend {
+  padding: 0 4px;
+  color: var(--va-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.outcome-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.85fr) minmax(220px, 1.15fr);
+  gap: 10px;
+}
+.outcome-row textarea {
+  min-height: 76px;
+}
+.work-outcomes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.work-outcomes h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--va-muted);
+}
+.work-outcomes ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.work-outcomes a {
+  color: var(--va-primary);
+  font-weight: 800;
+}
 .work-transitions {
   display: flex;
   flex-wrap: wrap;
@@ -4741,6 +4785,9 @@
 }
 
 @media (max-width: 760px) {
+  .outcome-row {
+    grid-template-columns: 1fr;
+  }
   .work-table-wrap {
     display: none;
   }
