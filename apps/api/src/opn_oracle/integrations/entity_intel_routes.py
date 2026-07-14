@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from apiflask import APIBlueprint, Schema
 from apiflask.fields import Boolean, Dict, Integer, List, Raw, String
-from flask import g
+from flask import Response, g
 from marshmallow import validate
 
 from opn_oracle.auth.permissions import require_permission
@@ -66,8 +66,28 @@ class EntityGraphResponseSchema(Schema):
     cache_hit = Boolean(required=True)
 
 
-def _provider_error_response(error: EntityIntelProviderError) -> Any:
-    return problem_response(
+def _problem_response_passthrough(
+    status: int,
+    *,
+    title: str,
+    detail: str,
+    code: str,
+    errors: Any = None,
+) -> Response:
+    response, response_status, headers = problem_response(
+        status,
+        title=title,
+        detail=detail,
+        code=code,
+        errors=errors,
+    )
+    response.status_code = response_status
+    response.headers.update(headers)
+    return response
+
+
+def _provider_error_response(error: EntityIntelProviderError) -> Response:
+    return _problem_response_passthrough(
         error.status_code,
         title="No se pudo consultar la inteligencia de entidades",
         detail=error.detail,
@@ -76,8 +96,8 @@ def _provider_error_response(error: EntityIntelProviderError) -> Any:
     )
 
 
-def _configuration_error_response(error: EntityIntelConfigurationError) -> Any:
-    return problem_response(
+def _configuration_error_response(error: EntityIntelConfigurationError) -> Response:
+    return _problem_response_passthrough(
         503,
         title="Inteligencia de entidades no disponible",
         detail=str(error),

@@ -1036,7 +1036,7 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 
 ## Prompt 34 · F1 grafo de entidad desde Signal
 
-- Estado local F1: implementado el proxy Flask `/api/v1/entity-intel/suggest` y
+- Estado F1: implementado y desplegado el proxy Flask `/api/v1/entity-intel/suggest` y
   `/api/v1/entity-intel/graph`, protegido con `actor.read`, rate limit, allowlist `SIGNAL_AI_*`,
   timeouts, caché server-side de 600 s y cabecera `X-OPN-External-Tenant-ID` derivada de la
   conexión Signal activa del tenant. El navegador no llama a Signal ni recibe claves.
@@ -1046,10 +1046,30 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   relaciones en expedientes.
 - Contrato actualizado: OpenAPI y cliente TypeScript regenerados con los endpoints
   `entity-intel`.
+- Decisión registrada en `DECISIONS.md`: Cytoscape.js + `fcose` para red relacional de 60–200
+  nodos, carga diferida para no penalizar el bundle global.
 - Checks locales F1: `uv run ruff check` focal correcto, `uv run pytest tests/test_entity_intel.py
-  --no-cov` **15/15**, `uv run pytest tests/test_entity_intel.py tests/test_contract.py -q
-  --no-cov` **22/22**, `npm run api:openapi`, `npm run api:client:generate`,
+  --no-cov`, `uv run pytest tests/test_entity_intel.py tests/test_contract.py -q
+  --no-cov` **23/23** tras el ajuste de errores RFC7807, `npm run api:openapi`,
+  `npm run api:client:generate`,
   `npm run api:client:check`, `uv run mypy` focal correcto, `npm run typecheck`,
   `npm run lint` y `npm run build` correctos.
-- Pendiente antes de pasar a F2: desplegar F1 en producción D-022 y enseñar la verificación real del
-  grafo `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA` en `oracle.opnconsultoria.com`.
+- CI manual verde para F1:
+  - `9b3c72e`: `https://github.com/gitshell007/OPN_ORACLE/actions/runs/29332788154`.
+  - `72f5efd`: `https://github.com/gitshell007/OPN_ORACLE/actions/runs/29333426454`.
+- Producción D-022: release activo `20260714T124654Z-p34-f1-72f5efd`, backup local
+  `/var/backups/opn-oracle/20260714T124711Z-20260714T124000Z-p34-f1-9b3c72e/MANIFEST.txt`,
+  restore aislado
+  `/var/backups/opn-oracle/restore-evidence/20260714T124711Z-20260714T124000Z-p34-f1-9b3c72e.RESTORE_EVIDENCE.txt`,
+  smoke público correcto y `oracle-control health` correcto. Se recuperó un primer intento fallido
+  por permisos del entrypoint Redis en el artefacto candidato; el release activo quedó sano y la
+  auditoría final registra `activate-release result=success`.
+- Verificación real autenticada:
+  - `GET /api/v1/entity-intel/suggest?q=IBERDROLA&kind=company&limit=8` respondió 200 y devolvió
+    `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA`.
+  - `GET /api/v1/entity-intel/graph` para ese nombre devolvió 403 desde Signal. Llamada directa a
+    Signal confirmó `insufficient_scope`: «La credencial no tiene el scope 'entity:read'.».
+    Oracle preserva ahora ese detalle RFC7807 en la API en vez de devolver `{}`.
+- Gate antes de F2/F3: pendiente que Signal conceda `entity:read` a la credencial productiva de
+  Oracle o entregue credencial separada para entidades. No se puede enseñar el grafo real hasta
+  resolver ese scope del productor.

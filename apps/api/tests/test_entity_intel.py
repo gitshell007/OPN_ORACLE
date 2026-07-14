@@ -8,7 +8,7 @@ import pytest
 from flask import g
 
 from opn_oracle.extensions import db
-from opn_oracle.integrations import entity_intel
+from opn_oracle.integrations import entity_intel, entity_intel_routes
 from opn_oracle.integrations.entity_intel import (
     EntityIntelCache,
     EntityIntelClient,
@@ -161,6 +161,23 @@ def test_entity_intel_maps_signal_problem_without_leaking_transport_details() ->
     assert error.code == "upstream_timeout"
     assert error.detail == "No se pudo resolver el grafo a tiempo."
     assert error.retryable is True
+
+
+@pytest.mark.unit
+def test_entity_intel_route_problem_response_preserves_provider_detail(app: Any) -> None:
+    with app.test_request_context("/api/v1/entity-intel/graph"):
+        response = entity_intel_routes._provider_error_response(
+            EntityIntelProviderError(
+                status_code=403,
+                code="insufficient_scope",
+                detail="La credencial no tiene el scope 'entity:read'.",
+            )
+        )
+
+    assert response.status_code == 403
+    assert response.content_type == "application/problem+json"
+    assert response.get_json()["code"] == "insufficient_scope"
+    assert response.get_json()["detail"] == "La credencial no tiene el scope 'entity:read'."
 
 
 @pytest.mark.unit

@@ -41,6 +41,12 @@
 - Resuelto: cursor opaco ligado a tenant/monitor, retención de 365 días y límite 1–200.
 - Resuelto: HMAC-SHA256 V2 sobre `timestamp.raw_body`, tolerancia de cinco minutos y rotación con
   solape máximo de 24 horas.
+- Bloqueo Prompt 34/F1 detectado en producción el 2026-07-14: la credencial de Oracle usada para
+  `/api/v1/oracle/entity/graph` responde 403 `insufficient_scope` en Signal con el detalle
+  «La credencial no tiene el scope 'entity:read'.». `registry/suggest` sí funciona y devuelve el
+  nombre registral exacto esperado para IBERDROLA. Falta que el productor Signal conceda
+  `entity:read` a la credencial `opn-oracle`/`oracle_signal_ai_api_key` o entregue una credencial
+  separada para entidad antes de poder enseñar el grafo real y cerrar F1.
 
 ## IA y compliance
 
