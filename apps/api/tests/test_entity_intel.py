@@ -325,9 +325,9 @@ def test_entity_intel_client_from_config_uses_signal_ai_settings(app: Any) -> No
         )
         client = entity_intel_client_from_config(transport=httpx.MockTransport(handler))
         try:
-            assert client.suggest(query="IBERDROLA", kind="company", limit=1)[
-                "suggestions"
-            ] == ["Iberdrola"]
+            assert client.suggest(query="IBERDROLA", kind="company", limit=1)["suggestions"] == [
+                "Iberdrola"
+            ]
         finally:
             client.close()
 
