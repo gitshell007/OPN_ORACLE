@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { EntitySearchPanel } from "@/components/entity-intel/entity-intel";
 import { productActorTypeLabel, productResourceKindLabel, productSignalTypeLabel, productStatusLabel } from "@/lib/product-copy";
 
 export type GlobalResourceSection =
@@ -188,6 +189,7 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
         <div><div className="eyebrow">Vista global</div><h1>{copy.title}</h1><p>{copy.description}</p></div>
         <button className="vector-secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={15} /> Actualizar</button>
       </section>
+      {section === "actors" && <EntitySearchPanel compact />}
       <form className="global-inventory-toolbar" role="search" onSubmit={submit}>
         <label><span className="sr-only">Buscar en {copy.title}</span><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar ${copy.title.toLowerCase()}…`} /></label>
         {section !== "actors" && <select aria-label="Filtrar por estado" value={status} onChange={(event) => update({ status: event.target.value || undefined, page: undefined })}><option value="">Todos los estados</option>{sectionStatuses[section].map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>}

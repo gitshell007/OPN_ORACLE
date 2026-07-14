@@ -1033,3 +1033,22 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Checks locales focales correctos: `uv run ruff format --check`, `uv run ruff check`,
   `uv run mypy` en módulos afectados y `uv run pytest tests/test_ai_runtime.py
   tests/test_signal_ai_provider.py tests/test_reporting_routes_extra.py -q --no-cov` **48/48**.
+
+## Prompt 34 · F1 grafo de entidad desde Signal
+
+- Estado local F1: implementado el proxy Flask `/api/v1/entity-intel/suggest` y
+  `/api/v1/entity-intel/graph`, protegido con `actor.read`, rate limit, allowlist `SIGNAL_AI_*`,
+  timeouts, caché server-side de 600 s y cabecera `X-OPN-External-Tenant-ID` derivada de la
+  conexión Signal activa del tenant. El navegador no llama a Signal ni recibe claves.
+- UI Vector: sección global Actores incorpora «Buscar entidad» y ruta
+  `/app/actors/entity/<type>/<name>` con grafo básico Cytoscape/fcose cargado dinámicamente,
+  métricas de nodos/enlaces, leyenda y panel lateral de lectura. F1 no persiste entidades ni crea
+  relaciones en expedientes.
+- Contrato actualizado: OpenAPI y cliente TypeScript regenerados con los endpoints
+  `entity-intel`.
+- Checks locales F1: `uv run ruff check` focal correcto, `uv run pytest tests/test_entity_intel.py
+  --no-cov` **4/4**, `npm run api:openapi`, `npm run api:client:generate`,
+  `npm run api:client:check`, `uv run mypy` focal correcto, `npm run typecheck`,
+  `npm run lint` y `npm run build` correctos.
+- Pendiente antes de pasar a F2: desplegar F1 en producción D-022 y enseñar la verificación real del
+  grafo `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA` en `oracle.opnconsultoria.com`.

@@ -314,3 +314,19 @@
 - **Consecuencias:** se reduce fragilidad ante modelos locales sin publicar hechos no citados ni
   aceptar fuentes inventadas. Si la salida no puede normalizarse de forma segura, el job sigue
   fallando y queda auditado para diagnóstico.
+
+## D-027 — Grafo de entidad renderizado con Cytoscape detrás de Flask
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-14
+- **Contexto:** la fase F1 del prompt 34 necesita explorar relaciones de empresas y personas desde
+  Signal sin acoplar el navegador al proveedor ni guardar todavía un subgrafo en expedientes.
+- **Decisión:** Vector renderiza el grafo con Cytoscape.js y layout `fcose`, cargados de forma
+  dinámica solo en la ruta de entidad. El navegador llama exclusivamente a Flask
+  `/api/v1/entity-intel/*`; Flask aplica permiso `actor.read`, rate limit, allowlist del host,
+  timeout, caché corto y cabecera `X-OPN-External-Tenant-ID` derivada de la conexión Signal activa.
+- **Alternativas:** SVG propio, React Flow, llamadas directas desde Next a Signal o persistir el
+  grafo desde F1.
+- **Consecuencias:** F1 ofrece visualización interactiva básica y verificable sin abrir secretos ni
+  decidir todavía recomendaciones, guardado o vinculación a expedientes. React Flow queda reservado
+  para futuros flujos editables; Cytoscape es más adecuado para grafos densos de relación.

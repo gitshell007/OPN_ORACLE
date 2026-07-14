@@ -1154,7 +1154,36 @@ const actors = {
     request<OracleDossierActor>(
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
-    ),
+  ),
+};
+
+const entityIntel = {
+  suggest: (input: { q: string; kind?: EntityIntelKind; limit?: number }) => {
+    const query = new URLSearchParams({
+      q: input.q,
+      kind: input.kind ?? "company",
+      limit: String(input.limit ?? 8),
+    });
+    return request<EntityIntelSuggestResponse>(
+      `/api/v1/entity-intel/suggest?${query.toString()}`,
+    );
+  },
+  graph: (input: {
+    name: string;
+    type?: EntityIntelKind;
+    depth?: number;
+    activeOnly?: boolean;
+  }) => {
+    const query = new URLSearchParams({
+      name: input.name,
+      type: input.type ?? "company",
+      depth: String(input.depth ?? 2),
+      active_only: String(input.activeOnly ?? true),
+    });
+    return request<EntityIntelGraphResponse>(
+      `/api/v1/entity-intel/graph?${query.toString()}`,
+    );
+  },
 };
 
 const decisions = {
@@ -1199,6 +1228,49 @@ export type OracleNotification = components["schemas"]["NotificationResponse"];
 export type NotificationPreference =
   components["schemas"]["NotificationPreferenceResponse"];
 export type OracleExport = components["schemas"]["ExportResponse"];
+
+export type EntityIntelKind = "company" | "person";
+
+export interface EntityIntelSuggestResponse {
+  kind: EntityIntelKind | string;
+  suggestions: string[];
+  cached_seconds: number;
+  cache_hit: boolean;
+}
+
+export interface EntityIntelGraphNode {
+  id: string | number;
+  label?: string;
+  name?: string;
+  type?: string;
+  norm?: string;
+  degree?: number;
+  is_center?: boolean;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface EntityIntelGraphEdge {
+  id?: string | number;
+  source: string | number;
+  target: string | number;
+  role?: string;
+  roles?: string[] | string;
+  active?: boolean;
+  date?: string;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface EntityIntelGraphResponse {
+  center?: unknown;
+  nodes: EntityIntelGraphNode[];
+  edges: EntityIntelGraphEdge[];
+  truncated: boolean;
+  note?: string | null;
+  cached_seconds: number;
+  cache_hit: boolean;
+}
 
 const reports = {
   templates: () =>
@@ -1376,6 +1448,7 @@ export const api = {
   meetings,
   tasks,
   actors,
+  entityIntel,
   decisions,
   documents,
   reports,

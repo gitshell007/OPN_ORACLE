@@ -293,6 +293,14 @@ const ALL_ROUTES: readonly AppRouteDefinition[] = [
 ];
 
 export function breadcrumbsForPath(pathname: string): BreadcrumbItem[] {
+  const entityMatch = pathname.match(/^\/app\/actors\/entity\/([^/]+)\/(.+)$/);
+  if (entityMatch) {
+    const [, , encodedName] = entityMatch;
+    return [
+      { label: "Actores", href: "/app/actors" },
+      { label: decodeURIComponent(encodedName) },
+    ];
+  }
   const dossierMatch = pathname.match(/^\/app\/dossiers\/([^/]+)(?:\/([^/]+))?$/);
   if (dossierMatch) {
     const [, dossierId, section = ""] = dossierMatch;

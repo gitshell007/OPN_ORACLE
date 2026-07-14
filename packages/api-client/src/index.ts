@@ -44,6 +44,11 @@ export type {
   SignalReviewActionInput,
 } from "./transport";
 export type {
+  EntityIntelGraphEdge,
+  EntityIntelGraphNode,
+  EntityIntelGraphResponse,
+  EntityIntelKind,
+  EntityIntelSuggestResponse,
   NotificationPreference,
   OracleExport,
   OracleNotification,
