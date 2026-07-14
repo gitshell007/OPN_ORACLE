@@ -56,28 +56,6 @@ class EntityGraphQuerySchema(Schema):
     active_only = Boolean(load_default=True)
 
 
-class EntityGraphNodeSchema(Schema):
-    id = Raw(required=True)
-    label = Raw(required=False)
-    name = Raw(required=False)
-    type = Raw(required=False)
-    norm = Raw(required=False)
-    degree = Raw(required=False)
-    is_center = Raw(required=False)
-    metadata = Dict(keys=String(), values=Raw(), required=False)
-
-
-class EntityGraphEdgeSchema(Schema):
-    id = Raw(required=False)
-    source = Raw(required=True)
-    target = Raw(required=True)
-    role = Raw(required=False)
-    roles = Raw(required=False)
-    active = Raw(required=False)
-    date = Raw(required=False)
-    metadata = Dict(keys=String(), values=Raw(), required=False)
-
-
 class EntityGraphResponseSchema(Schema):
     center = Raw(required=False, allow_none=True)
     nodes = List(Dict(keys=String(), values=Raw()), required=True)

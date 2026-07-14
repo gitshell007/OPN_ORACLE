@@ -1047,7 +1047,8 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Contrato actualizado: OpenAPI y cliente TypeScript regenerados con los endpoints
   `entity-intel`.
 - Checks locales F1: `uv run ruff check` focal correcto, `uv run pytest tests/test_entity_intel.py
-  --no-cov` **4/4**, `npm run api:openapi`, `npm run api:client:generate`,
+  --no-cov` **15/15**, `uv run pytest tests/test_entity_intel.py tests/test_contract.py -q
+  --no-cov` **22/22**, `npm run api:openapi`, `npm run api:client:generate`,
   `npm run api:client:check`, `uv run mypy` focal correcto, `npm run typecheck`,
   `npm run lint` y `npm run build` correctos.
 - Pendiente antes de pasar a F2: desplegar F1 en producción D-022 y enseñar la verificación real del
