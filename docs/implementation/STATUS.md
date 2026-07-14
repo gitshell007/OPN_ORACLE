@@ -920,7 +920,24 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 
 ## Prompt 32 · Resultados, decisiones y tareas desde reuniones
 
-- Implementación local preparada para despliegue: cierre de reunión mediante
+- Release productivo activado: `20260714T091532Z-p32-ae226ee`, construido desde `ae226ee`.
+  Despliegue D-022 con backup local
+  `/var/backups/opn-oracle/20260714T091600Z-20260713T160310Z-p29-p30-7fc17b2/MANIFEST.txt` y
+  restore aislado
+  `/var/backups/opn-oracle/restore-evidence/20260714T091600Z-20260713T160310Z-p29-p30-7fc17b2.RESTORE_EVIDENCE.txt`.
+  Sin receipt off-host por modo UAT D-022.
+- `oracle-control update` activó el release y confirmó liveness/readiness, HTTPS login/live,
+  Celery ping y beat único. Verificación posterior: `oracle-control health`,
+  `scripts/smoke-production.sh`, contenedores healthy y logs de API/worker/beat/web posteriores al
+  despliegue sin tracebacks/errores.
+- Verificación funcional en producción sobre CATL `292d85e5-3dc1-4c2f-81a5-8a73a29e1fb4`: se
+  cerró la reunión existente `2268aa4c-dc06-4357-b423-cfd4d9fa9ce2`
+  («Reunión de posicionamiento con Gobierno de Aragón») con resultados UAT P32. Se creó la decisión
+  `1f6bb946-0122-4428-ab47-22b73a19ed46` y la tarea
+  `3f3550ed-b3d5-4185-9996-a66f60e1ccee`; ambas aparecen en sus listados y conservan el vínculo a la
+  reunión (`content.meeting_id` en decisión; `linked_resource_type=meeting`, `origin=meeting` en
+  tarea). `GET /api/v1/home` autenticado respondió 200 tras la operación.
+- Implementación: cierre de reunión mediante
   `POST /api/v1/meetings/{meeting_id}/complete` con `If-Match`, `Idempotency-Key`, permisos
   `meeting.write` + `task.write`, auditoría, `StatusHistory` e idempotencia durable en
   `BackgroundJob`.
