@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 import httpx
 import pytest
 
 from opn_oracle.ai.provider import LLMRequest, MockLLMProvider, SignalGovernedLLMProvider
-from opn_oracle.ai.schemas import DossierSituationSummaryOutput, SignalTriageOutput
+from opn_oracle.ai.schemas import DossierSituationSummaryOutput, ReportOutput, SignalTriageOutput
 
 
 def test_signal_governed_provider_uses_the_confirmed_ai_run_contract(
@@ -288,3 +289,82 @@ def test_signal_governed_provider_never_publishes_model_claims_without_evidence(
     assert result.safe_fallback_used is True
     assert result.output.confidence == 0
     assert result.output.recommended_actions[0].action.startswith("Vincular evidencias")
+
+
+def test_signal_governed_provider_normalizes_report_writer_shape_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_id = UUID("00000000-0000-4000-8000-000000000001")
+    invented_id = UUID("00000000-0000-4000-8000-000000000099")
+    request = LLMRequest(
+        agent="report_writer",
+        model="qwen3.5:9b",
+        system_prompt="Devuelve JSON estricto.",
+        task_prompt="Redacta un informe.",
+        context={"allowed_evidence_ids": [str(evidence_id)]},
+        max_output_tokens=500,
+        classification="internal",
+    )
+    candidate = {
+        "facts": [
+            {"statement": "Hecho con cita válida", "evidence_ids": [str(evidence_id)]},
+            {"statement": "Hecho sin cita", "evidence_ids": []},
+        ],
+        "inferences": ["La ventana requiere revisión comercial."],
+        "recommendations": [{"action": "Preparar agenda", "priority": "urgent"}],
+        "confidence": "82",
+        "open_questions": "¿Qué actor decide el siguiente hito?",
+        "warnings": [],
+        "title": "Informe CATL",
+        "executive_summary": "Resumen ejecutivo",
+        "sections": [
+            {
+                "heading": "Objetivo",
+                "paragraphs": [
+                    {
+                        "text": "El proyecto avanza, pero esta frase venía sin cita.",
+                        "kind": "fact",
+                        "confidence": 90,
+                        "evidence_ids": [],
+                    },
+                    {
+                        "text": "Esta cita inventada no puede pasar.",
+                        "kind": "fact",
+                        "confidence": 90,
+                        "evidence_ids": [str(invented_id)],
+                    },
+                ],
+            }
+        ],
+        "recommended_actions": [{"action": "No debe quedar como dict"}],
+        "source_index": [{"evidence_id": str(invented_id), "label": "Inventada", "locator": "x"}],
+    }
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "result": {"message": {"content": json.dumps(candidate)}},
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+
+    result = provider.generate_structured(request, ReportOutput)
+
+    assert len(result.output.facts) == 1
+    assert result.output.facts[0].statement == "Hecho con cita válida"
+    assert result.output.facts[0].evidence_ids == [evidence_id]
+    assert result.output.recommendations[0].priority == "medium"
+    assert result.output.sections[0].paragraphs[0].kind == "inference"
+    assert result.output.sections[0].paragraphs[0].evidence_ids == []
+    assert result.output.sections[0].paragraphs[1].kind == "inference"
+    assert result.output.sections[0].paragraphs[1].evidence_ids == []
+    assert result.output.source_index == []

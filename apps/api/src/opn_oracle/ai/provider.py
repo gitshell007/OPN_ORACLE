@@ -502,6 +502,193 @@ def _safe_empty_evidence_summary(request: LLMRequest, schema: type[T]) -> T:
     )
 
 
+def _normalize_signal_candidate_json(
+    request: LLMRequest, raw_output: str, allowed_evidence_ids: list[str]
+) -> str:
+    """Coerce common LLM shape drift before strict schema validation.
+
+    The provider still validates with Pydantic afterwards. This adapter only handles
+    recoverable report-writer drift observed with governed local models: strings where
+    small objects are expected, missing optional operational lists, invalid priorities,
+    and unsafe or absent evidence ids. It never turns an uncited claim into a fact.
+    """
+
+    if request.agent != "report_writer":
+        return raw_output
+    try:
+        candidate = json.loads(raw_output)
+    except ValueError:
+        return raw_output
+    if not isinstance(candidate, dict):
+        return raw_output
+
+    allowed = set(allowed_evidence_ids)
+
+    def as_text(value: Any, fallback: str = "") -> str:
+        if isinstance(value, str):
+            text = value.strip()
+        elif value is None:
+            text = ""
+        else:
+            text = str(value).strip()
+        return text or fallback
+
+    def as_list(value: Any) -> list[Any]:
+        if isinstance(value, list):
+            return value
+        if value in (None, ""):
+            return []
+        return [value]
+
+    def as_string_list(value: Any) -> list[str]:
+        return [text for item in as_list(value) if (text := as_text(item))]
+
+    def as_confidence(value: Any, fallback: int = 60) -> int:
+        try:
+            return max(0, min(100, int(value)))
+        except (TypeError, ValueError):
+            return fallback
+
+    def evidence_ids(value: Any) -> list[str]:
+        cleaned: list[str] = []
+        for item in as_list(value):
+            try:
+                parsed = str(uuid.UUID(str(item)))
+            except (TypeError, ValueError):
+                continue
+            if parsed in allowed and parsed not in cleaned:
+                cleaned.append(parsed)
+        return cleaned
+
+    def fact_items(value: Any) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for item in as_list(value):
+            if isinstance(item, dict):
+                statement = as_text(item.get("statement") or item.get("text"))
+                ids = evidence_ids(item.get("evidence_ids"))
+            else:
+                statement = as_text(item)
+                ids = []
+            if statement and ids:
+                items.append({"statement": statement, "evidence_ids": ids})
+        return items
+
+    def inference_items(value: Any) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for item in as_list(value):
+            if isinstance(item, dict):
+                statement = as_text(item.get("statement") or item.get("text"))
+                reasoning = as_text(
+                    item.get("reasoning_summary") or item.get("rationale"), statement
+                )
+                confidence = as_confidence(item.get("confidence"))
+                ids = evidence_ids(item.get("evidence_ids"))
+            else:
+                statement = as_text(item)
+                reasoning = statement
+                confidence = 50
+                ids = []
+            if statement and reasoning:
+                items.append(
+                    {
+                        "statement": statement,
+                        "reasoning_summary": reasoning,
+                        "confidence": confidence,
+                        "evidence_ids": ids,
+                    }
+                )
+        return items
+
+    def recommendation_items(value: Any) -> list[dict[str, Any]]:
+        allowed_priorities = {"low", "medium", "high", "critical"}
+        items: list[dict[str, Any]] = []
+        for item in as_list(value):
+            if isinstance(item, dict):
+                action = as_text(item.get("action") or item.get("text"))
+                rationale = as_text(
+                    item.get("rationale") or item.get("reasoning_summary"),
+                    "Recomendación generada a partir del contexto autorizado.",
+                )
+                priority = as_text(item.get("priority"), "medium")
+            else:
+                action = as_text(item)
+                rationale = "Recomendación generada a partir del contexto autorizado."
+                priority = "medium"
+            if priority not in allowed_priorities:
+                priority = "medium"
+            if action:
+                items.append({"action": action, "rationale": rationale, "priority": priority})
+        return items
+
+    def paragraph_item(value: Any) -> dict[str, Any] | None:
+        if isinstance(value, dict):
+            text = as_text(value.get("text") or value.get("statement"))
+            kind = as_text(value.get("kind"), "inference")
+            confidence = as_confidence(value.get("confidence"))
+            ids = evidence_ids(value.get("evidence_ids"))
+        else:
+            text = as_text(value)
+            kind = "inference"
+            confidence = 50
+            ids = []
+        if kind not in {"fact", "inference", "recommendation", "decision"}:
+            kind = "inference"
+        if kind == "fact" and not ids:
+            kind = "inference"
+            confidence = min(confidence, 70)
+        if not text:
+            return None
+        return {"text": text, "kind": kind, "confidence": confidence, "evidence_ids": ids}
+
+    def section_items(value: Any) -> list[dict[str, Any]]:
+        sections: list[dict[str, Any]] = []
+        for item in as_list(value):
+            if isinstance(item, dict):
+                heading = as_text(item.get("heading") or item.get("title"), "Sección")
+                paragraphs = [
+                    paragraph
+                    for raw_paragraph in as_list(item.get("paragraphs") or item.get("content"))
+                    if (paragraph := paragraph_item(raw_paragraph)) is not None
+                ]
+            else:
+                heading = "Sección"
+                paragraph = paragraph_item(item)
+                paragraphs = [paragraph] if paragraph else []
+            sections.append({"heading": heading, "paragraphs": paragraphs})
+        return sections
+
+    sections = section_items(candidate.get("sections"))
+    warnings = as_string_list(candidate.get("warnings"))
+    normalized: dict[str, Any] = {
+        "facts": fact_items(candidate.get("facts")),
+        "inferences": inference_items(candidate.get("inferences")),
+        "recommendations": recommendation_items(candidate.get("recommendations")),
+        "confidence": as_confidence(candidate.get("confidence")),
+        "open_questions": as_string_list(candidate.get("open_questions")),
+        "warnings": warnings,
+        "title": as_text(candidate.get("title"), "Informe estratégico"),
+        "executive_summary": as_text(
+            candidate.get("executive_summary"),
+            "Síntesis generada a partir del contexto autorizado.",
+        ),
+        "sections": sections,
+        "top_opportunities": as_string_list(candidate.get("top_opportunities")),
+        "top_risks": as_string_list(candidate.get("top_risks")),
+        "recommended_actions": as_string_list(candidate.get("recommended_actions")),
+        "decisions_required": as_string_list(candidate.get("decisions_required")),
+        # Reporting builds the authoritative source index from the final cited claims
+        # and the immutable snapshot. Model-provided entries are intentionally ignored.
+        "source_index": [],
+    }
+    if sections and not any(
+        paragraph["evidence_ids"] for section in sections for paragraph in section["paragraphs"]
+    ):
+        warnings.append(
+            "El informe no contiene párrafos citados; se publica como análisis inferencial."
+        )
+    return json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+
+
 class SignalGovernedLLMProvider:
     """Adapter for Signal's governed `/api/v1/ai/run` proxy."""
 
@@ -563,6 +750,9 @@ class SignalGovernedLLMProvider:
         safe_fallback_used = False
         payload = self._run(body)
         normalized_output = _signal_output(payload)
+        normalized_output = _normalize_signal_candidate_json(
+            request, normalized_output, allowed_evidence_ids
+        )
         usage = _usage(payload)
         try:
             output = schema.model_validate_json(normalized_output)
@@ -623,7 +813,10 @@ class SignalGovernedLLMProvider:
                 + _non_negative_int(repaired_usage.get("cost_micros")),
             }
             try:
-                repaired_output = schema.model_validate_json(_signal_output(payload))
+                repaired_raw_output = _normalize_signal_candidate_json(
+                    request, _signal_output(payload), allowed_evidence_ids
+                )
+                repaired_output = schema.model_validate_json(repaired_raw_output)
             except ValueError:
                 if allowed_evidence_ids:
                     raise
