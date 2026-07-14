@@ -2261,12 +2261,18 @@ def test_core_resource_crud_actions_and_actor_merge(
         headers={"X-CSRF-Token": _csrf(client)},
     )
     assert briefing.status_code == 202
-    assert briefing.get_json()["job"]["job_type"] == "oracle.meeting_briefing.refresh"
+    briefing_payload = briefing.get_json()
+    assert briefing_payload["job"]["job_type"] == "oracle.meeting_briefing.refresh"
     assert (
-        briefing.get_json()["briefing"] is None
-        or briefing.get_json()["briefing"]["meeting_id"] == meeting["id"]
+        briefing_payload["briefing"] is None
+        or briefing_payload["briefing"]["meeting_id"] == meeting["id"]
     )
-    assert client.get(f"/api/v1/meetings/{meeting['id']}/briefing-state").status_code == 200
+    briefing_state = client.get(f"/api/v1/meetings/{meeting['id']}/briefing-state")
+    assert briefing_state.status_code == 200
+    briefing_id = (briefing_payload["briefing"] or {}).get("id") or (
+        briefing_state.get_json()["briefing"] or {}
+    ).get("id")
+    assert briefing_id is not None
     meeting_patch = client.patch(
         f"/api/v1/meetings/{meeting['id']}",
         json={"status": "completed"},
@@ -2408,7 +2414,7 @@ def test_core_resource_crud_actions_and_actor_merge(
     )
     assert (
         client.delete(
-            f"/api/v1/briefings/{briefing.get_json()['id']}",
+            f"/api/v1/briefings/{briefing_id}",
             headers={"X-CSRF-Token": _csrf(client)},
         ).status_code
         == 204
