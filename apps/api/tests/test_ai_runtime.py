@@ -47,7 +47,7 @@ def _request(agent: str, evidence: list[str]) -> LLMRequest:
 def test_registry_has_complete_immutable_metadata() -> None:
     registry = PromptRegistry()
     assert {item.name for item in registry.all()} == set(AGENT_SCHEMAS)
-    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS) + 4
+    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS) + 7
     for item in registry.all():
         assert len(item.sha256) == 32
         assert item.input_contract
@@ -61,6 +61,12 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("dossier_situation_summary", "v3").max_output_tokens == 1600
     assert registry.get("dossier_situation_summary", "v4").max_output_tokens == 1900
     assert registry.get("dossier_situation_summary").max_output_tokens == 2600
+    assert registry.get("report_writer").version == "v2"
+    assert registry.get("report_writer").max_output_tokens == 6500
+    assert registry.get("meeting_briefing").version == "v2"
+    assert registry.get("meeting_briefing").max_output_tokens == 3500
+    assert registry.get("weekly_change").version == "v2"
+    assert registry.get("weekly_change").max_output_tokens == 4200
 
 
 def test_persisted_summary_json_rehydrates_strict_uuid_fields() -> None:

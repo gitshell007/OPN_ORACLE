@@ -346,12 +346,12 @@ class Settings:
                 minimum=1,
             ),
             celery_task_soft_time_limit=_as_int(
-                values.get("CELERY_TASK_SOFT_TIME_LIMIT", 270),
+                values.get("CELERY_TASK_SOFT_TIME_LIMIT", 690),
                 name="CELERY_TASK_SOFT_TIME_LIMIT",
                 minimum=1,
             ),
             celery_task_time_limit=_as_int(
-                values.get("CELERY_TASK_TIME_LIMIT", 300),
+                values.get("CELERY_TASK_TIME_LIMIT", 720),
                 name="CELERY_TASK_TIME_LIMIT",
                 minimum=1,
             ),
@@ -400,7 +400,7 @@ class Settings:
             signal_ai_api_key=str(values.get("SIGNAL_AI_API_KEY", "")),
             signal_ai_allowed_hosts=str(values.get("SIGNAL_AI_ALLOWED_HOSTS", "")),
             signal_ai_timeout_seconds=_as_float(
-                values.get("SIGNAL_AI_TIMEOUT_SECONDS", 210.0),
+                values.get("SIGNAL_AI_TIMEOUT_SECONDS", 300.0),
                 name="SIGNAL_AI_TIMEOUT_SECONDS",
             ),
             signal_connect_timeout_seconds=_as_float(

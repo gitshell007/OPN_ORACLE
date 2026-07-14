@@ -584,18 +584,21 @@ def _execute_claimed_delivery(
     except CancelledJobError:
         db.session.rollback()
         return _cancel_claimed_delivery(job_uuid, lease_id)
-    except RetriableJobError:
+    except RetriableJobError as error:
         db.session.rollback()
         owned = _owned_lease(job_uuid, lease_id)
         if owned is None:
             return {"ignored": True, "reason": "lease_lost"}
+        root_message = str(error) or PUBLIC_TEMPORARY_ERROR
         owned.execution_lease_id = None
         owned.lease_expires_at = None
         if owned.attempts >= owned.max_attempts:
             owned.status, owned.stage, owned.retryable = "failed", "retry_exhausted", True
             owned.finished_at = datetime.now(UTC)
             owned.error_code = "retry_exhausted"
-            owned.error_message = "Se agotaron los reintentos permitidos."
+            owned.error_message = (
+                f"Se agotaron los reintentos permitidos. Última causa: {root_message}"
+            )
             _revoke_email_delivery(owned)
             _audit_job_failure(owned)
             db.session.commit()
@@ -603,7 +606,7 @@ def _execute_claimed_delivery(
             raise RetriableJobError(PUBLIC_TEMPORARY_ERROR) from None
         owned.status, owned.stage = "retrying", "backoff"
         owned.error_code = "temporary_failure"
-        owned.error_message = "Una dependencia temporal no está disponible."
+        owned.error_message = root_message
         countdown = retry_delay(owned.attempts)
         owned.not_before = datetime.now(UTC) + timedelta(seconds=countdown)
         owned.version += 1

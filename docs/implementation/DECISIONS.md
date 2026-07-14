@@ -280,3 +280,18 @@
   cambio toque migraciones, seguridad, contratos críticos o vaya a convertirse en release estable.
   Antes de pasar de UAT a operación estable se deben restaurar triggers automáticos o un gate
   equivalente.
+
+## D-025 — Reintentos IA tras fallo terminalizado
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-14
+- **Contexto:** `execute_agent` trataba cualquier `AIAuditLog` previo del mismo job/agente como
+  una reclamación definitiva, aunque el intento hubiese terminado en `failed`. Esto convertía un
+  fallo transitorio de Signal/Ollama o del asentamiento JSON en tres intentos Celery inútiles y
+  enmascaraba la causa raíz con `AIPolicyDenied`.
+- **Decisión:** un audit `succeeded` con artefacto sigue deduplicando y se reutiliza; un audit
+  `pending/running` sigue bloqueando ejecuciones simultáneas; un audit `failed/abandoned` queda
+  como evidencia inmutable pero no bloquea un nuevo intento IA del mismo `BackgroundJob`.
+- **Consecuencias:** los reintentos Celery vuelven a invocar realmente al proveedor gobernado. La
+  no duplicación se mantiene para ejecuciones activas y artefactos ya publicados, y la auditoría
+  conserva todos los intentos fallidos con su `error_code` original.

@@ -2269,5 +2269,78 @@ def test_ai_recovery_fences_inflight_provider_and_prevents_resurrection(
         assert ledger.reserved_cost_micros == 0
         replay_job = db.session.get(BackgroundJob, job_id)
         assert replay_job is not None
-        with pytest.raises(AIPolicyDenied, match="reclamada"):
-            execute_agent(agent="opportunity", dossier_id=dossier_id, job=replay_job)
+        replay = execute_agent(agent="opportunity", dossier_id=dossier_id, job=replay_job)
+        retry_artifact = db.session.get(AIArtifact, uuid.UUID(replay["artifact_id"]))
+        assert retry_artifact is not None
+        retry_audits = list(
+            db.session.scalars(
+                select(AIAuditLog)
+                .where(AIAuditLog.background_job_id == job_id)
+                .order_by(AIAuditLog.started_at)
+            )
+        )
+        assert [row.status for row in retry_audits] == ["failed", "succeeded"]
+        assert retry_artifact.audit_log_id == retry_audits[-1].id
+
+
+def test_ai_retry_after_transient_failure_creates_new_attempt_and_preserves_root_cause(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, ids = jobs_stack
+    calls = 0
+
+    class FlakyProvider(MockLLMProvider):
+        def generate_structured(self, request: Any, schema: Any) -> Any:
+            nonlocal calls
+            if request.agent != "evidence_reviewer":
+                calls += 1
+                if calls == 1:
+                    raise AIUnavailable("synthetic transient root")
+            return super().generate_structured(request, schema)
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config", lambda config: FlakyProvider("retry")
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        dossier_id = db.session.scalar(select(StrategicDossier.id))
+        policy = db.session.scalar(select(AITenantPolicy).with_for_update())
+        assert dossier_id is not None and policy is not None
+        policy.max_concurrency = 2
+        job = BackgroundJob(
+            tenant_id=ids["tenant"],
+            dossier_id=dossier_id,
+            job_type="oracle.ai.opportunity",
+            status="running",
+            queue="ai",
+            idempotency_key="ai-transient-retry-settlement",
+            payload_hash=hashlib.sha256(b"ai-transient-retry-settlement").digest(),
+            input_payload={"dossier_id": str(dossier_id)},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+        job_id = job.id
+        with pytest.raises(AIUnavailable, match="synthetic transient root"):
+            execute_agent(agent="opportunity", dossier_id=dossier_id, job=job)
+        failed_audit = db.session.scalar(
+            select(AIAuditLog).where(AIAuditLog.background_job_id == job_id)
+        )
+        assert failed_audit is not None and failed_audit.status == "failed"
+        assert failed_audit.error_code == "AIUnavailable"
+        retry_job = db.session.get(BackgroundJob, job_id)
+        assert retry_job is not None
+        result = execute_agent(agent="opportunity", dossier_id=dossier_id, job=retry_job)
+        artifact = db.session.get(AIArtifact, uuid.UUID(result["artifact_id"]))
+        assert artifact is not None
+        audits = list(
+            db.session.scalars(
+                select(AIAuditLog)
+                .where(AIAuditLog.background_job_id == job_id)
+                .order_by(AIAuditLog.started_at)
+            )
+        )
+        assert [row.status for row in audits] == ["failed", "succeeded"]
+        assert calls == 2

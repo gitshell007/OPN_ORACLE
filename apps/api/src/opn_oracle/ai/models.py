@@ -228,7 +228,7 @@ class AITenantPolicy(TenantDomainMixin, Base):
     daily_call_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     max_context_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=8000)
-    max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=2000)
+    max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=6500)
     kill_switch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     redaction_profile: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 

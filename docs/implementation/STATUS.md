@@ -1,8 +1,43 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-13
+Actualizado: 2026-07-14
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Prompt 33 · asentamiento del pipeline IA de informes, briefings y digest
+
+- Diagnóstico read-only en producción realizado antes del cambio:
+  - job `8f9b716e-7718-4b03-a1e1-ac6ae108d4f6` (`oracle.report.generate`) agotó tres intentos.
+    El único `AIAuditLog` real (`564c8434-508f-4473-a2c8-2f0f02d0d8e8`) quedó `failed` con
+    `error_code=UnboundLocalError` tras una ventana de 06:30:37 a 06:34:27 UTC. Los intentos
+    posteriores no llegaron a Signal porque `execute_agent` bloqueaba cualquier audit previo
+    fallido del mismo job/agente con «La ejecución IA de este job ya fue reclamada».
+  - job `be3839d6-f5d8-4f79-8e2d-c15f10a2e2f4` (`oracle.meeting_briefing.refresh`) cayó en
+    `permanent_failure`; su audit `f62f8a4e-f55e-428e-829a-8e23ac1dfc88` registró
+    `error_code=AIUnavailable` casi inmediato el 2026-07-13 18:16:22 UTC, consistente con la
+    etapa previa a la allowlist/tareas de Signal.
+  - La política IA del tenant productivo estaba habilitada en `signal` con `qwen3.5:9b`, pero
+    `max_output_tokens=2600`; por tanto `report_writer`, `meeting_briefing` y `weekly_change`
+    no podían aprovechar los presupuestos gobernados ya configurados en Signal.
+- Cambios implementados:
+  - `SignalGovernedLLMProvider` ya no puede terminar en `UnboundLocalError` cuando el segundo
+    intento de reparación JSON también falla; ahora publica solo si valida schema/evidencia,
+    aplica saneamiento de citas no autorizadas cuando es seguro o propaga el error raíz.
+  - `execute_agent` conserva la no duplicación de ejecuciones activas y el replay de artefactos
+    `succeeded`, pero permite un audit nuevo cuando los audits previos del mismo job/agente están
+    terminalizados como fallo. Los reintentos Celery vuelven a ser reales.
+  - Los jobs reintentables conservan la última causa en `BackgroundJob.error_message` en vez de
+    ocultarla tras un mensaje genérico.
+  - Prompts v2 compactos y versionados para `report_writer`, `meeting_briefing` y `weekly_change`;
+    presupuestos: 6.500, 3.500 y 4.200 tokens. Se mantiene `dossier_situation_summary/v5`.
+  - Límite de Signal AI por llamada sube a 300 s y Celery a 690/720 s para cubrir writer+reviewer
+    local. Migración `20260714_0017` eleva el presupuesto de salida de políticas IA existentes
+    habilitadas a 6.500.
+- Comprobaciones locales ejecutadas antes de commit: `uv run ruff format --check .` correcto,
+  `uv run ruff check .` correcto, `uv run mypy src/opn_oracle` correcto, tests backend focales
+  41/41, Vitest 96/96, ESLint correcto, TypeScript correcto, `next build` correcto y Alembic head
+  `20260714_0017`. Las integraciones focales de reintento quedaron preparadas y se omiten sin
+  `TEST_*` locales.
 
 ## Operación · despliegue rápido UAT
 

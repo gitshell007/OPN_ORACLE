@@ -173,26 +173,45 @@ def execute_agent(
     db.session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:slot, 0))"), {"slot": slot}
     )
-    existing = db.session.scalar(
-        select(AIAuditLog).where(
+    succeeded = db.session.scalar(
+        select(AIAuditLog)
+        .join(AIArtifact, AIArtifact.audit_log_id == AIAuditLog.id)
+        .where(
             AIAuditLog.tenant_id == tenant_id,
             AIAuditLog.background_job_id == job.id,
             AIAuditLog.agent == agent,
+            AIAuditLog.status == "succeeded",
         )
+        .order_by(AIAuditLog.started_at.desc(), AIAuditLog.created_at.desc())
     )
-    if existing is not None:
+    if succeeded is not None:
         artifact = db.session.scalar(
-            select(AIArtifact).where(AIArtifact.audit_log_id == existing.id)
+            select(AIArtifact).where(AIArtifact.audit_log_id == succeeded.id)
         )
-        if existing.status == "succeeded" and artifact is not None:
+        if artifact is not None:
             db.session.rollback()
             return {
                 "artifact_id": str(artifact.id),
-                "audit_log_id": str(existing.id),
+                "audit_log_id": str(succeeded.id),
                 "status": artifact.status,
             }
+    active = db.session.scalar(
+        select(AIAuditLog)
+        .where(
+            AIAuditLog.tenant_id == tenant_id,
+            AIAuditLog.background_job_id == job.id,
+            AIAuditLog.agent == agent,
+            AIAuditLog.status.in_(("pending", "running")),
+        )
+        .order_by(AIAuditLog.started_at.desc(), AIAuditLog.created_at.desc())
+    )
+    if active is not None:
         db.session.rollback()
-        raise AIPolicyDenied("La ejecución IA de este job ya fue reclamada.")
+        raise AIPolicyDenied("La ejecución IA de este job ya está en curso.")
+    # Failed/abandoned audit rows are immutable evidence of prior attempts, but
+    # they must not burn Celery retries. A new delivery creates a fresh audit
+    # record under the same BackgroundJob while the advisory lock preserves a
+    # single active execution slot.
     policy = _policy(tenant_id)
     reservation_micros = 2 * (policy.max_context_tokens + policy.max_output_tokens)
     soft_budget_warning = _enforce_quota(policy, tenant_id, reservation_micros)

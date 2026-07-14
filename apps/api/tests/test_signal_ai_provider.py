@@ -210,6 +210,45 @@ def test_signal_governed_provider_uses_safe_summary_after_two_invalid_empty_evid
     assert calls == 2
 
 
+def test_signal_governed_provider_raises_schema_error_after_failed_repair_with_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_id = UUID("00000000-0000-4000-8000-000000000001")
+    request = LLMRequest(
+        agent="signal_triage",
+        model="qwen3.5:9b",
+        system_prompt="Devuelve JSON estricto.",
+        task_prompt="Evalúa la señal.",
+        context={"allowed_evidence_ids": [str(evidence_id)]},
+        max_output_tokens=500,
+        classification="internal",
+    )
+    calls = 0
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "result": {"message": {"content": '{"category":7}'}},
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+
+    with pytest.raises(ValueError):
+        provider.generate_structured(request, SignalTriageOutput)
+    assert calls == 2
+
+
 def test_signal_governed_provider_never_publishes_model_claims_without_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

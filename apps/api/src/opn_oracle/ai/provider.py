@@ -623,17 +623,28 @@ class SignalGovernedLLMProvider:
                 + _non_negative_int(repaired_usage.get("cost_micros")),
             }
             try:
-                output = schema.model_validate_json(_signal_output(payload))
-                _validate_allowed_evidence(output, allowed_evidence_ids)
+                repaired_output = schema.model_validate_json(_signal_output(payload))
             except ValueError:
+                if allowed_evidence_ids:
+                    raise
+                output = _safe_empty_evidence_summary(request, schema)
+                safe_fallback_used = True
+            else:
                 try:
-                    output = _strip_unauthorized_evidence_blocks(output, allowed_evidence_ids)
-                    _validate_allowed_evidence(output, allowed_evidence_ids)
-                except (UnboundLocalError, ValueError):
-                    if allowed_evidence_ids:
-                        raise
-                    output = _safe_empty_evidence_summary(request, schema)
-                    safe_fallback_used = True
+                    _validate_allowed_evidence(repaired_output, allowed_evidence_ids)
+                except ValueError:
+                    try:
+                        output = _strip_unauthorized_evidence_blocks(
+                            repaired_output, allowed_evidence_ids
+                        )
+                        _validate_allowed_evidence(output, allowed_evidence_ids)
+                    except ValueError:
+                        if allowed_evidence_ids:
+                            raise
+                        output = _safe_empty_evidence_summary(request, schema)
+                        safe_fallback_used = True
+                else:
+                    output = repaired_output
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
         return LLMResult(
             output=output,
