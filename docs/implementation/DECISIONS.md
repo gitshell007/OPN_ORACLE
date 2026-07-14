@@ -291,7 +291,9 @@
   enmascaraba la causa raíz con `AIPolicyDenied`.
 - **Decisión:** un audit `succeeded` con artefacto sigue deduplicando y se reutiliza; un audit
   `pending/running` sigue bloqueando ejecuciones simultáneas; un audit `failed/abandoned` queda
-  como evidencia inmutable pero no bloquea un nuevo intento IA del mismo `BackgroundJob`.
+  como evidencia inmutable pero no bloquea un nuevo intento IA del mismo `BackgroundJob`. Para ello
+  se reemplaza la constraint única `(tenant_id, background_job_id, agent)` de `ai_audit_logs` por
+  un índice no único equivalente.
 - **Consecuencias:** los reintentos Celery vuelven a invocar realmente al proveedor gobernado. La
   no duplicación se mantiene para ejecuciones activas y artefactos ya publicados, y la auditoría
   conserva todos los intentos fallidos con su `error_code` original.

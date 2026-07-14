@@ -2262,7 +2262,10 @@ def test_core_resource_crud_actions_and_actor_merge(
     )
     assert briefing.status_code == 202
     assert briefing.get_json()["job"]["job_type"] == "oracle.meeting_briefing.refresh"
-    assert briefing.get_json()["briefing"] is None
+    assert (
+        briefing.get_json()["briefing"] is None
+        or briefing.get_json()["briefing"]["meeting_id"] == meeting["id"]
+    )
     assert client.get(f"/api/v1/meetings/{meeting['id']}/briefing-state").status_code == 200
     meeting_patch = client.patch(
         f"/api/v1/meetings/{meeting['id']}",

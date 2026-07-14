@@ -194,7 +194,7 @@ class AIAuditLog(TenantDomainMixin, Base):
         ),
         Index("ix_ai_audit_tenant_dossier", "tenant_id", "dossier_id", "created_at"),
         Index("ix_ai_audit_tenant_status", "tenant_id", "status", "created_at"),
-        UniqueConstraint("tenant_id", "background_job_id", "agent", name="uq_ai_audit_job_agent"),
+        Index("ix_ai_audit_job_agent", "tenant_id", "background_job_id", "agent", "created_at"),
         CheckConstraint("octet_length(prompt_hash) = 32", name="ai_audit_prompt_hash"),
         CheckConstraint("octet_length(input_hash) = 32", name="ai_audit_input_hash"),
         CheckConstraint(

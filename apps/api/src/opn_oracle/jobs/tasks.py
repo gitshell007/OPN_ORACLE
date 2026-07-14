@@ -79,6 +79,13 @@ class CancelledJobError(RuntimeError):
 Handler = Callable[[dict[str, Any], BackgroundJob], dict[str, Any]]
 PUBLIC_TEMPORARY_ERROR = "temporary_failure"
 PUBLIC_PERMANENT_ERROR = "permanent_failure"
+AI_RETRY_CAUSE_JOB_TYPES = {
+    "oracle.report.generate",
+    "oracle.meeting_briefing.refresh",
+    "oracle.weekly_change.refresh",
+    "oracle.memory.refresh",
+    "oracle.dossier_summary.refresh",
+}
 logger = logging.getLogger(__name__)
 
 
@@ -106,6 +113,14 @@ def _stub(kind: str) -> Handler:
         return {"kind": kind, "processed": True, "resource_id": payload.get("resource_id")}
 
     return handler
+
+
+def _retry_exhausted_message(job: BackgroundJob, root_message: str) -> str:
+    """Keep generic jobs sanitized while surfacing AI root causes for operators."""
+
+    if job.job_type.startswith("oracle.ai.") or job.job_type in AI_RETRY_CAUSE_JOB_TYPES:
+        return f"Se agotaron los reintentos permitidos. Última causa: {root_message}"
+    return "Se agotaron los reintentos permitidos."
 
 
 def _evaluate_alerts(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
@@ -596,9 +611,7 @@ def _execute_claimed_delivery(
             owned.status, owned.stage, owned.retryable = "failed", "retry_exhausted", True
             owned.finished_at = datetime.now(UTC)
             owned.error_code = "retry_exhausted"
-            owned.error_message = (
-                f"Se agotaron los reintentos permitidos. Última causa: {root_message}"
-            )
+            owned.error_message = _retry_exhausted_message(owned, root_message)
             _revoke_email_delivery(owned)
             _audit_job_failure(owned)
             db.session.commit()
