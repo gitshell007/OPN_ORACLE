@@ -2272,15 +2272,19 @@ def test_ai_recovery_fences_inflight_provider_and_prevents_resurrection(
         replay = execute_agent(agent="opportunity", dossier_id=dossier_id, job=replay_job)
         retry_artifact = db.session.get(AIArtifact, uuid.UUID(replay["artifact_id"]))
         assert retry_artifact is not None
-        retry_audits = list(
+        retry_audit = db.session.scalar(
+            select(AIAuditLog).where(AIAuditLog.background_job_id == job_id)
+        )
+        assert retry_audit is not None and retry_audit.status == "succeeded"
+        retry_attempts = list(
             db.session.scalars(
-                select(AIAuditLog)
-                .where(AIAuditLog.background_job_id == job_id)
-                .order_by(AIAuditLog.started_at)
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == retry_audit.id)
+                .order_by(AIAttempt.attempt_number)
             )
         )
-        assert [row.status for row in retry_audits] == ["failed", "succeeded"]
-        assert retry_artifact.audit_log_id == retry_audits[-1].id
+        assert [row.status for row in retry_attempts] == ["abandoned", "succeeded", "succeeded"]
+        assert retry_artifact.audit_log_id == retry_audit.id
 
 
 def test_ai_retry_after_transient_failure_creates_new_attempt_and_preserves_root_cause(
@@ -2335,12 +2339,16 @@ def test_ai_retry_after_transient_failure_creates_new_attempt_and_preserves_root
         result = execute_agent(agent="opportunity", dossier_id=dossier_id, job=retry_job)
         artifact = db.session.get(AIArtifact, uuid.UUID(result["artifact_id"]))
         assert artifact is not None
-        audits = list(
+        final_audit = db.session.scalar(
+            select(AIAuditLog).where(AIAuditLog.background_job_id == job_id)
+        )
+        assert final_audit is not None and final_audit.status == "succeeded"
+        attempts = list(
             db.session.scalars(
-                select(AIAuditLog)
-                .where(AIAuditLog.background_job_id == job_id)
-                .order_by(AIAuditLog.started_at)
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == final_audit.id)
+                .order_by(AIAttempt.attempt_number)
             )
         )
-        assert [row.status for row in audits] == ["failed", "succeeded"]
+        assert [row.status for row in attempts] == ["failed", "succeeded", "succeeded"]
         assert calls == 2

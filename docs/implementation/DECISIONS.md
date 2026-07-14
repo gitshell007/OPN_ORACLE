@@ -290,11 +290,10 @@
   fallo transitorio de Signal/Ollama o del asentamiento JSON en tres intentos Celery inútiles y
   enmascaraba la causa raíz con `AIPolicyDenied`.
 - **Decisión:** un audit `succeeded` con artefacto sigue deduplicando y se reutiliza; un audit
-  `pending/running` sigue bloqueando ejecuciones simultáneas; un audit `failed/abandoned` queda
-  como evidencia inmutable pero no bloquea un nuevo intento IA del mismo `BackgroundJob`. Para ello
-  se reemplaza la constraint única `(tenant_id, background_job_id, agent)` de `ai_audit_logs` por
-  un índice no único equivalente.
+  `pending/running` sigue bloqueando ejecuciones simultáneas; un audit `failed/denied` puede
+  reabrirse de forma controlada para crear nuevos `AIAttempt` dentro del mismo `BackgroundJob` y
+  agente. Se conserva la constraint única `(tenant_id, background_job_id, agent)` de
+  `ai_audit_logs`; el historial de cada entrega queda en `ai_attempts`.
 - **Consecuencias:** los reintentos Celery vuelven a invocar realmente al proveedor gobernado. La
   no duplicación se mantiene para ejecuciones activas y artefactos ya publicados, y la auditoría
-  conserva todos los intentos fallidos con su `error_code` original. El downgrade de la migración
-  no recrea la constraint antigua si ya existen duplicados, para no borrar evidencia inmutable.
+  conserva los intentos fallidos con su `error_code` original en `AIAttempt`.

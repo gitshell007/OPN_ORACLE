@@ -24,20 +24,20 @@ Interfaz canónica: `CANONICAL_UI=vector`
     intento de reparación JSON también falla; ahora publica solo si valida schema/evidencia,
     aplica saneamiento de citas no autorizadas cuando es seguro o propaga el error raíz.
   - `execute_agent` conserva la no duplicación de ejecuciones activas y el replay de artefactos
-    `succeeded`, pero permite un audit nuevo cuando los audits previos del mismo job/agente están
-    terminalizados como fallo. Los reintentos Celery vuelven a ser reales.
+    `succeeded`, pero permite nuevos `AIAttempt` cuando el audit del mismo job/agente está
+    terminalizado como fallo. Los reintentos Celery vuelven a ser reales sin cambiar el contrato
+    único de `AIAuditLog`.
   - Los jobs IA reintentables conservan la última causa en `BackgroundJob.error_message` en vez de
     ocultarla tras un mensaje genérico; los jobs no IA mantienen microcopy sanitizada.
   - Prompts v2 compactos y versionados para `report_writer`, `meeting_briefing` y `weekly_change`;
     presupuestos: 6.500, 3.500 y 4.200 tokens. Se mantiene `dossier_situation_summary/v5`.
   - Límite de Signal AI por llamada sube a 300 s y Celery a 690/720 s para cubrir writer+reviewer
     local. Migración `20260714_0017` eleva el presupuesto de salida de políticas IA existentes
-    habilitadas a 6.500 y `20260714_0018` sustituye la unicidad job/agente por un índice no único
-    para conservar el historial de reintentos IA.
+    habilitadas a 6.500.
 - Comprobaciones locales ejecutadas antes de commit: `uv run ruff format --check .` correcto,
   `uv run ruff check .` correcto, `uv run mypy src/opn_oracle` correcto, tests backend focales
   41/41, Vitest 96/96, ESLint correcto, TypeScript correcto, `next build` correcto y Alembic head
-  `20260714_0018`. Las integraciones focales de reintento quedaron preparadas y se omiten sin
+  `20260714_0017`. Las integraciones focales de reintento quedaron preparadas y se omiten sin
   `TEST_*` locales.
 
 ## Operación · despliegue rápido UAT

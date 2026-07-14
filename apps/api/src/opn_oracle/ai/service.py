@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from flask import current_app
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 
 from opn_oracle.ai.context import BuiltContext, build_context, validate_evidence
 from opn_oracle.ai.models import (
@@ -208,10 +208,6 @@ def execute_agent(
     if active is not None:
         db.session.rollback()
         raise AIPolicyDenied("La ejecución IA de este job ya está en curso.")
-    # Failed/abandoned audit rows are immutable evidence of prior attempts, but
-    # they must not burn Celery retries. A new delivery creates a fresh audit
-    # record under the same BackgroundJob while the advisory lock preserves a
-    # single active execution slot.
     policy = _policy(tenant_id)
     reservation_micros = 2 * (policy.max_context_tokens + policy.max_output_tokens)
     soft_budget_warning = _enforce_quota(policy, tenant_id, reservation_micros)
@@ -245,49 +241,104 @@ def execute_agent(
     execution_token = uuid.uuid4()
     lease_seconds = max(30, min(int(current_app.config["CELERY_TASK_TIME_LIMIT"]), 600))
     lease_expires_at = now + timedelta(seconds=lease_seconds)
-    audit = AIAuditLog(
-        tenant_id=tenant_id,
-        dossier_id=dossier_id,
-        background_job_id=job.id,
-        requested_by_user_id=job.requested_by_user_id,
-        use_case=agent,
-        agent=agent,
-        action="generate",
-        provider=policy.provider,
-        model=prompt.model,
-        prompt_name=prompt.name,
-        prompt_version=prompt.version,
-        prompt_hash=prompt.sha256,
-        context_hash=effective_context_hash,
-        schema_name=prompt.output_schema_name,
-        schema_version="v1",
-        input_hash=input_hash,
-        source_ids=list(context.manifest["evidence_ids"]),
-        status="running",
-        data_classification=context.classification,
-        redaction_applied=bool(context.redaction_summary["matches"]),
-        redaction_summary=context.redaction_summary,
-        started_at=now,
+    source_manifest = context.manifest | {
+        "requested_scope_hash": hashlib.sha256(_canonical(supplemental_context or {})).hexdigest()
+    }
+    audit = db.session.scalar(
+        select(AIAuditLog)
+        .where(
+            AIAuditLog.tenant_id == tenant_id,
+            AIAuditLog.background_job_id == job.id,
+            AIAuditLog.agent == agent,
+            AIAuditLog.status.in_(("failed", "denied")),
+        )
+        .order_by(AIAuditLog.started_at.desc(), AIAuditLog.created_at.desc())
+        .with_for_update()
     )
-    db.session.add(audit)
+    if audit is None:
+        audit = AIAuditLog(
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            background_job_id=job.id,
+            requested_by_user_id=job.requested_by_user_id,
+            use_case=agent,
+            agent=agent,
+            action="generate",
+            provider=policy.provider,
+            model=prompt.model,
+            prompt_name=prompt.name,
+            prompt_version=prompt.version,
+            prompt_hash=prompt.sha256,
+            context_hash=effective_context_hash,
+            schema_name=prompt.output_schema_name,
+            schema_version="v1",
+            input_hash=input_hash,
+            source_ids=list(context.manifest["evidence_ids"]),
+            status="running",
+            data_classification=context.classification,
+            redaction_applied=bool(context.redaction_summary["matches"]),
+            redaction_summary=context.redaction_summary,
+            started_at=now,
+        )
+        db.session.add(audit)
+    else:
+        audit.dossier_id = dossier_id
+        audit.requested_by_user_id = job.requested_by_user_id
+        audit.use_case = agent
+        audit.action = "generate"
+        audit.provider = policy.provider
+        audit.model = prompt.model
+        audit.prompt_name = prompt.name
+        audit.prompt_version = prompt.version
+        audit.prompt_hash = prompt.sha256
+        audit.context_hash = effective_context_hash
+        audit.schema_name = prompt.output_schema_name
+        audit.schema_version = "v1"
+        audit.input_hash = input_hash
+        audit.output_hash = None
+        audit.source_ids = list(context.manifest["evidence_ids"])
+        audit.status = "running"
+        audit.data_classification = context.classification
+        audit.redaction_applied = bool(context.redaction_summary["matches"])
+        audit.redaction_summary = context.redaction_summary
+        audit.input_tokens = audit.output_tokens = audit.actual_cost_micros = 0
+        audit.latency_ms = audit.estimated_cost_micros = None
+        audit.error_code = None
+        audit.started_at = now
+        audit.completed_at = None
     db.session.flush()
-    snapshot = AIContextSnapshot(
-        tenant_id=tenant_id,
-        audit_log_id=audit.id,
-        dossier_id=dossier_id,
-        context_hash=effective_context_hash,
-        source_manifest=context.manifest
-        | {
-            "requested_scope_hash": hashlib.sha256(
-                _canonical(supplemental_context or {})
-            ).hexdigest()
-        },
-        classification=context.classification,
-        redaction_summary=context.redaction_summary,
-        estimated_tokens=context.estimated_tokens,
-        injection_indicators=list(context.injection_indicators),
+    snapshot = db.session.scalar(
+        select(AIContextSnapshot)
+        .where(AIContextSnapshot.audit_log_id == audit.id, AIContextSnapshot.tenant_id == tenant_id)
+        .with_for_update()
     )
-    db.session.add(snapshot)
+    if snapshot is None:
+        snapshot = AIContextSnapshot(
+            tenant_id=tenant_id,
+            audit_log_id=audit.id,
+            dossier_id=dossier_id,
+            context_hash=effective_context_hash,
+            source_manifest=source_manifest,
+            classification=context.classification,
+            redaction_summary=context.redaction_summary,
+            estimated_tokens=context.estimated_tokens,
+            injection_indicators=list(context.injection_indicators),
+        )
+        db.session.add(snapshot)
+    else:
+        snapshot.dossier_id = dossier_id
+        snapshot.context_hash = effective_context_hash
+        snapshot.source_manifest = source_manifest
+        snapshot.classification = context.classification
+        snapshot.redaction_summary = context.redaction_summary
+        snapshot.estimated_tokens = context.estimated_tokens
+        snapshot.injection_indicators = list(context.injection_indicators)
+        db.session.execute(
+            delete(AIContextEvidence).where(
+                AIContextEvidence.tenant_id == tenant_id,
+                AIContextEvidence.snapshot_id == snapshot.id,
+            )
+        )
     db.session.flush()
     for evidence in context.evidence:
         db.session.add(
@@ -310,10 +361,19 @@ def execute_agent(
         min(prompt.max_output_tokens, policy.max_output_tokens),
         context.classification,
     )
+    next_attempt_number = (
+        db.session.scalar(
+            select(func.max(AIAttempt.attempt_number)).where(
+                AIAttempt.tenant_id == tenant_id,
+                AIAttempt.audit_log_id == audit.id,
+            )
+        )
+        or 0
+    ) + 1
     attempt = AIAttempt(
         tenant_id=tenant_id,
         audit_log_id=audit.id,
-        attempt_number=1,
+        attempt_number=next_attempt_number,
         kind="generate",
         status="reserved",
         request_hash=input_hash,
@@ -323,22 +383,38 @@ def execute_agent(
     )
     db.session.add(attempt)
     db.session.flush()
-    usage = AIUsageLedger(
-        tenant_id=tenant_id,
-        audit_log_id=audit.id,
-        period=now.strftime("%Y-%m"),
-        provider=policy.provider,
-        model=prompt.model,
-        input_tokens=0,
-        output_tokens=0,
-        # Conservative mock-independent reservation. A real adapter must expose its
-        # pricing estimator before it can be allowlisted.
-        reserved_cost_micros=reservation_micros,
-        actual_cost_micros=0,
-        status="reserved",
-        execution_token=execution_token,
+    usage = db.session.scalar(
+        select(AIUsageLedger)
+        .where(AIUsageLedger.tenant_id == tenant_id, AIUsageLedger.audit_log_id == audit.id)
+        .with_for_update()
     )
-    db.session.add(usage)
+    if usage is None:
+        usage = AIUsageLedger(
+            tenant_id=tenant_id,
+            audit_log_id=audit.id,
+            period=now.strftime("%Y-%m"),
+            provider=policy.provider,
+            model=prompt.model,
+            input_tokens=0,
+            output_tokens=0,
+            # Conservative mock-independent reservation. A real adapter must expose its
+            # pricing estimator before it can be allowlisted.
+            reserved_cost_micros=reservation_micros,
+            actual_cost_micros=0,
+            status="reserved",
+            execution_token=execution_token,
+        )
+        db.session.add(usage)
+    else:
+        usage.period = now.strftime("%Y-%m")
+        usage.provider = policy.provider
+        usage.model = prompt.model
+        usage.input_tokens = 0
+        usage.output_tokens = 0
+        usage.reserved_cost_micros = reservation_micros
+        usage.actual_cost_micros = 0
+        usage.status = "reserved"
+        usage.execution_token = execution_token
     db.session.commit()
     audit_id, attempt_id, usage_id = audit.id, attempt.id, usage.id
 
@@ -463,7 +539,7 @@ def execute_agent(
         reviewer_attempt = AIAttempt(
             tenant_id=tenant_id,
             audit_log_id=audit_id,
-            attempt_number=2,
+            attempt_number=next_attempt_number + 1,
             kind="reviewer",
             status="running",
             request_hash=hashlib.sha256(_canonical(reviewer_request.context)).digest(),
@@ -575,7 +651,7 @@ def execute_agent(
     final_audit.status, final_audit.output_hash = "succeeded", output_hash
     final_audit.provider = result.provider or final_audit.provider
     final_audit.model = result.model or final_audit.model
-    final_audit.attempt_count = 2 if reviewer_attempt_id is not None else 1
+    final_audit.attempt_count = max(final_audit.attempt_count, active_attempt.attempt_number)
     final_audit.input_tokens, final_audit.output_tokens = total_input, total_output
     final_audit.actual_cost_micros, final_audit.latency_ms = total_cost, result.latency_ms
     final_audit.completed_at = settlement
