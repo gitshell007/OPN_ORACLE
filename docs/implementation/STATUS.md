@@ -1057,13 +1057,13 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - CI manual verde para F1:
   - `9b3c72e`: `https://github.com/gitshell007/OPN_ORACLE/actions/runs/29332788154`.
   - `72f5efd`: `https://github.com/gitshell007/OPN_ORACLE/actions/runs/29333426454`.
-- Producción D-022: release activo `20260714T124654Z-p34-f1-72f5efd`, backup local
-  `/var/backups/opn-oracle/20260714T124711Z-20260714T124000Z-p34-f1-9b3c72e/MANIFEST.txt`,
+- Producción D-022: release activo `20260714T125430Z-p34-f1-d2d945f`, backup local
+  `/var/backups/opn-oracle/20260714T125516Z-20260714T124654Z-p34-f1-72f5efd/MANIFEST.txt`,
   restore aislado
-  `/var/backups/opn-oracle/restore-evidence/20260714T124711Z-20260714T124000Z-p34-f1-9b3c72e.RESTORE_EVIDENCE.txt`,
+  `/var/backups/opn-oracle/restore-evidence/20260714T125516Z-20260714T124654Z-p34-f1-72f5efd.RESTORE_EVIDENCE.txt`,
   smoke público correcto y `oracle-control health` correcto. Se recuperó un primer intento fallido
-  por permisos del entrypoint Redis en el artefacto candidato; el release activo quedó sano y la
-  auditoría final registra `activate-release result=success`.
+  por permisos del entrypoint Redis en un artefacto candidato previo; el release activo quedó sano
+  y la auditoría final registra `activate-release result=success`.
 - Verificación real autenticada:
   - `GET /api/v1/entity-intel/suggest?q=IBERDROLA&kind=company&limit=8` respondió 200 y devolvió
     `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA`.
@@ -1073,3 +1073,10 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Gate antes de F2/F3: pendiente que Signal conceda `entity:read` a la credencial productiva de
   Oracle o entregue credencial separada para entidades. No se puede enseñar el grafo real hasta
   resolver ese scope del productor.
+- Reintento del prompt 34 el 2026-07-14: producción sigue en
+  `20260714T125430Z-p34-f1-d2d945f`; `suggest("IBERDROLA")` responde 200 con la entidad registral
+  exacta, pero `graph` para `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA` sigue devolviendo
+  `403 insufficient_scope` con request id `db3665914ea4c2f2262682dfccb0a266`. Consulta read-only
+  a `integration_connections` confirma que la conexión activa `signal-avanza` conserva scopes
+  `monitor:write`, `signal:read` y `webhook:manage`, sin `entity:read`; por tanto F2/F3 siguen
+  paradas por el gate real de F1.

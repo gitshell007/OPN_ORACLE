@@ -46,7 +46,10 @@
   «La credencial no tiene el scope 'entity:read'.». `registry/suggest` sí funciona y devuelve el
   nombre registral exacto esperado para IBERDROLA. Falta que el productor Signal conceda
   `entity:read` a la credencial `opn-oracle`/`oracle_signal_ai_api_key` o entregue una credencial
-  separada para entidad antes de poder enseñar el grafo real y cerrar F1.
+  separada para entidad antes de poder enseñar el grafo real y cerrar F1. Reintentado el
+  2026-07-14 sobre el release `20260714T125430Z-p34-f1-d2d945f`: Oracle sigue recibiendo
+  `403 insufficient_scope` y la conexión activa `signal-avanza` declara únicamente los scopes
+  `monitor:write`, `signal:read` y `webhook:manage`.
 
 ## IA y compliance
 
