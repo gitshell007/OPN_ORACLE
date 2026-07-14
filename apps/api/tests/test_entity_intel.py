@@ -52,7 +52,7 @@ def test_entity_intel_suggest_calls_allowlisted_signal_without_tenant_header() -
         client.close()
 
     assert seen == {
-        "path": "/entity-intel/suggest",
+        "path": "/registry/suggest",
         "params": {"q": "IBERDROLA", "kind": "company", "limit": "5"},
         "api_key": "test-secret",
         "external_tenant": None,
@@ -98,7 +98,7 @@ def test_entity_intel_graph_sends_external_tenant_and_normalizes_payload() -> No
         client.close()
 
     assert seen == {
-        "path": "/entity-intel/graph",
+        "path": "/oracle/entity/graph",
         "params": {
             "name": "IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA",
             "type": "company",

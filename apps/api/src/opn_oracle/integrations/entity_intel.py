@@ -217,7 +217,7 @@ class EntityIntelClient:
 
     def suggest(self, *, query: str, kind: EntityKind, limit: int) -> dict[str, Any]:
         payload = self._get(
-            "entity-intel/suggest",
+            "registry/suggest",
             params={"q": query, "kind": kind, "limit": str(limit)},
         )
         suggestions = payload.get("suggestions", [])
@@ -243,7 +243,7 @@ class EntityIntelClient:
         external_tenant_id: str,
     ) -> dict[str, Any]:
         payload = self._get(
-            "entity-intel/graph",
+            "oracle/entity/graph",
             params={
                 "name": name,
                 "type": kind,
