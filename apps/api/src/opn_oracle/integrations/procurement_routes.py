@@ -219,9 +219,9 @@ def _handle_provider_call(function: Any) -> Any:
 
 
 @bp.get("/awards")
+@require_permission("actor.read")
 @bp.input(AwardsQuerySchema, location="query")
 @bp.output(AwardsResponseSchema)
-@require_permission("actor.read")
 @limiter.limit("60/minute")
 def awards(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
@@ -237,9 +237,9 @@ def awards(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.get("/tenders")
+@require_permission("opportunity.read")
 @bp.input(TendersQuerySchema, location="query")
 @bp.output(TendersResponseSchema)
-@require_permission("opportunity.read")
 @limiter.limit("60/minute")
 def tenders(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)

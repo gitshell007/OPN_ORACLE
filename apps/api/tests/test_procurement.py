@@ -504,6 +504,23 @@ def test_procurement_route_denies_user_without_opportunity_read(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/procurement/tenders",
+        "/api/v1/procurement/awards?company=x",
+    ],
+)
+def test_procurement_routes_require_auth_before_schema_validation(app: Any, path: str) -> None:
+    response = app.test_client().get(path)
+
+    assert response.status_code == 401
+    assert response.headers["Content-Type"] == "application/problem+json"
+    assert response.headers.get("Location") is None
+    assert response.get_json()["code"] == "authentication_required"
+
+
+@pytest.mark.unit
 def test_procurement_saved_search_route_serializes_signal_payload(
     app: Any,
     monkeypatch: pytest.MonkeyPatch,
