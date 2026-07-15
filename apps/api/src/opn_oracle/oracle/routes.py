@@ -18,6 +18,10 @@ from opn_oracle.auth.permissions import current_permissions, require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.documents.models import Document
 from opn_oracle.extensions import db
+from opn_oracle.integrations.procurement import (
+    ProcurementConfigurationError,
+    ProcurementProviderError,
+)
 from opn_oracle.jobs.service import serialize_job
 from opn_oracle.oracle.actor_candidates import (
     ACTOR_TYPES,
@@ -86,6 +90,13 @@ from opn_oracle.oracle.policy import (
     dossier_accessible,
     dossier_manageable,
     is_tenant_admin,
+)
+from opn_oracle.oracle.procurement_items import (
+    ProcurementItemError,
+    delete_procurement_item,
+    list_procurement_items,
+    pin_procurement_item,
+    serialize_procurement_item,
 )
 from opn_oracle.oracle.service import (
     DomainValidationError,
@@ -1515,6 +1526,72 @@ def evidence_list(dossier_id: uuid.UUID) -> Any:
         return _model_page(Evidence, criteria=(Evidence.id.in_(evidence_ids),))
     except DomainValidationError as error:
         return _domain_error(error)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/procurement")
+@require_permission("opportunity.write")
+def dossier_procurement_pin(dossier_id: uuid.UUID) -> Any:
+    # Procurement items feed opportunity/tender workflows, so use opportunity permissions.
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if dossier.status == "archived":
+        return problem_response(
+            422, detail="Un expediente archivado es de solo lectura.", code="domain_validation"
+        )
+    payload = _payload()
+    try:
+        item, created = pin_procurement_item(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            dossier_id=dossier.id,
+            kind=str(payload.get("kind", "")),
+            folder_id=str(payload.get("folder_id", "")),
+            actor_id=current_user.id,
+        )
+        db.session.commit()
+        return serialize_procurement_item(item), (201 if created else 200)
+    except (ProcurementItemError, TypeError, ValueError, IntegrityError) as error:
+        db.session.rollback()
+        return problem_response(422, detail=str(error), code="domain_validation")
+    except ProcurementConfigurationError as error:
+        db.session.rollback()
+        return problem_response(503, detail=str(error), code="procurement_not_configured")
+    except ProcurementProviderError as error:
+        db.session.rollback()
+        return problem_response(error.status_code, detail=error.detail, code=error.code)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/procurement")
+@require_permission("opportunity.read")
+def dossier_procurement_list(dossier_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    items = list_procurement_items(
+        db.session(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier.id,
+    )
+    return {"data": [serialize_procurement_item(item) for item in items]}
+
+
+@bp.delete("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>")
+@require_permission("opportunity.write")
+def dossier_procurement_delete(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    deleted = delete_procurement_item(
+        db.session(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier.id,
+        item_id=item_id,
+    )
+    if not deleted:
+        return problem_response(404, detail="Ítem de contratación no encontrado.", code="not_found")
+    db.session.commit()
+    return {"deleted": True, "id": str(item_id)}
 
 
 NESTED: dict[str, tuple[type[Any], str, str]] = {

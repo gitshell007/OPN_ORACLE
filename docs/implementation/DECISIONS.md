@@ -330,3 +330,26 @@
 - **Consecuencias:** F1 ofrece visualización interactiva básica y verificable sin abrir secretos ni
   decidir todavía recomendaciones, guardado o vinculación a expedientes. React Flow queda reservado
   para futuros flujos editables; Cytoscape es más adecuado para grafos densos de relación.
+
+## D-028 — PLACSP se consulta y fija desde Oracle con Signal como productor
+
+- **Estado:** accepted; follow-up 4b implemented
+- **Fecha:** 2026-07-14
+- **Contexto:** Signal ya indexa adjudicaciones y licitaciones PLACSP. Oracle necesita consumirlas
+  desde la experiencia estratégica sin exponer claves, CORS ni contratos de productor al navegador.
+- **Decisión:** Oracle publica `/api/v1/procurement/*` como proxy Flask. Los datos globales
+  (`registry/awards`, `registry/tenders`, summaries y stats) usan solo `X-API-Key`; las búsquedas
+  guardadas usan además `X-OPN-External-Tenant-ID` resuelto desde la conexión `signal-avanza`
+  activa. Además, Oracle puede fijar licitaciones/adjudicaciones concretas al expediente en
+  `dossier_procurement_items` como snapshot durable y crear una evidencia interna asociada para que
+  `tender.v1` cite esos hechos con `evidence_ids`. La resolución del snapshot se hace por lookup
+  directo de Signal (`registry/tenders/{folder_id}` y `registry/awards/{folder_id}`), no por búsqueda
+  textual. Las adjudicaciones multilote se guardan como un pin único por `folder_id` con
+  `snapshot.entries`.
+- **Consecuencias:** Vector puede consultar contratación pública mediante permisos Oracle y
+  seguridad server-side homogénea con `entity-intel`. Signal sigue siendo productor del dato vivo;
+  Oracle conserva únicamente snapshots seleccionados por el usuario dentro del tenant/expediente.
+  La evidencia creada por un pin usa `source_kind='procurement'` y una `provenance` honesta con
+  `procurement_kind`, `folder_id` y `snapshot_sha256`; no entra en la cuarentena
+  `legacy_unresolved`. El go/no-go de `tender.v1` continúa siendo recomendación revisable/humana, no
+  una decisión automática.

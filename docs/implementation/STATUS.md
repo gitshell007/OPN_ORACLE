@@ -4,6 +4,37 @@ Actualizado: 2026-07-14
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Fase 4 · proxy Oracle de contratación pública PLACSP
+
+- Oracle incorpora el proxy Flask `/api/v1/procurement` hacia Signal para adjudicaciones,
+  licitaciones abiertas, resumen LLM cacheado por Signal, stats y búsquedas guardadas de
+  licitaciones.
+- Se reutiliza la configuración existente `SIGNAL_AI_*`, el allowlist HTTPS, timeouts, rechazo de
+  redirects, límite de respuesta, mapeo de errores y resolución de tenant externo del patrón
+  `entity-intel`. No hay variables nuevas ni llamadas directas desde navegador a Signal.
+- Separación de autenticación validada en tests: los datos globales PLACSP usan solo `X-API-Key`;
+  las búsquedas guardadas bajo `/api/v1/oracle/tender-searches*` añaden
+  `X-OPN-External-Tenant-ID` derivado de la conexión `signal-avanza` activa.
+- Permisos: adjudicaciones con `actor.read`, licitaciones y lecturas de búsquedas con
+  `opportunity.read`, mutaciones de búsquedas con `opportunity.write`, stats con `signal.read`.
+- Caché local: adjudicaciones 600 s, licitaciones abiertas 90 s, summaries sin caché local porque
+  Signal gobierna su caché LLM.
+- Fase 4b implementada: `dossier_procurement_items` permite fijar snapshots PLACSP a un expediente,
+  crea evidencia interna asociada para citas en `tender.v1` y expone `POST/GET/DELETE` bajo
+  `/api/v1/dossiers/{dossier_id}/procurement`.
+- Corrección F4b: la resolución de snapshots ya usa los lookups directos de Signal por `folder_id`
+  (`registry/tenders/{folder_id}` y `registry/awards/{folder_id}`), las adjudicaciones multilote se
+  guardan en `snapshot.entries` y la evidencia queda tipada como `source_kind='procurement'` en vez
+  de entrar en cuarentena `legacy_unresolved`.
+- Checks focales F4b: `uv run pytest -q --no-cov tests/test_procurement.py tests/test_contract.py`
+  **24/24**, `uv run mypy` y `uv run ruff check` focales correctos.
+
+## Resolución operativa · scope `entity:read` en Signal
+
+- Tras actualizar el consumer `opn-oracle` en Signal, Oracle producción pudo consultar el grafo real
+  de `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA`: respuesta 200 con 50 nodos, 101 enlaces y
+  `truncated=false`. El bloqueo por `403 insufficient_scope` de Prompt 34/F1 deja de estar vigente.
+
 ## Prompt 33 · asentamiento del pipeline IA de informes, briefings y digest
 
 - Diagnóstico read-only en producción realizado antes del cambio:

@@ -10,7 +10,8 @@
 Este documento conserva el contexto de consumidor de OPN Oracle. El contrato normativo es el
 OpenAPI fechado del productor indicado arriba: base URL
 `https://signal.opnconsultoria.com/api/v1/oracle`, autenticación `X-API-Key`, tenant en
-`X-OPN-External-Tenant-ID` y scopes `monitor:write`, `signal:read`, `webhook:manage`.
+`X-OPN-External-Tenant-ID` y scopes `monitor:write`, `signal:read`, `webhook:manage` y
+`entity:read`.
 
 El contrato fue contrastado con el repositorio y el entorno productivo de Signal. Por tanto:
 
@@ -169,7 +170,95 @@ Signal debe devolver un formato estable compatible con Problem Details:
 
 Oracle propaga un `X-Correlation-ID` seguro. Nombre de request ID, cuotas, códigos definitivos, máximo de intentos y semántica de `Retry-After` por fecha/segundos siguen abiertos.
 
-## 8. Compatibilidad y cierre del contrato
+## 8. Proxy Oracle de contratación pública PLACSP
+
+Oracle expone un namespace propio para consumo de Vector y otros clientes internos:
+
+```http
+/api/v1/procurement
+```
+
+El navegador nunca llama a Signal directamente. Flask usa la configuración server-side existente
+`SIGNAL_AI_BASE_URL`, `SIGNAL_AI_API_KEY`, `SIGNAL_AI_ALLOWED_HOSTS`,
+`SIGNAL_AI_TIMEOUT_SECONDS` y `SIGNAL_CONNECT_TIMEOUT_SECONDS`, con HTTPS allowlisted, redirects
+desactivados, límite de tamaño de respuesta y mapeo de errores compatible con Problem Details.
+
+Familias de autenticación:
+
+- Datos globales de registro PLACSP: Oracle llama a Signal con `X-API-Key` y **sin**
+  `X-OPN-External-Tenant-ID`.
+- Búsquedas guardadas de licitaciones: Oracle resuelve el tenant externo desde la conexión
+  `signal-avanza` activa y añade `X-OPN-External-Tenant-ID`. Signal es propietario de esas
+  búsquedas; Oracle solo las proxya y no las re-almacena.
+
+Rutas Oracle:
+
+| Oracle | Signal | Permiso Oracle |
+|---|---|---|
+| `GET /api/v1/procurement/awards` | `GET /api/v1/registry/awards` | `actor.read` |
+| `GET /api/v1/procurement/tenders` | `GET /api/v1/registry/tenders` | `opportunity.read` |
+| `POST /api/v1/procurement/tenders/{folder_id}/summary` | `POST /api/v1/registry/tenders/{folder_id}/summary` | `opportunity.read` |
+| `GET /api/v1/procurement/stats` | `GET /api/v1/registry/stats` | `signal.read` |
+| `GET /api/v1/procurement/tender-searches` | `GET /api/v1/oracle/tender-searches` | `opportunity.read` |
+| `POST /api/v1/procurement/tender-searches` | `POST /api/v1/oracle/tender-searches` | `opportunity.write` |
+| `GET /api/v1/procurement/tender-searches/{id}` | `GET /api/v1/oracle/tender-searches/{id}` | `opportunity.read` |
+| `PATCH /api/v1/procurement/tender-searches/{id}` | `PATCH /api/v1/oracle/tender-searches/{id}` | `opportunity.write` |
+| `DELETE /api/v1/procurement/tender-searches/{id}` | `DELETE /api/v1/oracle/tender-searches/{id}` | `opportunity.write` |
+| `GET /api/v1/procurement/tender-searches/{id}/run` | `GET /api/v1/oracle/tender-searches/{id}/run` | `opportunity.read` |
+
+Lookups server-side usados por Oracle para fijar snapshots durables a expediente:
+
+| Uso Oracle | Signal | Forma |
+|---|---|---|
+| Resolver una licitación concreta por expediente PLACSP | `GET /api/v1/registry/tenders/{folder_id}` | `{item}` o `404` |
+| Resolver adjudicaciones de un expediente PLACSP | `GET /api/v1/registry/awards/{folder_id}` | `{folder_id,total,items:[...]}` |
+
+Estos lookups son de la familia global: se firman solo con `X-API-Key`, no llevan
+`X-OPN-External-Tenant-ID` y nunca se invocan desde navegador. Para adjudicaciones multilote,
+Oracle fija un único pin por `folder_id` y guarda todas las entradas en `snapshot.entries`.
+
+Caché local en Oracle:
+
+- `awards`: 600 segundos, porque el índice histórico cambia lentamente.
+- `tenders`: 90 segundos, porque las licitaciones abiertas cambian intradía.
+- `summary`: sin caché local; es `POST` y Signal gobierna la caché LLM.
+
+### 8.1 Ítems PLACSP fijados a expediente
+
+Oracle persiste snapshots de licitaciones o adjudicaciones devueltas por Signal en
+`dossier_procurement_items`. La tabla es tenant-scoped, cuelga de `StrategicDossier` con FK
+compuesta `(dossier_id, tenant_id)` y deduplica por `(tenant_id, dossier_id, kind, folder_id)`.
+
+Campos persistidos:
+
+- `kind`: `tender` o `award`.
+- `folder_id`: identificador PLACSP.
+- `snapshot`: JSONB con los campos devueltos por Signal en el momento de fijar.
+  - En licitaciones, contiene el item único devuelto por `registry/tenders/{folder_id}`.
+  - En adjudicaciones, contiene `entries` con todos los lotes devueltos por
+    `registry/awards/{folder_id}`.
+- `source_url`: enlace público de la fuente.
+- `evidence_id`: evidencia interna creada al fijar el ítem para que `tender.v1` pueda citarlo con
+  `evidence_ids`.
+- `pinned_by_user_id` y timestamps.
+
+Endpoints Oracle:
+
+| Oracle | Acción | Permiso |
+|---|---|---|
+| `POST /api/v1/dossiers/{dossier_id}/procurement` | Fija `{kind, folder_id}` resolviendo snapshot vía Signal server-side | `opportunity.write` |
+| `GET /api/v1/dossiers/{dossier_id}/procurement` | Lista ítems fijados del expediente | `opportunity.read` |
+| `DELETE /api/v1/dossiers/{dossier_id}/procurement/{item_id}` | Desfija un ítem | `opportunity.write` |
+
+`POST` es idempotente por constraint: fijar dos veces el mismo `kind/folder_id` en el mismo
+expediente devuelve el ítem existente sin duplicar. Los snapshots fijados entran en el snapshot del
+informe `tender.v1` y su evidencia asociada queda disponible para hechos sobre entidad convocante,
+importe, CPV, elegibilidad o deadline. La evidencia usa `source_kind='procurement'` y
+`provenance.source_kind='procurement'`; no se marca como `legacy_unresolved` ni como cuarentena de
+migración porque la fuente PLACSP es conocida y citable. El go/no-go sigue siendo
+revisión/recomendación humana.
+
+## 9. Compatibilidad y cierre del contrato
 
 La versión mayor se expresa en la ruta. Cambios aditivos y opcionales pueden permanecer en v1; eliminar/renombrar campos, cambiar auth, firma, idempotencia, cursor o semántica requiere deprecación o una nueva versión mayor. Los productores deben tolerar consumidores que ignoran campos nuevos; los enums requieren estrategia explícita para valores desconocidos.
 

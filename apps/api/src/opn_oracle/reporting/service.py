@@ -25,6 +25,7 @@ from opn_oracle.oracle.links import EvidenceDossier, ReportEvidence
 from opn_oracle.oracle.models import (
     DossierActor,
     DossierObjective,
+    DossierProcurementItem,
     Evidence,
     Hypothesis,
     LivingSummary,
@@ -308,6 +309,18 @@ def _snapshot(
     living_summary = db.session.scalar(
         select(LivingSummary).where(LivingSummary.dossier_id == dossier.id)
     )
+    procurement_items = (
+        list(
+            db.session.scalars(
+                select(DossierProcurementItem)
+                .where(DossierProcurementItem.dossier_id == dossier.id)
+                .order_by(DossierProcurementItem.created_at.desc(), DossierProcurementItem.id)
+                .limit(50)
+            )
+        )
+        if template.key == "tender"
+        else []
+    )
     payload = {
         "schema": "oracle-report-snapshot-v1",
         "captured_at": datetime.now(UTC).isoformat(),
@@ -340,6 +353,17 @@ def _snapshot(
             for item in hypotheses
         ],
         "living_summary": living_summary.summary if living_summary else {},
+        "procurement_items": [
+            {
+                "id": str(item.id),
+                "kind": item.kind,
+                "folder_id": item.folder_id,
+                "source_url": item.source_url,
+                "evidence_id": str(item.evidence_id),
+                "snapshot": item.snapshot,
+            }
+            for item in procurement_items
+        ],
         "evidence": [_snapshot_evidence_payload(item) for item in evidence],
     }
     return payload, evidence
@@ -442,6 +466,7 @@ def _frozen_report_context(report: Report, max_tokens: int) -> BuiltContext:
         living_summary=dict(source.get("living_summary", {})),
         evidence=tuple(frozen),
         max_tokens=max_tokens,
+        procurement_items=list(source.get("procurement_items", [])),
     )
 
 

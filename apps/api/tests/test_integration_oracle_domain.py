@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from flask_migrate import downgrade, upgrade
 from redis import Redis
@@ -44,18 +45,21 @@ from opn_oracle.documents.storage import (
     object_key,
 )
 from opn_oracle.extensions import db
+from opn_oracle.integrations.procurement import ProcurementClient
 from opn_oracle.jobs.service import enqueue_job, stage_job
 from opn_oracle.jobs.tasks import dispatch_queued_jobs, schedule_nightly_dossier_summaries
 from opn_oracle.notifications.email import CaptureEmailSender
+from opn_oracle.oracle import procurement_items
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import DossierCollaborator
-from opn_oracle.oracle.models import Report, StrategicDossier
+from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Report, StrategicDossier
 from opn_oracle.reporting.models import (
     DataExport,
     Notification,
     NotificationDelivery,
     NotificationPreference,
     ReportArtifact,
+    ReportSnapshotEvidence,
 )
 from opn_oracle.reporting.notifications import (
     NotificationError,
@@ -69,6 +73,7 @@ from opn_oracle.reporting.notifications import (
 )
 from opn_oracle.reporting.service import (
     ReportConflictError,
+    _frozen_report_context,
     create_report_request,
 )
 from opn_oracle.tenants.context import TenantContext, tenant_context
@@ -1064,6 +1069,295 @@ def _enable_mock_ai(app: Any, ids: dict[str, uuid.UUID]) -> None:
             policy.max_classification = "internal"
             policy.kill_switch = False
         db.session.commit()
+
+
+def _procurement_folder_client(transport: httpx.MockTransport) -> ProcurementClient:
+    return ProcurementClient(
+        base_url="https://signal.example",
+        api_key="configured-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=transport,
+    )
+
+
+def test_procurement_folder_resolution_uses_signal_lookup_endpoints(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, _, _ = oracle_stack
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/api/v1/registry/tenders/P_6_26":
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "item": {
+                        "folder_id": "P_6_26",
+                        "title": "Servicio de inteligencia comercial",
+                        "buyer": "PROEXCA",
+                        "amount": "83000.00",
+                        "deadline": "2026-09-30",
+                        "cpv": ["79342000"],
+                        "source_url": "https://contrataciondelestado.es/tender/P_6_26",
+                    }
+                },
+            )
+        if request.url.path == "/api/v1/registry/awards/P_6_26":
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "folder_id": "P_6_26",
+                    "total": 2,
+                    "items": [
+                        {
+                            "folder_id": "P_6_26",
+                            "lot_id": "1",
+                            "title": "Servicio de inteligencia comercial",
+                            "buyer": "PROEXCA",
+                            "winner": "Genesis Consulting SLP",
+                            "award_amount": "3600.00",
+                            "cpv": ["79342000"],
+                            "source_url": "https://contrataciondelestado.es/award/P_6_26",
+                        },
+                        {
+                            "folder_id": "P_6_26",
+                            "lot_id": "2",
+                            "title": "Servicio de inteligencia comercial",
+                            "buyer": "PROEXCA",
+                            "winner": "OPN Consultoría",
+                            "award_amount": "1400.00",
+                            "cpv": ["79400000"],
+                            "source_url": "https://contrataciondelestado.es/award/P_6_26",
+                        },
+                    ],
+                },
+            )
+        if request.url.path == "/api/v1/registry/awards/EMPTY":
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={"folder_id": "EMPTY", "total": 0, "items": []},
+            )
+        return httpx.Response(
+            404,
+            headers={"Content-Type": "application/problem+json"},
+            json={"code": "not_found", "detail": "No encontrado"},
+        )
+
+    with app.app_context():
+        transport = httpx.MockTransport(handler)
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        tender = procurement_items.resolve_procurement_snapshot("tender", "P_6_26")
+        award = procurement_items.resolve_procurement_snapshot("award", "P_6_26")
+        with pytest.raises(procurement_items.ProcurementItemError):
+            procurement_items.resolve_procurement_snapshot("tender", "MISSING")
+        with pytest.raises(procurement_items.ProcurementItemError):
+            procurement_items.resolve_procurement_snapshot("award", "EMPTY")
+
+    assert seen == [
+        "/api/v1/registry/tenders/P_6_26",
+        "/api/v1/registry/awards/P_6_26",
+        "/api/v1/registry/tenders/MISSING",
+        "/api/v1/registry/awards/EMPTY",
+    ]
+    assert tender["folder_id"] == "P_6_26"
+    assert tender["deadline"] == "2026-09-30"
+    assert award["total"] == 2
+    assert [entry["winner"] for entry in award["entries"]] == [
+        "Genesis Consulting SLP",
+        "OPN Consultoría",
+    ]
+    assert "Importe total adjudicado: 5000.00" in procurement_items.procurement_evidence_extract(
+        award
+    )
+
+
+def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    dossier = _create_dossier(_client(oracle_stack), ids, "Procurement idempotente")
+    dossier_id = uuid.UUID(dossier["id"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/registry/tenders/P_6_26"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "item": {
+                    "folder_id": "P_6_26",
+                    "title": "Servicio de inteligencia comercial",
+                    "buyer": "PROEXCA",
+                    "amount": "83000.00",
+                    "deadline": "2026-09-30",
+                    "cpv": ["79342000"],
+                    "source_url": "https://contrataciondelestado.es/tender/P_6_26",
+                }
+            },
+        )
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        transport = httpx.MockTransport(handler)
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        first, first_created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="tender",
+            folder_id="P_6_26",
+            actor_id=ids["user"],
+        )
+        second, second_created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="tender",
+            folder_id="P_6_26",
+            actor_id=ids["user"],
+        )
+        first_id = first.id
+        db.session.commit()
+        assert first_created is True
+        assert second_created is False
+        assert second.id == first_id
+        assert (
+            db.session.scalar(
+                select(func.count(DossierProcurementItem.id)).where(
+                    DossierProcurementItem.tenant_id == ids["tenant_a"],
+                    DossierProcurementItem.dossier_id == dossier_id,
+                    DossierProcurementItem.kind == "tender",
+                    DossierProcurementItem.folder_id == "P_6_26",
+                )
+            )
+            == 1
+        )
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_b"], actor_id=ids["user"])),
+    ):
+        assert (
+            procurement_items.list_procurement_items(
+                db.session,
+                tenant_id=ids["tenant_b"],
+                dossier_id=dossier_id,
+            )
+            == []
+        )
+        assert (
+            procurement_items.delete_procurement_item(
+                db.session,
+                tenant_id=ids["tenant_b"],
+                dossier_id=dossier_id,
+                item_id=first_id,
+            )
+            is False
+        )
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        remaining = procurement_items.list_procurement_items(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+        )
+        assert [item.id for item in remaining] == [first_id]
+
+
+def test_tender_report_context_cites_pinned_procurement_evidence(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    dossier = _create_dossier(_client(oracle_stack), ids, "Informe tender con PLACSP")
+    dossier_id = uuid.UUID(dossier["id"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/registry/tenders/P_6_26"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "item": {
+                    "folder_id": "P_6_26",
+                    "title": "Servicio de inteligencia comercial",
+                    "buyer": "PROEXCA",
+                    "amount": "83000.00",
+                    "deadline": "2026-09-30",
+                    "cpv": ["79342000"],
+                    "source_url": "https://contrataciondelestado.es/tender/P_6_26",
+                }
+            },
+        )
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        transport = httpx.MockTransport(handler)
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        monkeypatch.setattr("opn_oracle.reporting.service.publish_job", lambda job: None)
+        pinned, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="tender",
+            folder_id="P_6_26",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        db.session.flush()
+        evidence = db.session.get(Evidence, pinned.evidence_id)
+        assert evidence is not None
+        assert evidence.source_kind == "procurement"
+        assert evidence.provenance["source_kind"] == "procurement"
+        assert "migration_status" not in evidence.provenance
+        dossier_row = db.session.get(StrategicDossier, dossier_id)
+        assert dossier_row is not None
+        report, _, report_created = create_report_request(
+            dossier_row,
+            template_key="tender",
+            options={"formats": ["json"], "classification": "internal"},
+            requested_by_user_id=ids["user"],
+            idempotency_key=f"tender-procurement-{uuid.uuid4()}",
+        )
+        assert report_created is True
+        snapshot_item = report.source_snapshot["procurement_items"][0]
+        assert snapshot_item["evidence_id"] == str(pinned.evidence_id)
+        assert snapshot_item["snapshot"]["folder_id"] == "P_6_26"
+        snapshot_row = db.session.scalar(
+            select(ReportSnapshotEvidence).where(
+                ReportSnapshotEvidence.report_id == report.id,
+                ReportSnapshotEvidence.evidence_id == pinned.evidence_id,
+            )
+        )
+        assert snapshot_row is not None
+        built = _frozen_report_context(report, max_tokens=4000)
+        assert str(pinned.evidence_id) in built.manifest["evidence_ids"]
+        assert built.payload["procurement_items"][0]["evidence_id"] == str(pinned.evidence_id)
 
 
 def test_meeting_completion_creates_linked_decisions_and_tasks_idempotently(

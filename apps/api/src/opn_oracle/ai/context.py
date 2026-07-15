@@ -617,6 +617,7 @@ def build_frozen_context(
     living_summary: dict[str, Any],
     evidence: tuple[FrozenEvidence, ...],
     max_tokens: int,
+    procurement_items: list[dict[str, Any]] | None = None,
 ) -> BuiltContext:
     """Build an AI context exclusively from immutable report snapshot material."""
 
@@ -649,6 +650,7 @@ def build_frozen_context(
         "objectives": objectives,
         "hypotheses": hypotheses,
         "living_summary": living_summary,
+        "procurement_items": procurement_items or [],
         "evidence": evidence_payload,
         "allowed_evidence_ids": [str(item.row.id) for item in selected],
         "security_instruction": (

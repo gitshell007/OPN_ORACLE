@@ -322,6 +322,47 @@ class DossierSignal(TenantDomainMixin, Base):
     promoted_resource_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
+class DossierProcurementItem(TenantDomainMixin, Base):
+    __tablename__ = "dossier_procurement_items"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_dossier_procurement_items_id_tenant"),
+        UniqueConstraint(
+            "tenant_id",
+            "dossier_id",
+            "kind",
+            "folder_id",
+            name="uq_dossier_procurement_item_folder",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_dossier_procurement_items_dossier_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("evidence_id", "tenant_id"),
+            ("evidence.id", "evidence.tenant_id"),
+            ondelete="RESTRICT",
+            name="fk_dossier_procurement_items_evidence_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("tenant_id", "pinned_by_user_id"),
+            ("tenant_memberships.tenant_id", "tenant_memberships.user_id"),
+            name="fk_dossier_procurement_items_pinner_membership",
+        ),
+        CheckConstraint("kind IN ('tender','award')", name="dossier_procurement_item_kind"),
+        CheckConstraint("jsonb_typeof(snapshot)='object'", name="procurement_snapshot_object"),
+        Index("ix_dossier_procurement_items_dossier", "tenant_id", "dossier_id"),
+    )
+    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    folder_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_url: Mapped[str | None] = mapped_column(String(1500))
+    evidence_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    pinned_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
 class Evidence(TenantDomainMixin, Base):
     __tablename__ = "evidence"
     __table_args__ = (
@@ -367,7 +408,9 @@ class Evidence(TenantDomainMixin, Base):
             "AND document_version_id IS NOT NULL AND document_chunk_id IS NOT NULL) OR "
             "(source_kind='legacy_unresolved' AND signal_id IS NULL AND document_id IS NULL "
             "AND document_version_id IS NULL AND document_chunk_id IS NULL "
-            'AND provenance @> \'{"migration_status":"quarantined_missing_source"}\'::jsonb)',
+            'AND provenance @> \'{"migration_status":"quarantined_missing_source"}\'::jsonb) OR '
+            "(source_kind='procurement' AND signal_id IS NULL AND document_id IS NULL "
+            'AND provenance @> \'{"source_kind":"procurement"}\'::jsonb)',
             name="evidence_source_shape",
         ),
     )

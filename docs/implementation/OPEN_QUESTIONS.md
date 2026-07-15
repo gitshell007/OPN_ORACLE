@@ -41,15 +41,14 @@
 - Resuelto: cursor opaco ligado a tenant/monitor, retención de 365 días y límite 1–200.
 - Resuelto: HMAC-SHA256 V2 sobre `timestamp.raw_body`, tolerancia de cinco minutos y rotación con
   solape máximo de 24 horas.
-- Bloqueo Prompt 34/F1 detectado en producción el 2026-07-14: la credencial de Oracle usada para
-  `/api/v1/oracle/entity/graph` responde 403 `insufficient_scope` en Signal con el detalle
-  «La credencial no tiene el scope 'entity:read'.». `registry/suggest` sí funciona y devuelve el
-  nombre registral exacto esperado para IBERDROLA. Falta que el productor Signal conceda
-  `entity:read` a la credencial `opn-oracle`/`oracle_signal_ai_api_key` o entregue una credencial
-  separada para entidad antes de poder enseñar el grafo real y cerrar F1. Reintentado el
-  2026-07-14 sobre el release `20260714T125430Z-p34-f1-d2d945f`: Oracle sigue recibiendo
-  `403 insufficient_scope` y la conexión activa `signal-avanza` declara únicamente los scopes
-  `monitor:write`, `signal:read` y `webhook:manage`.
+- Resuelto el 2026-07-14: el consumer `opn-oracle` en Signal ya dispone de `entity:read`. Oracle
+  producción verificó `/api/v1/entity-intel/graph` para
+  `IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA` con respuesta 200, 50 nodos, 101 enlaces y
+  `truncated=false`.
+- Resuelto en Fase 4b: Oracle persiste snapshots PLACSP fijados al expediente en
+  `dossier_procurement_items`, crea evidencia interna citable y alimenta el snapshot de
+  `tender.v1`. Queda pendiente de producto la UI específica para seleccionar y fijar desde la lista
+  de resultados.
 
 ## IA y compliance
 
