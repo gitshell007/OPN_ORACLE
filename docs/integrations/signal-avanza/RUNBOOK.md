@@ -1,6 +1,6 @@
 # Runbook · integración Oracle ↔ Signal Avanza
 
-Actualizado: 2026-07-14
+Actualizado: 2026-07-15
 
 ## Proxy de contratación pública PLACSP
 
@@ -60,8 +60,85 @@ Para búsquedas guardadas, el tenant debe tener una conexión `signal-avanza` ac
 - `503` retryable: timeout, `429` o `5xx` del proveedor.
 - `502`: redirect, payload no JSON, JSON inválido o respuesta demasiado grande.
 
-### Follow-up 4b
+## Despliegue procurement
 
-Persistir licitaciones/adjudicaciones fijadas a un `dossier` u `opportunity` con RLS, auditoría y
-trazabilidad para alimentar el informe `tender.v1`. Esta fase solo proxya consulta y búsquedas
-guardadas en Signal.
+El despliegue coordinado de PLACSP debe respetar este orden para evitar que Oracle intente fijar
+expedientes contra lookups que Signal todavía no publica.
+
+### 1. Signal primero
+
+Desplegar primero Signal con los endpoints:
+
+- `GET /api/v1/registry/tenders/{folder_id}` → `{item}` o `404 tender_not_found`.
+- `GET /api/v1/registry/awards/{folder_id}` → `{folder_id,total,items:[...]}`.
+
+Nadie los llama antes de desplegar Oracle, así que añadirlos en Signal es compatible hacia atrás.
+
+### 2. Backfill inicial en Signal
+
+Ejecutar estos comandos en el servidor de Signal (`/opt/apps/opn_signal`). Los feeds PLACSP solo se
+han verificado desde ese servidor por WAF/IP.
+
+Histórico de adjudicaciones PLACSP (`docs/web-search-and-sources.md` §1.16.1):
+
+```bash
+cd /opt/apps/opn_signal
+.venv/bin/python - <<'PY'
+from app.db import get_session_factory
+from app.services import placsp_awards
+
+factory = get_session_factory()
+print(placsp_awards.backfill_archives(factory, cache_dir="var/placsp/archives"))
+PY
+```
+
+Licitaciones activas PLACSP (`docs/web-search-and-sources.md` §1.16.2):
+
+```bash
+cd /opt/apps/opn_signal
+.venv/bin/python - <<'PY'
+from app.db import get_session_factory
+from app.services import placsp_open_tenders
+
+factory = get_session_factory()
+print(placsp_open_tenders.backfill_current_year(factory, cache_dir="var/placsp/archives"))
+session = factory()
+try:
+    print(placsp_open_tenders.ingest_feed(
+        session,
+        cache_path="var/placsp/placsp_licitaciones.atom",
+        source_key="live",
+        max_age_seconds=0,
+        force=True,
+    ))
+    session.commit()
+finally:
+    session.close()
+PY
+```
+
+### 3. Oracle después
+
+Cuando Signal y el backfill estén listos:
+
+```bash
+cd /opt/opn-oracle/current/apps/api
+uv run flask --app opn_oracle.wsgi:app db upgrade
+```
+
+El head esperado tras Fase 4b es `20260714_0019`. Después de activar el release Oracle:
+
+```bash
+cd /opt/opn-oracle/current
+./scripts/smoke-production.sh https://oracle.opnconsultoria.com
+```
+
+El smoke público comprueba liveness, meta, headers de login, métricas ocultas, presencia de
+`entity-intel`, presencia de `procurement` y redirect anónimo de `/app/actors` a login.
+
+### Rollback
+
+- `db downgrade` de `20260714_0019` restaura el CHECK anterior de `evidence` y re-cuarentena las
+  evidencias `source_kind='procurement'` como `legacy_unresolved`.
+- `db downgrade` de `20260714_0018` elimina `dossier_procurement_items`; se pierden los pins PLACSP
+  persistidos, no los datos originales de Signal.

@@ -49,6 +49,10 @@
   `dossier_procurement_items`, crea evidencia interna citable y alimenta el snapshot de
   `tender.v1`. Queda pendiente de producto la UI específica para seleccionar y fijar desde la lista
   de resultados.
+- Resuelto el 2026-07-15: Signal tiene commiteados los lookups PLACSP por `folder_id` que Oracle
+  necesita en runtime y el runbook de Oracle documenta el despliegue coordinado con backfill.
+- Resuelto el 2026-07-15: el smoke público de Oracle cubre la presencia protegida de
+  `entity-intel`, `procurement` y el redirect anónimo de la pantalla de grafo `/app/actors`.
 
 ## IA y compliance
 

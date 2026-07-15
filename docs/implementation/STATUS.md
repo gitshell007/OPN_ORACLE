@@ -1,6 +1,6 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-14
+Actualizado: 2026-07-15
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
@@ -28,6 +28,11 @@ Interfaz canónica: `CANONICAL_UI=vector`
   de entrar en cuarentena `legacy_unresolved`.
 - Checks focales F4b: `uv run pytest -q --no-cov tests/test_procurement.py tests/test_contract.py`
   **24/24**, `uv run mypy` y `uv run ruff check` focales correctos.
+- Cierre PLACSP del 2026-07-15: Signal deja commiteados los lookups por `folder_id` requeridos por
+  Oracle (`registry/tenders/{folder_id}` y `registry/awards/{folder_id}`), el runbook documenta el
+  orden Signal → backfill PLACSP → Oracle, y `scripts/smoke-production.sh` cubre presencia protegida
+  de `entity-intel`, `procurement/tenders`, `procurement/awards` y redirect anónimo de `/app/actors`
+  a login. Smoke local combinado Next/API: correcto.
 
 ## Resolución operativa · scope `entity:read` en Signal
 
