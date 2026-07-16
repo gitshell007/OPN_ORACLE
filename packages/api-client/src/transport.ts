@@ -1403,6 +1403,12 @@ export interface DossierProcurementListResponse {
   data: DossierProcurementItem[];
 }
 
+export interface ProcurementDocumentReportResponse {
+  report: components["schemas"]["ReportResponse"];
+  job_id: string;
+  replayed: boolean;
+}
+
 function appendQuery(
   query: URLSearchParams,
   key: string,
@@ -1502,6 +1508,14 @@ const dossierProcurement = {
     request<{ deleted: boolean; id: string }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}`,
       { method: "DELETE" },
+    ),
+  createDocumentReport: (
+    dossierId: string,
+    input: { options?: Record<string, unknown> } = {},
+  ) =>
+    request<ProcurementDocumentReportResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/reports`,
+      { method: "POST", body: input },
     ),
 };
 

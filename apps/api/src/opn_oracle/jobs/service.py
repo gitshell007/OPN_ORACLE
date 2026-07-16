@@ -26,6 +26,7 @@ TASK_QUEUES = {
     "oracle.meeting_briefing.refresh": "ai",
     "oracle.weekly_change.refresh": "ai",
     "oracle.report.generate": "ai",
+    "oracle.procurement_document_report.generate": "ai",
     "oracle.export.generate": "documents",
     "oracle.document.process": "documents",
     "notifications.send_email": "notifications",

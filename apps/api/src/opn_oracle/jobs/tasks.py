@@ -42,6 +42,10 @@ from opn_oracle.oracle.briefings import process_meeting_briefing
 from opn_oracle.oracle.change_digest import process_weekly_change_digest
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier
+from opn_oracle.oracle.procurement_report import (
+    ProcurementDocumentReportError,
+    process_procurement_document_report,
+)
 from opn_oracle.oracle.summary import enqueue_summary_refresh, process_summary_refresh
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import (
@@ -81,6 +85,7 @@ PUBLIC_TEMPORARY_ERROR = "temporary_failure"
 PUBLIC_PERMANENT_ERROR = "permanent_failure"
 AI_RETRY_CAUSE_JOB_TYPES = {
     "oracle.report.generate",
+    "oracle.procurement_document_report.generate",
     "oracle.meeting_briefing.refresh",
     "oracle.weekly_change.refresh",
     "oracle.memory.refresh",
@@ -330,6 +335,9 @@ HANDLERS: dict[str, Handler] = {
     "oracle.meeting_briefing.refresh": lambda payload, job: _refresh_meeting_briefing(payload, job),
     "oracle.weekly_change.refresh": lambda payload, job: _refresh_weekly_change(payload, job),
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
+    "oracle.procurement_document_report.generate": (
+        lambda payload, job: _generate_procurement_document_report(payload, job)
+    ),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
     "oracle.document.process": lambda payload, job: _process_document(payload, job),
     "notifications.send_email": _send_email,
@@ -364,6 +372,25 @@ def _generate_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, A
         raise PermanentJobError(str(error)) from error
     except Exception as error:
         raise RetriableJobError("La generación de informe falló temporalmente.") from error
+
+
+def _generate_procurement_document_report(
+    payload: dict[str, Any], job: BackgroundJob
+) -> dict[str, Any]:
+    try:
+        return process_procurement_document_report(uuid.UUID(str(payload["report_id"])), job)
+    except (
+        KeyError,
+        ValueError,
+        ProcurementDocumentReportError,
+        DocumentError,
+        ReportWorkflowError,
+    ) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError(
+            "La preparación documental del informe falló temporalmente."
+        ) from error
 
 
 def _generate_export(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
@@ -773,6 +800,7 @@ dossier_summary_refresh = _durable_task("oracle.dossier_summary.refresh")
 meeting_briefing_refresh = _durable_task("oracle.meeting_briefing.refresh")
 weekly_change_refresh = _durable_task("oracle.weekly_change.refresh")
 report_generate = _durable_task("oracle.report.generate")
+procurement_document_report_generate = _durable_task("oracle.procurement_document_report.generate")
 export_generate = _durable_task("oracle.export.generate")
 document_process = _durable_task("oracle.document.process")
 send_email = _durable_task("notifications.send_email")

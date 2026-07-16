@@ -52,6 +52,7 @@ export type {
   DossierProcurementItem,
   DossierProcurementKind,
   DossierProcurementListResponse,
+  ProcurementDocumentReportResponse,
   NotificationPreference,
   OracleExport,
   OracleNotification,

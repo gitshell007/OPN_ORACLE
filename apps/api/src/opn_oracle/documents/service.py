@@ -299,6 +299,7 @@ def process_document(
         .where(
             DocumentProcessingAttempt.background_job_id == job.id,
             DocumentProcessingAttempt.tenant_id == job.tenant_id,
+            DocumentProcessingAttempt.document_version_id == version.id,
         )
         .order_by(DocumentProcessingAttempt.attempt_number.desc())
         .limit(1)

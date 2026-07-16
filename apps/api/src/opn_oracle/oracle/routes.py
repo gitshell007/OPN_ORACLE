@@ -98,6 +98,7 @@ from opn_oracle.oracle.procurement_items import (
     pin_procurement_item,
     serialize_procurement_item,
 )
+from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
 from opn_oracle.oracle.service import (
     DomainValidationError,
     ResourceNotFound,
@@ -1574,6 +1575,48 @@ def dossier_procurement_list(dossier_id: uuid.UUID) -> Any:
         dossier_id=dossier.id,
     )
     return {"data": [serialize_procurement_item(item) for item in items]}
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/procurement/reports")
+@require_permission("report.generate")
+def dossier_procurement_document_report(dossier_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    items = list_procurement_items(
+        db.session(), tenant_id=g.active_tenant_id, dossier_id=dossier.id
+    )
+    if not any(item.kind == "award" for item in items):
+        return problem_response(
+            422,
+            detail="Fija al menos una adjudicación antes de generar el informe.",
+            code="domain_validation",
+        )
+    payload = _payload()
+    raw_options = payload.get("options")
+    options: dict[str, Any] = dict(raw_options) if isinstance(raw_options, dict) else {}
+    try:
+        report, job, created = create_report_request(
+            dossier,
+            template_key="tender",
+            options=options,
+            requested_by_user_id=current_user.id,
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+            job_type="oracle.procurement_document_report.generate",
+        )
+        return {
+            "report": serialize_report(report),
+            "job_id": str(job.id),
+            "replayed": not created,
+        }, (202 if created else 200)
+    except (
+        ProcurementDocumentReportError,
+        ReportConflictError,
+        ReportWorkflowError,
+        ValueError,
+    ) as error:
+        db.session.rollback()
+        return problem_response(422, detail=str(error), code="domain_validation")
 
 
 @bp.delete("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>")

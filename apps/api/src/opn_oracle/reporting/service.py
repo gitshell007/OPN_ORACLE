@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from flask import current_app
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 
 from opn_oracle.ai.context import BuiltContext, FrozenEvidence, build_frozen_context
 from opn_oracle.ai.models import AIArtifact
@@ -514,6 +514,55 @@ def _frozen_report_context(report: Report, max_tokens: int) -> BuiltContext:
     )
 
 
+def refresh_report_snapshot(report: Report) -> None:
+    """Replace a draft snapshot after a durable pre-processing step.
+
+    Procurement document reports use this only before invoking the report
+    writer, so the final snapshot remains immutable and reproducible.
+    """
+    if report.status not in {"draft", "generating"}:
+        raise ReportWorkflowError("El snapshot solo se puede preparar antes de generar.")
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == report.dossier_id,
+            StrategicDossier.tenant_id == report.tenant_id,
+        )
+    )
+    if dossier is None:
+        raise ReportWorkflowError("Expediente no disponible para preparar el informe.")
+    template = ReportTemplateRegistry().get(report.template_key, report.template_version)
+    snapshot, evidence = _snapshot(dossier, template, report.options)
+    db.session.execute(
+        delete(ReportSnapshotEvidence).where(ReportSnapshotEvidence.report_id == report.id)
+    )
+    db.session.execute(delete(ReportEvidence).where(ReportEvidence.report_id == report.id))
+    report.source_snapshot = snapshot
+    report.source_snapshot_hash = _sha256(snapshot)
+    report.version += 1
+    for item in evidence:
+        db.session.add(
+            ReportSnapshotEvidence(
+                tenant_id=report.tenant_id,
+                report_id=report.id,
+                evidence_id=item.id,
+                dossier_id=report.dossier_id,
+                evidence_hash=item.checksum,
+                extract=item.extract,
+                locator=item.locator,
+                classification=item.classification,
+                source_label=item.source_url or f"Evidencia {item.id}",
+            )
+        )
+        db.session.add(
+            ReportEvidence(
+                tenant_id=report.tenant_id,
+                report_id=report.id,
+                evidence_id=item.id,
+            )
+        )
+    db.session.commit()
+
+
 def create_report_request(
     dossier: StrategicDossier,
     *,
@@ -522,6 +571,7 @@ def create_report_request(
     requested_by_user_id: uuid.UUID,
     idempotency_key: str,
     parent_report_id: uuid.UUID | None = None,
+    job_type: str = "oracle.report.generate",
 ) -> tuple[Report, BackgroundJob, bool]:
     tenant_id = require_tenant_id()
     if dossier.status == "archived":
@@ -536,6 +586,7 @@ def create_report_request(
         "template_version": template.version,
         "options": normalized,
         "parent_report_id": str(parent_report_id) if parent_report_id else None,
+        "job_type": job_type,
     }
     request_hash = _sha256(request_payload)
     db.session.execute(
@@ -628,7 +679,7 @@ def create_report_request(
             ReportEvidence(tenant_id=tenant_id, report_id=report.id, evidence_id=item.id)
         )
     job = stage_job(
-        "oracle.report.generate",
+        job_type,
         payload={"report_id": str(report.id)},
         idempotency_key=f"report-generate:{report.id}",
         requested_by_user_id=requested_by_user_id,

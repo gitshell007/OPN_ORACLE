@@ -4,7 +4,7 @@ import {
   api,
   type DossierProcurementItem,
 } from "@oracle/api-client";
-import { ExternalLink, RefreshCw, Trash2 } from "lucide-react";
+import { ExternalLink, FileText, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import {
@@ -78,6 +78,7 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,6 +118,18 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
     }
   }
 
+  async function generateDocumentReport() {
+    setGenerating(true);
+    setError(null);
+    try {
+      await api.dossierProcurement.createDocumentReport(dossierId);
+    } catch (reason) {
+      setError(problemMessage(reason, "No se pudo preparar el informe documental."));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <section className="vector-panel dossier-procurement-section" aria-busy={loading}>
       <header>
@@ -133,6 +146,17 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
           <RefreshCw size={15} />
           Actualizar
         </button>
+        <PermissionGate permission="report.generate">
+          <button
+            className="vector-primary"
+            type="button"
+            onClick={() => void generateDocumentReport()}
+            disabled={generating || !items.some((item) => item.kind === "award")}
+          >
+            <FileText size={15} />
+            {generating ? "Preparando…" : "Informe documental"}
+          </button>
+        </PermissionGate>
       </header>
       {error && (
         <div className="inline-error" role="alert">

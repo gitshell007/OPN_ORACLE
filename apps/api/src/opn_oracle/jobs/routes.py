@@ -26,6 +26,7 @@ JOB_CONTROL_PERMISSIONS = {
     "oracle.signal.triage": "signal.review",
     "oracle.memory.refresh": "dossier.write",
     "oracle.report.generate": "report.generate",
+    "oracle.procurement_document_report.generate": "report.generate",
     "oracle.document.process": "dossier.write",
     "notifications.send_email": "tenant.users.manage",
     "maintenance.weekly_digest": "tenant.settings.manage",
