@@ -13,6 +13,12 @@ Interfaz canónica: `CANONICAL_UI=vector`
   recomienda una tarea posterior que marque en base de datos como no disponibles los registros cuyo
   objeto ya no exista, para comunicar un 404/410 claro en lugar de un 403 de descarga.
 
+## Corrección pendiente de revisión · citas de informes
+
+- `report_writer/v4` ordena al modelo citar fuentes mediante `[N]` y no exponer UUIDs en texto.
+  Como defensa adicional, el ensamblador del informe sustituye UUIDs de evidencia en toda la prosa
+  por su cita autoritativa, o por una referencia genérica cuando no forman parte del snapshot.
+
 ## Fase 4 · proxy Oracle de contratación pública PLACSP
 
 - Oracle incorpora el proxy Flask `/api/v1/procurement` hacia Signal para adjudicaciones,

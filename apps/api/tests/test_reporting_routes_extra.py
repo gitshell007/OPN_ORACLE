@@ -426,6 +426,74 @@ def test_report_output_downgrades_uncited_factual_paragraphs_before_validation()
     assert normalized.source_index[0].evidence_id == evidence_id
 
 
+def test_report_output_replaces_evidence_uuids_in_business_prose_with_citations() -> None:
+    evidence_id, unknown_id = uuid.uuid4(), uuid.uuid4()
+    output = ReportOutput.model_validate(
+        {
+            "facts": [{"statement": "Hecho", "evidence_ids": [evidence_id]}],
+            "inferences": [],
+            "recommendations": [
+                {
+                    "action": f"Revisar la evidencia {evidence_id}",
+                    "rationale": f"La fuente {unknown_id} requiere contraste.",
+                    "priority": "medium",
+                }
+            ],
+            "confidence": 70,
+            "open_questions": [f"¿Qué confirma {evidence_id}?"],
+            "warnings": [f"La evidencia citada ({evidence_id}) no está verificada."],
+            "title": "Informe",
+            "executive_summary": f"La señal {evidence_id} requiere seguimiento.",
+            "sections": [
+                {
+                    "heading": "Situación",
+                    "paragraphs": [
+                        {
+                            "text": f"La evidencia {evidence_id} está disponible.",
+                            "kind": "fact",
+                            "confidence": 80,
+                            "evidence_ids": [evidence_id],
+                        }
+                    ],
+                }
+            ],
+            "top_opportunities": [],
+            "top_risks": [],
+            "recommended_actions": [],
+            "decisions_required": [],
+            "source_index": [],
+        }
+    )
+    snapshot = [
+        SimpleNamespace(
+            evidence_id=evidence_id,
+            source_label="Fuente de prueba",
+            locator={"kind": "test"},
+        )
+    ]
+
+    normalized = _authoritative_source_index(output, snapshot)
+
+    assert normalized.warnings == ["La evidencia citada ([1]) no está verificada."]
+    assert normalized.executive_summary == "La señal [1] requiere seguimiento."
+    assert normalized.recommendations[0].action == "Revisar la evidencia [1]"
+    assert (
+        normalized.recommendations[0].rationale
+        == "La fuente [fuente no disponible] requiere contraste."
+    )
+    prose = " ".join(
+        [
+            normalized.executive_summary,
+            *normalized.warnings,
+            normalized.recommendations[0].action,
+            normalized.recommendations[0].rationale,
+            normalized.sections[0].paragraphs[0].text,
+        ]
+    )
+    assert str(evidence_id) not in prose
+    assert str(unknown_id) not in prose
+
+
 def test_notification_serialization_quiet_windows_and_timezone_validation() -> None:
     now = datetime(2026, 7, 11, 23, 30, tzinfo=UTC)
     preference = NotificationPreference(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import uuid
 from contextlib import suppress
 from datetime import UTC, date, datetime
@@ -151,7 +152,39 @@ def _authoritative_source_index(
         for item in snapshot_rows
         if item.evidence_id in cited and item.evidence_id in by_id
     ]
-    return ReportOutput.model_validate_json(_canonical(payload))
+    return _sanitize_report_prose(ReportOutput.model_validate_json(_canonical(payload)))
+
+
+_UUID_IN_PROSE = re.compile(r"\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b", re.IGNORECASE)
+
+
+def _sanitize_report_prose(output: ReportOutput) -> ReportOutput:
+    """Keep evidence UUIDs structured while exposing only human citation indices in prose."""
+
+    citations = {
+        str(item.evidence_id).lower(): f"[{index}]"
+        for index, item in enumerate(output.source_index, start=1)
+    }
+    payload = output.model_dump(mode="json")
+
+    def sanitize(value: Any, *, key: str | None = None) -> Any:
+        if key in {"evidence_id", "evidence_ids"}:
+            return value
+        if isinstance(value, str):
+            return _UUID_IN_PROSE.sub(
+                lambda match: citations.get(match.group(0).lower(), "[fuente no disponible]"),
+                value,
+            )
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        if isinstance(value, dict):
+            return {item_key: sanitize(item, key=item_key) for item_key, item in value.items()}
+        return value
+
+    sanitized = sanitize(payload)
+    if sanitized == payload:
+        return output
+    return ReportOutput.model_validate_json(_canonical(sanitized))
 
 
 def _validate_options(

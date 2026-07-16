@@ -79,7 +79,7 @@ PROMPT_VERSIONS = {
     name: (
         ("v1", "v2", "v3", "v4", "v5")
         if name == "dossier_situation_summary"
-        else ("v1", "v2", "v3")
+        else ("v1", "v2", "v3", "v4")
         if name == "report_writer"
         else ("v1", "v2")
         if name in {"meeting_briefing", "weekly_change"}
@@ -90,7 +90,7 @@ PROMPT_VERSIONS = {
 
 
 def _max_output_tokens(name: str, version: str) -> int:
-    if name == "report_writer" and version in {"v2", "v3"}:
+    if name == "report_writer" and version in {"v2", "v3", "v4"}:
         return 6500
     if name == "meeting_briefing" and version == "v2":
         return 3500
@@ -135,6 +135,10 @@ class PromptRegistry:
                             "v3": (
                                 "v3: párrafos factuales con evidencia obligatoria y "
                                 "contrato compacto."
+                            ),
+                            "v4": (
+                                "v4: las citas en prosa usan índices legibles; los UUID "
+                                "quedan fuera de la salida de negocio."
                             ),
                         }[version]
                     )
