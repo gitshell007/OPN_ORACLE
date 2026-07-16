@@ -19,11 +19,14 @@ import {
   useState,
 } from "react";
 import type cytoscape from "cytoscape";
+import { EntityDetailDialog, type EntityDetailRelation } from "./entity-detail-dialog";
 
 const KIND_LABELS: Record<EntityIntelKind, string> = {
   company: "Empresa",
   person: "Persona",
 };
+const ENTITY_KIND_STORAGE_KEY = "opn:entity-intel:kind";
+const ENTITY_KINDS = new Set<EntityIntelKind>(["company", "person"]);
 
 let fcoseRegistered = false;
 
@@ -35,37 +38,95 @@ function entityRoute(kind: EntityIntelKind, name: string): string {
   return `/app/actors/entity/${kind}/${encodeURIComponent(name)}`;
 }
 
+function validEntityKind(value: unknown): EntityIntelKind | null {
+  return typeof value === "string" && ENTITY_KINDS.has(value as EntityIntelKind)
+    ? value as EntityIntelKind
+    : null;
+}
+
+function storedEntityKind(): EntityIntelKind | null {
+  try {
+    return validEntityKind(window.sessionStorage.getItem(ENTITY_KIND_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function persistEntityKind(kind: EntityIntelKind) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(ENTITY_KIND_STORAGE_KEY, kind);
+  } catch {
+    // La preferencia es de conveniencia; si sessionStorage no está disponible, se ignora.
+  }
+}
+
 export function EntitySearchPanel({
   initialQuery = "",
+  initialKind,
   compact = false,
 }: {
   initialQuery?: string;
+  initialKind?: EntityIntelKind;
   compact?: boolean;
 }) {
   const router = useRouter();
-  const [kind, setKind] = useState<EntityIntelKind>("company");
+  const [kind, setKind] = useState<EntityIntelKind>(initialKind ?? "company");
   const [query, setQuery] = useState(initialQuery);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionsChecked, setSuggestionsChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const previousInitialQuery = useRef(initialQuery);
+  const previousInitialKind = useRef(initialKind);
+  const userTouchedKind = useRef(false);
 
   const loadSuggestions = useCallback(async () => {
     const value = query.trim();
     if (value.length < 2) {
       setSuggestions([]);
+      setSuggestionsChecked(false);
       return;
     }
     setLoading(true);
+    setSuggestionsChecked(false);
     setError(null);
     try {
       const result = await api.entityIntel.suggest({ q: value, kind, limit: 8 });
       setSuggestions(result.suggestions);
+      setSuggestionsChecked(true);
     } catch (reason) {
       setError(problemMessage(reason, "No se pudieron cargar sugerencias de entidades."));
+      setSuggestionsChecked(true);
     } finally {
       setLoading(false);
     }
   }, [kind, query]);
+
+  useEffect(() => {
+    if (initialKind) return undefined;
+    const handle = window.setTimeout(() => {
+      if (userTouchedKind.current) return;
+      const stored = storedEntityKind();
+      if (stored) setKind(stored);
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [initialKind]);
+
+  useEffect(() => {
+    if (previousInitialQuery.current === initialQuery) return undefined;
+    previousInitialQuery.current = initialQuery;
+    const handle = window.setTimeout(() => setQuery(initialQuery), 0);
+    return () => window.clearTimeout(handle);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    if (previousInitialKind.current === initialKind) return undefined;
+    previousInitialKind.current = initialKind;
+    if (!initialKind) return undefined;
+    const handle = window.setTimeout(() => setKind(initialKind), 0);
+    return () => window.clearTimeout(handle);
+  }, [initialKind]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => void loadSuggestions(), 260);
@@ -97,7 +158,12 @@ export function EntitySearchPanel({
           <span>Tipo</span>
           <select
             value={kind}
-            onChange={(event) => setKind(event.target.value as EntityIntelKind)}
+            onChange={(event) => {
+              const nextKind = event.target.value as EntityIntelKind;
+              userTouchedKind.current = true;
+              setKind(nextKind);
+              persistEntityKind(nextKind);
+            }}
           >
             {Object.entries(KIND_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
@@ -123,6 +189,12 @@ export function EntitySearchPanel({
         </button>
       </form>
       {error && <p className="auth-inline-error" role="alert">{error}</p>}
+      {kind === "person" && suggestionsChecked && !loading && !error && suggestions.length === 0 && query.trim().length >= 2 && (
+        <p className="entity-search-help">
+          Las personas se registran por apellidos y nombre (p. ej. BURGOS CANTO MIGUEL).
+          Probamos ambos órdenes automáticamente.
+        </p>
+      )}
       {suggestions.length > 0 && (
         <div className="entity-suggestions" aria-label="Sugerencias de entidades">
           {suggestions.map((item) => (
@@ -149,6 +221,10 @@ function nodeLabel(node: EntityIntelGraphNode): string {
 function edgeRole(edge: EntityIntelGraphEdge): string {
   if (Array.isArray(edge.roles)) return edge.roles.join(", ");
   return String(edge.role ?? edge.roles ?? "Relación");
+}
+
+function nodeKind(node: EntityIntelGraphNode | null | undefined): EntityIntelKind {
+  return node?.type === "person" || node?.entityType === "person" ? "person" : "company";
 }
 
 function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefinition[] {
@@ -190,6 +266,48 @@ function selectedDescription(item: EntityIntelGraphNode | null): string {
   return `${nodeLabel(item)}${degree}`;
 }
 
+function selectedNodeIdentity(
+  graph: EntityIntelGraphResponse,
+  item: EntityIntelGraphNode,
+): string {
+  const explicit = item.id ?? item.norm ?? item.name ?? item.label;
+  if (explicit !== undefined && explicit !== null) return String(explicit);
+  const exactIndex = graph.nodes.findIndex((node) => node === item);
+  if (exactIndex >= 0) return nodeIdentity(item, exactIndex);
+  const matchingIndex = graph.nodes.findIndex(
+    (node) => nodeLabel(node) === nodeLabel(item) && nodeKind(node) === nodeKind(item),
+  );
+  return nodeIdentity(item, matchingIndex >= 0 ? matchingIndex : -1);
+}
+
+function directRelations(
+  graph: EntityIntelGraphResponse | null,
+  item: EntityIntelGraphNode | null,
+): EntityDetailRelation[] {
+  if (!graph || !item) return [];
+  const selectedId = selectedNodeIdentity(graph, item);
+  const nodes = new Map(
+    graph.nodes.map((node, index) => [nodeIdentity(node, index), node]),
+  );
+  return graph.edges.flatMap((edge, index) => {
+    const source = String(edge.source);
+    const target = String(edge.target);
+    const otherId = source === selectedId ? target : target === selectedId ? source : null;
+    if (!otherId) return [];
+    const other = nodes.get(otherId);
+    if (!other) return [];
+    return [{
+      id: String(edge.id ?? `${source}-${target}-${index}`),
+      label: nodeLabel(other),
+      kind: nodeKind(other),
+      role: edgeRole(edge),
+      date: typeof edge.date === "string" ? edge.date : null,
+      active: typeof edge.active === "boolean" ? edge.active : null,
+      degree: typeof other.degree === "number" ? other.degree : null,
+    }];
+  });
+}
+
 export function EntityGraphExplorer({
   name,
   type,
@@ -197,10 +315,13 @@ export function EntityGraphExplorer({
   name: string;
   type: EntityIntelKind;
 }) {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<cytoscape.Core | null>(null);
+  const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(null);
   const [selected, setSelected] = useState<EntityIntelGraphNode | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -234,6 +355,7 @@ export function EntityGraphExplorer({
   useEffect(() => {
     if (!containerRef.current || !graph || elements.length === 0) return undefined;
     let cancelled = false;
+    let cleanupHandlers: (() => void) | null = null;
     void Promise.all([import("cytoscape"), import("cytoscape-fcose")]).then(
       ([cytoscapeModule, fcoseModule]) => {
         if (cancelled || !containerRef.current) return;
@@ -243,6 +365,7 @@ export function EntityGraphExplorer({
           fcoseRegistered = true;
         }
         graphRef.current?.destroy();
+        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         const instance = cytoscapeFactory({
           container: containerRef.current,
           elements,
@@ -268,6 +391,9 @@ export function EntityGraphExplorer({
                 "text-max-width": "130px",
                 "text-wrap": "wrap",
                 height: 30,
+                opacity: 1,
+                "transition-duration": reducedMotion ? 0 : 140,
+                "transition-property": "border-width, overlay-opacity, width, height, opacity",
                 width: 30,
               },
             },
@@ -297,8 +423,29 @@ export function EntityGraphExplorer({
                 "text-background-color": "#ffffff",
                 "text-background-opacity": 0.75,
                 "text-rotation": "autorotate",
+                opacity: 1,
+                "transition-duration": reducedMotion ? 0 : 140,
+                "transition-property": "line-color, opacity, width",
                 width: 1.2,
               },
+            },
+            {
+              selector: ".is-hovered",
+              style: {
+                "border-width": 5,
+                "overlay-color": "#1d56d8",
+                "overlay-opacity": 0.12,
+                height: 34,
+                width: 34,
+              },
+            },
+            {
+              selector: 'node[is_center = true].is-hovered',
+              style: { height: 50, width: 50 },
+            },
+            {
+              selector: ".is-dimmed",
+              style: { opacity: 0.18 },
             },
             {
               selector: ":selected",
@@ -317,18 +464,47 @@ export function EntityGraphExplorer({
             randomize: true,
           } as cytoscape.LayoutOptions,
         });
-        instance.on("tap", "node", (event) => {
-          setSelected(event.target.data() as EntityIntelGraphNode);
-        });
+        const clearHover = () => {
+          if (containerRef.current) containerRef.current.style.cursor = "";
+          instance.elements().removeClass("is-hovered is-dimmed");
+        };
+        const applyHover = (node: cytoscape.NodeSingular) => {
+          clearHover();
+          if (containerRef.current) containerRef.current.style.cursor = "pointer";
+          const neighborhood = node.closedNeighborhood();
+          instance.elements().not(neighborhood).addClass("is-dimmed");
+          node.addClass("is-hovered");
+        };
+        const onMouseOver = (event: cytoscape.EventObject) => applyHover(event.target as cytoscape.NodeSingular);
+        const onMouseOut = () => clearHover();
+        const onTap = (event: cytoscape.EventObject) => {
+          const node = event.target.data() as EntityIntelGraphNode;
+          setSelected(node);
+          setDetailOpen(true);
+        };
+        const container = containerRef.current;
+        container.addEventListener("mouseleave", clearHover);
+        instance.on("mouseover", "node", onMouseOver);
+        instance.on("mouseout", "node", onMouseOut);
+        instance.on("tap", "node", onTap);
         graphRef.current = instance;
+        cleanupHandlers = () => {
+          container.removeEventListener("mouseleave", clearHover);
+          instance.removeListener("mouseover", "node", onMouseOver);
+          instance.removeListener("mouseout", "node", onMouseOut);
+          instance.removeListener("tap", "node", onTap);
+        };
       },
     );
     return () => {
       cancelled = true;
+      cleanupHandlers?.();
       graphRef.current?.destroy();
       graphRef.current = null;
     };
   }, [elements, graph]);
+
+  const relations = useMemo(() => directRelations(graph, selected), [graph, selected]);
 
   return (
     <div className="entity-intel-page">
@@ -346,7 +522,7 @@ export function EntityGraphExplorer({
           Actualizar grafo
         </button>
       </section>
-      <EntitySearchPanel initialQuery={name} compact />
+      <EntitySearchPanel initialQuery={name} initialKind={type} compact />
       {error && <div className="inline-error" role="alert">{error}</div>}
       <section className="entity-graph-shell" aria-busy={loading}>
         <header>
@@ -368,6 +544,7 @@ export function EntityGraphExplorer({
           <div className="entity-graph-layout">
             <div
               ref={containerRef}
+              tabIndex={-1}
               className="entity-graph-canvas"
               aria-label={`Grafo de relaciones de ${name}`}
             />
@@ -409,6 +586,18 @@ export function EntityGraphExplorer({
           </div>
         )}
       </section>
+      <div ref={returnFocusRef} tabIndex={-1} aria-hidden="true" />
+      <EntityDetailDialog
+        open={detailOpen}
+        entity={selected}
+        relations={relations}
+        returnFocusRef={returnFocusRef}
+        onOpenChange={setDetailOpen}
+        onNavigate={(nextKind, nextName) => {
+          setDetailOpen(false);
+          router.push(entityRoute(nextKind, nextName));
+        }}
+      />
     </div>
   );
 }

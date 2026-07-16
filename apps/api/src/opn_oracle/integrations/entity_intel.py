@@ -7,6 +7,7 @@ provider key, tenant mapping, allowlist and short cache inside Flask.
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 import time
 from dataclasses import dataclass
@@ -76,6 +77,69 @@ class EntityIntelCache:
 
 
 _CACHE = EntityIntelCache()
+
+_PERSON_PARTICLE_TOKENS = {"DE", "DEL", "LA", "LOS", "LAS", "SAN", "MC", "O'"}
+
+
+def _normalize_person_query(value: str) -> str:
+    cleaned = re.sub(r"[,;:/\\()\[\]{}\"“”]+", " ", value.upper())
+    cleaned = re.sub(r"(?<!\w)[.]+|[.]+(?!\w)", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _person_name_units(value: str) -> list[str]:
+    tokens = _normalize_person_query(value).split()
+    units: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "DE" and index + 2 < len(tokens) and tokens[index + 1] == "LA":
+            units.append(" ".join(tokens[index : index + 3]))
+            index += 3
+            continue
+        if token in _PERSON_PARTICLE_TOKENS and index + 1 < len(tokens):
+            units.append(" ".join(tokens[index : index + 2]))
+            index += 2
+            continue
+        units.append(token)
+        index += 1
+    return units
+
+
+def person_name_variants(query: str) -> list[str]:
+    """Return plausible Signal registry variants for Spanish personal names.
+
+    We cap variants at three upstream calls. For four or five units we use the
+    third slot for the common compound-name rotation (``JUAN CARLOS`` moved
+    behind the surnames) instead of the inverse two-last-units rotation; that
+    preserves the most likely Spanish input shape under the call budget.
+    """
+
+    if "," in query:
+        normalized_with_comma = _normalize_person_query(query)
+        return [normalized_with_comma] if normalized_with_comma else []
+
+    units = _person_name_units(query)
+    if not units:
+        return []
+    candidates: list[str] = [" ".join(units)]
+    if 2 <= len(units) <= 5:
+        candidates.append(" ".join([*units[1:], units[0]]))
+    if 4 <= len(units) <= 5:
+        candidates.append(" ".join([*units[2:], *units[:2]]))
+    elif 3 <= len(units) <= 5:
+        candidates.append(" ".join([*units[-2:], *units[:-2]]))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        value = re.sub(r"\s+", " ", candidate).strip()
+        if value and value not in seen:
+            seen.add(value)
+            deduped.append(value)
+        if len(deduped) >= 3:
+            break
+    return deduped
 
 
 def _safe_host_allowed(
@@ -215,7 +279,7 @@ class EntityIntelClient:
             )
         return payload
 
-    def suggest(self, *, query: str, kind: EntityKind, limit: int) -> dict[str, Any]:
+    def _suggest_once(self, *, query: str, kind: EntityKind, limit: int) -> dict[str, Any]:
         payload = self._get(
             "api/v1/registry/suggest",
             params={"q": query, "kind": kind, "limit": str(limit)},
@@ -230,6 +294,43 @@ class EntityIntelClient:
         return {
             "kind": str(payload.get("kind") or kind),
             "suggestions": [str(item)[:300] for item in suggestions if isinstance(item, str)],
+            "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
+        }
+
+    def suggest(self, *, query: str, kind: EntityKind, limit: int) -> dict[str, Any]:
+        if kind != "person":
+            return self._suggest_once(query=query, kind=kind, limit=limit)
+
+        variants = person_name_variants(query) or [query]
+        merged: list[str] = []
+        seen: set[str] = set()
+        first_error: EntityIntelProviderError | None = None
+        successful_calls = 0
+        for index, variant in enumerate(variants):
+            try:
+                payload = self._suggest_once(query=variant, kind=kind, limit=limit)
+            except EntityIntelProviderError as exc:
+                if first_error is None:
+                    first_error = exc
+                continue
+            successful_calls += 1
+            for suggestion in payload["suggestions"]:
+                key = re.sub(r"\s+", " ", suggestion).strip().casefold()
+                if key and key not in seen:
+                    seen.add(key)
+                    merged.append(suggestion)
+                if len(merged) >= limit:
+                    break
+            if index == 0 and merged:
+                break
+            if len(merged) >= limit:
+                break
+
+        if successful_calls == 0 and first_error is not None:
+            raise first_error
+        return {
+            "kind": kind,
+            "suggestions": merged[:limit],
             "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
         }
 

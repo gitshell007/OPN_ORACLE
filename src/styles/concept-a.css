@@ -127,6 +127,7 @@
 .entity-suggestions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .entity-suggestions button { border: 1px solid #cfe0f3; background: #f8fbff; color: #254161; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 650; }
 .entity-suggestions button:hover { border-color: var(--va-primary); color: var(--va-primary); }
+.entity-search-help { grid-column: 2; margin: 8px 0 0; color: #53677f; font-size: 12px; line-height: 1.45; }
 .entity-intel-page { display: grid; gap: 14px; }
 .entity-graph-shell { overflow: hidden; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: var(--va-panel); }
 .entity-graph-shell > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--va-border); background: #fbfdff; }
@@ -149,6 +150,24 @@
 .entity-graph-legend i { width: 10px; height: 10px; border-radius: 999px; background: #2563eb; }
 .entity-graph-legend i.person { background: #7c3aed; }
 .entity-graph-legend i.center { width: 13px; height: 13px; background: #0891b2; border: 2px solid #0f172a; }
+.entity-detail-dialog { max-width: min(760px, calc(100vw - 32px)); }
+.entity-detail-title { display: grid; gap: 8px; margin-right: 28px; color: var(--va-text); font-size: 20px; line-height: 1.25; }
+.entity-kind-chip { display: inline-flex; width: fit-content; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 9px; color: #1d4ed8; background: #edf4ff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.entity-kind-chip.person { color: #6d28d9; background: #f3efff; }
+.entity-detail-body { display: grid; gap: 14px; margin-top: 18px; }
+.entity-detail-body section { border: 1px solid #dce6f1; border-radius: 10px; background: #fbfdff; padding: 13px; }
+.entity-detail-body h3, .entity-confirm-step h3 { margin: 0 0 10px; color: var(--va-text); font-size: 14px; }
+.entity-detail-pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.entity-detail-pairs div { border-top: 1px solid #e5edf5; padding-top: 8px; }
+.entity-detail-pairs dt { color: var(--va-muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.entity-detail-pairs dd { margin: 3px 0 0; color: var(--va-text); font-weight: 650; overflow-wrap: anywhere; }
+.entity-relation-list { display: grid; gap: 8px; }
+.entity-relation-list button { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; border: 1px solid #d7e3f1; border-radius: 9px; background: white; color: var(--va-text); padding: 10px; text-align: left; }
+.entity-relation-list button:hover, .entity-relation-list button:focus-visible { border-color: var(--va-primary); box-shadow: 0 0 0 3px #1d56d81a; }
+.entity-relation-list strong, .entity-relation-list small { display: block; }
+.entity-relation-list small, .entity-empty-state, .entity-confirm-step p { margin: 4px 0 0; color: var(--va-muted); font-size: 12px; }
+.entity-confirm-step { display: grid; gap: 12px; margin-top: 18px; border: 1px solid #dce6f1; border-radius: 10px; background: #fbfdff; padding: 16px; }
+.entity-confirm-step .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .procurement-page { display: grid; gap: 16px; }
 .procurement-search-panel,
 .procurement-results,
@@ -241,10 +260,11 @@
   .inventory-pagination { justify-content: space-between; }
   .entity-search-card, .entity-search-card.compact { grid-template-columns: 1fr; }
   .entity-search-form { grid-template-columns: 1fr; }
-  .entity-suggestions { grid-column: auto; }
+  .entity-suggestions, .entity-search-help { grid-column: auto; }
   .entity-graph-layout { grid-template-columns: 1fr; }
   .entity-graph-canvas { min-height: 480px; }
   .entity-graph-side { border-left: 0; border-top: 1px solid var(--va-border); }
+  .entity-detail-pairs { grid-template-columns: 1fr; }
   .procurement-search-form,
   .procurement-awards-search,
   .procurement-layout { grid-template-columns: 1fr; }

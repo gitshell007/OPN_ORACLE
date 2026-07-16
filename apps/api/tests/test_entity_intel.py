@@ -17,6 +17,7 @@ from opn_oracle.integrations.entity_intel import (
     cached_graph,
     cached_suggest,
     entity_intel_client_from_config,
+    person_name_variants,
     resolve_signal_external_tenant_id,
 )
 from opn_oracle.platform.models import IntegrationConnection
@@ -59,6 +60,126 @@ def test_entity_intel_suggest_calls_allowlisted_signal_without_tenant_header() -
     }
     assert payload["suggestions"] == ["IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA"]
     assert payload["cached_seconds"] == 600
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("Miguel Burgos", ["MIGUEL BURGOS", "BURGOS MIGUEL"]),
+        (
+            "Miguel Burgos Canto",
+            ["MIGUEL BURGOS CANTO", "BURGOS CANTO MIGUEL"],
+        ),
+        (
+            "Juan Carlos Perez Lopez",
+            [
+                "JUAN CARLOS PEREZ LOPEZ",
+                "CARLOS PEREZ LOPEZ JUAN",
+                "PEREZ LOPEZ JUAN CARLOS",
+            ],
+        ),
+        (
+            "Miguel de la Fuente Garcia",
+            [
+                "MIGUEL DE LA FUENTE GARCIA",
+                "DE LA FUENTE GARCIA MIGUEL",
+            ],
+        ),
+        ("Miguel O' Connor", ["MIGUEL O' CONNOR", "O' CONNOR MIGUEL"]),
+        ("Burgos Canto, Miguel", ["BURGOS CANTO MIGUEL"]),
+    ],
+)
+def test_person_name_variants_cover_spanish_name_orders(
+    query: str,
+    expected: list[str],
+) -> None:
+    assert person_name_variants(query) == expected
+
+
+@pytest.mark.unit
+def test_entity_intel_person_suggest_stops_when_original_matches() -> None:
+    calls: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(dict(request.url.params.multi_items()))
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"kind": "person", "suggestions": ["MIGUEL BURGOS CANTO"]},
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.suggest(query="Miguel Burgos Canto", kind="person", limit=5)
+    finally:
+        client.close()
+
+    assert [call["q"] for call in calls] == ["MIGUEL BURGOS CANTO"]
+    assert payload["suggestions"] == ["MIGUEL BURGOS CANTO"]
+
+
+@pytest.mark.unit
+def test_entity_intel_person_suggest_rotates_merges_and_deduplicates() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        query = request.url.params["q"]
+        calls.append(query)
+        suggestions = []
+        if query == "BURGOS CANTO MIGUEL":
+            suggestions = ["BURGOS CANTO MIGUEL", "Burgos Canto Miguel"]
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"kind": "person", "suggestions": suggestions},
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.suggest(query="Miguel Burgos Canto", kind="person", limit=5)
+    finally:
+        client.close()
+
+    assert calls == ["MIGUEL BURGOS CANTO", "BURGOS CANTO MIGUEL"]
+    assert payload["suggestions"] == ["BURGOS CANTO MIGUEL"]
+
+
+@pytest.mark.unit
+def test_entity_intel_company_suggest_does_not_generate_person_variants() -> None:
+    calls: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(dict(request.url.params.multi_items()))
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"kind": "company", "suggestions": ["MIGUEL BURGOS CANTO SL"]},
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.suggest(query="Miguel Burgos Canto", kind="company", limit=5)
+    finally:
+        client.close()
+
+    assert [call["q"] for call in calls] == ["Miguel Burgos Canto"]
+    assert payload["suggestions"] == ["MIGUEL BURGOS CANTO SL"]
 
 
 @pytest.mark.unit

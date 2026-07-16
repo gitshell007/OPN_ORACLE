@@ -19,6 +19,16 @@ Interfaz canónica: `CANONICAL_UI=vector`
   recomienda una tarea posterior que marque en base de datos como no disponibles los registros cuyo
   objeto ya no exista, para comunicar un 404/410 claro en lugar de un 403 de descarga.
 
+## Mejora pendiente de revisión · inteligencia de entidades
+
+- Actores conserva el tipo de búsqueda de entidades en `sessionStorage`, propaga Persona/Empresa al
+  navegar por fichas y sincroniza la consulta al cambiar entre entidades del grafo.
+- El proxy `entity-intel` genera variantes server-side para personas en formato nombre-apellidos y
+  apellidos-nombre antes de consultar Signal, manteniendo la caché por la consulta original del
+  usuario y sin cambiar el contrato público.
+- El grafo incorpora hover con atenuación de vecinos, ficha modal accesible para empresas/personas,
+  relaciones directas navegables con confirmación y tests de UI con Cytoscape mockeado.
+
 ## Corrección pendiente de revisión · citas de informes
 
 - `report_writer/v4` ordena al modelo citar fuentes mediante `[N]` y no exponer UUIDs en texto.
