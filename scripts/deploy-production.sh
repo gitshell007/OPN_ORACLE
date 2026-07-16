@@ -50,6 +50,48 @@ for secret_name in "${required_secrets[@]}"; do
   fi
 done
 
+refresh_oracle_control() {
+  local source="$repo_root/scripts/oracle-control.sh"
+  local target="${ORACLE_CONTROL_BIN:-/usr/local/sbin/oracle-control}"
+  local target_dir tmp backup_tmp backup
+  target_dir="$(dirname "$target")"
+  backup="$target.bak"
+
+  if [[ ! -r "$source" || ! -x "$source" ]]; then
+    echo "No se puede instalar oracle-control: fuente ausente o no ejecutable." >&2
+    exit 2
+  fi
+  if [[ ! -d "$target_dir" || -L "$target_dir" ]]; then
+    echo "No se puede instalar oracle-control: directorio destino inseguro." >&2
+    exit 2
+  fi
+  if [[ -e "$target" && -L "$target" ]]; then
+    echo "No se puede instalar oracle-control sobre un symlink." >&2
+    exit 2
+  fi
+
+  tmp="$(mktemp "$target_dir/.oracle-control.XXXXXX")"
+  if ! install -m 0755 "$source" "$tmp"; then
+    rm -f "$tmp"
+    exit 1
+  fi
+
+  if [[ -e "$target" ]]; then
+    backup_tmp="$(mktemp "$target_dir/.oracle-control.bak.XXXXXX")"
+    if ! cp -p "$target" "$backup_tmp"; then
+      rm -f "$tmp" "$backup_tmp"
+      exit 1
+    fi
+    mv -f "$backup_tmp" "$backup"
+    echo "Copia anterior de oracle-control guardada en $backup."
+  fi
+
+  # No sobrescribimos in-place: publicamos el nuevo script con mv atómico para no
+  # corromper una posible ejecución en curso del controlador instalado.
+  mv -f "$tmp" "$target"
+  echo "oracle-control actualizado desde el release: $target."
+}
+
 compose=(docker compose --env-file "$env_file" -f "$repo_root/compose.prod.yml")
 export ORACLE_SECRETS_DIR="$secrets_dir"
 
@@ -136,5 +178,7 @@ fi
 
 ALLOW_HTTP_SMOKE=1 ORACLE_API_BASE_URL=http://127.0.0.1:8000 \
   "$repo_root/scripts/smoke-production.sh" http://127.0.0.1:3000
+
+refresh_oracle_control
 
 echo "Stack de aplicación listo en loopback. Nginx/TLS y el smoke HTTPS son pasos separados."

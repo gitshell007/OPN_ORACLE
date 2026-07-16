@@ -73,9 +73,13 @@ git archive --format=tar HEAD | ssh root@oracle.opnconsultoria.com \
   "install -d -m 0750 /opt/opn-oracle/releases/$release && tar -x -C /opt/opn-oracle/releases/$release"
 ssh root@oracle.opnconsultoria.com \
   "cd /opt/opn-oracle/releases/$release && find . -type f ! -name RELEASE_SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > RELEASE_SHA256SUMS"
-ssh root@oracle.opnconsultoria.com \
-  "install -o root -g root -m 0755 /opt/opn-oracle/releases/$release/scripts/oracle-control.sh /usr/local/sbin/oracle-control"
 ```
+
+`deploy-production.sh` refresca automáticamente `/usr/local/sbin/oracle-control` desde el release
+validado cuando el despliegue termina correctamente. Conserva una copia previa en
+`/usr/local/sbin/oracle-control.bak` y publica el nuevo script con `mv` atómico, evitando
+sobrescrituras in-place de un controlador potencialmente en ejecución. Si el deploy falla antes del
+smoke loopback, el controlador instalado no se cambia.
 
 Después, en el host:
 
@@ -99,6 +103,10 @@ Tras una activación correcta, `oracle-control` elimina solo imágenes locales
 `opn-oracle-api:<release>` y `opn-oracle-web:<release>` de releases antiguos. Conserva siempre el
 release activo, `PREVIOUS_RELEASE` y las tres entradas más recientes de `/opt/opn-oracle/releases`,
 dejando rollback barato y evitando que un histórico largo llene el disco.
+
+Para que esa lógica no dependa de una instalación manual olvidable, cada release exitoso actualiza
+también la copia instalada de `oracle-control` desde `scripts/deploy-production.sh`. Esto permite
+que el siguiente `oracle-control update` ya use el controlador entregado por el release anterior.
 
 ## Backup gate
 
