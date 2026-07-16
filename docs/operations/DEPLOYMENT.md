@@ -88,6 +88,18 @@ sudo oracle-control health
 /opt/opn-oracle/current/scripts/smoke-production.sh https://oracle.opnconsultoria.com
 ```
 
+### Poda de imágenes por release
+
+La poda de imágenes Docker se ejecuta en la rama de éxito de `oracle-control update`, no dentro de
+`deploy-production.sh`. La razón operativa es que `oracle-control` es quien conoce con certeza el
+estado de activación (`current`, `CURRENT_RELEASE` y `PREVIOUS_RELEASE`); si el smoke o el deploy
+fallan, los punteros se restauran y no se borra ninguna imagen.
+
+Tras una activación correcta, `oracle-control` elimina solo imágenes locales
+`opn-oracle-api:<release>` y `opn-oracle-web:<release>` de releases antiguos. Conserva siempre el
+release activo, `PREVIOUS_RELEASE` y las tres entradas más recientes de `/opt/opn-oracle/releases`,
+dejando rollback barato y evitando que un histórico largo llene el disco.
+
 ## Backup gate
 
 El gate rápido exige un manifiesto local con timestamp, release, snapshot/`pg_dump`, checksum y

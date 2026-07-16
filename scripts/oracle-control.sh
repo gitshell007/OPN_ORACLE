@@ -131,6 +131,22 @@ update_release_marker() {
   mv -f "$tmp" "$marker"
 }
 
+array_contains() {
+  local needle="$1" item
+  shift || true
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+add_unique_release() {
+  local candidate="$1"
+  [[ -n "$candidate" ]] || return 0
+  array_contains "$candidate" "${keep_releases[@]}" && return 0
+  keep_releases+=("$candidate")
+}
+
 service_allowed() {
   local candidate="$1" allowed
   for allowed in "${ALL_SERVICES[@]}"; do
@@ -503,6 +519,49 @@ list_releases() {
   done | sort -r
 }
 
+prune_old_release_images() {
+  require_command docker
+  local previous release family repo tag ref count=0
+  local -a keep_releases=() delete_refs=()
+
+  add_unique_release "$(current_release 2>/dev/null || true)"
+  if [[ -r "$APP_ROOT/PREVIOUS_RELEASE" && ! -L "$APP_ROOT/PREVIOUS_RELEASE" ]]; then
+    previous="$(sed -n '1p' "$APP_ROOT/PREVIOUS_RELEASE" | tr -d '\r\n')"
+    add_unique_release "$previous"
+  fi
+  while IFS= read -r release; do
+    [[ -n "$release" ]] || continue
+    add_unique_release "$release"
+    count=$((count + 1))
+    [[ "$count" -ge 3 ]] && break
+  done < <(list_releases)
+
+  info "Poda de imágenes Docker Oracle: se conservan releases ${keep_releases[*]}."
+  for family in opn-oracle-api opn-oracle-web; do
+    while IFS=' ' read -r repo tag; do
+      [[ "$repo" == "$family" && -n "$tag" && "$tag" != "<none>" ]] || continue
+      ref="$repo:$tag"
+      if array_contains "$tag" "${keep_releases[@]}"; then
+        info "Conservada imagen referenciada/reciente: $ref"
+        continue
+      fi
+      delete_refs+=("$ref")
+    done < <(docker image ls "$family" --format '{{.Repository}} {{.Tag}}' 2>/dev/null || true)
+  done
+
+  if ((${#delete_refs[@]} == 0)); then
+    success "No hay imágenes antiguas de Oracle para podar."
+    return 0
+  fi
+  for ref in "${delete_refs[@]}"; do
+    if docker image rm "$ref"; then
+      info "Eliminada imagen antigua: $ref"
+    else
+      warn "No se pudo eliminar $ref; puede estar en uso o compartida."
+    fi
+  done
+}
+
 choose_release() {
   local releases=() selection
   while IFS= read -r selection; do [[ -n "$selection" ]] && releases+=("$selection"); done < <(list_releases)
@@ -591,6 +650,7 @@ activate_release() {
   if env "${deploy_env[@]}" "$CURRENT_DIR/scripts/deploy-production.sh" --apply-authorized-stage-b; then
     audit_event activate-release success "$started"
     success "Release $release activado."
+    prune_old_release_images
     show_health || warn "Revisa health antes de dar el cambio por cerrado."
   else
     warn "Deploy fallido. Se restauran pointers, pero NO se revierte el esquema."
