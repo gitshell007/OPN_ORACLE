@@ -187,6 +187,17 @@ def _sanitize_report_prose(output: ReportOutput) -> ReportOutput:
     return ReportOutput.model_validate_json(_canonical(sanitized))
 
 
+def _sanitize_report_content_for_ui(content: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize legacy stored report prose without mutating persisted JSON."""
+
+    try:
+        output = ReportOutput.model_validate_json(_canonical(content))
+    except ValueError:
+        return content
+    sanitized = _sanitize_report_prose(output).model_dump(mode="json")
+    return sanitized if isinstance(sanitized, dict) else content
+
+
 def _validate_options(
     template: ReportTemplate, dossier_id: uuid.UUID, raw: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1186,7 +1197,7 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
                 "revision_no": revision.revision_no,
                 "status": revision.status,
                 "title": revision.title,
-                "content": revision.content if detail else None,
+                "content": _sanitize_report_content_for_ui(revision.content) if detail else None,
                 "change_summary": revision.change_summary,
                 "created_at": revision.created_at.isoformat(),
             }

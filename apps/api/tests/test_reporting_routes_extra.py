@@ -46,6 +46,7 @@ from opn_oracle.reporting.service import (
     _all_evidence_ids,
     _authoritative_source_index,
     _validate_options,
+    serialize_report,
 )
 
 pytestmark = pytest.mark.unit
@@ -492,6 +493,78 @@ def test_report_output_replaces_evidence_uuids_in_business_prose_with_citations(
     )
     assert str(evidence_id) not in prose
     assert str(unknown_id) not in prose
+
+
+def test_report_api_serialization_sanitizes_legacy_warning_uuid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_id = uuid.uuid4()
+    content = {
+        "facts": [{"statement": "Hecho", "evidence_ids": [str(evidence_id)]}],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 70,
+        "open_questions": [],
+        "warnings": [f"La evidencia citada ({evidence_id}) es una señal no verificada."],
+        "title": "Informe histórico",
+        "executive_summary": "Resumen",
+        "sections": [],
+        "top_opportunities": [],
+        "top_risks": [],
+        "recommended_actions": [],
+        "decisions_required": [],
+        "source_index": [
+            {
+                "evidence_id": str(evidence_id),
+                "label": "Fuente histórica",
+                "locator": "{}",
+            }
+        ],
+    }
+    now = datetime.now(UTC)
+    report = SimpleNamespace(
+        id=uuid.uuid4(),
+        dossier_id=uuid.uuid4(),
+        title="Informe histórico",
+        status="ready",
+        report_type="action_plan",
+        template_key="action_plan",
+        template_version="v1",
+        generation_version=4,
+        classification="internal",
+        confidentiality_label="Uso interno",
+        background_job_id=None,
+        parent_report_id=None,
+        ready_at=now,
+        reviewed_at=None,
+        published_at=None,
+        error_code=None,
+        version=1,
+        created_at=now,
+        updated_at=now,
+    )
+    revision = SimpleNamespace(
+        id=uuid.uuid4(),
+        revision_no=1,
+        status="ready",
+        title="Generación 4",
+        content=content,
+        change_summary="",
+        created_at=now,
+    )
+
+    monkeypatch.setattr("opn_oracle.reporting.service.latest_revision", lambda report_id: revision)
+    monkeypatch.setattr(
+        "opn_oracle.reporting.service.db",
+        SimpleNamespace(session=SimpleNamespace(scalars=lambda statement: [])),
+    )
+
+    serialized = serialize_report(report, detail=True)
+
+    warning = serialized["revision"]["content"]["warnings"][0]
+    assert warning == "La evidencia citada ([1]) es una señal no verificada."
+    assert str(evidence_id) not in warning
+    assert serialized["revision"]["content"]["facts"][0]["evidence_ids"] == [str(evidence_id)]
 
 
 def test_notification_serialization_quiet_windows_and_timezone_validation() -> None:

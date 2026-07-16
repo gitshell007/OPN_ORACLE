@@ -1146,3 +1146,9 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - `LocalObjectStorage` ya no tumba `create_app()` si la preparación inicial de la raíz local falla
   por rootfs de solo lectura; las escrituras reales siguen fallando de forma controlada como
   `StorageError` cuando el storage no está disponible.
+
+## 2026-07-16 · Fix reporting histórico
+
+- `serialize_report(..., detail=True)` aplica el mismo saneo de prosa que la generación, sin
+  reescribir el JSON persistido, para que informes ya creados no muestren UUIDs de evidencia en la
+  UI y mantengan intactos sus `evidence_ids` estructurados.
