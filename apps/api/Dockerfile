@@ -21,6 +21,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 RUN groupadd --system --gid 10001 oracle \
     && useradd --system --uid 10001 --gid oracle --home-dir /app oracle \
+    && install --directory --owner=oracle --group=oracle --mode=0750 /var/lib/oracle-storage \
     && python -m pip uninstall --yes setuptools wheel \
     && python -m pip uninstall --yes pip
 WORKDIR /app

@@ -4,6 +4,15 @@ Actualizado: 2026-07-15
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Corrección pendiente de revisión · artefactos persistentes
+
+- El almacenamiento local de documentos e informes pasa de `/tmp/oracle-storage` a un volumen
+  nombrado compartido en `/var/lib/oracle-storage`, montado por API, worker y Beat. La imagen crea
+  el punto de montaje como `10001:10001` antes de ejecutar como usuario no privilegiado.
+- Los artefactos que ya se perdieron en el `/tmp` efímero de producción no se pueden recuperar. Se
+  recomienda una tarea posterior que marque en base de datos como no disponibles los registros cuyo
+  objeto ya no exista, para comunicar un 404/410 claro en lugar de un 403 de descarga.
+
 ## Fase 4 · proxy Oracle de contratación pública PLACSP
 
 - Oracle incorpora el proxy Flask `/api/v1/procurement` hacia Signal para adjudicaciones,

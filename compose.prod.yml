@@ -62,7 +62,7 @@ x-app-environment: &app-environment
   SIGNAL_AI_API_KEY_FILE: /run/secrets/oracle_signal_ai_api_key
   DOCUMENTS_ENABLED: "false"
   DOCUMENT_STORAGE_BACKEND: local
-  DOCUMENT_LOCAL_ROOT: /tmp/oracle-storage
+  DOCUMENT_LOCAL_ROOT: /var/lib/oracle-storage
   DOCUMENT_SCANNER_MODE: noop
   REPORT_PDF_MODE: disabled
   BACKUP_STORAGE_PATH: /var/backups/opn-oracle
@@ -208,6 +208,8 @@ services:
       GUNICORN_THREADS: "2"
       GUNICORN_TIMEOUT: "30"
     secrets: *runtime-secrets
+    volumes:
+      - oracle_document_storage:/var/lib/oracle-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -284,6 +286,8 @@ services:
       DATABASE_URL_FILE: /run/secrets/oracle_database_url
       CELERY_WORKER_NAME: core
     secrets: *runtime-secrets
+    volumes:
+      - oracle_document_storage:/var/lib/oracle-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -325,6 +329,8 @@ services:
       <<: *app-environment
       DATABASE_URL_FILE: /run/secrets/oracle_database_url
     secrets: *runtime-secrets
+    volumes:
+      - oracle_document_storage:/var/lib/oracle-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -354,6 +360,7 @@ networks:
     internal: true
 
 volumes:
+  oracle_document_storage:
   oracle_postgres_data:
   oracle_redis_data:
 
