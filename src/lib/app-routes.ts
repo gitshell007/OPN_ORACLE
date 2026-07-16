@@ -245,6 +245,7 @@ export const DOSSIER_TABS = [
   { id: "summary", label: "Resumen", segment: "", permission: "dossier.read" },
   { id: "signals", label: "Señales", segment: "signals", permission: "signal.read" },
   { id: "opportunities", label: "Oportunidades", segment: "opportunities", permission: "opportunity.read" },
+  { id: "procurement", label: "Licitaciones", segment: "procurement", permission: "opportunity.read" },
   { id: "risks", label: "Riesgos", segment: "risks", permission: "risk.read" },
   { id: "actors", label: "Actores", segment: "actors", permission: "actor.read" },
   { id: "meetings", label: "Reuniones", segment: "meetings", permission: "meeting.read" },

@@ -9,12 +9,14 @@ import {
   type DossierWorkKind,
 } from "@/components/dossiers/dossier-work-section";
 import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents-section";
+import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-section";
 import { DOSSIER_TABS } from "@/lib/app-routes";
 
 const sectionCopy: Record<string, { description: string; api: string }> = {
   signals: { description: "Señales asociadas a este expediente.", api: "GET /api/v1/dossiers/{id}/signals" },
   opportunities: { description: "Oportunidades y puntuación del expediente.", api: "GET /api/v1/dossiers/{id}/opportunities" },
+  procurement: { description: "Licitaciones y adjudicaciones PLACSP fijadas como evidencia.", api: "GET /api/v1/dossiers/{id}/procurement" },
   risks: { description: "Riesgos, escenarios y mitigaciones del expediente.", api: "GET /api/v1/dossiers/{id}/risks" },
   actors: { description: "Actores y relaciones en contexto.", api: "GET /api/v1/dossiers/{id}/actors" },
   meetings: { description: "Reuniones, documentos preparatorios y seguimiento.", api: "GET /api/v1/dossiers/{id}/meetings" },
@@ -48,6 +50,8 @@ export default async function DossierSectionPage({
         <DossierWorkSection dossierId={id} kind={section as DossierWorkKind} />
       ) : section === "documents" ? (
         <DossierDocumentsSection dossierId={id} />
+      ) : section === "procurement" ? (
+        <DossierProcurementSection dossierId={id} />
       ) : (
         <DossierSettingsSection dossierId={id} />
       )}

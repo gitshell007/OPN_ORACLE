@@ -1152,3 +1152,17 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - `serialize_report(..., detail=True)` aplica el mismo saneo de prosa que la generación, sin
   reescribir el JSON persistido, para que informes ya creados no muestren UUIDs de evidencia en la
   UI y mantengan intactos sus `evidence_ids` estructurados.
+
+## 2026-07-16 · UI contratación pública PLACSP
+
+- Añadida la superficie global `/app/procurement` con búsqueda de licitaciones PLACSP,
+  filtros de CPV/importe/plazo/comprador/región/estado, paginación `limit/offset`, resumen LLM
+  bajo demanda y búsquedas guardadas.
+- Añadido panel de adjudicaciones en Actores para consultar contratos por adjudicatario u órgano
+  comprador y fijarlos a expedientes.
+- Añadida pestaña de expediente `Licitaciones` para listar snapshots PLACSP fijados, abrir la
+  fuente oficial y desfijar referencias con permiso `opportunity.write`.
+- El cliente TS encapsula `/api/v1/procurement/*` y `/api/v1/dossiers/{id}/procurement`, manteniendo
+  `folder_id` con barras codificado en rutas y crudo en el body de pin.
+- Checks locales: `npm run lint`, `npm run typecheck` y `npm run test` correctos
+  (`30 passed`, `103 passed`).
