@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  ExternalLink,
   FileCheck2,
   FileClock,
   RefreshCw,
@@ -351,8 +352,17 @@ export function ReportViewer({
                   <button onClick={() => setSelectedEvidence(item)}>
                     <span>[{index + 1}]</span>
                     <strong>{item.sourceLabel}</strong>
-                    <small>{item.locator}</small>
+                    {item.sourceTitle && <small>{item.sourceTitle}</small>}
+                    <small>
+                      {item.sourceType}
+                      {item.publishedAt ? ` · ${formatDateTime(item.publishedAt)}` : ""}
+                    </small>
                   </button>
+                  {item.sourceUrl && (
+                    <a href={item.sourceUrl} target="_blank" rel="noreferrer" aria-label={`Abrir fuente ${item.sourceLabel}`}>
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
                 </li>
               ))}
             </ol>
@@ -474,9 +484,9 @@ export function ReportViewer({
             </Dialog.Description>
             <blockquote>{selectedEvidence?.extract || "Extracto no disponible."}</blockquote>
             <dl>
-              <div><dt>Localización</dt><dd>{selectedEvidence?.locator}</dd></div>
-              <div><dt>Clasificación</dt><dd>{selectedEvidence?.classification}</dd></div>
-              <div><dt>ID de evidencia</dt><dd>{selectedEvidence?.id}</dd></div>
+              <div><dt>Tipo de fuente</dt><dd>{selectedEvidence?.sourceType}</dd></div>
+              {selectedEvidence?.publishedAt && <div><dt>Fecha</dt><dd>{formatDateTime(selectedEvidence.publishedAt)}</dd></div>}
+              {selectedEvidence?.sourceUrl && <div><dt>Enlace</dt><dd><a href={selectedEvidence.sourceUrl} target="_blank" rel="noreferrer">Abrir fuente</a></dd></div>}
             </dl>
           </Dialog.Content>
         </Dialog.Portal>

@@ -135,9 +135,15 @@ const baseReport = {
     {
       id: "evidence-1",
       extract: "Extracto original trazable.",
-      locator: "página 2",
-      source_label: "Documento base",
-      classification: "internal",
+      locator: {
+        title: "CATL defiende su planta de baterías en Zaragoza",
+        source_type: "news",
+        published_at: "2026-07-11T00:00:00Z",
+        source_url: "https://www.elespanol.com/economia/",
+        external_id: "sig_ext_sVHBO_pUd4",
+      },
+      source_label: "https://www.elespanol.com/economia/",
+      classification: "public",
     },
   ],
   created_at: "2026-07-11T00:00:00Z",
@@ -232,5 +238,17 @@ describe("reports Vector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Descargar artefacto html" }));
     await waitFor(() => expect(mocks.downloadLink).toHaveBeenCalledWith("report-1", "artifact-1"));
     expect(click).toHaveBeenCalled();
+  });
+
+  it("presenta las fuentes como citas legibles sin exponer el locator técnico", async () => {
+    render(<ReportViewer reportId="report-1" routeBase="/app" />);
+    expect(await screen.findByText("elespanol.com")).toBeVisible();
+    expect(screen.getByText("CATL defiende su planta de baterías en Zaragoza")).toBeVisible();
+    expect(screen.getByText(/Señal de prensa no verificada/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Abrir fuente elespanol.com" })).toHaveAttribute(
+      "href",
+      "https://www.elespanol.com/economia/",
+    );
+    expect(screen.queryByText(/sig_ext_sVHBO_pUd4/)).not.toBeInTheDocument();
   });
 });

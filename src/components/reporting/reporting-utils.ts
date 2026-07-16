@@ -30,9 +30,11 @@ export interface ReportContentView {
 export interface ReportEvidenceView {
   id: string;
   extract: string;
-  locator: string;
   sourceLabel: string;
-  classification: string;
+  sourceTitle: string | null;
+  sourceType: string;
+  publishedAt: string | null;
+  sourceUrl: string | null;
 }
 
 export const reportStatusLabel: Record<ReportStatus, string> = {
@@ -90,6 +92,43 @@ function strings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function textField(value: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+function sourceUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return ["http:", "https:"].includes(parsed.protocol) ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function sourceName(value: string | null): string {
+  const url = sourceUrl(value);
+  if (!url) return value?.trim() || "Fuente del informe";
+  return new URL(url).hostname.replace(/^www\./, "") || "Fuente del informe";
+}
+
+function sourceType(value: string | null, classification: string): string {
+  const normalized = value?.trim().toLowerCase();
+  if (["signal", "news", "press", "company_signal", "market_signal"].includes(normalized ?? "")) {
+    return "Señal de prensa no verificada";
+  }
+  if (normalized === "document") return "Documento";
+  if (normalized === "procurement" || normalized === "tender") return "Licitación o adjudicación";
+  if (normalized === "official_publication" || normalized === "regulatory_signal") {
+    return "Publicación oficial";
+  }
+  return classification === "public" ? "Fuente pública" : "Documento interno";
 }
 
 function paragraph(value: unknown): ReportParagraphView | null {
@@ -153,32 +192,38 @@ export function reportRevisionId(report: OracleReport): string | null {
 }
 
 export function reportEvidence(report: OracleReport): ReportEvidenceView[] {
-  return (report.evidence ?? []).flatMap((raw) => {
+  const revision = object(report.revision);
+  const content = object(revision?.content);
+  const sourceIndex = Array.isArray(content?.source_index) ? content.source_index : [];
+  const sourceOrder = new Map(
+    sourceIndex.flatMap((raw, index) => {
+      const item = object(raw);
+      return item && typeof item.evidence_id === "string" ? [[item.evidence_id, index] as const] : [];
+    }),
+  );
+  const parsed = (report.evidence ?? []).flatMap((raw) => {
     const item = object(raw);
     if (!item || typeof item.id !== "string") return [];
-    const rawLocator = item.locator;
-    const locator =
-      typeof rawLocator === "string"
-        ? rawLocator
-        : rawLocator
-          ? JSON.stringify(rawLocator)
-          : "Localización no indicada";
+    const locator = object(item.locator) ?? {};
+    const rawLabel = typeof item.source_label === "string" ? item.source_label : null;
+    const locatorUrl = textField(locator, ["source_url", "canonical_source_url", "url", "link"]);
+    const link = sourceUrl(locatorUrl) ?? sourceUrl(rawLabel);
+    const classification = typeof item.classification === "string" ? item.classification : "internal";
     return [
       {
         id: item.id,
         extract: typeof item.extract === "string" ? item.extract : "",
-        locator,
-        sourceLabel:
-          typeof item.source_label === "string"
-            ? item.source_label
-            : "Evidencia del snapshot",
-        classification:
-          typeof item.classification === "string"
-            ? item.classification
-            : "internal",
+        sourceLabel: sourceName(rawLabel ?? locatorUrl),
+        sourceTitle: textField(locator, ["title", "headline", "document_title", "name"]),
+        sourceType: sourceType(textField(locator, ["source_kind", "source_type", "type", "kind"]), classification),
+        publishedAt: textField(locator, ["published_at", "publication_date", "date"]),
+        sourceUrl: link,
       },
     ];
   });
+  return sourceOrder.size
+    ? parsed.filter((item) => sourceOrder.has(item.id)).sort((left, right) => sourceOrder.get(left.id)! - sourceOrder.get(right.id)!)
+    : parsed;
 }
 
 export function safeProductLink(value?: string | null): string | null {

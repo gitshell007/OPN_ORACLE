@@ -19,6 +19,12 @@ Interfaz canónica: `CANONICAL_UI=vector`
   Como defensa adicional, el ensamblador del informe sustituye UUIDs de evidencia en toda la prosa
   por su cita autoritativa, o por una referencia genérica cuando no forman parte del snapshot.
 
+## Corrección pendiente de revisión · presentación de fuentes
+
+- El visor de informes convierte el snapshot técnico de cada evidencia en una cita legible con
+  medio, título, tipo, fecha y enlace seguro cuando estén disponibles. `locator`, `provenance` e
+  identificadores externos dejan de mostrarse en la interfaz de negocio.
+
 ## Fase 4 · proxy Oracle de contratación pública PLACSP
 
 - Oracle incorpora el proxy Flask `/api/v1/procurement` hacia Signal para adjudicaciones,
