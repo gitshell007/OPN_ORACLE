@@ -230,3 +230,6 @@ playwright-report/
 test-results/
 .DS_Store
 *.tsbuildinfo
+
+# Entregables locales (no versionados)
+artifacts/
