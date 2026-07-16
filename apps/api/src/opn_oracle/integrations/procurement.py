@@ -61,6 +61,8 @@ def _clean_params(params: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _quote_path_part(value: str) -> str:
+    # Signal usa converter :path: la barra del folder_id viaja como parte de la
+    # ruta, codificada o no; uvicorn decodifica %2F a "/" antes del matching.
     return quote(value.strip(), safe="")
 
 

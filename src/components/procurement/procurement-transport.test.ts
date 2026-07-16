@@ -60,28 +60,29 @@ describe("transporte de contratación pública", () => {
   });
 
   it("codifica folder_id con barras al pedir resumen y mantiene el body de pin intacto", async () => {
+    const folderId = "OBR/CNT/2026000031";
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
-      .mockResolvedValueOnce(json({ cached: true, item: { folder_id: "2026/123/ABC" } }))
-      .mockResolvedValueOnce(json({ id: "pin-1", folder_id: "2026/123/ABC" }));
+      .mockResolvedValueOnce(json({ cached: true, item: { folder_id: folderId } }))
+      .mockResolvedValueOnce(json({ id: "pin-1", folder_id: folderId }));
     vi.stubGlobal("fetch", fetchMock);
     const { api } = await import("@oracle/api-client");
 
-    await api.procurement.summarizeTender("2026/123/ABC");
+    await api.procurement.summarizeTender(folderId);
     await api.dossierProcurement.pin("dossier/seguro", {
       kind: "tender",
-      folder_id: "2026/123/ABC",
+      folder_id: folderId,
     });
 
     expect(fetchMock.mock.calls[1][0]).toBe(
-      "/api/v1/procurement/tenders/2026%2F123%2FABC/summary",
+      "/api/v1/procurement/tenders/OBR%2FCNT%2F2026000031/summary",
     );
     const [pinUrl, pinOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(pinUrl).toBe("/api/v1/dossiers/dossier%2Fseguro/procurement");
     expect(JSON.parse(String(pinOptions.body))).toEqual({
       kind: "tender",
-      folder_id: "2026/123/ABC",
+      folder_id: folderId,
     });
   });
 

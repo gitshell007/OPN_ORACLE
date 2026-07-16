@@ -249,7 +249,8 @@ describe("UI de contratación pública", () => {
       expect.objectContaining({ company: "ITURRI, S.A.", limit: 25, offset: 0 }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /^Fijar$/ }));
+    expect(await screen.findByText("Expediente CATL")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Fijar$/ }));
     await waitFor(() =>
       expect(mocks.pin).toHaveBeenCalledWith("dossier-1", {
         kind: "award",

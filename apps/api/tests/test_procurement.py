@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -240,6 +241,74 @@ def test_procurement_folder_lookups_call_global_registry_without_tenant_header()
         {
             "method": "GET",
             "path": "/api/v1/registry/awards/P_6_26",
+            "external_tenant": None,
+        },
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "folder_id",
+    ["EMERGENCIACR2026/671", "89/2026/27006", "OBR/CNT/2026000031"],
+)
+def test_procurement_folder_ids_with_slashes_are_encoded_for_signal_path(folder_id: str) -> None:
+    seen: list[dict[str, Any]] = []
+    encoded = quote(folder_id, safe="")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raw_path = request.url.raw_path.decode().split("?", 1)[0]
+        seen.append(
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "raw_path": raw_path,
+                "external_tenant": request.headers.get("X-OPN-External-Tenant-ID"),
+            }
+        )
+        if raw_path == f"/api/v1/registry/tenders/{encoded}/summary":
+            payload = {"cached": False, "item": {"folder_id": folder_id, "llm_summary": "Resumen"}}
+        elif raw_path == f"/api/v1/registry/tenders/{encoded}":
+            payload = {"item": {"folder_id": folder_id}}
+        elif raw_path == f"/api/v1/registry/awards/{encoded}":
+            payload = {"folder_id": folder_id, "total": 1, "items": [{"folder_id": folder_id}]}
+        else:
+            return httpx.Response(
+                404,
+                headers={"Content-Type": "application/problem+json"},
+                json={"code": "not_found", "detail": "No encontrado"},
+            )
+        return httpx.Response(200, headers={"Content-Type": "application/json"}, json=payload)
+
+    client = ProcurementClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        assert client.tender_summary(folder_id=folder_id)["item"]["folder_id"] == folder_id
+        assert client.tender_by_folder(folder_id=folder_id)["item"]["folder_id"] == folder_id
+        assert client.awards_by_folder(folder_id=folder_id)["items"][0]["folder_id"] == folder_id
+    finally:
+        client.close()
+
+    assert seen == [
+        {
+            "method": "POST",
+            "path": f"/api/v1/registry/tenders/{folder_id}/summary",
+            "raw_path": f"/api/v1/registry/tenders/{encoded}/summary",
+            "external_tenant": None,
+        },
+        {
+            "method": "GET",
+            "path": f"/api/v1/registry/tenders/{folder_id}",
+            "raw_path": f"/api/v1/registry/tenders/{encoded}",
+            "external_tenant": None,
+        },
+        {
+            "method": "GET",
+            "path": f"/api/v1/registry/awards/{folder_id}",
+            "raw_path": f"/api/v1/registry/awards/{encoded}",
             "external_tenant": None,
         },
     ]

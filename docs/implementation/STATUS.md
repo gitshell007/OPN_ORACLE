@@ -10,6 +10,15 @@ Interfaz canónica: `CANONICAL_UI=vector`
   conserva ese campo hasta Vector, que muestra un distintivo «UTE · En consorcio» y el organismo
   licitador de manera explícita tanto en Actores como en las adjudicaciones fijadas al expediente.
 
+## Corrección pendiente de revisión · folder_id PLACSP con barras
+
+- Signal acepta `folder_id` con `/` en los lookups `registry/awards/{folder_id:path}`,
+  `registry/tenders/{folder_id:path}` y `registry/tenders/{folder_id:path}/summary`.
+  Oracle mantiene `_quote_path_part(..., safe="")`; la convención queda documentada en ambos lados:
+  uvicorn decodifica `%2F` antes del routing y Signal usa `:path` para tratar la barra como parte
+  del identificador. Se añadieron fixtures reales `EMERGENCIACR2026/671`, `89/2026/27006` y
+  `OBR/CNT/2026000031`, además de curl local contra uvicorn real.
+
 ## Corrección pendiente de revisión · artefactos persistentes
 
 - El almacenamiento local de documentos e informes pasa de `/tmp/oracle-storage` a un volumen
