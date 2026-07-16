@@ -125,14 +125,21 @@ require_protected_api \
 actors_headers="$tmp_dir/app-actors.headers"
 actors_code="$(curl --silent --show-error --dump-header "$actors_headers" --output /dev/null \
   --write-out '%{http_code}' --connect-timeout 5 --max-time 15 "$base_url/app/actors")"
-if [[ "$actors_code" != "302" ]]; then
-  echo "/app/actors devolvió ${actors_code}; se esperaba 302 hacia /login para anónimo." >&2
-  exit 1
-fi
-grep -Eiq '^location: /login(\?next=|$)' "$actors_headers" || {
-  echo "/app/actors no redirige a /login." >&2
-  exit 1
-}
+case "$actors_code" in
+  200) ;;
+  404)
+    echo "/app/actors devolvió 404; la ruta del grafo no parece servida por la SPA." >&2
+    exit 1
+    ;;
+  5*)
+    echo "/app/actors devolvió ${actors_code}; la capa web no está sana." >&2
+    exit 1
+    ;;
+  *)
+    echo "/app/actors devolvió ${actors_code}; se esperaba 200 para el shell SPA anónimo." >&2
+    exit 1
+    ;;
+esac
 
 if [[ "$api_base_url" == "$base_url" ]]; then
   metrics_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
