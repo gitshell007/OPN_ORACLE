@@ -8,13 +8,14 @@ import {
 } from "./app-routes";
 
 describe("registro de rutas", () => {
-  it("mantiene los diez destinos de trabajo en orden estable", () => {
-    expect(GLOBAL_ROUTES.filter((route) => route.group !== "admin")).toHaveLength(10);
+  it("mantiene los once destinos de trabajo en orden estable", () => {
+    expect(GLOBAL_ROUTES.filter((route) => route.group !== "admin")).toHaveLength(11);
     expect(GLOBAL_ROUTES.slice(0, 3).map((route) => route.href)).toEqual([
       "/app",
       "/app/dossiers",
       "/app/changes",
     ]);
+    expect(GLOBAL_ROUTES.map((route) => route.id)).toContain("procurement");
   });
 
   it("deriva navegación por permiso sin conceder administración", () => {

@@ -1272,6 +1272,213 @@ export interface EntityIntelGraphResponse {
   cache_hit: boolean;
 }
 
+export interface ProcurementTenderFilters {
+  cpv?: string | null;
+  min_amount?: number | null;
+  max_amount?: number | null;
+  deadline_before?: string | null;
+  buyer?: string | null;
+  region?: string | null;
+  active?: boolean;
+}
+
+export interface ProcurementTenderQuery extends ProcurementTenderFilters {
+  keywords?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ProcurementTenderItem {
+  folder_id: string;
+  title?: string | null;
+  summary_feed?: string | null;
+  buyer?: string | null;
+  status?: string | null;
+  cpv?: string[];
+  amount?: number | null;
+  deadline?: string | null;
+  region?: string | null;
+  source_url?: string | null;
+  is_active?: boolean | null;
+  llm_summary?: string | null;
+  llm_summary_model?: string | null;
+  llm_summary_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ProcurementTendersResponse {
+  cache_hit: boolean;
+  cached_seconds: number;
+  filters?: Record<string, unknown>;
+  items: ProcurementTenderItem[];
+  keywords?: unknown;
+  limit: number;
+  offset: number;
+  semantics?: Record<string, unknown>;
+  total: number;
+}
+
+export interface ProcurementAwardQuery {
+  company?: string | null;
+  buyer?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ProcurementAwardItem {
+  folder_id: string;
+  lot_id?: string | null;
+  title?: string | null;
+  buyer?: string | null;
+  winner?: string | null;
+  award_amount?: number | null;
+  cpv?: string[];
+  status?: string | null;
+  award_date?: string | null;
+  source_url?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ProcurementAwardsResponse {
+  buyer_norm: string;
+  cache_hit: boolean;
+  cached_seconds: number;
+  company_norm: string;
+  items: ProcurementAwardItem[];
+  total: number;
+}
+
+export type ProcurementStatsResponse = components["schemas"]["StatsResponse"];
+export type TenderSearchResource = components["schemas"]["TenderSearchResource"];
+export type TenderSearchPayload = components["schemas"]["TenderSearchPayload"];
+export type TenderSearchPatch = components["schemas"]["TenderSearchPatch"];
+
+export interface TenderSearchListResponse {
+  items: TenderSearchResource[];
+}
+
+export interface TenderSearchRunResponse {
+  search: TenderSearchResource;
+  results: ProcurementTendersResponse;
+}
+
+export interface TenderSummaryResponse {
+  cached: boolean;
+  item: ProcurementTenderItem;
+}
+
+export type DossierProcurementKind = "tender" | "award";
+
+export interface DossierProcurementItem {
+  id: string;
+  tenant_id: string;
+  dossier_id: string;
+  kind: DossierProcurementKind;
+  folder_id: string;
+  snapshot: Record<string, unknown>;
+  source_url?: string | null;
+  evidence_id: string;
+  pinned_by_user_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DossierProcurementListResponse {
+  data: DossierProcurementItem[];
+}
+
+function appendQuery(
+  query: URLSearchParams,
+  key: string,
+  value: string | number | boolean | null | undefined,
+) {
+  if (value === undefined || value === null || value === "") return;
+  query.set(key, String(value));
+}
+
+const procurement = {
+  tenders: (input: ProcurementTenderQuery = {}) => {
+    const query = new URLSearchParams({
+      limit: String(input.limit ?? 25),
+      offset: String(input.offset ?? 0),
+    });
+    appendQuery(query, "keywords", input.keywords?.trim());
+    appendQuery(query, "cpv", input.cpv?.trim());
+    appendQuery(query, "min_amount", input.min_amount);
+    appendQuery(query, "max_amount", input.max_amount);
+    appendQuery(query, "deadline_before", input.deadline_before);
+    appendQuery(query, "buyer", input.buyer?.trim());
+    appendQuery(query, "region", input.region?.trim());
+    appendQuery(query, "active", input.active);
+    return request<ProcurementTendersResponse>(
+      `/api/v1/procurement/tenders?${query.toString()}`,
+    );
+  },
+  summarizeTender: (folderId: string) =>
+    request<TenderSummaryResponse>(
+      `/api/v1/procurement/tenders/${encodeURIComponent(folderId)}/summary`,
+      { method: "POST" },
+    ),
+  awards: (input: ProcurementAwardQuery = {}) => {
+    const query = new URLSearchParams({
+      limit: String(input.limit ?? 25),
+      offset: String(input.offset ?? 0),
+    });
+    appendQuery(query, "company", input.company?.trim());
+    appendQuery(query, "buyer", input.buyer?.trim());
+    return request<ProcurementAwardsResponse>(
+      `/api/v1/procurement/awards?${query.toString()}`,
+    );
+  },
+  stats: () => request<ProcurementStatsResponse>("/api/v1/procurement/stats"),
+  searches: () =>
+    request<TenderSearchListResponse>("/api/v1/procurement/tender-searches"),
+  createSearch: (input: TenderSearchPayload) =>
+    request<TenderSearchResource>("/api/v1/procurement/tender-searches", {
+      method: "POST",
+      body: input,
+    }),
+  patchSearch: (searchId: string, input: TenderSearchPatch) =>
+    request<TenderSearchResource>(
+      `/api/v1/procurement/tender-searches/${encodeURIComponent(searchId)}`,
+      { method: "PATCH", body: input },
+    ),
+  deleteSearch: (searchId: string) =>
+    request<TenderSearchResource>(
+      `/api/v1/procurement/tender-searches/${encodeURIComponent(searchId)}`,
+      { method: "DELETE" },
+    ),
+  runSearch: (searchId: string, input: { limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams({
+      limit: String(input.limit ?? 25),
+      offset: String(input.offset ?? 0),
+    });
+    return request<TenderSearchRunResponse>(
+      `/api/v1/procurement/tender-searches/${encodeURIComponent(searchId)}/run?${query.toString()}`,
+    );
+  },
+};
+
+const dossierProcurement = {
+  list: (dossierId: string) =>
+    request<DossierProcurementListResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement`,
+    ),
+  pin: (
+    dossierId: string,
+    input: { kind: DossierProcurementKind; folder_id: string },
+  ) =>
+    request<DossierProcurementItem>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement`,
+      { method: "POST", body: input },
+    ),
+  remove: (dossierId: string, itemId: string) =>
+    request<{ deleted: boolean; id: string }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}`,
+      { method: "DELETE" },
+    ),
+};
+
 const reports = {
   templates: () =>
     request<components["schemas"]["ReportTemplateListResponse"]>(
@@ -1449,6 +1656,8 @@ export const api = {
   tasks,
   actors,
   entityIntel,
+  procurement,
+  dossierProcurement,
   decisions,
   documents,
   reports,
