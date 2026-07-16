@@ -370,6 +370,64 @@ class EntityIntelClient:
             "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
         }
 
+    def registry(
+        self,
+        *,
+        name: str,
+        kind: EntityKind,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        payload = self._get(
+            f"api/v1/registry/{kind}",
+            params={"name": name, "limit": str(limit), "offset": str(offset)},
+        )
+        items = payload.get("items", [])
+        if not isinstance(items, list):
+            raise EntityIntelProviderError(
+                status_code=502,
+                code="entity_intel_invalid_registry",
+                detail="Signal devolvió el registro con un formato inesperado.",
+            )
+        normalized = dict(payload)
+        normalized["items"] = [item for item in items if isinstance(item, dict)]
+        normalized["cached_seconds"] = ENTITY_INTEL_CACHE_TTL_SECONDS
+        return normalized
+
+    def dossier(
+        self,
+        *,
+        name: str,
+        kind: EntityKind,
+        external_tenant_id: str,
+    ) -> dict[str, Any]:
+        payload = self._get(
+            "api/v1/oracle/entity/dossier",
+            params={"name": name, "type": kind},
+            external_tenant_id=external_tenant_id,
+        )
+        entity = payload.get("entity")
+        sections = payload.get("sections")
+        if not isinstance(entity, dict) or not isinstance(sections, dict):
+            raise EntityIntelProviderError(
+                status_code=502,
+                code="entity_intel_invalid_dossier",
+                detail="Signal devolvió la ficha de entidad con un formato inesperado.",
+            )
+        for value in sections.values():
+            if not isinstance(value, dict) or not isinstance(value.get("ok"), bool):
+                raise EntityIntelProviderError(
+                    status_code=502,
+                    code="entity_intel_invalid_dossier_section",
+                    detail="Signal devolvió una sección de entidad con un formato inesperado.",
+                )
+        return {
+            **payload,
+            "entity": entity,
+            "sections": sections,
+            "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
+        }
+
     def close(self) -> None:
         self._client.close()
 
@@ -454,6 +512,51 @@ def cached_graph(
             kind=kind,
             depth=depth,
             active_only=active_only,
+            external_tenant_id=external_tenant_id,
+        )
+    finally:
+        client.close()
+    _CACHE.set(key, value)
+    return {**value, "cache_hit": False}
+
+
+def cached_registry(
+    *,
+    tenant_id: str,
+    name: str,
+    kind: EntityKind,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    key = ("registry", tenant_id, name.casefold(), kind, limit, offset)
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return {**cached, "cache_hit": True}
+    client = entity_intel_client_from_config()
+    try:
+        value = client.registry(name=name, kind=kind, limit=limit, offset=offset)
+    finally:
+        client.close()
+    _CACHE.set(key, value)
+    return {**value, "cache_hit": False}
+
+
+def cached_dossier(
+    *,
+    tenant_id: str,
+    name: str,
+    kind: EntityKind,
+    external_tenant_id: str,
+) -> dict[str, Any]:
+    key = ("dossier", tenant_id, name.casefold(), kind, external_tenant_id)
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return {**cached, "cache_hit": True}
+    client = entity_intel_client_from_config()
+    try:
+        value = client.dossier(
+            name=name,
+            kind=kind,
             external_tenant_id=external_tenant_id,
         )
     finally:

@@ -9628,6 +9628,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entity-intel/dossier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Entity Dossier */
+        get: {
+            parameters: {
+                query: {
+                    name: string;
+                    type?: "company" | "person";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EntityDossierResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-intel/graph": {
         parameters: {
             query?: never;
@@ -9657,6 +9732,83 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["EntityGraphResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-intel/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Entity Registry */
+        get: {
+            parameters: {
+                query: {
+                    name: string;
+                    type?: "company" | "person";
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EntityRegistryResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -24343,6 +24495,16 @@ export interface components {
             expires_at: string;
             url: string;
         };
+        EntityDossierResponse: {
+            cache_hit: boolean;
+            cached_seconds: number;
+            entity: {
+                [key: string]: unknown;
+            };
+            sections: {
+                [key: string]: unknown;
+            };
+        };
         EntityGraphResponse: {
             cache_hit: boolean;
             cached_seconds: number;
@@ -24355,6 +24517,22 @@ export interface components {
             }[];
             note?: string | null;
             truncated: boolean;
+        };
+        EntityRegistryResponse: {
+            cache_hit: boolean;
+            cached_seconds: number;
+            companies?: unknown[];
+            company_norm?: unknown;
+            items: {
+                [key: string]: unknown;
+            }[];
+            person_norm?: unknown;
+            profile?: {
+                [key: string]: unknown;
+            } | null;
+            query?: unknown;
+            roles?: unknown[];
+            total?: number | null;
         };
         EntitySuggestResponse: {
             cache_hit: boolean;

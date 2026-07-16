@@ -28,6 +28,16 @@ Interfaz canónica: `CANONICAL_UI=vector`
   usuario y sin cambiar el contrato público.
 - El grafo incorpora hover con atenuación de vecinos, ficha modal accesible para empresas/personas,
   relaciones directas navegables con confirmación y tests de UI con Cytoscape mockeado.
+- F2 añade proxies Flask cacheados para `registry` y `dossier`, manteniendo `actor.read`, API key
+  server-side, tenant externo solo para la ficha agregada y mensaje explícito cuando Signal tenga el
+  servicio de entidades apagado en su administrador.
+- La ruta `/app/actors/entity/[type]/[norm]` pasa a ficha 360º con cabecera, pestañas de Perfil,
+  Órganos y cargos, Grafo y secciones condicionales. El copy distingue fechas de publicación BORME,
+  límites de fuente, homónimos no desambiguados y ausencia de capital social o porcentajes.
+- El grafo queda en modo forense por defecto (`active_only=false`), muestra vínculos cesados con
+  trazo discontinuo, navega con `norm`, expone toggle «Solo vínculos activos» y resetea el estado de
+  confirmación del modal al cambiar de entidad. La vista rápida consulta `registry` por `norm` y
+  muestra perfil, últimos actos y contadores.
 
 ## Corrección pendiente de revisión · citas de informes
 

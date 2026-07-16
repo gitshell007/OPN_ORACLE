@@ -3,8 +3,15 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { ArrowRight, Building2, Link2, UserRound, X } from "lucide-react";
 import type { RefObject } from "react";
-import { useMemo, useState } from "react";
-import type { EntityIntelGraphNode, EntityIntelKind } from "@oracle/api-client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ApiError,
+  api,
+  type EntityIntelGraphNode,
+  type EntityIntelKind,
+  type EntityIntelRegistryResponse,
+} from "@oracle/api-client";
+import { registryStatusCounts } from "./registry-status";
 
 const KIND_LABELS: Record<EntityIntelKind, string> = {
   company: "Empresa",
@@ -14,6 +21,7 @@ const KIND_LABELS: Record<EntityIntelKind, string> = {
 export interface EntityDetailRelation {
   id: string;
   label: string;
+  routeName?: string;
   kind: EntityIntelKind;
   role: string;
   date?: string | null;
@@ -43,6 +51,10 @@ function formatDate(value: unknown): string | null {
 
 function entityLabel(entity: EntityIntelGraphNode): string {
   return String(entity.label ?? entity.name ?? entity.norm ?? entity.id ?? "Entidad");
+}
+
+function entityRouteName(entity: EntityIntelGraphNode): string {
+  return String(entity.norm ?? entity.name ?? entity.label ?? entity.id ?? entityLabel(entity));
 }
 
 function entityKind(entity: EntityIntelGraphNode): EntityIntelKind {
@@ -81,6 +93,16 @@ function statusValue(entity: EntityIntelGraphNode): string | null {
   return firstValue({ ...metadata, ...entity }, ["status", "state", "registry_status"]);
 }
 
+function problemMessage(reason: unknown): string {
+  return reason instanceof ApiError
+    ? reason.problem.detail
+    : "No se pudieron cargar datos registrales.";
+}
+
+function recentActs(registry: EntityIntelRegistryResponse | null) {
+  return (registry?.items ?? []).slice(0, 5);
+}
+
 export function EntityDetailDialog({
   open,
   entity,
@@ -97,6 +119,10 @@ export function EntityDetailDialog({
   onNavigate(kind: EntityIntelKind, name: string): void;
 }) {
   const [pendingRelation, setPendingRelation] = useState<EntityDetailRelation | null>(null);
+  const [registry, setRegistry] = useState<EntityIntelRegistryResponse | null>(null);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
+  const registryCache = useRef(new Map<string, EntityIntelRegistryResponse>());
   const kind = entity ? entityKind(entity) : "company";
   const metadata = asRecord(entity?.metadata);
   const registryId = entity
@@ -104,6 +130,7 @@ export function EntityDetailDialog({
     : null;
   const dates = useMemo(() => (entity ? dateEntries(entity) : []), [entity]);
   const status = entity ? statusValue(entity) : null;
+  const routeName = entity ? entityRouteName(entity) : "";
   const role = entity
     ? firstValue({ ...metadata, ...entity }, ["graph_role", "role", "relationship_role"])
     : null;
@@ -113,7 +140,52 @@ export function EntityDetailDialog({
     onOpenChange(nextOpen);
   }
 
+  useEffect(() => {
+    const handle = window.setTimeout(() => setPendingRelation(null), 0);
+    return () => window.clearTimeout(handle);
+  }, [entity?.id, entity?.norm, open]);
+
+  useEffect(() => {
+    if (!open || !entity) return undefined;
+    const lookupName = entityRouteName(entity);
+    const cacheKey = `${kind}:${lookupName}`;
+    const cached = registryCache.current.get(cacheKey);
+    if (cached) {
+      setRegistry(cached);
+      setRegistryError(null);
+      setRegistryLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setRegistry(null);
+    setRegistryError(null);
+    setRegistryLoading(true);
+    void api.entityIntel.registry({ name: lookupName, type: kind, limit: 50, offset: 0 })
+      .then((result) => {
+        if (cancelled) return;
+        registryCache.current.set(cacheKey, result);
+        setRegistry(result);
+      })
+      .catch((reason) => {
+        if (!cancelled) setRegistryError(problemMessage(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setRegistryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entity, kind, open]);
+
   if (!entity) return null;
+  const counts = registryStatusCounts(registry?.items ?? [], kind);
+  const acts = recentActs(registry);
+  const profile = registry?.profile;
+  const loadedActs = registry?.items.length ?? 0;
+  const totalActs = typeof registry?.total === "number" ? registry.total : loadedActs;
+  const countScope = totalActs > loadedActs && loadedActs > 0
+    ? ` de los últimos ${loadedActs} actos`
+    : "";
 
   return (
     <Dialog.Root open={open} onOpenChange={close}>
@@ -138,7 +210,7 @@ export function EntityDetailDialog({
             {entityLabel(entity)}
           </Dialog.Title>
           <Dialog.Description>
-            {registryId ? `Identificador registral: ${registryId}` : "Sin datos registrales"}
+            {registryId ? `Identificador registral: ${registryId}` : "Vista rápida registral"}
           </Dialog.Description>
           <Dialog.Close className="dialog-close" aria-label="Cerrar">
             <X size={18} />
@@ -157,7 +229,10 @@ export function EntityDetailDialog({
                 <button
                   className="vector-primary"
                   type="button"
-                  onClick={() => onNavigate(pendingRelation.kind, pendingRelation.label)}
+                  onClick={() => onNavigate(
+                    pendingRelation.kind,
+                    pendingRelation.routeName ?? pendingRelation.label,
+                  )}
                 >
                   <ArrowRight size={15} />
                   Consultar
@@ -185,7 +260,21 @@ export function EntityDetailDialog({
                 <dl className="entity-detail-pairs">
                   <div>
                     <dt>Estado</dt>
-                    <dd>{status ?? "Sin datos registrales"}</dd>
+                    <dd>{profile?.status ?? status ?? "Sin datos registrales"}</dd>
+                  </div>
+                  {profile?.constitution_date || profile?.first_act_date ? (
+                    <div>
+                      <dt>{profile.constitution_date ? "Constitución" : "Primer acto BORME publicado"}</dt>
+                      <dd>{formatDate(profile.constitution_date ?? profile.first_act_date) ?? "Sin fecha"}</dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt>Vínculos activos</dt>
+                    <dd>{registryLoading ? "Cargando..." : `${counts.active}${countScope}`}</dd>
+                  </div>
+                  <div>
+                    <dt>Ceses detectados</dt>
+                    <dd>{registryLoading ? "Cargando..." : `${counts.ended}${countScope}`}</dd>
                   </div>
                   {dates.length ? dates.map(([label, value]) => (
                     <div key={`${label}-${value}`}>
@@ -199,6 +288,31 @@ export function EntityDetailDialog({
                     </div>
                   )}
                 </dl>
+              </section>
+
+              <section>
+                <h3>Actos recientes BORME</h3>
+                {registryLoading ? (
+                  <p className="entity-empty-state">Cargando actos registrales...</p>
+                ) : registryError ? (
+                  <p className="entity-empty-state">{registryError}</p>
+                ) : acts.length ? (
+                  <div className="entity-recent-acts">
+                    {acts.map((act, index) => (
+                      <a
+                        key={`${act.source_url ?? "act"}-${index}`}
+                        href={act.source_url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <strong>{act.role ?? act.act_type ?? "Acto registral"}</strong>
+                        <span>{act.action ?? "acto"} · {formatDate(act.date) ?? "sin fecha"}</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="entity-empty-state">Sin datos registrales.</p>
+                )}
               </section>
 
               <section>
@@ -237,6 +351,16 @@ export function EntityDetailDialog({
                   <p className="entity-empty-state">Sin relaciones directas en este grafo.</p>
                 )}
               </section>
+              <div className="dialog-actions">
+                <button
+                  className="vector-primary"
+                  type="button"
+                  onClick={() => onNavigate(kind, routeName)}
+                >
+                  <ArrowRight size={15} />
+                  Ver ficha completa
+                </button>
+              </div>
             </div>
           )}
         </Dialog.Content>

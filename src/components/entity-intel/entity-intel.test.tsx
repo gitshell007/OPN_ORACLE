@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   suggest: vi.fn(),
+  registry: vi.fn(),
   graph: vi.fn(),
   cytoscapeInstances: [] as Array<{
     handlers: Record<string, (event: { target: { data(): unknown; closedNeighborhood?(): unknown; addClass?(name: string): void } }) => void>;
@@ -29,6 +30,7 @@ vi.mock("@oracle/api-client", () => {
     api: {
       entityIntel: {
         suggest: mocks.suggest,
+        registry: mocks.registry,
         graph: mocks.graph,
       },
     },
@@ -73,6 +75,7 @@ const graphResponse = {
     {
       id: "miguel",
       label: "BURGOS CANTO MIGUEL",
+      norm: "BURGOS CANTO MIGUEL NORMALIZADO",
       type: "person",
       degree: 1,
     },
@@ -181,6 +184,12 @@ describe("EntityGraphExplorer", () => {
       cached_seconds: 600,
       cache_hit: false,
     });
+    mocks.registry.mockResolvedValue({
+      items: [],
+      total: 0,
+      cached_seconds: 600,
+      cache_hit: false,
+    });
     mocks.graph.mockResolvedValue(graphResponse);
   });
 
@@ -193,7 +202,7 @@ describe("EntityGraphExplorer", () => {
       name: "IBERDROLA",
       type: "company",
       depth: 2,
-      activeOnly: true,
+      activeOnly: false,
     }));
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
 
@@ -214,7 +223,27 @@ describe("EntityGraphExplorer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Consultar/i }));
 
     expect(mocks.push).toHaveBeenCalledWith(
-      "/app/actors/entity/person/BURGOS%20CANTO%20MIGUEL",
+      "/app/actors/entity/person/BURGOS%20CANTO%20MIGUEL%20NORMALIZADO",
     );
+  });
+
+  it("recarga con solo activos cuando se activa el filtro", async () => {
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    await waitFor(() => expect(mocks.graph).toHaveBeenCalledWith({
+      name: "IBERDROLA",
+      type: "company",
+      depth: 2,
+      activeOnly: false,
+    }));
+
+    fireEvent.click(await screen.findByLabelText("Solo vínculos activos"));
+
+    await waitFor(() => expect(mocks.graph).toHaveBeenLastCalledWith({
+      name: "IBERDROLA",
+      type: "company",
+      depth: 2,
+      activeOnly: true,
+    }));
   });
 });

@@ -34,7 +34,7 @@ function problemMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
 }
 
-function entityRoute(kind: EntityIntelKind, name: string): string {
+export function entityRoute(kind: EntityIntelKind, name: string): string {
   return `/app/actors/entity/${kind}/${encodeURIComponent(name)}`;
 }
 
@@ -83,7 +83,7 @@ export function EntitySearchPanel({
 
   const loadSuggestions = useCallback(async () => {
     const value = query.trim();
-    if (value.length < 2) {
+    if (value.length < 3) {
       setSuggestions([]);
       setSuggestionsChecked(false);
       return;
@@ -135,7 +135,7 @@ export function EntitySearchPanel({
 
   function openEntity(name: string) {
     const value = name.trim();
-    if (value.length >= 2) router.push(entityRoute(kind, value));
+    if (value.length >= 3) router.push(entityRoute(kind, value));
   }
 
   function submit(event: FormEvent) {
@@ -183,13 +183,13 @@ export function EntitySearchPanel({
             />
           </div>
         </label>
-        <button className="vector-primary" disabled={query.trim().length < 2 || loading}>
+        <button className="vector-primary" disabled={query.trim().length < 3 || loading}>
           {loading ? <RefreshCw size={15} /> : <Network size={15} />}
           Abrir grafo
         </button>
       </form>
       {error && <p className="auth-inline-error" role="alert">{error}</p>}
-      {kind === "person" && suggestionsChecked && !loading && !error && suggestions.length === 0 && query.trim().length >= 2 && (
+      {kind === "person" && suggestionsChecked && !loading && !error && suggestions.length === 0 && query.trim().length >= 3 && (
         <p className="entity-search-help">
           Las personas se registran por apellidos y nombre (p. ej. BURGOS CANTO MIGUEL).
           Probamos ambos órdenes automáticamente.
@@ -299,6 +299,7 @@ function directRelations(
     return [{
       id: String(edge.id ?? `${source}-${target}-${index}`),
       label: nodeLabel(other),
+      routeName: String(other.norm ?? other.name ?? other.label ?? other.id ?? nodeLabel(other)),
       kind: nodeKind(other),
       role: edgeRole(edge),
       date: typeof edge.date === "string" ? edge.date : null,
@@ -311,18 +312,23 @@ function directRelations(
 export function EntityGraphExplorer({
   name,
   type,
+  initialGraph = null,
+  embedded = false,
 }: {
   name: string;
   type: EntityIntelKind;
+  initialGraph?: EntityIntelGraphResponse | null;
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<cytoscape.Core | null>(null);
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
-  const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(null);
+  const [activeOnly, setActiveOnly] = useState(false);
+  const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
   const [selected, setSelected] = useState<EntityIntelGraphNode | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialGraph);
   const [error, setError] = useState<string | null>(null);
 
   const loadGraph = useCallback(async () => {
@@ -333,7 +339,7 @@ export function EntityGraphExplorer({
         name,
         type,
         depth: 2,
-        activeOnly: true,
+        activeOnly,
       });
       setGraph(result);
       setSelected(null);
@@ -343,12 +349,20 @@ export function EntityGraphExplorer({
     } finally {
       setLoading(false);
     }
-  }, [name, type]);
+  }, [activeOnly, name, type]);
 
   useEffect(() => {
+    if (initialGraph && !activeOnly) {
+      const handle = window.setTimeout(() => {
+        setGraph(initialGraph);
+        setSelected(null);
+        setLoading(false);
+      }, 0);
+      return () => window.clearTimeout(handle);
+    }
     const kickoff = window.setTimeout(() => void loadGraph(), 0);
     return () => window.clearTimeout(kickoff);
-  }, [loadGraph]);
+  }, [activeOnly, initialGraph, loadGraph]);
 
   const elements = useMemo(() => (graph ? graphElements(graph) : []), [graph]);
 
@@ -430,6 +444,13 @@ export function EntityGraphExplorer({
               },
             },
             {
+              selector: 'edge[active = false]',
+              style: {
+                "line-style": "dashed",
+                opacity: 0.46,
+              },
+            },
+            {
               selector: ".is-hovered",
               style: {
                 "border-width": 5,
@@ -507,22 +528,26 @@ export function EntityGraphExplorer({
   const relations = useMemo(() => directRelations(graph, selected), [graph, selected]);
 
   return (
-    <div className="entity-intel-page">
-      <section className="page-heading">
-        <div>
-          <div className="eyebrow">Actores · grafo de entidad</div>
-          <h1>{name}</h1>
-          <p>
-            Exploración básica de relaciones desde Signal. F1 solo consulta y
-            visualiza; no incorpora datos a expedientes.
-          </p>
-        </div>
-        <button className="vector-secondary" disabled={loading} onClick={() => void loadGraph()}>
-          <RefreshCw size={15} />
-          Actualizar grafo
-        </button>
-      </section>
-      <EntitySearchPanel initialQuery={name} initialKind={type} compact />
+    <div className={embedded ? "entity-intel-page embedded" : "entity-intel-page"}>
+      {!embedded && (
+        <>
+          <section className="page-heading">
+            <div>
+              <div className="eyebrow">Actores · grafo de entidad</div>
+              <h1>{name}</h1>
+              <p>
+                Exploración básica de relaciones desde Signal. Incluye vínculos activos y cesados
+                del BORME, sin interpretar capital social ni porcentajes accionariales.
+              </p>
+            </div>
+            <button className="vector-secondary" disabled={loading} onClick={() => void loadGraph()}>
+              <RefreshCw size={15} />
+              Actualizar grafo
+            </button>
+          </section>
+          <EntitySearchPanel initialQuery={name} initialKind={type} compact />
+        </>
+      )}
       {error && <div className="inline-error" role="alert">{error}</div>}
       <section className="entity-graph-shell" aria-busy={loading}>
         <header>
@@ -531,9 +556,21 @@ export function EntityGraphExplorer({
             <h2>Relaciones detectadas</h2>
           </div>
           <div className="entity-graph-metrics">
+            <label className="entity-active-toggle">
+              <input
+                type="checkbox"
+                checked={activeOnly}
+                onChange={(event) => setActiveOnly(event.target.checked)}
+              />
+              Solo vínculos activos
+            </label>
             <span>{graph?.nodes.length ?? 0} nodos</span>
             <span>{graph?.edges.length ?? 0} enlaces</span>
             {graph?.cache_hit && <span>Caché activo</span>}
+            <button className="vector-secondary small" disabled={loading} onClick={() => void loadGraph()}>
+              <RefreshCw size={14} />
+              Actualizar
+            </button>
           </div>
         </header>
         {loading ? (
@@ -558,7 +595,7 @@ export function EntityGraphExplorer({
                 </div>
                 <div>
                   <dt>Profundidad</dt>
-                  <dd>2 niveles · relaciones activas</dd>
+                  <dd>2 niveles · {activeOnly ? "solo vínculos activos" : "activos y cesados"}</dd>
                 </div>
                 <div>
                   <dt>Origen</dt>
@@ -576,6 +613,7 @@ export function EntityGraphExplorer({
                 <span><i className="company" /> Empresa</span>
                 <span><i className="person" /> Persona</span>
                 <span><i className="center" /> Entidad central</span>
+                <span><i className="inactive" /> Vínculo cesado</span>
               </div>
             </aside>
           </div>

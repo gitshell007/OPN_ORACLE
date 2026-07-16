@@ -1538,6 +1538,32 @@
         ],
         "type": "object"
       },
+      "EntityDossierResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_hit": {
+            "type": "boolean"
+          },
+          "cached_seconds": {
+            "type": "integer"
+          },
+          "entity": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "sections": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "cache_hit",
+          "cached_seconds",
+          "entity",
+          "sections"
+        ],
+        "type": "object"
+      },
       "EntityGraphResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1578,6 +1604,56 @@
           "edges",
           "nodes",
           "truncated"
+        ],
+        "type": "object"
+      },
+      "EntityRegistryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_hit": {
+            "type": "boolean"
+          },
+          "cached_seconds": {
+            "type": "integer"
+          },
+          "companies": {
+            "items": {},
+            "type": "array"
+          },
+          "company_norm": {
+            "nullable": true
+          },
+          "items": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "person_norm": {
+            "nullable": true
+          },
+          "profile": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "query": {
+            "nullable": true
+          },
+          "roles": {
+            "items": {},
+            "type": "array"
+          },
+          "total": {
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_hit",
+          "cached_seconds",
+          "items"
         ],
         "type": "object"
       },
@@ -19378,6 +19454,96 @@
         ]
       }
     },
+    "/api/v1/entity-intel/dossier": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": "company",
+              "enum": [
+                "company",
+                "person"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityDossierResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Entity Dossier",
+        "tags": [
+          "Inteligencia de entidades"
+        ]
+      }
+    },
     "/api/v1/entity-intel/graph": {
       "get": {
         "parameters": [
@@ -19420,7 +19586,7 @@
             "name": "active_only",
             "required": false,
             "schema": {
-              "default": true,
+              "default": false,
               "type": "boolean"
             }
           }
@@ -19488,6 +19654,118 @@
         ]
       }
     },
+    "/api/v1/entity-intel/registry": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": "company",
+              "enum": [
+                "company",
+                "person"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityRegistryResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Entity Registry",
+        "tags": [
+          "Inteligencia de entidades"
+        ]
+      }
+    },
     "/api/v1/entity-intel/suggest": {
       "get": {
         "parameters": [
@@ -19510,7 +19788,7 @@
             "required": true,
             "schema": {
               "maxLength": 200,
-              "minLength": 2,
+              "minLength": 3,
               "type": "string"
             }
           },

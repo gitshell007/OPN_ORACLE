@@ -14,7 +14,9 @@ from opn_oracle.integrations.entity_intel import (
     EntityIntelClient,
     EntityIntelConfigurationError,
     EntityIntelProviderError,
+    cached_dossier,
     cached_graph,
+    cached_registry,
     cached_suggest,
     entity_intel_client_from_config,
     person_name_variants,
@@ -234,6 +236,107 @@ def test_entity_intel_graph_sends_external_tenant_and_normalizes_payload() -> No
 
 
 @pytest.mark.unit
+def test_entity_intel_registry_calls_signal_without_tenant_and_preserves_profile() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params.multi_items())
+        seen["external_tenant"] = request.headers.get("X-OPN-External-Tenant-ID")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "query": "IBERDROLA",
+                "company_norm": "IBERDROLA",
+                "total": 1,
+                "profile": {
+                    "status": "activa",
+                    "constitution_date": "2001-02-03",
+                    "provinces": ["BIZKAIA"],
+                    "total_acts": 18,
+                },
+                "items": [
+                    {
+                        "company": "IBERDROLA",
+                        "person": "BURGOS CANTO MIGUEL",
+                        "role": "Administrador",
+                        "action": "nombramiento",
+                        "date": "2026-07-01",
+                        "province": "BIZKAIA",
+                        "source_url": "https://www.boe.es/borme/dias/2026/07/01/",
+                    }
+                ],
+            },
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.registry(name="IBERDROLA", kind="company", limit=25, offset=5)
+    finally:
+        client.close()
+
+    assert seen == {
+        "path": "/api/v1/registry/company",
+        "params": {"name": "IBERDROLA", "limit": "25", "offset": "5"},
+        "external_tenant": None,
+    }
+    assert payload["profile"]["status"] == "activa"
+    assert payload["items"][0]["person"] == "BURGOS CANTO MIGUEL"
+    assert payload["cached_seconds"] == 600
+
+
+@pytest.mark.unit
+def test_entity_intel_dossier_sends_external_tenant_and_accepts_degraded_sections() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params.multi_items())
+        seen["external_tenant"] = request.headers.get("X-OPN-External-Tenant-ID")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "entity": {"name": "IBERDROLA", "type": "company"},
+                "sections": {
+                    "registry": {"ok": True, "data": {"items": [], "total": 0}},
+                    "graph": {"ok": False, "error": "Servicio temporalmente no disponible."},
+                },
+            },
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.dossier(
+            name="IBERDROLA",
+            kind="company",
+            external_tenant_id="tenant-signal",
+        )
+    finally:
+        client.close()
+
+    assert seen == {
+        "path": "/api/v1/oracle/entity/dossier",
+        "params": {"name": "IBERDROLA", "type": "company"},
+        "external_tenant": "tenant-signal",
+    }
+    assert payload["sections"]["registry"]["ok"] is True
+    assert payload["sections"]["graph"]["ok"] is False
+    assert payload["cached_seconds"] == 600
+
+
+@pytest.mark.unit
 def test_entity_intel_requires_https_and_allowlisted_host() -> None:
     with pytest.raises(EntityIntelConfigurationError, match="HTTPS"):
         EntityIntelClient(
@@ -299,6 +402,22 @@ def test_entity_intel_route_problem_response_preserves_provider_detail(app: Any)
     assert response.content_type == "application/problem+json"
     assert response.get_json()["code"] == "insufficient_scope"
     assert response.get_json()["detail"] == "La credencial no tiene el scope 'entity:read'."
+
+
+@pytest.mark.unit
+def test_entity_intel_route_maps_disabled_service_with_honest_copy(app: Any) -> None:
+    with app.test_request_context("/api/v1/entity-intel/dossier"):
+        response = entity_intel_routes._provider_error_response(
+            EntityIntelProviderError(
+                status_code=403,
+                code="entity_service_disabled",
+                detail="Forbidden",
+            )
+        )
+
+    assert response.status_code == 403
+    assert response.get_json()["code"] == "entity_service_disabled"
+    assert "apagado en el administrador de Signal" in response.get_json()["detail"]
 
 
 @pytest.mark.unit
@@ -444,6 +563,47 @@ def test_entity_intel_rejects_invalid_suggestions_and_graph() -> None:
 
 
 @pytest.mark.unit
+def test_entity_intel_rejects_invalid_registry_and_dossier_payloads() -> None:
+    responses = iter(
+        [
+            httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={"items": "not-list"},
+            ),
+            httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={"entity": {"name": "X"}, "sections": []},
+            ),
+            httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={"entity": {"name": "X"}, "sections": {"registry": {"data": {}}}},
+            ),
+        ]
+    )
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(lambda _: next(responses)),
+    )
+    try:
+        with pytest.raises(EntityIntelProviderError) as registry_error:
+            client.registry(name="IBERDROLA", kind="company", limit=10, offset=0)
+        assert registry_error.value.code == "entity_intel_invalid_registry"
+        with pytest.raises(EntityIntelProviderError) as dossier_error:
+            client.dossier(name="IBERDROLA", kind="company", external_tenant_id="tenant")
+        assert dossier_error.value.code == "entity_intel_invalid_dossier"
+        with pytest.raises(EntityIntelProviderError) as section_error:
+            client.dossier(name="IBERDROLA", kind="company", external_tenant_id="tenant")
+        assert section_error.value.code == "entity_intel_invalid_dossier_section"
+    finally:
+        client.close()
+
+
+@pytest.mark.unit
 def test_entity_intel_client_from_config_uses_signal_ai_settings(app: Any) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["X-API-Key"] == "configured-secret"
@@ -474,6 +634,8 @@ class _FakeEntityIntelClient:
     def __init__(self) -> None:
         self.suggest_calls = 0
         self.graph_calls = 0
+        self.registry_calls = 0
+        self.dossier_calls = 0
         self.closed = 0
 
     def suggest(self, *, query: str, kind: str, limit: int) -> dict[str, Any]:
@@ -497,6 +659,32 @@ class _FakeEntityIntelClient:
             "truncated": not active_only,
             "cached_seconds": 600,
             "depth": depth,
+            "external_tenant_id": external_tenant_id,
+        }
+
+    def registry(self, *, name: str, kind: str, limit: int, offset: int) -> dict[str, Any]:
+        self.registry_calls += 1
+        return {
+            "query": name,
+            "items": [{"company": name, "role": kind}],
+            "total": 1,
+            "cached_seconds": 600,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    def dossier(
+        self,
+        *,
+        name: str,
+        kind: str,
+        external_tenant_id: str,
+    ) -> dict[str, Any]:
+        self.dossier_calls += 1
+        return {
+            "entity": {"name": name, "type": kind},
+            "sections": {"registry": {"ok": True, "data": {"items": []}}},
+            "cached_seconds": 600,
             "external_tenant_id": external_tenant_id,
         }
 
@@ -538,7 +726,41 @@ def test_cached_suggest_and_graph_reuse_server_side_cache(
     assert graph_first["cache_hit"] is False
     assert graph_second["cache_hit"] is True
     assert fake.graph_calls == 1
-    assert fake.closed == 2
+
+    registry_first = cached_registry(
+        tenant_id="tenant",
+        name="IBERDROLA",
+        kind="company",
+        limit=25,
+        offset=0,
+    )
+    registry_second = cached_registry(
+        tenant_id="tenant",
+        name="iberdrola",
+        kind="company",
+        limit=25,
+        offset=0,
+    )
+    assert registry_first["cache_hit"] is False
+    assert registry_second["cache_hit"] is True
+    assert fake.registry_calls == 1
+
+    dossier_first = cached_dossier(
+        tenant_id="tenant",
+        name="IBERDROLA",
+        kind="company",
+        external_tenant_id="external",
+    )
+    dossier_second = cached_dossier(
+        tenant_id="tenant",
+        name="iberdrola",
+        kind="company",
+        external_tenant_id="external",
+    )
+    assert dossier_first["cache_hit"] is False
+    assert dossier_second["cache_hit"] is True
+    assert fake.dossier_calls == 1
+    assert fake.closed == 4
 
 
 @pytest.mark.unit

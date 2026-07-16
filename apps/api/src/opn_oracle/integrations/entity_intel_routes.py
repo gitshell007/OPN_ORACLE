@@ -20,7 +20,9 @@ from opn_oracle.extensions import limiter
 from opn_oracle.integrations.entity_intel import (
     EntityIntelConfigurationError,
     EntityIntelProviderError,
+    cached_dossier,
     cached_graph,
+    cached_registry,
     cached_suggest,
     resolve_signal_external_tenant_id,
 )
@@ -38,7 +40,7 @@ class EntityKindQuerySchema(Schema):
 
 
 class EntitySuggestQuerySchema(EntityKindQuerySchema):
-    q = String(required=True, validate=validate.Length(min=2, max=200))
+    q = String(required=True, validate=validate.Length(min=3, max=200))
     limit = Integer(load_default=8, validate=validate.Range(min=1, max=20))
 
 
@@ -53,7 +55,7 @@ class EntityGraphQuerySchema(Schema):
     name = String(required=True, validate=validate.Length(min=2, max=300))
     type = String(load_default="company", validate=validate.OneOf(["company", "person"]))
     depth = Integer(load_default=2, validate=validate.Range(min=1, max=2))
-    active_only = Boolean(load_default=True)
+    active_only = Boolean(load_default=False)
 
 
 class EntityGraphResponseSchema(Schema):
@@ -62,6 +64,38 @@ class EntityGraphResponseSchema(Schema):
     edges = List(Dict(keys=String(), values=Raw()), required=True)
     truncated = Boolean(required=True)
     note = String(required=False, allow_none=True)
+    cached_seconds = Integer(required=True)
+    cache_hit = Boolean(required=True)
+
+
+class EntityRegistryQuerySchema(Schema):
+    name = String(required=True, validate=validate.Length(min=2, max=300))
+    type = String(load_default="company", validate=validate.OneOf(["company", "person"]))
+    limit = Integer(load_default=50, validate=validate.Range(min=1, max=200))
+    offset = Integer(load_default=0, validate=validate.Range(min=0, max=10000))
+
+
+class EntityRegistryResponseSchema(Schema):
+    query = Raw(required=False, allow_none=True)
+    company_norm = Raw(required=False, allow_none=True)
+    person_norm = Raw(required=False, allow_none=True)
+    total = Integer(required=False, allow_none=True)
+    items = List(Dict(keys=String(), values=Raw()), required=True)
+    companies = List(Raw(), required=False)
+    roles = List(Raw(), required=False)
+    profile = Dict(keys=String(), values=Raw(), required=False, allow_none=True)
+    cached_seconds = Integer(required=True)
+    cache_hit = Boolean(required=True)
+
+
+class EntityDossierQuerySchema(Schema):
+    name = String(required=True, validate=validate.Length(min=2, max=300))
+    type = String(load_default="company", validate=validate.OneOf(["company", "person"]))
+
+
+class EntityDossierResponseSchema(Schema):
+    entity = Dict(keys=String(), values=Raw(), required=True)
+    sections = Dict(keys=String(), values=Raw(), required=True)
     cached_seconds = Integer(required=True)
     cache_hit = Boolean(required=True)
 
@@ -87,10 +121,16 @@ def _problem_response_passthrough(
 
 
 def _provider_error_response(error: EntityIntelProviderError) -> Response:
+    if error.status_code == 403 and error.code == "entity_service_disabled":
+        detail = (
+            "El servicio de inteligencia de entidades está apagado en el administrador de Signal."
+        )
+    else:
+        detail = error.detail
     return _problem_response_passthrough(
         error.status_code,
         title="No se pudo consultar la inteligencia de entidades",
-        detail=error.detail,
+        detail=detail,
         code=error.code,
         errors=error.errors,
     )
@@ -140,6 +180,48 @@ def entity_graph(query_data: dict[str, Any]) -> dict[str, Any] | Any:
             kind=cast(Any, query_data["type"]),
             depth=int(query_data["depth"]),
             active_only=bool(query_data["active_only"]),
+            external_tenant_id=external_tenant_id,
+        )
+    except EntityIntelConfigurationError as exc:
+        return _configuration_error_response(exc)
+    except EntityIntelProviderError as exc:
+        return _provider_error_response(exc)
+
+
+@bp.get("/registry")
+@bp.input(EntityRegistryQuerySchema, location="query")
+@bp.output(EntityRegistryResponseSchema)
+@require_permission("actor.read")
+@limiter.limit("30/minute")
+def entity_registry(query_data: dict[str, Any]) -> dict[str, Any] | Any:
+    tenant_id = str(g.active_tenant_id)
+    try:
+        return cached_registry(
+            tenant_id=tenant_id,
+            name=cast(str, query_data["name"]).strip(),
+            kind=cast(Any, query_data["type"]),
+            limit=int(query_data["limit"]),
+            offset=int(query_data["offset"]),
+        )
+    except EntityIntelConfigurationError as exc:
+        return _configuration_error_response(exc)
+    except EntityIntelProviderError as exc:
+        return _provider_error_response(exc)
+
+
+@bp.get("/dossier")
+@bp.input(EntityDossierQuerySchema, location="query")
+@bp.output(EntityDossierResponseSchema)
+@require_permission("actor.read")
+@limiter.limit("15/minute")
+def entity_dossier(query_data: dict[str, Any]) -> dict[str, Any] | Any:
+    tenant_id = str(g.active_tenant_id)
+    try:
+        external_tenant_id = resolve_signal_external_tenant_id()
+        return cached_dossier(
+            tenant_id=tenant_id,
+            name=cast(str, query_data["name"]).strip(),
+            kind=cast(Any, query_data["type"]),
             external_tenant_id=external_tenant_id,
         )
     except EntityIntelConfigurationError as exc:

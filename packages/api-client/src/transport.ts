@@ -1168,6 +1168,31 @@ const entityIntel = {
       `/api/v1/entity-intel/suggest?${query.toString()}`,
     );
   },
+  registry: (input: {
+    name: string;
+    type?: EntityIntelKind;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const query = new URLSearchParams({
+      name: input.name,
+      type: input.type ?? "company",
+      limit: String(input.limit ?? 50),
+      offset: String(input.offset ?? 0),
+    });
+    return request<EntityIntelRegistryResponse>(
+      `/api/v1/entity-intel/registry?${query.toString()}`,
+    );
+  },
+  dossier: (input: { name: string; type?: EntityIntelKind }) => {
+    const query = new URLSearchParams({
+      name: input.name,
+      type: input.type ?? "company",
+    });
+    return request<EntityIntelDossierResponse>(
+      `/api/v1/entity-intel/dossier?${query.toString()}`,
+    );
+  },
   graph: (input: {
     name: string;
     type?: EntityIntelKind;
@@ -1178,7 +1203,7 @@ const entityIntel = {
       name: input.name,
       type: input.type ?? "company",
       depth: String(input.depth ?? 2),
-      active_only: String(input.activeOnly ?? true),
+      active_only: String(input.activeOnly ?? false),
     });
     return request<EntityIntelGraphResponse>(
       `/api/v1/entity-intel/graph?${query.toString()}`,
@@ -1234,6 +1259,71 @@ export type EntityIntelKind = "company" | "person";
 export interface EntityIntelSuggestResponse {
   kind: EntityIntelKind | string;
   suggestions: string[];
+  cached_seconds: number;
+  cache_hit: boolean;
+}
+
+export interface EntityIntelRegistryAct {
+  company?: string | null;
+  person?: string | null;
+  role?: string | null;
+  action?: "nombramiento" | "cese" | "socio" | string | null;
+  date?: string | null;
+  effective_date?: string | null;
+  province?: string | null;
+  source_url?: string | null;
+  act_type?: string | null;
+  details?: string | null;
+  [key: string]: unknown;
+}
+
+export interface EntityIntelRegistryProfile {
+  constitution_date?: string | null;
+  constitution_published?: string | null;
+  status?: "activa" | "disuelta" | "extinguida" | string | null;
+  first_act_date?: string | null;
+  last_act_date?: string | null;
+  provinces?: string[];
+  total_acts?: number | null;
+  acts?: EntityIntelRegistryAct[];
+  [key: string]: unknown;
+}
+
+export interface EntityIntelRegistryResponse {
+  query?: unknown;
+  company_norm?: unknown;
+  person_norm?: unknown;
+  total?: number | null;
+  items: EntityIntelRegistryAct[];
+  companies?: unknown[];
+  roles?: unknown[];
+  profile?: EntityIntelRegistryProfile | null;
+  cached_seconds: number;
+  cache_hit: boolean;
+  [key: string]: unknown;
+}
+
+export interface EntityIntelSection<T = Record<string, unknown>> {
+  ok: boolean;
+  data?: T;
+  error?: string | null;
+  [key: string]: unknown;
+}
+
+export interface EntityIntelDossierResponse {
+  entity: {
+    name?: string | null;
+    type?: EntityIntelKind | string | null;
+    [key: string]: unknown;
+  };
+  sections: {
+    registry?: EntityIntelSection<EntityIntelRegistryResponse>;
+    graph?: EntityIntelSection<EntityIntelGraphResponse>;
+    patents?: EntityIntelSection<Record<string, unknown>>;
+    disclosures?: EntityIntelSection<Record<string, unknown>>;
+    news?: EntityIntelSection<Record<string, unknown>>;
+    [key: string]: EntityIntelSection<unknown> | undefined;
+  };
   cached_seconds: number;
   cache_hit: boolean;
 }
