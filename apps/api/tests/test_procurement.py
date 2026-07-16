@@ -15,6 +15,7 @@ from opn_oracle.integrations.procurement import (
     ProcurementClient,
     ProcurementProviderError,
     cached_awards,
+    cached_suggest,
 )
 from opn_oracle.oracle import procurement_items
 from opn_oracle.oracle import routes as oracle_routes
@@ -57,6 +58,45 @@ def test_procurement_awards_calls_global_registry_without_tenant_header() -> Non
     }
     assert payload["total"] == 1
     assert payload["items"][0]["winner"] == "Genesis Consulting SLP"
+
+
+@pytest.mark.unit
+def test_procurement_suggest_calls_global_registry_without_tenant_header() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params.multi_items())
+        seen["external_tenant"] = request.headers.get("X-OPN-External-Tenant-ID")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "kind": "winner",
+                "suggestions": ["GENESIS CONSULTING SLP", "GENESIS BIOMED SL"],
+            },
+        )
+
+    client = ProcurementClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.suggest(query="Genesis", kind="winner", limit=8)
+    finally:
+        client.close()
+
+    assert seen == {
+        "method": "GET",
+        "path": "/api/v1/registry/suggest",
+        "params": {"q": "Genesis", "kind": "winner", "limit": "8"},
+        "external_tenant": None,
+    }
+    assert payload["suggestions"] == ["GENESIS CONSULTING SLP", "GENESIS BIOMED SL"]
+    assert payload["cached_seconds"] == procurement.PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS
 
 
 @pytest.mark.unit
@@ -443,6 +483,7 @@ def test_procurement_timeout_is_retryable_503() -> None:
 class _FakeProcurementClient:
     def __init__(self) -> None:
         self.awards_calls = 0
+        self.suggest_calls = 0
         self.closed = 0
 
     def awards(
@@ -459,6 +500,15 @@ class _FakeProcurementClient:
             "buyer_norm": (buyer or "").upper(),
             "total": 1,
             "items": [{"winner": company, "limit": limit, "offset": offset}],
+        }
+
+    def suggest(self, *, query: str, kind: str, limit: int) -> dict[str, Any]:
+        self.suggest_calls += 1
+        return {
+            "kind": kind,
+            "suggestions": [f"{query} Consulting SLP"],
+            "cached_seconds": procurement.PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS,
+            "limit": limit,
         }
 
     def close(self) -> None:
@@ -478,6 +528,22 @@ def test_cached_awards_reuses_server_side_cache(monkeypatch: pytest.MonkeyPatch)
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
     assert fake.awards_calls == 1
+    assert fake.closed == 1
+
+
+@pytest.mark.unit
+def test_cached_suggest_reuses_short_server_side_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    cache = procurement.EntityIntelCache(ttl_seconds=300)
+    fake = _FakeProcurementClient()
+    monkeypatch.setattr(procurement, "_SUGGEST_CACHE", cache)
+    monkeypatch.setattr(procurement, "procurement_client_from_config", lambda: fake)
+
+    first = cached_suggest(tenant_id="tenant", query="Genesis", kind="winner", limit=8)
+    second = cached_suggest(tenant_id="tenant", query="genesis", kind="winner", limit=8)
+
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+    assert fake.suggest_calls == 1
     assert fake.closed == 1
 
 
@@ -509,6 +575,7 @@ def test_procurement_route_denies_user_without_opportunity_read(
     [
         "/api/v1/procurement/tenders",
         "/api/v1/procurement/awards?company=x",
+        "/api/v1/procurement/suggest?q=it&kind=winner",
     ],
 )
 def test_procurement_routes_require_auth_before_schema_validation(app: Any, path: str) -> None:
@@ -518,6 +585,48 @@ def test_procurement_routes_require_auth_before_schema_validation(app: Any, path
     assert response.headers["Content-Type"] == "application/problem+json"
     assert response.headers.get("Location") is None
     assert response.get_json()["code"] == "authentication_required"
+
+
+@pytest.mark.unit
+def test_procurement_suggest_route_serializes_provider_payload(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = User(
+        id=uuid.uuid4(),
+        email="reader@example.com",
+        display_name="Reader",
+        status="active",
+    )
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, tenant_id: frozenset({"actor.read"}),
+    )
+    monkeypatch.setattr(
+        procurement_routes,
+        "cached_suggest",
+        lambda tenant_id, query, kind, limit: {
+            "kind": kind,
+            "suggestions": [f"{query} CONSULTING SLP"],
+            "cached_seconds": 300,
+            "cache_hit": False,
+            "limit": limit,
+        },
+    )
+
+    with app.test_request_context("/api/v1/procurement/suggest?q=Genesis&kind=winner"):
+        login_user(user)
+        g.active_tenant_id = uuid.uuid4()
+        response = procurement_routes.suggest()
+
+    payload = response[0] if isinstance(response, tuple) else response
+    assert payload.get_json() == {
+        "kind": "winner",
+        "suggestions": ["Genesis CONSULTING SLP"],
+        "cached_seconds": 300,
+        "cache_hit": False,
+    }
 
 
 @pytest.mark.unit

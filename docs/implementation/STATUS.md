@@ -1159,10 +1159,13 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   filtros de CPV/importe/plazo/comprador/región/estado, paginación `limit/offset`, resumen LLM
   bajo demanda y búsquedas guardadas.
 - Añadido panel de adjudicaciones en Actores para consultar contratos por adjudicatario u órgano
-  comprador y fijarlos a expedientes.
+  comprador y fijarlos a expedientes. El panel incorpora autocompletado registral desde
+  `/api/v1/procurement/suggest` para que el usuario no tenga que conocer la razón social exacta
+  exigida por Signal.
 - Añadida pestaña de expediente `Licitaciones` para listar snapshots PLACSP fijados, abrir la
   fuente oficial y desfijar referencias con permiso `opportunity.write`.
-- El cliente TS encapsula `/api/v1/procurement/*` y `/api/v1/dossiers/{id}/procurement`, manteniendo
-  `folder_id` con barras codificado en rutas y crudo en el body de pin.
+- El cliente TS encapsula `/api/v1/procurement/*`, incluido `suggest`, y
+  `/api/v1/dossiers/{id}/procurement`, manteniendo `folder_id` con barras codificado en rutas y
+  crudo en el body de pin.
 - Checks locales: `npm run lint`, `npm run typecheck` y `npm run test` correctos
   (`30 passed`, `103 passed`).

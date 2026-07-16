@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   tenders: vi.fn(),
   summarizeTender: vi.fn(),
+  suggest: vi.fn(),
   awards: vi.fn(),
   searches: vi.fn(),
   createSearch: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@oracle/api-client", () => {
       procurement: {
         tenders: mocks.tenders,
         summarizeTender: mocks.summarizeTender,
+        suggest: mocks.suggest,
         awards: mocks.awards,
         searches: mocks.searches,
         createSearch: mocks.createSearch,
@@ -97,6 +99,12 @@ describe("UI de contratación pública", () => {
     mocks.searches.mockResolvedValue({ items: [] });
     mocks.dossiersList.mockResolvedValue({ data: [dossier], meta: { total: 1 } });
     mocks.pin.mockResolvedValue({ id: "pin-1", folder_id: tender.folder_id });
+    mocks.suggest.mockResolvedValue({
+      kind: "winner",
+      suggestions: ["ITURRI, S.A."],
+      cached_seconds: 300,
+      cache_hit: false,
+    });
     mocks.awards.mockResolvedValue({
       buyer_norm: "",
       cache_hit: false,
@@ -221,14 +229,20 @@ describe("UI de contratación pública", () => {
   it("permite buscar adjudicaciones de actor y fijarlas a expediente", async () => {
     render(<ProcurementAwardsPanel />);
 
-    fireEvent.change(screen.getByLabelText("Empresa"), {
+    fireEvent.change(screen.getByLabelText("Adjudicatario registral"), {
       target: { value: "Iturri" },
     });
+    fireEvent.click(await screen.findByRole("option", { name: "ITURRI, S.A." }));
     fireEvent.click(screen.getByRole("button", { name: /buscar adjudicaciones/i }));
 
     expect(await screen.findByText("Servicio de emergencias")).toBeInTheDocument();
+    expect(mocks.suggest).toHaveBeenCalledWith({
+      q: "Iturri",
+      kind: "winner",
+      limit: 8,
+    });
     expect(mocks.awards).toHaveBeenCalledWith(
-      expect.objectContaining({ company: "Iturri", limit: 25, offset: 0 }),
+      expect.objectContaining({ company: "ITURRI, S.A.", limit: 25, offset: 0 }),
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /^Fijar$/ }));

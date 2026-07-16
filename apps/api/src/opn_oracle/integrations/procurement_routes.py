@@ -20,6 +20,7 @@ from opn_oracle.integrations.procurement import (
     ProcurementConfigurationError,
     ProcurementProviderError,
     cached_awards,
+    cached_suggest,
     cached_tenders,
     create_tender_search,
     delete_tender_search,
@@ -58,6 +59,15 @@ class AwardsQuerySchema(PaginationQuerySchema):
                 "Indica al menos adjudicatario o comprador con dos caracteres.",
                 field_name="company",
             )
+
+
+class ProcurementSuggestQuerySchema(Schema):
+    q = String(required=True, validate=validate.Length(min=2, max=120))
+    kind = String(
+        load_default="winner",
+        validate=validate.OneOf(["winner", "buyer"]),
+    )
+    limit = Integer(load_default=8, validate=validate.Range(min=1, max=20))
 
 
 class TendersQuerySchema(PaginationQuerySchema):
@@ -119,6 +129,13 @@ class AwardsResponseSchema(Schema):
     buyer_norm = String(load_default="")
     total = Integer(required=True)
     items = List(Dict(keys=String(), values=Raw()), required=True)
+    cached_seconds = Integer(required=True)
+    cache_hit = Boolean(required=True)
+
+
+class ProcurementSuggestResponseSchema(Schema):
+    kind = String(required=True)
+    suggestions = List(String(), required=True)
     cached_seconds = Integer(required=True)
     cache_hit = Boolean(required=True)
 
@@ -232,6 +249,23 @@ def awards(query_data: dict[str, Any]) -> dict[str, Any] | Any:
             buyer=(cast(str | None, query_data.get("buyer")) or "").strip() or None,
             limit=int(query_data["limit"]),
             offset=int(query_data["offset"]),
+        )
+    )
+
+
+@bp.get("/suggest")
+@require_permission("actor.read")
+@bp.input(ProcurementSuggestQuerySchema, location="query")
+@bp.output(ProcurementSuggestResponseSchema)
+@limiter.limit("90/minute")
+def suggest(query_data: dict[str, Any]) -> dict[str, Any] | Any:
+    tenant_id = str(g.active_tenant_id)
+    return _handle_provider_call(
+        lambda: cached_suggest(
+            tenant_id=tenant_id,
+            query=cast(str, query_data["q"]).strip(),
+            kind=cast(str, query_data["kind"]),
+            limit=int(query_data["limit"]),
         )
     )
 

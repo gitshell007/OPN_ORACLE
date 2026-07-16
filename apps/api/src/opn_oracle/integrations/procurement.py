@@ -34,9 +34,11 @@ ProcurementConfigurationError = EntityIntelConfigurationError
 ProcurementProviderError = EntityIntelProviderError
 
 PROCUREMENT_AWARDS_CACHE_TTL_SECONDS = 600
+PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS = 300
 PROCUREMENT_TENDERS_CACHE_TTL_SECONDS = 90
 
 _AWARDS_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_AWARDS_CACHE_TTL_SECONDS)
+_SUGGEST_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS)
 _TENDERS_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_TENDERS_CACHE_TTL_SECONDS)
 
 
@@ -215,6 +217,24 @@ class ProcurementClient:
             params={"company": company, "buyer": buyer, "limit": limit, "offset": offset},
         )
 
+    def suggest(self, *, query: str, kind: str, limit: int) -> dict[str, Any]:
+        payload = self._get(
+            "api/v1/registry/suggest",
+            params={"q": query, "kind": kind, "limit": limit},
+        )
+        suggestions = payload.get("suggestions", [])
+        if not isinstance(suggestions, list):
+            raise ProcurementProviderError(
+                status_code=502,
+                code="procurement_invalid_suggestions",
+                detail="Signal devolvió sugerencias con un formato inesperado.",
+            )
+        return {
+            "kind": str(payload.get("kind") or kind),
+            "suggestions": [str(item)[:300] for item in suggestions if isinstance(item, str)],
+            "cached_seconds": PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS,
+        }
+
     def tenders(
         self,
         *,
@@ -371,6 +391,20 @@ def cached_awards(
         client.close()
     value = {**value, "cached_seconds": PROCUREMENT_AWARDS_CACHE_TTL_SECONDS}
     _AWARDS_CACHE.set(key, value)
+    return {**value, "cache_hit": False}
+
+
+def cached_suggest(*, tenant_id: str, query: str, kind: str, limit: int) -> dict[str, Any]:
+    key = ("suggest", tenant_id, kind, query.casefold(), limit)
+    cached = _SUGGEST_CACHE.get(key)
+    if cached is not None:
+        return {**cached, "cache_hit": True}
+    client = procurement_client_from_config()
+    try:
+        value = client.suggest(query=query, kind=kind, limit=limit)
+    finally:
+        client.close()
+    _SUGGEST_CACHE.set(key, value)
     return {**value, "cache_hit": False}
 
 

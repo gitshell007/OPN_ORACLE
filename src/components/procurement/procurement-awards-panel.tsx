@@ -4,9 +4,10 @@ import {
   api,
   type ProcurementAwardItem,
   type ProcurementAwardsResponse,
+  type ProcurementSuggestKind,
 } from "@oracle/api-client";
 import { ExternalLink, RefreshCw, Search } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { PinToDossierControl } from "./pin-to-dossier-control";
 import { cpvLabel, formatDate, formatMoney, problemMessage } from "./procurement-helpers";
 
@@ -17,9 +18,40 @@ export function ProcurementAwardsPanel({
 }) {
   const [mode, setMode] = useState<"company" | "buyer">("company");
   const [query, setQuery] = useState(initialCompany);
+  const [selectedExact, setSelectedExact] = useState(Boolean(initialCompany));
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
   const [result, setResult] = useState<ProcurementAwardsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const suggestKind: ProcurementSuggestKind = mode === "company" ? "winner" : "buyer";
+
+  useEffect(() => {
+    const value = query.trim();
+    if (value.length < 2 || selectedExact) {
+      return;
+    }
+    let cancelled = false;
+    const kickoff = window.setTimeout(async () => {
+      setSuggesting(true);
+      try {
+        const response = await api.procurement.suggest({
+          q: value,
+          kind: suggestKind,
+          limit: 8,
+        });
+        if (!cancelled) setSuggestions(response.suggestions);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggesting(false);
+      }
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(kickoff);
+    };
+  }, [query, selectedExact, suggestKind]);
 
   async function load(event?: FormEvent) {
     event?.preventDefault();
@@ -68,27 +100,62 @@ export function ProcurementAwardsPanel({
           <span>Buscar por</span>
           <select
             value={mode}
-            onChange={(event) => setMode(event.target.value as "company" | "buyer")}
+            onChange={(event) => {
+              setMode(event.target.value as "company" | "buyer");
+              setQuery("");
+              setSelectedExact(false);
+              setResult(null);
+              setSuggestions([]);
+            }}
           >
             <option value="company">Adjudicatario</option>
             <option value="buyer">Órgano comprador</option>
           </select>
         </label>
-        <label>
-          <span>{mode === "company" ? "Empresa" : "Comprador"}</span>
+        <label className="procurement-autocomplete">
+          <span>{mode === "company" ? "Adjudicatario registral" : "Órgano de contratación"}</span>
           <div>
             <Search size={15} />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSelectedExact(false);
+                setSuggestions([]);
+              }}
               placeholder={mode === "company" ? "Iturri" : "Gobierno de Aragón"}
+              aria-describedby="procurement-awards-help"
             />
           </div>
+          {(suggestions.length > 0 || suggesting) && (
+            <div className="procurement-suggestions" role="listbox">
+              {suggesting && <small>Buscando denominaciones registrales…</small>}
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  role="option"
+                  aria-selected={suggestion === query}
+                  onClick={() => {
+                    setQuery(suggestion);
+                    setSelectedExact(true);
+                    setSuggestions([]);
+                  }}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
         </label>
         <button className="vector-primary" type="submit" disabled={loading}>
           Buscar adjudicaciones
         </button>
       </form>
+      <p id="procurement-awards-help" className="procurement-muted">
+        La búsqueda usa la denominación registral exacta: escribe un prefijo y
+        selecciona una sugerencia de adjudicatario u órgano de contratación.
+      </p>
       {error && (
         <div className="inline-error" role="alert">
           {error}

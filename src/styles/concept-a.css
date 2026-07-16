@@ -172,6 +172,7 @@
 .procurement-save-search label,
 .procurement-pin label,
 .procurement-search-list label { display: grid; gap: 5px; color: var(--va-muted); font-size: 11px; font-weight: 760; text-transform: uppercase; letter-spacing: .04em; }
+.procurement-autocomplete { position: relative; }
 .procurement-search-form input,
 .procurement-search-form select,
 .procurement-awards-search input,
@@ -221,6 +222,11 @@
 .procurement-pin select { max-width: 230px; }
 .procurement-pin-ok { color: #047857 !important; }
 .procurement-pin-error { color: #b42318 !important; }
+.procurement-suggestions { position: absolute; z-index: 8; top: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 3px; max-height: 260px; overflow: auto; padding: 6px; border: 1px solid #cbd6e2; border-radius: 9px; background: white; box-shadow: 0 14px 40px #10203326; }
+.procurement-suggestions button { border: 0; background: transparent; color: var(--va-text); text-align: left; padding: 8px 9px; border-radius: 6px; font-size: 12px; font-weight: 650; }
+.procurement-suggestions button:hover,
+.procurement-suggestions button:focus-visible { background: #edf4ff; color: var(--va-primary); }
+.procurement-suggestions small { padding: 7px 9px; color: var(--va-muted); text-transform: none; letter-spacing: 0; }
 @media (max-width: 680px) {
   .global-inventory-toolbar { align-items: stretch; flex-wrap: wrap; }
   .global-inventory-toolbar label { min-width: 100%; }

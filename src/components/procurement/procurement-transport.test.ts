@@ -84,4 +84,28 @@ describe("transporte de contratación pública", () => {
       folder_id: "2026/123/ABC",
     });
   });
+
+  it("serializa sugerencias registrales de procurement", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      json({
+        kind: "winner",
+        suggestions: ["ITURRI, S.A."],
+        cached_seconds: 300,
+        cache_hit: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.procurement.suggest({ q: " Iturri ", kind: "winner", limit: 8 });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    const parsed = new URL(url, "https://oracle.example.test");
+    expect(parsed.pathname).toBe("/api/v1/procurement/suggest");
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({
+      q: "Iturri",
+      kind: "winner",
+      limit: "8",
+    });
+  });
 });

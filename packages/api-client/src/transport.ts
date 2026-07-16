@@ -1325,6 +1325,21 @@ export interface ProcurementAwardQuery {
   offset?: number;
 }
 
+export type ProcurementSuggestKind = "winner" | "buyer";
+
+export interface ProcurementSuggestQuery {
+  q: string;
+  kind: ProcurementSuggestKind;
+  limit?: number;
+}
+
+export interface ProcurementSuggestResponse {
+  kind: string;
+  suggestions: string[];
+  cached_seconds: number;
+  cache_hit: boolean;
+}
+
 export interface ProcurementAwardItem {
   folder_id: string;
   lot_id?: string | null;
@@ -1419,6 +1434,16 @@ const procurement = {
       `/api/v1/procurement/tenders/${encodeURIComponent(folderId)}/summary`,
       { method: "POST" },
     ),
+  suggest: (input: ProcurementSuggestQuery) => {
+    const query = new URLSearchParams({
+      q: input.q.trim(),
+      kind: input.kind,
+      limit: String(input.limit ?? 8),
+    });
+    return request<ProcurementSuggestResponse>(
+      `/api/v1/procurement/suggest?${query.toString()}`,
+    );
+  },
   awards: (input: ProcurementAwardQuery = {}) => {
     const query = new URLSearchParams({
       limit: String(input.limit ?? 25),
