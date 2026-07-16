@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import logging
 import os
 import re
+import stat
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -17,6 +19,7 @@ import boto3
 from botocore.client import Config
 
 SAFE_KEY = re.compile(r"^[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}$")
+logger = logging.getLogger(__name__)
 
 
 class StorageError(RuntimeError):
@@ -82,8 +85,30 @@ class LocalObjectStorage:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser().resolve()
+        self._startup_error: OSError | None = None
+        try:
+            self._prepare_root()
+        except OSError as exc:
+            self._startup_error = exc
+            logger.warning(
+                "document_storage_root_unavailable_at_startup",
+                extra={"storage_root": str(self.root), "error": str(exc)},
+            )
+
+    def _prepare_root(self) -> None:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.root, 0o700)
+        try:
+            os.chmod(self.root, 0o700)
+        except OSError:
+            if stat.S_IMODE(self.root.stat().st_mode) == 0o700:
+                return
+            raise
+
+    def _ensure_root_for_write(self) -> None:
+        try:
+            self._prepare_root()
+        except OSError as exc:
+            raise StorageError("Almacenamiento local no disponible.") from exc
 
     def _path(self, key: str) -> Path:
         raw = self.root / validate_key(key)
@@ -96,6 +121,7 @@ class LocalObjectStorage:
 
     def put(self, key: str, source: BinaryIO, *, max_bytes: int, media_type: str) -> StoredObject:
         del media_type
+        self._ensure_root_for_write()
         path = self._path(key)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
@@ -129,7 +155,10 @@ class LocalObjectStorage:
         return None
 
     def health(self) -> bool:
-        return self.root.is_dir() and os.access(self.root, os.R_OK | os.W_OK)
+        try:
+            return self.root.is_dir() and os.access(self.root, os.R_OK | os.W_OK)
+        except OSError:
+            return False
 
     def iter_objects(self, tenant_id: uuid.UUID) -> tuple[StorageObjectRef, ...]:
         tenant_root = self.root / str(tenant_id)

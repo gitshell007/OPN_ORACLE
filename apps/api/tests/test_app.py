@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,64 @@ def test_valid_production_disables_openapi_by_default() -> None:
         assert response.get_json()["capabilities"] == ["health"]
         assert response.headers["Content-Security-Policy"].startswith("default-src 'none'")
         assert "Strict-Transport-Security" not in response.headers
+
+
+@pytest.mark.unit
+def test_create_app_tolerates_local_storage_chmod_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = (tmp_path / "oracle-storage").resolve()
+    original_chmod = os.chmod
+
+    def readonly_chmod(path: str | os.PathLike[str], mode: int) -> None:
+        if Path(path) == root:
+            raise OSError(30, "Read-only file system", str(path))
+        original_chmod(path, mode)
+
+    monkeypatch.setattr("opn_oracle.documents.storage.os.chmod", readonly_chmod)
+
+    app = create_app(
+        {
+            "APP_ENV": "test",
+            "SECRET_KEY": "test-only-key",
+            "DATABASE_URL": "sqlite+pysqlite:///:memory:",
+            "REDIS_URL": "redis://127.0.0.1:6379/15",
+            "DOCUMENT_STORAGE_BACKEND": "local",
+            "DOCUMENT_LOCAL_ROOT": str(root),
+        }
+    )
+
+    assert app.extensions["object_storage"].root == root
+    assert app.extensions["object_storage"].health() is True
+
+
+@pytest.mark.unit
+def test_create_app_tolerates_uncreatable_local_storage_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = (tmp_path / "missing-storage").resolve()
+    original_mkdir = Path.mkdir
+
+    def readonly_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self == root:
+            raise OSError(30, "Read-only file system", str(self))
+        original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr("opn_oracle.documents.storage.Path.mkdir", readonly_mkdir)
+
+    app = create_app(
+        {
+            "APP_ENV": "test",
+            "SECRET_KEY": "test-only-key",
+            "DATABASE_URL": "sqlite+pysqlite:///:memory:",
+            "REDIS_URL": "redis://127.0.0.1:6379/15",
+            "DOCUMENT_STORAGE_BACKEND": "local",
+            "DOCUMENT_LOCAL_ROOT": str(root),
+        }
+    )
+
+    assert app.extensions["object_storage"].root == root
+    assert app.extensions["object_storage"].health() is False
 
 
 @pytest.mark.unit

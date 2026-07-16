@@ -186,6 +186,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - oracle_document_storage:/var/lib/oracle-storage
     command: ["flask", "--app", "opn_oracle.wsgi:app", "db", "upgrade"]
     healthcheck:
       disable: true

@@ -1137,3 +1137,12 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   a `integration_connections` confirma que la conexión activa `signal-avanza` conserva scopes
   `monitor:write`, `signal:read` y `webhook:manage`, sin `entity:read`; por tanto F2/F3 siguen
   paradas por el gate real de F1.
+
+## 2026-07-16 · Fix deploy storage local
+
+- Corregido el fallo de despliegue introducido por la persistencia de artefactos: el servicio
+  `migrate` monta ahora `oracle_document_storage:/var/lib/oracle-storage`, igual que `api`,
+  `worker-core` y `beat`.
+- `LocalObjectStorage` ya no tumba `create_app()` si la preparación inicial de la raíz local falla
+  por rootfs de solo lectura; las escrituras reales siguen fallando de forma controlada como
+  `StorageError` cuando el storage no está disponible.
