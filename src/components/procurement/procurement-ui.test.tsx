@@ -118,6 +118,7 @@ describe("UI de contratación pública", () => {
           title: "Servicio de emergencias",
           buyer: "Ayuntamiento de Zaragoza",
           winner: "Iturri",
+          is_ute: true,
           award_amount: 300000,
           cpv: ["35100000"],
           status: "Adjudicada",
@@ -236,6 +237,9 @@ describe("UI de contratación pública", () => {
     fireEvent.click(screen.getByRole("button", { name: /buscar adjudicaciones/i }));
 
     expect(await screen.findByText("Servicio de emergencias")).toBeInTheDocument();
+    expect(screen.getByText("Organismo licitador")).toBeInTheDocument();
+    expect(screen.getByText("Ayuntamiento de Zaragoza")).toBeInTheDocument();
+    expect(screen.getByText("UTE · En consorcio")).toBeInTheDocument();
     expect(mocks.suggest).toHaveBeenCalledWith({
       q: "Iturri",
       kind: "winner",
@@ -263,5 +267,39 @@ describe("UI de contratación pública", () => {
     await waitFor(() =>
       expect(mocks.removePinned).toHaveBeenCalledWith("dossier-1", "pin-1"),
     );
+  });
+
+  it("muestra el organismo licitador y la UTE en adjudicaciones fijadas", async () => {
+    mocks.listPinned.mockResolvedValue({
+      data: [
+        {
+          id: "award-pin-1",
+          tenant_id: "tenant-1",
+          dossier_id: "dossier-1",
+          kind: "award",
+          folder_id: "award/ute-1",
+          snapshot: {
+            title: "Servicio de prevención",
+            buyer: "Autoridad Portuaria de Barcelona",
+            winner: "UTE PREVIPORT BCN 2026",
+            is_ute: true,
+            award_amount: 450000,
+            award_date: "2026-06-10",
+          },
+          source_url: "https://contrataciondelestado.es/award/ute-1",
+          evidence_id: "evidence-ute-1",
+          pinned_by_user_id: "user-1",
+          created_at: "2026-07-16T00:00:00Z",
+          updated_at: "2026-07-16T00:00:00Z",
+        },
+      ],
+    });
+
+    render(<DossierProcurementSection dossierId="dossier-1" />);
+
+    expect(await screen.findByText("Servicio de prevención")).toBeInTheDocument();
+    expect(screen.getByText("Organismo licitador")).toBeInTheDocument();
+    expect(screen.getAllByText("Autoridad Portuaria de Barcelona")).not.toHaveLength(0);
+    expect(screen.getByText("UTE · En consorcio")).toBeInTheDocument();
   });
 });

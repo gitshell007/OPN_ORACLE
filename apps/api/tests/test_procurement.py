@@ -35,7 +35,10 @@ def test_procurement_awards_calls_global_registry_without_tenant_header() -> Non
         return httpx.Response(
             200,
             headers={"Content-Type": "application/json"},
-            json={"total": 1, "items": [{"winner": "Genesis Consulting SLP"}]},
+            json={
+                "total": 1,
+                "items": [{"winner": "Genesis Consulting SLP", "is_ute": True}],
+            },
         )
 
     client = ProcurementClient(
@@ -58,6 +61,7 @@ def test_procurement_awards_calls_global_registry_without_tenant_header() -> Non
     }
     assert payload["total"] == 1
     assert payload["items"][0]["winner"] == "Genesis Consulting SLP"
+    assert payload["items"][0]["is_ute"] is True
 
 
 @pytest.mark.unit

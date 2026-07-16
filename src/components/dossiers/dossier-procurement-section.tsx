@@ -51,6 +51,14 @@ function snapshotDeadline(item: DossierProcurementItem): string | null {
   return snapshotText(item.snapshot, ["deadline", "deadline_date", "award_date"]);
 }
 
+function snapshotIsUte(item: DossierProcurementItem): boolean {
+  if (item.snapshot.is_ute === true) return true;
+  const entries = item.snapshot.entries;
+  return Array.isArray(entries) && entries.some(
+    (entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).is_ute === true,
+  );
+}
+
 function awardEntriesSummary(item: DossierProcurementItem): string | null {
   const entries = item.snapshot.entries;
   if (!Array.isArray(entries) || entries.length === 0) return null;
@@ -139,6 +147,7 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
         <div className="procurement-card-list">
           {items.map((item) => {
             const entries = awardEntriesSummary(item);
+            const isUte = item.kind === "award" && snapshotIsUte(item);
             return (
               <article className="procurement-card" key={item.id}>
                 <header>
@@ -146,12 +155,19 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     <strong>{snapshotTitle(item)}</strong>
                     <small>{snapshotBuyer(item)}</small>
                   </div>
-                  <span className="status">
-                    {item.kind === "tender" ? "Licitación" : "Adjudicación"}
-                  </span>
+                  <div>
+                    {isUte && <span className="status">UTE · En consorcio</span>}
+                    <span className="status">
+                      {item.kind === "tender" ? "Licitación" : "Adjudicación"}
+                    </span>
+                  </div>
                 </header>
                 {entries && <p>{entries}</p>}
                 <dl>
+                  <div>
+                    <dt>Organismo licitador</dt>
+                    <dd>{snapshotBuyer(item)}</dd>
+                  </div>
                   <div>
                     <dt>Referencia</dt>
                     <dd>{item.folder_id}</dd>

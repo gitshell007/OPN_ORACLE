@@ -1346,6 +1346,7 @@ export interface ProcurementAwardItem {
   title?: string | null;
   buyer?: string | null;
   winner?: string | null;
+  is_ute?: boolean;
   award_amount?: number | null;
   cpv?: string[];
   status?: string | null;

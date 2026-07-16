@@ -4,6 +4,12 @@ Actualizado: 2026-07-15
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Corrección pendiente de revisión · adjudicaciones PLACSP
+
+- Signal deriva `is_ute` del adjudicatario al serializar, sin cambio de esquema ni backfill. Oracle
+  conserva ese campo hasta Vector, que muestra un distintivo «UTE · En consorcio» y el organismo
+  licitador de manera explícita tanto en Actores como en las adjudicaciones fijadas al expediente.
+
 ## Corrección pendiente de revisión · artefactos persistentes
 
 - El almacenamiento local de documentos e informes pasa de `/tmp/oracle-storage` a un volumen

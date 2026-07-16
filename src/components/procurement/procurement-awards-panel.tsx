@@ -191,11 +191,17 @@ function AwardCard({ item }: { item: ProcurementAwardItem }) {
       <header>
         <div>
           <strong>{item.title || "Adjudicación sin título"}</strong>
-          <small>{item.buyer || "Comprador no publicado"}</small>
         </div>
-        <span className="status">{item.status || "Adjudicada"}</span>
+        <div>
+          {item.is_ute && <span className="status">UTE · En consorcio</span>}
+          <span className="status">{item.status || "Adjudicada"}</span>
+        </div>
       </header>
       <dl>
+        <div>
+          <dt>Organismo licitador</dt>
+          <dd>{item.buyer || "No publicado"}</dd>
+        </div>
         <div>
           <dt>Adjudicatario</dt>
           <dd>{item.winner || "No publicado"}</dd>
