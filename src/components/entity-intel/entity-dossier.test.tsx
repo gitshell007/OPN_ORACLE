@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   registry: vi.fn(),
   suggest: vi.fn(),
   graph: vi.fn(),
+  dossiersList: vi.fn(),
+  attachActor: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -22,6 +25,12 @@ vi.mock("@oracle/api-client", () => {
   return {
     ApiError,
     api: {
+      actors: {
+        attach: mocks.attachActor,
+      },
+      dossiers: {
+        list: mocks.dossiersList,
+      },
       entityIntel: {
         dossier: mocks.dossier,
         registry: mocks.registry,
@@ -31,6 +40,10 @@ vi.mock("@oracle/api-client", () => {
     },
   };
 });
+
+vi.mock("@/components/auth/auth-boundary", () => ({
+  PermissionGate: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 
 vi.mock("cytoscape", () => ({ default: Object.assign(vi.fn(() => ({
   destroy: vi.fn(),
@@ -110,6 +123,10 @@ describe("EntityDossier", () => {
     mocks.suggest.mockResolvedValue({ suggestions: [], kind: "company", cached_seconds: 600, cache_hit: false });
     mocks.registry.mockResolvedValue({ items: [], total: 0, cached_seconds: 600, cache_hit: false });
     mocks.graph.mockResolvedValue({ nodes: [], edges: [], truncated: false, cached_seconds: 600, cache_hit: false });
+    mocks.dossiersList.mockResolvedValue({
+      data: [{ id: "dossier-1", title: "Expediente ITURRI", updated_at: "2026-07-17" }],
+    });
+    mocks.attachActor.mockResolvedValue({ id: "link-1" });
   });
 
   afterEach(cleanup);
@@ -146,6 +163,51 @@ describe("EntityDossier", () => {
 
     expect(screen.getByText("BURGOS CANTO MIGUEL")).toBeInTheDocument();
     expect(screen.queryByText("PEREZ LOPEZ ANA")).not.toBeInTheDocument();
+  });
+
+  it("ordena cronológicamente por defecto y permite filtrar la tabla de cargos", async () => {
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
+
+    const rows = await screen.findAllByRole("row");
+    expect(rows[1]).toHaveTextContent("BURGOS CANTO MIGUEL");
+
+    fireEvent.click(screen.getByRole("button", { name: /Publicación BORME, orden descendente/i }));
+    await waitFor(() => {
+      const sortedRows = screen.getAllByRole("row");
+      expect(sortedRows[1]).toHaveTextContent("PEREZ LOPEZ ANA");
+      expect(sortedRows[1]).toHaveTextContent("2019");
+    });
+
+    fireEvent.change(screen.getByLabelText("Filtrar tabla de actos"), { target: { value: "BIZKAIA" } });
+
+    expect(screen.getByText("BURGOS CANTO MIGUEL")).toBeInTheDocument();
+    expect(screen.queryByText("PEREZ LOPEZ ANA")).not.toBeInTheDocument();
+  });
+
+  it("materializa la entidad de Signal como actor interno al vincularla a un expediente", async () => {
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    expect(await screen.findByText("Expediente ITURRI")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Añadir actor/i }));
+
+    await waitFor(() => expect(mocks.attachActor).toHaveBeenCalledWith(
+      "dossier-1",
+      expect.objectContaining({
+        actor_type: "organization",
+        canonical_name: "IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA",
+        roles: ["Entidad Signal"],
+        tags: ["signal", "entity-intel"],
+        provenance: expect.objectContaining({
+          source: "signal_entity_intel",
+          entity_kind: "company",
+          source_name: "IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA",
+        }),
+      }),
+    ));
+    expect(await screen.findByText(/Entidad vinculada al expediente/i)).toBeInTheDocument();
   });
 
   it("carga una página adicional del histórico si hay paginación", async () => {

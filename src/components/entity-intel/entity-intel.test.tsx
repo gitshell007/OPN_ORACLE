@@ -29,6 +29,7 @@ type MockCytoscapeOptions = {
     classes?: string;
   }>;
   layout: Record<string, unknown>;
+  style: Array<Record<string, unknown>>;
 };
 type MockCytoscapeInstance = {
   options: MockCytoscapeOptions;
@@ -295,6 +296,53 @@ describe("EntitySearchPanel", () => {
       await screen.findByText(/Probamos ambos órdenes automáticamente/i),
     ).toBeInTheDocument();
   });
+
+  it("descarta respuestas obsoletas del suggest y mantiene la consulta actual", async () => {
+    vi.useFakeTimers();
+    const resolvers = new Map<string, (value: unknown) => void>();
+    mocks.suggest.mockImplementation(({ q }: { q: string }) => new Promise((resolve) => {
+      resolvers.set(q, resolve);
+    }));
+
+    render(<EntitySearchPanel compact />);
+
+    fireEvent.change(screen.getByLabelText("Entidad"), { target: { value: "ITU" } });
+    await act(async () => {
+      vi.advanceTimersByTime(260);
+    });
+
+    fireEvent.change(screen.getByLabelText("Entidad"), { target: { value: "ITURRI" } });
+    await act(async () => {
+      vi.advanceTimersByTime(260);
+    });
+
+    await act(async () => {
+      resolvers.get("ITURRI")?.({
+        kind: "company",
+        suggestions: ["ITURRI SA", "ITURRIN SA"],
+        cached_seconds: 600,
+        cache_hit: false,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("ITURRI SA")).toBeInTheDocument();
+
+    await act(async () => {
+      resolvers.get("ITU")?.({
+        kind: "company",
+        suggestions: ["ITUAS SL", "ITUBRE SL"],
+        cached_seconds: 600,
+        cache_hit: false,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("ITUAS SL")).not.toBeInTheDocument();
+    expect(screen.getByText("ITURRI SA")).toBeInTheDocument();
+  });
 });
 
 describe("EntityGraphExplorer", () => {
@@ -318,7 +366,7 @@ describe("EntityGraphExplorer", () => {
 
   afterEach(cleanup);
 
-  it("abre ficha al pulsar un nodo y navega con el tipo correcto de la relación", async () => {
+  it("abre ficha con doble pulsación y navega con el tipo correcto de la relación", async () => {
     render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
 
     await waitFor(() => expect(mocks.graph).toHaveBeenCalledWith({
@@ -328,6 +376,19 @@ describe("EntityGraphExplorer", () => {
       activeOnly: false,
     }));
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+
+    act(() => {
+      mocks.cytoscapeInstances[0].handlers.tap({
+        target: {
+          data: () => graphResponse.nodes[0],
+          closedNeighborhood: () => ({}),
+          addClass: vi.fn(),
+        },
+      });
+    });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText(/IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA · 1 relaciones/)).toBeInTheDocument();
 
     act(() => {
       mocks.cytoscapeInstances[0].handlers.tap({
@@ -374,11 +435,14 @@ describe("EntityGraphExplorer", () => {
     render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
 
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
-    await waitFor(() => expect(mocks.cytoscapeInstances[0].fit).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.cytoscapeInstances[0].center).toHaveBeenCalled());
+    expect(mocks.cytoscapeInstances[0].fit).not.toHaveBeenCalled();
 
     const instance = mocks.cytoscapeInstances[0];
     expect(instance.options.layout).toMatchObject({
       fit: false,
+      nodeSeparation: 96,
+      idealEdgeLength: 190,
       randomize: false,
     });
 
@@ -447,6 +511,10 @@ describe("EntityGraphExplorer", () => {
     await waitFor(() => {
       expect(instance.edgesList[1].addClass).toHaveBeenCalledWith("is-time-filtered");
     });
+    expect(instance.options.style).toContainEqual(expect.objectContaining({
+      selector: "node.is-orphaned-after-filter",
+      style: expect.objectContaining({ display: "none" }),
+    }));
     expect(mocks.cytoscapeInstances).toHaveLength(1);
   });
 });

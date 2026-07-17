@@ -111,14 +111,24 @@ Interfaz canónica: `CANONICAL_UI=vector`
   de acercar, alejar y reencuadrar.
 - Prompt 39: se añade cronograma de doble manejador sobre fechas de aristas. El filtro se aplica
   mediante clases Cytoscape, sin reconstruir elementos ni relayout al mover el rango. Los vínculos
-  sin fecha permanecen visibles y se explican en la UI; los nodos sin vínculos visibles quedan
-  atenuados. El toggle «Solo vínculos activos» sigue combinándose como filtro de carga: si está
+  sin fecha permanecen visibles y se explican en la UI; los nodos sin vínculos visibles se ocultan
+  en lugar de atenuarse. El toggle «Solo vínculos activos» sigue combinándose como filtro de carga: si está
   activo, el rango temporal opera sobre los vínculos activos ya cargados.
 - Prompt 39: la ficha modal de entidad sustituye el recorte silencioso de 5 actos por una
   cronología descendente de todos los actos cargados, mostrando persona, cargo, acción, fecha,
   provincia y cita BOE. Se solicita `limit=100` al registro para cubrir casos como ITURRI SA
   (65 actos) sin paginación local silenciosa, y la UI aclara que Signal no entrega el texto íntegro
   del BORME.
+- Prompt 44: el suggest de entidad descarta respuestas obsoletas y limpia resultados al vaciar la
+  consulta; el autocomplete de adjudicatarios de procurement queda reforzado con la misma barrera de
+  secuencia.
+- Prompt 44: el grafo deja de hacer `fit` inicial, mantiene separación fija de `fcose`, centra la
+  entidad consultada a zoom legible y deja pan para explorar grafos densos como ITURRI SA. El detalle
+  de nodo se abre por doble clic/doble tap; el clic simple solo selecciona.
+- Prompt 44: la ficha 360º distingue visualmente la pestaña activa, convierte las tablas a TanStack
+  Table con filtro de texto y ordenación —fecha descendente por defecto en órganos/cargos— y añade
+  un control `actor.write` para materializar la entidad de Signal como Actor interno y vincularla a
+  un expediente con provenance `signal_entity_intel`.
 
 ## Corrección pendiente de revisión · citas de informes
 

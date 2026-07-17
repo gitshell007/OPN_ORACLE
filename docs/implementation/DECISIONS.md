@@ -471,3 +471,19 @@
 - **Consecuencias:** el informe es reproducible, citable y explícito sobre truncamiento, identidad,
   ausencia de datos y calidad de parsing. Un adjudicatario con más de 1.000 filas no se describe
   como histórico completo. Cambiar umbrales o parsing exige una nueva versión del análisis/prompt.
+
+## D-034 — Filtro temporal oculto y encuadre legible en grafos de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** el prompt 39 dejó un cronograma que atenuaba nodos fuera de rango y un encuadre
+  inicial orientado a mostrar mucho contexto. En producción, con ITURRI SA, el usuario prefirió
+  una lectura operativa: elementos fuera de rango fuera de la vista y etiquetas legibles aunque el
+  grafo no quepa completo.
+- **Decisión:** el filtro temporal de entidades oculta aristas fuera de rango y nodos que quedan sin
+  vínculos visibles mediante clases Cytoscape con `display: none`, sin reconstruir elementos ni
+  relanzar layout. El encuadre inicial no usa `fit`; centra la entidad consultada con zoom legible y
+  `fcose` persigue separación fija entre nodos.
+- **Consecuencias:** la UI abandona la decisión previa de atenuar nodos fuera de rango. La leyenda y
+  `STATUS.md` deben hablar de ocultación, no de atenuación. En grafos densos se prioriza exploración
+  por pan sobre “verlo todo” comprimido.

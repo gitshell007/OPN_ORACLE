@@ -2,8 +2,19 @@
 
 import * as Tabs from "@radix-ui/react-tabs";
 import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
+import {
   ApiError,
   api,
+  type BackendDossier,
+  type components,
   type EntityIntelDossierResponse,
   type EntityIntelGraphResponse,
   type EntityIntelKind,
@@ -11,8 +22,9 @@ import {
   type EntityIntelRegistryProfile,
   type EntityIntelRegistryResponse,
 } from "@oracle/api-client";
-import { Building2, ExternalLink, RefreshCw, UserRound } from "lucide-react";
+import { Building2, ExternalLink, Link2, RefreshCw, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PermissionGate } from "@/components/auth/auth-boundary";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
 import {
   latestRegistryStatuses,
@@ -28,6 +40,30 @@ const KIND_LABELS: Record<EntityIntelKind, string> = {
 };
 
 const REGISTRY_PAGE_SIZE = 50;
+type DossierActorWriteInput = components["schemas"]["DossierActorWriteInput"];
+type ActorType = NonNullable<DossierActorWriteInput["actor_type"]>;
+
+interface EntityActRow {
+  id: string;
+  counterpart: string;
+  counterpartKind: EntityIntelKind;
+  role: string;
+  action: string;
+  active: boolean;
+  status: string;
+  dateValue: number;
+  dateLabel: string;
+  province: string;
+  sourceUrl: string | null;
+  searchText: string;
+}
+
+interface SimpleItemRow {
+  id: string;
+  values: Record<string, string>;
+  link: unknown;
+  searchText: string;
+}
 
 function problemMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
@@ -92,6 +128,19 @@ function text(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "Sin dato";
 }
 
+function normalizeForSearch(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("es-ES");
+}
+
+function sortableDate(value: unknown): number {
+  if (typeof value !== "string" || !value.trim()) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function sourceLink(url: unknown, label = "Fuente") {
   if (typeof url !== "string" || !url.trim()) return <span>Sin enlace</span>;
   return (
@@ -99,6 +148,33 @@ function sourceLink(url: unknown, label = "Fuente") {
       {label}
       <ExternalLink size={13} />
     </a>
+  );
+}
+
+function sortLabel(direction: false | "asc" | "desc"): string {
+  if (direction === "asc") return " ↑";
+  if (direction === "desc") return " ↓";
+  return "";
+}
+
+function sortButtonLabel(label: string, direction: false | "asc" | "desc"): string {
+  if (direction === "asc") return `${label}, orden ascendente`;
+  if (direction === "desc") return `${label}, orden descendente`;
+  return `${label}, sin ordenar`;
+}
+
+function entityActorType(kind: EntityIntelKind): ActorType {
+  return kind === "person" ? "person" : "organization";
+}
+
+function signalIdentifiers(profile: EntityIntelRegistryProfile | null): Record<string, string> {
+  const record = asRecord(profile);
+  return Object.fromEntries(
+    ["nif", "cif", "vat", "registry_id", "registration_number", "lei"]
+      .flatMap((key) => {
+        const value = record[key];
+        return typeof value === "string" && value.trim() ? [[key, value.trim()]] : [];
+      }),
   );
 }
 
@@ -231,6 +307,11 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
       </section>
 
       <EntitySearchPanel initialQuery={name} initialKind={type} compact />
+      <LinkEntityToDossierControl
+        entityName={dossier?.entity.name ?? name}
+        profile={profile}
+        type={type}
+      />
 
       <section className="entity-dossier-header" aria-busy={loading}>
         <span className={`entity-kind-chip ${type}`}>
@@ -390,6 +471,136 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   );
 }
 
+function LinkEntityToDossierControl({
+  entityName,
+  profile,
+  type,
+}: {
+  entityName: string;
+  profile: EntityIntelRegistryProfile | null;
+  type: EntityIntelKind;
+}) {
+  const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
+  const [dossierId, setDossierId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDossiers() {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await api.dossiers.list({
+          page: 1,
+          size: 100,
+          sort: "-updated_at",
+        });
+        if (cancelled) return;
+        setDossiers(result.data);
+        setDossierId((current) => current || result.data[0]?.id || "");
+      } catch (reason) {
+        if (!cancelled) setError(problemMessage(reason, "No se pudieron cargar tus expedientes."));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    const kickoff = window.setTimeout(() => void loadDossiers(), 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(kickoff);
+    };
+  }, []);
+
+  async function linkEntity() {
+    if (!dossierId || !entityName.trim()) return;
+    const identifiers = signalIdentifiers(profile);
+    const identifierProvenance = Object.fromEntries(
+      Object.entries(identifiers).map(([key, value]) => [`identifier_${key}`, value]),
+    );
+    const payload: DossierActorWriteInput = {
+      actor_type: entityActorType(type),
+      canonical_name: entityName.trim(),
+      roles: ["Entidad Signal"],
+      tags: ["signal", "entity-intel"],
+      provenance: {
+        source: "signal_entity_intel",
+        source_kind: "entity_dossier",
+        entity_kind: type,
+        source_name: entityName.trim(),
+        ...identifierProvenance,
+      },
+      relationship_strength: 30,
+      relevance_to_dossier: 30,
+      recent_activity: 20,
+      influence: 0,
+      accessibility: 0,
+      strategic_alignment: 0,
+    };
+    setLinking(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await api.actors.attach(dossierId, payload);
+      setMessage("Entidad vinculada al expediente como actor interno.");
+    } catch (reason) {
+      setError(problemMessage(reason, "No se pudo vincular esta entidad al expediente."));
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  return (
+    <PermissionGate permission="actor.write">
+      <section className="entity-link-card" aria-label="Vincular entidad a expediente">
+        <div>
+          <span className="section-kicker">Expedientes</span>
+          <h2>Añadir esta entidad a un expediente</h2>
+          <p>
+            Materializa la entidad de Signal como Actor interno del tenant y conserva la
+            procedencia en la trazabilidad del actor.
+          </p>
+        </div>
+        <div className="entity-link-actions">
+          <label>
+            <span>Expediente destino</span>
+            <select
+              value={dossierId}
+              onChange={(event) => setDossierId(event.target.value)}
+              disabled={loading || linking || dossiers.length === 0}
+            >
+              {dossiers.length === 0 ? (
+                <option value="">
+                  {loading ? "Cargando expedientes…" : "Sin expedientes activos"}
+                </option>
+              ) : (
+                dossiers.map((dossier) => (
+                  <option key={dossier.id} value={dossier.id}>
+                    {dossier.title || "Expediente sin título"}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="vector-secondary"
+            disabled={loading || linking || !dossierId}
+            onClick={() => void linkEntity()}
+          >
+            {linking ? <RefreshCw size={14} /> : <Link2 size={14} />}
+            Añadir actor
+          </button>
+        </div>
+        {message && <small className="entity-link-ok">{message}</small>}
+        {error && <small className="entity-link-error" role="alert">{error}</small>}
+      </section>
+    </PermissionGate>
+  );
+}
+
 function EntityActsTable({
   items,
   type,
@@ -399,45 +610,141 @@ function EntityActsTable({
   type: EntityIntelKind;
   statuses: ReturnType<typeof latestRegistryStatuses>;
 }) {
+  const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
+  const [globalFilter, setGlobalFilter] = useState("");
+  const rows = useMemo<EntityActRow[]>(() => items.map((item, index) => {
+    const counterpart = registryCounterpartLabel(type, item);
+    const key = registryStatusKey(type, item);
+    const active = statuses.get(key)?.action !== "cese";
+    const role = item.role ?? item.act_type ?? "Sin cargo";
+    const action = item.action ?? "acto";
+    const province = item.province ?? "Sin dato";
+    const dateLabel = formatDate(item.date) ?? "Sin fecha";
+    const sourceUrl = typeof item.source_url === "string" ? item.source_url : null;
+    return {
+      id: `${sourceUrl ?? counterpart}-${index}`,
+      counterpart,
+      counterpartKind: counterpartKind(type),
+      role,
+      action,
+      active,
+      status: active ? "Activo" : "Cesado",
+      dateValue: sortableDate(item.date),
+      dateLabel,
+      province,
+      sourceUrl,
+      searchText: normalizeForSearch(`${counterpart} ${role} ${action} ${active ? "Activo" : "Cesado"} ${dateLabel} ${province}`),
+    };
+  }), [items, statuses, type]);
+  const columns = useMemo<ColumnDef<EntityActRow>[]>(() => [
+    {
+      id: "counterpart",
+      accessorKey: "counterpart",
+      header: type === "company" ? "Persona" : "Empresa",
+      cell: ({ row }) => (
+        <a href={entityRoute(row.original.counterpartKind, row.original.counterpart)}>
+          {row.original.counterpart}
+        </a>
+      ),
+    },
+    { id: "role", accessorKey: "role", header: "Cargo" },
+    { id: "action", accessorKey: "action", header: "Acción" },
+    {
+      id: "status",
+      accessorKey: "status",
+      header: "Estado",
+      cell: ({ row }) => (
+        <span className={`entity-state ${row.original.active ? "active" : "ended"}`}>
+          {row.original.status}
+        </span>
+      ),
+    },
+    {
+      id: "date",
+      accessorKey: "dateValue",
+      header: "Publicación BORME",
+      cell: ({ row }) => row.original.dateLabel,
+    },
+    { id: "province", accessorKey: "province", header: "Provincia" },
+    {
+      id: "source",
+      accessorKey: "sourceUrl",
+      header: "Fuente",
+      enableSorting: false,
+      cell: ({ row }) => sourceLink(row.original.sourceUrl, "BORME"),
+    },
+  ], [type]);
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table es el patrón canónico de datatables del proyecto.
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: { sorting, globalFilter },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn: (row, _columnId, filterValue) =>
+      row.original.searchText.includes(normalizeForSearch(filterValue)),
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+  const visibleRows = table.getRowModel().rows;
+
   if (items.length === 0) {
     return <div className="global-inventory-state">Sin actos registrales para estos filtros.</div>;
   }
   return (
-    <div className="entity-table-wrap">
-      <table className="entity-acts-table">
-        <thead>
-          <tr>
-            <th>Contraparte</th>
-            <th>Cargo</th>
-            <th>Acción</th>
-            <th>Estado</th>
-            <th>Publicación BORME</th>
-            <th>Provincia</th>
-            <th>Fuente</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => {
-            const counterpart = registryCounterpartLabel(type, item);
-            const key = registryStatusKey(type, item);
-            const active = statuses.get(key)?.action !== "cese";
-            return (
-              <tr key={`${item.source_url ?? counterpart}-${index}`} className={active ? "is-active" : "is-ended"}>
-                <td>
-                  <a href={entityRoute(counterpartKind(type), counterpart)}>{counterpart}</a>
-                </td>
-                <td>{item.role ?? item.act_type ?? "Sin cargo"}</td>
-                <td>{item.action ?? "acto"}</td>
-                <td><span className={`entity-state ${active ? "active" : "ended"}`}>{active ? "Activo" : "Cesado"}</span></td>
-                <td>{formatDate(item.date) ?? "Sin fecha"}</td>
-                <td>{item.province ?? "Sin dato"}</td>
-                <td>{sourceLink(item.source_url, "BORME")}</td>
+    <>
+      <div className="entity-table-toolbar compact">
+        <label>
+          Filtrar tabla
+          <input
+            value={globalFilter}
+            onChange={(event) => setGlobalFilter(event.target.value)}
+            placeholder="Persona, cargo, provincia…"
+            aria-label="Filtrar tabla de actos"
+          />
+        </label>
+        <span>{visibleRows.length} de {rows.length} filas</span>
+      </div>
+      <div className="entity-table-wrap">
+        <table className="entity-acts-table">
+          <thead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id}>
+                    {header.column.getCanSort() ? (
+                      <button
+                        type="button"
+                        className="entity-sort-button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        aria-label={sortButtonLabel(String(header.column.columnDef.header), header.column.getIsSorted())}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {sortLabel(header.column.getIsSorted())}
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
+                  </th>
+                ))}
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+            ))}
+          </thead>
+          <tbody>
+            {visibleRows.length ? visibleRows.map((row) => (
+              <tr key={row.original.id} className={row.original.active ? "is-active" : "is-ended"}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                ))}
+              </tr>
+            )) : (
+              <tr><td colSpan={columns.length}>Sin coincidencias para el filtro.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -452,30 +759,109 @@ function SimpleItemsTable({
   linkKey: string;
   note?: string;
 }) {
+  const [globalFilter, setGlobalFilter] = useState("");
+  const defaultSort = columns.find(([key]) => key.includes("date"))?.[0] ?? columns[0]?.[0] ?? "";
+  const [sorting, setSorting] = useState<SortingState>(
+    defaultSort ? [{ id: defaultSort, desc: defaultSort.includes("date") }] : [],
+  );
+  const rows = useMemo<SimpleItemRow[]>(() => items.map((item, index) => {
+    const values = Object.fromEntries(
+      columns.map(([key]) => [
+        key,
+        Array.isArray(item[key]) ? item[key].join(", ") : text(item[key]),
+      ]),
+    );
+    return {
+      id: `${values[columns[0]?.[0] ?? "id"] ?? index}-${index}`,
+      values,
+      link: item[linkKey],
+      searchText: normalizeForSearch(`${Object.values(values).join(" ")} ${text(item[linkKey])}`),
+    };
+  }), [columns, items, linkKey]);
+  const tableColumns = useMemo<ColumnDef<SimpleItemRow>[]>(() => [
+    ...columns.map<ColumnDef<SimpleItemRow>>(([key, label]) => ({
+      id: key,
+      accessorFn: (row) => row.values[key] ?? "Sin dato",
+      header: label,
+    })),
+    {
+      id: "link",
+      header: "Enlace",
+      enableSorting: false,
+      cell: ({ row }) => sourceLink(row.original.link, "Abrir"),
+    },
+  ], [columns]);
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table es el patrón canónico de datatables del proyecto.
+  const table = useReactTable({
+    data: rows,
+    columns: tableColumns,
+    state: { sorting, globalFilter },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn: (row, _columnId, filterValue) =>
+      row.original.searchText.includes(normalizeForSearch(filterValue)),
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+  const visibleRows = table.getRowModel().rows;
+
   if (items.length === 0) {
     return <div className="global-inventory-state">Sin datos disponibles en esta sección.</div>;
   }
   return (
-    <div className="entity-table-wrap">
+    <>
       {note && <p className="entity-section-note">{note}</p>}
-      <table className="entity-acts-table">
-        <thead>
-          <tr>
-            {columns.map(([, label]) => <th key={label}>{label}</th>)}
-            <th>Enlace</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => (
-            <tr key={`${text(item[columns[0]?.[0] ?? "id"])}-${index}`}>
-              {columns.map(([key]) => (
-                <td key={key}>{Array.isArray(item[key]) ? item[key].join(", ") : text(item[key])}</td>
-              ))}
-              <td>{sourceLink(item[linkKey], "Abrir")}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      <div className="entity-table-toolbar compact">
+        <label>
+          Filtrar tabla
+          <input
+            value={globalFilter}
+            onChange={(event) => setGlobalFilter(event.target.value)}
+            placeholder="Buscar en esta sección…"
+            aria-label="Filtrar tabla de sección"
+          />
+        </label>
+        <span>{visibleRows.length} de {rows.length} filas</span>
+      </div>
+      <div className="entity-table-wrap">
+        <table className="entity-acts-table">
+          <thead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id}>
+                    {header.column.getCanSort() ? (
+                      <button
+                        type="button"
+                        className="entity-sort-button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        aria-label={sortButtonLabel(String(header.column.columnDef.header), header.column.getIsSorted())}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {sortLabel(header.column.getIsSorted())}
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {visibleRows.length ? visibleRows.map((row) => (
+              <tr key={row.original.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                ))}
+              </tr>
+            )) : (
+              <tr><td colSpan={tableColumns.length}>Sin coincidencias para el filtro.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

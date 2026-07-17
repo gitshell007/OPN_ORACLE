@@ -33,6 +33,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_READABLE_GRAPH_ZOOM = 1.05;
 const MAX_MANAGEABLE_INITIAL_ZOOM = 1.35;
 const MAX_INITIAL_FOCUS_ELEMENTS = 90;
+const GRAPH_DOUBLE_TAP_MS = 360;
+const GRAPH_FIXED_NODE_SEPARATION = 96;
+const GRAPH_FIXED_EDGE_LENGTH = 190;
 const GRAPH_SEED_GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const GRAPH_SEED_RADIUS = 58;
 
@@ -99,27 +102,45 @@ export function EntitySearchPanel({
   const previousInitialQuery = useRef(initialQuery);
   const previousInitialKind = useRef(initialKind);
   const userTouchedKind = useRef(false);
+  const suggestionSequence = useRef(0);
+  const latestSuggestionInput = useRef({ kind, query: query.trim() });
 
   const loadSuggestions = useCallback(async () => {
     const value = query.trim();
+    const requestKind = kind;
+    const sequence = suggestionSequence.current + 1;
+    suggestionSequence.current = sequence;
     if (value.length < 3) {
       setSuggestions([]);
       setSuggestionsChecked(false);
+      setLoading(false);
+      setError(null);
       return;
     }
     setLoading(true);
     setSuggestionsChecked(false);
     setError(null);
     try {
-      const result = await api.entityIntel.suggest({ q: value, kind, limit: 8 });
+      const result = await api.entityIntel.suggest({ q: value, kind: requestKind, limit: 8 });
+      const latest = latestSuggestionInput.current;
+      if (suggestionSequence.current !== sequence || latest.query !== value || latest.kind !== requestKind) return;
       setSuggestions(result.suggestions);
       setSuggestionsChecked(true);
     } catch (reason) {
+      const latest = latestSuggestionInput.current;
+      if (suggestionSequence.current !== sequence || latest.query !== value || latest.kind !== requestKind) return;
       setError(problemMessage(reason, "No se pudieron cargar sugerencias de entidades."));
       setSuggestionsChecked(true);
     } finally {
-      setLoading(false);
+      const latest = latestSuggestionInput.current;
+      if (suggestionSequence.current === sequence && latest.query === value && latest.kind === requestKind) {
+        setLoading(false);
+      }
     }
+  }, [kind, query]);
+
+  useEffect(() => {
+    latestSuggestionInput.current = { kind, query: query.trim() };
   }, [kind, query]);
 
   useEffect(() => {
@@ -180,6 +201,8 @@ export function EntitySearchPanel({
             onChange={(event) => {
               const nextKind = event.target.value as EntityIntelKind;
               userTouchedKind.current = true;
+              suggestionSequence.current += 1;
+              latestSuggestionInput.current = { kind: nextKind, query: query.trim() };
               setKind(nextKind);
               persistEntityKind(nextKind);
             }}
@@ -197,7 +220,18 @@ export function EntitySearchPanel({
             <Search size={16} />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                const nextQuery = event.target.value;
+                suggestionSequence.current += 1;
+                latestSuggestionInput.current = { kind, query: nextQuery.trim() };
+                setSuggestions([]);
+                setSuggestionsChecked(false);
+                setError(null);
+                if (nextQuery.trim().length < 3) {
+                  setLoading(false);
+                }
+                setQuery(nextQuery);
+              }}
               placeholder="Ej. IBERDROLA"
             />
           </div>
@@ -396,8 +430,6 @@ function initialGraphFocus(instance: cytoscape.Core) {
   if (center.length === 0) return;
   const neighborhood = center.closedNeighborhood();
   const denseGraph = neighborhood.length > MAX_INITIAL_FOCUS_ELEMENTS;
-  const focus = neighborhood.length > 0 && !denseGraph ? neighborhood : center;
-  instance.fit(focus, denseGraph ? 140 : 96);
   const container = instance.container();
   const bounds = container?.getBoundingClientRect();
   const renderedPosition = bounds
@@ -405,7 +437,7 @@ function initialGraphFocus(instance: cytoscape.Core) {
     : undefined;
   const preferredZoom = denseGraph
     ? MIN_READABLE_GRAPH_ZOOM
-    : Math.min(instance.zoom(), MAX_MANAGEABLE_INITIAL_ZOOM);
+    : MAX_MANAGEABLE_INITIAL_ZOOM;
   const nextZoom = Math.min(instance.maxZoom(), Math.max(preferredZoom, MIN_READABLE_GRAPH_ZOOM));
   instance.zoom(renderedPosition ? { level: nextZoom, renderedPosition } : nextZoom);
   instance.center(center);
@@ -647,7 +679,7 @@ export function EntityGraphExplorer({
             {
               selector: "node.is-orphaned-after-filter",
               style: {
-                opacity: 0.24,
+                display: "none",
               },
             },
             {
@@ -681,6 +713,13 @@ export function EntityGraphExplorer({
             name: "fcose",
             animate: false,
             fit: false,
+            nodeSeparation: GRAPH_FIXED_NODE_SEPARATION,
+            idealEdgeLength: GRAPH_FIXED_EDGE_LENGTH,
+            edgeElasticity: 0.28,
+            gravity: 0.12,
+            gravityRange: 3.8,
+            nestingFactor: 0.9,
+            numIter: 1800,
             padding: 42,
             randomize: false,
           } as cytoscape.LayoutOptions,
@@ -698,10 +737,15 @@ export function EntityGraphExplorer({
         };
         const onMouseOver = (event: cytoscape.EventObject) => applyHover(event.target as cytoscape.NodeSingular);
         const onMouseOut = () => clearHover();
+        let lastTap: { id: string; at: number } | null = null;
         const onTap = (event: cytoscape.EventObject) => {
           const node = event.target.data() as EntityIntelGraphNode;
+          const id = String(node.id ?? node.norm ?? node.name ?? node.label ?? "");
+          const now = Date.now();
+          const isDoubleTap = lastTap?.id === id && now - lastTap.at <= GRAPH_DOUBLE_TAP_MS;
+          lastTap = { id, at: now };
           setSelected(node);
-          setDetailOpen(true);
+          if (isDoubleTap) setDetailOpen(true);
         };
         const applyInitialFocus = () => {
           initialGraphFocus(instance);
@@ -743,6 +787,9 @@ export function EntityGraphExplorer({
   }, [temporalBounds, timeRange]);
 
   const relations = useMemo(() => directRelations(graph, selected), [graph, selected]);
+  const openSelectedDetail = useCallback(() => {
+    if (selected) setDetailOpen(true);
+  }, [selected]);
 
   return (
     <div className={embedded ? "entity-intel-page embedded" : "entity-intel-page"}>
@@ -811,9 +858,15 @@ export function EntityGraphExplorer({
               </div>
               <div
                 ref={containerRef}
-                tabIndex={-1}
+                tabIndex={0}
                 className="entity-graph-canvas"
                 aria-label={`Grafo de relaciones de ${name}`}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (!selected) return;
+                  event.preventDefault();
+                  openSelectedDetail();
+                }}
               />
             </div>
             <aside className="entity-graph-side">
@@ -842,8 +895,8 @@ export function EntityGraphExplorer({
                   <h3>Cronograma</h3>
                   <p>
                     {visibleEdgeCount} de {graph.edges.length} vínculos visibles. Los vínculos sin
-                    fecha se mantienen visibles; los nodos sin vínculos dentro del rango quedan
-                    atenuados, sin relayout.
+                    fecha se mantienen visibles; los nodos sin vínculos dentro del rango se ocultan,
+                    sin relayout.
                   </p>
                   <label>
                     <span>Desde {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[0]))}</span>
@@ -914,7 +967,6 @@ export function EntityGraphExplorer({
                 <span><i className="center" /> Entidad central</span>
                 <span><i className="inactive" /> Vínculo cesado</span>
                 <span><i className="undated" /> Vínculo sin fecha</span>
-                <span><i className="dimmed" /> Nodo fuera del rango</span>
               </div>
             </aside>
           </div>

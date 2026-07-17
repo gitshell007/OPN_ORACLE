@@ -7,7 +7,7 @@ import {
   type ProcurementSuggestKind,
 } from "@oracle/api-client";
 import { ExternalLink, RefreshCw, Search } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { PinToDossierControl } from "./pin-to-dossier-control";
 import { cpvLabel, formatDate, formatMoney, problemMessage } from "./procurement-helpers";
 
@@ -25,9 +25,26 @@ export function ProcurementAwardsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const suggestKind: ProcurementSuggestKind = mode === "company" ? "winner" : "buyer";
+  const suggestSequence = useRef(0);
+  const latestSuggestInput = useRef({
+    kind: suggestKind,
+    query: query.trim(),
+    selectedExact,
+  });
+
+  useEffect(() => {
+    latestSuggestInput.current = {
+      kind: suggestKind,
+      query: query.trim(),
+      selectedExact,
+    };
+  }, [query, selectedExact, suggestKind]);
 
   useEffect(() => {
     const value = query.trim();
+    const requestKind = suggestKind;
+    const sequence = suggestSequence.current + 1;
+    suggestSequence.current = sequence;
     if (value.length < 2 || selectedExact) {
       return;
     }
@@ -37,14 +54,40 @@ export function ProcurementAwardsPanel({
       try {
         const response = await api.procurement.suggest({
           q: value,
-          kind: suggestKind,
+          kind: requestKind,
           limit: 8,
         });
-        if (!cancelled) setSuggestions(response.suggestions);
+        const latest = latestSuggestInput.current;
+        if (
+          !cancelled &&
+          suggestSequence.current === sequence &&
+          latest.query === value &&
+          latest.kind === requestKind &&
+          !latest.selectedExact
+        ) {
+          setSuggestions(response.suggestions);
+        }
       } catch {
-        if (!cancelled) setSuggestions([]);
+        const latest = latestSuggestInput.current;
+        if (
+          !cancelled &&
+          suggestSequence.current === sequence &&
+          latest.query === value &&
+          latest.kind === requestKind &&
+          !latest.selectedExact
+        ) {
+          setSuggestions([]);
+        }
       } finally {
-        if (!cancelled) setSuggesting(false);
+        const latest = latestSuggestInput.current;
+        if (
+          !cancelled &&
+          suggestSequence.current === sequence &&
+          latest.query === value &&
+          latest.kind === requestKind
+        ) {
+          setSuggesting(false);
+        }
       }
     }, 220);
     return () => {
@@ -101,7 +144,11 @@ export function ProcurementAwardsPanel({
           <select
             value={mode}
             onChange={(event) => {
-              setMode(event.target.value as "company" | "buyer");
+              const nextMode = event.target.value as "company" | "buyer";
+              const nextKind: ProcurementSuggestKind = nextMode === "company" ? "winner" : "buyer";
+              suggestSequence.current += 1;
+              latestSuggestInput.current = { kind: nextKind, query: "", selectedExact: false };
+              setMode(nextMode);
               setQuery("");
               setSelectedExact(false);
               setResult(null);
@@ -119,9 +166,17 @@ export function ProcurementAwardsPanel({
             <input
               value={query}
               onChange={(event) => {
-                setQuery(event.target.value);
+                const nextQuery = event.target.value;
+                suggestSequence.current += 1;
+                latestSuggestInput.current = {
+                  kind: suggestKind,
+                  query: nextQuery.trim(),
+                  selectedExact: false,
+                };
+                setQuery(nextQuery);
                 setSelectedExact(false);
                 setSuggestions([]);
+                if (nextQuery.trim().length < 2) setSuggesting(false);
               }}
               placeholder={mode === "company" ? "Iturri" : "Gobierno de Aragón"}
               aria-describedby="procurement-awards-help"
@@ -137,9 +192,16 @@ export function ProcurementAwardsPanel({
                   role="option"
                   aria-selected={suggestion === query}
                   onClick={() => {
+                    suggestSequence.current += 1;
+                    latestSuggestInput.current = {
+                      kind: suggestKind,
+                      query: suggestion.trim(),
+                      selectedExact: true,
+                    };
                     setQuery(suggestion);
                     setSelectedExact(true);
                     setSuggestions([]);
+                    setSuggesting(false);
                   }}
                 >
                   {suggestion}
