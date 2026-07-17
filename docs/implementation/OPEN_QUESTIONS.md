@@ -79,10 +79,17 @@
   Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer `opn-oracle`,
   con salida JSON estructurada y los límites/failover/coste que decida el responsable. Oracle no
   cablea proveedores ni modelos para esta tarea y no se ha modificado el repositorio de Signal.
-- Pendiente antes del E2E productivo del Prompt 45: confirmar o registrar en el administrador de
-  Signal la `task_key` **`entity_dossier_intelligence`** para el consumer `opn-oracle`, con salida
-  JSON estructurada `ReportOutput/v1`, tolerancia a ejecuciones de minutos y límites/failover/coste
-  definidos en Signal. Oracle solo envía la `task_key`; no cablea proveedor ni modelo.
+- **BLOQUEA el E2E del Prompt 45 — verificado en producción el 2026-07-17.** La cadena de Oracle
+  está completa y desplegada: el job encola, construye el corpus de la ficha y llama a
+  `POST /api/v1/ai/run` de Signal. Signal responde **`403 task_not_allowed`**: la `task_key`
+  **`entity_dossier_intelligence`** no está en la lista `allowed_tasks` del consumer `opn-oracle`
+  (`app/services/ai_governance.py:566`). `competitive_procurement_intelligence` (Prompt 43) sí
+  funciona porque está en `ORACLE_GOVERNED_TASKS` (código de Signal) y en el allowlist del consumer.
+  **Es un cambio en Signal, no en Oracle**, análogo al que dio de alta la task del Prompt 43: añadir
+  `entity_dossier_intelligence` a `ORACLE_GOVERNED_TASKS` con su config (modelo/tokens/timeout,
+  salida `ReportOutput/v1`, tolerancia a minutos) y al `allowed_tasks` del consumer. Hasta entonces
+  el botón «Informe de la entidad» encola y falla con «El proveedor de análisis de entidades no está
+  disponible temporalmente».
 
 ## IA y compliance
 
