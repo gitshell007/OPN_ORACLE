@@ -75,6 +75,8 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   "oracle.ai.memory_curator": "Consolidación de memoria estratégica",
   "oracle.ai.opportunity": "Análisis de oportunidades",
   "oracle.ai.report_writer": "Redacción de informe",
+  "oracle.ai.competitive_procurement_intelligence": "Inteligencia de contratación",
+  "oracle.competitive_procurement_report.generate": "Informe competitivo de contratación",
   "oracle.ai.risk": "Análisis de riesgos",
   "oracle.ai.signal_triage": "Clasificación de señales",
   "oracle.ai.weekly_change": "Análisis de cambios semanales",

@@ -75,6 +75,10 @@
   producto quiere reemplazar la visita al BOE para detalles como ampliaciones de capital, objeto
   social o texto completo del acto, Signal debe extraer y exponer ese contenido como contrato nuevo;
   Oracle no lo inventa.
+- Pendiente antes del E2E productivo del Prompt 43: confirmar o registrar en el administrador de
+  Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer `opn-oracle`,
+  con salida JSON estructurada y los límites/failover/coste que decida el responsable. Oracle no
+  cablea proveedores ni modelos para esta tarea y no se ha modificado el repositorio de Signal.
 
 ## IA y compliance
 

@@ -216,6 +216,13 @@ export function ReportViewer({
               {report.template_key} · plantilla {report.template_version}
             </span>
             <span>Generación {report.generation_version}</span>
+            {report.generation && (
+              <span>
+                IA {report.generation.provider || "proveedor no informado"} ·{" "}
+                {report.generation.model || "modelo no informado"} · prompt{" "}
+                {report.generation.prompt_name}/{report.generation.prompt_version}
+              </span>
+            )}
           </div>
           <h1>{report.title}</h1>
           <p>

@@ -25347,6 +25347,15 @@ export interface components {
             dossier_id: string;
             error_code?: string | null;
             evidence?: components["schemas"]["JsonObject"][];
+            generation?: {
+                actual_cost_micros: number;
+                estimated_cost_micros?: number | null;
+                latency_ms?: number | null;
+                model: string | null;
+                prompt_name: string | null;
+                prompt_version: string | null;
+                provider: string | null;
+            } | null;
             generation_version: number;
             /** Format: uuid */
             id: string;

@@ -3,9 +3,17 @@
 import {
   api,
   type DossierProcurementItem,
+  type OracleReport,
 } from "@oracle/api-client";
-import { ExternalLink, FileText, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  BarChart3,
+  ExternalLink,
+  FileText,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import {
   formatDate,
@@ -15,6 +23,9 @@ import {
   snapshotText,
 } from "@/components/procurement/procurement-helpers";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
+import { JobProgress } from "@/components/reporting/job-progress";
+
+const COMPETITIVE_TEMPLATE = "competitive_procurement";
 
 function snapshotAmount(item: DossierProcurementItem): number | null {
   const direct = snapshotNumber(item.snapshot, [
@@ -78,13 +89,46 @@ function awardEntriesSummary(item: DossierProcurementItem): string | null {
   }`;
 }
 
+export function pinnedWinnerCandidates(
+  items: DossierProcurementItem[],
+): string[] {
+  const winners = new Map<string, string>();
+  for (const item of items) {
+    if (item.kind !== "award") continue;
+    const values: unknown[] = [item.snapshot.winner];
+    if (Array.isArray(item.snapshot.entries)) {
+      for (const entry of item.snapshot.entries) {
+        if (entry && typeof entry === "object") {
+          values.push((entry as Record<string, unknown>).winner);
+        }
+      }
+    }
+    for (const value of values) {
+      if (typeof value !== "string" || !value.trim()) continue;
+      winners.set(value.trim().toLocaleLowerCase("es"), value.trim());
+    }
+  }
+  return Array.from(winners.values()).sort((left, right) =>
+    left.localeCompare(right, "es"),
+  );
+}
+
 export function DossierProcurementSection({ dossierId }: { dossierId: string }) {
   const [items, setItems] = useState<DossierProcurementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [generatingCompetitive, setGeneratingCompetitive] = useState(false);
+  const [competitiveReport, setCompetitiveReport] =
+    useState<OracleReport | null>(null);
+  const [selectedCompany, setSelectedCompany] = useState("");
   const documentReportKey = useRef<string | null>(null);
+  const competitiveReportKey = useRef<string | null>(null);
+  const winnerCandidates = useMemo(() => pinnedWinnerCandidates(items), [items]);
+  const effectiveCompany = winnerCandidates.includes(selectedCompany)
+    ? selectedCompany
+    : (winnerCandidates[0] ?? "");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +136,16 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
     try {
       const response = await api.dossierProcurement.list(dossierId);
       setItems(response.data);
+      try {
+        const reportResponse = await api.reports.listDossier(dossierId, 1, 100);
+        setCompetitiveReport(
+          reportResponse.data.find(
+            (report) => report.template_key === COMPETITIVE_TEMPLATE,
+          ) ?? null,
+        );
+      } catch {
+        setCompetitiveReport(null);
+      }
     } catch (reason) {
       setError(
         problemMessage(
@@ -144,6 +198,43 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
     }
   }
 
+  async function generateCompetitiveReport() {
+    if (!effectiveCompany) return;
+    if (!competitiveReportKey.current) {
+      competitiveReportKey.current = idempotencyKey(
+        `competitive-procurement-${dossierId}`,
+      );
+    }
+    setGeneratingCompetitive(true);
+    setError(null);
+    try {
+      const result = await api.reports.generate(
+        dossierId,
+        {
+          template_key: COMPETITIVE_TEMPLATE,
+          options: {
+            company_name: effectiveCompany,
+            formats: ["html", "json"],
+            classification: "internal",
+            confidentiality_label: "Uso interno",
+          },
+        },
+        competitiveReportKey.current,
+      );
+      setCompetitiveReport(result.report);
+    } catch (reason) {
+      setError(
+        problemMessage(
+          reason,
+          "No se pudo solicitar la inteligencia competitiva.",
+        ),
+      );
+    } finally {
+      competitiveReportKey.current = null;
+      setGeneratingCompetitive(false);
+    }
+  }
+
   return (
     <section className="vector-panel dossier-procurement-section" aria-busy={loading}>
       <header>
@@ -151,27 +242,94 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
           <span className="section-kicker">Contratación pública</span>
           <h2>Referencias fijadas al expediente</h2>
         </div>
-        <button
-          className="vector-secondary"
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          <RefreshCw size={15} />
-          Actualizar
-        </button>
-        <PermissionGate permission="report.generate">
+        <div className="procurement-report-actions">
           <button
-            className="vector-primary"
+            className="vector-secondary"
             type="button"
-            onClick={() => void generateDocumentReport()}
-            disabled={generating || !items.some((item) => item.kind === "award")}
+            onClick={() => void load()}
+            disabled={loading}
           >
-            <FileText size={15} />
-            {generating ? "Preparando…" : "Informe documental"}
+            <RefreshCw size={15} />
+            Actualizar
           </button>
-        </PermissionGate>
+          <PermissionGate permission="report.generate">
+            <button
+              className="vector-secondary"
+              type="button"
+              onClick={() => void generateDocumentReport()}
+              disabled={generating || !items.some((item) => item.kind === "award")}
+            >
+              <FileText size={15} />
+              {generating ? "Preparando…" : "Informe documental"}
+            </button>
+            <button
+              className="vector-primary"
+              type="button"
+              onClick={() => void generateCompetitiveReport()}
+              disabled={generatingCompetitive || !effectiveCompany}
+            >
+              <BarChart3 size={15} />
+              {generatingCompetitive
+                ? "Encolando…"
+                : "Inteligencia competitiva"}
+            </button>
+          </PermissionGate>
+        </div>
       </header>
+      {winnerCandidates.length > 0 && (
+        <div className="procurement-competitive-controls">
+          <label>
+            Adjudicatario a analizar
+            <select
+              value={effectiveCompany}
+              onChange={(event) => setSelectedCompany(event.target.value)}
+            >
+              {winnerCandidates.map((winner) => (
+                <option value={winner} key={winner}>
+                  {winner}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>
+            Se consultará el histórico paginado de esta denominación en Signal;
+            las referencias fijadas serán el foco y las citas del expediente.
+          </p>
+        </div>
+      )}
+      {competitiveReport?.job_id &&
+        ["draft", "generating"].includes(competitiveReport.status) && (
+          <div className="procurement-competitive-status" role="status">
+            <strong>Informe competitivo en segundo plano</strong>
+            <p>
+              Está encolado. Puedes salir de esta pantalla y volver más tarde.
+            </p>
+            <JobProgress
+              jobId={competitiveReport.job_id}
+              label="Analizando el histórico de contratación"
+              onTerminal={() => void load()}
+              allowActions
+            />
+          </div>
+        )}
+      {competitiveReport &&
+        ["ready", "reviewed", "published", "failed"].includes(
+          competitiveReport.status,
+        ) && (
+          <div className="procurement-competitive-status">
+            <strong>
+              {competitiveReport.status === "failed"
+                ? "El último informe necesita atención"
+                : "La inteligencia competitiva está disponible"}
+            </strong>
+            <Link
+              className="vector-secondary"
+              href={`/app/dossiers/${dossierId}/reports?report=${competitiveReport.id}`}
+            >
+              Abrir en Informes
+            </Link>
+          </div>
+        )}
       {error && (
         <div className="inline-error" role="alert">
           {error}

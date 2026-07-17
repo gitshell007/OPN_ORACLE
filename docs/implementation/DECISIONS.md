@@ -454,3 +454,20 @@
   controles de zoom, el cronograma ni la ficha modal validados en el prompt anterior.
 - **Consecuencias:** el resultado sigue siendo reproducible entre sesiones, pero `fcose` ya no parte
   de una línea/colapso cuando el proveedor entrega grafos grandes.
+
+## D-033 — Agregados deterministas y cobertura explícita para inteligencia competitiva
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** las adjudicaciones de Signal ofrecen un histórico paginado por adjudicatario, pero
+  la licitación inicial no forma parte de cada fila y puede no existir en el registro de
+  licitaciones. Además, `winner` contiene variantes registrales y socios UTE en texto libre.
+- **Decisión:** el foco del informe se limita a una denominación exacta de una adjudicación fijada,
+  mientras el corpus se obtiene de `awards(company=...)` hasta 1.000 filas. Oracle deduplica y
+  agrega por `folder_id` en Python. La baja solo se publica con cobertura comparable de al menos
+  80 % y tres expedientes; de lo contrario se omite y se declara N/denominador y sesgo de
+  supervivencia. Los socios UTE se presentan como heurística de confianza baja. El LLM recibe los
+  resultados congelados mediante una `task_key` gobernada por Signal y no recalcula valores.
+- **Consecuencias:** el informe es reproducible, citable y explícito sobre truncamiento, identidad,
+  ausencia de datos y calidad de parsing. Un adjudicatario con más de 1.000 filas no se describe
+  como histórico completo. Cambiar umbrales o parsing exige una nueva versión del análisis/prompt.

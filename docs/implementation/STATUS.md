@@ -1304,3 +1304,31 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   PostgreSQL/Redis. Los 401 anónimos comprueban ausencia de `errors`, no substrings del payload de
   autenticación. La evidencia monetaria PLACSP se formatea siempre con dos decimales en el texto
   citable.
+
+## 2026-07-17 · Prompt 43 · Inteligencia competitiva de contratación
+
+- Implementado un informe IA asíncrono `competitive_procurement.v1`, generado por el job durable
+  `oracle.competitive_procurement_report.generate` en la cola `ai` y protegido por el flujo común
+  de permisos, `Idempotency-Key`, reintentos, lease y auditoría.
+- El adjudicatario se elige únicamente entre denominaciones exactas presentes en adjudicaciones
+  fijadas al expediente. Estas referencias determinan el foco y las citas locales; el corpus
+  analítico procede de `awards(company=...)` paginado de Signal, con límite declarado de 1.000
+  filas y advertencia explícita si el proveedor ofrece más.
+- Oracle agrupa expedientes y calcula en Python concentración por organismo, distribución de
+  importes, cobertura de baja y frecuencia estimada de socios UTE. El modelo solo interpreta los
+  agregados congelados y recibe `task_key=competitive_procurement_intelligence`; Signal resuelve
+  proveedor, modelo, failover y coste. El informe expone proveedor/modelo realmente devueltos y
+  conserva prompt/version/hash en `AIAuditLog`.
+- La baja media y mediana solo se publican con al menos 80 % de expedientes comparables y una
+  muestra mínima de tres. En otro caso quedan a `null` y se informa N, denominador, motivos y sesgo
+  de supervivencia. Los socios UTE se etiquetan como heurística de confianza baja sobre `winner`
+  en texto libre, nunca como relaciones verificadas.
+- Medición read-only previa en producción para `ITURRI, S.A`: Signal informó 1.251 filas de
+  adjudicación; en una muestra de los 30 primeros `folder_id` únicos, los 30 lookups
+  `registry/tenders/{folder_id}` devolvieron 404. Cobertura observada: **0/30 (0 %)**. Esta
+  medición condiciona el diseño pero no equivale a un E2E del informe nuevo, que aún no está
+  desplegado ni tiene confirmada su `task_key` en Signal.
+- Checks locales: `scripts/api-test.sh --unit` correcto (**292 passed, 0 skipped; 107 tests de
+  integración excluidos**), `npm run lint`, `npm run typecheck`, `npx vitest run`
+  (**34 ficheros, 129 tests**), generación/comprobación del cliente OpenAPI y `npm run build`
+  correctos. No se ha ejecutado un E2E real del job ni se ha desplegado este cambio.

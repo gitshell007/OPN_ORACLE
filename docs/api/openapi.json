@@ -4570,6 +4570,56 @@
             },
             "type": "array"
           },
+          "generation": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "actual_cost_micros": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "estimated_cost_micros": {
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  "latency_ms": {
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  "model": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "prompt_name": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "prompt_version": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "provider": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model",
+                  "prompt_name",
+                  "prompt_version",
+                  "actual_cost_micros"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "generation_version": {
             "minimum": 1,
             "type": "integer"

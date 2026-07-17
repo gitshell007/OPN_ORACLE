@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   pin: vi.fn(),
   listPinned: vi.fn(),
   removePinned: vi.fn(),
+  listReports: vi.fn(),
+  generateReport: vi.fn(),
+  getJob: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => {
@@ -46,6 +49,11 @@ vi.mock("@oracle/api-client", () => {
         list: mocks.listPinned,
         remove: mocks.removePinned,
       },
+      reports: {
+        listDossier: mocks.listReports,
+        generate: mocks.generateReport,
+      },
+      jobs: { get: mocks.getJob },
     },
   };
 });
@@ -145,6 +153,19 @@ describe("UI de contratación pública", () => {
       ],
     });
     mocks.removePinned.mockResolvedValue({ deleted: true, id: "pin-1" });
+    mocks.listReports.mockResolvedValue({
+      data: [],
+      meta: { page: 1, size: 100, total: 0 },
+    });
+    mocks.getJob.mockResolvedValue({
+      id: "job-competitive-1",
+      status: "queued",
+      stage: "queued",
+      progress: 0,
+      version: 1,
+      retryable: true,
+      cancel_requested: false,
+    });
   });
 
   afterEach(() => {
@@ -304,5 +325,90 @@ describe("UI de contratación pública", () => {
     expect(screen.getByText("Organismo licitador")).toBeInTheDocument();
     expect(screen.getAllByText("Autoridad Portuaria de Barcelona")).not.toHaveLength(0);
     expect(screen.getByText("UTE · En consorcio")).toBeInTheDocument();
+  });
+
+  it("encola inteligencia competitiva con la denominación fijada y estado durable", async () => {
+    mocks.listPinned.mockResolvedValue({
+      data: [
+        {
+          id: "award-pin-competitive",
+          tenant_id: "tenant-1",
+          dossier_id: "dossier-1",
+          kind: "award",
+          folder_id: "EMERGENCIACR2026/671",
+          snapshot: {
+            title: "Suministro de emergencia",
+            buyer: "Consorcio de Emergencias",
+            winner: "ITURRI, S.A",
+            award_amount: 5000,
+            award_date: "2026-07-01",
+          },
+          source_url: "https://contrataciondelestado.es/award/1",
+          evidence_id: "evidence-award-1",
+          pinned_by_user_id: "user-1",
+          created_at: "2026-07-17T00:00:00Z",
+          updated_at: "2026-07-17T00:00:00Z",
+        },
+      ],
+    });
+    mocks.generateReport.mockResolvedValue({
+      report: {
+        id: "report-competitive-1",
+        dossier_id: "dossier-1",
+        title: "Inteligencia competitiva",
+        status: "draft",
+        report_type: "competitive_procurement",
+        template_key: "competitive_procurement",
+        template_version: "v1",
+        generation_version: 1,
+        classification: "internal",
+        confidentiality_label: "Uso interno",
+        job_id: "job-competitive-1",
+        parent_report_id: null,
+        ready_at: null,
+        reviewed_at: null,
+        published_at: null,
+        error_code: null,
+        generation: null,
+        version: 1,
+        revision: null,
+        artifacts: [],
+        reviews: [],
+        evidence: [],
+        created_at: "2026-07-17T00:00:00Z",
+        updated_at: "2026-07-17T00:00:00Z",
+      },
+      job_id: "job-competitive-1",
+      replayed: false,
+    });
+
+    render(<DossierProcurementSection dossierId="dossier-1" />);
+
+    expect(
+      await screen.findByRole("combobox", { name: /adjudicatario a analizar/i }),
+    ).toHaveValue("ITURRI, S.A");
+    fireEvent.click(
+      screen.getByRole("button", { name: /inteligencia competitiva/i }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.generateReport).toHaveBeenCalledWith(
+        "dossier-1",
+        {
+          template_key: "competitive_procurement",
+          options: expect.objectContaining({
+            company_name: "ITURRI, S.A",
+            formats: ["html", "json"],
+          }),
+        },
+        expect.stringMatching(/^competitive-procurement-dossier-1-/),
+      ),
+    );
+    expect(
+      await screen.findByText("Informe competitivo en segundo plano"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/puedes salir de esta pantalla/i),
+    ).toBeInTheDocument();
   });
 });
