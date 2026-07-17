@@ -368,3 +368,25 @@ def test_signal_governed_provider_normalizes_report_writer_shape_drift(
     assert result.output.sections[0].paragraphs[1].kind == "inference"
     assert result.output.sections[0].paragraphs[1].evidence_ids == []
     assert result.output.source_index == []
+
+
+def test_signal_output_parses_all_upstream_shapes() -> None:
+    """Signal reenvía la respuesta cruda del proveedor; hay tres formas posibles.
+
+    OpenRouter/OpenAI usa choices[0].message.content; sin esa rama, cambiar la task a
+    OpenRouter hacía fallar la lectura pese a un 200 real (regresión del 2026-07-17).
+    """
+    from opn_oracle.ai.provider import AIUnavailable, _signal_output
+
+    # Ollama chat
+    assert _signal_output({"result": {"message": {"content": '{"ok": true}'}}}) == '{"ok": true}'
+    # Ollama generate
+    assert _signal_output({"result": {"response": '{"ok": true}'}}) == '{"ok": true}'
+    # OpenRouter / OpenAI
+    openrouter = {"result": {"choices": [{"message": {"content": '{"ok": true}'}}]}}
+    assert _signal_output(openrouter) == '{"ok": true}'
+    # Sin contenido reconocible → error claro
+    import pytest
+
+    with pytest.raises(AIUnavailable):
+        _signal_output({"result": {"choices": []}})

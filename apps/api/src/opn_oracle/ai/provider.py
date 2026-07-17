@@ -951,9 +951,20 @@ def _signal_output(payload: dict[str, Any]) -> str:
     result_payload = payload.get("result")
     if not isinstance(result_payload, dict):
         raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
+    # Signal reenvía la respuesta cruda del proveedor upstream, y su forma cambia con
+    # el proveedor: Ollama devuelve `message.content` (chat) o `response` (generate),
+    # mientras que OpenRouter/OpenAI devuelve `choices[0].message.content`. Sin la rama
+    # OpenAI, cambiar la task a OpenRouter hacía que Oracle no encontrara el contenido y
+    # fallara con "AIUnavailable" pese a un 200 real del modelo.
     message = result_payload.get("message")
     output_payload = message.get("content") if isinstance(message, dict) else None
     output_payload = output_payload or result_payload.get("response")
+    if not isinstance(output_payload, str):
+        choices = result_payload.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            choice_message = choices[0].get("message")
+            if isinstance(choice_message, dict):
+                output_payload = choice_message.get("content")
     if not isinstance(output_payload, str):
         raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
     normalized = output_payload.strip()
