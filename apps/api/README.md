@@ -18,6 +18,29 @@ make typecheck
 make test
 ```
 
+Desde la raíz del repositorio, el comando reproducible para agentes y shells no interactivos es:
+
+```bash
+scripts/api-test.sh
+```
+
+El script usa `~/.local/bin/uv` si existe y solo después consulta el `PATH`; no depende de cargar
+`.zshrc`. Ejecuta `uv sync --frozen`, `uv lock --check`, Ruff, formato, mypy y `pytest` completo.
+Si no se han definido `ORACLE_RUN_INTEGRATION=1`, `TEST_DATABASE_URL`,
+`TEST_RUNTIME_DATABASE_URL` y `TEST_REDIS_URL`, intenta levantar PostgreSQL y Redis desechables con
+Docker. Sin Docker falla cerrado para no saltar integraciones ni rebajar cobertura.
+
+Para comprobar el trabajo antes de entregarlo en un entorno sin Docker:
+
+```bash
+scripts/api-test.sh --unit
+```
+
+Lint, formato, tipos y tests unitarios sin cobertura (el umbral `--cov-fail-under=84` cuenta con
+los de integración, así que exigirlo en una tirada parcial haría fallar una ejecución legítima).
+Avisa por `stderr` de que es parcial. No es el gate de release, pero los 12 tests en rojo que se
+entregaron el 2026-07-17 eran todos unitarios: este modo los habría detectado en tres segundos.
+
 `make test` ejecuta la batería aislada sin cobertura agregada porque los flujos de sesión/RLS
 solo son ejercitables con PostgreSQL y Redis reales. Con las variables de integración definidas,
 `make test-coverage` ejecuta la suite completa y exige el umbral configurado del 85 %.

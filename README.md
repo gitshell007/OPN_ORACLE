@@ -44,11 +44,25 @@ npm run build
 npm run test:e2e
 npm run quality:scan
 
-cd apps/api
-make lint
-make typecheck
-make test
+scripts/api-test.sh
 ```
+
+`scripts/api-test.sh` resuelve `uv` desde `~/.local/bin/uv` antes de consultar el `PATH`, por lo
+que funciona también en shells no interactivos que no cargan `.zshrc`. Si no se han definido
+`ORACLE_RUN_INTEGRATION=1`, `TEST_DATABASE_URL`, `TEST_RUNTIME_DATABASE_URL` y `TEST_REDIS_URL`,
+intenta levantar PostgreSQL y Redis desechables con Docker; sin Docker falla cerrado para no saltar
+integraciones ni cobertura.
+
+En un entorno sin Docker, antes de entregar trabajo, usa la comprobación rápida:
+
+```bash
+scripts/api-test.sh --unit
+```
+
+Ejecuta lint, formato, tipos y los tests unitarios sin umbral de cobertura, y avisa de que es
+parcial. **No sustituye al gate de release** —los tests de integración no se ejecutan y el release
+sigue exigiendo CI verde del SHA exacto— pero detecta la mayoría de las regresiones en segundos.
+Entregar código sin haber ejecutado al menos esto no es aceptable.
 
 Las pruebas de integración backend requieren PostgreSQL/Redis desechables y las variables descritas en [apps/api/README.md](apps/api/README.md).
 
