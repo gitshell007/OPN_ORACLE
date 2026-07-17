@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import pytest
@@ -79,6 +80,22 @@ def _assert_closed_schema_tree(node: Any, schemas: dict[str, Any], visited_refs:
         _assert_closed_schema_tree(value, schemas, visited_refs)
 
 
+def _decorator_lines(function: Any) -> list[str]:
+    try:
+        lines, _ = inspect.getsourcelines(inspect.unwrap(function))
+    except (OSError, TypeError):
+        return []
+    decorators: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("@"):
+            decorators.append(stripped)
+            continue
+        if stripped.startswith("def "):
+            break
+    return decorators
+
+
 @pytest.mark.unit
 def test_meta_contract(client: Any) -> None:
     response = client.get("/api/v1/meta")
@@ -142,6 +159,32 @@ def test_openapi_is_generated(app: Flask, client: Any) -> None:
             internal_error = operation["responses"]["500"]
             assert set(internal_error["content"]) == {"application/problem+json"}
     assert app.spec["info"]["title"] == "OPN Oracle API"
+
+
+@pytest.mark.unit
+def test_protected_input_routes_authorize_before_validation(app: Flask) -> None:
+    violations: list[str] = []
+
+    for rule in app.url_map.iter_rules():
+        view = app.view_functions[rule.endpoint]
+        decorators = _decorator_lines(view)
+        permission_positions = [
+            index
+            for index, decorator in enumerate(decorators)
+            if decorator.startswith("@require_permission(")
+        ]
+        input_positions = [
+            index
+            for index, decorator in enumerate(decorators)
+            if decorator.startswith("@bp.input(")
+        ]
+        if not permission_positions or not input_positions:
+            continue
+        if min(permission_positions) > min(input_positions):
+            methods = ",".join(sorted(rule.methods - {"HEAD", "OPTIONS"}))
+            violations.append(f"{methods} {rule.rule} ({rule.endpoint})")
+
+    assert violations == []
 
 
 @pytest.mark.unit

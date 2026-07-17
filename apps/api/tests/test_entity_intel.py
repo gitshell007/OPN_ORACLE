@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import httpx
 import pytest
 from flask import g
 
+from opn_oracle.auth import permissions
 from opn_oracle.extensions import db
 from opn_oracle.integrations import entity_intel, entity_intel_routes
 from opn_oracle.integrations.entity_intel import (
@@ -22,7 +25,46 @@ from opn_oracle.integrations.entity_intel import (
     person_name_variants,
     resolve_signal_external_tenant_id,
 )
-from opn_oracle.platform.models import IntegrationConnection
+from opn_oracle.platform.models import IntegrationConnection, User
+
+
+@contextmanager
+def _authenticated_http_probe(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    allowed_permissions: frozenset[str],
+) -> Iterator[None]:
+    """Use real HTTP dispatch while replacing only DB-backed session runtime."""
+
+    user = User(
+        id=uuid.uuid4(),
+        email="actor-reader@example.com",
+        display_name="Actor Reader",
+        status="active",
+    )
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(permissions, "current_user", user)
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: allowed_permissions,
+    )
+    before_request_funcs = app.before_request_funcs.get(None, [])
+    auth_index = next(
+        index
+        for index, function in enumerate(before_request_funcs)
+        if function.__name__ == "protect_csrf_and_install_identity"
+    )
+    original_auth_runtime = before_request_funcs[auth_index]
+
+    def install_test_identity() -> None:
+        g.active_tenant_id = tenant_id
+
+    before_request_funcs[auth_index] = install_test_identity
+    try:
+        yield
+    finally:
+        before_request_funcs[auth_index] = original_auth_runtime
 
 
 @pytest.mark.unit
@@ -334,6 +376,85 @@ def test_entity_intel_dossier_sends_external_tenant_and_accepts_degraded_section
     assert payload["sections"]["registry"]["ok"] is True
     assert payload["sections"]["graph"]["ok"] is False
     assert payload["cached_seconds"] == 600
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/entity-intel/suggest?q=ib&kind=company",
+        "/api/v1/entity-intel/graph?type=company",
+        "/api/v1/entity-intel/registry?type=company",
+        "/api/v1/entity-intel/dossier?type=company",
+    ],
+)
+def test_entity_intel_anonymous_invalid_queries_do_not_leak_schema(
+    client: Any,
+    path: str,
+) -> None:
+    response = client.get(path)
+    payload = response.get_json()
+
+    assert response.status_code == 401
+    assert response.headers["Content-Type"] == "application/problem+json"
+    assert response.headers.get("Location") is None
+    assert payload["code"] == "authentication_required"
+    assert "errors" not in payload
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/entity-intel/suggest?q=iturri&kind=company",
+        "/api/v1/entity-intel/graph?name=iturri&type=company",
+        "/api/v1/entity-intel/registry?name=iturri&type=company",
+        "/api/v1/entity-intel/dossier?name=iturri&type=company",
+    ],
+)
+def test_entity_intel_anonymous_valid_queries_still_require_auth(client: Any, path: str) -> None:
+    response = client.get(path)
+
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "authentication_required"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("path", "field"),
+    [
+        (
+            "/api/v1/entity-intel/suggest?q=ib&kind=company",
+            "q",
+        ),
+        (
+            "/api/v1/entity-intel/graph?type=company",
+            "name",
+        ),
+        (
+            "/api/v1/entity-intel/registry?type=company",
+            "name",
+        ),
+        (
+            "/api/v1/entity-intel/dossier?type=company",
+            "name",
+        ),
+    ],
+)
+def test_entity_intel_authenticated_invalid_queries_still_validate(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    field: str,
+) -> None:
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.read"})):
+        response = client.get(path)
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert "errors" in payload
+    assert field in str(payload["errors"])
 
 
 @pytest.mark.unit

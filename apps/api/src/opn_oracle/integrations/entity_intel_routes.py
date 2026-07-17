@@ -146,9 +146,9 @@ def _configuration_error_response(error: EntityIntelConfigurationError) -> Respo
 
 
 @bp.get("/suggest")
+@require_permission("actor.read")
 @bp.input(EntitySuggestQuerySchema, location="query")
 @bp.output(EntitySuggestResponseSchema)
-@require_permission("actor.read")
 @limiter.limit("60/minute")
 def suggest_entities(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
@@ -166,9 +166,9 @@ def suggest_entities(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.get("/graph")
+@require_permission("actor.read")
 @bp.input(EntityGraphQuerySchema, location="query")
 @bp.output(EntityGraphResponseSchema)
-@require_permission("actor.read")
 @limiter.limit("30/minute")
 def entity_graph(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
@@ -189,9 +189,9 @@ def entity_graph(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.get("/registry")
+@require_permission("actor.read")
 @bp.input(EntityRegistryQuerySchema, location="query")
 @bp.output(EntityRegistryResponseSchema)
-@require_permission("actor.read")
 @limiter.limit("30/minute")
 def entity_registry(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
@@ -210,9 +210,9 @@ def entity_registry(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.get("/dossier")
+@require_permission("actor.read")
 @bp.input(EntityDossierQuerySchema, location="query")
 @bp.output(EntityDossierResponseSchema)
-@require_permission("actor.read")
 @limiter.limit("15/minute")
 def entity_dossier(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)

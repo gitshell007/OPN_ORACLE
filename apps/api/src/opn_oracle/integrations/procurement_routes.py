@@ -299,9 +299,9 @@ def tenders(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.post("/tenders/<path:folder_id>/summary")
+@require_permission("opportunity.read")
 @bp.input(TenderSummaryPathSchema, location="path")
 @bp.output(TenderSummaryResponseSchema)
-@require_permission("opportunity.read")
 @limiter.limit("20/minute")
 def tender_summary(path_data: dict[str, Any]) -> dict[str, Any] | Any:
     return _handle_provider_call(
@@ -326,18 +326,18 @@ def tender_searches_list() -> dict[str, Any] | Any:
 
 
 @bp.post("/tender-searches")
+@require_permission("opportunity.write")
 @bp.input(TenderSearchPayloadSchema)
 @bp.output(TenderSearchResourceSchema, status_code=201)
-@require_permission("opportunity.write")
 @limiter.limit("30/minute")
 def tender_searches_create(json_data: dict[str, Any]) -> dict[str, Any] | Any:
     return _handle_provider_call(lambda: create_tender_search(payload=json_data))
 
 
 @bp.get("/tender-searches/<search_id>")
+@require_permission("opportunity.read")
 @bp.input(TenderSearchPathSchema, location="path")
 @bp.output(TenderSearchResourceSchema)
-@require_permission("opportunity.read")
 @limiter.limit("60/minute")
 def tender_searches_get(path_data: dict[str, Any]) -> dict[str, Any] | Any:
     return _handle_provider_call(
@@ -346,10 +346,10 @@ def tender_searches_get(path_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.patch("/tender-searches/<search_id>")
+@require_permission("opportunity.write")
 @bp.input(TenderSearchPathSchema, location="path")
 @bp.input(TenderSearchPatchSchema)
 @bp.output(TenderSearchResourceSchema)
-@require_permission("opportunity.write")
 @limiter.limit("30/minute")
 def tender_searches_patch(
     json_data: dict[str, Any],
@@ -364,9 +364,9 @@ def tender_searches_patch(
 
 
 @bp.delete("/tender-searches/<search_id>")
+@require_permission("opportunity.write")
 @bp.input(TenderSearchPathSchema, location="path")
 @bp.output(TenderSearchResourceSchema)
-@require_permission("opportunity.write")
 @limiter.limit("30/minute")
 def tender_searches_delete(path_data: dict[str, Any]) -> dict[str, Any] | Any:
     return _handle_provider_call(
@@ -375,10 +375,10 @@ def tender_searches_delete(path_data: dict[str, Any]) -> dict[str, Any] | Any:
 
 
 @bp.get("/tender-searches/<search_id>/run")
+@require_permission("opportunity.read")
 @bp.input(TenderSearchPathSchema, location="path")
 @bp.input(TenderSearchRunQuerySchema, location="query")
 @bp.output(TenderSearchRunSchema)
-@require_permission("opportunity.read")
 @limiter.limit("60/minute")
 def tender_searches_run(
     query_data: dict[str, Any],
