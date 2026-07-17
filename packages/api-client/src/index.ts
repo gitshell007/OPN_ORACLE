@@ -49,6 +49,7 @@ export type {
   EntityIntelGraphResponse,
   EntityIntelDossierResponse,
   EntityIntelKind,
+  EntityIntelReportJob,
   EntityIntelRegistryAct,
   EntityIntelRegistryProfile,
   EntityIntelRegistryResponse,

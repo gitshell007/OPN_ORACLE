@@ -18,13 +18,15 @@ import {
   type EntityIntelDossierResponse,
   type EntityIntelGraphResponse,
   type EntityIntelKind,
+  type EntityIntelReportJob,
   type EntityIntelRegistryAct,
   type EntityIntelRegistryProfile,
   type EntityIntelRegistryResponse,
 } from "@oracle/api-client";
-import { Building2, ExternalLink, Link2, RefreshCw, UserRound } from "lucide-react";
+import { Bot, Building2, ExternalLink, Link2, RefreshCw, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { JobProgress } from "@/components/reporting/job-progress";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
 import {
   latestRegistryStatuses,
@@ -312,6 +314,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
         profile={profile}
         type={type}
       />
+      <EntityReportControl entityName={dossier?.entity.name ?? name} type={type} />
 
       <section className="entity-dossier-header" aria-busy={loading}>
         <span className={`entity-kind-chip ${type}`}>
@@ -594,6 +597,186 @@ function LinkEntityToDossierControl({
             Añadir actor
           </button>
         </div>
+        {message && <small className="entity-link-ok">{message}</small>}
+        {error && <small className="entity-link-error" role="alert">{error}</small>}
+      </section>
+    </PermissionGate>
+  );
+}
+
+const RUNNING_JOB_STATUSES = new Set(["queued", "running", "retrying"]);
+
+function reportIntentKey(name: string, type: EntityIntelKind): string {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `entity-report:${type}:${name.slice(0, 80)}:${suffix}`;
+}
+
+function EntityReportControl({
+  entityName,
+  type,
+}: {
+  entityName: string;
+  type: EntityIntelKind;
+}) {
+  const [jobs, setJobs] = useState<EntityIntelReportJob[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
+  const [dossierId, setDossierId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [incorporating, setIncorporating] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadReports = useCallback(async () => {
+    if (!entityName.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [reportResult, dossierResult] = await Promise.all([
+        api.entityIntel.reports({ name: entityName, type, limit: 10 }),
+        api.dossiers.list({ page: 1, size: 100, sort: "-updated_at" }),
+      ]);
+      setJobs(reportResult.data);
+      setDossiers(dossierResult.data);
+      setDossierId((current) => current || dossierResult.data[0]?.id || "");
+      const running = reportResult.data.find((job) => RUNNING_JOB_STATUSES.has(job.status));
+      setActiveJobId(running?.id ?? null);
+    } catch (reason) {
+      setError(problemMessage(reason, "No se pudieron cargar los informes de esta entidad."));
+    } finally {
+      setLoading(false);
+    }
+  }, [entityName, type]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => void loadReports(), 0);
+    return () => window.clearTimeout(handle);
+  }, [loadReports]);
+
+  async function startReport() {
+    if (!entityName.trim()) return;
+    setGenerating(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await api.entityIntel.startReport(
+        { name: entityName, type },
+        reportIntentKey(entityName, type),
+      );
+      setActiveJobId(result.job_id);
+      setJobs((current) => [result.job as EntityIntelReportJob, ...current]);
+      setMessage("Informe encolado. Puede tardar varios minutos; puedes salir y volver.");
+    } catch (reason) {
+      setError(problemMessage(reason, "No se pudo lanzar el informe de entidad."));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function incorporate(jobId: string) {
+    if (!dossierId) return;
+    setIncorporating(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await api.entityIntel.incorporateReport(jobId, { dossier_id: dossierId });
+      setMessage(`Informe incorporado: ${result.report.title || "listo para revisar"}.`);
+      await loadReports();
+    } catch (reason) {
+      setError(problemMessage(reason, "No se pudo incorporar el informe al expediente."));
+    } finally {
+      setIncorporating(false);
+    }
+  }
+
+  const latestSucceeded = jobs.find((job) => job.status === "succeeded");
+  const pendingIncorporation = latestSucceeded && !latestSucceeded.result?.incorporated_report_id
+    ? latestSucceeded
+    : null;
+  const incorporated = jobs.find((job) => job.result?.incorporated_report_id);
+
+  return (
+    <PermissionGate permission="report.generate">
+      <section className="entity-link-card entity-report-card" aria-label="Informe IA de entidad">
+        <div>
+          <span className="section-kicker">Informe IA</span>
+          <h2>Informe de la entidad</h2>
+          <p>
+            Genera en segundo plano un análisis de perfil registral, BORME, grafo y noticias.
+            Puede tardar varios minutos; el resultado queda guardado para incorporarlo después.
+          </p>
+        </div>
+        <div className="entity-link-actions">
+          <button
+            type="button"
+            className="vector-primary"
+            disabled={loading || generating || Boolean(activeJobId)}
+            onClick={() => void startReport()}
+          >
+            {generating ? <RefreshCw size={14} /> : <Bot size={14} />}
+            Informe de la entidad
+          </button>
+          <button
+            type="button"
+            className="vector-secondary"
+            disabled={loading}
+            onClick={() => void loadReports()}
+          >
+            <RefreshCw size={14} />
+            Actualizar estado
+          </button>
+        </div>
+        {activeJobId && (
+          <JobProgress
+            jobId={activeJobId}
+            label="Generando informe de entidad"
+            allowActions
+            onTerminal={() => {
+              setActiveJobId(null);
+              void loadReports();
+            }}
+          />
+        )}
+        {pendingIncorporation && (
+          <div className="entity-report-incorporate">
+            <label>
+              <span>Expediente destino</span>
+              <select
+                value={dossierId}
+                disabled={incorporating || dossiers.length === 0}
+                onChange={(event) => setDossierId(event.target.value)}
+              >
+                {dossiers.length === 0 ? (
+                  <option value="">Sin expedientes activos</option>
+                ) : (
+                  dossiers.map((dossier) => (
+                    <option key={dossier.id} value={dossier.id}>
+                      {dossier.title || "Expediente sin título"}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="vector-primary"
+              disabled={incorporating || !dossierId}
+              onClick={() => void incorporate(pendingIncorporation.id)}
+            >
+              {incorporating ? <RefreshCw size={14} /> : <Link2 size={14} />}
+              Incorporar a expediente
+            </button>
+          </div>
+        )}
+        {incorporated && (
+          <small className="entity-link-ok">
+            Informe ya incorporado a un expediente. Puedes consultarlo en la biblioteca de informes.
+          </small>
+        )}
         {message && <small className="entity-link-ok">{message}</small>}
         {error && <small className="entity-link-error" role="alert">{error}</small>}
       </section>

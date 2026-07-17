@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   registry: vi.fn(),
   suggest: vi.fn(),
   graph: vi.fn(),
+  reports: vi.fn(),
+  startReport: vi.fn(),
+  incorporateReport: vi.fn(),
   dossiersList: vi.fn(),
   attachActor: vi.fn(),
 }));
@@ -36,6 +39,9 @@ vi.mock("@oracle/api-client", () => {
         registry: mocks.registry,
         suggest: mocks.suggest,
         graph: mocks.graph,
+        reports: mocks.reports,
+        startReport: mocks.startReport,
+        incorporateReport: mocks.incorporateReport,
       },
     },
   };
@@ -43,6 +49,14 @@ vi.mock("@oracle/api-client", () => {
 
 vi.mock("@/components/auth/auth-boundary", () => ({
   PermissionGate: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("@/components/reporting/job-progress", () => ({
+  JobProgress: ({ label, onTerminal }: { label?: string; onTerminal?: (job: unknown) => void }) => (
+    <button type="button" onClick={() => onTerminal?.({ status: "succeeded" })}>
+      {label || "Proceso"}
+    </button>
+  ),
 }));
 
 vi.mock("cytoscape", () => ({ default: Object.assign(vi.fn(() => ({
@@ -123,6 +137,15 @@ describe("EntityDossier", () => {
     mocks.suggest.mockResolvedValue({ suggestions: [], kind: "company", cached_seconds: 600, cache_hit: false });
     mocks.registry.mockResolvedValue({ items: [], total: 0, cached_seconds: 600, cache_hit: false });
     mocks.graph.mockResolvedValue({ nodes: [], edges: [], truncated: false, cached_seconds: 600, cache_hit: false });
+    mocks.reports.mockResolvedValue({ data: [] });
+    mocks.startReport.mockResolvedValue({
+      job_id: "job-1",
+      job: { id: "job-1", status: "queued", result: {}, version: 1 },
+    });
+    mocks.incorporateReport.mockResolvedValue({
+      report: { id: "report-1", title: "Informe de entidad" },
+      job: { id: "job-1", status: "succeeded", result: { incorporated_report_id: "report-1" }, version: 2 },
+    });
     mocks.dossiersList.mockResolvedValue({
       data: [{ id: "dossier-1", title: "Expediente ITURRI", updated_at: "2026-07-17" }],
     });
@@ -208,6 +231,40 @@ describe("EntityDossier", () => {
       }),
     ));
     expect(await screen.findByText(/Entidad vinculada al expediente/i)).toBeInTheDocument();
+  });
+
+  it("lanza el informe IA de entidad con idempotency-key de intento", async () => {
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Informe de la entidad$/i }));
+
+    await waitFor(() => expect(mocks.startReport).toHaveBeenCalledWith(
+      { name: "IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA", type: "company" },
+      expect.stringMatching(/^entity-report:company:/),
+    ));
+    expect(await screen.findByText(/Informe encolado/i)).toBeInTheDocument();
+  });
+
+  it("incorpora un informe de entidad terminado a un expediente", async () => {
+    mocks.reports.mockResolvedValue({
+      data: [
+        {
+          id: "job-1",
+          status: "succeeded",
+          result: { output: { title: "Informe de entidad" } },
+          version: 1,
+        },
+      ],
+    });
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Incorporar a expediente/i }));
+
+    await waitFor(() => expect(mocks.incorporateReport).toHaveBeenCalledWith(
+      "job-1",
+      { dossier_id: "dossier-1" },
+    ));
+    expect(await screen.findByText(/Informe incorporado/i)).toBeInTheDocument();
   });
 
   it("carga una página adicional del histórico si hay paginación", async () => {

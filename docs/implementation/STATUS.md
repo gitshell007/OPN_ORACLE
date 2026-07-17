@@ -1342,3 +1342,24 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   integración excluidos**), `npm run lint`, `npm run typecheck`, `npx vitest run`
   (**34 ficheros, 129 tests**), generación/comprobación del cliente OpenAPI y `npm run build`
   correctos. No se ha ejecutado un E2E real del job ni se ha desplegado este cambio.
+
+## 2026-07-17 · Prompt 45 · Informe IA de entidad
+
+- Implementado el flujo asíncrono `oracle.entity_dossier_report.generate` en cola `ai`: la ficha
+  agregada de Signal (`EntityIntelClient.dossier`) se captura una vez, Oracle calcula conteos de
+  actos, nodos, aristas, fechas y noticias en Python, y el modelo recibe solo la `task_key`
+  `entity_dossier_intelligence` para redactar/interpretar.
+- Decisión D-035: antes de elegir expediente, el informe vive en un área de espera tenant+entidad
+  dentro de `BackgroundJob.result_ref` y `AIAuditLog` con `dossier_id=NULL`. Al incorporar se crea
+  un `Report` normal de expediente, se crea el `AIArtifact`, se actualiza la auditoría y se
+  materializa la entidad como Actor interno mediante el flujo existente de alta de actor externo.
+- El prompt `entity_dossier_intelligence/v1` y el template `entity_intelligence.v1` declaran límites
+  obligatorios: fechas BORME de publicación, homónimos no desambiguados, grafo sin capital ni
+  porcentajes, y noticias potencialmente no exactas. Los párrafos del informe separan hechos,
+  inferencias, recomendaciones y decisiones mediante `ReportOutput`.
+- Vector añade el botón «Informe de la entidad» en la ficha 360º. El estado se muestra con
+  `JobProgress`, permite cancelar/reintentar, avisa de que puede tardar minutos y, al terminar,
+  ofrece selector de expediente para incorporar sin perder el resultado si el usuario sale y vuelve.
+- Pendiente operativo: registrar/confirmar en Signal la `task_key`
+  `entity_dossier_intelligence`. No se ha tocado el repositorio de Signal ni se han cableado
+  proveedores/modelos en Oracle.

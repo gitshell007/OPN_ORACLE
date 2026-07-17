@@ -79,6 +79,10 @@
   Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer `opn-oracle`,
   con salida JSON estructurada y los límites/failover/coste que decida el responsable. Oracle no
   cablea proveedores ni modelos para esta tarea y no se ha modificado el repositorio de Signal.
+- Pendiente antes del E2E productivo del Prompt 45: confirmar o registrar en el administrador de
+  Signal la `task_key` **`entity_dossier_intelligence`** para el consumer `opn-oracle`, con salida
+  JSON estructurada `ReportOutput/v1`, tolerancia a ejecuciones de minutos y límites/failover/coste
+  definidos en Signal. Oracle solo envía la `task_key`; no cablea proveedor ni modelo.
 
 ## IA y compliance
 

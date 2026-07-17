@@ -187,6 +187,10 @@
 .entity-link-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 9px; }
 .entity-link-actions label { display: grid; gap: 5px; color: var(--va-muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .entity-link-actions select { min-width: 240px; min-height: 34px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); padding: 0 8px; text-transform: none; }
+.entity-report-card .job-progress, .entity-report-incorporate { grid-column: 1 / -1; }
+.entity-report-incorporate { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; border-top: 1px solid var(--va-border); padding-top: 12px; }
+.entity-report-incorporate label { display: grid; gap: 5px; color: var(--va-muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.entity-report-incorporate select { min-width: 260px; min-height: 34px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); padding: 0 8px; text-transform: none; }
 .entity-link-ok, .entity-link-error { grid-column: 1 / -1; font-size: 11px; font-weight: 750; }
 .entity-link-ok { color: #087255; }
 .entity-link-error { color: #ad2f2f; }

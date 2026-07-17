@@ -365,8 +365,7 @@ const platform = {
     ]);
     return { live, ready, meta };
   },
-  backups: () =>
-    request<PlatformBackupList>("/api/v1/platform/backups"),
+  backups: () => request<PlatformBackupList>("/api/v1/platform/backups"),
   createBackup: () =>
     request<PlatformBackupAction>("/api/v1/platform/backups", {
       method: "POST",
@@ -511,9 +510,7 @@ const signalAvanza = {
       observed_status: string;
       last_synced_at: string | null;
       last_error: string | null;
-    }>(
-      `/api/v1/signal-monitors/${encodeURIComponent(monitorId)}/health`,
-    ),
+    }>(`/api/v1/signal-monitors/${encodeURIComponent(monitorId)}/health`),
   monitors: (dossierId: string) =>
     request<{
       items: Array<{
@@ -525,29 +522,26 @@ const signalAvanza = {
         last_synced_at: string | null;
         last_error: string | null;
       }>;
-    }>(`/api/v1/dossiers/${encodeURIComponent(dossierId)}/signal-monitors`).then(
-      ({ items }) => ({
-        data: items.map((item) => ({
-          ...item,
-          tenant_id: "",
-          watchlist_id: "",
-          provider: "signal-avanza",
-          status: (item.observed_status === "error"
-            ? "error"
-            : item.desired_status === "paused"
-              ? "paused"
-              : "active") as SignalMonitor["status"],
-          cursor: null,
-          next_sync_at: null,
-          last_sync_attempt_at: null,
-          version: 1,
-        })),
-      }),
-    ),
-  createMonitor: (
-    dossierId: string,
-    input: CreateSignalMonitorInput,
-  ) =>
+    }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/signal-monitors`,
+    ).then(({ items }) => ({
+      data: items.map((item) => ({
+        ...item,
+        tenant_id: "",
+        watchlist_id: "",
+        provider: "signal-avanza",
+        status: (item.observed_status === "error"
+          ? "error"
+          : item.desired_status === "paused"
+            ? "paused"
+            : "active") as SignalMonitor["status"],
+        cursor: null,
+        next_sync_at: null,
+        last_sync_attempt_at: null,
+        version: 1,
+      })),
+    })),
+  createMonitor: (dossierId: string, input: CreateSignalMonitorInput) =>
     request<{ id: string; outbox_event_id: string }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/signal-monitors`,
       {
@@ -561,10 +555,7 @@ const signalAvanza = {
       `/api/v1/integrations/signal-avanza/${encodeURIComponent(connectionId)}/reconcile`,
       { method: "POST" },
     ),
-  action: (
-    monitorId: string,
-    action: "pause" | "resume" | "sync",
-  ) =>
+  action: (monitorId: string, action: "pause" | "resume" | "sync") =>
     request<{ job_id?: string; status?: string; desired_status?: string }>(
       `/api/v1/signal-monitors/${encodeURIComponent(monitorId)}/${action}`,
       {
@@ -582,7 +573,14 @@ export interface OracleDocument {
   byte_size: number;
   checksum: string;
   classification: "public" | "internal";
-  status: "uploaded" | "queued" | "processing" | "ready" | "failed" | "quarantined" | "deleted";
+  status:
+    | "uploaded"
+    | "queued"
+    | "processing"
+    | "ready"
+    | "failed"
+    | "quarantined"
+    | "deleted";
   scan_status: string;
   scan_result: Record<string, unknown>;
   safe_error_code: string | null;
@@ -651,12 +649,12 @@ const dossiers = {
     if (input.search?.trim()) query.set("filter[search]", input.search.trim());
     if (input.selectedIds?.length)
       query.set("filter[selected_ids]", input.selectedIds.join(","));
-    return request<DossierListResult>(
-      `/api/v1/dossiers?${query.toString()}`,
-    );
+    return request<DossierListResult>(`/api/v1/dossiers?${query.toString()}`);
   },
   get: (dossierId: string) =>
-    request<BackendDossier>(`/api/v1/dossiers/${encodeURIComponent(dossierId)}`),
+    request<BackendDossier>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}`,
+    ),
   create: (input: components["schemas"]["DossierCreateInput"]) =>
     request<components["schemas"]["DossierResource"]>("/api/v1/dossiers", {
       method: "POST",
@@ -667,11 +665,14 @@ const dossiers = {
     input: components["schemas"]["DossierPatchInput"],
     version: number,
   ) =>
-    request<BackendDossier>(`/api/v1/dossiers/${encodeURIComponent(dossierId)}`, {
-      method: "PATCH",
-      body: input,
-      ifMatch: version,
-    }),
+    request<BackendDossier>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: version,
+      },
+    ),
   archive: (dossierId: string, version: number) =>
     request<BackendDossier>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/archive`,
@@ -720,11 +721,9 @@ const oracleSummary = {
 
 export type DossierSignalEnvelope =
   components["schemas"]["DossierSignalEnvelope"];
-export type DossierSignalLink =
-  components["schemas"]["DossierSignalResource"];
+export type DossierSignalLink = components["schemas"]["DossierSignalResource"];
 export type OracleSignal = components["schemas"]["SignalResource"];
-export type OracleOpportunity =
-  components["schemas"]["OpportunityResource"];
+export type OracleOpportunity = components["schemas"]["OpportunityResource"];
 export type OracleRisk = components["schemas"]["RiskResource"];
 export type OracleEvidence = components["schemas"]["EvidenceResource"];
 export type OracleObjective = components["schemas"]["ObjectiveResource"];
@@ -806,12 +805,19 @@ const objectives = {
     request<DossierResourcePage<OracleObjective>>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/objectives?${dossierResourceQuery(input)}`,
     ),
-  create: (dossierId: string, input: components["schemas"]["ObjectiveWriteInput"]) =>
+  create: (
+    dossierId: string,
+    input: components["schemas"]["ObjectiveWriteInput"],
+  ) =>
     request<OracleObjective>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/objectives`,
       { method: "POST", body: input },
     ),
-  update: (id: string, input: components["schemas"]["ObjectiveWriteInput"], version: number) =>
+  update: (
+    id: string,
+    input: components["schemas"]["ObjectiveWriteInput"],
+    version: number,
+  ) =>
     request<OracleObjective>(`/api/v1/objectives/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: input,
@@ -824,12 +830,19 @@ const hypotheses = {
     request<DossierResourcePage<OracleHypothesis>>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/hypotheses?${dossierResourceQuery(input)}`,
     ),
-  create: (dossierId: string, input: components["schemas"]["HypothesisWriteInput"]) =>
+  create: (
+    dossierId: string,
+    input: components["schemas"]["HypothesisWriteInput"],
+  ) =>
     request<OracleHypothesis>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/hypotheses`,
       { method: "POST", body: input },
     ),
-  update: (id: string, input: components["schemas"]["HypothesisWriteInput"], version: number) =>
+  update: (
+    id: string,
+    input: components["schemas"]["HypothesisWriteInput"],
+    version: number,
+  ) =>
     request<OracleHypothesis>(`/api/v1/hypotheses/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: input,
@@ -903,10 +916,7 @@ const risks = {
     ),
   get: (resourceId: string) =>
     request<OracleRisk>(`/api/v1/risks/${encodeURIComponent(resourceId)}`),
-  create: (
-    dossierId: string,
-    input: components["schemas"]["RiskWriteInput"],
-  ) =>
+  create: (dossierId: string, input: components["schemas"]["RiskWriteInput"]) =>
     request<OracleRisk>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/risks`,
       { method: "POST", body: input },
@@ -925,7 +935,8 @@ const risks = {
 };
 
 export type OracleMeeting = components["schemas"]["MeetingResource"];
-export type MeetingCompleteInput = components["schemas"]["MeetingCompleteInput"];
+export type MeetingCompleteInput =
+  components["schemas"]["MeetingCompleteInput"];
 export type MeetingCompleteResponse =
   components["schemas"]["MeetingCompleteResponse"];
 export type OracleTask = components["schemas"]["TaskResource"];
@@ -955,14 +966,16 @@ const productHome = {
 };
 
 const changes = {
-  list: (input: {
-    page?: number;
-    size?: number;
-    dossierId?: string;
-    type?: string;
-    since?: string;
-    search?: string;
-  } = {}) => {
+  list: (
+    input: {
+      page?: number;
+      size?: number;
+      dossierId?: string;
+      type?: string;
+      since?: string;
+      search?: string;
+    } = {},
+  ) => {
     const query = new URLSearchParams({
       "page[number]": String(input.page ?? 1),
       "page[size]": String(input.size ?? 10),
@@ -1042,11 +1055,14 @@ const meetings = {
     input: components["schemas"]["MeetingWriteInput"],
     version: number,
   ) =>
-    request<OracleMeeting>(`/api/v1/meetings/${encodeURIComponent(meetingId)}`, {
-      method: "PATCH",
-      body: input,
-      ifMatch: version,
-    }),
+    request<OracleMeeting>(
+      `/api/v1/meetings/${encodeURIComponent(meetingId)}`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: version,
+      },
+    ),
   complete: (
     meetingId: string,
     input: MeetingCompleteInput,
@@ -1086,10 +1102,7 @@ const tasks = {
     request<DossierResourcePage<OracleTask>>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/tasks?${dossierResourceQuery(input)}`,
     ),
-  create: (
-    dossierId: string,
-    input: components["schemas"]["TaskWriteInput"],
-  ) =>
+  create: (dossierId: string, input: components["schemas"]["TaskWriteInput"]) =>
     request<OracleTask>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/tasks`,
       { method: "POST", body: input },
@@ -1155,7 +1168,7 @@ const actors = {
     request<OracleDossierActor>(
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
-  ),
+    ),
 };
 
 const entityIntel = {
@@ -1210,6 +1223,34 @@ const entityIntel = {
       `/api/v1/entity-intel/graph?${query.toString()}`,
     );
   },
+  reports: (input: {
+    name: string;
+    type?: EntityIntelKind;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams({
+      name: input.name,
+      type: input.type ?? "company",
+      limit: String(input.limit ?? 10),
+    });
+    return request<EntityIntelReportListResponse>(
+      `/api/v1/entity-intel/reports?${query.toString()}`,
+    );
+  },
+  startReport: (
+    input: { name: string; type?: EntityIntelKind },
+    idempotencyKey: string,
+  ) =>
+    request<EntityIntelReportCreateResponse>("/api/v1/entity-intel/reports", {
+      method: "POST",
+      body: { name: input.name, type: input.type ?? "company" },
+      idempotencyKey,
+    }),
+  incorporateReport: (jobId: string, input: { dossier_id: string }) =>
+    request<EntityIntelReportIncorporateResponse>(
+      `/api/v1/entity-intel/reports/${encodeURIComponent(jobId)}/incorporate`,
+      { method: "POST", body: input },
+    ),
 };
 
 const decisions = {
@@ -1363,6 +1404,27 @@ export interface EntityIntelGraphResponse {
   cache_hit: boolean;
 }
 
+export type JobResponse = components["schemas"]["JobResponse"];
+
+export interface EntityIntelReportJob extends JobResponse {
+  entity?: string | null;
+  entity_key?: string | null;
+}
+
+export interface EntityIntelReportListResponse {
+  data: EntityIntelReportJob[];
+}
+
+export interface EntityIntelReportCreateResponse {
+  job_id: string;
+  job: JobResponse;
+}
+
+export interface EntityIntelReportIncorporateResponse {
+  report: OracleReport;
+  job: JobResponse;
+}
+
 export interface ProcurementTenderFilters {
   cpv?: string | null;
   min_amount?: number | null;
@@ -1456,7 +1518,8 @@ export interface ProcurementAwardsResponse {
 }
 
 export type ProcurementStatsResponse = components["schemas"]["StatsResponse"];
-export type TenderSearchResource = components["schemas"]["TenderSearchResource"];
+export type TenderSearchResource =
+  components["schemas"]["TenderSearchResource"];
 export type TenderSearchPayload = components["schemas"]["TenderSearchPayload"];
 export type TenderSearchPatch = components["schemas"]["TenderSearchPatch"];
 
@@ -1571,7 +1634,10 @@ const procurement = {
       `/api/v1/procurement/tender-searches/${encodeURIComponent(searchId)}`,
       { method: "DELETE" },
     ),
-  runSearch: (searchId: string, input: { limit?: number; offset?: number } = {}) => {
+  runSearch: (
+    searchId: string,
+    input: { limit?: number; offset?: number } = {},
+  ) => {
     const query = new URLSearchParams({
       limit: String(input.limit ?? 25),
       offset: String(input.offset ?? 0),
@@ -1716,10 +1782,11 @@ const exportsApi = {
     input: components["schemas"]["ExportCreateInput"],
     idempotencyKey: string,
   ) =>
-    request<components["schemas"]["ExportEnqueueResponse"]>(
-      "/api/v1/exports",
-      { method: "POST", body: input, idempotencyKey },
-    ),
+    request<components["schemas"]["ExportEnqueueResponse"]>("/api/v1/exports", {
+      method: "POST",
+      body: input,
+      idempotencyKey,
+    }),
   get: (id: string) =>
     request<OracleExport>(`/api/v1/exports/${encodeURIComponent(id)}`),
   downloadLink: (id: string) =>
@@ -1738,7 +1805,11 @@ const documents = {
     request<OracleDocument>(
       `/api/v1/documents/${encodeURIComponent(documentId)}`,
     ),
-  upload: (dossierId: string, file: File, classification: "public" | "internal") => {
+  upload: (
+    dossierId: string,
+    file: File,
+    classification: "public" | "internal",
+  ) => {
     const body = new FormData();
     body.set("file", file);
     body.set("classification", classification);
@@ -1760,7 +1831,12 @@ const documents = {
     request<void>(`/api/v1/documents/${encodeURIComponent(documentId)}`, {
       method: "DELETE",
     }),
-  createEvidence: (documentId: string, chunkId: string, start: number, end: number) =>
+  createEvidence: (
+    documentId: string,
+    chunkId: string,
+    start: number,
+    end: number,
+  ) =>
     request<{ id: string; extract: string; locator: Record<string, unknown> }>(
       `/api/v1/documents/${encodeURIComponent(documentId)}/create-evidence`,
       { method: "POST", body: { chunk_id: chunkId, start, end } },

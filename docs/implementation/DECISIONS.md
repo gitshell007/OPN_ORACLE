@@ -487,3 +487,23 @@
 - **Consecuencias:** la UI abandona la decisión previa de atenuar nodos fuera de rango. La leyenda y
   `STATUS.md` deben hablar de ocultación, no de atenuación. En grafos densos se prioriza exploración
   por pan sobre “verlo todo” comprimido.
+
+## D-035 — Área de espera para informes IA de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** el informe de una entidad se solicita desde la ficha global de Actores y el
+  responsable quiere elegir el expediente destino solo cuando la generación termine. A la vez,
+  `Report.dossier_id` y `AIArtifact.dossier_id` son no-null y forman parte de constraints y claves
+  de informes de expediente.
+- **Decisión:** no se hace nullable `Report.dossier_id` y no se fuerza elegir expediente al lanzar.
+  El job `oracle.entity_dossier_report.generate` crea un artefacto de espera tenant+entidad: salida
+  `ReportOutput`, métricas calculadas en Python, hash de corpus y `AIAuditLog` con `dossier_id=NULL`
+  guardados en `BackgroundJob.result_ref`. Al incorporar, Oracle materializa un `Report` normal del
+  expediente elegido, crea el `AIArtifact` ya con `dossier_id`, actualiza la auditoría con el
+  expediente y materializa la entidad externa como Actor interno usando el flujo del prompt 44.
+- **Consecuencias:** el informe no se pierde si el usuario abandona la ficha antes de elegir
+  expediente, y el esquema de reporting conserva su invariante de informes siempre asociados a un
+  expediente. La primera versión permite una única incorporación por job porque `AIArtifact` es
+  único por `audit_log_id`; si producto necesita reutilizar el mismo análisis en varios expedientes,
+  deberá versionarse un flujo de copia/materialización separado.
