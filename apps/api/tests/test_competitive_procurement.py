@@ -3,10 +3,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from opn_oracle.ai.registry import PromptRegistry
 from opn_oracle.integrations.procurement import ProcurementProviderError
 from opn_oracle.oracle.competitive_procurement import (
     COMPETITIVE_PROCUREMENT_AGENT,
+    PAGE_THROTTLE_SECONDS,
+    RATE_LIMIT_MAX_RETRIES,
     build_competitive_procurement_analysis,
     fetch_award_history,
     pinned_award_winners,
@@ -59,11 +63,13 @@ def test_fetch_award_history_paginates_and_declares_cap() -> None:
         {},
     )
 
+    naps: list[float] = []
     history = fetch_award_history(
         client,
         company_name="ITURRI, S.A",
         max_rows=5,
         page_size=2,
+        sleeper=naps.append,
     )
 
     assert len(history.rows) == 5
@@ -75,6 +81,88 @@ def test_fetch_award_history_paginates_and_declares_cap() -> None:
         ("ITURRI, S.A", 2, 2),
         ("ITURRI, S.A", 1, 4),
     ]
+    # Ritmo entre páginas: una pausa tras cada página que no cierra el corpus.
+    assert naps == [PAGE_THROTTLE_SECONDS, PAGE_THROTTLE_SECONDS]
+
+
+class RateLimitedClient(FakeProcurementClient):
+    """Devuelve 429 en las primeras `flaky` llamadas de cada offset nuevo."""
+
+    def __init__(self, rows: list[dict[str, Any]], flaky: int) -> None:
+        super().__init__(rows, {})
+        self.flaky = flaky
+        self.failures: dict[int, int] = {}
+
+    def awards(
+        self, *, company: str | None, buyer: str | None, limit: int, offset: int
+    ) -> dict[str, Any]:
+        served = self.failures.get(offset, 0)
+        if served < self.flaky:
+            self.failures[offset] = served + 1
+            raise ProcurementProviderError(
+                status_code=429,
+                code="rate_limited",
+                detail="Too Many Requests",
+                retryable=True,
+            )
+        return super().awards(company=company, buyer=buyer, limit=limit, offset=offset)
+
+
+def test_fetch_award_history_waits_out_429_within_the_page_loop() -> None:
+    client = RateLimitedClient([{"folder_id": f"F-{index}"} for index in range(4)], flaky=2)
+    naps: list[float] = []
+
+    history = fetch_award_history(
+        client,
+        company_name="ITURRI, S.A",
+        max_rows=4,
+        page_size=2,
+        sleeper=naps.append,
+    )
+
+    # El 429 se resuelve en el mismo offset: el corpus se completa sin reiniciar el job.
+    assert len(history.rows) == 4
+    # Backoff creciente por cada 429 (dos por página), más el ritmo entre páginas.
+    assert naps == [1.5, 3.0, PAGE_THROTTLE_SECONDS, 1.5, 3.0]
+
+
+def test_fetch_award_history_gives_up_after_persistent_429() -> None:
+    client = RateLimitedClient([{"folder_id": "F-0"}], flaky=99)
+    naps: list[float] = []
+
+    with pytest.raises(ProcurementProviderError) as excinfo:
+        fetch_award_history(
+            client,
+            company_name="ITURRI, S.A",
+            max_rows=1,
+            page_size=1,
+            sleeper=naps.append,
+        )
+
+    assert excinfo.value.status_code == 429
+    assert len(naps) == RATE_LIMIT_MAX_RETRIES
+
+
+def test_fetch_award_history_does_not_swallow_other_provider_errors() -> None:
+    class BrokenClient(FakeProcurementClient):
+        def awards(self, **kwargs: Any) -> dict[str, Any]:
+            raise ProcurementProviderError(
+                status_code=503,
+                code="unavailable",
+                detail="Signal no está disponible temporalmente.",
+                retryable=True,
+            )
+
+    naps: list[float] = []
+    with pytest.raises(ProcurementProviderError) as excinfo:
+        fetch_award_history(
+            BrokenClient([], {}),
+            company_name="ITURRI, S.A",
+            sleeper=naps.append,
+        )
+
+    assert excinfo.value.status_code == 503
+    assert naps == []
 
 
 def test_aggregates_are_python_calculated_and_low_discount_coverage_is_suppressed() -> None:

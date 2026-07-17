@@ -10,8 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -28,6 +29,16 @@ AWARD_PAGE_SIZE = 100
 MAX_AWARD_ROWS = 1_000
 MIN_DISCOUNT_COVERAGE = Decimal("0.80")
 MIN_DISCOUNT_SAMPLE = 3
+
+# El corpus completo son ~11 páginas seguidas contra Signal, y su rate limit salta con
+# ráfagas (429 observado en producción con tres peticiones en 100 ms). El 429 se maneja
+# DENTRO del bucle de paginación: si se dejara subir, Celery reintentaría el job entero
+# desde la página cero, quemando el presupuesto de peticiones en cada reintento sin
+# poder terminar jamás.
+PAGE_THROTTLE_SECONDS = 0.35
+RATE_LIMIT_STATUS = 429
+RATE_LIMIT_MAX_RETRIES = 6
+RATE_LIMIT_BACKOFF_CAP_SECONDS = 30.0
 
 _MONEY_QUANTUM = Decimal("0.01")
 _PERCENT_QUANTUM = Decimal("0.1")
@@ -152,6 +163,7 @@ def fetch_award_history(
     company_name: str,
     max_rows: int = MAX_AWARD_ROWS,
     page_size: int = AWARD_PAGE_SIZE,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> AwardHistory:
     """Page awards until Signal is exhausted or the declared cap is reached."""
 
@@ -161,12 +173,22 @@ def fetch_award_history(
     offset = 0
     while len(rows) < max_rows:
         limit = min(page_size, max_rows - len(rows))
-        payload = client.awards(
-            company=company_name,
-            buyer=None,
-            limit=limit,
-            offset=offset,
-        )
+        rate_limited = 0
+        while True:
+            try:
+                payload = client.awards(
+                    company=company_name,
+                    buyer=None,
+                    limit=limit,
+                    offset=offset,
+                )
+                break
+            except ProcurementProviderError as error:
+                status = getattr(error, "status_code", None)
+                if status != RATE_LIMIT_STATUS or rate_limited >= RATE_LIMIT_MAX_RETRIES:
+                    raise
+                rate_limited += 1
+                sleeper(min(1.5 * 2 ** (rate_limited - 1), RATE_LIMIT_BACKOFF_CAP_SECONDS))
         page = payload.get("items")
         if not isinstance(page, list):
             raise ValueError("Signal devolvió adjudicaciones con un formato inesperado.")
@@ -177,6 +199,8 @@ def fetch_award_history(
         offset += len(page)
         if not page or len(page) < limit or offset >= provider_total:
             break
+        if len(rows) < max_rows:
+            sleeper(PAGE_THROTTLE_SECONDS)
     return AwardHistory(
         rows=tuple(rows[:max_rows]),
         provider_total=provider_total,
