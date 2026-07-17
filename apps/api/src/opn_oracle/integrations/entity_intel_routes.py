@@ -7,16 +7,20 @@ mapping server-side.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, cast
 
 from apiflask import APIBlueprint, Schema
 from apiflask.fields import Boolean, Dict, Integer, List, Raw, String
-from flask import Response, g
+from flask import Response, g, request
+from flask_login import current_user
 from marshmallow import validate
+from sqlalchemy import select
 
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
-from opn_oracle.extensions import limiter
+from opn_oracle.common.request_context import get_correlation_id, get_request_id
+from opn_oracle.extensions import db, limiter
 from opn_oracle.integrations.entity_intel import (
     EntityIntelConfigurationError,
     EntityIntelProviderError,
@@ -26,6 +30,16 @@ from opn_oracle.integrations.entity_intel import (
     cached_suggest,
     resolve_signal_external_tenant_id,
 )
+from opn_oracle.jobs.service import serialize_job
+from opn_oracle.oracle.entity_dossier_report import (
+    ENTITY_DOSSIER_REPORT_JOB,
+    enqueue_entity_dossier_report,
+    entity_key,
+    incorporate_entity_dossier_report,
+    serialize_entity_report_job,
+)
+from opn_oracle.oracle.jobs import BackgroundJob
+from opn_oracle.reporting.service import ReportWorkflowError, serialize_report
 
 bp = APIBlueprint(
     "entity_intel",
@@ -98,6 +112,19 @@ class EntityDossierResponseSchema(Schema):
     sections = Dict(keys=String(), values=Raw(), required=True)
     cached_seconds = Integer(required=True)
     cache_hit = Boolean(required=True)
+
+
+class EntityReportRequestSchema(Schema):
+    name = String(required=True, validate=validate.Length(min=2, max=300))
+    type = String(load_default="company", validate=validate.OneOf(["company", "person"]))
+
+
+class EntityReportListQuerySchema(EntityReportRequestSchema):
+    limit = Integer(load_default=10, validate=validate.Range(min=1, max=50))
+
+
+class EntityReportIncorporateSchema(Schema):
+    dossier_id = String(required=True, validate=validate.Length(min=32, max=40))
 
 
 def _problem_response_passthrough(
@@ -228,3 +255,79 @@ def entity_dossier(query_data: dict[str, Any]) -> dict[str, Any] | Any:
         return _configuration_error_response(exc)
     except EntityIntelProviderError as exc:
         return _provider_error_response(exc)
+
+
+@bp.post("/reports")
+@require_permission("report.generate")
+@bp.input(EntityReportRequestSchema, location="json")
+@limiter.limit("10/minute")
+def create_entity_report(payload: dict[str, Any]) -> Any:
+    key = request.headers.get("Idempotency-Key", "").strip()
+    if not 8 <= len(key) <= 200:
+        return problem_response(
+            422,
+            detail="Idempotency-Key es obligatoria y debe tener entre 8 y 200 caracteres.",
+            code="idempotency_key_required",
+        )
+    try:
+        job = enqueue_entity_dossier_report(
+            name=cast(str, payload["name"]),
+            kind=cast(str, payload["type"]),
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            correlation_id=get_correlation_id(),
+            request_id=get_request_id(),
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        return problem_response(409, detail=str(exc), code="idempotency_conflict")
+    return {"job": serialize_job(job), "job_id": str(job.id)}, 202
+
+
+@bp.get("/reports")
+@require_permission("report.generate")
+@bp.input(EntityReportListQuerySchema, location="query")
+def list_entity_reports(query_data: dict[str, Any]) -> dict[str, Any]:
+    name = cast(str, query_data["name"]).strip()
+    kind = cast(str, query_data["type"])
+    key = entity_key(name=name, kind=kind)
+    limit = int(query_data["limit"])
+    rows = db.session.scalars(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.job_type == ENTITY_DOSSIER_REPORT_JOB,
+        )
+        .order_by(BackgroundJob.created_at.desc())
+        .limit(max(limit, 25))
+    ).all()
+    visible = [
+        row
+        for row in rows
+        if row.input_payload.get("entity_key") == key
+        and (
+            row.requested_by_user_id == current_user.id
+            or row.result_ref.get("incorporated_dossier_id")
+        )
+    ]
+    return {"data": [serialize_entity_report_job(row) for row in visible[:limit]]}
+
+
+@bp.post("/reports/<uuid:job_id>/incorporate")
+@require_permission("report.generate")
+@bp.input(EntityReportIncorporateSchema, location="json")
+def incorporate_entity_report(job_id: uuid.UUID, payload: dict[str, Any]) -> Any:
+    try:
+        dossier_id = uuid.UUID(str(payload["dossier_id"]))
+    except ValueError:
+        return problem_response(422, detail="dossier_id no válido.", code="validation_error")
+    try:
+        report, job = incorporate_entity_dossier_report(
+            job_id=job_id,
+            dossier_id=dossier_id,
+            actor_id=current_user.id,
+        )
+    except ReportWorkflowError as exc:
+        db.session.rollback()
+        return problem_response(422, detail=str(exc), code="entity_report_not_ready")
+    return {"report": serialize_report(report, detail=True), "job": serialize_job(job)}, 201

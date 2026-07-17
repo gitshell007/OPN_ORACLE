@@ -1,0 +1,34 @@
+{
+  "key": "entity_intelligence",
+  "version": "v1",
+  "label": "Informe de inteligencia de entidad",
+  "report_type": "entity_intelligence",
+  "input_contract": {
+    "required": ["entity_name", "entity_kind"],
+    "properties": {
+      "entity_name": "string",
+      "entity_kind": "company|person"
+    }
+  },
+  "sections": [
+    "Cobertura y límites",
+    "Perfil registral",
+    "Órganos y cargos",
+    "Grafo de relaciones",
+    "Noticias y señales externas",
+    "Inferencias estratégicas",
+    "Recomendaciones"
+  ],
+  "evidence_policy": "El análisis parte de la ficha agregada de Signal y se conserva primero como artefacto de espera tenant+entidad. Las fechas BORME son de publicación; homónimos, relaciones y noticias se tratan con cautela hasta revisión humana.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {
+    "generate": "report.generate",
+    "read": "report.read",
+    "review": "report.review",
+    "publish": "report.publish"
+  },
+  "formats": ["html", "json"],
+  "changelog": [
+    "v1: informe de entidad generado sin expediente y materializado al incorporarlo"
+  ]
+}

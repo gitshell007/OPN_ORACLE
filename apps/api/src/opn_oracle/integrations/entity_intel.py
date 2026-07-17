@@ -10,6 +10,7 @@ import ipaddress
 import re
 import socket
 import time
+import uuid
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any, Literal
@@ -451,11 +452,11 @@ def entity_intel_client_from_config(
     )
 
 
-def resolve_signal_external_tenant_id() -> str:
+def resolve_signal_external_tenant_id_for_tenant(tenant_id: uuid.UUID) -> str:
     connection = db.session.scalar(
         select(IntegrationConnection)
         .where(
-            IntegrationConnection.tenant_id == g.active_tenant_id,
+            IntegrationConnection.tenant_id == tenant_id,
             IntegrationConnection.provider == "signal-avanza",
             IntegrationConnection.status == "active",
         )
@@ -476,6 +477,10 @@ def resolve_signal_external_tenant_id() -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return str(connection.tenant_id)
+
+
+def resolve_signal_external_tenant_id() -> str:
+    return resolve_signal_external_tenant_id_for_tenant(g.active_tenant_id)
 
 
 def cached_suggest(*, tenant_id: str, query: str, kind: EntityKind, limit: int) -> dict[str, Any]:

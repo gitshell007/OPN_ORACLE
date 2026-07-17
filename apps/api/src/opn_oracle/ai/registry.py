@@ -40,6 +40,9 @@ PURPOSES = {
     "competitive_procurement_intelligence": (
         "Interpretar agregados de contratación calculados por Oracle sin rehacer aritmética."
     ),
+    "entity_dossier_intelligence": (
+        "Interpretar la ficha agregada de una entidad sin convertir límites de fuente en certeza."
+    ),
     "memory_curator": "Actualizar memoria viva sin borrar historia.",
     "evidence_reviewer": "Revisar groundedness y seguridad de un output.",
     "weekly_change": "Resumir cambios estratégicos del periodo.",
@@ -65,6 +68,14 @@ INPUT_CONTRACTS = {
         "tenant_id",
         "dossier_id",
         "computed_analysis",
+        "allowed_evidence_ids",
+    ),
+    "entity_dossier_intelligence": (
+        "tenant_id",
+        "entity",
+        "entity_dossier",
+        "computed_metrics",
+        "source_limits",
         "allowed_evidence_ids",
     ),
     "memory_curator": ("tenant_id", "dossier_id", "baseline", "changes", "allowed_evidence_ids"),
@@ -106,6 +117,8 @@ def _max_output_tokens(name: str, version: str) -> int:
     if name == "weekly_change" and version == "v2":
         return 4200
     if name == "competitive_procurement_intelligence":
+        return 5000
+    if name == "entity_dossier_intelligence":
         return 5000
     if name != "dossier_situation_summary":
         return 2000

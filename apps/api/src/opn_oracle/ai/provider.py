@@ -289,6 +289,35 @@ class MockLLMProvider:
                 ],
                 "source_index": [],
             },
+            "entity_dossier_intelligence": {
+                "title": "Informe de entidad mock",
+                "executive_summary": "Síntesis preliminar de la ficha agregada de entidad.",
+                "sections": [
+                    {
+                        "heading": str(heading),
+                        "paragraphs": [
+                            {
+                                "text": (
+                                    "Interpretación sintética de la ficha agregada y sus límites."
+                                ),
+                                "kind": "inference",
+                                "confidence": confidence,
+                                "evidence_ids": [],
+                            }
+                        ],
+                    }
+                    for heading in request.context.get("requested_scope", {}).get(
+                        "required_sections", []
+                    )
+                ],
+                "source_index": [],
+                "warnings": [
+                    (
+                        "Las fechas BORME son de publicación; homónimos, grafo y "
+                        "noticias requieren revisión humana."
+                    )
+                ],
+            },
             "memory_curator": {"living_summary": "Sin cambios confirmados.", "what_changed": []},
             "evidence_reviewer": {
                 "verdict": "pass_with_warnings",
@@ -537,6 +566,7 @@ def _normalize_signal_candidate_json(
     if request.agent not in {
         "report_writer",
         "competitive_procurement_intelligence",
+        "entity_dossier_intelligence",
     }:
         return raw_output
     try:

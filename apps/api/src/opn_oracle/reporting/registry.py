@@ -52,6 +52,7 @@ EXPECTED_TEMPLATES = frozenset(
         "actors",
         "action_plan",
         "competitive_procurement",
+        "entity_intelligence",
     }
 )
 

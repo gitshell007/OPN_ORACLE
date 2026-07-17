@@ -30,6 +30,7 @@ from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.common.logging import redact
 from opn_oracle.documents.service import DocumentError, process_document
 from opn_oracle.extensions import db
+from opn_oracle.integrations.entity_intel import EntityIntelProviderError
 from opn_oracle.integrations.service import sync_monitor
 from opn_oracle.jobs.service import (
     claim_job_for_publish,
@@ -44,6 +45,7 @@ from opn_oracle.oracle.change_digest import process_weekly_change_digest
 from opn_oracle.oracle.competitive_procurement_report import (
     process_competitive_procurement_report,
 )
+from opn_oracle.oracle.entity_dossier_report import process_entity_dossier_report
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier
 from opn_oracle.oracle.procurement_report import (
@@ -91,6 +93,7 @@ AI_RETRY_CAUSE_JOB_TYPES = {
     "oracle.report.generate",
     "oracle.procurement_document_report.generate",
     "oracle.competitive_procurement_report.generate",
+    "oracle.entity_dossier_report.generate",
     "oracle.meeting_briefing.refresh",
     "oracle.weekly_change.refresh",
     "oracle.memory.refresh",
@@ -353,6 +356,9 @@ HANDLERS: dict[str, Handler] = {
     "oracle.competitive_procurement_report.generate": (
         lambda payload, job: _generate_competitive_procurement_report(payload, job)
     ),
+    "oracle.entity_dossier_report.generate": (
+        lambda payload, job: _generate_entity_dossier_report(payload, job)
+    ),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
     "oracle.document.process": lambda payload, job: _process_document(payload, job),
     "notifications.send_email": _send_email,
@@ -372,6 +378,7 @@ HANDLERS: dict[str, Handler] = {
             "meeting_briefing",
             "report_writer",
             "competitive_procurement_intelligence",
+            "entity_dossier_intelligence",
             "memory_curator",
             "evidence_reviewer",
             "weekly_change",
@@ -430,6 +437,26 @@ def _generate_competitive_procurement_report(
     except Exception as error:
         raise RetriableJobError(
             "La preparación del informe competitivo falló temporalmente."
+        ) from error
+
+
+def _generate_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        return process_entity_dossier_report(payload, job)
+    except (
+        KeyError,
+        ValueError,
+        ReportWorkflowError,
+        AIPolicyDenied,
+    ) as error:
+        raise PermanentJobError(str(error)) from error
+    except (AIUnavailable, EntityIntelProviderError) as error:
+        raise RetriableJobError(
+            "El proveedor de análisis de entidades no está disponible temporalmente."
+        ) from error
+    except Exception as error:
+        raise RetriableJobError(
+            "La preparación del informe de entidad falló temporalmente."
         ) from error
 
 
@@ -844,6 +871,7 @@ procurement_document_report_generate = _durable_task("oracle.procurement_documen
 competitive_procurement_report_generate = _durable_task(
     "oracle.competitive_procurement_report.generate"
 )
+entity_dossier_report_generate = _durable_task("oracle.entity_dossier_report.generate")
 export_generate = _durable_task("oracle.export.generate")
 document_process = _durable_task("oracle.document.process")
 send_email = _durable_task("notifications.send_email")
@@ -863,6 +891,7 @@ AI_DURABLE_TASKS = {
         "meeting_briefing",
         "report_writer",
         "competitive_procurement_intelligence",
+        "entity_dossier_intelligence",
         "memory_curator",
         "evidence_reviewer",
         "weekly_change",
