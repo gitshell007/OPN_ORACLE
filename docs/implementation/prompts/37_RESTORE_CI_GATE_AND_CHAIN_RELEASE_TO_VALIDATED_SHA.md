@@ -35,25 +35,18 @@ podido ejecutar pytest/Ruff/mypy backend porque este entorno no tiene `uv` ni `p
 escribe no puede probar y CI no se dispara solo, **no existe ninguna red**. Es exactamente cómo se
 desplegaron el bug de las barras, el 422 del smoke y la Idempotency-Key.
 
-## Gate de decisión (obligatorio antes de tocar nada)
+## Decisión ya tomada (2026-07-17) — no la reabras
 
-Restaurar el CI automático tiene un coste real: cada push ejecutará la suite completa con
-PostgreSQL, Redis, Celery, migraciones y scans, y eso frena el ritmo de UAT. **Esa es la decisión
-que el comentario de `ci.yml` aplazó, y toca tomarla ahora, no asumirla.**
+El responsable del producto ha elegido, entre las tres opciones planteadas:
 
-Presenta al responsable las opciones y espera respuesta explícita:
+> **CI automático en cada Pull Request (no en cada push) + `release.yml` encadenado al SHA verde.**
 
-1. **UAT ha terminado** → CI obligatorio en push y PR sobre `master`, rama protegida, release
-   encadenado a SHA verde. Máxima seguridad, menor velocidad.
-2. **UAT sigue, pero con red mínima** → CI automático solo en PR (no en cada push), y release
-   encadenado a SHA verde de forma innegociable. Compromiso razonable: se puede iterar rápido en
-   ramas, pero nada llega a producción sin validar.
-3. **Mantener el fast-lane** → entonces el gate debe moverse al despliegue: `oracle-control update`
-   rechaza cualquier release cuyo SHA no tenga un CI verde registrado. Menos ideal, pero cierra la
-   puerta que de verdad importa.
+Razón: preserva la velocidad de iteración en ramas, donde equivocarse es barato, y bloquea la
+puerta que de verdad importa, que es la publicación de imágenes. La rama protegida con CI en push
+queda para cuando se cierre UAT formalmente; anótalo como fase futura, no lo implementes ahora.
 
-Mi recomendación es la **2**, seguida de la 1 cuando se cierre UAT: preserva la velocidad donde no
-hace daño y bloquea donde sí.
+Implementa exactamente eso. Si al hacerlo descubres que la opción elegida no es viable por una
+razón técnica concreta, **para y explícalo** en vez de sustituirla por tu criterio.
 
 ---
 
@@ -64,13 +57,15 @@ rama, no del último run). Implementa la comprobación de forma que no se pueda 
 consulta la GitHub API por el conclusion del workflow CI para el SHA exacto, y falla el job si no
 existe o no es `success`. Documenta el procedimiento de excepción (si lo hay) y hazlo ruidoso.
 
-## Alcance B — Restaurar el disparo automático (según la opción elegida)
+## Alcance B — Restaurar el disparo automático en Pull Request
 
-Aplica lo decidido en el gate: `push`/`pull_request` sobre `master`, o solo `pull_request`. Retira
-el comentario del fast-lane, que dejará de ser cierto. Si la opción elegida exige **rama
-protegida**, eso se configura en GitHub y no desde el repo: no puedes hacerlo tú — deja
-instrucciones exactas (qué checks marcar como requeridos, con sus nombres de job) en
-`docs/operations/` y anótalo como cambio manual pendiente en tu resumen.
+Añade el disparo `pull_request` sobre `master` a `ci.yml`, conservando `workflow_dispatch` para
+validaciones manuales puntuales. **No añadas `push`**: es lo decidido. Retira el comentario del
+fast-lane, que dejará de ser cierto.
+
+Deja documentado en `docs/operations/` cómo marcar los checks como requeridos en la configuración
+de rama protegida de GitHub (nombres exactos de los jobs), para cuando se cierre UAT. Eso no se
+puede hacer desde el repo: anótalo como cambio manual pendiente, no como hecho.
 
 ## Alcance C — Que quien escribe pueda probar
 
@@ -89,9 +84,9 @@ que CI no puede ser opcional.
 
 ## Criterios de aceptación
 
-- [ ] Decisión del gate registrada en `DECISIONS.md` con su porqué y quién la tomó.
+- [ ] Decisión registrada en `DECISIONS.md`: CI en PR + release atado a SHA verde, con su porqué.
 - [ ] `release.yml` no publica si el CI del SHA exacto no está verde; probado con un SHA sin CI.
-- [ ] Los disparos de `ci.yml` reflejan la opción elegida; el comentario del fast-lane, retirado.
+- [ ] `ci.yml` se dispara en `pull_request` (no en `push`); comentario del fast-lane retirado.
 - [ ] Instrucciones de rama protegida documentadas y marcadas como cambio manual pendiente.
 - [ ] Existe un comando único que ejecuta la suite backend desde un clon limpio; documentado.
 - [ ] `STATUS.md` corregido: hoy declara CI en PR/push cuando en realidad es manual (contradicción
@@ -99,8 +94,7 @@ que CI no puede ser opcional.
 
 ## No hacer
 
-- No empieces sin la respuesta al gate de decisión: elegir por tu cuenta entre velocidad y seguridad
-  no te corresponde.
+- No añadas el disparo en `push` ni configures rama protegida: la decisión fue CI en PR.
 - No relajes los checks existentes para que pasen antes (ni `--no-cov`, ni saltar mypy, ni excluir
   tests lentos).
 - No toques la lógica de despliegue del prompt 35: ya está resuelta y desplegada aparte.
