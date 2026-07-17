@@ -42,6 +42,10 @@ from opn_oracle.oracle.change_digest import (
     parse_period,
     resolve_digest_dossier_id,
 )
+from opn_oracle.oracle.competitive_procurement import (
+    COMPETITIVE_PROCUREMENT_JOB,
+    COMPETITIVE_PROCUREMENT_TEMPLATE,
+)
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import (
     DecisionEvidence,
@@ -1767,12 +1771,18 @@ def _nested_create(resource: str, dossier_id: uuid.UUID) -> Any:
             idempotency_key = request.headers.get("Idempotency-Key", "")
             raw_options = payload.get("options")
             report_options: dict[str, Any] = raw_options if isinstance(raw_options, dict) else {}
+            template_key = str(payload.get("template_key", ""))
             report, job, created = create_report_request(
                 dossier,
-                template_key=str(payload.get("template_key", "")),
+                template_key=template_key,
                 options=report_options,
                 requested_by_user_id=current_user.id,
                 idempotency_key=idempotency_key,
+                job_type=(
+                    COMPETITIVE_PROCUREMENT_JOB
+                    if template_key == COMPETITIVE_PROCUREMENT_TEMPLATE
+                    else "oracle.report.generate"
+                ),
             )
             return {
                 "report": serialize_report(report),

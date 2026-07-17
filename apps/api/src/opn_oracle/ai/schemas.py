@@ -475,6 +475,7 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "actor_partnership": ActorAnalysisOutput,
     "meeting_briefing": MeetingBriefingOutput,
     "report_writer": ReportOutput,
+    "competitive_procurement_intelligence": ReportOutput,
     "memory_curator": MemoryCuratorOutput,
     "evidence_reviewer": EvidenceReviewerOutput,
     "weekly_change": WeeklyChangeOutput,

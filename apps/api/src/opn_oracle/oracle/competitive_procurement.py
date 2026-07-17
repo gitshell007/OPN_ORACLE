@@ -1,0 +1,520 @@
+"""Deterministic procurement aggregates for competitive intelligence reports.
+
+Signal is the producer of public registry rows. Oracle owns pagination, arithmetic,
+coverage disclosure and the conservative UTE parsing heuristic. No LLM participates
+in these calculations.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections import Counter, defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from statistics import median
+from typing import Any, Protocol
+
+from opn_oracle.integrations.procurement import ProcurementProviderError
+
+COMPETITIVE_PROCUREMENT_AGENT = "competitive_procurement_intelligence"
+COMPETITIVE_PROCUREMENT_JOB = "oracle.competitive_procurement_report.generate"
+COMPETITIVE_PROCUREMENT_TEMPLATE = "competitive_procurement"
+
+AWARD_PAGE_SIZE = 100
+MAX_AWARD_ROWS = 1_000
+MIN_DISCOUNT_COVERAGE = Decimal("0.80")
+MIN_DISCOUNT_SAMPLE = 3
+
+_MONEY_QUANTUM = Decimal("0.01")
+_PERCENT_QUANTUM = Decimal("0.1")
+_UTE_MARKERS = re.compile(
+    r"(?i)\b(?:UTE|U\.T\.E\.|UNION TEMPORAL DE EMPRESAS|LEY\s+18/1982|A CONSTITUIR)\b"
+)
+_PARTNER_SEPARATORS = re.compile(r"\s+(?:Y|E)\s+|\s*[-\u2013\u2014]\s*|,\s+")
+_LEGAL_ONLY = re.compile(r"(?i)^(?:S\.?\s*A\.?|S\.?\s*L\.?(?:\s*U\.?)?|SLP|SAU|UTE|U\.T\.E\.?)$")
+
+
+class ProcurementHistoryClient(Protocol):
+    def awards(
+        self,
+        *,
+        company: str | None,
+        buyer: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]: ...
+
+    def tender_by_folder(self, *, folder_id: str) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class AwardHistory:
+    rows: tuple[dict[str, Any], ...]
+    provider_total: int
+    truncated: bool
+    provider_company_norm: str
+
+
+def _canonical(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+
+
+def _decimal(value: Any) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite():
+        return None
+    return parsed
+
+
+def _money(value: Decimal | None) -> str | None:
+    return (
+        str(value.quantize(_MONEY_QUANTUM, rounding=ROUND_HALF_UP)) if value is not None else None
+    )
+
+
+def _percent(value: Decimal | None) -> str | None:
+    return (
+        str(value.quantize(_PERCENT_QUANTUM, rounding=ROUND_HALF_UP)) if value is not None else None
+    )
+
+
+def _text(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _iso_date(value: Any) -> date | None:
+    text = _text(value)[:10]
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _normalized_name(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", value.upper()).strip()
+
+
+def _company_core(value: str) -> str:
+    normalized = _normalized_name(value)
+    for spaced, compact in (
+        (r"\bS\s+A\s+U\b", "SAU"),
+        (r"\bS\s+L\s+U\b", "SLU"),
+        (r"\bS\s+L\s+P\b", "SLP"),
+        (r"\bS\s+A\b", "SA"),
+        (r"\bS\s+L\b", "SL"),
+    ):
+        normalized = re.sub(spaced, compact, normalized)
+    tokens = normalized.split()
+    legal_tokens = {"SA", "SL", "SLU", "SAU", "SLP", "SOCIEDAD", "ANONIMA", "LIMITADA"}
+    core = [token for token in tokens if token not in legal_tokens]
+    return " ".join(core or tokens)
+
+
+def pinned_award_winners(items: Iterable[Any]) -> tuple[str, ...]:
+    """Return exact winner labels available in pinned award snapshots."""
+
+    winners: dict[str, str] = {}
+    for item in items:
+        if getattr(item, "kind", None) != "award":
+            continue
+        snapshot = getattr(item, "snapshot", None)
+        if not isinstance(snapshot, dict):
+            continue
+        values: list[Any] = [snapshot.get("winner")]
+        entries = snapshot.get("entries")
+        if isinstance(entries, list):
+            values.extend(entry.get("winner") for entry in entries if isinstance(entry, dict))
+        for value in values:
+            label = _text(value)
+            if label:
+                winners.setdefault(label.casefold(), label)
+    return tuple(winners.values())
+
+
+def fetch_award_history(
+    client: ProcurementHistoryClient,
+    *,
+    company_name: str,
+    max_rows: int = MAX_AWARD_ROWS,
+    page_size: int = AWARD_PAGE_SIZE,
+) -> AwardHistory:
+    """Page awards until Signal is exhausted or the declared cap is reached."""
+
+    rows: list[dict[str, Any]] = []
+    provider_total = 0
+    provider_company_norm = ""
+    offset = 0
+    while len(rows) < max_rows:
+        limit = min(page_size, max_rows - len(rows))
+        payload = client.awards(
+            company=company_name,
+            buyer=None,
+            limit=limit,
+            offset=offset,
+        )
+        page = payload.get("items")
+        if not isinstance(page, list):
+            raise ValueError("Signal devolvió adjudicaciones con un formato inesperado.")
+        provider_total = max(provider_total, int(payload.get("total") or 0))
+        provider_company_norm = _text(payload.get("company_norm"))
+        accepted = [dict(item) for item in page if isinstance(item, dict)]
+        rows.extend(accepted)
+        offset += len(page)
+        if not page or len(page) < limit or offset >= provider_total:
+            break
+    return AwardHistory(
+        rows=tuple(rows[:max_rows]),
+        provider_total=provider_total,
+        truncated=provider_total > len(rows[:max_rows]),
+        provider_company_norm=provider_company_norm,
+    )
+
+
+def _group_contracts(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    ignored = 0
+    seen: set[bytes] = set()
+    for row in rows:
+        folder_id = _text(row.get("folder_id"))
+        if not folder_id:
+            ignored += 1
+            continue
+        signature = hashlib.sha256(_canonical(row)).digest()
+        if signature in seen:
+            continue
+        seen.add(signature)
+        grouped[folder_id].append(row)
+
+    contracts: list[dict[str, Any]] = []
+    for folder_id, entries in grouped.items():
+        buyers = Counter(_text(item.get("buyer")) for item in entries if _text(item.get("buyer")))
+        winners = sorted(
+            {_text(item.get("winner")) for item in entries if _text(item.get("winner"))},
+            key=str.casefold,
+        )
+        amounts = [
+            amount for item in entries if (amount := _decimal(item.get("award_amount"))) is not None
+        ]
+        dates = sorted(
+            parsed for item in entries if (parsed := _iso_date(item.get("award_date"))) is not None
+        )
+        contracts.append(
+            {
+                "folder_id": folder_id,
+                "buyer": buyers.most_common(1)[0][0] if buyers else "Organismo no publicado",
+                "winner_variants": winners,
+                "award_amount": sum(amounts, Decimal("0")) if amounts else None,
+                "award_date": dates[-1] if dates else None,
+                "is_ute": any(item.get("is_ute") is True for item in entries),
+                "row_count": len(entries),
+            }
+        )
+    contracts.sort(
+        key=lambda item: (
+            item["award_date"] or date.min,
+            item["folder_id"],
+        ),
+        reverse=True,
+    )
+    return contracts, ignored
+
+
+def _distribution(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+    values = sorted(
+        amount for item in contracts if isinstance((amount := item["award_amount"]), Decimal)
+    )
+    count = len(values)
+    buckets = (
+        ("Menos de 50.000 €", None, Decimal("50000")),
+        ("50.000-249.999 €", Decimal("50000"), Decimal("250000")),
+        ("250.000-999.999 €", Decimal("250000"), Decimal("1000000")),
+        ("1-4,99 M€", Decimal("1000000"), Decimal("5000000")),
+        ("5 M€ o más", Decimal("5000000"), None),
+    )
+    bucket_rows = []
+    for label, lower, upper in buckets:
+        bucket_count = sum(
+            1
+            for value in values
+            if (lower is None or value >= lower) and (upper is None or value < upper)
+        )
+        bucket_rows.append(
+            {
+                "label": label,
+                "count": bucket_count,
+                "denominator": count,
+                "share_percent": _percent(
+                    Decimal(bucket_count) * 100 / Decimal(count) if count else None
+                ),
+            }
+        )
+    total = sum(values, Decimal("0")) if values else None
+    return {
+        "contracts_with_amount": count,
+        "contracts_without_amount": len(contracts) - count,
+        "denominator_contracts": len(contracts),
+        "total_awarded_eur": _money(total),
+        "mean_awarded_eur": _money(total / Decimal(count) if total is not None and count else None),
+        "median_awarded_eur": _money(median(values) if values else None),
+        "minimum_awarded_eur": _money(values[0] if values else None),
+        "maximum_awarded_eur": _money(values[-1] if values else None),
+        "buckets": bucket_rows,
+    }
+
+
+def _buyer_concentration(contracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_buyer: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for contract in contracts:
+        by_buyer[str(contract["buyer"])].append(contract)
+    total_contracts = len(contracts)
+    rows: list[dict[str, Any]] = []
+    for buyer, items in by_buyer.items():
+        amounts = sorted(
+            amount for item in items if isinstance((amount := item["award_amount"]), Decimal)
+        )
+        total_amount = sum(amounts, Decimal("0")) if amounts else None
+        rows.append(
+            {
+                "buyer": buyer,
+                "contracts": len(items),
+                "denominator_contracts": total_contracts,
+                "contract_share_percent": _percent(
+                    Decimal(len(items)) * 100 / Decimal(total_contracts)
+                    if total_contracts
+                    else None
+                ),
+                "contracts_with_amount": len(amounts),
+                "total_awarded_eur": _money(total_amount),
+                "median_awarded_eur": _money(median(amounts) if amounts else None),
+            }
+        )
+    rows.sort(
+        key=lambda item: (
+            -int(item["contracts"]),
+            -(Decimal(str(item["total_awarded_eur"])) if item["total_awarded_eur"] else Decimal(0)),
+            str(item["buyer"]).casefold(),
+        )
+    )
+    return rows[:20]
+
+
+def _partners_for_winner(winner: str, company_name: str) -> list[str]:
+    company_core = _company_core(company_name)
+    cleaned = _UTE_MARKERS.sub(" ", winner)
+    partners: list[str] = []
+    for raw in _PARTNER_SEPARATORS.split(cleaned):
+        candidate = re.sub(r"\s+", " ", raw).strip(" .,:;()")
+        normalized = _normalized_name(candidate)
+        if (
+            not candidate
+            or not normalized
+            or _LEGAL_ONLY.fullmatch(candidate)
+            or (company_core and company_core in normalized)
+        ):
+            continue
+        partners.append(candidate)
+    return partners
+
+
+def _ute_analysis(contracts: list[dict[str, Any]], company_name: str) -> dict[str, Any]:
+    ute_contracts = [item for item in contracts if item["is_ute"]]
+    partner_counts: Counter[str] = Counter()
+    partner_labels: dict[str, str] = {}
+    parsed_contracts = 0
+    for contract in ute_contracts:
+        contract_partners: set[str] = set()
+        for winner in contract["winner_variants"]:
+            for partner in _partners_for_winner(winner, company_name):
+                key = _normalized_name(partner)
+                if key:
+                    partner_labels.setdefault(key, partner)
+                    contract_partners.add(key)
+        if contract_partners:
+            parsed_contracts += 1
+            partner_counts.update(contract_partners)
+    return {
+        "method": "heuristic_free_text_winner_v1",
+        "verified": False,
+        "confidence": "low",
+        "warning": (
+            "Los socios se infieren por separación conservadora del texto libre winner; "
+            "no son entidades estructuradas ni verificadas."
+        ),
+        "ute_contracts": len(ute_contracts),
+        "denominator_contracts": len(contracts),
+        "parsed_ute_contracts": parsed_contracts,
+        "unparsed_ute_contracts": len(ute_contracts) - parsed_contracts,
+        "partners": [
+            {
+                "name": partner_labels[key],
+                "contracts": count,
+                "denominator_ute_contracts": len(ute_contracts),
+            }
+            for key, count in partner_counts.most_common(20)
+        ],
+    }
+
+
+def _tender_item(payload: dict[str, Any]) -> dict[str, Any]:
+    item = payload.get("item")
+    return item if isinstance(item, dict) else payload
+
+
+def _discount_coverage(
+    client: ProcurementHistoryClient,
+    contracts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    observed: list[Decimal] = []
+    reasons = Counter[str]()
+    for contract in contracts:
+        try:
+            payload = client.tender_by_folder(folder_id=str(contract["folder_id"]))
+        except ProcurementProviderError as error:
+            if error.status_code == 404:
+                reasons["tender_not_found"] += 1
+                continue
+            raise
+        initial = _decimal(_tender_item(payload).get("amount"))
+        awarded = contract["award_amount"]
+        if initial is None or initial <= 0:
+            reasons["tender_amount_missing"] += 1
+            continue
+        if not isinstance(awarded, Decimal):
+            reasons["award_amount_missing"] += 1
+            continue
+        observed.append((initial - awarded) * 100 / initial)
+
+    total = len(contracts)
+    computable = len(observed)
+    coverage = Decimal(computable) / Decimal(total) if total else Decimal("0")
+    publishable = coverage >= MIN_DISCOUNT_COVERAGE and computable >= MIN_DISCOUNT_SAMPLE
+    unavailable = total - computable
+    reason = None
+    if not publishable:
+        reason = (
+            "No se publica una baja media: solo "
+            f"{computable} de {total} adjudicaciones del corpus acotado "
+            "tienen importe inicial y adjudicado comparables; calcularla sobre ese "
+            "subconjunto introduciría sesgo de supervivencia."
+        )
+    return {
+        "computable": publishable,
+        "computed_contracts": computable,
+        "not_computable_contracts": unavailable,
+        "denominator_contracts": total,
+        "coverage_percent": _percent(coverage * 100),
+        "minimum_coverage_percent": _percent(MIN_DISCOUNT_COVERAGE * 100),
+        "minimum_sample": MIN_DISCOUNT_SAMPLE,
+        "mean_discount_percent": _percent(
+            sum(observed, Decimal("0")) / Decimal(computable)
+            if publishable and computable
+            else None
+        ),
+        "median_discount_percent": _percent(median(observed) if publishable else None),
+        "non_computable_reasons": {
+            "tender_not_found": reasons["tender_not_found"],
+            "tender_amount_missing": reasons["tender_amount_missing"],
+            "award_amount_missing": reasons["award_amount_missing"],
+        },
+        "reason": reason,
+    }
+
+
+def build_competitive_procurement_analysis(
+    client: ProcurementHistoryClient,
+    *,
+    company_name: str,
+    max_rows: int = MAX_AWARD_ROWS,
+    page_size: int = AWARD_PAGE_SIZE,
+) -> dict[str, Any]:
+    history = fetch_award_history(
+        client,
+        company_name=company_name,
+        max_rows=max_rows,
+        page_size=page_size,
+    )
+    contracts, ignored_rows = _group_contracts(history.rows)
+    dated = sorted(item["award_date"] for item in contracts if isinstance(item["award_date"], date))
+    winner_counts: Counter[str] = Counter()
+    for contract in contracts:
+        winner_counts.update(set(contract["winner_variants"]))
+    return {
+        "schema": "competitive-procurement-analysis-v1",
+        "company_requested": company_name,
+        "company_normalized_by_signal": history.provider_company_norm,
+        "scope_warning": (
+            "El corpus contiene adjudicaciones publicadas, no todas las ofertas presentadas. "
+            "No permite saber dónde compitió sin resultar adjudicatario ni calcular una tasa "
+            "de éxito."
+        ),
+        "identity_warning": (
+            "Signal normaliza la consulta y puede incluir variantes registrales o UTE. "
+            "Oracle no fusiona homónimos ni afirma identidad jurídica entre variantes."
+        ),
+        "corpus": {
+            "source": "Signal Avanza · histórico PLACSP de adjudicaciones",
+            "pagination": "limit/offset",
+            "provider_total_rows": history.provider_total,
+            "analyzed_rows": len(history.rows),
+            "row_cap": max_rows,
+            "truncated": history.truncated,
+            "unique_contracts": len(contracts),
+            "ignored_rows_without_folder_id": ignored_rows,
+            "period_start": dated[0].isoformat() if dated else None,
+            "period_end": dated[-1].isoformat() if dated else None,
+            "dated_contracts": len(dated),
+            "denominator_contracts": len(contracts),
+        },
+        "winner_variants": [
+            {"winner": winner, "contracts": count}
+            for winner, count in winner_counts.most_common(20)
+        ],
+        "buyer_concentration": _buyer_concentration(contracts),
+        "amount_distribution": _distribution(contracts),
+        "discount_coverage": _discount_coverage(client, contracts),
+        "ute_partners": _ute_analysis(contracts, company_name),
+    }
+
+
+def analysis_evidence_extract(analysis: dict[str, Any]) -> str:
+    """Build a citable, deterministic synopsis of the Python calculations."""
+
+    corpus = analysis["corpus"]
+    amounts = analysis["amount_distribution"]
+    discount = analysis["discount_coverage"]
+    buyers = analysis["buyer_concentration"]
+    top_buyer = buyers[0] if buyers else None
+    return (
+        f"Análisis competitivo PLACSP calculado por Oracle para "
+        f"{analysis['company_requested']}. Corpus: {corpus['analyzed_rows']} filas de "
+        f"{corpus['provider_total_rows']} disponibles, {corpus['unique_contracts']} expedientes "
+        f"únicos, periodo {corpus['period_start'] or 'no disponible'} a "
+        f"{corpus['period_end'] or 'no disponible'}, truncado={corpus['truncated']}. "
+        f"Importes conocidos: {amounts['contracts_with_amount']} de "
+        f"{amounts['denominator_contracts']}; mediana adjudicada "
+        f"{amounts['median_awarded_eur'] or 'no calculable'} EUR. "
+        f"Primer organismo por frecuencia: "
+        f"{top_buyer['buyer'] if top_buyer else 'no disponible'} "
+        f"({top_buyer['contracts'] if top_buyer else 0} de "
+        f"{top_buyer['denominator_contracts'] if top_buyer else 0}). "
+        f"Cobertura de baja: {discount['computed_contracts']} de "
+        f"{discount['denominator_contracts']} ({discount['coverage_percent']} %); "
+        f"media publicada={discount['mean_discount_percent'] or 'no calculable'}. "
+        f"Alcance: {analysis['scope_warning']} "
+        "Los socios UTE son una inferencia heurística sobre texto libre y no un dato verificado."
+    )

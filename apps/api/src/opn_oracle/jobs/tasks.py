@@ -41,6 +41,9 @@ from opn_oracle.jobs.service import (
 from opn_oracle.notifications.email import EmailPermanentError
 from opn_oracle.oracle.briefings import process_meeting_briefing
 from opn_oracle.oracle.change_digest import process_weekly_change_digest
+from opn_oracle.oracle.competitive_procurement_report import (
+    process_competitive_procurement_report,
+)
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier
 from opn_oracle.oracle.procurement_report import (
@@ -87,6 +90,7 @@ PUBLIC_PERMANENT_ERROR = "permanent_failure"
 AI_RETRY_CAUSE_JOB_TYPES = {
     "oracle.report.generate",
     "oracle.procurement_document_report.generate",
+    "oracle.competitive_procurement_report.generate",
     "oracle.meeting_briefing.refresh",
     "oracle.weekly_change.refresh",
     "oracle.memory.refresh",
@@ -346,6 +350,9 @@ HANDLERS: dict[str, Handler] = {
     "oracle.procurement_document_report.generate": (
         lambda payload, job: _generate_procurement_document_report(payload, job)
     ),
+    "oracle.competitive_procurement_report.generate": (
+        lambda payload, job: _generate_competitive_procurement_report(payload, job)
+    ),
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
     "oracle.document.process": lambda payload, job: _process_document(payload, job),
     "notifications.send_email": _send_email,
@@ -364,6 +371,7 @@ HANDLERS: dict[str, Handler] = {
             "actor_partnership",
             "meeting_briefing",
             "report_writer",
+            "competitive_procurement_intelligence",
             "memory_curator",
             "evidence_reviewer",
             "weekly_change",
@@ -398,6 +406,30 @@ def _generate_procurement_document_report(
     except Exception as error:
         raise RetriableJobError(
             "La preparación documental del informe falló temporalmente."
+        ) from error
+
+
+def _generate_competitive_procurement_report(
+    payload: dict[str, Any], job: BackgroundJob
+) -> dict[str, Any]:
+    try:
+        return process_competitive_procurement_report(
+            uuid.UUID(str(payload["report_id"])),
+            job,
+        )
+    except (
+        KeyError,
+        ValueError,
+        ReportWorkflowError,
+    ) as error:
+        raise PermanentJobError(str(error)) from error
+    except AIUnavailable as error:
+        raise RetriableJobError(
+            "El proveedor de análisis no está disponible temporalmente."
+        ) from error
+    except Exception as error:
+        raise RetriableJobError(
+            "La preparación del informe competitivo falló temporalmente."
         ) from error
 
 
@@ -809,6 +841,9 @@ meeting_briefing_refresh = _durable_task("oracle.meeting_briefing.refresh")
 weekly_change_refresh = _durable_task("oracle.weekly_change.refresh")
 report_generate = _durable_task("oracle.report.generate")
 procurement_document_report_generate = _durable_task("oracle.procurement_document_report.generate")
+competitive_procurement_report_generate = _durable_task(
+    "oracle.competitive_procurement_report.generate"
+)
 export_generate = _durable_task("oracle.export.generate")
 document_process = _durable_task("oracle.document.process")
 send_email = _durable_task("notifications.send_email")
@@ -827,6 +862,7 @@ AI_DURABLE_TASKS = {
         "actor_partnership",
         "meeting_briefing",
         "report_writer",
+        "competitive_procurement_intelligence",
         "memory_curator",
         "evidence_reviewer",
         "weekly_change",

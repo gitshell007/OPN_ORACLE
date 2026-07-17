@@ -3912,7 +3912,7 @@ def test_reporting_api_validation_retry_revision_and_policy_states(
     csrf = _csrf(client)
 
     templates = client.get("/api/v1/report-templates")
-    assert templates.status_code == 200 and len(templates.get_json()["items"]) == 8
+    assert templates.status_code == 200 and len(templates.get_json()["items"]) == 9
     assert client.get("/api/v1/reports?page[number]=x").status_code == 422
     assert client.get("/api/v1/notifications?page[size]=x").status_code == 422
     assert client.get("/api/v1/exports?page[number]=x").status_code == 422

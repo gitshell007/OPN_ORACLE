@@ -1,4 +1,4 @@
-"""Immutable loader for the eight supported report templates."""
+"""Immutable loader for the supported report templates."""
 
 from __future__ import annotations
 
@@ -51,6 +51,7 @@ EXPECTED_TEMPLATES = frozenset(
         "weekly_change",
         "actors",
         "action_plan",
+        "competitive_procurement",
     }
 )
 
@@ -91,7 +92,7 @@ class ReportTemplateRegistry:
                 sha256=hashlib.sha256(raw).digest(),
             )
         if loaded.keys() != EXPECTED_TEMPLATES:
-            raise RuntimeError("Deben existir exactamente ocho templates de informe v1.")
+            raise RuntimeError("El registro de templates de informe v1 está incompleto.")
         return loaded
 
     def get(self, key: str, version: str = "v1") -> ReportTemplate:

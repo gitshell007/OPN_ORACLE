@@ -268,6 +268,27 @@ class MockLLMProvider:
                     else []
                 ),
             },
+            "competitive_procurement_intelligence": {
+                "title": "Inteligencia competitiva mock",
+                "executive_summary": "Agregados deterministas sujetos a revisión.",
+                "sections": [
+                    {
+                        "heading": str(heading),
+                        "paragraphs": [
+                            {
+                                "text": "Interpretación sintética del agregado calculado.",
+                                "kind": "inference",
+                                "confidence": confidence,
+                                "evidence_ids": [],
+                            }
+                        ],
+                    }
+                    for heading in request.context.get("requested_scope", {}).get(
+                        "required_sections", []
+                    )
+                ],
+                "source_index": [],
+            },
             "memory_curator": {"living_summary": "Sin cambios confirmados.", "what_changed": []},
             "evidence_reviewer": {
                 "verdict": "pass_with_warnings",
@@ -513,7 +534,10 @@ def _normalize_signal_candidate_json(
     and unsafe or absent evidence ids. It never turns an uncited claim into a fact.
     """
 
-    if request.agent != "report_writer":
+    if request.agent not in {
+        "report_writer",
+        "competitive_procurement_intelligence",
+    }:
         return raw_output
     try:
         candidate = json.loads(raw_output)

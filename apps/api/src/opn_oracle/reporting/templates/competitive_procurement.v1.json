@@ -1,0 +1,31 @@
+{
+  "key": "competitive_procurement",
+  "version": "v1",
+  "label": "Inteligencia competitiva de contratación",
+  "report_type": "competitive_procurement",
+  "input_contract": {
+    "required": ["dossier_id", "company_name"],
+    "properties": {
+      "company_name": "string"
+    }
+  },
+  "sections": [
+    "Cobertura y límites",
+    "Concentración por organismo",
+    "Distribución de importes",
+    "Baja sobre licitación",
+    "Socios UTE (estimación heurística)",
+    "Interpretación estratégica",
+    "Recomendaciones"
+  ],
+  "evidence_policy": "Los agregados calculados citan la evidencia derivada del histórico paginado; el foco cita adjudicaciones fijadas. La baja no se publica con cobertura insuficiente y los socios UTE se presentan solo como heurística no verificada.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {
+    "generate": "report.generate",
+    "read": "report.read",
+    "review": "report.review",
+    "publish": "report.publish"
+  },
+  "formats": ["html", "pdf", "json"],
+  "changelog": ["v1: histórico paginado, agregados Python y cobertura explícita de baja"]
+}

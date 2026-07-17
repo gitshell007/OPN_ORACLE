@@ -2407,6 +2407,18 @@ def _reporting_schemas() -> dict[str, Any]:
         },
         ["id", "format", "status", "byte_size", "checksum", "media_type"],
     )
+    generation = obj(
+        {
+            "provider": {"type": "string", "nullable": True},
+            "model": {"type": "string", "nullable": True},
+            "prompt_name": {"type": "string", "nullable": True},
+            "prompt_version": {"type": "string", "nullable": True},
+            "latency_ms": {"type": "integer", "minimum": 0, "nullable": True},
+            "estimated_cost_micros": {"type": "integer", "minimum": 0, "nullable": True},
+            "actual_cost_micros": {"type": "integer", "minimum": 0},
+        },
+        ["provider", "model", "prompt_name", "prompt_version", "actual_cost_micros"],
+    )
     report = obj(
         {
             "id": uuid,
@@ -2436,6 +2448,7 @@ def _reporting_schemas() -> dict[str, Any]:
             "reviewed_at": date_time,
             "published_at": date_time,
             "error_code": {"type": "string", "nullable": True},
+            "generation": {"oneOf": [generation, {"type": "null"}]},
             "version": {"type": "integer", "minimum": 1},
             "revision": {"oneOf": [json_object, {"type": "null"}]},
             "artifacts": {"type": "array", "items": artifact},

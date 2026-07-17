@@ -15,6 +15,10 @@ from sqlalchemy import func, select, update
 from opn_oracle.auth.permissions import current_permissions, require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db
+from opn_oracle.oracle.competitive_procurement import (
+    COMPETITIVE_PROCUREMENT_JOB,
+    COMPETITIVE_PROCUREMENT_TEMPLATE,
+)
 from opn_oracle.oracle.models import Report, StrategicDossier
 from opn_oracle.oracle.policy import dossier_access_clause, dossier_accessible
 from opn_oracle.platform.audit import append_audit_event
@@ -202,6 +206,11 @@ def retry_report(report_id: uuid.UUID) -> Any:
             requested_by_user_id=current_user.id,
             idempotency_key=request.headers.get("Idempotency-Key", ""),
             parent_report_id=report.id,
+            job_type=(
+                COMPETITIVE_PROCUREMENT_JOB
+                if report.template_key == COMPETITIVE_PROCUREMENT_TEMPLATE
+                else "oracle.report.generate"
+            ),
         )
     except ReportConflictError as error:
         db.session.rollback()

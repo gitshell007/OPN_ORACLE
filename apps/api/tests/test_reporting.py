@@ -65,7 +65,7 @@ def _output(text: str = "Hecho verificable") -> dict[str, object]:
     }
 
 
-def test_report_registry_contains_exactly_eight_immutable_templates() -> None:
+def test_report_registry_contains_exact_supported_templates() -> None:
     registry = ReportTemplateRegistry()
     assert {item.key for item in registry.list()} == EXPECTED_TEMPLATES
     assert all(item.version == "v1" and len(item.sha256) == 32 for item in registry.list())

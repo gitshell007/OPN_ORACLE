@@ -278,6 +278,7 @@ def execute_agent(
             data_classification=context.classification,
             redaction_applied=bool(context.redaction_summary["matches"]),
             redaction_summary=context.redaction_summary,
+            estimated_cost_micros=reservation_micros,
             started_at=now,
         )
         db.session.add(audit)
@@ -302,7 +303,8 @@ def execute_agent(
         audit.redaction_applied = bool(context.redaction_summary["matches"])
         audit.redaction_summary = context.redaction_summary
         audit.input_tokens = audit.output_tokens = audit.actual_cost_micros = 0
-        audit.latency_ms = audit.estimated_cost_micros = None
+        audit.latency_ms = None
+        audit.estimated_cost_micros = reservation_micros
         audit.error_code = None
         audit.started_at = now
         audit.completed_at = None

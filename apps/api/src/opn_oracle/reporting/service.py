@@ -21,7 +21,11 @@ from opn_oracle.ai.service import execute_agent
 from opn_oracle.documents.storage import ObjectStorage, object_key
 from opn_oracle.extensions import db
 from opn_oracle.jobs.service import publish_job, stage_job
-from opn_oracle.oracle.jobs import BackgroundJob
+from opn_oracle.oracle.competitive_procurement import (
+    COMPETITIVE_PROCUREMENT_TEMPLATE,
+    pinned_award_winners,
+)
+from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.links import EvidenceDossier, ReportEvidence
 from opn_oracle.oracle.models import (
     DossierActor,
@@ -323,9 +327,26 @@ def _validate_options(
 def _snapshot(
     dossier: StrategicDossier, template: ReportTemplate, options: dict[str, Any]
 ) -> tuple[dict[str, Any], list[Evidence]]:
-    evidence_ids = select(EvidenceDossier.evidence_id).where(
-        EvidenceDossier.dossier_id == dossier.id
+    procurement_items = (
+        list(
+            db.session.scalars(
+                select(DossierProcurementItem)
+                .where(DossierProcurementItem.dossier_id == dossier.id)
+                .order_by(DossierProcurementItem.created_at.desc(), DossierProcurementItem.id)
+                .limit(50)
+            )
+        )
+        if template.key in {"tender", COMPETITIVE_PROCUREMENT_TEMPLATE}
+        else []
     )
+    if template.key == COMPETITIVE_PROCUREMENT_TEMPLATE:
+        evidence_ids = [item.evidence_id for item in procurement_items if item.kind == "award"]
+    else:
+        evidence_ids = list(
+            db.session.scalars(
+                select(EvidenceDossier.evidence_id).where(EvidenceDossier.dossier_id == dossier.id)
+            )
+        )
     evidence = list(
         db.session.scalars(
             select(Evidence)
@@ -352,18 +373,6 @@ def _snapshot(
     )
     living_summary = db.session.scalar(
         select(LivingSummary).where(LivingSummary.dossier_id == dossier.id)
-    )
-    procurement_items = (
-        list(
-            db.session.scalars(
-                select(DossierProcurementItem)
-                .where(DossierProcurementItem.dossier_id == dossier.id)
-                .order_by(DossierProcurementItem.created_at.desc(), DossierProcurementItem.id)
-                .limit(50)
-            )
-        )
-        if template.key == "tender"
-        else []
     )
     payload = {
         "schema": "oracle-report-snapshot-v1",
@@ -580,6 +589,29 @@ def create_report_request(
         raise ReportWorkflowError("Idempotency-Key debe tener entre 8 y 200 caracteres.")
     template = ReportTemplateRegistry().get(template_key)
     normalized = _validate_options(template, dossier.id, options)
+    if template.key == COMPETITIVE_PROCUREMENT_TEMPLATE:
+        pinned_awards = list(
+            db.session.scalars(
+                select(DossierProcurementItem).where(
+                    DossierProcurementItem.tenant_id == tenant_id,
+                    DossierProcurementItem.dossier_id == dossier.id,
+                    DossierProcurementItem.kind == "award",
+                )
+            )
+        )
+        available_winners = pinned_award_winners(pinned_awards)
+        selected_company = str(normalized.get("company_name", "")).strip()
+        by_casefold = {winner.casefold(): winner for winner in available_winners}
+        if not available_winners:
+            raise ReportWorkflowError(
+                "Fija al menos una adjudicación antes de generar inteligencia competitiva."
+            )
+        if selected_company.casefold() not in by_casefold:
+            raise ReportWorkflowError(
+                "El adjudicatario debe coincidir con una denominación registral fijada "
+                "en el expediente."
+            )
+        normalized["company_name"] = by_casefold[selected_company.casefold()]
     request_payload = {
         "dossier_id": str(dossier.id),
         "template_key": template.key,
@@ -635,11 +667,14 @@ def create_report_request(
         raise ReportWorkflowError(
             "Un informe público no puede incluir evidencia interna en su snapshot."
         )
+    report_title = f"{template.label} · {dossier.title}"
+    if template.key == COMPETITIVE_PROCUREMENT_TEMPLATE:
+        report_title = f"{template.label}: {normalized['company_name']} · {dossier.title}"
     report = Report(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
         dossier_id=dossier.id,
-        title=f"{template.label} · {dossier.title}",
+        title=report_title,
         status="draft",
         content={},
         report_type=template.report_type,
@@ -706,6 +741,71 @@ def create_report_request(
     db.session.commit()
     publish_job(job)
     return report, job, True
+
+
+def freeze_report_enrichment(
+    report: Report,
+    *,
+    key: str,
+    payload: dict[str, Any],
+    evidence: Evidence,
+    source_label: str,
+) -> None:
+    """Freeze a durable preprocessing result into a draft report snapshot.
+
+    The derived Evidence row must already be linked to the dossier through
+    ``EvidenceDossier`` so the composite FK on ``ReportSnapshotEvidence`` remains
+    tenant- and dossier-safe.
+    """
+
+    if report.status not in {"draft", "failed"}:
+        raise ReportWorkflowError("El informe ya no admite preparación de su snapshot.")
+    source_snapshot = dict(report.source_snapshot)
+    if key in source_snapshot:
+        return
+    frozen = {
+        "extract": evidence.extract,
+        "locator": evidence.locator,
+        "classification": evidence.classification,
+        "source_label": source_label,
+    }
+    evidence_metadata = {
+        "id": str(evidence.id),
+        "version": evidence.version,
+        "checksum": evidence.checksum.hex(),
+        "classification": evidence.classification,
+        "locator": evidence.locator,
+        "source_label": source_label,
+        "snapshot_row_hash": _sha256(frozen).hex(),
+    }
+    source_snapshot[key] = payload
+    source_snapshot["evidence"] = [
+        evidence_metadata,
+        *list(source_snapshot.get("evidence", [])),
+    ]
+    report.source_snapshot = source_snapshot
+    report.source_snapshot_hash = _sha256(source_snapshot)
+    report.version += 1
+    db.session.add(
+        ReportSnapshotEvidence(
+            tenant_id=report.tenant_id,
+            report_id=report.id,
+            evidence_id=evidence.id,
+            dossier_id=report.dossier_id,
+            evidence_hash=evidence.checksum,
+            extract=evidence.extract,
+            locator=evidence.locator,
+            classification=evidence.classification,
+            source_label=source_label,
+        )
+    )
+    db.session.add(
+        ReportEvidence(
+            tenant_id=report.tenant_id,
+            report_id=report.id,
+            evidence_id=evidence.id,
+        )
+    )
 
 
 def _store_artifact(
@@ -822,7 +922,13 @@ def _pending_artifact_keys() -> list[str]:
     ]
 
 
-def process_report(report_id: uuid.UUID, job: BackgroundJob) -> dict[str, Any]:
+def process_report(
+    report_id: uuid.UUID,
+    job: BackgroundJob,
+    *,
+    agent: str = "report_writer",
+    requested_scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tenant_id = require_tenant_id()
     execution_lease_id = job.execution_lease_id
     if execution_lease_id is None or job.status != "running":
@@ -860,19 +966,21 @@ def process_report(report_id: uuid.UUID, job: BackgroundJob) -> dict[str, Any]:
     result_payload: dict[str, Any] | None = None
     frozen_report = report
     try:
+        supplemental_context = {
+            "report_id": str(report.id),
+            "template_key": report.template_key,
+            "template_version": report.template_version,
+            "required_sections": report.source_snapshot["template"]["sections"],
+            "evidence_policy": report.source_snapshot["template"]["evidence_policy"],
+            "options": report.options,
+            "snapshot_hash": report.source_snapshot_hash.hex(),
+            **(requested_scope or {}),
+        }
         result = execute_agent(
-            agent="report_writer",
+            agent=agent,
             dossier_id=report.dossier_id,
             job=job,
-            supplemental_context={
-                "report_id": str(report.id),
-                "template_key": report.template_key,
-                "template_version": report.template_version,
-                "required_sections": report.source_snapshot["template"]["sections"],
-                "evidence_policy": report.source_snapshot["template"]["evidence_policy"],
-                "options": report.options,
-                "snapshot_hash": report.source_snapshot_hash.hex(),
-            },
+            supplemental_context=supplemental_context,
             context_factory=lambda max_tokens: _frozen_report_context(frozen_report, max_tokens),
             target_type="report",
             target_id=report.id,
@@ -1201,6 +1309,26 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
     artifacts = []
     reviews = []
     evidence = []
+    generation: dict[str, Any] | None = None
+    if getattr(report, "ai_artifact_id", None) is not None:
+        generation_row = db.session.execute(
+            select(AIAuditLog)
+            .join(AIArtifact, AIArtifact.audit_log_id == AIAuditLog.id)
+            .where(
+                AIArtifact.id == report.ai_artifact_id,
+                AIArtifact.tenant_id == report.tenant_id,
+            )
+        ).scalar_one_or_none()
+        if generation_row is not None:
+            generation = {
+                "provider": generation_row.provider,
+                "model": generation_row.model,
+                "prompt_name": generation_row.prompt_name,
+                "prompt_version": generation_row.prompt_version,
+                "latency_ms": generation_row.latency_ms,
+                "estimated_cost_micros": generation_row.estimated_cost_micros,
+                "actual_cost_micros": generation_row.actual_cost_micros,
+            }
     if revision is not None:
         artifacts = list(
             db.session.scalars(
@@ -1241,6 +1369,7 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
         "reviewed_at": report.reviewed_at.isoformat() if report.reviewed_at else None,
         "published_at": report.published_at.isoformat() if report.published_at else None,
         "error_code": report.error_code,
+        "generation": generation,
         "version": report.version,
         "revision": (
             {

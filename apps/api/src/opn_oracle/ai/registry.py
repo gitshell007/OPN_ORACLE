@@ -37,6 +37,9 @@ PURPOSES = {
     "actor_partnership": "Priorizar un actor sin perfilado sensible.",
     "meeting_briefing": "Preparar una reunión con hechos e hipótesis separados.",
     "report_writer": "Redactar un informe trazable.",
+    "competitive_procurement_intelligence": (
+        "Interpretar agregados de contratación calculados por Oracle sin rehacer aritmética."
+    ),
     "memory_curator": "Actualizar memoria viva sin borrar historia.",
     "evidence_reviewer": "Revisar groundedness y seguridad de un output.",
     "weekly_change": "Resumir cambios estratégicos del periodo.",
@@ -58,6 +61,12 @@ INPUT_CONTRACTS = {
     "actor_partnership": ("tenant_id", "dossier_id", "actor", "allowed_evidence_ids"),
     "meeting_briefing": ("tenant_id", "dossier_id", "meeting", "allowed_evidence_ids"),
     "report_writer": ("tenant_id", "dossier_id", "report_scope", "allowed_evidence_ids"),
+    "competitive_procurement_intelligence": (
+        "tenant_id",
+        "dossier_id",
+        "computed_analysis",
+        "allowed_evidence_ids",
+    ),
     "memory_curator": ("tenant_id", "dossier_id", "baseline", "changes", "allowed_evidence_ids"),
     "evidence_reviewer": ("tenant_id", "dossier_id", "candidate_output", "allowed_evidence_ids"),
     "weekly_change": (
@@ -96,6 +105,8 @@ def _max_output_tokens(name: str, version: str) -> int:
         return 3500
     if name == "weekly_change" and version == "v2":
         return 4200
+    if name == "competitive_procurement_intelligence":
+        return 5000
     if name != "dossier_situation_summary":
         return 2000
     return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900, "v5": 2600}[version]
