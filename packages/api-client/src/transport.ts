@@ -584,6 +584,7 @@ export interface OracleDocument {
   classification: "public" | "internal";
   status: "uploaded" | "queued" | "processing" | "ready" | "failed" | "quarantined" | "deleted";
   scan_status: string;
+  scan_result: Record<string, unknown>;
   safe_error_code: string | null;
   current_version_id: string | null;
   version: number;
