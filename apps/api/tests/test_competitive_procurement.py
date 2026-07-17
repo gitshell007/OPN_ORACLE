@@ -218,6 +218,7 @@ def test_aggregates_are_python_calculated_and_low_discount_coverage_is_suppresse
         company_name="ITURRI, S.A",
         max_rows=100,
         page_size=2,
+        sleeper=lambda _delay: None,
     )
 
     corpus = analysis["corpus"]
@@ -321,3 +322,38 @@ def test_pinned_winners_are_exact_and_task_contract_is_registered() -> None:
     assert prompt.max_output_tokens == 5000
     template = ReportTemplateRegistry().get("competitive_procurement")
     assert template.sections[0] == "Cobertura y límites"
+
+
+def test_discount_probe_caps_tender_lookups_and_declares_sampling() -> None:
+    from datetime import date as date_type
+    from decimal import Decimal
+
+    from opn_oracle.oracle.competitive_procurement import _discount_coverage
+
+    contracts = [
+        {
+            "folder_id": f"F-{index}",
+            "award_amount": Decimal("100"),
+            "award_date": date_type(2026, 1, index + 1),
+        }
+        for index in range(10)
+    ]
+    client = FakeProcurementClient([], {f"F-{index}": None for index in range(10)})
+    naps: list[float] = []
+
+    coverage = _discount_coverage(
+        client,
+        contracts,
+        probe_max=4,
+        sleeper=naps.append,
+    )
+
+    # Solo se sondean los contratos más recientes hasta el tope, y el recorte se declara.
+    assert client.tender_calls == ["F-9", "F-8", "F-7", "F-6"]
+    assert coverage["probed_contracts"] == 4
+    assert coverage["unprobed_contracts"] == 6
+    assert coverage["probe_sampled"] is True
+    assert coverage["computable"] is False
+    assert "más recientes" in coverage["reason"]
+    # Ritmo entre lookups: una pausa entre cada par consecutivo.
+    assert naps == [PAGE_THROTTLE_SECONDS] * 3

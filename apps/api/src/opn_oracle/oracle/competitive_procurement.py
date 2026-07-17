@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import partial
 from statistics import median
 from typing import Any, Protocol
 
@@ -39,6 +40,12 @@ PAGE_THROTTLE_SECONDS = 0.35
 RATE_LIMIT_STATUS = 429
 RATE_LIMIT_MAX_RETRIES = 6
 RATE_LIMIT_BACKOFF_CAP_SECONDS = 30.0
+
+# La sonda de cobertura de la baja hace un lookup de licitación por contrato. Sin tope,
+# un adjudicatario grande (ITURRI: ~600 contratos únicos) son cientos de peticiones en
+# serie solo para descubrir que la cobertura es ~0%. Se sondean los contratos más
+# recientes hasta este máximo y el recorte se declara en la salida.
+DISCOUNT_PROBE_MAX = 60
 
 _MONEY_QUANTUM = Decimal("0.01")
 _PERCENT_QUANTUM = Decimal("0.1")
@@ -157,6 +164,29 @@ def pinned_award_winners(items: Iterable[Any]) -> tuple[str, ...]:
     return tuple(winners.values())
 
 
+def _call_waiting_out_rate_limit(
+    call: Callable[[], dict[str, Any]],
+    sleeper: Callable[[float], None],
+) -> dict[str, Any]:
+    """Run a Signal call, absorbing up to RATE_LIMIT_MAX_RETRIES 429s in place.
+
+    Cualquier otro error del proveedor sube intacto: si el 429 escapara de aquí,
+    Celery reintentaría el job entero desde cero, quemando el presupuesto de
+    peticiones en cada reintento sin poder terminar jamás.
+    """
+
+    rate_limited = 0
+    while True:
+        try:
+            return call()
+        except ProcurementProviderError as error:
+            status = getattr(error, "status_code", None)
+            if status != RATE_LIMIT_STATUS or rate_limited >= RATE_LIMIT_MAX_RETRIES:
+                raise
+            rate_limited += 1
+            sleeper(min(1.5 * 2 ** (rate_limited - 1), RATE_LIMIT_BACKOFF_CAP_SECONDS))
+
+
 def fetch_award_history(
     client: ProcurementHistoryClient,
     *,
@@ -173,22 +203,16 @@ def fetch_award_history(
     offset = 0
     while len(rows) < max_rows:
         limit = min(page_size, max_rows - len(rows))
-        rate_limited = 0
-        while True:
-            try:
-                payload = client.awards(
-                    company=company_name,
-                    buyer=None,
-                    limit=limit,
-                    offset=offset,
-                )
-                break
-            except ProcurementProviderError as error:
-                status = getattr(error, "status_code", None)
-                if status != RATE_LIMIT_STATUS or rate_limited >= RATE_LIMIT_MAX_RETRIES:
-                    raise
-                rate_limited += 1
-                sleeper(min(1.5 * 2 ** (rate_limited - 1), RATE_LIMIT_BACKOFF_CAP_SECONDS))
+        payload = _call_waiting_out_rate_limit(
+            partial(
+                client.awards,
+                company=company_name,
+                buyer=None,
+                limit=limit,
+                offset=offset,
+            ),
+            sleeper,
+        )
         page = payload.get("items")
         if not isinstance(page, list):
             raise ValueError("Signal devolvió adjudicaciones con un formato inesperado.")
@@ -402,12 +426,30 @@ def _tender_item(payload: dict[str, Any]) -> dict[str, Any]:
 def _discount_coverage(
     client: ProcurementHistoryClient,
     contracts: list[dict[str, Any]],
+    *,
+    probe_max: int = DISCOUNT_PROBE_MAX,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
+    # Sonda determinista: los contratos más recientes primero (los comercialmente
+    # relevantes), con desempate estable por folder_id.
+    probed = sorted(
+        contracts,
+        key=lambda item: (
+            item["award_date"] if isinstance(item["award_date"], date) else date.min,
+            str(item["folder_id"]),
+        ),
+        reverse=True,
+    )[: max(probe_max, 0)]
     observed: list[Decimal] = []
     reasons = Counter[str]()
-    for contract in contracts:
+    for index, contract in enumerate(probed):
+        if index:
+            sleeper(PAGE_THROTTLE_SECONDS)
         try:
-            payload = client.tender_by_folder(folder_id=str(contract["folder_id"]))
+            payload = _call_waiting_out_rate_limit(
+                partial(client.tender_by_folder, folder_id=str(contract["folder_id"])),
+                sleeper,
+            )
         except ProcurementProviderError as error:
             if error.status_code == 404:
                 reasons["tender_not_found"] += 1
@@ -423,16 +465,22 @@ def _discount_coverage(
             continue
         observed.append((initial - awarded) * 100 / initial)
 
-    total = len(contracts)
+    total = len(probed)
     computable = len(observed)
     coverage = Decimal(computable) / Decimal(total) if total else Decimal("0")
     publishable = coverage >= MIN_DISCOUNT_COVERAGE and computable >= MIN_DISCOUNT_SAMPLE
     unavailable = total - computable
+    sampled = len(contracts) > total
     reason = None
     if not publishable:
+        scope = (
+            f"las {total} adjudicaciones más recientes de {len(contracts)} del corpus"
+            if sampled
+            else f"{total} adjudicaciones del corpus acotado"
+        )
         reason = (
             "No se publica una baja media: solo "
-            f"{computable} de {total} adjudicaciones del corpus acotado "
+            f"{computable} de {scope} "
             "tienen importe inicial y adjudicado comparables; calcularla sobre ese "
             "subconjunto introduciría sesgo de supervivencia."
         )
@@ -441,6 +489,10 @@ def _discount_coverage(
         "computed_contracts": computable,
         "not_computable_contracts": unavailable,
         "denominator_contracts": total,
+        "probe_cap": probe_max,
+        "probed_contracts": total,
+        "unprobed_contracts": len(contracts) - total,
+        "probe_sampled": sampled,
         "coverage_percent": _percent(coverage * 100),
         "minimum_coverage_percent": _percent(MIN_DISCOUNT_COVERAGE * 100),
         "minimum_sample": MIN_DISCOUNT_SAMPLE,
@@ -465,12 +517,14 @@ def build_competitive_procurement_analysis(
     company_name: str,
     max_rows: int = MAX_AWARD_ROWS,
     page_size: int = AWARD_PAGE_SIZE,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     history = fetch_award_history(
         client,
         company_name=company_name,
         max_rows=max_rows,
         page_size=page_size,
+        sleeper=sleeper,
     )
     contracts, ignored_rows = _group_contracts(history.rows)
     dated = sorted(item["award_date"] for item in contracts if isinstance(item["award_date"], date))
@@ -510,7 +564,7 @@ def build_competitive_procurement_analysis(
         ],
         "buyer_concentration": _buyer_concentration(contracts),
         "amount_distribution": _distribution(contracts),
-        "discount_coverage": _discount_coverage(client, contracts),
+        "discount_coverage": _discount_coverage(client, contracts, sleeper=sleeper),
         "ute_partners": _ute_analysis(contracts, company_name),
     }
 
