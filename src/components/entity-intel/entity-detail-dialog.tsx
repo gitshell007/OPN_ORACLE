@@ -9,6 +9,7 @@ import {
   api,
   type EntityIntelGraphNode,
   type EntityIntelKind,
+  type EntityIntelRegistryAct,
   type EntityIntelRegistryResponse,
 } from "@oracle/api-client";
 import { registryStatusCounts } from "./registry-status";
@@ -99,8 +100,36 @@ function problemMessage(reason: unknown): string {
     : "No se pudieron cargar datos registrales.";
 }
 
-function recentActs(registry: EntityIntelRegistryResponse | null) {
-  return (registry?.items ?? []).slice(0, 5);
+function actTimestamp(act: EntityIntelRegistryAct): number | null {
+  const value = act.date ?? act.effective_date;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
+function chronologicalActs(registry: EntityIntelRegistryResponse | null) {
+  return [...(registry?.items ?? [])].sort((left, right) => {
+    const leftTimestamp = actTimestamp(left);
+    const rightTimestamp = actTimestamp(right);
+    if (leftTimestamp === null && rightTimestamp === null) return 0;
+    if (leftTimestamp === null) return 1;
+    if (rightTimestamp === null) return -1;
+    return rightTimestamp - leftTimestamp;
+  });
+}
+
+function actYear(act: EntityIntelRegistryAct): string {
+  const timestamp = actTimestamp(act);
+  return timestamp === null ? "Sin fecha" : String(new Date(timestamp).getFullYear());
+}
+
+function actsByYear(acts: EntityIntelRegistryAct[]) {
+  const groups = new Map<string, EntityIntelRegistryAct[]>();
+  for (const act of acts) {
+    const year = actYear(act);
+    groups.set(year, [...(groups.get(year) ?? []), act]);
+  }
+  return Array.from(groups.entries());
 }
 
 export function EntityDetailDialog({
@@ -160,7 +189,7 @@ export function EntityDetailDialog({
     setRegistry(null);
     setRegistryError(null);
     setRegistryLoading(true);
-    void api.entityIntel.registry({ name: lookupName, type: kind, limit: 50, offset: 0 })
+    void api.entityIntel.registry({ name: lookupName, type: kind, limit: 100, offset: 0 })
       .then((result) => {
         if (cancelled) return;
         registryCache.current.set(cacheKey, result);
@@ -179,7 +208,8 @@ export function EntityDetailDialog({
 
   if (!entity) return null;
   const counts = registryStatusCounts(registry?.items ?? [], kind);
-  const acts = recentActs(registry);
+  const acts = chronologicalActs(registry);
+  const groupedActs = actsByYear(acts);
   const profile = registry?.profile;
   const loadedActs = registry?.items.length ?? 0;
   const totalActs = typeof registry?.total === "number" ? registry.total : loadedActs;
@@ -291,23 +321,52 @@ export function EntityDetailDialog({
               </section>
 
               <section>
-                <h3>Actos recientes BORME</h3>
+                <h3>Cronología BORME</h3>
                 {registryLoading ? (
                   <p className="entity-empty-state">Cargando actos registrales...</p>
                 ) : registryError ? (
                   <p className="entity-empty-state">{registryError}</p>
                 ) : acts.length ? (
-                  <div className="entity-recent-acts">
-                    {acts.map((act, index) => (
-                      <a
-                        key={`${act.source_url ?? "act"}-${index}`}
-                        href={act.source_url ?? "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <strong>{act.role ?? act.act_type ?? "Acto registral"}</strong>
-                        <span>{act.action ?? "acto"} · {formatDate(act.date) ?? "sin fecha"}</span>
-                      </a>
+                  <div className="entity-acts-timeline">
+                    <p className="entity-section-note">
+                      Mostrando {loadedActs} de {totalActs} actos cargados desde Signal. La ficha no
+                      sustituye al BORME oficial: Signal no entrega el texto íntegro del acto, solo
+                      persona, cargo, acción, fecha, provincia y cita.
+                    </p>
+                    {groupedActs.map(([year, yearActs]) => (
+                      <div className="entity-acts-year" key={year}>
+                        <h4>{year}</h4>
+                        {yearActs.map((act, index) => (
+                          <article key={`${act.source_url ?? "act"}-${act.date ?? "sin-fecha"}-${index}`}>
+                            <time dateTime={act.date ?? undefined}>{formatDate(act.date) ?? "Sin fecha"}</time>
+                            <dl>
+                              <div>
+                                <dt>Persona</dt>
+                                <dd>{act.person ?? "No indicada"}</dd>
+                              </div>
+                              <div>
+                                <dt>Cargo</dt>
+                                <dd>{act.role ?? act.act_type ?? "Acto registral"}</dd>
+                              </div>
+                              <div>
+                                <dt>Acción</dt>
+                                <dd>{act.action ?? "Acto"}</dd>
+                              </div>
+                              <div>
+                                <dt>Provincia</dt>
+                                <dd>{act.province ?? "No indicada"}</dd>
+                              </div>
+                            </dl>
+                            {act.source_url ? (
+                              <a href={act.source_url} target="_blank" rel="noreferrer">
+                                Cita BOE
+                              </a>
+                            ) : (
+                              <span className="entity-empty-state">Sin cita BOE</span>
+                            )}
+                          </article>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 ) : (

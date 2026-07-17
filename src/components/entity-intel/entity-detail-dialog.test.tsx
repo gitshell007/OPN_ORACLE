@@ -34,7 +34,7 @@ describe("EntityDetailDialog", () => {
       profile: { status: "activa", constitution_date: "2001-02-03" },
       items: [
         { person: "BURGOS CANTO MIGUEL", role: "Administrador", action: "nombramiento", date: "2026-07-01", source_url: "https://boe.test/1" },
-        { person: "OTRA PERSONA", role: "Consejero", action: "cese", date: "2026-06-01", source_url: "https://boe.test/2" },
+        { person: "OTRA PERSONA", role: "Consejero", action: "cese", date: "2026-06-01", province: "SEVILLA", source_url: "https://boe.test/2" },
       ],
       total: 75,
       cached_seconds: 600,
@@ -78,9 +78,14 @@ describe("EntityDetailDialog", () => {
     expect(mocks.registry).toHaveBeenCalledWith({
       name: "IBERDROLA CLIENTES ESPANA SOCIEDAD ANONIMA",
       type: "company",
-      limit: 50,
+      limit: 100,
       offset: 0,
     });
+    expect(await screen.findByText("Cronología BORME")).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 2 de 75 actos cargados/i)).toBeInTheDocument();
+    expect(screen.getByText("OTRA PERSONA")).toBeInTheDocument();
+    expect(screen.getByText("SEVILLA")).toBeInTheDocument();
+    expect(screen.getAllByText("Cita BOE")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: /BURGOS CANTO MIGUEL/i }));
     expect(

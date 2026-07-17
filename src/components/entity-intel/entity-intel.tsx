@@ -29,6 +29,23 @@ const ENTITY_KIND_STORAGE_KEY = "opn:entity-intel:kind";
 const ENTITY_KINDS = new Set<EntityIntelKind>(["company", "person"]);
 
 let fcoseRegistered = false;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_READABLE_GRAPH_ZOOM = 1.05;
+const MAX_MANAGEABLE_INITIAL_ZOOM = 1.35;
+const MAX_INITIAL_FOCUS_ELEMENTS = 90;
+
+interface TemporalBounds {
+  min: number;
+  max: number;
+  maxOffset: number;
+  datedEdges: number;
+  undatedEdges: number;
+}
+
+interface TimeFilterState {
+  key: string;
+  range: [number, number];
+}
 
 function problemMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
@@ -223,6 +240,40 @@ function edgeRole(edge: EntityIntelGraphEdge): string {
   return String(edge.role ?? edge.roles ?? "Relación");
 }
 
+function parseEdgeDate(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day));
+}
+
+function formatTimelineDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString("es-ES");
+}
+
+function timelineDateFromOffset(bounds: TemporalBounds, offset: number): number {
+  return bounds.min + offset * DAY_MS;
+}
+
+function temporalBoundsFor(graph: EntityIntelGraphResponse | null): TemporalBounds | null {
+  if (!graph) return null;
+  const dates = graph.edges.flatMap((edge) => {
+    const timestamp = parseEdgeDate(edge.date);
+    return timestamp === null ? [] : [timestamp];
+  });
+  if (!dates.length) return null;
+  const min = Math.min(...dates);
+  const max = Math.max(...dates);
+  return {
+    min,
+    max,
+    maxOffset: Math.max(0, Math.round((max - min) / DAY_MS)),
+    datedEdges: dates.length,
+    undatedEdges: graph.edges.length - dates.length,
+  };
+}
+
 function nodeKind(node: EntityIntelGraphNode | null | undefined): EntityIntelKind {
   return node?.type === "person" || node?.entityType === "person" ? "person" : "company";
 }
@@ -239,6 +290,7 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
         label: nodeLabel(node),
         entityType: String(node.type ?? "entity"),
       },
+      classes: node.is_center === true ? "is-center-node" : undefined,
     };
   });
   const edges = graph.edges.flatMap((edge, index) => {
@@ -254,6 +306,7 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
           target,
           label: edgeRole(edge),
         },
+        classes: edge.active === false ? "is-inactive-edge" : undefined,
       },
     ];
   });
@@ -309,6 +362,57 @@ function directRelations(
   });
 }
 
+function initialGraphFocus(instance: cytoscape.Core) {
+  const centerNodes = instance.nodes(".is-center-node");
+  const center = centerNodes.length > 0 ? centerNodes : instance.nodes().first();
+  if (center.length === 0) return;
+  const neighborhood = center.closedNeighborhood();
+  const denseGraph = neighborhood.length > MAX_INITIAL_FOCUS_ELEMENTS;
+  const focus = neighborhood.length > 0 && !denseGraph ? neighborhood : center;
+  instance.fit(focus, denseGraph ? 140 : 96);
+  const container = instance.container();
+  const bounds = container?.getBoundingClientRect();
+  const renderedPosition = bounds
+    ? { x: bounds.width / 2, y: bounds.height / 2 }
+    : undefined;
+  const preferredZoom = denseGraph
+    ? MIN_READABLE_GRAPH_ZOOM
+    : Math.min(instance.zoom(), MAX_MANAGEABLE_INITIAL_ZOOM);
+  const nextZoom = Math.min(instance.maxZoom(), Math.max(preferredZoom, MIN_READABLE_GRAPH_ZOOM));
+  instance.zoom(renderedPosition ? { level: nextZoom, renderedPosition } : nextZoom);
+  instance.center(center);
+}
+
+function applyTemporalGraphFilter(
+  instance: cytoscape.Core,
+  bounds: TemporalBounds | null,
+  range: [number, number] | null,
+) {
+  const start = bounds && range ? timelineDateFromOffset(bounds, range[0]) : null;
+  const end = bounds && range ? timelineDateFromOffset(bounds, range[1]) : null;
+  instance.batch(() => {
+    instance.edges().forEach((edge: cytoscape.EdgeSingular) => {
+      edge.removeClass("is-time-filtered is-undated");
+      const timestamp = parseEdgeDate(edge.data("date"));
+      if (timestamp === null) {
+        edge.addClass("is-undated");
+        return;
+      }
+      if (start !== null && end !== null && (timestamp < start || timestamp > end)) {
+        edge.addClass("is-time-filtered");
+      }
+    });
+    instance.nodes().forEach((node: cytoscape.NodeSingular) => {
+      node.removeClass("is-orphaned-after-filter");
+      if (node.data("is_center") === true) return;
+      const visibleEdges = node
+        .connectedEdges()
+        .filter((edge: cytoscape.EdgeSingular) => !edge.hasClass("is-time-filtered"));
+      if (visibleEdges.length === 0) node.addClass("is-orphaned-after-filter");
+    });
+  });
+}
+
 export function EntityGraphExplorer({
   name,
   type,
@@ -323,6 +427,8 @@ export function EntityGraphExplorer({
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<cytoscape.Core | null>(null);
+  const temporalBoundsRef = useRef<TemporalBounds | null>(null);
+  const timeRangeRef = useRef<[number, number] | null>(null);
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
@@ -330,6 +436,8 @@ export function EntityGraphExplorer({
   const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(!initialGraph);
   const [error, setError] = useState<string | null>(null);
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const [timeFilter, setTimeFilter] = useState<TimeFilterState | null>(null);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -365,11 +473,56 @@ export function EntityGraphExplorer({
   }, [activeOnly, initialGraph, loadGraph]);
 
   const elements = useMemo(() => (graph ? graphElements(graph) : []), [graph]);
+  const temporalBounds = useMemo(() => temporalBoundsFor(graph), [graph]);
+  const temporalKey = temporalBounds
+    ? `${temporalBounds.min}:${temporalBounds.max}:${temporalBounds.maxOffset}`
+    : null;
+  const timeRange = temporalBounds
+    ? timeFilter?.key === temporalKey
+      ? timeFilter.range
+      : [0, temporalBounds.maxOffset] satisfies [number, number]
+    : null;
+  const visibleEdgeCount = useMemo(() => {
+    if (!graph) return 0;
+    if (!temporalBounds || !timeRange) return graph.edges.length;
+    const start = timelineDateFromOffset(temporalBounds, timeRange[0]);
+    const end = timelineDateFromOffset(temporalBounds, timeRange[1]);
+    return graph.edges.filter((edge) => {
+      const timestamp = parseEdgeDate(edge.date);
+      return timestamp === null || (timestamp >= start && timestamp <= end);
+    }).length;
+  }, [graph, temporalBounds, timeRange]);
+
+  useEffect(() => {
+    temporalBoundsRef.current = temporalBounds;
+    timeRangeRef.current = timeRange;
+  }, [temporalBounds, timeRange]);
+
+  const zoomGraph = useCallback((factor: number) => {
+    const instance = graphRef.current;
+    if (!instance) return;
+    const container = instance.container();
+    const bounds = container?.getBoundingClientRect();
+    const renderedPosition = bounds
+      ? { x: bounds.width / 2, y: bounds.height / 2 }
+      : undefined;
+    const nextZoom = Math.min(instance.maxZoom(), Math.max(instance.minZoom(), instance.zoom() * factor));
+    instance.zoom(renderedPosition ? { level: nextZoom, renderedPosition } : nextZoom);
+    setZoomPercent(Math.round(instance.zoom() * 100));
+  }, []);
+
+  const resetGraphFocus = useCallback(() => {
+    const instance = graphRef.current;
+    if (!instance) return;
+    initialGraphFocus(instance);
+    setZoomPercent(Math.round(instance.zoom() * 100));
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current || !graph || elements.length === 0) return undefined;
     let cancelled = false;
     let cleanupHandlers: (() => void) | null = null;
+    let focusTimer: number | null = null;
     void Promise.all([import("cytoscape"), import("cytoscape-fcose")]).then(
       ([cytoscapeModule, fcoseModule]) => {
         if (cancelled || !containerRef.current) return;
@@ -385,7 +538,6 @@ export function EntityGraphExplorer({
           elements,
           minZoom: 0.35,
           maxZoom: 2.2,
-          wheelSensitivity: 0.18,
           style: [
             {
               selector: "node",
@@ -416,7 +568,7 @@ export function EntityGraphExplorer({
               style: { "background-color": "#7c3aed" },
             },
             {
-              selector: 'node[is_center = true]',
+              selector: "node.is-center-node",
               style: {
                 "background-color": "#0891b2",
                 "border-color": "#0f172a",
@@ -444,10 +596,30 @@ export function EntityGraphExplorer({
               },
             },
             {
-              selector: 'edge[active = false]',
+              selector: "edge.is-inactive-edge",
               style: {
                 "line-style": "dashed",
                 opacity: 0.46,
+              },
+            },
+            {
+              selector: "edge.is-undated",
+              style: {
+                "line-style": "dotted",
+                "line-color": "#64748b",
+                "target-arrow-color": "#64748b",
+              },
+            },
+            {
+              selector: ".is-time-filtered",
+              style: {
+                display: "none",
+              },
+            },
+            {
+              selector: "node.is-orphaned-after-filter",
+              style: {
+                opacity: 0.24,
               },
             },
             {
@@ -461,7 +633,7 @@ export function EntityGraphExplorer({
               },
             },
             {
-              selector: 'node[is_center = true].is-hovered',
+              selector: "node.is-center-node.is-hovered",
               style: { height: 50, width: 50 },
             },
             {
@@ -480,9 +652,9 @@ export function EntityGraphExplorer({
           layout: {
             name: "fcose",
             animate: false,
-            fit: true,
+            fit: false,
             padding: 42,
-            randomize: true,
+            randomize: false,
           } as cytoscape.LayoutOptions,
         });
         const clearHover = () => {
@@ -503,27 +675,44 @@ export function EntityGraphExplorer({
           setSelected(node);
           setDetailOpen(true);
         };
+        const applyInitialFocus = () => {
+          initialGraphFocus(instance);
+          applyTemporalGraphFilter(instance, temporalBoundsRef.current, timeRangeRef.current);
+          setZoomPercent(Math.round(instance.zoom() * 100));
+        };
+        const onZoom = () => setZoomPercent(Math.round(instance.zoom() * 100));
         const container = containerRef.current;
         container.addEventListener("mouseleave", clearHover);
         instance.on("mouseover", "node", onMouseOver);
         instance.on("mouseout", "node", onMouseOut);
         instance.on("tap", "node", onTap);
+        instance.on("zoom", onZoom);
+        instance.on("layoutstop", applyInitialFocus);
         graphRef.current = instance;
+        focusTimer = window.setTimeout(applyInitialFocus, 900);
         cleanupHandlers = () => {
           container.removeEventListener("mouseleave", clearHover);
           instance.removeListener("mouseover", "node", onMouseOver);
           instance.removeListener("mouseout", "node", onMouseOut);
           instance.removeListener("tap", "node", onTap);
+          instance.removeListener("zoom", onZoom);
+          instance.removeListener("layoutstop", applyInitialFocus);
         };
       },
     );
     return () => {
       cancelled = true;
+      if (focusTimer !== null) window.clearTimeout(focusTimer);
       cleanupHandlers?.();
       graphRef.current?.destroy();
       graphRef.current = null;
     };
   }, [elements, graph]);
+
+  useEffect(() => {
+    if (!graphRef.current) return;
+    applyTemporalGraphFilter(graphRef.current, temporalBounds, timeRange);
+  }, [temporalBounds, timeRange]);
 
   const relations = useMemo(() => directRelations(graph, selected), [graph, selected]);
 
@@ -579,12 +768,26 @@ export function EntityGraphExplorer({
           </div>
         ) : graph && elements.length > 0 ? (
           <div className="entity-graph-layout">
-            <div
-              ref={containerRef}
-              tabIndex={-1}
-              className="entity-graph-canvas"
-              aria-label={`Grafo de relaciones de ${name}`}
-            />
+            <div className="entity-graph-stage">
+              <div className="entity-graph-controls" aria-label="Controles de zoom del grafo">
+                <button type="button" aria-label="Acercar grafo" onClick={() => zoomGraph(1.22)}>
+                  +
+                </button>
+                <button type="button" aria-label="Alejar grafo" onClick={() => zoomGraph(0.82)}>
+                  −
+                </button>
+                <button type="button" aria-label="Volver al encuadre inicial" onClick={resetGraphFocus}>
+                  Reencuadrar
+                </button>
+                <span aria-live="polite">Zoom {zoomPercent}%</span>
+              </div>
+              <div
+                ref={containerRef}
+                tabIndex={-1}
+                className="entity-graph-canvas"
+                aria-label={`Grafo de relaciones de ${name}`}
+              />
+            </div>
             <aside className="entity-graph-side">
               <h3>Lectura rápida</h3>
               <p>{selectedDescription(selected)}</p>
@@ -598,10 +801,78 @@ export function EntityGraphExplorer({
                   <dd>2 niveles · {activeOnly ? "solo vínculos activos" : "activos y cesados"}</dd>
                 </div>
                 <div>
+                  <dt>Encuadre inicial</dt>
+                  <dd>Centro legible; primer nivel si no satura la vista</dd>
+                </div>
+                <div>
                   <dt>Origen</dt>
                   <dd>Signal vía Flask</dd>
                 </div>
               </dl>
+              {temporalBounds && timeRange ? (
+                <section className="entity-time-filter" aria-label="Cronograma del grafo">
+                  <h3>Cronograma</h3>
+                  <p>
+                    {visibleEdgeCount} de {graph.edges.length} vínculos visibles. Los vínculos sin
+                    fecha se mantienen visibles; los nodos sin vínculos dentro del rango quedan
+                    atenuados, sin relayout.
+                  </p>
+                  <label>
+                    <span>Desde {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[0]))}</span>
+                    <input
+                      aria-label="Fecha inicial del cronograma"
+                      type="range"
+                      min={0}
+                      max={temporalBounds.maxOffset}
+                      value={timeRange[0]}
+                      onChange={(event) => {
+                        const next = Number(event.target.value);
+                        const nextKey = temporalKey ?? "";
+                        setTimeFilter((current) => {
+                          const [, end] = current?.key === nextKey
+                            ? current.range
+                            : [0, temporalBounds.maxOffset];
+                          return {
+                            key: nextKey,
+                            range: [Math.min(next, end), end],
+                          };
+                        });
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span>Hasta {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[1]))}</span>
+                    <input
+                      aria-label="Fecha final del cronograma"
+                      type="range"
+                      min={0}
+                      max={temporalBounds.maxOffset}
+                      value={timeRange[1]}
+                      onChange={(event) => {
+                        const next = Number(event.target.value);
+                        const nextKey = temporalKey ?? "";
+                        setTimeFilter((current) => {
+                          const [start] = current?.key === nextKey
+                            ? current.range
+                            : [0, temporalBounds.maxOffset];
+                          return {
+                            key: nextKey,
+                            range: [start, Math.max(next, start)],
+                          };
+                        });
+                      }}
+                    />
+                  </label>
+                  <small>
+                    {temporalBounds.datedEdges} vínculos fechados · {temporalBounds.undatedEdges} sin fecha.
+                    {activeOnly ? " Combinado con «Solo vínculos activos»: el rango se aplica sobre vínculos activos ya cargados." : " Incluye vínculos activos y cesados."}
+                  </small>
+                </section>
+              ) : (
+                <p className="entity-graph-note">
+                  Este grafo no trae fechas en sus vínculos; el cronograma no puede acotar el rango.
+                </p>
+              )}
               {graph.truncated && (
                 <p className="entity-graph-warning">
                   <Sparkles size={14} />
@@ -614,6 +885,8 @@ export function EntityGraphExplorer({
                 <span><i className="person" /> Persona</span>
                 <span><i className="center" /> Entidad central</span>
                 <span><i className="inactive" /> Vínculo cesado</span>
+                <span><i className="undated" /> Vínculo sin fecha</span>
+                <span><i className="dimmed" /> Nodo fuera del rango</span>
               </div>
             </aside>
           </div>
