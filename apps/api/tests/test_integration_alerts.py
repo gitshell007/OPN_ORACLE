@@ -35,7 +35,21 @@ from opn_oracle.tenants.context import TenantContext, tenant_context
 from tests import test_integration_reporting_extra as reporting_helpers
 
 pytestmark = pytest.mark.integration
-pytest_plugins = ("tests.test_integration_reporting_extra",)
+
+
+@pytest.fixture(scope="module")
+def reporting_stack(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Any:
+    fixture = reporting_helpers.reporting_stack.__wrapped__(tmp_path_factory)
+    yield from fixture
+
+
+@pytest.fixture(autouse=True)
+def clean_reporting_sessions(
+    reporting_stack: tuple[Any, dict[str, uuid.UUID], str, Any],
+) -> None:
+    reporting_helpers.clean_reporting_sessions.__wrapped__(reporting_stack)
 
 
 def test_alert_evaluator_seven_types_bundle_replay_cooldown_and_report_recipient(

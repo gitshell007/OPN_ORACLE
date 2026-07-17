@@ -14,6 +14,7 @@ DOMAIN="${ORACLE_DOMAIN:-oracle.opnconsultoria.com}"
 AUDIT_LOG="${ORACLE_CONTROL_AUDIT_LOG:-/var/log/opn-oracle-control.log}"
 LOCK_FILE="${ORACLE_CONTROL_LOCK:-/run/lock/opn-oracle-control.lock}"
 REQUIRE_OFFSITE_RECEIPT="${ORACLE_REQUIRE_OFFSITE_RECEIPT:-0}"
+AUTO_APPROVE=0
 
 APP_SERVICES=(api web worker-core beat)
 ALL_SERVICES=(api web worker-core beat postgres redis)
@@ -42,7 +43,7 @@ die() {
 
 usage() {
   cat <<'EOF'
-Uso: oracle-control.sh [comando]
+Uso: oracle-control.sh [--yes|--non-interactive] [comando]
 
 Sin comando abre el menú interactivo.
 
@@ -68,6 +69,11 @@ Comandos operativos interactivos:
   menu                      Abrir menú
 
 Servicios permitidos: api web worker-core beat postgres redis
+
+Opciones:
+  --yes, --non-interactive  Autoacepta confirmaciones simples y desactiva pausas.
+                            Las frases reforzadas siguen exigiendo
+                            ORACLE_CONTROL_CONFIRM_PHRASE exacta.
 
 No muta un release activo in-place. Nunca ejecuta docker compose down,
 down -v, DROP DATABASE, pg_restore sobre producción ni Alembic downgrade.
@@ -234,6 +240,10 @@ service_allowed() {
 
 confirm() {
   local prompt="$1" reply
+  if [[ "$AUTO_APPROVE" == "1" ]]; then
+    warn "Autoaceptado por --yes: $prompt"
+    return 0
+  fi
   [[ -t 0 ]] || { warn "La confirmación necesita una terminal interactiva."; return 1; }
   printf '%s%s [s/N]: %s' "$YELLOW" "$prompt" "$RESET" >&2
   IFS= read -r reply
@@ -241,7 +251,15 @@ confirm() {
 }
 
 confirm_phrase() {
-  local prompt="$1" expected="$2" reply
+  local prompt="$1" expected="$2" reply configured="${ORACLE_CONTROL_CONFIRM_PHRASE:-}"
+  if [[ -n "$configured" ]]; then
+    [[ "$configured" == "$expected" ]] || die "ORACLE_CONTROL_CONFIRM_PHRASE no coincide con '$expected'."
+    warn "Confirmación reforzada validada por ORACLE_CONTROL_CONFIRM_PHRASE."
+    return 0
+  fi
+  if [[ "$AUTO_APPROVE" == "1" ]]; then
+    die "La confirmación reforzada exige ORACLE_CONTROL_CONFIRM_PHRASE='$expected'."
+  fi
   [[ -t 0 ]] || { warn "La confirmación reforzada necesita una terminal."; return 1; }
   warn "$prompt"
   printf 'Escribe exactamente %s%s%s: ' "$BOLD" "$expected" "$RESET" >&2
@@ -250,9 +268,25 @@ confirm_phrase() {
 }
 
 pause() {
+  [[ "$AUTO_APPROVE" == "1" ]] && return 0
   [[ -t 0 ]] || return 0
   printf '\n%sPulsa Intro para continuar…%s' "$DIM" "$RESET"
   IFS= read -r _
+}
+
+gate_path() {
+  local __target="$1" label="$2" env_name="$3" value="${!env_name:-}"
+  if [[ -n "$value" ]]; then
+    printf -v "$__target" '%s' "$value"
+    return 0
+  fi
+  if [[ -t 0 && "$AUTO_APPROVE" != "1" ]]; then
+    printf '%s: ' "$label"
+    IFS= read -r value
+    printf -v "$__target" '%s' "$value"
+    return 0
+  fi
+  die "$env_name es obligatorio en modo no interactivo."
 }
 
 acquire_lock() {
@@ -707,12 +741,18 @@ activate_release() {
   validate_release_dir "$release"
   warn "Se activará un release preparado; no se modificará el release activo in-place."
   heading "Gates obligatorios de upgrade"
-  printf 'Manifest de backup: '; IFS= read -r manifest
-  printf 'Evidencia de restore: '; IFS= read -r evidence
+  gate_path manifest "Manifest de backup" ORACLE_BACKUP_MANIFEST
+  gate_path evidence "Evidencia de restore" ORACLE_BACKUP_RESTORE_EVIDENCE
   if [[ "$REQUIRE_OFFSITE_RECEIPT" == "1" ]]; then
-    printf 'Receipt de copia off-host: '; IFS= read -r receipt
+    gate_path receipt "Receipt de copia off-host" ORACLE_BACKUP_OFFSITE_RECEIPT
   else
-    printf 'Receipt de copia off-host [opcional]: '; IFS= read -r receipt
+    if [[ -n "${ORACLE_BACKUP_OFFSITE_RECEIPT:-}" ]]; then
+      receipt="$ORACLE_BACKUP_OFFSITE_RECEIPT"
+    elif [[ -t 0 && "$AUTO_APPROVE" != "1" ]]; then
+      printf 'Receipt de copia off-host [opcional]: '; IFS= read -r receipt
+    else
+      receipt=""
+    fi
   fi
   for path in "$manifest" "$evidence"; do
     [[ -f "$path" && -r "$path" && ! -L "$path" ]] || die "Gate ausente o inválido."
@@ -882,6 +922,21 @@ menu() {
 }
 
 main() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|--non-interactive)
+        AUTO_APPROVE=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
   local command="${1:-menu}"
   case "$command" in
     -h|--help|help) usage ;;

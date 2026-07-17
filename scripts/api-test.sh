@@ -67,7 +67,50 @@ cd "$ROOT_DIR/apps/api"
 if [[ "$UNIT_ONLY" == "1" ]]; then
   # Sin cobertura a propósito: el umbral de --cov-fail-under cuenta con los tests de
   # integración, así que exigirlo aquí haría fallar una tirada legítimamente parcial.
-  "$UV_BIN" run pytest -m "not integration" --no-cov
+  UNIT_MIN_TESTS="${ORACLE_UNIT_MIN_TESTS:-284}"
+  UNIT_OUTPUT="$(mktemp)"
+  set +e
+  "$UV_BIN" run pytest -m "not integration" --no-cov -rA | tee "$UNIT_OUTPUT"
+  pytest_status=${PIPESTATUS[0]}
+  set -e
+  if [[ "$pytest_status" -ne 0 ]]; then
+    rm -f "$UNIT_OUTPUT"
+    exit "$pytest_status"
+  fi
+  "$UV_BIN" run python - "$UNIT_OUTPUT" "$UNIT_MIN_TESTS" <<'PY'
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+output = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+minimum = int(sys.argv[2])
+summary_lines = [
+    line.strip()
+    for line in output.splitlines()
+    if " passed" in line or " skipped" in line or " failed" in line or " deselected" in line
+]
+summary = summary_lines[-1] if summary_lines else ""
+passed_match = re.search(r"(\d+) passed", summary)
+skipped_match = re.search(r"(\d+) skipped", summary)
+passed = int(passed_match.group(1)) if passed_match else 0
+skipped = int(skipped_match.group(1)) if skipped_match else 0
+if skipped:
+    print(
+        f"ERROR: el modo unitario no puede ocultar tests: {skipped} skipped en {summary!r}.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+if passed < minimum:
+    print(
+        f"ERROR: el modo unitario ejecutó {passed} tests; mínimo protegido {minimum}.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+print(f"Guard unitario OK: {passed} tests ejecutados, 0 skipped.")
+PY
+  rm -f "$UNIT_OUTPUT"
   cat >&2 <<'EOF'
 
 ⚠  MODO PARCIAL: solo se han ejecutado los tests unitarios, sin cobertura.
