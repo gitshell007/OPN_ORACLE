@@ -69,11 +69,26 @@ puede hacer desde el repo: anótalo como cambio manual pendiente, no como hecho.
 
 ## Alcance C — Que quien escribe pueda probar
 
-Un comando único y reproducible que instale y ejecute la suite backend, de modo que ningún agente
-vuelva a entregar código sin haberlo probado. Hoy `apps/api` usa `uv` pero no hay ni Makefile ni
-script de arranque, y AGENTS.md §19 espera equivalentes de `make api-test`. Añade la entrada que
-falte (Makefile o script en `scripts/`), documenta el prerrequisito de `uv` en el README y verifica
-que desde un clon limpio funciona.
+> **Corrección del 2026-07-17: `uv` SÍ está instalado.** El informe del prompt 35 concluyó «no hay
+> `uv` ni `pytest`» y era falso: `uv 0.11.29` está en `~/.local/bin/uv` desde el 15 de julio, y el
+> entorno `apps/api/.venv` ya contiene `pytest`, `ruff` y `mypy`. Lo que falla es el PATH:
+> `~/.local/bin` se añade desde `.zshrc` (`. "$HOME/.local/bin/env"`), y un shell **no interactivo**
+> —como el de un agente— no lo lee. De ahí que `command -v uv` no devuelva nada. Basta con:
+>
+> ```bash
+> export PATH="$HOME/.local/bin:$PATH"
+> cd apps/api && uv run pytest -q --no-cov
+> ```
+>
+> Doce tests en rojo se entregaron como «no pude probarlo» por un `export` que faltaba. Esa es la
+> deuda real: no la ausencia de la herramienta, sino que encontrarla dependa de un shell interactivo.
+
+Añade un comando único y reproducible que ejecute la suite backend **sin depender del PATH del
+shell** (resolviendo `uv` por ruta absoluta o comprobando y avisando si falta). Hoy `apps/api` usa
+`uv` pero no hay ni Makefile ni script de arranque, y AGENTS.md §19 espera equivalentes de
+`make api-test`. Añade la entrada que falte (Makefile o script en `scripts/`), documenta el
+prerrequisito en el README, y verifica que funciona desde un shell no interactivo:
+`zsh -c 'scripts/…'` sin sourcear nada.
 
 Relacionado y **solo para documentar, no arregles ahora**: las pruebas `integration` requieren
 PostgreSQL real vía Docker; un entorno sin Docker no puede ejecutarlas ni en local ni en el agente.
@@ -88,7 +103,8 @@ que CI no puede ser opcional.
 - [ ] `release.yml` no publica si el CI del SHA exacto no está verde; probado con un SHA sin CI.
 - [ ] `ci.yml` se dispara en `pull_request` (no en `push`); comentario del fast-lane retirado.
 - [ ] Instrucciones de rama protegida documentadas y marcadas como cambio manual pendiente.
-- [ ] Existe un comando único que ejecuta la suite backend desde un clon limpio; documentado.
+- [ ] Existe un comando único que ejecuta la suite backend desde un shell **no interactivo**, sin
+      depender de que `.zshrc` haya puesto `uv` en el PATH; documentado y probado.
 - [ ] `STATUS.md` corregido: hoy declara CI en PR/push cuando en realidad es manual (contradicción
       detectada en la auditoría del 17-07). Que el documento diga la verdad.
 
