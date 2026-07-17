@@ -33,6 +33,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_READABLE_GRAPH_ZOOM = 1.05;
 const MAX_MANAGEABLE_INITIAL_ZOOM = 1.35;
 const MAX_INITIAL_FOCUS_ELEMENTS = 90;
+const GRAPH_SEED_GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const GRAPH_SEED_RADIUS = 58;
 
 interface TemporalBounds {
   min: number;
@@ -235,6 +237,31 @@ function nodeLabel(node: EntityIntelGraphNode): string {
   return String(value ?? "Entidad");
 }
 
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededInitialPosition(
+  id: string,
+  index: number,
+  node: EntityIntelGraphNode,
+): cytoscape.Position {
+  if (node.is_center === true) return { x: 0, y: 0 };
+  const ordinal = Math.max(1, index + 1);
+  const jitter = (stableHash(id) % 1024) / 1024;
+  const angle = (ordinal + jitter) * GRAPH_SEED_GOLDEN_ANGLE;
+  const radius = GRAPH_SEED_RADIUS * Math.sqrt(ordinal);
+  return {
+    x: Math.round(Math.cos(angle) * radius * 100) / 100,
+    y: Math.round(Math.sin(angle) * radius * 100) / 100,
+  };
+}
+
 function edgeRole(edge: EntityIntelGraphEdge): string {
   if (Array.isArray(edge.roles)) return edge.roles.join(", ");
   return String(edge.role ?? edge.roles ?? "Relación");
@@ -290,6 +317,7 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
         label: nodeLabel(node),
         entityType: String(node.type ?? "entity"),
       },
+      position: seededInitialPosition(id, index, node),
       classes: node.is_center === true ? "is-center-node" : undefined,
     };
   });

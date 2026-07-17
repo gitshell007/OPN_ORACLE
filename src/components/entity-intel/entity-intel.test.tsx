@@ -23,7 +23,11 @@ type MockCollection = MockElement[] & {
   closedNeighborhood: Mock<() => MockCollection>;
 };
 type MockCytoscapeOptions = {
-  elements: Array<{ data: Record<string, unknown>; classes?: string }>;
+  elements: Array<{
+    data: Record<string, unknown>;
+    position?: { x: number; y: number };
+    classes?: string;
+  }>;
   layout: Record<string, unknown>;
 };
 type MockCytoscapeInstance = {
@@ -383,6 +387,52 @@ describe("EntityGraphExplorer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Volver al encuadre inicial" }));
     expect(instance.center).toHaveBeenCalled();
+  });
+
+  it("siembra posiciones deterministas no degeneradas antes de ejecutar fcose", async () => {
+    const denseGraph = {
+      ...graphResponse,
+      nodes: [
+        graphResponse.nodes[0],
+        ...Array.from({ length: 32 }, (_, index) => ({
+          id: `node-${index}`,
+          label: `Nodo ${index}`,
+          type: index % 2 === 0 ? "company" : "person",
+          degree: 1,
+        })),
+      ],
+      edges: Array.from({ length: 32 }, (_, index) => ({
+        id: `edge-${index}`,
+        source: "ib",
+        target: `node-${index}`,
+        role: "Relación",
+        active: true,
+        date: "2026-07-01",
+      })),
+    };
+    mocks.graph.mockResolvedValue(denseGraph);
+
+    render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const nodeElements = mocks.cytoscapeInstances[0].options.elements.filter(
+      (item) => !item.data.source,
+    );
+    const positions = nodeElements.map((item) => item.position);
+    expect(positions.every(Boolean)).toBe(true);
+    expect(positions[0]).toEqual({ x: 0, y: 0 });
+
+    const distinctX = new Set(positions.map((position) => position?.x));
+    const distinctY = new Set(positions.map((position) => position?.y));
+    const diagonalKeys = new Set(
+      positions.map((position) => (
+        position ? Math.round((position.y - position.x) * 10) / 10 : null
+      )),
+    );
+    expect(distinctX.size).toBeGreaterThan(12);
+    expect(distinctY.size).toBeGreaterThan(12);
+    expect(diagonalKeys.size).toBeGreaterThan(12);
+    expect(mocks.cytoscapeInstances[0].options.layout).toMatchObject({ randomize: false });
   });
 
   it("filtra el grafo por cronograma sin reconstruir elementos", async () => {
