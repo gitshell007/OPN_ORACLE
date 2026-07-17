@@ -6,7 +6,8 @@ Promover un commit validado a imágenes inmutables y activar producción con apr
 
 ## Prerrequisitos y procedimiento rápido
 
-- CI verde o checks locales equivalentes cuando el cambio todavía esté en UAT.
+- CI verde del workflow `CI` para el SHA exacto que se va a publicar; `release.yml` falla cerrado
+  si no existe esa ejecución `success`. Los checks locales no sustituyen este gate.
 - Backup pre-release local y restore aislado válidos.
 - Preparar `/opt/opn-oracle/releases/<release>` desde el commit validado, con
   `RELEASE_SHA256SUMS`, y ejecutar `sudo oracle-control update <release>`.

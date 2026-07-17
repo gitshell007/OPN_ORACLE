@@ -16,6 +16,9 @@
 - ¿Se necesita OCR en P1 o queda fuera del alcance inicial?
 - ¿Se requiere MFA antes del primer release productivo?
 - Revisar en la fase 04 si los accesos runtime a tablas globales de identidad deben reducirse mediante funciones o servicios SQL más estrechos.
+- Las pruebas backend marcadas como `integration` requieren PostgreSQL/Redis reales y, en el
+  entorno estándar del agente, Docker disponible. Sin Docker local no se ejecutan de verdad fuera
+  de CI; esto refuerza que el workflow `CI` de Pull Request no puede ser opcional antes de publicar.
 
 ## Credenciales e infraestructura
 

@@ -4,6 +4,21 @@ Actualizado: 2026-07-17
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Proceso P0 · CI en PR y release atado a SHA verde
+
+- `ci.yml` vuelve a ejecutarse automáticamente en `pull_request` hacia `master` y conserva
+  `workflow_dispatch`; no hay trigger en `push`.
+- `release.yml` añade un job previo que consulta GitHub Actions y bloquea la publicación de
+  imágenes si el workflow `CI` no tiene una ejecución `success` para el SHA exacto del release.
+- La protección de rama queda documentada como cambio manual pendiente tras UAT en
+  `docs/operations/BRANCH_PROTECTION.md`; no se ha configurado desde el repositorio.
+- Se añade `scripts/api-test.sh` para ejecutar el gate backend desde shell no interactivo sin
+  depender de que `.zshrc` añada `~/.local/bin` al `PATH`.
+- Validación local del wrapper en este host: `zsh -c 'scripts/api-test.sh'` resuelve `uv`, ejecuta
+  `uv sync --frozen`, `uv lock --check`, Ruff, formato y mypy; al no haber Docker ni URLs
+  PostgreSQL/Redis de integración, falla cerrado antes de `pytest` para no saltar integraciones ni
+  rebajar cobertura.
+
 ## Corrección pendiente de revisión · informe documental PLACSP
 
 - `createDocumentReport` envía `Idempotency-Key` al backend y la UI conserva una clave estable por
@@ -268,7 +283,7 @@ configuración y contratos no visibles para el usuario.
 | 12 · Frontend completo | done | 2026-07-11 | Codex | Vector conectado a Flask; 223 tests backend, 59 frontend, build de 45 rutas y 17 E2E | Ninguno bloqueante | Fase 13 |
 | 13 · QA y seguridad | done | 2026-07-11 | Codex | 233 backend, 64 frontend, 24 E2E; scans/DAST/load/axe/readiness y GO adversarial | Ninguno de aplicación; release sigue bloqueado por infra/restore | Fase 14 read-only |
 | 14 · Infra/TLS | done | 2026-07-11 | Codex | Graph validado; migración 0010; stack sano; HTTPS/smoke; superadmin y login real | Ninguno de infraestructura base | Fase 15 |
-| 15 · CI/CD y backups | in_progress | 2026-07-11 | Codex | GitHub Actions PR/push, candidato GHCR por SHA, SBOM, backup diario systemd, retención 30 días, catálogo/UI superadmin, manual y restore root blue/green | Falta configurar GitHub environments/secrets y automatizar la copia cifrada off-host diaria | Activar CI en GitHub y restore periódico desde descarga off-host |
+| 15 · CI/CD y backups | in_progress | 2026-07-11 | Codex | GitHub Actions en PR a master, release GHCR por SHA validado, SBOM, backup diario systemd, retención 30 días, catálogo/UI superadmin, manual y restore root blue/green | Falta configurar branch protection tras UAT, GitHub environments/secrets y automatizar la copia cifrada off-host diaria | Verificar CI remoto en PR y restore periódico desde descarga off-host |
 | 16 · Aceptación/release | in_progress | 2026-07-11 | Codex + usuario | Producción accesible; primer tenant y owner invitado con Playwright; Graph entregó el correo; expediente `v0.1.0-rc.1` generado con `NO-GO` explícito | Aceptación del owner/UAT funcional, CI remoto y restore descargado pendientes | Cerrar gates y repetir aceptación |
 
 Incidencia UAT corregida el 2026-07-11: el login del `platform_super_admin`
@@ -1241,8 +1256,8 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Documentados runbooks y decisión D-030. Validación local disponible en este entorno:
   `bash -n scripts/oracle-control.sh scripts/deploy-production.sh`, `python3 -m py_compile` de los
   módulos/tests afectados y escaneo estático de decoradores con resultado cero. Los checks backend
-  completos con `uv`/pytest/Ruff/mypy quedan pendientes porque este entorno no tiene `uv` ni las
-  dependencias Python instaladas.
+  completos quedaron pendientes por no resolver `uv` desde `~/.local/bin` en un shell no
+  interactivo; esa conclusión fue incorrecta y queda corregida por `scripts/api-test.sh`.
 - Ajuste posterior de tests: los casos autenticados inválidos de `entity-intel` y `procurement`
   usan ahora `client` HTTP real, sustituyendo solo el runtime de identidad para no depender de
   PostgreSQL/Redis. Los 401 anónimos comprueban ausencia de `errors`, no substrings del payload de

@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  # UAT fast-lane: keep the full CI available, but do not run it automatically on
-  # every push while the product is still moving quickly. Re-enable push/PR
-  # triggers when master becomes release-gated again.
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       reason:

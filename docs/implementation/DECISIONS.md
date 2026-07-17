@@ -112,7 +112,7 @@
 
 ## D-013 — GitHub Actions y GHCR para candidatos inmutables
 
-- **Estado:** accepted; activación productiva manual y protegida
+- **Estado:** superseded by D-031 for CI/release gating; host activation still manual/protected
 - **Fecha:** 2026-07-11
 - **Contexto:** el remote autoritativo es GitHub y no existía pipeline versionado.
 - **Decisión:** PR/push ejecutan frontend, integración PostgreSQL/Redis/Celery, migraciones, scans,
@@ -266,7 +266,7 @@
 
 ## D-024 — CI completo manual durante la fase UAT rápida
 
-- **Estado:** accepted
+- **Estado:** superseded by D-031
 - **Fecha:** 2026-07-13
 - **Contexto:** durante la construcción UAT se están haciendo varios commits pequeños y despliegues
   rápidos. Ejecutar backend integrado, migraciones, build de imágenes, Trivy y SBOM en cada push
@@ -280,6 +280,23 @@
   cambio toque migraciones, seguridad, contratos críticos o vaya a convertirse en release estable.
   Antes de pasar de UAT a operación estable se deben restaurar triggers automáticos o un gate
   equivalente.
+
+## D-031 — CI automático en PR y release atado al SHA validado
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** el modo UAT rápido dejó `ci.yml` solo manual y `release.yml` podía publicar imágenes
+  sin comprobar que el mismo commit hubiera superado CI. El prompt 35 demostró el riesgo: código con
+  tests y lint en rojo pudo haberse publicado si no hubiera mediado revisión humana.
+- **Decisión:** restaurar CI automático en `pull_request` hacia `master`, conservar
+  `workflow_dispatch` para validaciones manuales puntuales y no añadir trigger en `push`. Antes de
+  publicar imágenes, `release.yml` consulta GitHub Actions con el `GITHUB_TOKEN` y falla cerrado si
+  no existe un run `CI` completado con `success` para el SHA exacto que se va a publicar.
+- **Alternativas:** CI en cada push; mantener CI manual durante UAT; confiar en checks locales del
+  agente antes de publicar.
+- **Consecuencias:** se conserva velocidad en ramas, pero la puerta de publicación queda atada a un
+  SHA validado. La protección de rama de `master` queda como cambio manual pendiente en GitHub para
+  después de UAT, con checks requeridos documentados en `docs/operations/BRANCH_PROTECTION.md`.
 
 ## D-025 — Reintentos IA tras fallo terminalizado
 
