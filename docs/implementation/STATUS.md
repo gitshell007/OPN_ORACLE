@@ -1363,3 +1363,21 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Pendiente operativo: registrar/confirmar en Signal la `task_key`
   `entity_dossier_intelligence`. No se ha tocado el repositorio de Signal ni se han cableado
   proveedores/modelos en Oracle.
+
+## 2026-07-17 · Prompt 46 · Primer clic silencioso en acciones asíncronas
+
+- Producción no quedó verificada con sesión: al abrir `https://oracle.opnconsultoria.com/app/actors`
+  el navegador mostró la pantalla de login, por lo que no se pudo instrumentar una ficha de entidad
+  ni un expediente pesado reales. El resultado no se da por reproducido/resuelto en producción.
+- Auditoría local del patrón: los botones afectados compartían botones Vector sin estado
+  visual común para `disabled`, y varios quedaban bloqueados durante carga/generación sin feedback
+  distinguible. Se añadió un componente común para acciones asíncronas que renderiza la acción como
+  no disponible hasta la hidratación de React y expone `aria-busy`, `aria-disabled` y
+  `data-action-ready`.
+- La corrección es sistémica y sin `setTimeout`: `AsyncActionButton` cubre «Informe documental»,
+  «Inteligencia competitiva», «Desfijar», «Informe de la entidad» e «Incorporar a expediente».
+  Los estilos Vector ahora hacen visible el bloqueo en `.vector-primary`, `.vector-secondary` y
+  `.vector-danger`.
+- El informe de entidad queda bloqueado además mientras carga la ficha padre, evitando que se
+  encole con el término de búsqueda antes de recibir la denominación canónica de Signal. El
+  `setTimeout(0)` previo de carga de informes se sustituyó por una microtarea cancelable.

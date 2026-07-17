@@ -27,6 +27,7 @@ import { Bot, Building2, ExternalLink, Link2, RefreshCw, UserRound } from "lucid
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
 import {
   latestRegistryStatuses,
@@ -213,8 +214,13 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   }, [name, type]);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => void loadDossier(), 0);
-    return () => window.clearTimeout(handle);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadDossier();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadDossier]);
 
   const loadRegistryPage = useCallback(async (nextOffset: number) => {
@@ -314,7 +320,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
         profile={profile}
         type={type}
       />
-      <EntityReportControl entityName={dossier?.entity.name ?? name} type={type} />
+      <EntityReportControl entityName={dossier?.entity.name ?? name} entityLoading={loading} type={type} />
 
       <section className="entity-dossier-header" aria-busy={loading}>
         <span className={`entity-kind-chip ${type}`}>
@@ -485,7 +491,7 @@ function LinkEntityToDossierControl({
 }) {
   const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
   const [dossierId, setDossierId] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(entityName.trim()));
   const [linking, setLinking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -510,10 +516,11 @@ function LinkEntityToDossierControl({
         if (!cancelled) setLoading(false);
       }
     }
-    const kickoff = window.setTimeout(() => void loadDossiers(), 0);
+    queueMicrotask(() => {
+      if (!cancelled) void loadDossiers();
+    });
     return () => {
       cancelled = true;
-      window.clearTimeout(kickoff);
     };
   }, []);
 
@@ -616,9 +623,11 @@ function reportIntentKey(name: string, type: EntityIntelKind): string {
 
 function EntityReportControl({
   entityName,
+  entityLoading,
   type,
 }: {
   entityName: string;
+  entityLoading: boolean;
   type: EntityIntelKind;
 }) {
   const [jobs, setJobs] = useState<EntityIntelReportJob[]>([]);
@@ -653,12 +662,17 @@ function EntityReportControl({
   }, [entityName, type]);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => void loadReports(), 0);
-    return () => window.clearTimeout(handle);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadReports();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadReports]);
 
   async function startReport() {
-    if (!entityName.trim()) return;
+    if (entityLoading || !entityName.trim()) return;
     setGenerating(true);
     setMessage(null);
     setError(null);
@@ -711,15 +725,26 @@ function EntityReportControl({
           </p>
         </div>
         <div className="entity-link-actions">
-          <button
+          <AsyncActionButton
             type="button"
             className="vector-primary"
-            disabled={loading || generating || Boolean(activeJobId)}
+            loading={entityLoading || loading || generating}
+            loadingLabel={
+              generating ? (
+                <>
+                  <RefreshCw size={14} />
+                  Encolando…
+                </>
+              ) : (
+                "Cargando…"
+              )
+            }
+            disabled={entityLoading || Boolean(activeJobId)}
             onClick={() => void startReport()}
           >
-            {generating ? <RefreshCw size={14} /> : <Bot size={14} />}
+            <Bot size={14} />
             Informe de la entidad
-          </button>
+          </AsyncActionButton>
           <button
             type="button"
             className="vector-secondary"
@@ -761,15 +786,22 @@ function EntityReportControl({
                 )}
               </select>
             </label>
-            <button
+            <AsyncActionButton
               type="button"
               className="vector-primary"
-              disabled={incorporating || !dossierId}
+              loading={incorporating}
+              loadingLabel={
+                <>
+                  <RefreshCw size={14} />
+                  Incorporando…
+                </>
+              }
+              disabled={!dossierId}
               onClick={() => void incorporate(pendingIncorporation.id)}
             >
-              {incorporating ? <RefreshCw size={14} /> : <Link2 size={14} />}
+              <Link2 size={14} />
               Incorporar a expediente
-            </button>
+            </AsyncActionButton>
           </div>
         )}
         {incorporated && (

@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   formatDate,
   formatMoney,
@@ -159,8 +160,13 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
   }, [dossierId]);
 
   useEffect(() => {
-    const kickoff = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(kickoff);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void load();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   async function remove(itemId: string) {
@@ -253,26 +259,46 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
             Actualizar
           </button>
           <PermissionGate permission="report.generate">
-            <button
+            <AsyncActionButton
               className="vector-secondary"
               type="button"
               onClick={() => void generateDocumentReport()}
-              disabled={generating || !items.some((item) => item.kind === "award")}
+              loading={loading || generating}
+              loadingLabel={
+                generating ? (
+                  <>
+                    <RefreshCw size={15} />
+                    Preparando…
+                  </>
+                ) : (
+                  "Cargando…"
+                )
+              }
+              disabled={!items.some((item) => item.kind === "award")}
             >
               <FileText size={15} />
-              {generating ? "Preparando…" : "Informe documental"}
-            </button>
-            <button
+              Informe documental
+            </AsyncActionButton>
+            <AsyncActionButton
               className="vector-primary"
               type="button"
               onClick={() => void generateCompetitiveReport()}
-              disabled={generatingCompetitive || !effectiveCompany}
+              loading={loading || generatingCompetitive}
+              loadingLabel={
+                generatingCompetitive ? (
+                  <>
+                    <RefreshCw size={15} />
+                    Encolando…
+                  </>
+                ) : (
+                  "Cargando…"
+                )
+              }
+              disabled={!effectiveCompany}
             >
               <BarChart3 size={15} />
-              {generatingCompetitive
-                ? "Encolando…"
-                : "Inteligencia competitiva"}
-            </button>
+              Inteligencia competitiva
+            </AsyncActionButton>
           </PermissionGate>
         </div>
       </header>
@@ -394,15 +420,21 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     </a>
                   )}
                   <PermissionGate permission="opportunity.write">
-                    <button
+                    <AsyncActionButton
                       className="vector-danger"
                       type="button"
-                      disabled={removingId === item.id}
+                      loading={removingId === item.id}
+                      loadingLabel={
+                        <>
+                          <RefreshCw size={14} />
+                          Desfijando…
+                        </>
+                      }
                       onClick={() => void remove(item.id)}
                     >
                       <Trash2 size={14} />
                       Desfijar
-                    </button>
+                    </AsyncActionButton>
                   </PermissionGate>
                 </footer>
               </article>

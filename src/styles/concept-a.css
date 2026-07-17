@@ -1186,6 +1186,34 @@
   border-color: var(--va-danger);
   color: white;
 }
+.vector-primary:disabled,
+.vector-secondary:disabled,
+.vector-danger:disabled,
+.vector-primary[aria-disabled="true"],
+.vector-secondary[aria-disabled="true"],
+.vector-danger[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.58;
+  filter: saturate(0.65);
+  box-shadow: none;
+}
+.vector-primary[aria-busy="true"],
+.vector-secondary[aria-busy="true"],
+.vector-danger[aria-busy="true"] {
+  cursor: wait;
+}
+.vector-primary:disabled:hover,
+.vector-primary[aria-disabled="true"]:hover {
+  background: var(--va-primary);
+}
+.vector-secondary:disabled:hover,
+.vector-secondary[aria-disabled="true"]:hover {
+  background: white;
+}
+.vector-danger:disabled:hover,
+.vector-danger[aria-disabled="true"]:hover {
+  background: var(--va-danger);
+}
 .text-button {
   border: 0;
   background: transparent;
