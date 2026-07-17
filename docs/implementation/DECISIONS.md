@@ -298,6 +298,25 @@
   SHA validado. La protección de rama de `master` queda como cambio manual pendiente en GitHub para
   después de UAT, con checks requeridos documentados en `docs/operations/BRANCH_PROTECTION.md`.
 
+## D-032 — Clasificación explícita de campos en snapshots PLACSP
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** el snapshot durable de adjudicaciones PLACSP usaba una lista blanca silenciosa. Al
+  ampliar Signal el contrato con `documents` e `is_ute`, Oracle fijaba adjudicaciones como
+  `succeeded` pero descartaba esos campos; el informe documental recibía cero pliegos y Vector no
+  podía mostrar el distintivo UTE en pins ya fijados.
+- **Decisión:** los snapshots PLACSP pasan a declarar claves preservadas y claves consumidas para
+  derivar campos. `documents` se preserva solo con `uri`, `doc_type` y `file_name`, deduplicado por
+  `uri` y con límites duros; `is_ute` se conserva por entrada y se eleva al agregado si cualquier
+  lote lo marca. Cualquier clave nueva que Signal devuelva sin clasificación genera warning
+  operativo y debe añadirse a tests contractuales como preservada, consumida o descartada de forma
+  deliberada.
+- **Consecuencias:** Oracle deja de perder ampliaciones del contrato en silencio sin bloquear
+  cambios aditivos de Signal en runtime. Los snapshots ya fijados antes de esta decisión no se
+  migran automáticamente; si un expediente necesita documentos o UTE para un `folder_id` antiguo,
+  debe desfijarse/refijarse o ejecutarse una reparación explícita y auditable.
+
 ## D-025 — Reintentos IA tras fallo terminalizado
 
 - **Estado:** accepted

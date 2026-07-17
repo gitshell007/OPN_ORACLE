@@ -19,6 +19,10 @@
 - Las pruebas backend marcadas como `integration` requieren PostgreSQL/Redis reales y, en el
   entorno estándar del agente, Docker disponible. Sin Docker local no se ejecutan de verdad fuera
   de CI; esto refuerza que el workflow `CI` de Pull Request no puede ser opcional antes de publicar.
+- Los snapshots PLACSP fijados antes de Prompt 38 no contienen `documents` ni `is_ute`. No se hace
+  migración automática para no reescribir evidencia histórica; si aparecen muchos expedientes
+  afectados, decidir entre refijado manual, reparación administrativa por `folder_id` o backfill
+  auditable desde Signal.
 
 ## Credenciales e infraestructura
 
@@ -63,6 +67,11 @@
   en Signal la serialización CODICE/PLACSP para confirmar el campo XML original y corregir el mapeo
   en origen. Los `folder_id` exactos no venían incluidos en el prompt 36 y deben extraerse de la
   búsqueda productiva que reprodujo el caso.
+- Pendiente Signal/BORME: la ficha cronológica de Oracle solo puede mostrar los siete campos que
+  Signal devuelve hoy (`action`, `company`, `date`, `person`, `province`, `role`, `source_url`). Si
+  producto quiere reemplazar la visita al BOE para detalles como ampliaciones de capital, objeto
+  social o texto completo del acto, Signal debe extraer y exponer ese contenido como contrato nuevo;
+  Oracle no lo inventa.
 
 ## IA y compliance
 

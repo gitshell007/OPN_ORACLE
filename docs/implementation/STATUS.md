@@ -31,15 +31,25 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - Los snapshots de adjudicaciones PLACSP agregadas conservan `award_amount` como suma de lotes y
   `award_date` como fecha única o rango. Los lotes con forma de CIF/NIF, como `A41050113`, dejan de
   mostrarse como número de lote y quedan documentados como revisión pendiente en Signal.
+- Corrección Prompt 38: las adjudicaciones PLACSP fijadas desde ahora conservan `documents` e
+  `is_ute` dentro de `snapshot.entries`; el snapshot agregado eleva `is_ute=true` cuando cualquier
+  lote lo sea. Los documentos se normalizan a `uri`, `doc_type` y `file_name`, se deduplican por
+  `uri` y quedan disponibles para el informe documental PLACSP. Los snapshots antiguos no se migran:
+  para recuperar documentos/UTE en un expediente ya fijado hay que desfijar y volver a fijar el
+  `folder_id`.
+- La lista blanca de snapshots PLACSP deja de descartar campos nuevos en silencio: toda clave de
+  Signal debe estar clasificada como preservada o consumida; si aparece una clave desconocida se
+  registra warning operativo y el contrato unitario falla al ampliar fixtures sin clasificarla.
 - Pulidos menores: evidencia de tarjeta fijada acortada, prioridad de siguientes acciones en
   español, error permanente de `BackgroundJob` con causa raíz sanitizada y dropdown de sugerencias de
   adjudicatario en lista vertical legible.
 
 ## Corrección pendiente de revisión · adjudicaciones PLACSP
 
-- Signal deriva `is_ute` del adjudicatario al serializar, sin cambio de esquema ni backfill. Oracle
-  conserva ese campo hasta Vector, que muestra un distintivo «UTE · En consorcio» y el organismo
-  licitador de manera explícita tanto en Actores como en las adjudicaciones fijadas al expediente.
+- Signal deriva `is_ute` del adjudicatario al serializar, sin cambio de esquema ni backfill. Desde
+  Prompt 38 Oracle conserva ese campo en adjudicaciones nuevas fijadas al expediente y Vector puede
+  mostrar el distintivo «UTE · En consorcio» también en pins PLACSP. Los pins anteriores a la
+  corrección no contienen ese dato y requieren refijado manual si se quiere ver el distintivo.
 
 ## Corrección pendiente de revisión · folder_id PLACSP con barras
 
@@ -78,6 +88,21 @@ Interfaz canónica: `CANONICAL_UI=vector`
   trazo discontinuo, navega con `norm`, expone toggle «Solo vínculos activos» y resetea el estado de
   confirmación del modal al cambiar de entidad. La vista rápida consulta `registry` por `norm` y
   muestra perfil, últimos actos y contadores.
+- Prompt 39: el grafo de entidades deja de arrancar con `fit` global y layout aleatorio. El
+  encuadre inicial es determinista y prioriza legibilidad: centra la entidad consultada, incluye el
+  primer nivel solo cuando no satura la vista y, en grafos densos como ITURRI SA, arranca en la
+  entidad central a zoom legible para explorar navegando. Se añaden controles visibles y accesibles
+  de acercar, alejar y reencuadrar.
+- Prompt 39: se añade cronograma de doble manejador sobre fechas de aristas. El filtro se aplica
+  mediante clases Cytoscape, sin reconstruir elementos ni relayout al mover el rango. Los vínculos
+  sin fecha permanecen visibles y se explican en la UI; los nodos sin vínculos visibles quedan
+  atenuados. El toggle «Solo vínculos activos» sigue combinándose como filtro de carga: si está
+  activo, el rango temporal opera sobre los vínculos activos ya cargados.
+- Prompt 39: la ficha modal de entidad sustituye el recorte silencioso de 5 actos por una
+  cronología descendente de todos los actos cargados, mostrando persona, cargo, acción, fecha,
+  provincia y cita BOE. Se solicita `limit=100` al registro para cubrir casos como ITURRI SA
+  (65 actos) sin paginación local silenciosa, y la UI aclara que Signal no entrega el texto íntegro
+  del BORME.
 
 ## Corrección pendiente de revisión · citas de informes
 
