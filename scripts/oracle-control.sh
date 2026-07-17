@@ -275,7 +275,12 @@ pause() {
 }
 
 gate_path() {
-  local __target="$1" label="$2" env_name="$3" value="${!env_name:-}"
+  # La expansión indirecta va en su propia sentencia: `local` expande todos sus
+  # argumentos antes de asignar ninguno, así que ${!env_name} dentro del mismo
+  # `local` se evalúa con env_name aún vacío y bash aborta con
+  # "invalid indirect expansion".
+  local __target="$1" label="$2" env_name="$3"
+  local value="${!env_name:-}"
   if [[ -n "$value" ]]; then
     printf -v "$__target" '%s' "$value"
     return 0
