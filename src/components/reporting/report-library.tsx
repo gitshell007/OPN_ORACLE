@@ -30,6 +30,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { ExportMenu } from "./exports";
 import { JobProgress } from "./job-progress";
 import { ReportDrawer } from "./report-viewer";
@@ -412,9 +413,9 @@ export function ReportLibrary({
             <ExportMenu dataset="reports" dossierId={dossierId} routeBase={routeBase} />
           </PermissionGate>
           <PermissionGate permission="report.generate">
-            <button className="vector-primary" onClick={() => setWizardOpen(true)}>
+            <HydratedActionButton className="vector-primary" onClick={() => setWizardOpen(true)}>
               <FilePlus2 size={16} /> Generar informe
-            </button>
+            </HydratedActionButton>
           </PermissionGate>
         </div>
       </header>
@@ -493,9 +494,9 @@ export function ReportLibrary({
             </p>
             {!reports.length && (
               <PermissionGate permission="report.generate">
-                <button className="vector-primary" onClick={() => setWizardOpen(true)}>
+                <HydratedActionButton className="vector-primary" onClick={() => setWizardOpen(true)}>
                   Generar primer informe
-                </button>
+                </HydratedActionButton>
               </PermissionGate>
             )}
           </div>

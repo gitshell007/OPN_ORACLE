@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import {
   productAuditActionLabel,
   productJobTypeLabel,
@@ -143,10 +144,10 @@ export function MembersAdmin() {
             se valida y queda registrado de forma segura.
           </p>
         </div>
-        <button className="vector-primary" onClick={() => setInviteOpen(true)}>
+        <HydratedActionButton className="vector-primary" onClick={() => setInviteOpen(true)}>
           <MailPlus size={16} />
           Invitar miembro
-        </button>
+        </HydratedActionButton>
       </header>
       <AdminNav active="members" />
       {error && (

@@ -1407,3 +1407,29 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   integración excluidos**), `npm run lint` correcto con warning no bloqueante conocido de TanStack
   Table/React Compiler, `npm run typecheck`, `npx vitest run` (**35 ficheros, 138 tests**),
   `npm run build` y `npm run api:client:check` correctos.
+
+## 2026-07-17 · Prompts 53 y 54 · Pulido UX y evidencia citable de entidad
+
+- Prompt 53: el gating de hidratación de `AsyncActionButton` se extiende a triggers de diálogo con
+  `HydratedActionButton`, manteniendo la etiqueta visible pero bloqueando el clic hasta que React
+  esté hidratado. Se aplica a «Nuevo expediente» y al resto de triggers productivos detectados
+  (`Dialog.Trigger`/menús de crear) sin `setTimeout`.
+- La lista «Trabajo que requiere atención» separa visualmente tipo, expediente y estado: el tipo es
+  ahora una píldora independiente y los separadores no dependen de pegar texto en el mismo nodo.
+- `JobProgress` usa un `toast id` estable por job. Un error terminal se reemplaza/desecha al
+  reintentar y un éxito posterior no convive con el toast fallido antiguo.
+- Diagnóstico RSC: en producción estable, `/_rsc` responde 200 y un asset de build inexistente da
+  404, no 503. La topología de deploy/Nginx apunta a cortes breves del único upstream
+  `127.0.0.1:3000` durante la recreación del contenedor web. Se añade handling en Nginx solo para
+  prefetch RSC (`Next-Router-Prefetch: 1` + `_rsc`): ante 502/503/504 devuelve 204 no-cache; las
+  navegaciones reales siguen devolviendo 503.
+- Prompt 54: la ficha de entidad construye `pending_evidence_sources` desde actos BORME/noticias
+  con URL y reserva UUIDs deterministas que se pasan al LLM como `allowed_evidence_ids`. No se crea
+  ninguna fila `Evidence` mientras el informe esté en el área de espera.
+- Al incorporar el informe a un expediente se materializan esas fuentes como `Evidence` con
+  `source_kind='entity_intel'`, se enlazan mediante `EvidenceDossier`, se congelan en
+  `ReportSnapshotEvidence`/`ReportEvidence` y se reconstruye el `source_index` autoritativo desde el
+  snapshot. Decisión registrada en D-036.
+- Pendiente de verificación real con sesión: reproducir «Nuevo expediente» en navegador autenticado
+  y generar/incorporar un informe de entidad real con ITURRI SA para confirmar citas visibles sobre
+  datos de producción.

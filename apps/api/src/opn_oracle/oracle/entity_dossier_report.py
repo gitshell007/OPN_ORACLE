@@ -25,14 +25,16 @@ from opn_oracle.integrations.entity_intel import (
 )
 from opn_oracle.jobs.service import publish_job, serialize_job, stage_job
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
-from opn_oracle.oracle.models import Report, StrategicDossier
+from opn_oracle.oracle.links import EvidenceDossier, ReportEvidence
+from opn_oracle.oracle.models import Evidence, Report, StrategicDossier
 from opn_oracle.oracle.policy import dossier_accessible
 from opn_oracle.oracle.service import create_dossier_actor
 from opn_oracle.platform.audit import append_audit_event
-from opn_oracle.reporting.models import ReportRevision
+from opn_oracle.reporting.models import ReportRevision, ReportSnapshotEvidence
 from opn_oracle.reporting.registry import ReportTemplateRegistry
 from opn_oracle.reporting.service import (
     ReportWorkflowError,
+    _authoritative_source_index,
     _render_revision_artifacts,
     _sha256,
 )
@@ -42,6 +44,7 @@ ENTITY_DOSSIER_AGENT = "entity_dossier_intelligence"
 ENTITY_DOSSIER_REPORT_JOB = "oracle.entity_dossier_report.generate"
 ENTITY_DOSSIER_REPORT_TEMPLATE = "entity_intelligence"
 ENTITY_DOSSIER_SCHEMA = "entity_dossier_intelligence_waiting/v1"
+ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA = "entity_dossier_pending_evidence/v1"
 
 
 def _canonical(value: Any) -> bytes:
@@ -157,6 +160,161 @@ def compact_entity_dossier(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _first_text(item: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = _text(item.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _pending_evidence_id(
+    *, corpus_hash: str, source_kind: str, index: int, source_url: str, label: str
+) -> uuid.UUID:
+    return uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"opn-oracle:entity-intel:{corpus_hash}:{source_kind}:{index}:{source_url}:{label}",
+    )
+
+
+def _registry_extract(item: dict[str, Any]) -> str:
+    parts = [
+        f"Acto BORME: {_first_text(item, 'action', 'type') or 'sin acción normalizada'}.",
+        f"Fecha de publicación: {_first_text(item, 'date', 'publication_date') or 'sin fecha'}.",
+    ]
+    company = _first_text(item, "company", "company_name", "entity")
+    person = _first_text(item, "person", "person_name", "name")
+    role = _first_text(item, "role", "position", "title")
+    province = _first_text(item, "province")
+    if company:
+        parts.append(f"Sociedad: {company}.")
+    if person:
+        parts.append(f"Persona relacionada: {person}.")
+    if role:
+        parts.append(f"Cargo/rol: {role}.")
+    if province:
+        parts.append(f"Provincia: {province}.")
+    return " ".join(parts)
+
+
+def _news_extract(item: dict[str, Any]) -> str:
+    title = _first_text(item, "title", "headline", "name") or "Noticia sin título"
+    date = _first_text(item, "published_at", "publication_date", "date")
+    source = _first_text(item, "source", "source_name", "publisher")
+    summary = _first_text(item, "summary", "description", "snippet", "text")
+    parts = [f"Noticia/mención externa: {title}."]
+    if date:
+        parts.append(f"Fecha indicada: {date}.")
+    if source:
+        parts.append(f"Fuente indicada: {source}.")
+    if summary:
+        parts.append(f"Resumen disponible: {summary}.")
+    return " ".join(parts)
+
+
+def build_pending_entity_evidence_sources(
+    *,
+    entity_dossier: dict[str, Any],
+    corpus_hash: str,
+) -> list[dict[str, Any]]:
+    """Reserve stable Evidence IDs for citable entity-intel sources.
+
+    The rows are deliberately not inserted here: the entity report lives in the
+    waiting area until the user incorporates it into a dossier. These IDs let
+    the LLM cite a closed set now, while real Evidence rows are materialized
+    only if there is a dossier to attach them to.
+    """
+
+    pending: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add_source(
+        *,
+        source_kind: str,
+        index: int,
+        item: dict[str, Any],
+        label: str,
+        extract: str,
+        source_url: str,
+        locator: dict[str, Any],
+    ) -> None:
+        key = (source_kind, source_url, extract)
+        if key in seen:
+            return
+        seen.add(key)
+        evidence_id = _pending_evidence_id(
+            corpus_hash=corpus_hash,
+            source_kind=source_kind,
+            index=index,
+            source_url=source_url,
+            label=label,
+        )
+        pending.append(
+            {
+                "id": str(evidence_id),
+                "source_kind": source_kind,
+                "label": label[:500],
+                "source_url": source_url[:1500],
+                "extract": extract[:20_000],
+                "locator": locator,
+                "checksum": hashlib.sha256(extract.encode("utf-8")).hexdigest(),
+                "raw_item": item,
+            }
+        )
+
+    registry = (
+        entity_dossier.get("registry") if isinstance(entity_dossier.get("registry"), dict) else {}
+    )
+    for index, item in enumerate(_items(registry), start=1):
+        source_url = _first_text(item, "source_url", "url", "link", "href")
+        if not source_url:
+            continue
+        action = _first_text(item, "action", "type") or "acto"
+        date = _first_text(item, "date", "publication_date") or "sin fecha"
+        person = _first_text(item, "person", "person_name", "name")
+        label_tail = f" · {person}" if person else ""
+        add_source(
+            source_kind="registry_act",
+            index=index,
+            item=item,
+            label=f"BORME · {date} · {action}{label_tail}",
+            extract=_registry_extract(item),
+            source_url=source_url,
+            locator={
+                "kind": "signal_entity_registry_act",
+                "publication_date": date,
+                "action": action,
+                "source_url": source_url,
+                "ordinal": index,
+            },
+        )
+
+    news = entity_dossier.get("news") if isinstance(entity_dossier.get("news"), dict) else {}
+    for index, item in enumerate(_items(news), start=1):
+        source_url = _first_text(item, "source_url", "url", "link", "href")
+        if not source_url:
+            continue
+        title = _first_text(item, "title", "headline", "name") or "noticia"
+        date = _first_text(item, "published_at", "publication_date", "date") or "sin fecha"
+        add_source(
+            source_kind="news",
+            index=index,
+            item=item,
+            label=f"Noticia · {date} · {title}",
+            extract=_news_extract(item),
+            source_url=source_url,
+            locator={
+                "kind": "signal_entity_news",
+                "publication_date": date,
+                "title": title,
+                "source_url": source_url,
+                "ordinal": index,
+            },
+        )
+
+    return pending
+
+
 def source_limits() -> list[str]:
     return [
         (
@@ -234,6 +392,10 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
     metrics = build_entity_dossier_metrics(dossier_payload)
     compact = compact_entity_dossier(dossier_payload)
     corpus_hash = hashlib.sha256(_canonical(compact)).hexdigest()
+    pending_evidence_sources = build_pending_entity_evidence_sources(
+        entity_dossier=compact,
+        corpus_hash=corpus_hash,
+    )
     _checkpoint(job, progress=45, stage="entity_dossier_ready")
     output, audit = _run_waiting_area_agent(
         job=job,
@@ -241,6 +403,7 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
         entity_dossier=compact,
         computed_metrics=metrics,
         corpus_hash=corpus_hash,
+        pending_evidence_sources=pending_evidence_sources,
     )
     result = {
         "kind": "entity_dossier_intelligence_report",
@@ -255,6 +418,8 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
         "corpus_hash": corpus_hash,
         "source_limits": source_limits(),
         "computed_metrics": metrics,
+        "pending_evidence_schema": ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
+        "pending_evidence_sources": pending_evidence_sources,
         "incorporated_report_id": None,
         "incorporated_dossier_id": None,
     }
@@ -271,6 +436,7 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
             "audit_log_id": str(audit.id),
             "entity_key": payload.get("entity_key"),
             "corpus_sha256": corpus_hash,
+            "pending_evidence_count": len(pending_evidence_sources),
         },
     )
     return result
@@ -283,6 +449,7 @@ def _run_waiting_area_agent(
     entity_dossier: dict[str, Any],
     computed_metrics: dict[str, Any],
     corpus_hash: str,
+    pending_evidence_sources: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], AIAuditLog]:
     tenant_id = require_tenant_id()
     slot = f"{tenant_id}:{job.id}:{ENTITY_DOSSIER_AGENT}"
@@ -319,13 +486,36 @@ def _run_waiting_area_agent(
     reservation_micros = 2 * (policy.max_context_tokens + policy.max_output_tokens)
     soft_budget_warning = _enforce_quota(policy, tenant_id, reservation_micros)
     prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(ENTITY_DOSSIER_AGENT)
+    allowed_evidence_ids = [str(item["id"]) for item in pending_evidence_sources]
     context = {
         "tenant_id": str(tenant_id),
         "entity": entity,
         "entity_dossier": entity_dossier,
+        "citable_evidence": [
+            {
+                "evidence_id": item["id"],
+                "label": item["label"],
+                "source_kind": item["source_kind"],
+                "source_url": item["source_url"],
+                "extract": item["extract"],
+                "locator": item["locator"],
+            }
+            for item in pending_evidence_sources
+        ],
         "computed_metrics": computed_metrics,
         "source_limits": source_limits(),
         "corpus_hash": corpus_hash,
+        "evidence_policy": {
+            "materialization": (
+                "Estos IDs están reservados para evidencia de espera y solo se materializan "
+                "si el usuario incorpora el informe a un expediente."
+            ),
+            "citation_rule": (
+                "Cita únicamente IDs presentes en allowed_evidence_ids. BORME/noticias con "
+                "URL pueden respaldar hechos observables; homónimos y relaciones no "
+                "desambiguadas deben permanecer como límites o inferencias."
+            ),
+        },
         "requested_scope": {
             "required_sections": ReportTemplateRegistry()
             .get(ENTITY_DOSSIER_REPORT_TEMPLATE)
@@ -335,11 +525,18 @@ def _run_waiting_area_agent(
                 "estimar ni completar valores ausentes."
             ),
         },
-        "allowed_evidence_ids": [],
+        "allowed_evidence_ids": allowed_evidence_ids,
     }
     input_hash = hashlib.sha256(_canonical(context)).digest()
     context_hash = hashlib.sha256(
-        _canonical({"schema": ENTITY_DOSSIER_SCHEMA, "corpus_hash": corpus_hash})
+        _canonical(
+            {
+                "schema": ENTITY_DOSSIER_SCHEMA,
+                "corpus_hash": corpus_hash,
+                "pending_evidence_schema": ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
+                "allowed_evidence_ids": allowed_evidence_ids,
+            }
+        )
     ).digest()
     now = datetime.now(UTC)
     execution_token = uuid.uuid4()
@@ -374,7 +571,7 @@ def _run_waiting_area_agent(
             schema_name=prompt.output_schema_name,
             schema_version="v1",
             input_hash=input_hash,
-            source_ids=[],
+            source_ids=allowed_evidence_ids,
             status="running",
             data_classification="internal",
             redaction_applied=False,
@@ -396,7 +593,7 @@ def _run_waiting_area_agent(
         audit.schema_version = "v1"
         audit.input_hash = input_hash
         audit.output_hash = None
-        audit.source_ids = []
+        audit.source_ids = allowed_evidence_ids
         audit.status = "running"
         audit.data_classification = "internal"
         audit.redaction_applied = False
@@ -592,6 +789,145 @@ def _run_waiting_area_agent(
     return output, checked_audit
 
 
+def _pending_evidence_sources_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_sources = result.get("pending_evidence_sources")
+    if not isinstance(raw_sources, list):
+        return []
+    sources: list[dict[str, Any]] = []
+    for raw in raw_sources:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            uuid.UUID(str(raw.get("id")))
+        except (TypeError, ValueError):
+            continue
+        extract = _text(raw.get("extract"))
+        source_url = _text(raw.get("source_url"))
+        label = _text(raw.get("label"))
+        raw_locator = raw.get("locator")
+        locator: dict[str, Any] = dict(raw_locator) if isinstance(raw_locator, dict) else {}
+        if not extract or not source_url or not label:
+            continue
+        sources.append(
+            {
+                "id": str(raw["id"]),
+                "source_kind": _text(raw.get("source_kind")) or "entity_intel",
+                "label": label[:500],
+                "source_url": source_url[:1500],
+                "extract": extract[:20_000],
+                "locator": dict(locator),
+                "checksum": _text(raw.get("checksum")),
+            }
+        )
+    return sources
+
+
+def _materialize_pending_entity_evidence(
+    *,
+    report: Report,
+    result: dict[str, Any],
+    entity: dict[str, Any],
+    job: BackgroundJob,
+    audit: AIAuditLog,
+) -> list[ReportSnapshotEvidence]:
+    tenant_id = report.tenant_id
+    pending_sources = _pending_evidence_sources_from_result(result)
+    snapshot_rows: list[ReportSnapshotEvidence] = []
+    evidence_metadata: list[dict[str, Any]] = []
+    for source in pending_sources:
+        evidence_id = uuid.UUID(source["id"])
+        extract = source["extract"]
+        checksum_hex = source["checksum"]
+        try:
+            checksum = bytes.fromhex(checksum_hex) if len(checksum_hex) == 64 else b""
+        except ValueError:
+            checksum = b""
+        if not checksum:
+            checksum = hashlib.sha256(extract.encode("utf-8")).digest()
+        evidence = db.session.scalar(
+            select(Evidence).where(Evidence.id == evidence_id, Evidence.tenant_id == tenant_id)
+        )
+        if evidence is None:
+            evidence = Evidence(
+                id=evidence_id,
+                tenant_id=tenant_id,
+                source_kind="entity_intel",
+                source_url=source["source_url"],
+                extract=extract,
+                locator=source["locator"],
+                checksum=checksum,
+                classification="internal",
+                provenance={
+                    "source_kind": "entity_intel",
+                    "entity_intel_source_kind": source["source_kind"],
+                    "entity_name": _text(entity.get("name")),
+                    "entity_kind": _text(entity.get("type")),
+                    "job_id": str(job.id),
+                    "audit_log_id": str(audit.id),
+                    "schema": ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
+                    "materialized_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            db.session.add(evidence)
+            db.session.flush()
+        link = db.session.scalar(
+            select(EvidenceDossier).where(
+                EvidenceDossier.tenant_id == tenant_id,
+                EvidenceDossier.evidence_id == evidence.id,
+                EvidenceDossier.dossier_id == report.dossier_id,
+            )
+        )
+        if link is None:
+            db.session.add(
+                EvidenceDossier(
+                    tenant_id=tenant_id,
+                    evidence_id=evidence.id,
+                    dossier_id=report.dossier_id,
+                )
+            )
+            db.session.flush()
+        frozen = {
+            "extract": evidence.extract,
+            "locator": evidence.locator,
+            "classification": evidence.classification,
+            "source_label": source["label"],
+        }
+        snapshot_row = ReportSnapshotEvidence(
+            tenant_id=tenant_id,
+            report_id=report.id,
+            evidence_id=evidence.id,
+            dossier_id=report.dossier_id,
+            evidence_hash=evidence.checksum,
+            extract=evidence.extract,
+            locator=evidence.locator,
+            classification=evidence.classification,
+            source_label=source["label"],
+        )
+        db.session.add(snapshot_row)
+        db.session.add(
+            ReportEvidence(tenant_id=tenant_id, report_id=report.id, evidence_id=evidence.id)
+        )
+        snapshot_rows.append(snapshot_row)
+        evidence_metadata.append(
+            {
+                "id": str(evidence.id),
+                "version": evidence.version,
+                "checksum": evidence.checksum.hex(),
+                "classification": evidence.classification,
+                "locator": evidence.locator,
+                "source_label": source["label"],
+                "snapshot_row_hash": _sha256(frozen).hex(),
+            }
+        )
+    if evidence_metadata:
+        source_snapshot = dict(report.source_snapshot)
+        source_snapshot["evidence"] = evidence_metadata
+        source_snapshot["pending_evidence_schema"] = ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA
+        report.source_snapshot = source_snapshot
+        report.source_snapshot_hash = _sha256(source_snapshot)
+    return snapshot_rows
+
+
 def incorporate_entity_dossier_report(
     *, job_id: uuid.UUID, dossier_id: uuid.UUID, actor_id: uuid.UUID
 ) -> tuple[Report, BackgroundJob]:
@@ -715,6 +1051,8 @@ def incorporate_entity_dossier_report(
         "audit_log_id": str(audit.id),
         "background_job_id": str(job.id),
         "waiting_area_schema": ENTITY_DOSSIER_SCHEMA,
+        "pending_evidence_schema": result.get("pending_evidence_schema"),
+        "pending_evidence_count": len(_pending_evidence_sources_from_result(result)),
     }
     report = Report(
         tenant_id=tenant_id,
@@ -740,6 +1078,18 @@ def incorporate_entity_dossier_report(
     )
     db.session.add(report)
     db.session.flush()
+    snapshot_rows = _materialize_pending_entity_evidence(
+        report=report,
+        result=result,
+        entity=entity,
+        job=job,
+        audit=audit,
+    )
+    if snapshot_rows:
+        output = _authoritative_source_index(output, snapshot_rows)
+        report.title = output.title[:300]
+        report.content = output.model_dump(mode="json")
+        report.source_snapshot_hash = _sha256(report.source_snapshot)
     artifact = AIArtifact(
         tenant_id=tenant_id,
         audit_log_id=audit.id,
@@ -775,6 +1125,7 @@ def incorporate_entity_dossier_report(
     result["incorporated_report_id"] = str(report.id)
     result["incorporated_dossier_id"] = str(dossier_id)
     result["incorporated_at"] = now.isoformat()
+    result["materialized_evidence_ids"] = [str(item.evidence_id) for item in snapshot_rows]
     job.result_ref = result
     job.resource_id = report.id
     job.version += 1
@@ -790,6 +1141,7 @@ def incorporate_entity_dossier_report(
             "job_id": str(job.id),
             "audit_log_id": str(audit.id),
             "artifact_ids": [str(item.id) for item in artifacts],
+            "materialized_evidence_count": len(snapshot_rows),
         },
     )
     db.session.commit()

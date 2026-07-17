@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { AsyncActionButton } from "./async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "./async-action-button";
 
 describe("AsyncActionButton", () => {
   it("renders as unavailable until React has hydrated the action", async () => {
@@ -53,5 +53,24 @@ describe("AsyncActionButton", () => {
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAttribute("data-action-ready", "false");
+  });
+
+  it("protects dialog triggers without replacing their label", async () => {
+    const onClick = vi.fn();
+    const serverMarkup = renderToString(
+      <HydratedActionButton onClick={onClick}>Nuevo expediente</HydratedActionButton>,
+    );
+
+    expect(serverMarkup).toContain("Nuevo expediente");
+    expect(serverMarkup).toContain("disabled");
+    expect(serverMarkup).toContain('data-action-ready="false"');
+
+    render(<HydratedActionButton onClick={onClick}>Nuevo expediente</HydratedActionButton>);
+
+    const button = await screen.findByRole("button", { name: "Nuevo expediente" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

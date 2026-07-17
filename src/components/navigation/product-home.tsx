@@ -23,6 +23,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { CreateProductDossierDialog } from "./create-product-dossier-dialog";
 import {
   productLinkedResourceLabel,
@@ -111,9 +112,9 @@ export function ProductHome() {
           <p>Prioriza expedientes y resultados de la organización activa.</p>
         </div>
         {auth.can("dossier.write") && (
-          <button className="vector-primary" onClick={() => setCreateOpen(true)}>
+          <HydratedActionButton className="vector-primary" onClick={() => setCreateOpen(true)}>
             <Plus size={16} /> Nuevo expediente
-          </button>
+          </HydratedActionButton>
         )}
       </section>
       {degraded.length > 0 && (
@@ -128,9 +129,9 @@ export function ProductHome() {
           <h2 id="home-onboarding-title">Tu primer radar estratégico empieza aquí</h2>
           <p>Crea un expediente para reunir señales, actores, oportunidades y decisiones en un mismo contexto trazable.</p>
           {auth.can("dossier.write") && (
-            <button className="vector-primary" onClick={() => setCreateOpen(true)}>
+            <HydratedActionButton className="vector-primary" onClick={() => setCreateOpen(true)}>
               <Plus size={16} /> Crear el primer expediente
-            </button>
+            </HydratedActionButton>
           )}
         </section>
       ) : <>
@@ -160,7 +161,14 @@ export function ProductHome() {
                     const Icon = ATTENTION_ICONS[item.kind ?? ""] ?? BriefcaseBusiness;
                     return <Icon size={16} aria-hidden="true" />;
                   })()}
-                  <span><strong>{item.title}</strong><small><b>{productLinkedResourceLabel(item.kind)}</b> · {item.dossier_title} · {productStatusLabel(item.status)}</small></span>
+                  <span className="home-attention-copy">
+                    <strong>{item.title}</strong>
+                    <small>
+                      <b className="attention-kind-label">{productLinkedResourceLabel(item.kind)}</b>
+                      <span>{item.dossier_title}</span>
+                      <span>{productStatusLabel(item.status)}</span>
+                    </small>
+                  </span>
                   <span>{item.score === null ? "Siguiente hito" : `Puntuación ${item.score}`} · {item.due_at ? new Date(item.due_at).toLocaleDateString("es-ES") : "Sin fecha"}</span>
                 </Link>
               ))}

@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CreateProductDossierDialog } from "@/components/navigation/create-product-dossier-dialog";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 
 const STATUS_OPTIONS = ["draft", "active", "paused", "archived"] as const;
 const TYPE_OPTIONS = [
@@ -324,9 +325,9 @@ export function DossierInventory() {
           <p>Busca, compara y abre los expedientes estratégicos a los que tienes acceso.</p>
         </div>
         <PermissionGate permission="dossier.write">
-          <button className="vector-primary" onClick={() => setCreateOpen(true)}>
+          <HydratedActionButton className="vector-primary" onClick={() => setCreateOpen(true)}>
             <FilePlus2 size={16} aria-hidden="true" /> Nuevo expediente
-          </button>
+          </HydratedActionButton>
         </PermissionGate>
       </header>
 
@@ -455,7 +456,7 @@ export function DossierInventory() {
               <button className="vector-secondary" onClick={() => router.replace(pathname, { scroll: false })}>Limpiar filtros</button>
             ) : (
               <PermissionGate permission="dossier.write">
-                <button className="vector-primary" onClick={() => setCreateOpen(true)}>Crear primer expediente</button>
+                <HydratedActionButton className="vector-primary" onClick={() => setCreateOpen(true)}>Crear primer expediente</HydratedActionButton>
               </PermissionGate>
             )}
           </div>

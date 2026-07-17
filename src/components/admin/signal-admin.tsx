@@ -20,6 +20,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminNav } from "@/components/admin/tenant-admin";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { productStatusLabel } from "@/lib/product-copy";
 
 type HealthState = "configured" | "healthy" | "degraded" | "error";
@@ -302,9 +303,9 @@ export function SignalAdmin() {
             monitores sin exponer secretos en el navegador.
           </p>
         </div>
-        <button className="vector-primary" onClick={() => setCreateOpen(true)}>
+        <HydratedActionButton className="vector-primary" onClick={() => setCreateOpen(true)}>
           <Link2 size={16} /> Nueva conexión
-        </button>
+        </HydratedActionButton>
       </header>
       <AdminNav active="signal" />
 

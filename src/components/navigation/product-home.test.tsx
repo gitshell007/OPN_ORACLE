@@ -72,7 +72,8 @@ describe("ProductHome", () => {
 
     expect(await screen.findByRole("heading", { name: "Trabajo que requiere atención" })).toBeVisible();
     expect(screen.getByText("señal")).toBeVisible();
-    expect(screen.getByText(/Expediente industrial · Nueva/)).toBeVisible();
+    expect(screen.getByText("Expediente industrial")).toBeVisible();
+    expect(screen.getByText("Nueva")).toBeVisible();
     expect(screen.getByRole("link", { name: "Ver cartera" })).toHaveAttribute("href", "/app/dossiers");
     expect(screen.getByRole("link", { name: /Nueva inversión confirmada/ })).toHaveAttribute(
       "href",

@@ -31,6 +31,7 @@ export function JobProgress({
   const [mutating, setMutating] = useState(false);
   const callback = useRef(onTerminal);
   const announcedTerminal = useRef<string | null>(null);
+  const toastId = `job-progress:${jobId}`;
 
   useEffect(() => {
     callback.current = onTerminal;
@@ -51,12 +52,21 @@ export function JobProgress({
         if (terminal.has(next.status)) {
           if (announcedTerminal.current !== `${next.id}:${next.status}`) {
             announcedTerminal.current = `${next.id}:${next.status}`;
-            if (next.status === "succeeded") toast.success("Proceso completado");
+            if (next.status === "succeeded")
+              toast.success("Proceso completado", { id: toastId, duration: 4000 });
             if (next.status === "failed")
-              toast.error("El proceso necesita atención");
+              toast.error("El proceso necesita atención", {
+                id: toastId,
+                duration: 8000,
+                closeButton: true,
+              });
           }
           callback.current?.(next);
           return;
+        }
+        if (announcedTerminal.current?.startsWith(`${next.id}:failed`)) {
+          toast.dismiss(toastId);
+          announcedTerminal.current = null;
         }
         timer = window.setTimeout(load, next.status === "queued" ? 2500 : 1800);
       } catch (reason) {
@@ -75,7 +85,7 @@ export function JobProgress({
       active = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [jobId]);
+  }, [jobId, toastId]);
 
   const mutate = async (action: "retry" | "cancel") => {
     if (!job) return;
@@ -88,7 +98,10 @@ export function JobProgress({
       announcedTerminal.current = null;
       setJob(next);
       setError(false);
-      toast.success(action === "retry" ? "Reintento encolado" : "Cancelación solicitada");
+      toast.success(action === "retry" ? "Reintento encolado" : "Cancelación solicitada", {
+        id: toastId,
+        duration: 4000,
+      });
     } catch (reason) {
       toast.error(
         reason instanceof ApiError

@@ -16,6 +16,7 @@ from opn_oracle.oracle.entity_dossier_report import (
     ENTITY_DOSSIER_AGENT,
     ENTITY_DOSSIER_REPORT_JOB,
     build_entity_dossier_metrics,
+    build_pending_entity_evidence_sources,
     compact_entity_dossier,
     entity_key,
     source_limits,
@@ -228,3 +229,47 @@ def test_entity_dossier_waiting_payload_discloses_limits_and_caps_lists() -> Non
     assert compact["news"]["truncated_by_oracle"] is True
     assert any("BORME" in item and "publicación" in item for item in source_limits())
     assert entity_key(name="ITURRI, S.A.", kind="company").startswith("company:iturri-s-a")
+
+
+def test_entity_dossier_builds_pending_citable_sources_from_urls() -> None:
+    compact = {
+        "registry": {
+            "items": [
+                {
+                    "company": "ITURRI SA",
+                    "person": "APELLIDOS NOMBRE",
+                    "role": "Administrador",
+                    "action": "nombramiento",
+                    "date": "2026-07-01",
+                    "province": "SEVILLA",
+                    "source_url": "https://www.boe.es/borme/dias/2026/07/01/",
+                },
+                {"action": "cese", "date": "2026-07-02"},
+            ]
+        },
+        "news": {
+            "items": [
+                {
+                    "title": "ITURRI obtiene una adjudicación",
+                    "published_at": "2026-07-03",
+                    "source_name": "Medio",
+                    "url": "https://example.test/noticia",
+                }
+            ]
+        },
+    }
+
+    first = build_pending_entity_evidence_sources(
+        entity_dossier=compact,
+        corpus_hash="a" * 64,
+    )
+    second = build_pending_entity_evidence_sources(
+        entity_dossier=compact,
+        corpus_hash="a" * 64,
+    )
+
+    assert first == second
+    assert [item["source_kind"] for item in first] == ["registry_act", "news"]
+    assert all(uuid.UUID(item["id"]) for item in first)
+    assert "BORME" in first[0]["label"]
+    assert first[0]["source_url"].startswith("https://www.boe.es/borme/")

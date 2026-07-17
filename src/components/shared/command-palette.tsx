@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { visibleGlobalRoutes } from "@/lib/app-routes";
 import { useOracle } from "./oracle-provider";
 import { ApiError, api, type GlobalSearchResult } from "@oracle/api-client";
@@ -65,14 +66,14 @@ export function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button
+        <HydratedActionButton
           className="command-trigger"
           aria-label="Abrir búsqueda global"
         >
           <Search size={16} />
           <span>Buscar o ir a…</span>
           <kbd>⌘ K</kbd>
-        </button>
+        </HydratedActionButton>
       </Dialog.Trigger>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
@@ -197,14 +198,14 @@ export function ProductCommandPalette({ onCreate }: { onCreate(): void }) {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button
+        <HydratedActionButton
           className="command-trigger"
           aria-label="Abrir búsqueda global"
         >
           <Search size={16} />
           <span>Buscar o ir a…</span>
           <kbd>⌘ K</kbd>
-        </button>
+        </HydratedActionButton>
       </Dialog.Trigger>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />

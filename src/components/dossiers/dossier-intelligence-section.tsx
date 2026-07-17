@@ -29,6 +29,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { productScoreDetailLabel, productSignalTypeLabel } from "@/lib/product-copy";
 
@@ -573,7 +574,7 @@ export function DossierIntelligenceSection({
           <p>{copy.description}</p>
         </div>
         <div className="intelligence-heading-actions">
-          {kind !== "signals" && <PermissionGate permission={copy.permission}><button className="vector-primary" onClick={() => { resetManual(); setManualOpen(true); }}><Plus size={15} /> {kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}</button></PermissionGate>}
+          {kind !== "signals" && <PermissionGate permission={copy.permission}><HydratedActionButton className="vector-primary" onClick={() => { resetManual(); setManualOpen(true); }}><Plus size={15} /> {kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}</HydratedActionButton></PermissionGate>}
           <button className="vector-secondary" onClick={() => void load()} disabled={loading}>
             <RefreshCw size={15} aria-hidden="true" /> Actualizar
           </button>

@@ -14,7 +14,7 @@ vi.mock("@oracle/api-client", () => ({
   api: { jobs: { get: mocks.get, retry: mocks.retry, cancel: mocks.cancel } },
 }));
 vi.mock("sonner", () => ({
-  toast: { success: mocks.success, error: mocks.error },
+  toast: { success: mocks.success, error: mocks.error, dismiss: vi.fn() },
 }));
 
 import { JobProgress } from "./job-progress";
@@ -56,7 +56,10 @@ describe("JobProgress", () => {
     expect(await screen.findByText("El documento necesita revisión.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
     await waitFor(() => expect(mocks.retry).toHaveBeenCalledWith("job-1", 3));
-    expect(mocks.success).toHaveBeenCalledWith("Reintento encolado");
+    expect(mocks.success).toHaveBeenCalledWith("Reintento encolado", {
+      id: "job-progress:job-1",
+      duration: 4000,
+    });
   });
 
   it("permite solicitar la cancelación de un proceso activo", async () => {

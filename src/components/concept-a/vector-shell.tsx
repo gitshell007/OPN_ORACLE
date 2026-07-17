@@ -25,6 +25,7 @@ import { CreateProductDossierDialog } from "@/components/navigation/create-produ
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { NotificationBell } from "@/components/reporting/notifications";
+import { HydratedActionButton, useHydrated } from "@/components/ui/async-action-button";
 import {
   breadcrumbsForPath,
   GLOBAL_ROUTES,
@@ -42,6 +43,7 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
     ? "/app"
     : "/concept-a";
   const canonical = productBase === "/app";
+  const hydrated = useHydrated();
   const nav = useMemo<AppRouteDefinition[]>(
     () =>
       canonical
@@ -452,6 +454,10 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                   <DropdownMenu.Trigger
                     className="vector-primary compact-action"
                     aria-label="Crear"
+                    disabled={!hydrated}
+                    aria-disabled={!hydrated}
+                    data-action-ready={hydrated}
+                    data-hydrated={hydrated}
                   >
                     <Plus size={17} />
                     <span>Crear</span>
@@ -471,13 +477,13 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                 </DropdownMenu.Root>
               </PermissionGate>
             ) : (
-              <button
+              <HydratedActionButton
                 className="vector-primary compact-action"
                 onClick={() => setCreateOpen(true)}
               >
                 <Plus size={17} />
                 <span>Crear expediente</span>
-              </button>
+              </HydratedActionButton>
             )}
           </div>
         </header>

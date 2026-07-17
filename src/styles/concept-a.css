@@ -737,9 +737,11 @@
 .home-dossier-list > a:focus-visible {
   background: var(--va-soft);
 }
-.home-dossier-list span:first-child {
+.home-dossier-list span:first-child,
+.home-attention-copy {
   display: grid;
-  gap: 3px;
+  gap: 6px;
+  min-width: 0;
 }
 .home-dossier-list span:last-child,
 .home-dossier-list small,
@@ -750,6 +752,29 @@
 .home-dossier-list small b {
   color: var(--va-text);
   font-weight: 800;
+}
+.home-attention-copy small {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.home-attention-copy small span::before {
+  color: var(--va-muted);
+  content: "·";
+  margin-right: 8px;
+}
+.attention-kind-label {
+  border: 1px solid var(--va-border);
+  border-radius: 999px;
+  background: var(--va-soft);
+  display: inline-flex;
+  padding: 2px 8px;
+}
+.command-trigger:disabled,
+.command-trigger[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 .home-compact-row {
   display: flex;

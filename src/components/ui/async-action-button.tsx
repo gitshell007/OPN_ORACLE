@@ -2,6 +2,7 @@
 
 import {
   type ButtonHTMLAttributes,
+  forwardRef,
   type ReactNode,
   useSyncExternalStore,
 } from "react";
@@ -24,13 +25,45 @@ function getServerHydrationSnapshot() {
   return false;
 }
 
-function useHydrated(): boolean {
+export function useHydrated(): boolean {
   return useSyncExternalStore(
     subscribeToHydration,
     getClientHydrationSnapshot,
     getServerHydrationSnapshot,
   );
 }
+
+export const HydratedActionButton = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement>
+>(function HydratedActionButton(
+  {
+    disabled,
+    children,
+    className = "vector-primary",
+    type = "button",
+    ...props
+  },
+  ref,
+) {
+  const hydrated = useHydrated();
+  const blocked = disabled || !hydrated;
+
+  return (
+    <button
+      ref={ref}
+      {...props}
+      type={type}
+      className={className}
+      disabled={blocked}
+      aria-disabled={blocked}
+      data-action-ready={!blocked}
+      data-hydrated={hydrated}
+    >
+      {children}
+    </button>
+  );
+});
 
 export function AsyncActionButton({
   loading = false,

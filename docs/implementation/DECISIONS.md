@@ -504,6 +504,27 @@
   expediente y materializa la entidad externa como Actor interno usando el flujo del prompt 44.
 - **Consecuencias:** el informe no se pierde si el usuario abandona la ficha antes de elegir
   expediente, y el esquema de reporting conserva su invariante de informes siempre asociados a un
-  expediente. La primera versión permite una única incorporación por job porque `AIArtifact` es
-  único por `audit_log_id`; si producto necesita reutilizar el mismo análisis en varios expedientes,
-  deberá versionarse un flujo de copia/materialización separado.
+expediente. La primera versión permite una única incorporación por job porque `AIArtifact` es
+único por `audit_log_id`; si producto necesita reutilizar el mismo análisis en varios expedientes,
+deberá versionarse un flujo de copia/materialización separado.
+
+## D-036 — Evidencia citable diferida para informes IA de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** la ficha de entidad contiene actos BORME con `source_url` y noticias con URL, pero
+  el informe IA de entidad recibía `allowed_evidence_ids=[]`. Como el prompt obliga a no publicar
+  hechos sin evidencia, todo acababa degradado a inferencia aunque hubiera fuentes citables. A la
+  vez, por D-035 el informe nace en un área de espera sin expediente destino.
+- **Decisión:** durante la generación se construye un índice de fuentes citables desde el corpus
+  compacto y se reservan UUIDs deterministas para cada fuente. Esos IDs se pasan al modelo como
+  `allowed_evidence_ids` y se guardan en `BackgroundJob.result_ref` como
+  `pending_evidence_sources`, pero no se insertan filas `Evidence` mientras el informe siga en
+  espera. Al incorporar el informe, Oracle materializa esas fuentes como `Evidence` con
+  `source_kind='entity_intel'`, las enlaza al expediente mediante `EvidenceDossier`, las congela en
+  `ReportSnapshotEvidence`/`ReportEvidence` y reconstruye el `source_index` autoritativo desde el
+  snapshot, no desde etiquetas libres del modelo.
+- **Consecuencias:** el LLM puede formular hechos citables sin inventar fuentes y sin que queden
+  evidencias huérfanas si el usuario nunca incorpora el informe. La evidencia refleja exactamente
+  lo que Signal expone (enlace BORME/noticia y extracto normalizado), no el texto registral completo
+  ni una desambiguación de homónimos que Oracle no posee.

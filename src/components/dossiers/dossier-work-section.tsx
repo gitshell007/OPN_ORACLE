@@ -28,6 +28,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
+import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { productLinkedResourceLabel } from "@/lib/product-copy";
 import { DossierActorCandidates } from "./dossier-actor-candidates";
 
@@ -594,9 +595,9 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
           <p>{copy.description}</p>
         </div>
         <PermissionGate permission={copy.permission}>
-          <button className="vector-primary" type="button" onClick={() => void openCreate()}>
+          <HydratedActionButton className="vector-primary" type="button" onClick={() => void openCreate()}>
             <Plus size={15} /> {copy.create}
-          </button>
+          </HydratedActionButton>
         </PermissionGate>
       </header>
 
