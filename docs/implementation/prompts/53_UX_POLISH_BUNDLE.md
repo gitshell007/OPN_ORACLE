@@ -1,4 +1,4 @@
-# 49 — Pulido de UX: clic silencioso en diálogos, tipo pegado al título, toast y prefetch 503 (P2)
+# 53 — Pulido de UX: clic silencioso en diálogos, tipo pegado al título, toast y prefetch 503 (P2)
 
 > Prompt de pulido para Codex. Cuatro fricciones sueltas observadas a lo largo del 2026-07-17, cada
 > una con su causa ya localizada. Son pequeñas; agrúpalas. Verifica en el navegador; si no tienes

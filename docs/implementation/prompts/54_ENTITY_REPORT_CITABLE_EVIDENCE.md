@@ -1,4 +1,4 @@
-# 50 — El informe de entidad no cita evidencia: todo sale como inferencia (P1 · calidad de IA)
+# 54 — El informe de entidad no cita evidencia: todo sale como inferencia (P1 · calidad de IA)
 
 > Prompt de producto para Codex. Iteración del prompt 45. No es un bug: es la consecuencia honesta de
 > un diseño incompleto, y el responsable quiere cerrarlo porque «hechos con evidencia» es el lema del
