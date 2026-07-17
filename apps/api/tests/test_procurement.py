@@ -411,6 +411,70 @@ def test_procurement_items_resolve_tender_snapshot_with_mock_transport(
 
 
 @pytest.mark.unit
+def test_procurement_award_snapshot_classifies_signal_documents_and_ute(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    item = {
+        "folder_id": "EMERGENCIACR2026/671",
+        "lot_id": "1",
+        "title": "Emergencia carretera",
+        "buyer": "Diputación Provincial",
+        "winner": "UTE Carreteras Norte",
+        "award_amount": "1234.50",
+        "cpv": ["45233141"],
+        "status": "Adjudicada",
+        "award_date": "2026-07-16",
+        "region": "Castilla-La Mancha",
+        "source_url": "https://contrataciondelestado.es/award",
+        "documents": [
+            {
+                "uri": "https://contrataciondelestado.es/wps/wcm/connect/doc-1",
+                "doc_type": "pliego",
+                "file_name": "Pliego administrativo.pdf",
+                "unexpected_nested_key": "no se persiste",
+            }
+        ],
+        "is_ute": True,
+    }
+
+    caplog.set_level("WARNING", logger=procurement_items.__name__)
+    snapshot = procurement_items._snapshot("award", item, "EMERGENCIACR2026/671")
+
+    assert procurement_items._unclassified_snapshot_keys("award", item) == set()
+    assert not caplog.records
+    assert snapshot["documents"] == [
+        {
+            "uri": "https://contrataciondelestado.es/wps/wcm/connect/doc-1",
+            "doc_type": "pliego",
+            "file_name": "Pliego administrativo.pdf",
+        }
+    ]
+    assert snapshot["is_ute"] is True
+
+
+@pytest.mark.unit
+def test_procurement_award_snapshot_warns_about_unclassified_provider_keys(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("WARNING", logger=procurement_items.__name__)
+
+    unknown_keys = procurement_items._unclassified_snapshot_keys(
+        "award",
+        {"folder_id": "P_6_26", "signal_new_field": "value"},
+    )
+    snapshot = procurement_items._snapshot(
+        "award",
+        {"folder_id": "P_6_26", "signal_new_field": "value"},
+        "P_6_26",
+    )
+
+    assert unknown_keys == {"signal_new_field"}
+    assert snapshot["folder_id"] == "P_6_26"
+    assert len(caplog.records) == 1
+    assert caplog.records[0].unclassified_keys == ["signal_new_field"]
+
+
+@pytest.mark.unit
 def test_procurement_items_resolve_award_snapshot_with_mock_transport(
     app: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -434,6 +498,19 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
                         "award_date": "2026-06-25",
                         "cpv": ["79342000"],
                         "source_url": "https://contrataciondelestado.es/award",
+                        "documents": [
+                            {
+                                "uri": "https://contrataciondelestado.es/documents/pliego.pdf",
+                                "doc_type": "pliego",
+                                "file_name": "Pliego.pdf",
+                            },
+                            {
+                                "uri": "https://contrataciondelestado.es/documents/pliego.pdf",
+                                "doc_type": "pliego",
+                                "file_name": "Duplicado.pdf",
+                            },
+                        ],
+                        "is_ute": True,
                     },
                     {
                         "folder_id": "P_6_26",
@@ -445,6 +522,19 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
                         "award_date": "2026-06-26",
                         "cpv": ["79342000", "79400000"],
                         "source_url": "https://contrataciondelestado.es/award",
+                        "documents": [
+                            {
+                                "uri": "https://contrataciondelestado.es/documents/pliego.pdf",
+                                "doc_type": "pliego",
+                                "file_name": "Pliego.pdf",
+                            },
+                            {
+                                "uri": "https://contrataciondelestado.es/documents/anexos.pdf",
+                                "doc_type": "anexo",
+                                "file_name": "Anexos.pdf",
+                            },
+                        ],
+                        "is_ute": False,
                     },
                 ],
             },
@@ -468,12 +558,29 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
     assert snapshot["award_amount"] == 5000
     assert snapshot["award_date"] == "2026-06-25/2026-06-26"
     assert snapshot["cpv"] == ["79342000", "79400000"]
+    assert snapshot["is_ute"] is True
     assert [entry["award_amount"] for entry in snapshot["entries"]] == [3600, 1400]
     assert "lot_id" not in snapshot["entries"][0]
     assert snapshot["entries"][1]["lot_id"] == "2"
     assert [entry["winner"] for entry in snapshot["entries"]] == [
         "Genesis Consulting SLP",
         "OPN Consultoría",
+    ]
+    assert snapshot["entries"][0]["is_ute"] is True
+    assert snapshot["entries"][1]["is_ute"] is False
+    assert snapshot["entries"][0]["documents"] == [
+        {
+            "uri": "https://contrataciondelestado.es/documents/pliego.pdf",
+            "doc_type": "pliego",
+            "file_name": "Pliego.pdf",
+        }
+    ]
+    assert snapshot["entries"][1]["documents"] == [
+        {
+            "uri": "https://contrataciondelestado.es/documents/anexos.pdf",
+            "doc_type": "anexo",
+            "file_name": "Anexos.pdf",
+        }
     ]
     extract = procurement_items.procurement_evidence_extract(snapshot)
     assert "Lotes: 2" in extract

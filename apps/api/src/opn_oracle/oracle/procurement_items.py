@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import uuid
 from decimal import Decimal, InvalidOperation
@@ -22,6 +23,64 @@ from opn_oracle.oracle.models import DossierProcurementItem, Evidence
 from opn_oracle.platform.audit import append_audit_event
 
 ProcurementKind = Literal["tender", "award"]
+
+logger = logging.getLogger(__name__)
+
+MAX_SNAPSHOT_DOCUMENTS_PER_AWARD_ENTRY = 10
+MAX_SNAPSHOT_DOCUMENTS_PER_AWARD_COLLECTION = 30
+MAX_SNAPSHOT_DOCUMENT_URI_LENGTH = 1500
+MAX_SNAPSHOT_DOCUMENT_TEXT_LENGTH = 240
+
+TENDER_SNAPSHOT_KEYS: tuple[str, ...] = (
+    "folder_id",
+    "title",
+    "summary_feed",
+    "buyer",
+    "status",
+    "cpv",
+    "amount",
+    "deadline",
+    "region",
+    "source_url",
+    "is_active",
+    "feed_updated_at",
+    "llm_summary",
+    "llm_summary_model",
+    "llm_summary_at",
+)
+AWARD_SNAPSHOT_KEYS: tuple[str, ...] = (
+    "folder_id",
+    "lot_id",
+    "title",
+    "buyer",
+    "winner",
+    "award_amount",
+    "cpv",
+    "status",
+    "award_date",
+    "region",
+    "source_url",
+    "documents",
+    "is_ute",
+)
+AWARD_PROVIDER_CONSUMED_KEYS = frozenset(
+    {
+        "amount",
+        "awarded_amount",
+        "award_value",
+        "contract_amount",
+        "importe_adjudicacion",
+        "importe",
+        "amount_eur",
+        "date",
+        "award_publication_date",
+        "published_at",
+        "publication_date",
+        "updated_at",
+    }
+)
+TENDER_PROVIDER_DISCARDED_KEYS = frozenset[str]()
+AWARD_PROVIDER_DISCARDED_KEYS = frozenset[str]()
 
 
 class ProcurementItemError(RuntimeError):
@@ -94,40 +153,116 @@ def _lot_id_or_none(value: Any) -> str | None:
     return candidate
 
 
-def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> dict[str, Any]:
-    keys: tuple[str, ...]
+def _provider_keys_for(
+    kind: ProcurementKind,
+) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
     if kind == "tender":
-        keys = (
-            "folder_id",
-            "title",
-            "summary_feed",
-            "buyer",
-            "status",
-            "cpv",
-            "amount",
-            "deadline",
-            "region",
-            "source_url",
-            "is_active",
-            "feed_updated_at",
-            "llm_summary",
-            "llm_summary_model",
-            "llm_summary_at",
+        return frozenset(TENDER_SNAPSHOT_KEYS), frozenset(), TENDER_PROVIDER_DISCARDED_KEYS
+    return (
+        frozenset(AWARD_SNAPSHOT_KEYS),
+        AWARD_PROVIDER_CONSUMED_KEYS,
+        AWARD_PROVIDER_DISCARDED_KEYS,
+    )
+
+
+def _unclassified_snapshot_keys(kind: ProcurementKind, item: dict[str, Any]) -> set[str]:
+    preserved_keys, consumed_keys, discarded_keys = _provider_keys_for(kind)
+    return set(item) - preserved_keys - consumed_keys - discarded_keys
+
+
+def _warn_unclassified_snapshot_keys(kind: ProcurementKind, item: dict[str, Any]) -> None:
+    unknown_keys = sorted(_unclassified_snapshot_keys(kind, item))
+    if unknown_keys:
+        logger.warning(
+            "Signal devolvió claves PLACSP sin clasificación de snapshot",
+            extra={"procurement_kind": kind, "unclassified_keys": unknown_keys},
         )
-    else:
-        keys = (
-            "folder_id",
-            "lot_id",
-            "title",
-            "buyer",
-            "winner",
-            "award_amount",
-            "cpv",
-            "status",
-            "award_date",
-            "region",
-            "source_url",
-        )
+
+
+def _boolean_or_none(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "si", "sí"}:
+            return True
+        if normalized in {"0", "false", "no", "n"}:
+            return False
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    return None
+
+
+def _text_or_empty(value: Any, *, max_length: int) -> str:
+    return str(value or "").strip()[:max_length]
+
+
+def _normalize_document(document: dict[Any, Any]) -> dict[str, str] | None:
+    uri = _text_or_empty(document.get("uri"), max_length=MAX_SNAPSHOT_DOCUMENT_URI_LENGTH)
+    if not uri:
+        return None
+    doc_type = _text_or_empty(
+        document.get("doc_type") or "additional",
+        max_length=MAX_SNAPSHOT_DOCUMENT_TEXT_LENGTH,
+    )
+    return {
+        "uri": uri,
+        "doc_type": doc_type or "additional",
+        "file_name": _text_or_empty(
+            document.get("file_name"),
+            max_length=MAX_SNAPSHOT_DOCUMENT_TEXT_LENGTH,
+        ),
+    }
+
+
+def _normalize_documents(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    documents: list[dict[str, str]] = []
+    seen_uris: set[str] = set()
+    for document in value:
+        if not isinstance(document, dict):
+            continue
+        normalized_document = _normalize_document(document)
+        if normalized_document is None or normalized_document["uri"] in seen_uris:
+            continue
+        seen_uris.add(normalized_document["uri"])
+        documents.append(normalized_document)
+        if len(documents) >= MAX_SNAPSHOT_DOCUMENTS_PER_AWARD_ENTRY:
+            break
+    return documents
+
+
+def _deduplicate_award_documents(entries: list[dict[str, Any]]) -> None:
+    seen_uris: set[str] = set()
+    preserved_count = 0
+    for entry_index, entry in enumerate(entries):
+        raw_documents = entry.get("documents")
+        if not isinstance(raw_documents, list):
+            continue
+        preserved_documents: list[dict[str, str]] = []
+        for document in raw_documents:
+            if not isinstance(document, dict):
+                continue
+            normalized_document = _normalize_document(document)
+            if normalized_document is None or normalized_document["uri"] in seen_uris:
+                continue
+            seen_uris.add(normalized_document["uri"])
+            preserved_documents.append(normalized_document)
+            preserved_count += 1
+            if preserved_count >= MAX_SNAPSHOT_DOCUMENTS_PER_AWARD_COLLECTION:
+                break
+        entry["documents"] = preserved_documents
+        if preserved_count >= MAX_SNAPSHOT_DOCUMENTS_PER_AWARD_COLLECTION:
+            for remaining_entry in entries[entry_index + 1 :]:
+                if "documents" in remaining_entry:
+                    remaining_entry["documents"] = []
+            break
+
+
+def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> dict[str, Any]:
+    _warn_unclassified_snapshot_keys(kind, item)
+    keys = TENDER_SNAPSHOT_KEYS if kind == "tender" else AWARD_SNAPSHOT_KEYS
     snapshot = {key: item.get(key) for key in keys if key in item}
     snapshot["folder_id"] = str(snapshot.get("folder_id") or folder_id)
     snapshot["kind"] = kind
@@ -154,6 +289,14 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         )
         if amount is not None:
             snapshot["award_amount"] = amount
+        if "documents" in snapshot:
+            snapshot["documents"] = _normalize_documents(snapshot.get("documents"))
+        if "is_ute" in snapshot:
+            is_ute = _boolean_or_none(snapshot.get("is_ute"))
+            if is_ute is None:
+                snapshot.pop("is_ute", None)
+            else:
+                snapshot["is_ute"] = is_ute
         date = snapshot.get("award_date") or _first_text(
             item,
             (
@@ -193,6 +336,7 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
     entries = [_snapshot("award", item, folder_id) for item in items if isinstance(item, dict)]
     if not entries:
         raise ProcurementItemError("No hay adjudicaciones PLACSP para el expediente indicado.")
+    _deduplicate_award_documents(entries)
     if total == 0:
         raise ProcurementItemError("No hay adjudicaciones PLACSP para el expediente indicado.")
     cpv_values = sorted({cpv for entry in entries for cpv in _normalize_cpv(entry.get("cpv"))})
@@ -230,6 +374,7 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
         "award_date": award_date,
         "cpv": cpv_values,
         "source_url": str(first_source_url) if first_source_url else None,
+        "is_ute": any(entry.get("is_ute") is True for entry in entries),
     }
 
 

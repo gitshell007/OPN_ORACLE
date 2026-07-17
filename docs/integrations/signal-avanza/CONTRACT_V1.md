@@ -239,6 +239,17 @@ Campos persistidos:
     `registry/awards/{folder_id}`. Oracle eleva además `award_amount` como suma de importes
     publicados y `award_date` como fecha única o rango `fecha_min/fecha_max`; valores con forma de
     CIF/NIF español no se conservan como `lot_id`.
+  - En adjudicaciones, Oracle preserva `is_ute` por entrada y eleva `snapshot.is_ute=true` cuando
+    cualquier lote indique UTE. También preserva enlaces documentales en `documents`, normalizados
+    exclusivamente a `uri`, `doc_type` y `file_name`; no se guardan binarios ni metadatos
+    arbitrarios del proveedor. Los documentos se deduplican por `uri`, con límite de 10 documentos
+    por entrada y 30 por snapshot agregado; además, `uri` se trunca a 1500 caracteres y `doc_type`/
+    `file_name` a 240. El informe documental mantiene sus propios límites de descarga de 10
+    documentos y 15 MiB por documento.
+  - Toda clave nueva de Signal para estos snapshots debe clasificarse en Oracle como preservada,
+    consumida para derivar otro campo o descartada de forma deliberada. Una clave no clasificada se
+    registra como warning operativo y debe cubrirse en tests contractuales antes de considerar el
+    contrato ampliado.
 - `source_url`: enlace público de la fuente.
 - `evidence_id`: evidencia interna creada al fijar el ítem para que `tender.v1` pueda citarlo con
   `evidence_ids`.
