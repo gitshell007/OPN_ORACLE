@@ -1,8 +1,24 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-15
+Actualizado: 2026-07-17
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Corrección pendiente de revisión · informe documental PLACSP
+
+- `createDocumentReport` envía `Idempotency-Key` al backend y la UI conserva una clave estable por
+  intento de generación del informe documental. Un reintento tras fallo crea una clave nueva, pero un
+  doble disparo accidental del mismo intento puede hacer replay contra el contrato backend.
+- El barrido de idempotencia confirma que las mutaciones del cliente que corresponden a endpoints
+  con validación explícita de `Idempotency-Key` están cubiertas: backups/restore de plataforma,
+  creación/acción de monitores, resumen IA, promoción de señal, cierre de reunión, generación/retry
+  de informes, informe documental PLACSP y exportaciones.
+- Los snapshots de adjudicaciones PLACSP agregadas conservan `award_amount` como suma de lotes y
+  `award_date` como fecha única o rango. Los lotes con forma de CIF/NIF, como `A41050113`, dejan de
+  mostrarse como número de lote y quedan documentados como revisión pendiente en Signal.
+- Pulidos menores: evidencia de tarjeta fijada acortada, prioridad de siguientes acciones en
+  español, error permanente de `BackgroundJob` con causa raíz sanitizada y dropdown de sugerencias de
+  adjudicatario en lista vertical legible.
 
 ## Corrección pendiente de revisión · adjudicaciones PLACSP
 
@@ -1204,3 +1220,31 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   crudo en el body de pin.
 - Checks locales: `npm run lint`, `npm run typecheck` y `npm run test` correctos
   (`30 passed`, `103 passed`).
+
+## 2026-07-17 · Prompt 35 · Auth antes de validación y coherencia de deploy
+
+- Alcance A corregido tras la actualización del prompt: además de las 4 rutas de `entity-intel`
+  ya ajustadas, se movió `@require_permission` por encima de `@bp.input` en las 6 rutas afectadas
+  de `procurement`: summary de licitación, creación/lectura/patch/delete de búsquedas guardadas y
+  ejecución de búsqueda.
+- Añadidos tests parametrizados de procurement para las 6 rutas: anónimo con request inválida
+  devuelve 401 sin `errors`; anónimo con request válida devuelve 401; autenticado con permisos y
+  request inválida devuelve 422.
+- Añadido contrato transversal sobre `app.url_map` para fallar si una ruta registrada con
+  `@require_permission` vuelve a colocar `@bp.input` por encima del permiso.
+- Alcance B implementado sin desplegar: `deploy-production.sh` registra etapa de despliegue y
+  `oracle-control update` solo restaura punteros si el fallo ocurre antes de `mutation_started`.
+  Desde mutación/migración/arranque conserva el release seleccionado, no revierte esquema y exige
+  diagnóstico/forward-fix o rollback explícito compatible.
+- `oracle-control health` comprueba coherencia entre `current`, `CURRENT_RELEASE`, `ORACLE_RELEASE`
+  y las imágenes en ejecución de `api`, `web`, `worker-core` y `beat`.
+- Documentados runbooks y decisión D-030. Validación local disponible en este entorno:
+  `bash -n scripts/oracle-control.sh scripts/deploy-production.sh`, `python3 -m py_compile` de los
+  módulos/tests afectados y escaneo estático de decoradores con resultado cero. Los checks backend
+  completos con `uv`/pytest/Ruff/mypy quedan pendientes porque este entorno no tiene `uv` ni las
+  dependencias Python instaladas.
+- Ajuste posterior de tests: los casos autenticados inválidos de `entity-intel` y `procurement`
+  usan ahora `client` HTTP real, sustituyendo solo el runtime de identidad para no depender de
+  PostgreSQL/Redis. Los 401 anónimos comprueban ausencia de `errors`, no substrings del payload de
+  autenticación. La evidencia monetaria PLACSP se formatea siempre con dos decimales en el texto
+  citable.
