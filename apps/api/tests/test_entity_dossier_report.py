@@ -92,6 +92,63 @@ def test_create_entity_report_route_dispatches_body_via_http(
     assert captured["kind"] == "company"
 
 
+def test_incorporate_entity_report_route_dispatches_body_via_http(
+    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Segunda ruta con el mismo riesgo json_data vs payload; dispatch real."""
+
+    captured: dict[str, Any] = {}
+    dossier_id = uuid.uuid4()
+
+    def fake_incorporate(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        report = type("R", (), {"id": uuid.uuid4()})()
+        job = type("J", (), {"id": uuid.uuid4()})()
+        return report, job
+
+    monkeypatch.setattr(entity_intel_routes, "incorporate_entity_dossier_report", fake_incorporate)
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "serialize_report",
+        lambda report, **_kw: {"id": str(report.id)},
+    )
+    monkeypatch.setattr(entity_intel_routes, "serialize_job", lambda job: {"id": str(job.id)})
+    monkeypatch.setattr(entity_intel_routes, "current_user", type("U", (), {"id": uuid.uuid4()})())
+
+    with _authenticated(app, monkeypatch):
+        response = client.post(
+            f"/api/v1/entity-intel/reports/{uuid.uuid4()}/incorporate",
+            json={"dossier_id": str(dossier_id)},
+        )
+
+    assert response.status_code in (200, 201)
+    assert captured["dossier_id"] == dossier_id
+
+
+def test_entity_intel_json_routes_use_apiflask_body_argument() -> None:
+    """Contrato: toda vista con @bp.input(location='json') debe recibir `json_data`.
+
+    APIFlask inyecta el cuerpo con ese nombre; una firma con otro nombre revienta
+    con TypeError solo en dispatch HTTP real. Se barre el fuente del blueprint para
+    que un tercer endpoint no repita el fallo sin que nadie se entere. Es una
+    comprobación textual a propósito: no depende de internals de APIFlask.
+    """
+    import re
+    from pathlib import Path
+
+    source = Path(entity_intel_routes.__file__).read_text(encoding="utf-8")
+    # Cada @bp.input(..., location="json") seguido (saltando otros decoradores)
+    # de la firma def ...(...): debe llevar un parámetro json_data.
+    pattern = re.compile(
+        r'location="json"\).*?\ndef \w+\((?P<sig>[^)]*)\)',
+        re.DOTALL,
+    )
+    offenders = [
+        m.group("sig") for m in pattern.finditer(source) if "json_data" not in m.group("sig")
+    ]
+    assert offenders == [], f"vistas con cuerpo json sin arg 'json_data': {offenders}"
+
+
 def test_entity_dossier_report_runtime_is_registered() -> None:
     assert AGENT_SCHEMAS[ENTITY_DOSSIER_AGENT].__name__ == "ReportOutput"
     assert TASK_QUEUES[ENTITY_DOSSIER_REPORT_JOB] == "ai"

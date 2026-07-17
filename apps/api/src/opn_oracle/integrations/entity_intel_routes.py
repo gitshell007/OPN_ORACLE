@@ -316,9 +316,9 @@ def list_entity_reports(query_data: dict[str, Any]) -> dict[str, Any]:
 @bp.post("/reports/<uuid:job_id>/incorporate")
 @require_permission("report.generate")
 @bp.input(EntityReportIncorporateSchema, location="json")
-def incorporate_entity_report(job_id: uuid.UUID, payload: dict[str, Any]) -> Any:
+def incorporate_entity_report(job_id: uuid.UUID, json_data: dict[str, Any]) -> Any:
     try:
-        dossier_id = uuid.UUID(str(payload["dossier_id"]))
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
     except ValueError:
         return problem_response(422, detail="dossier_id no válido.", code="validation_error")
     try:
