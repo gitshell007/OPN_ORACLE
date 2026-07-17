@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
+
+import pytest
+from flask import g
+
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
+from opn_oracle.auth import permissions
+from opn_oracle.integrations import entity_intel_routes
 from opn_oracle.jobs.service import TASK_QUEUES
 from opn_oracle.oracle.entity_dossier_report import (
     ENTITY_DOSSIER_AGENT,
@@ -10,7 +20,76 @@ from opn_oracle.oracle.entity_dossier_report import (
     entity_key,
     source_limits,
 )
+from opn_oracle.platform.models import User
 from opn_oracle.reporting.registry import ReportTemplateRegistry
+
+
+@contextmanager
+def _authenticated(app: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Real HTTP dispatch with a test identity, replacing only the auth runtime."""
+
+    user = User(
+        id=uuid.uuid4(),
+        email="entity-report@example.com",
+        display_name="Entity Report",
+        status="active",
+    )
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(permissions, "current_user", user)
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset({"report.generate"}),
+    )
+    before = app.before_request_funcs.get(None, [])
+    idx = next(
+        i for i, fn in enumerate(before) if fn.__name__ == "protect_csrf_and_install_identity"
+    )
+    original = before[idx]
+
+    def install_identity() -> None:
+        g.active_tenant_id = tenant_id
+
+    before[idx] = install_identity
+    try:
+        yield
+    finally:
+        before[idx] = original
+
+
+def test_create_entity_report_route_dispatches_body_via_http(
+    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regresión: la ruta debía romperse con json_data vs payload en dispatch real.
+
+    El bug solo aparecía por HTTP (APIFlask inyecta el cuerpo como `json_data`);
+    invocar la vista directa no lo reproduce. Este test dispara la ruta de verdad.
+    """
+
+    captured: dict[str, Any] = {}
+
+    def fake_enqueue(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return type("Job", (), {"id": uuid.uuid4()})()
+
+    monkeypatch.setattr(entity_intel_routes, "enqueue_entity_dossier_report", fake_enqueue)
+    monkeypatch.setattr(entity_intel_routes, "serialize_job", lambda job: {"id": str(job.id)})
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "current_user",
+        type("U", (), {"id": uuid.uuid4()})(),
+    )
+
+    with _authenticated(app, monkeypatch):
+        response = client.post(
+            "/api/v1/entity-intel/reports",
+            json={"name": "ITURRI SA", "type": "company"},
+            headers={"Idempotency-Key": "entity-report-key-1"},
+        )
+
+    assert response.status_code == 202
+    assert captured["name"] == "ITURRI SA"
+    assert captured["kind"] == "company"
 
 
 def test_entity_dossier_report_runtime_is_registered() -> None:

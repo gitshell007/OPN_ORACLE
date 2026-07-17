@@ -261,7 +261,7 @@ def entity_dossier(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 @require_permission("report.generate")
 @bp.input(EntityReportRequestSchema, location="json")
 @limiter.limit("10/minute")
-def create_entity_report(payload: dict[str, Any]) -> Any:
+def create_entity_report(json_data: dict[str, Any]) -> Any:
     key = request.headers.get("Idempotency-Key", "").strip()
     if not 8 <= len(key) <= 200:
         return problem_response(
@@ -271,8 +271,8 @@ def create_entity_report(payload: dict[str, Any]) -> Any:
         )
     try:
         job = enqueue_entity_dossier_report(
-            name=cast(str, payload["name"]),
-            kind=cast(str, payload["type"]),
+            name=cast(str, json_data["name"]),
+            kind=cast(str, json_data["type"]),
             idempotency_key=key,
             requested_by_user_id=current_user.id,
             correlation_id=get_correlation_id(),
