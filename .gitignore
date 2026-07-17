@@ -233,3 +233,4 @@ test-results/
 
 # Entregables locales (no versionados)
 artifacts/
+.codex-screenshots/

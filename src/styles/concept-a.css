@@ -723,6 +723,11 @@
 .document-status { display: inline-flex; border: 1px solid var(--va-border); border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 700; }
 .document-status.ready { border-color: #79b594; color: #246443; }
 .document-status.failed, .document-status.quarantined { border-color: #d3978f; color: #9b3129; }
+.document-security-badge { display: block; width: fit-content; margin-top: 5px; border: 1px solid var(--va-border); border-radius: 999px; padding: 2px 7px; font-size: 10px; font-weight: 700; }
+.document-security-badge.clean { color: #246443; border-color: #79b594; }
+.document-security-badge.warning { color: #8a4a00; border-color: #d8a647; background: #fff7df; }
+.document-security-badge.muted { color: var(--va-muted); }
+.document-security-note { border-left: 3px solid #d8a647; padding-left: 10px; color: #5f4200; }
 .document-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .document-empty { padding: 28px !important; text-align: center !important; color: var(--va-muted); }
 .document-results { display: grid; gap: 8px; margin-top: 18px; }

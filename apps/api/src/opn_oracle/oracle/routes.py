@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from opn_oracle.auth.permissions import current_permissions, require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.documents.models import Document
+from opn_oracle.documents.security import document_available_for_citation
 from opn_oracle.extensions import db
 from opn_oracle.integrations.procurement import (
     ProcurementConfigurationError,
@@ -936,19 +937,23 @@ def global_search() -> Any:
             for row, dossier in search_opportunity_rows
         ]
     if "documents" in requested_groups and "documents.read" in permissions:
-        document_rows = db.session.execute(
+        candidate_rows = db.session.execute(
             select(Document, StrategicDossier)
             .join(StrategicDossier, StrategicDossier.id == Document.dossier_id)
             .where(
                 access,
                 Document.original_filename.ilike(term),
                 Document.status == "ready",
-                Document.scan_status == "clean",
                 Document.deleted_at.is_(None),
             )
             .order_by(Document.original_filename.asc(), Document.id.asc())
-            .limit(limit)
+            .limit(limit * 3)
         ).all()
+        document_rows = [
+            (row, dossier)
+            for row, dossier in candidate_rows
+            if document_available_for_citation(row)
+        ][:limit]
         groups["documents"] = [
             result(
                 kind="document",

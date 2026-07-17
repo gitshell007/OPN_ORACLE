@@ -48,6 +48,7 @@ const STATUS_LABELS: Record<string, string> = {
   success: "Correcto",
   clean: "Sin amenazas",
   infected: "Amenaza detectada",
+  not_configured: "Sin antivirus configurado",
   uploaded: "Subido",
 };
 

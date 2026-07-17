@@ -423,3 +423,34 @@
   un smoke fallido o una mutación parcial. La poda de imágenes solo sucede tras activación correcta
   y coherencia verificada; si la coherencia no puede garantizarse, el script lo declara
   explícitamente y no despliega/poda en silencio.
+
+## D-031 — Excepción temporal para documentos oficiales PLACSP sin ClamAV
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** la cadena documental PLACSP descarga y procesa PDFs oficiales, pero producción no
+  tiene ClamAV desplegado. El scanner `noop` marca `scan_status=not_configured`, lo que bloqueaba el
+  informe documental aunque la fuente fuese `contrataciondelestado.es` y el responsable haya
+  pospuesto ClamAV.
+- **Decisión:** `DOCUMENT_ALLOW_OFFICIAL_UNSCANNED=false` por defecto. Si se activa, y solo mientras
+  `DOCUMENT_SCANNER_MODE=noop`, Oracle puede aceptar documentos `ready + not_configured` de
+  `https://contrataciondelestado.es` para informes/citas PLACSP. Cada aceptación queda marcada en
+  `document.scan_result.official_unscanned_acceptance`, se audita como
+  `document.official_unscanned_accepted` y la UI muestra el badge «Fuente oficial · sin antivirus».
+  Estados `infected` y `error` nunca se aceptan, aunque el flag esté activo.
+- **Consecuencias:** se desbloquea el informe documental oficial sin fingir que el documento está
+  limpio. Las rutas de lectura solo tratan como descargable/citable un documento limpio o ya marcado
+  por esta aceptación auditada. La excepción debe retirarse cuando ClamAV quede desplegado.
+
+## D-032 — Layout de grafo determinista con semillas no degeneradas
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** tras hacer determinista el layout de entidades, `fcose` con `randomize=false` y sin
+  posiciones iniciales podía arrancar desde una geometría degenerada; con ITURRI SA se observaron
+  295 nodos en una diagonal.
+- **Decisión:** mantener `randomize=false`, pero pasar a Cytoscape posiciones iniciales
+  deterministas basadas en una espiral de ángulo áureo y hash estable por nodo. No se modifican los
+  controles de zoom, el cronograma ni la ficha modal validados en el prompt anterior.
+- **Consecuencias:** el resultado sigue siendo reproducible entre sesiones, pero `fcose` ya no parte
+  de una línea/colapso cuando el proveedor entrega grafos grandes.

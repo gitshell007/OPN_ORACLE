@@ -23,6 +23,9 @@
   migración automática para no reescribir evidencia histórica; si aparecen muchos expedientes
   afectados, decidir entre refijado manual, reparación administrativa por `folder_id` o backfill
   auditable desde Signal.
+- ClamAV sigue pospuesto por decisión operativa. Mientras `DOCUMENT_ALLOW_OFFICIAL_UNSCANNED=true`
+  esté activo, solo documentos oficiales PLACSP ya auditados pueden citarse sin antivirus. Retirar el
+  flag y volver a exigir `DOCUMENT_SCANNER_MODE=clamav` en cuanto se despliegue el servicio.
 
 ## Credenciales e infraestructura
 

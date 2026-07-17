@@ -4,6 +4,22 @@ Actualizado: 2026-07-17
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Correcciones P0/P1 · prompts 40, 41 y 42
+
+- Prompt 40: el modo unitario de `scripts/api-test.sh --unit` ya no puede dar un verde con tests
+  ocultos. `test_integration_alerts.py` deja de registrar como plugin global la fixture `autouse`
+  de integración que hacía `pytest.skip`, y el wrapper falla si aparece cualquier skipped o si se
+  ejecutan menos de 284 tests unitarios. `.codex-screenshots/` queda ignorado como artefacto local.
+- Prompt 40: `oracle-control` añade `--yes`/`--non-interactive` para automatizaciones sin pausas que
+  retengan `/run/lock/opn-oracle-control.lock`. Las frases reforzadas siguen exigiendo
+  `ORACLE_CONTROL_CONFIRM_PHRASE` exacta y los gates de `update` se pasan por entorno.
+- Prompt 41: el grafo de entidades conserva `fcose` determinista, pero recibe posiciones iniciales
+  no degeneradas por nodo. No se han modificado zoom, cronograma ni ficha modal.
+- Prompt 42: `DOCUMENT_ALLOW_OFFICIAL_UNSCANNED` permite, por defecto desactivado, aceptar PDFs
+  oficiales PLACSP `ready + not_configured` solo con `DOCUMENT_SCANNER_MODE=noop`. La excepción se
+  registra en `scan_result`, genera audit event, se propaga a la provenance de evidencia y aparece
+  en Vector como «Fuente oficial · sin antivirus». `infected` y `error` siguen bloqueados siempre.
+
 ## Proceso P0 · CI en PR y release atado a SHA verde
 
 - `ci.yml` vuelve a ejecutarse automáticamente en `pull_request` hacia `master` y conserva

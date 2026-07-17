@@ -17,6 +17,12 @@ terminales que no los soporten. Las rutas se pueden cambiar con `ORACLE_APP_ROOT
 `ORACLE_CONTROL_AUDIT_LOG` y `ORACLE_CONTROL_LOCK`, aunque producción debe conservar los valores
 por defecto documentados.
 
+Para automatizaciones usa siempre comandos directos, no el menú, y añade `--yes` o
+`--non-interactive`. Ese modo autoacepta confirmaciones simples y no ejecuta pausas de lectura, por
+lo que no puede retener indefinidamente `/run/lock/opn-oracle-control.lock` esperando un Intro. Las
+frases reforzadas no se relajan: `update`, `rollback`, reinicios de PostgreSQL/Redis y el dry-run TLS
+siguen exigiendo `ORACLE_CONTROL_CONFIRM_PHRASE` con el texto exacto.
+
 ## Comandos
 
 | Comando | Efecto |
@@ -67,6 +73,19 @@ sudo ORACLE_REQUIRE_OFFSITE_RECEIPT=1 oracle-control update <release-id>
 ```
 
 En ese modo la consola vuelve a exigir el receipt de copia cifrada off-host.
+
+La invocación no interactiva equivalente debe pasar los paths de gate por entorno y la frase exacta:
+
+```bash
+sudo ORACLE_BACKUP_MANIFEST=/var/backups/opn-oracle/20260717/MANIFEST.txt \
+  ORACLE_BACKUP_RESTORE_EVIDENCE=/var/backups/opn-oracle/20260717/restore-evidence.txt \
+  ORACLE_CONTROL_CONFIRM_PHRASE="ACTIVAR 96e855e" \
+  oracle-control --yes update 96e855e
+```
+
+Si `ORACLE_REQUIRE_OFFSITE_RECEIPT=1`, añade también `ORACLE_BACKUP_OFFSITE_RECEIPT` apuntando al
+receipt legible y regular. Si falta cualquier gate, el comando falla cerrado en vez de quedarse
+bloqueado esperando entrada.
 
 ## Rollback
 

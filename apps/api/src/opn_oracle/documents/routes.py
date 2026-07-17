@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.documents.models import Document, DocumentChunk
+from opn_oracle.documents.security import document_available_for_citation
 from opn_oracle.documents.service import (
     DocumentError,
     create_evidence,
@@ -75,6 +76,7 @@ def _serialize(document: Document) -> dict[str, Any]:
         "classification": document.classification,
         "status": document.status,
         "scan_status": document.scan_status,
+        "scan_result": document.scan_result,
         "safe_error_code": document.safe_error_code,
         "current_version_id": str(document.current_version_id)
         if document.current_version_id
@@ -156,7 +158,7 @@ def get_document(document_id: uuid.UUID) -> Any:
 @require_permission("documents.read")
 def download_document(document_id: uuid.UUID) -> Any:
     document = _document(document_id, write=False)
-    if document is None or document.status != "ready" or document.scan_status != "clean":
+    if document is None or not document_available_for_citation(document):
         return problem_response(404, detail="Documento no disponible.", code="not_found")
     try:
         source = current_app.extensions["object_storage"].get(document.storage_key)

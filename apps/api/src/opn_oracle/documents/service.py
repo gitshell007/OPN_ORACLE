@@ -20,6 +20,7 @@ from opn_oracle.documents.models import (
 )
 from opn_oracle.documents.parsers import CHUNKER_VERSION, ParseError, chunk_document, parser_for
 from opn_oracle.documents.scanner import ScannerUnavailable
+from opn_oracle.documents.security import document_scan_provenance
 from opn_oracle.documents.storage import ObjectStorage, StorageError, object_key
 from opn_oracle.extensions import db
 from opn_oracle.oracle.jobs import BackgroundJob
@@ -693,7 +694,11 @@ def create_evidence(document: Document, chunk: DocumentChunk, *, start: int, end
         locator={**chunk.locator, "chunk_start": start, "chunk_end": end},
         checksum=hashlib.sha256(extract.encode()).digest(),
         classification=document.classification,
-        provenance={"chunk_checksum": chunk.checksum.hex(), "immutable_version": True},
+        provenance={
+            "chunk_checksum": chunk.checksum.hex(),
+            "immutable_version": True,
+            **document_scan_provenance(document),
+        },
     )
     db.session.add(evidence)
     db.session.flush()

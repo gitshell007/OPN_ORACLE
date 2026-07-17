@@ -122,6 +122,22 @@ def test_production_documents_fail_closed_without_s3_and_scanner() -> None:
     }
     with pytest.raises(ConfigError, match="DOCUMENT_STORAGE_BACKEND"):
         Settings.load(base)
+    s3_ready = {
+        **base,
+        "RLS_ENABLED": True,
+        "DOCUMENT_STORAGE_BACKEND": "s3",
+        "DOCUMENT_S3_ENDPOINT_URL": "https://s3.example.test",
+        "DOCUMENT_S3_REGION": "eu-west-1",
+        "DOCUMENT_S3_BUCKET": "oracle-documents",
+        "DOCUMENT_S3_ACCESS_KEY_ID": "access",
+        "DOCUMENT_S3_SECRET_ACCESS_KEY": "secret",
+        "DOCUMENT_S3_ALLOWED_HOSTS": "s3.example.test",
+    }
+    with pytest.raises(ConfigError, match="DOCUMENT_SCANNER_MODE=clamav"):
+        Settings.load(s3_ready)
+    settings = Settings.load({**s3_ready, "DOCUMENT_ALLOW_OFFICIAL_UNSCANNED": True})
+    assert settings.document_scanner_mode == "noop"
+    assert settings.document_allow_official_unscanned is True
 
 
 @pytest.mark.unit

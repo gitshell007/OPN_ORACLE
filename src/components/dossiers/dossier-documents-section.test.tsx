@@ -46,6 +46,7 @@ const document = {
   classification: "internal" as const,
   status: "ready" as const,
   scan_status: "clean",
+  scan_result: {},
   safe_error_code: null,
   current_version_id: "version-1",
   version: 2,
@@ -81,5 +82,24 @@ describe("DossierDocumentsSection", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Buscar" }));
     await waitFor(() => expect(mocks.search).toHaveBeenCalledWith("dossier-1", "plazo oficial"));
+  });
+
+  it("distingue documentos oficiales aceptados sin antivirus de documentos limpios", async () => {
+    mocks.list.mockResolvedValue({
+      items: [{
+        ...document,
+        scan_status: "not_configured",
+        scan_result: {
+          official_unscanned_acceptance: {
+            accepted: true,
+            policy: "official_source_without_clamav_v1",
+          },
+        },
+      }],
+    });
+    render(<DossierDocumentsSection dossierId="dossier-1" />);
+
+    const badges = await screen.findAllByText("Fuente oficial · sin antivirus");
+    expect(badges.length).toBeGreaterThan(0);
   });
 });

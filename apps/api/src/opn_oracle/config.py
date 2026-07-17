@@ -194,6 +194,7 @@ class Settings:
     document_max_bytes: int
     document_tenant_quota_bytes: int
     document_scanner_mode: str
+    document_allow_official_unscanned: bool
     document_clamav_host: str
     document_clamav_port: int
     document_clamav_timeout_seconds: float
@@ -446,6 +447,9 @@ class Settings:
                 minimum=1024,
             ),
             document_scanner_mode=str(values.get("DOCUMENT_SCANNER_MODE", "noop")).lower(),
+            document_allow_official_unscanned=_as_bool(
+                values.get("DOCUMENT_ALLOW_OFFICIAL_UNSCANNED", False)
+            ),
             document_clamav_host=str(values.get("DOCUMENT_CLAMAV_HOST", "")),
             document_clamav_port=_as_int(
                 values.get("DOCUMENT_CLAMAV_PORT", 3310),
@@ -628,7 +632,11 @@ class Settings:
             missing.append("CELERY_TASK_ALWAYS_EAGER=false")
         if self.documents_enabled and self.document_storage_backend != "s3":
             missing.append("DOCUMENT_STORAGE_BACKEND=s3")
-        if self.documents_enabled and self.document_scanner_mode == "noop":
+        if (
+            self.documents_enabled
+            and self.document_scanner_mode == "noop"
+            and not self.document_allow_official_unscanned
+        ):
             missing.append("DOCUMENT_SCANNER_MODE=clamav")
         if missing:
             raise ConfigError("Configuración de producción incompleta: " + ", ".join(missing))

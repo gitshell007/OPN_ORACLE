@@ -12,6 +12,12 @@ import httpx
 from sqlalchemy import select
 
 from opn_oracle.documents.models import Document, DocumentChunk
+from opn_oracle.documents.security import (
+    document_available_for_citation,
+    document_unavailable_reason,
+    mark_official_unscanned_acceptance,
+    official_unscanned_document_allowed,
+)
 from opn_oracle.documents.service import (
     DocumentError,
     create_evidence,
@@ -20,6 +26,7 @@ from opn_oracle.documents.service import (
 )
 from opn_oracle.extensions import db
 from opn_oracle.oracle.models import Evidence, Report
+from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.reporting.service import (
     process_report,
     refresh_report_snapshot,
@@ -128,7 +135,6 @@ def _existing_document(dossier_id: uuid.UUID, checksum: bytes) -> Document | Non
             Document.dossier_id == dossier_id,
             Document.checksum == checksum,
             Document.status == "ready",
-            Document.scan_status == "clean",
         )
     )
 
@@ -198,8 +204,38 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
             db.session.commit()
             process_document(document.id, version.id, job)
             document = db.session.get(Document, document.id)
-            if document is None or document.status != "ready" or document.scan_status != "clean":
-                raise DocumentError("El documento oficial no quedó disponible.")
+        if document is None:
+            raise DocumentError(document_unavailable_reason(None))
+        if not (
+            document_available_for_citation(document)
+            or official_unscanned_document_allowed(document)
+        ):
+            raise DocumentError(document_unavailable_reason(document))
+        accepted_by_exception = mark_official_unscanned_acceptance(
+            document,
+            report_id=report.id,
+            job_id=getattr(job, "id", None),
+        )
+        if accepted_by_exception:
+            acceptance = document.scan_result.get("official_unscanned_acceptance", {})
+            append_audit_event(
+                db.session,
+                action="document.official_unscanned_accepted",
+                resource_type="document",
+                resource_id=document.id,
+                dossier_id=document.dossier_id,
+                result="success",
+                correlation_id=getattr(job, "correlation_id", None),
+                metadata={
+                    "report_id": str(report.id),
+                    "scan_status": document.scan_status,
+                    "source_host": acceptance.get("source_host"),
+                    "policy": acceptance.get("policy"),
+                },
+            )
+            db.session.commit()
+        if not document_available_for_citation(document):
+            raise DocumentError(document_unavailable_reason(document))
         processed += 1
         evidence += _ensure_chunk_evidence(document)
     return {
