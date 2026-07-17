@@ -117,6 +117,83 @@ current_release() {
   basename "$(readlink -f "$CURRENT_LINK")"
 }
 
+release_marker_value() {
+  local marker="$APP_ROOT/CURRENT_RELEASE"
+  [[ -r "$marker" && ! -L "$marker" ]] || return 0
+  sed -n '1p' "$marker"
+}
+
+env_release_value() {
+  sed -n 's/^ORACLE_RELEASE=//p' "$ENV_FILE" | tail -n 1
+}
+
+expected_app_image() {
+  local service="$1" release="$2"
+  case "$service" in
+    web) printf 'opn-oracle-web:%s\n' "$release" ;;
+    api|worker-core|beat) printf 'opn-oracle-api:%s\n' "$release" ;;
+    *) return 1 ;;
+  esac
+}
+
+running_service_image() {
+  local service="$1" container_id
+  container_id="$(compose ps -q "$service" 2>/dev/null | head -n 1 || true)"
+  [[ -n "$container_id" ]] || return 1
+  docker inspect --format '{{.Config.Image}}' "$container_id" 2>/dev/null
+}
+
+check_release_coherence() {
+  local release marker env_release service expected image failed=0
+  release="$(current_release)"
+  marker="$(release_marker_value || true)"
+  env_release="$(env_release_value || true)"
+
+  if [[ "$marker" == "$release" ]]; then
+    success "CURRENT_RELEASE coincide con current: $release."
+  else
+    error "CURRENT_RELEASE='$marker' no coincide con current='$release'."
+    failed=1
+  fi
+
+  if [[ "$env_release" == "$release" ]]; then
+    success "oracle.env ORACLE_RELEASE coincide con current: $release."
+  else
+    error "oracle.env ORACLE_RELEASE='$env_release' no coincide con current='$release'."
+    failed=1
+  fi
+
+  for service in "${APP_SERVICES[@]}"; do
+    expected="$(expected_app_image "$service" "$release")"
+    image="$(running_service_image "$service" || true)"
+    if [[ -z "$image" ]]; then
+      error "Servicio $service sin contenedor en ejecución; esperado $expected."
+      failed=1
+      continue
+    fi
+    if [[ "$image" == "$expected" ]]; then
+      success "$service ejecuta $image."
+    else
+      error "$service ejecuta '$image'; esperado '$expected'."
+      failed=1
+    fi
+  done
+
+  [[ "$failed" == "0" ]]
+}
+
+deploy_stage_requires_forward_fix() {
+  local stage="$1"
+  case "$stage" in
+    mutation_started|migration_started|app_swap_started|app_swap_completed|smoke_started|completed)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 update_release_marker() {
   local release="$1" marker="$APP_ROOT/CURRENT_RELEASE" tmp owner=0 group=0 mode=640
   tmp="$(mktemp "$APP_ROOT/.CURRENT_RELEASE.XXXXXX")"
@@ -248,6 +325,8 @@ probe_url() {
 show_health() {
   ensure_layout
   local failed=0 beat_count
+  heading "Coherencia de release"
+  check_release_coherence || failed=1
   heading "Health interno"
   probe_url "API liveness"  "http://127.0.0.1:8000/health/live" 200 || failed=1
   probe_url "API readiness" "http://127.0.0.1:8000/health/ready" 200 || failed=1
@@ -607,16 +686,25 @@ update_env_release() {
   mv -f "$tmp" "$ENV_FILE"
 }
 
+set_release_pointers() {
+  local release="$1" suffix="${2:-next}" target="$RELEASES_DIR/$release"
+  rm -f "$APP_ROOT/current.$suffix"
+  ln -s "$target" "$APP_ROOT/current.$suffix"
+  mv -Tf "$APP_ROOT/current.$suffix" "$CURRENT_LINK"
+  update_env_release "$release"
+  update_release_marker "$release"
+  ensure_layout
+}
+
 activate_release() {
   acquire_lock
   ensure_layout
-  local release="${1:-}" old_release target manifest evidence receipt started
+  local release="${1:-}" old_release manifest evidence receipt started deploy_stage_file deploy_stage
   local -a deploy_env
   started=$(date +%s); old_release="$(current_release)"
   [[ -n "$release" ]] || release="$(choose_release)" || return 0
   [[ "$release" != "$old_release" ]] || die "Ese release ya está activo."
   validate_release_dir "$release"
-  target="$RELEASES_DIR/$release"
   warn "Se activará un release preparado; no se modificará el release activo in-place."
   heading "Gates obligatorios de upgrade"
   printf 'Manifest de backup: '; IFS= read -r manifest
@@ -634,33 +722,40 @@ activate_release() {
   fi
   "$CURRENT_DIR/scripts/restore-test-production.sh" --check-evidence "$manifest" "$evidence"
   confirm_phrase "Se migrará una sola vez y se activará $release." "ACTIVAR $release" || { warn "Cancelado."; return 0; }
+  deploy_stage_file="$(mktemp "$APP_ROOT/.deploy-stage.XXXXXX")"
   printf '%s\n' "$old_release" >"$APP_ROOT/PREVIOUS_RELEASE"
-  rm -f "$APP_ROOT/current.next"
-  ln -s "$target" "$APP_ROOT/current.next"
-  mv -Tf "$APP_ROOT/current.next" "$CURRENT_LINK"
-  update_env_release "$release"
-  update_release_marker "$release"
-  ensure_layout
+  set_release_pointers "$release" next
   deploy_env=(
     "ORACLE_BACKUP_MANIFEST=$manifest"
     "ORACLE_BACKUP_RESTORE_EVIDENCE=$evidence"
     "ORACLE_REQUIRE_OFFSITE_RECEIPT=$REQUIRE_OFFSITE_RECEIPT"
+    "ORACLE_DEPLOY_STAGE_FILE=$deploy_stage_file"
   )
   [[ -z "$receipt" ]] || deploy_env+=("ORACLE_BACKUP_OFFSITE_RECEIPT=$receipt")
   if env "${deploy_env[@]}" "$CURRENT_DIR/scripts/deploy-production.sh" --apply-authorized-stage-b; then
+    rm -f "$deploy_stage_file"
+    if ! check_release_coherence; then
+      audit_event activate-release failed "$started"
+      die "Release $release desplegado, pero la coherencia de punteros/containers no es verificable."
+    fi
     audit_event activate-release success "$started"
     success "Release $release activado."
     prune_old_release_images
     show_health || warn "Revisa health antes de dar el cambio por cerrado."
   else
-    warn "Deploy fallido. Se restauran pointers, pero NO se revierte el esquema."
-    rm -f "$APP_ROOT/current.previous"
-    ln -s "$RELEASES_DIR/$old_release" "$APP_ROOT/current.previous"
-    mv -Tf "$APP_ROOT/current.previous" "$CURRENT_LINK"
-    update_env_release "$old_release"
-    update_release_marker "$old_release"
+    deploy_stage="$(sed -n '1p' "$deploy_stage_file" 2>/dev/null || true)"
+    rm -f "$deploy_stage_file"
+    if deploy_stage_requires_forward_fix "$deploy_stage"; then
+      warn "Deploy fallido tras iniciar mutaciones ($deploy_stage). No se restauran punteros ni esquema."
+      warn "El release $release queda seleccionado para diagnóstico/forward-fix explícito."
+      check_release_coherence || warn "Coherencia NO garantizada; revisa punteros, env e imágenes antes de operar."
+    else
+      warn "Deploy fallido antes de migración/arranque de aplicación ($deploy_stage). Se restauran punteros."
+      set_release_pointers "$old_release" previous
+      check_release_coherence || warn "Coherencia NO garantizada tras restaurar punteros; requiere revisión manual."
+    fi
     audit_event activate-release failed "$started"
-    die "Pointers restaurados a $old_release; requiere diagnóstico/forward-fix."
+    die "Deploy de $release fallido; no se ha ejecutado despliegue público."
   fi
 }
 

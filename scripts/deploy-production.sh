@@ -18,6 +18,13 @@ backup_manifest="${ORACLE_BACKUP_MANIFEST:-}"
 backup_evidence="${ORACLE_BACKUP_RESTORE_EVIDENCE:-}"
 offsite_receipt="${ORACLE_BACKUP_OFFSITE_RECEIPT:-}"
 require_offsite_receipt="${ORACLE_REQUIRE_OFFSITE_RECEIPT:-0}"
+deploy_stage_file="${ORACLE_DEPLOY_STAGE_FILE:-}"
+
+mark_stage() {
+  [[ -z "$deploy_stage_file" ]] || printf '%s\n' "$1" >"$deploy_stage_file"
+}
+
+mark_stage preflight
 
 if [[ "$require_offsite_receipt" != "0" && "$require_offsite_receipt" != "1" ]]; then
   echo "ORACLE_REQUIRE_OFFSITE_RECEIPT solo admite 0 o 1." >&2
@@ -129,8 +136,10 @@ else
     --check-evidence "$backup_manifest" "$backup_evidence"
 fi
 
+mark_stage build_started
 "${compose[@]}" build --pull
 "${compose[@]}" pull postgres redis
+mark_stage build_finished
 
 postgres_uid="$(docker run --rm --entrypoint id postgres:17-bookworm -u postgres)"
 postgres_gid="$(docker run --rm --entrypoint id postgres:17-bookworm -g postgres)"
@@ -160,10 +169,14 @@ for secret_name in oracle_secret_key oracle_database_url oracle_database_migrati
 done
 check_secret_metadata oracle_signal_ai_api_key 10001 10001
 
+mark_stage mutation_started
 "${compose[@]}" up -d --wait --wait-timeout 120 postgres redis
+mark_stage migration_started
 "${compose[@]}" --profile release run --rm migrate
+mark_stage app_swap_started
 "${compose[@]}" up -d beat
 "${compose[@]}" up -d --wait --wait-timeout 180 api worker-core web
+mark_stage app_swap_completed
 beat_count="$("${compose[@]}" ps --status running --services | grep -xc beat || true)"
 if [[ "$beat_count" != "1" ]]; then
   echo "Se esperaba un único servicio beat activo; encontrados: $beat_count" >&2
@@ -176,8 +189,10 @@ if ! "${compose[@]}" exec -T worker-core \
 fi
 "${compose[@]}" ps
 
+mark_stage smoke_started
 ALLOW_HTTP_SMOKE=1 ORACLE_API_BASE_URL=http://127.0.0.1:8000 \
   "$repo_root/scripts/smoke-production.sh" http://127.0.0.1:3000
+mark_stage completed
 
 refresh_oracle_control
 

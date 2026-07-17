@@ -17,5 +17,8 @@ si el operador activa `ORACLE_REQUIRE_OFFSITE_RECEIPT=1`.
 
 ## Fallo, rollback y escalado
 
-El activador restaura punteros si falla. No ejecutar downgrade automático de base de datos:
-preservar logs y aplicar [ROLLBACK.md](./ROLLBACK.md) o forward-fix según la migración.
+El activador solo restaura punteros si el fallo ocurre antes de iniciar migración o arranque de la
+aplicación. Desde `mutation_started` en adelante conserva el release seleccionado, no revierte
+esquema y exige diagnóstico/forward-fix explícito. No ejecutar downgrade automático de base de
+datos: preservar logs, ejecutar `oracle-control health` para revisar coherencia y aplicar
+[ROLLBACK.md](./ROLLBACK.md) solo si el esquema actual es compatible.

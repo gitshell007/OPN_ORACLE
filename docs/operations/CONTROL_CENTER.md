@@ -22,7 +22,7 @@ por defecto documentados.
 | Comando | Efecto |
 |---|---|
 | `status` | Release activo, systemd, Compose, UFW y listeners relevantes. |
-| `health` | Liveness/readiness, web, HTTPS, ping Celery y unicidad de beat. |
+| `health` | Coherencia de release, liveness/readiness, web, HTTPS, ping Celery y unicidad de beat. |
 | `validate` | Checksums del release, Compose, Nginx, metadata de secrets, red, SSH y UFW. |
 | `resources` | Carga, RAM/zram, discos y consumo/espacio Docker. |
 | `logs SERVICIO` | Logs acotados por líneas/tiempo; solo servicios permitidos. |
@@ -53,10 +53,12 @@ sudo oracle-control update <release-id>
 
 La operación solicita manifiesto de backup local y evidencia del restore aislado. El receipt
 off-host es opcional por defecto. Verifica la correspondencia backup/restore, pide la frase
-`ACTIVAR <release-id>`, cambia `current` y `ORACLE_RELEASE` de forma atómica y delega la migración y
-el despliegue al script productivo. Si el despliegue falla, restaura los punteros de aplicación,
-pero nunca intenta revertir automáticamente una migración; se debe diagnosticar y aplicar un
-forward-fix compatible.
+`ACTIVAR <release-id>`, cambia `current`, `CURRENT_RELEASE` y `ORACLE_RELEASE` de forma atómica y
+delega la migración y el despliegue al script productivo. Si el despliegue falla antes de iniciar
+migración o arranque de aplicación, restaura punteros. Si falla desde `mutation_started` en
+adelante, conserva el release seleccionado, no revierte esquema y exige diagnóstico/forward-fix
+explícito. `oracle-control health` comprueba que `current`, `CURRENT_RELEASE`, `ORACLE_RELEASE` y
+las imágenes en ejecución de `api`, `web`, `worker-core` y `beat` coinciden.
 
 Para volver al gate estricto:
 

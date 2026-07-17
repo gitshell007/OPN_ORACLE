@@ -94,10 +94,13 @@ sudo oracle-control health
 
 ### Poda de imágenes por release
 
-La poda de imágenes Docker se ejecuta en la rama de éxito de `oracle-control update`, no dentro de
-`deploy-production.sh`. La razón operativa es que `oracle-control` es quien conoce con certeza el
-estado de activación (`current`, `CURRENT_RELEASE` y `PREVIOUS_RELEASE`); si el smoke o el deploy
-fallan, los punteros se restauran y no se borra ninguna imagen.
+La poda de imágenes Docker se ejecuta solo en la rama de éxito de `oracle-control update`, después
+de comprobar la coherencia entre `current`, `CURRENT_RELEASE`, `ORACLE_RELEASE` y las imágenes en
+ejecución de `api`, `web`, `worker-core` y `beat`. Si el deploy falla antes de iniciar mutaciones,
+los punteros vuelven al release anterior y no se poda ninguna imagen. Si falla después de iniciar
+migración o arranque de aplicación, los punteros se conservan en el release nuevo para no ocultar
+el estado real; tampoco se poda ninguna imagen y el operador debe diagnosticar/forward-fix o hacer
+rollback explícito solo si el esquema es compatible.
 
 Tras una activación correcta, `oracle-control` elimina solo imágenes locales
 `opn-oracle-api:<release>` y `opn-oracle-web:<release>` de releases antiguos. Conserva siempre el

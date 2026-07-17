@@ -11,6 +11,10 @@ suficiente. La copia cifrada off-host vuelve a ser obligatoria únicamente con
 
 ## Aplicación
 
+Después de un `oracle-control update` fallido desde `mutation_started`, no asumas que los punteros
+han vuelto al release anterior: ejecuta `oracle-control health` y revisa coherencia antes de decidir
+rollback o forward-fix.
+
 1. Detener nuevas mutaciones si el fallo puede corromper estado; no borres volúmenes.
 2. Recoger estado, health y logs redactados del release fallido.
 3. Apuntar `/opt/opn-oracle/current` al release anterior mediante sustitución atómica del symlink.

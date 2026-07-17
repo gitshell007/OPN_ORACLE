@@ -353,3 +353,37 @@
   `procurement_kind`, `folder_id` y `snapshot_sha256`; no entra en la cuarentena
   `legacy_unresolved`. El go/no-go de `tender.v1` continúa siendo recomendación revisable/humana, no
   una decisión automática.
+
+## D-029 — Snapshot agregado para adjudicaciones PLACSP multilote
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** la búsqueda de adjudicaciones puede devolver filas por lote con fecha e importe,
+  mientras el pin por `folder_id` se guarda como un único snapshot agregado. La tarjeta fijada debe
+  seguir mostrando los datos materiales que el proveedor entregó.
+- **Decisión:** en adjudicaciones, Oracle conserva cada lote en `snapshot.entries` y eleva al nivel
+  agregado `award_amount` como suma de importes publicados. Si todos los lotes comparten fecha,
+  `award_date` guarda esa fecha; si hay varias fechas, guarda el rango `fecha_min/fecha_max`. Valores
+  con forma de CIF/NIF español no se conservan como `lot_id`.
+- **Consecuencias:** la UI puede mostrar importe y fecha sin perder el desglose de lotes, y evita
+  presentar identificadores de adjudicatario como número de lote. Signal sigue siendo el productor
+  autoritativo del XML/serialización PLACSP.
+
+## D-030 — Activación de release sin restauración ciega tras mutaciones
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-17
+- **Contexto:** `oracle-control update` restauraba `current`, `CURRENT_RELEASE` y `ORACLE_RELEASE`
+  al release anterior si `deploy-production.sh` fallaba. Cuando el fallo ocurría después de iniciar
+  migraciones, arranque de contenedores o smoke loopback, esa restauración podía dejar punteros
+  apuntando al release antiguo mientras los contenedores o el esquema ya reflejaban el release nuevo.
+- **Decisión:** `deploy-production.sh` escribe una etapa de despliegue y `oracle-control update`
+  solo restaura punteros si el fallo ocurre antes de `mutation_started`. Desde
+  `mutation_started` en adelante conserva el release seleccionado, no revierte esquema y exige
+  diagnóstico/forward-fix o rollback explícito si el esquema es compatible. `oracle-control health`
+  incorpora una comprobación reusable de coherencia entre `current`, `CURRENT_RELEASE`,
+  `ORACLE_RELEASE` y las imágenes en ejecución de `api`, `web`, `worker-core` y `beat`.
+- **Consecuencias:** el operador ya no recibe una falsa sensación de rollback de aplicación tras
+  un smoke fallido o una mutación parcial. La poda de imágenes solo sucede tras activación correcta
+  y coherencia verificada; si la coherencia no puede garantizarse, el script lo declara
+  explícitamente y no despliega/poda en silencio.
