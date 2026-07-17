@@ -8,31 +8,47 @@ import {
 } from "@oracle/api-client";
 import {
   AlertTriangle,
-  Bell,
   ArrowUpRight,
+  Bell,
+  BriefcaseBusiness,
+  CalendarDays,
   FileChartColumn,
+  FileSearch,
+  ListTodo,
   Plus,
-  RefreshCw,
+  RadioTower,
+  ShieldAlert,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CreateProductDossierDialog } from "./create-product-dossier-dialog";
 import {
-  productJobTypeLabel,
   productLinkedResourceLabel,
   productStatusLabel,
 } from "@/lib/product-copy";
 
-type Job = components["schemas"]["JobResponse"];
 type Home = components["schemas"]["HomeResponse"];
+
+const ATTENTION_ICONS: Record<string, typeof BriefcaseBusiness> = {
+  opportunity: Sparkles,
+  opportunities: Sparkles,
+  risk: ShieldAlert,
+  risks: ShieldAlert,
+  signal: RadioTower,
+  signals: RadioTower,
+  meeting: CalendarDays,
+  meetings: CalendarDays,
+  decision: ListTodo,
+  document: FileSearch,
+};
 
 export function ProductHome() {
   const auth = useAuth();
   const [home, setHome] = useState<Home | null>(null);
   const [reports, setReports] = useState<OracleReport[]>([]);
   const [notificationUnread, setNotificationUnread] = useState(0);
-  const [jobs, setJobs] = useState<Job[]>([]);
   const [degraded, setDegraded] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,10 +61,9 @@ export function ProductHome() {
     try {
       const homeResult = await api.home.get();
       setHome(homeResult);
-      const [reportResult, notificationResult, jobResult] = await Promise.allSettled([
+      const [reportResult, notificationResult] = await Promise.allSettled([
         auth.can("report.read") ? api.reports.list(1, 5) : Promise.resolve(null),
         auth.can("notifications.read") ? api.notifications.list(1, 5) : Promise.resolve(null),
-        api.jobs.list(1, 5),
       ]);
       const unavailable: string[] = [];
       if (reportResult.status === "fulfilled") setReports(reportResult.value?.data ?? []);
@@ -56,8 +71,6 @@ export function ProductHome() {
       if (notificationResult.status === "fulfilled")
         setNotificationUnread(notificationResult.value?.meta.unread_count ?? 0);
       else unavailable.push("notificaciones");
-      if (jobResult.status === "fulfilled") setJobs(jobResult.value.data);
-      else unavailable.push("procesos");
       setDegraded(unavailable);
     } catch (reason) {
       setError(
@@ -75,7 +88,6 @@ export function ProductHome() {
     return () => window.clearTimeout(kickoff);
   }, [load]);
 
-  const failedJobs = jobs.filter((item) => item.status === "failed").length;
   const isFirstRun = home?.dossier_total === 0;
 
   if (loading) {
@@ -85,7 +97,7 @@ export function ProductHome() {
     return (
       <div className="inline-error" role="alert">
         {error}
-        <button onClick={() => void load()}><RefreshCw size={15} /> Reintentar</button>
+        <button onClick={() => void load()}>Reintentar</button>
       </div>
     );
   }
@@ -144,7 +156,11 @@ export function ProductHome() {
             <div className="home-dossier-list">
               {home.attention.map((item) => (
                 <Link href={item.href} key={`${item.kind}:${item.id}`}>
-                  <span><strong>{item.title}</strong><small>{productLinkedResourceLabel(item.kind)} · {item.dossier_title} · {productStatusLabel(item.status)}</small></span>
+                  {(() => {
+                    const Icon = ATTENTION_ICONS[item.kind ?? ""] ?? BriefcaseBusiness;
+                    return <Icon size={16} aria-hidden="true" />;
+                  })()}
+                  <span><strong>{item.title}</strong><small><b>{productLinkedResourceLabel(item.kind)}</b> · {item.dossier_title} · {productStatusLabel(item.status)}</small></span>
                   <span>{item.score === null ? "Siguiente hito" : `Puntuación ${item.score}`} · {item.due_at ? new Date(item.due_at).toLocaleDateString("es-ES") : "Sin fecha"}</span>
                 </Link>
               ))}
@@ -168,12 +184,14 @@ export function ProductHome() {
             )) : <p className="reporting-hint">No hay informes accesibles todavía.</p>}
           </section>
           <section className="vector-panel home-jobs-panel">
-            <header><div><span className="section-kicker">Procesos</span><h2>Trabajos recientes</h2></div>{failedJobs > 0 && <span className="status critical">{failedJobs} fallidos</span>}</header>
-            {jobs.length ? <div className="home-jobs-list">{jobs.map((job) => (
-              <div className="home-compact-row" key={job.id}>
-                <RefreshCw size={16} /><span><strong>{productJobTypeLabel(job.job_type)}</strong><small>{productStatusLabel(job.status)} · {job.progress}%</small></span>
-              </div>
-            ))}</div> : <p className="reporting-hint">No hay trabajos recientes.</p>}
+            <header><div><span className="section-kicker">Auditoría</span><h2>Procesos y actividad</h2></div></header>
+            <p className="reporting-hint">
+              Los trabajos en segundo plano viven ahora junto al registro de auditoría para revisar
+              cuándo se ejecutaron, su estado y los fallos con contexto.
+            </p>
+            <Link className="vector-secondary" href="/app/admin/audit?view=processes">
+              Ver procesos
+            </Link>
           </section>
         </aside>
       </div>

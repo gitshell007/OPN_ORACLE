@@ -848,6 +848,11 @@ const hypotheses = {
       body: input,
       ifMatch: version,
     }),
+  remove: (id: string, version: number) =>
+    request<void>(`/api/v1/hypotheses/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      ifMatch: version,
+    }),
   evidence: (id: string) =>
     request<DossierResourcePage<OracleEvidence>>(
       `/api/v1/hypotheses/${encodeURIComponent(id)}/evidence?page%5Bnumber%5D=1&page%5Bsize%5D=100`,

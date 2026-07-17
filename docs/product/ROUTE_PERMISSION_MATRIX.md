@@ -144,8 +144,7 @@ La entrada “Administración” se muestra si el usuario tiene al menos uno de 
 | `/app/admin/workspaces` | Inventario y miembros de workspaces | `tenant.settings.manage` | O, A | F1/F2 | No hay endpoints de workspaces | Pendiente |
 | `/app/admin/integrations` | Catálogo y salud de conexiones | `tenant.integrations.manage` | O, A | F1/F2 | Solo endpoints de Signal Avanza | Parcial: catálogo multi-integración pendiente |
 | `/app/admin/integrations/signal-avanza` | Credencial enmascarada, test, rotación, salud y reconcile | `tenant.integrations.manage` | O, A | F1/F2/F5 para credenciales | `/integrations/signal-avanza`, test, rotate, disable y reconcile | Disponible |
-| `/app/admin/audit` | Auditoría tenant filtrable y exportable | `audit.read`; exportar exige `audit.export` | O, A, U | F1/F2 | `GET /tenant-admin/audit`; export dataset `audit` | Disponible |
-| `/app/admin/jobs` | Trabajos del tenant, progreso y errores saneados | IA objetivo: administración autorizada; backend actual: `dossier.read` y scope por solicitante/expediente | O, A en navegación objetivo | F1/F2/F3 | `GET /jobs`, detalle, cancel y retry | Disponible con deuda: falta permiso administrativo dedicado o decisión explícita de reutilizar el scope actual |
+| `/app/admin/audit` | Auditoría tenant y procesos en segundo plano con dos vistas internas | `audit.read`; exportar exige `audit.export`; procesos usan el alcance autorizado de `/jobs` | O, A, U | F1/F2/F3 | `GET /tenant-admin/audit`; `GET /jobs`; export dataset `audit` | Disponible; `/app/admin/jobs` redirige a `?view=processes` |
 
 ## Portal de plataforma
 
@@ -180,6 +179,6 @@ Estas rutas no forman parte de la IA final:
 3. API durable de perfil editable y preferencias generales de usuario.
 4. Organización actual y CRUD/memberships de workspaces.
 5. CRUD de roles custom, si se confirma que entra en el primer release.
-6. Permiso/contrato definitivo de `/app/admin/jobs`; hoy la API se rige por `dossier.read` y scope de recurso.
+6. Permiso/contrato definitivo de la vista de procesos dentro de `/app/admin/audit`; hoy la API `/jobs` se rige por `dossier.read` y scope de recurso.
 7. Endpoints globales de jobs, integraciones y estado seguro de plataforma.
 8. Búsqueda global de entidades: `GET /search` busca documentos/chunks; no cubre todavía expedientes, señales, oportunidades, riesgos, actores, informes y reuniones como exige la command palette.

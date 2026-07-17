@@ -71,11 +71,17 @@ describe("ProductHome", () => {
     render(<ProductHome />);
 
     expect(await screen.findByRole("heading", { name: "Trabajo que requiere atención" })).toBeVisible();
-    expect(screen.getByText("señal · Expediente industrial · Nueva")).toBeVisible();
+    expect(screen.getByText("señal")).toBeVisible();
+    expect(screen.getByText(/Expediente industrial · Nueva/)).toBeVisible();
     expect(screen.getByRole("link", { name: "Ver cartera" })).toHaveAttribute("href", "/app/dossiers");
     expect(screen.getByRole("link", { name: /Nueva inversión confirmada/ })).toHaveAttribute(
       "href",
       "/app/dossiers/dossier-1/signals",
     );
+    expect(screen.getByRole("link", { name: "Ver procesos" })).toHaveAttribute(
+      "href",
+      "/app/admin/audit?view=processes",
+    );
+    expect(mocks.jobs).not.toHaveBeenCalled();
   });
 });

@@ -483,6 +483,8 @@ def _response_schemas() -> dict[str, Any]:
                 "status",
                 "progress",
                 "stage",
+                "created_at",
+                "updated_at",
                 "version",
             ],
             "properties": {
@@ -501,6 +503,7 @@ def _response_schemas() -> dict[str, Any]:
                 "attempts": {"type": "integer"},
                 "max_attempts": {"type": "integer"},
                 "retryable": {"type": "boolean"},
+                "created_at": {"type": "string", "format": "date-time"},
                 "started_at": {"type": "string", "format": "date-time", "nullable": True},
                 "finished_at": {"type": "string", "format": "date-time", "nullable": True},
                 "heartbeat_at": {"type": "string", "format": "date-time", "nullable": True},

@@ -18,7 +18,7 @@ Esta matriz cruza las pantallas exigidas por la arquitectura de información con
 | `InspectionDrawer` | Inspección sin perder tabla para señal, oportunidad, riesgo, actor, job y evidencia; restaura foco al cerrar. |
 | `EntityCreateDialog` | Modal breve para expediente, tarea, reunión, promoción e invitación; validación accesible y bloqueo durante submit. |
 | `DestructiveActionDialog` | Confirmación explícita; nombre escrito para archivo/eliminación de impacto alto; nunca `window.confirm`. |
-| `JobProgress` | Estado durable, progreso, error saneado, correlation ID, cancel/retry condicionado y enlace a `/app/admin/jobs` o al recurso. |
+| `JobProgress` | Estado durable, progreso, error saneado, correlation ID, cancel/retry condicionado y enlace a `/app/admin/audit?view=processes` o al recurso. |
 | `EvidenceDrawer` | Extracto, clasificación, provenance, locator y apertura/descarga autorizada de fuente. |
 | `ScoreBreakdown` | Score, componentes, pesos, explicación, fecha, evidencia, confianza y override humano; nunca solo color. |
 | `PermissionGate` | Oculta/deshabilita acciones para UX. La API sigue siendo autoridad y los errores 403/404 se representan. |
@@ -110,8 +110,7 @@ Todas usan `DossierShell`, conservan `dossierId` al cambiar de pestaña y muestr
 | `/app/admin/workspaces` | Workspaces y membresía. API **pendiente**. | `WorkspaceTable`; nombre, estado, miembros, dossiers, actualización. | Crear/archivar/asignar no se habilitan. | Estado de función pendiente. | `ADM-04` pendiente: CRUD, último admin y aislamiento tenant. |
 | `/app/admin/integrations` | Catálogo. API **parcial**: solo Signal. | `IntegrationCatalog`; proveedor, estado, última comprobación/sync, incidencias. | Abrir Signal; no mostrar conectores no implementados como disponibles. | S0–S5/S12. | `ADM-05`: estado Signal real; catálogo no inventa salud. |
 | `/app/admin/integrations/signal-avanza` | Gestión Signal. API **disponible**. | `SignalAdmin`; conexión, credencial siempre enmascarada, health, sync/error, monitores activos. | Crear/test/rotate/disable (F5), reconcile; no secret en DOM/respuestas. | S0–S9/S10/S12; fail-closed HTTP real. | `ADM-06`: test/rotate/disable/reconcile; secret nunca aparece; analyst 403. |
-| `/app/admin/audit` | Auditoría tenant. API **disponible**. | `AuditTable`; usuario/actor, acción, resource, fecha, resultado, request/correlation ID; filtros backend disponibles. | Abrir contexto; export audit solo `audit.export` y watermark. | S0–S6/S9/S10. | `ADM-07`: auditor lee/exporta; editor no entra; export lleva watermark. |
-| `/app/admin/jobs` | Jobs tenant. API disponible con **deuda de permiso**. | `JobTable`; tipo, cola, estado, progreso, intentos, creado/actualizado, error resumido, correlation ID. Filtros backend status/page. | `JobDrawer`; cancel/retry con ETag y control según job/resource. La navegación queda owner/admin hasta resolver permiso. | S0–S10; stale/retry/cancel. | `ADM-08`: scope por solicitante/dossier, error saneado, cancel/retry; prueba de la decisión RBAC pendiente. |
+| `/app/admin/audit` | Auditoría tenant y procesos. API **disponible**. | `AuditTable` y vista `Procesos`; usuario/actor, acción, resource, fechas, resultado, tipo de job, progreso, creado/actualizado y fallos destacados. | Abrir contexto; export audit solo `audit.export` y watermark; `/app/admin/jobs` redirige a `?view=processes`. | S0–S10; stale/retry/cancel. | `ADM-07/08`: auditor lee/exporta; procesos visibles con fecha; scope de `/jobs` sigue por solicitante/dossier hasta decisión RBAC. |
 
 ## Plataforma
 

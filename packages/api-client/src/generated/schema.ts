@@ -25102,6 +25102,8 @@ export interface components {
         JobResponse: {
             attempts?: number;
             cancel_requested?: boolean;
+            /** Format: date-time */
+            created_at: string;
             error_code?: string | null;
             error_message?: string | null;
             /** Format: date-time */
@@ -25129,7 +25131,7 @@ export interface components {
             /** Format: uuid */
             tenant_id: string;
             /** Format: date-time */
-            updated_at?: string;
+            updated_at: string;
             version: number;
         };
         JsonArray: components["schemas"]["JsonValue"][];

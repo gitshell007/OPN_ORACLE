@@ -155,8 +155,7 @@ La configuración del expediente referencia una conexión Signal gestionada por 
 | `/app/admin/workspaces` | `tenant.settings.manage` | Sin endpoints de workspaces en OpenAPI |
 | `/app/admin/integrations` | `tenant.integrations.manage` | Listado/configuración Signal Avanza disponible |
 | `/app/admin/integrations/signal-avanza` | `tenant.integrations.manage` | `/api/v1/integrations/signal-avanza*` |
-| `/app/admin/audit` | `audit.read` | `GET /api/v1/tenant-admin/audit` |
-| `/app/admin/jobs` | administración + acceso autorizado a jobs | `/api/v1/jobs*`; el backend aplica alcance por usuario/expediente y no define permiso admin global dedicado |
+| `/app/admin/audit` | `audit.read` | `GET /api/v1/tenant-admin/audit` y vista interna de procesos con `/api/v1/jobs*`; `/app/admin/jobs` redirige a `?view=processes` |
 
 `/app/admin` abre una landing que solo incluye áreas autorizadas. Cada pantalla repite nombre del tenant activo y etiqueta `Administración de la organización`. Las capacidades sin contrato usan estado no disponible, nunca formularios falsamente editables.
 

@@ -1381,3 +1381,29 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - El informe de entidad queda bloqueado además mientras carga la ficha padre, evitando que se
   encole con el término de búsqueda antes de recibir la denominación canónica de Signal. El
   `setTimeout(0)` previo de carga de informes se sustituyó por una microtarea cancelable.
+
+## 2026-07-17 · Prompts 47 y 48 · Dashboard, auditoría e hipótesis
+
+- Inicio deja de cargar y duplicar la tabla de trabajos recientes. Conserva un acceso compacto a
+  Administración → Auditoría → Procesos, que pasa a ser el lugar autoritativo para revisar jobs.
+- Administración → Auditoría incorpora dos vistas: registro de auditoría y procesos. La vista de
+  procesos muestra fecha de creación, última actualización, tipo, cola, estado, progreso y destaca
+  fallos. `/app/admin/jobs` queda como redirección a `?view=processes`.
+- `JobResponse` expone ahora `created_at`; se actualizó el serializador Flask, el esquema OpenAPI y
+  el cliente TypeScript generado.
+- La lista «Trabajo que requiere atención» añade icono por tipo y resalta el tipo textual, cubriendo
+  señal, oportunidad, riesgo, reunión, decisión, documento y fallback de elemento de expediente.
+- El diálogo de nuevo expediente mantiene el `select` rápido, pero añade ayuda accesible para
+  comparar tipos y cuándo usar cada uno. La «base de trabajo» tiene estilos `.checkbox-row` para
+  alinear casilla, etiqueta y ayuda sin ambigüedad.
+- El panel «Marco de trabajo» del resumen eleva hipótesis a una tabla TanStack filtrable y ordenable,
+  con explicación de propósito, modal de ver/editar, vinculación de evidencia y borrado con
+  confirmación. El CRUD usa los endpoints existentes de hipótesis; las evidencias originales no se
+  eliminan al borrar una hipótesis.
+- Pendiente de verificación real con sesión: crear un expediente, gestionar una hipótesis y revisar
+  Inicio/Auditoría en navegador autenticado. La implementación local queda cubierta por tests y
+  build, pero no se declara validada en producción.
+- Checks locales ejecutados: `scripts/api-test.sh --unit` correcto (**303 passed, 0 skipped; 107
+  integración excluidos**), `npm run lint` correcto con warning no bloqueante conocido de TanStack
+  Table/React Compiler, `npm run typecheck`, `npx vitest run` (**35 ficheros, 138 tests**),
+  `npm run build` y `npm run api:client:check` correctos.

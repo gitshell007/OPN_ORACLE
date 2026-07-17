@@ -2652,6 +2652,10 @@
           "cancel_requested": {
             "type": "boolean"
           },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
           "error_code": {
             "nullable": true,
             "type": "string"
@@ -2746,6 +2750,8 @@
           "status",
           "progress",
           "stage",
+          "created_at",
+          "updated_at",
           "version"
         ],
         "type": "object"

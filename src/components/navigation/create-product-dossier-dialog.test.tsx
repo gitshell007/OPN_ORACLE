@@ -24,7 +24,7 @@ describe("CreateProductDossierDialog", () => {
     render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
 
     fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "tender_or_grant" } });
-    expect(screen.getByText(/Preparar una licitación/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Preparar una licitación/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/plazos, requisitos, publicaciones/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Ayuda regional" } });

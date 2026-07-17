@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AuthBoundary } from "@/components/auth/auth-boundary";
-import { TenantJobs, TenantOrganization, TenantRoles, TenantWorkspaces } from "@/components/admin/tenant-operations";
+import { TenantOrganization, TenantRoles, TenantWorkspaces } from "@/components/admin/tenant-operations";
 
 const sections = {
   organization: { title: "Organización", permission: "tenant.settings.manage", description: "Nombre, zona horaria, idioma y estado de la organización.", api: "GET/PATCH /api/v1/tenant" },
@@ -23,7 +23,7 @@ export default async function Page({ params }: { params: Promise<{ section: stri
     return <AuthBoundary permission="tenant.settings.manage"><TenantWorkspaces /></AuthBoundary>;
   }
   if (section === "jobs") {
-    return <AuthBoundary permission="tenant.settings.manage"><TenantJobs /></AuthBoundary>;
+    redirect("/app/admin/audit?view=processes");
   }
   notFound();
 }

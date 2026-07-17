@@ -8,6 +8,16 @@ import { FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { starterProfileFor } from "@/lib/dossier-starter-profiles";
 
+const DOSSIER_TYPES = [
+  ["project", "Proyecto"],
+  ["market", "Mercado"],
+  ["strategic_account", "Cuenta estratégica"],
+  ["tender_or_grant", "Licitación o convocatoria"],
+  ["partnership", "Alianza"],
+  ["regulatory_affair", "Asunto regulatorio"],
+  ["custom", "Otro"],
+] as const;
+
 export function CreateProductDossierDialog({
   open,
   onOpenChange,
@@ -23,6 +33,7 @@ export function CreateProductDossierDialog({
   const [createStarterProfile, setCreateStarterProfile] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectedProfile = starterProfileFor(type);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -86,19 +97,41 @@ export function CreateProductDossierDialog({
               <span id="dossier-type-label">Tipo</span>
               <select
                 aria-labelledby="dossier-type-label"
+                aria-describedby="dossier-type-help dossier-type-options"
                 value={type}
                 onChange={(event) => setType(event.target.value)}
               >
-                <option value="project">Proyecto</option>
-                <option value="market">Mercado</option>
-                <option value="strategic_account">Cuenta estratégica</option>
-                <option value="tender_or_grant">Licitación o convocatoria</option>
-                <option value="partnership">Alianza</option>
-                <option value="regulatory_affair">Asunto regulatorio</option>
-                <option value="custom">Otro</option>
+                {DOSSIER_TYPES.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
               </select>
-              <small>{starterProfileFor(type).description}</small>
+              <small id="dossier-type-help">{selectedProfile.description}</small>
             </label>
+            <section className="dossier-type-help" id="dossier-type-options" aria-label="Ayuda para elegir tipo de expediente">
+              <strong>¿Cuándo elegir este tipo?</strong>
+              <p>{selectedProfile.bestFor}</p>
+              <details>
+                <summary>Comparar todos los tipos</summary>
+                <div className="dossier-type-help-grid">
+                  {DOSSIER_TYPES.map(([value, label]) => {
+                    const profile = starterProfileFor(value);
+                    return (
+                      <button
+                        className={value === type ? "selected" : ""}
+                        key={value}
+                        type="button"
+                        aria-pressed={value === type}
+                        onClick={() => setType(value)}
+                      >
+                        <strong>{label}</strong>
+                        <span>{profile.description}</span>
+                        <small>{profile.bestFor}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            </section>
             <label className="field">
               <span id="dossier-goal-label">Objetivo estratégico</span>
               <textarea
@@ -129,11 +162,11 @@ export function CreateProductDossierDialog({
                     setCreateStarterProfile(event.target.checked)
                   }
                 />
-                Crear una base inicial editable
+                <span>Crear una base inicial editable</span>
               </span>
               <small>
                 {createStarterProfile
-                  ? `${starterProfileFor(type).focus} No activará fuentes ni monitores externos.`
+                  ? `${selectedProfile.focus} No activará fuentes ni monitores externos.`
                   : "El expediente se creará vacío; podrás añadir estos elementos desde su configuración."}
               </small>
             </label>

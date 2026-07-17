@@ -293,6 +293,7 @@ def serialize_job(job: BackgroundJob) -> dict[str, Any]:
         "attempts": job.attempts,
         "max_attempts": job.max_attempts,
         "retryable": job.retryable,
+        "created_at": job.created_at.isoformat(),
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None,

@@ -1,16 +1,30 @@
 "use client";
 
 import { ApiError, api, type components } from "@oracle/api-client";
-import { Ban, MailPlus, RefreshCw, Trash2, UserCog } from "lucide-react";
+import { Activity, AlertTriangle, Ban, MailPlus, RefreshCw, Trash2, UserCog } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
-import { productAuditActionLabel, productStatusLabel } from "@/lib/product-copy";
+import {
+  productAuditActionLabel,
+  productJobTypeLabel,
+  productQueueLabel,
+  productStatusLabel,
+} from "@/lib/product-copy";
 
 type Member = components["schemas"]["MemberResponse"];
 type Role = components["schemas"]["RoleResponse"];
+type Job = components["schemas"]["JobResponse"];
+
+function formatAdminDate(value?: string | null): string {
+  if (!value) return "Sin fecha";
+  return new Intl.DateTimeFormat("es-ES", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
 
 export function AdminNav({
   active,
@@ -340,35 +354,110 @@ export function TenantAudit() {
   const [items, setItems] = useState<components["schemas"]["AuditResponse"][]>(
     [],
   );
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [activeView, setActiveView] = useState<"audit" | "processes">(() => {
+    if (typeof window === "undefined") return "audit";
+    return new URLSearchParams(window.location.search).get("view") === "processes"
+      ? "processes"
+      : "audit";
+  });
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void api.tenantAdmin
-      .audit()
-      .then((data) => setItems(data.items))
-      .catch((reason) =>
-        setError(
-          reason instanceof ApiError
-            ? reason.message
-            : "No se pudo cargar la auditoría.",
-        ),
+  const [processError, setProcessError] = useState<string | null>(null);
+  const failedJobs = jobs.filter((job) => job.status === "failed").length;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setProcessError(null);
+    try {
+      const [auditResult, jobsResult] = await Promise.allSettled([
+        api.tenantAdmin.audit(),
+        api.jobs.list(1, 50),
+      ]);
+      if (auditResult.status === "fulfilled") setItems(auditResult.value.items);
+      else throw auditResult.reason;
+      if (jobsResult.status === "fulfilled") setJobs(jobsResult.value.data);
+      else {
+        setJobs([]);
+        setProcessError(
+          jobsResult.reason instanceof ApiError
+            ? jobsResult.reason.problem.detail
+            : "No se pudieron cargar los procesos.",
+        );
+      }
+    } catch (reason) {
+      setError(
+        reason instanceof ApiError
+          ? reason.message
+          : "No se pudo cargar la auditoría.",
       );
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void load();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
+
   return (
     <div className="admin-page">
       <header className="admin-heading">
         <div>
           <p className="eyebrow">Administración de organización</p>
           <h1>Auditoría</h1>
-          <p>Eventos de seguridad y administración de la organización activa.</p>
+          <p>Registro temporal de eventos y procesos en segundo plano de la organización activa.</p>
         </div>
+        <button className="vector-secondary" type="button" onClick={() => void load()} disabled={loading}>
+          <RefreshCw size={15} />
+          Actualizar
+        </button>
       </header>
       <AdminNav active="audit" />
+      <div className="audit-view-tabs" role="tablist" aria-label="Vistas de auditoría">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeView === "audit"}
+          className={activeView === "audit" ? "active" : ""}
+          onClick={() => setActiveView("audit")}
+        >
+          Registro de auditoría
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeView === "processes"}
+          className={activeView === "processes" ? "active" : ""}
+          onClick={() => setActiveView("processes")}
+        >
+          Procesos
+          {failedJobs > 0 && <span>{failedJobs} fallidos</span>}
+        </button>
+      </div>
       {error ? (
         <div className="inline-error" role="alert">
           {error}
         </div>
-      ) : (
+      ) : loading ? (
         <section className="admin-table-card">
+          <p role="status">Cargando auditoría…</p>
+        </section>
+      ) : activeView === "audit" ? (
+        <section className="admin-table-card" aria-labelledby="tenant-audit-events-title">
+          <header className="admin-card-heading">
+            <div>
+              <h2 id="tenant-audit-events-title">Registro de auditoría</h2>
+              <p>Quién hizo qué, cuándo y con qué resultado.</p>
+            </div>
+          </header>
           <div className="table-scroll">
             <table className="admin-table">
               <thead>
@@ -381,13 +470,53 @@ export function TenantAudit() {
               <tbody>
                 {items.map((item) => (
                   <tr key={item.id}>
-                    <td>{new Date(item.created_at).toLocaleString("es-ES")}</td>
+                    <td>{formatAdminDate(item.created_at)}</td>
                     <td>
                       {productAuditActionLabel(item.action)}
                     </td>
                     <td>{productStatusLabel(item.result)}</td>
                   </tr>
                 ))}
+                {!items.length && <tr><td colSpan={3}>No hay eventos de auditoría recientes.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <section className="admin-table-card" aria-labelledby="tenant-processes-title">
+          <header className="admin-card-heading">
+            <div>
+              <h2 id="tenant-processes-title">Procesos</h2>
+              <p>Trabajos en segundo plano con fecha de creación, última actualización, progreso y estado.</p>
+            </div>
+            {failedJobs > 0 && <span className="status critical"><AlertTriangle size={14} /> {failedJobs} fallidos</span>}
+          </header>
+          {processError && <div className="inline-warning" role="status">{processError}</div>}
+          <div className="table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Proceso</th>
+                  <th>Estado</th>
+                  <th>Progreso</th>
+                  <th>Actualización</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.id} className={job.status === "failed" ? "job-row-failed" : undefined}>
+                    <td>{formatAdminDate(job.created_at)}</td>
+                    <td>
+                      <strong>{productJobTypeLabel(job.job_type)}</strong>
+                      <small>{productQueueLabel(job.queue)} · {job.id}</small>
+                    </td>
+                    <td><span className={`status ${job.status}`}>{productStatusLabel(job.status)}</span></td>
+                    <td><Activity size={14} aria-hidden="true" /> {job.progress}%</td>
+                    <td>{formatAdminDate(job.updated_at)}</td>
+                  </tr>
+                ))}
+                {!jobs.length && <tr><td colSpan={5}>No hay procesos recientes.</td></tr>}
               </tbody>
             </table>
           </div>
