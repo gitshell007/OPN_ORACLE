@@ -109,4 +109,26 @@ describe("transporte de contratación pública", () => {
       limit: "8",
     });
   });
+
+  it("envía Idempotency-Key al generar el informe documental", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
+      .mockResolvedValueOnce(json({ job_id: "job-1", replayed: false, report: { id: "report-1" } }, 202));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.dossierProcurement.createDocumentReport(
+      "dossier-1",
+      {},
+      "procurement-report-dossier-1-test",
+    );
+
+    const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe("/api/v1/dossiers/dossier-1/procurement/reports");
+    expect(options.method).toBe("POST");
+    expect((options.headers as Headers).get("Idempotency-Key")).toBe(
+      "procurement-report-dossier-1-test",
+    );
+  });
 });

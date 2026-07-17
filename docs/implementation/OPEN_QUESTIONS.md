@@ -53,6 +53,13 @@
   necesita en runtime y el runbook de Oracle documenta el despliegue coordinado con backfill.
 - Resuelto el 2026-07-15: el smoke público de Oracle cubre la presencia protegida de
   `entity-intel`, `procurement` y el redirect anónimo de la pantalla de grafo `/app/actors`.
+- Pendiente Signal: en la auditoría productiva del 2026-07-17 se observaron adjudicaciones de
+  organismos distintos, entre ellos Renfe Viajeros y Aeropuerto de Teruel, cuyo campo de lote se
+  mostraba como `LOTE A41050113`. Ese valor tiene forma de CIF/NIF de ITURRI, S.A. y no de número de
+  lote. Oracle ya evita presentarlo como lote cuando llega en `lot_id`, pero queda pendiente revisar
+  en Signal la serialización CODICE/PLACSP para confirmar el campo XML original y corregir el mapeo
+  en origen. Los `folder_id` exactos no venían incluidos en el prompt 36 y deben extraerse de la
+  búsqueda productiva que reprodujo el caso.
 
 ## IA y compliance
 

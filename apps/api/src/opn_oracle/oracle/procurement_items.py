@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, cast
@@ -49,6 +50,50 @@ def _normalize_cpv(value: Any) -> list[str]:
     return []
 
 
+def _numeric_or_none(value: Any) -> int | float | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value if isinstance(value, int) or math.isfinite(value) else None
+    text = str(value).strip().replace("€", "").replace("EUR", "").replace(" ", "")
+    if "," in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif (
+        "." in text
+        and all(part.isdigit() for part in text.split("."))
+        and len(text.rsplit(".", 1)[1]) == 3
+    ):
+        text = text.replace(".", "")
+    try:
+        parsed = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite():
+        return None
+    if parsed == parsed.to_integral_value():
+        return int(parsed)
+    return float(parsed)
+
+
+def _first_text(item: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _lot_id_or_none(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = value.strip()
+    if len(candidate) == 9 and candidate[0].isalpha() and candidate[1:].isdigit():
+        return None
+    return candidate
+
+
 def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> dict[str, Any]:
     keys: tuple[str, ...]
     if kind == "tender":
@@ -87,6 +132,40 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
     snapshot["folder_id"] = str(snapshot.get("folder_id") or folder_id)
     snapshot["kind"] = kind
     snapshot["cpv"] = _normalize_cpv(snapshot.get("cpv"))
+    if kind == "tender":
+        amount = _numeric_or_none(snapshot.get("amount"))
+        if amount is not None:
+            snapshot["amount"] = amount
+    else:
+        lot_id = _lot_id_or_none(snapshot.get("lot_id"))
+        if lot_id:
+            snapshot["lot_id"] = lot_id
+        else:
+            snapshot.pop("lot_id", None)
+        amount = _numeric_or_none(
+            snapshot.get("award_amount")
+            or item.get("amount")
+            or item.get("awarded_amount")
+            or item.get("award_value")
+            or item.get("contract_amount")
+            or item.get("importe_adjudicacion")
+            or item.get("importe")
+            or item.get("amount_eur")
+        )
+        if amount is not None:
+            snapshot["award_amount"] = amount
+        date = snapshot.get("award_date") or _first_text(
+            item,
+            (
+                "date",
+                "award_publication_date",
+                "published_at",
+                "publication_date",
+                "updated_at",
+            ),
+        )
+        if date:
+            snapshot["award_date"] = str(date)
     return snapshot
 
 
@@ -123,6 +202,23 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
     )
     first_title = next((entry.get("title") for entry in entries if entry.get("title")), None)
     first_buyer = next((entry.get("buyer") for entry in entries if entry.get("buyer")), None)
+    amounts = [
+        value
+        for value in (_numeric_or_none(entry.get("award_amount")) for entry in entries)
+        if value is not None
+    ]
+    dates = sorted(
+        {
+            str(entry["award_date"])
+            for entry in entries
+            if isinstance(entry.get("award_date"), str) and str(entry["award_date"]).strip()
+        }
+    )
+    award_date = None
+    if len(dates) == 1:
+        award_date = dates[0]
+    elif len(dates) > 1:
+        award_date = f"{dates[0]}/{dates[-1]}"
     return {
         "kind": "award",
         "folder_id": str(payload.get("folder_id") or folder_id),
@@ -130,6 +226,8 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
         "entries": entries,
         "title": first_title,
         "buyer": first_buyer,
+        "award_amount": sum(amounts) if amounts else None,
+        "award_date": award_date,
         "cpv": cpv_values,
         "source_url": str(first_source_url) if first_source_url else None,
     }
@@ -171,6 +269,13 @@ def _decimal_or_none(value: Any) -> Decimal | None:
         return None
 
 
+def _money_text(value: Any) -> str:
+    amount = _decimal_or_none(value)
+    if amount is None or not amount.is_finite():
+        return "No indicado"
+    return f"{amount.quantize(Decimal('0.01'))}"
+
+
 def procurement_evidence_extract(snapshot: dict[str, Any]) -> str:
     if snapshot.get("kind") == "award":
         entries = [entry for entry in snapshot.get("entries", []) if isinstance(entry, dict)]
@@ -197,7 +302,7 @@ def procurement_evidence_extract(snapshot: dict[str, Any]) -> str:
             f"Lotes: {len(entries) or snapshot.get('total') or 'No indicado'}. "
             f"Adjudicatarios: {winner_summary}. "
             "Importe total adjudicado: "
-            f"{total_amount if total_amount is not None else 'No indicado'}. "
+            f"{_money_text(total_amount)}. "
             f"CPV: {', '.join(_normalize_cpv(snapshot.get('cpv'))) or 'No indicado'}."
         )
     amount = snapshot.get("amount")
@@ -205,7 +310,7 @@ def procurement_evidence_extract(snapshot: dict[str, Any]) -> str:
     return (
         f"Licitación PLACSP {snapshot.get('folder_id')}: {snapshot.get('title') or 'Sin título'}. "
         f"Órgano: {snapshot.get('buyer') or 'No indicado'}. "
-        f"Importe: {amount if amount is not None else 'No indicado'}. "
+        f"Importe: {_money_text(amount)}. "
         f"Deadline: {deadline or 'No indicado'}. "
         f"Estado: {snapshot.get('status') or 'No indicado'}. "
         f"CPV: {', '.join(_normalize_cpv(snapshot.get('cpv'))) or 'No indicado'}."

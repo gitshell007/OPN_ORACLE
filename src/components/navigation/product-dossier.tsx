@@ -7,7 +7,11 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DossierOracleSummaryPanel } from "@/components/dossiers/dossier-oracle-summary-panel";
 import { DossierContextPanel } from "@/components/dossiers/dossier-context-panel";
-import { productDossierTypeLabel, productStatusLabel } from "@/lib/product-copy";
+import {
+  productDossierTypeLabel,
+  productResourceKindLabel,
+  productStatusLabel,
+} from "@/lib/product-copy";
 
 export function ProductDossier() {
   const { id } = useParams<{ id: string }>();
@@ -130,7 +134,7 @@ export function ProductDossier() {
         <DossierContextPanel dossierId={id} />
         <SummaryList title="Oportunidades principales" href={`/app/dossiers/${id}/opportunities`} items={opportunities.slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${productStatusLabel(item.status)} · Puntuación ${item.overall_score ?? "—"}` }))} />
         <SummaryList title="Riesgos principales" href={`/app/dossiers/${id}/risks`} items={risks.slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${productStatusLabel(item.status)} · Puntuación ${item.overall_score ?? "—"}` }))} />
-        <SummaryList title="Siguientes acciones" href={`/app/dossiers/${id}/tasks`} items={tasks.filter((item) => !["done", "cancelled"].includes(item.status || "")).slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${item.priority || "media"} · ${item.due_date || "sin fecha"}` }))} />
+        <SummaryList title="Siguientes acciones" href={`/app/dossiers/${id}/tasks`} items={tasks.filter((item) => !["done", "cancelled"].includes(item.status || "")).slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${productResourceKindLabel(item.priority || "medium")} · ${item.due_date || "sin fecha"}` }))} />
         <SummaryList title="Decisiones recientes" href={`/app/dossiers/${id}/decisions`} items={decisions.slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: productStatusLabel(item.status || "proposed") }))} />
       </section>
     </div>

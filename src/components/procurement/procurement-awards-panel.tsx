@@ -186,6 +186,10 @@ export function ProcurementAwardsPanel({
 }
 
 function AwardCard({ item }: { item: ProcurementAwardItem }) {
+  const lotId =
+    item.lot_id && /^[A-Za-z]\d{8}$/.test(item.lot_id.trim())
+      ? null
+      : item.lot_id;
   return (
     <article className="procurement-award-card">
       <header>
@@ -216,7 +220,7 @@ function AwardCard({ item }: { item: ProcurementAwardItem }) {
         </div>
         <div>
           <dt>Lote</dt>
-          <dd>{item.lot_id || "Sin lote"}</dd>
+          <dd>{lotId || "Sin lote"}</dd>
         </div>
         <div>
           <dt>CPV</dt>

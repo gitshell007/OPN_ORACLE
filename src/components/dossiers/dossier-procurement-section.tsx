@@ -5,7 +5,7 @@ import {
   type DossierProcurementItem,
 } from "@oracle/api-client";
 import { ExternalLink, FileText, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import {
   formatDate,
@@ -14,6 +14,7 @@ import {
   snapshotNumber,
   snapshotText,
 } from "@/components/procurement/procurement-helpers";
+import { idempotencyKey } from "@/components/reporting/reporting-utils";
 
 function snapshotAmount(item: DossierProcurementItem): number | null {
   const direct = snapshotNumber(item.snapshot, [
@@ -59,6 +60,10 @@ function snapshotIsUte(item: DossierProcurementItem): boolean {
   );
 }
 
+function evidenceLabel(evidenceId: string): string {
+  return `Evidencia ${evidenceId.slice(0, 8)}`;
+}
+
 function awardEntriesSummary(item: DossierProcurementItem): string | null {
   const entries = item.snapshot.entries;
   if (!Array.isArray(entries) || entries.length === 0) return null;
@@ -79,6 +84,7 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const documentReportKey = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,13 +125,21 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
   }
 
   async function generateDocumentReport() {
+    if (!documentReportKey.current) {
+      documentReportKey.current = idempotencyKey(`procurement-report-${dossierId}`);
+    }
     setGenerating(true);
     setError(null);
     try {
-      await api.dossierProcurement.createDocumentReport(dossierId);
+      await api.dossierProcurement.createDocumentReport(
+        dossierId,
+        {},
+        documentReportKey.current,
+      );
     } catch (reason) {
       setError(problemMessage(reason, "No se pudo preparar el informe documental."));
     } finally {
+      documentReportKey.current = null;
       setGenerating(false);
     }
   }
@@ -206,7 +220,7 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                   </div>
                   <div>
                     <dt>Evidencia</dt>
-                    <dd>{item.evidence_id}</dd>
+                    <dd title={item.evidence_id}>{evidenceLabel(item.evidence_id)}</dd>
                   </div>
                 </dl>
                 <footer>

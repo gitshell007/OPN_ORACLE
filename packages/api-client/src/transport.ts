@@ -1602,10 +1602,11 @@ const dossierProcurement = {
   createDocumentReport: (
     dossierId: string,
     input: { options?: Record<string, unknown> } = {},
+    idempotencyKey = `procurement-report-${dossierId}-${Date.now()}`,
   ) =>
     request<ProcurementDocumentReportResponse>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/reports`,
-      { method: "POST", body: input },
+      { method: "POST", body: input, idempotencyKey },
     ),
 };
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
@@ -21,6 +23,49 @@ from opn_oracle.integrations.procurement import (
 from opn_oracle.oracle import procurement_items
 from opn_oracle.oracle import routes as oracle_routes
 from opn_oracle.platform.models import User
+
+
+@contextmanager
+def _authenticated_http_probe(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    allowed_permissions: frozenset[str],
+) -> Iterator[None]:
+    """Use real HTTP dispatch while replacing only DB-backed session runtime."""
+
+    user = User(
+        id=uuid.uuid4(),
+        email="procurement-reader@example.com",
+        display_name="Procurement Reader",
+        status="active",
+    )
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(permissions, "current_user", user)
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: allowed_permissions,
+    )
+    before_request_funcs = app.before_request_funcs.get(None, [])
+    auth_index = next(
+        index
+        for index, function in enumerate(before_request_funcs)
+        if function.__name__ == "protect_csrf_and_install_identity"
+    )
+    original_auth_runtime = before_request_funcs[auth_index]
+
+    def install_test_identity() -> None:
+        g.active_tenant_id = tenant_id
+
+    before_request_funcs[auth_index] = install_test_identity
+    try:
+        yield
+    finally:
+        before_request_funcs[auth_index] = original_auth_runtime
+
+
+def _csrf(client: Any) -> str:
+    return str(client.get("/api/v1/auth/csrf").get_json()["csrf_token"])
 
 
 @pytest.mark.unit
@@ -381,7 +426,7 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
                 "items": [
                     {
                         "folder_id": "P_6_26",
-                        "lot_id": "1",
+                        "lot_id": "A41050113",
                         "title": "Campaña promocional",
                         "buyer": "PROEXCA",
                         "winner": "Genesis Consulting SLP",
@@ -420,7 +465,12 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
 
     assert snapshot["kind"] == "award"
     assert snapshot["total"] == 2
+    assert snapshot["award_amount"] == 5000
+    assert snapshot["award_date"] == "2026-06-25/2026-06-26"
     assert snapshot["cpv"] == ["79342000", "79400000"]
+    assert [entry["award_amount"] for entry in snapshot["entries"]] == [3600, 1400]
+    assert "lot_id" not in snapshot["entries"][0]
+    assert snapshot["entries"][1]["lot_id"] == "2"
     assert [entry["winner"] for entry in snapshot["entries"]] == [
         "Genesis Consulting SLP",
         "OPN Consultoría",
@@ -642,6 +692,127 @@ def test_procurement_route_denies_user_without_opportunity_read(
     assert response[2]["Content-Type"] == "application/problem+json"
 
 
+PROCUREMENT_AUTH_ORDER_CASES: tuple[dict[str, Any], ...] = (
+    {
+        "method": "POST",
+        "invalid_path": f"/api/v1/procurement/tenders/{'x' * 201}/summary",
+        "valid_path": "/api/v1/procurement/tenders/P_6_26/summary",
+        "invalid_json": None,
+        "valid_json": None,
+        "field": "folder_id",
+    },
+    {
+        "method": "POST",
+        "invalid_path": "/api/v1/procurement/tender-searches",
+        "valid_path": "/api/v1/procurement/tender-searches",
+        # `name` debe ser válido: marshmallow omite los validadores de esquema
+        # (skip_on_field_errors) si algún campo ya falló, y `keywords` se valida ahí.
+        "invalid_json": {"name": "Radar energía", "keywords": []},
+        "valid_json": {"name": "Radar energía", "keywords": ["energia"], "filters": {}},
+        "field": "keywords",
+    },
+    {
+        "method": "GET",
+        "invalid_path": f"/api/v1/procurement/tender-searches/{'x' * 121}",
+        "valid_path": "/api/v1/procurement/tender-searches/search-1",
+        "invalid_json": None,
+        "valid_json": None,
+        "field": "search_id",
+    },
+    {
+        "method": "PATCH",
+        "invalid_path": "/api/v1/procurement/tender-searches/search-1",
+        "valid_path": "/api/v1/procurement/tender-searches/search-1",
+        "invalid_json": {},
+        "valid_json": {"name": "Radar energía"},
+        "field": "Indica",
+    },
+    {
+        "method": "DELETE",
+        "invalid_path": f"/api/v1/procurement/tender-searches/{'x' * 121}",
+        "valid_path": "/api/v1/procurement/tender-searches/search-1",
+        "invalid_json": None,
+        "valid_json": None,
+        "field": "search_id",
+    },
+    {
+        "method": "GET",
+        "invalid_path": "/api/v1/procurement/tender-searches/search-1/run?limit=0",
+        "valid_path": "/api/v1/procurement/tender-searches/search-1/run?limit=1&offset=0",
+        "invalid_json": None,
+        "valid_json": None,
+        "field": "limit",
+    },
+)
+
+
+def _open_procurement_case(
+    client: Any,
+    case: dict[str, Any],
+    *,
+    valid: bool,
+) -> Any:
+    json_data = case["valid_json"] if valid else case["invalid_json"]
+    request_kwargs: dict[str, Any] = {}
+    if json_data is not None:
+        request_kwargs["json"] = json_data
+    if case["method"] in {"POST", "PATCH", "DELETE"}:
+        request_kwargs["headers"] = {"X-CSRF-Token": _csrf(client)}
+    return client.open(
+        case["valid_path"] if valid else case["invalid_path"],
+        method=case["method"],
+        **request_kwargs,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("case", PROCUREMENT_AUTH_ORDER_CASES)
+def test_procurement_anonymous_invalid_requests_do_not_leak_schema(
+    client: Any,
+    case: dict[str, Any],
+) -> None:
+    response = _open_procurement_case(client, case, valid=False)
+    payload = response.get_json()
+
+    assert response.status_code == 401
+    assert payload["code"] == "authentication_required"
+    assert "errors" not in payload
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("case", PROCUREMENT_AUTH_ORDER_CASES)
+def test_procurement_anonymous_valid_requests_still_require_auth(
+    client: Any,
+    case: dict[str, Any],
+) -> None:
+    response = _open_procurement_case(client, case, valid=True)
+    payload = response.get_json()
+
+    assert response.status_code == 401
+    assert payload["code"] == "authentication_required"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("case", PROCUREMENT_AUTH_ORDER_CASES)
+def test_procurement_authenticated_invalid_requests_still_validate(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    case: dict[str, Any],
+) -> None:
+    with _authenticated_http_probe(
+        app,
+        monkeypatch,
+        frozenset({"opportunity.read", "opportunity.write"}),
+    ):
+        response = _open_procurement_case(client, case, valid=False)
+    payload = response.get_json()
+
+    assert response.status_code == 422
+    assert "errors" in payload
+    assert case["field"] in str(payload["errors"])
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "path",
@@ -803,7 +974,11 @@ def test_dossier_procurement_routes_pin_list_delete_and_replay(
         return pinned, len(calls) == 1
 
     monkeypatch.setattr(oracle_routes, "pin_procurement_item", fake_pin)
-    monkeypatch.setattr(oracle_routes, "list_procurement_items", lambda session, **kwargs: [pinned])
+    monkeypatch.setattr(
+        oracle_routes,
+        "list_procurement_items",
+        lambda session, **kwargs: [pinned],
+    )
     monkeypatch.setattr(oracle_routes, "delete_procurement_item", lambda session, **kwargs: True)
 
     with app.test_request_context(

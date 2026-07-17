@@ -18,6 +18,12 @@ export function parseCsv(value: string): string[] {
 
 export function formatDate(value?: string | null): string {
   if (!value) return "Sin fecha";
+  if (value.includes("/")) {
+    const [start, end] = value.split("/", 2);
+    if (start && end && start.length >= 10 && end.length >= 10) {
+      return `${formatDate(start)} - ${formatDate(end)}`;
+    }
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("es-ES");
@@ -55,6 +61,16 @@ export function snapshotNumber(
   for (const key of keys) {
     const value = snapshot[key];
     if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      let normalized = value.trim();
+      if (normalized.includes(",")) {
+        normalized = normalized.replace(/\./g, "").replace(",", ".");
+      } else if (/^\d{1,3}(?:\.\d{3})+$/.test(normalized)) {
+        normalized = normalized.replace(/\./g, "");
+      }
+      const parsed = Number(normalized.replace(/[^\d.-]/g, ""));
+      if (Number.isFinite(parsed)) return parsed;
+    }
   }
   return null;
 }

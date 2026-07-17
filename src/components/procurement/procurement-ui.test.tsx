@@ -114,7 +114,7 @@ describe("UI de contratación pública", () => {
       items: [
         {
           folder_id: "award/1",
-          lot_id: "1",
+          lot_id: "A41050113",
           title: "Servicio de emergencias",
           buyer: "Ayuntamiento de Zaragoza",
           winner: "Iturri",
@@ -239,6 +239,8 @@ describe("UI de contratación pública", () => {
     expect(await screen.findByText("Servicio de emergencias")).toBeInTheDocument();
     expect(screen.getByText("Organismo licitador")).toBeInTheDocument();
     expect(screen.getByText("Ayuntamiento de Zaragoza")).toBeInTheDocument();
+    expect(screen.getByText("Sin lote")).toBeInTheDocument();
+    expect(screen.queryByText("A41050113")).not.toBeInTheDocument();
     expect(screen.getByText("UTE · En consorcio")).toBeInTheDocument();
     expect(mocks.suggest).toHaveBeenCalledWith({
       q: "Iturri",

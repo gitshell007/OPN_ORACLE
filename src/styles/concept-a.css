@@ -275,8 +275,8 @@
 .procurement-pin select { max-width: 230px; }
 .procurement-pin-ok { color: #047857 !important; }
 .procurement-pin-error { color: #b42318 !important; }
-.procurement-suggestions { position: absolute; z-index: 8; top: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 3px; max-height: 260px; overflow: auto; padding: 6px; border: 1px solid #cbd6e2; border-radius: 9px; background: white; box-shadow: 0 14px 40px #10203326; }
-.procurement-suggestions button { border: 0; background: transparent; color: var(--va-text); text-align: left; padding: 8px 9px; border-radius: 6px; font-size: 12px; font-weight: 650; }
+.procurement-suggestions { position: absolute; z-index: 8; top: calc(100% + 4px); left: 0; right: 0; display: flex; flex-direction: column; gap: 3px; width: max(100%, min(420px, calc(100vw - 32px))); max-height: 260px; overflow: auto; padding: 6px; border: 1px solid #cbd6e2; border-radius: 9px; background: white; box-shadow: 0 14px 40px #10203326; }
+.procurement-suggestions button { display: block; width: 100%; border: 0; background: transparent; color: var(--va-text); text-align: left; padding: 8px 9px; border-radius: 6px; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
 .procurement-suggestions button:hover,
 .procurement-suggestions button:focus-visible { background: #edf4ff; color: var(--va-primary); }
 .procurement-suggestions small { padding: 7px 9px; color: var(--va-muted); text-transform: none; letter-spacing: 0; }

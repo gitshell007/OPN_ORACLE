@@ -27,6 +27,7 @@ from opn_oracle.ai.service import (
     triage_dossier_signal,
 )
 from opn_oracle.auth.tokens import hash_token, stable_invitation_token
+from opn_oracle.common.logging import redact
 from opn_oracle.documents.service import DocumentError, process_document
 from opn_oracle.extensions import db
 from opn_oracle.integrations.service import sync_monitor
@@ -126,6 +127,13 @@ def _retry_exhausted_message(job: BackgroundJob, root_message: str) -> str:
     if job.job_type.startswith("oracle.ai.") or job.job_type in AI_RETRY_CAUSE_JOB_TYPES:
         return f"Se agotaron los reintentos permitidos. Última causa: {root_message}"
     return "Se agotaron los reintentos permitidos."
+
+
+def _permanent_failure_message(error: Exception) -> str:
+    cause = redact(str(error)).strip()
+    if not cause:
+        return "El job no pudo completarse."
+    return f"El job no pudo completarse. Causa: {cause}"[:500]
 
 
 def _evaluate_alerts(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
@@ -658,7 +666,7 @@ def _execute_claimed_delivery(
             countdown=countdown,
             max_retries=max_retries,
         ) from None
-    except Exception:
+    except Exception as error:
         db.session.rollback()
         owned = _owned_lease(job_uuid, lease_id)
         if owned is None:
@@ -666,7 +674,7 @@ def _execute_claimed_delivery(
         owned.status, owned.stage, owned.retryable = "failed", "failed", False
         owned.finished_at = datetime.now(UTC)
         owned.error_code = "permanent_failure"
-        owned.error_message = "El job no pudo completarse."
+        owned.error_message = _permanent_failure_message(error)
         _revoke_email_delivery(owned)
         owned.execution_lease_id = None
         owned.lease_expires_at = None

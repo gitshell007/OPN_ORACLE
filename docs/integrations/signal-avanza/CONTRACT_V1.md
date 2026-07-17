@@ -236,7 +236,9 @@ Campos persistidos:
 - `snapshot`: JSONB con los campos devueltos por Signal en el momento de fijar.
   - En licitaciones, contiene el item único devuelto por `registry/tenders/{folder_id}`.
   - En adjudicaciones, contiene `entries` con todos los lotes devueltos por
-    `registry/awards/{folder_id}`.
+    `registry/awards/{folder_id}`. Oracle eleva además `award_amount` como suma de importes
+    publicados y `award_date` como fecha única o rango `fecha_min/fecha_max`; valores con forma de
+    CIF/NIF español no se conservan como `lot_id`.
 - `source_url`: enlace público de la fuente.
 - `evidence_id`: evidencia interna creada al fijar el ítem para que `tender.v1` pueda citarlo con
   `evidence_ids`.
