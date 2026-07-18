@@ -503,7 +503,12 @@ def _strip_unauthorized_evidence_blocks(output: T, allowed_values: list[str]) ->
         warning = "Se omitieron bloques con citas no autorizadas por el expediente."
         if warning not in warnings:
             warnings.append(warning)
-    return type(output).model_validate(payload)
+    # Modo JSON, no modo Python: `payload` viene de model_dump(mode="json"), así que
+    # los evidence_ids supervivientes son cadenas y los contratos IA son estrictos
+    # (strict=True), que en modo Python exige instancias UUID. Validar aquí en modo
+    # Python hacía reventar esta red de seguridad justo cuando actúa —con citas no
+    # autorizadas que depurar—, tirando el informe entero en lugar de salvarlo.
+    return type(output).model_validate_json(json.dumps(payload))
 
 
 def _safe_empty_evidence_summary(request: LLMRequest, schema: type[T]) -> T:

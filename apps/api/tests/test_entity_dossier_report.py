@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -9,7 +10,7 @@ import pytest
 from flask import g
 
 from opn_oracle.ai.registry import PromptRegistry
-from opn_oracle.ai.schemas import AGENT_SCHEMAS
+from opn_oracle.ai.schemas import AGENT_SCHEMAS, ReportOutput
 from opn_oracle.auth import permissions
 from opn_oracle.integrations import entity_intel_routes
 from opn_oracle.jobs.service import TASK_QUEUES
@@ -161,6 +162,61 @@ def test_entity_dossier_prompt_output_budget_matches_signal_policy() -> None:
     """
     prompt = PromptRegistry().get(ENTITY_DOSSIER_AGENT, "v1")
     assert prompt.max_output_tokens == 16000
+
+
+def test_stored_report_output_revalidates_with_citations() -> None:
+    """El informe guardado debe poder releerse al incorporarlo, con citas y todo.
+
+    El área de espera guarda la salida con model_dump(mode="json"), así que los
+    evidence_ids quedan como cadenas. ReportOutput es StrictModel (strict=True) y en
+    modo Python eso rechaza cadenas donde espera UUID, de modo que incorporar
+    reventaba con 500 ("Input should be an instance of UUID"). El fallo estuvo oculto
+    mientras los informes salían sin citar nada: sin evidence_ids no hay UUID que
+    validar. Este test recorre el ciclo completo CON citas, que es donde duele.
+    """
+    evidence_id = uuid.uuid4()
+    output = ReportOutput.model_validate_json(
+        json.dumps(
+            {
+                "title": "Informe de la entidad",
+                "executive_summary": "Resumen del informe de entidad.",
+                "facts": [],
+                "inferences": [],
+                "recommendations": [],
+                "confidence": 80,
+                "open_questions": [],
+                "warnings": [],
+                "source_index": [
+                    {
+                        "evidence_id": str(evidence_id),
+                        "label": "BORME · 2026-04-06 · cese",
+                        "locator": "https://www.boe.es/borme/dias/2026/04/06/",
+                    }
+                ],
+                "sections": [
+                    {
+                        "heading": "Órganos y cargos",
+                        "paragraphs": [
+                            {
+                                "kind": "fact",
+                                "text": "Se publicó el cese de un apoderado.",
+                                "confidence": 100,
+                                "evidence_ids": [str(evidence_id)],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+    stored = output.model_dump(mode="json")
+    # Así es exactamente como vuelve de result_ref (JSONB): UUID serializados a texto.
+    assert stored["sections"][0]["paragraphs"][0]["evidence_ids"] == [str(evidence_id)]
+
+    revalidated = ReportOutput.model_validate_json(json.dumps(stored))
+
+    assert revalidated.sections[0].paragraphs[0].evidence_ids == [evidence_id]
 
 
 def test_entity_dossier_report_runtime_is_registered() -> None:

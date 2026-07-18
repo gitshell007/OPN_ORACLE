@@ -390,3 +390,58 @@ def test_signal_output_parses_all_upstream_shapes() -> None:
 
     with pytest.raises(AIUnavailable):
         _signal_output({"result": {"choices": []}})
+
+
+def test_stripping_unauthorized_citations_keeps_the_authorized_ones() -> None:
+    """La red de seguridad debe depurar citas no autorizadas sin morir en el intento.
+
+    _strip_unauthorized_evidence_blocks vuelca a JSON y revalida. Al hacerlo en modo
+    Python sobre contratos strict=True, los evidence_ids supervivientes (ya cadenas)
+    se rechazaban con "Input should be an instance of UUID": la red fallaba justo
+    cuando actúa, tirando el informe entero en vez de salvarlo. Nunca se vio porque
+    hasta ahora los informes no citaban evidencia, o citaban solo la autorizada.
+    """
+    from opn_oracle.ai.provider import _strip_unauthorized_evidence_blocks
+
+    permitida = UUID("00000000-0000-4000-8000-0000000000aa")
+    intrusa = UUID("00000000-0000-4000-8000-0000000000bb")
+    output = ReportOutput.model_validate_json(
+        json.dumps(
+            {
+                "title": "Informe",
+                "executive_summary": "Resumen.",
+                "facts": [],
+                "inferences": [],
+                "recommendations": [],
+                "confidence": 80,
+                "open_questions": [],
+                "warnings": [],
+                "sections": [
+                    {
+                        "heading": "Hallazgos",
+                        "paragraphs": [
+                            {
+                                "kind": "fact",
+                                "text": "Bloque con cita autorizada.",
+                                "confidence": 100,
+                                "evidence_ids": [str(permitida)],
+                            },
+                            {
+                                "kind": "fact",
+                                "text": "Bloque con cita inventada, debe desaparecer.",
+                                "confidence": 100,
+                                "evidence_ids": [str(intrusa)],
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+    limpio = _strip_unauthorized_evidence_blocks(output, [str(permitida)])
+
+    parrafos = limpio.sections[0].paragraphs
+    assert len(parrafos) == 1
+    assert parrafos[0].evidence_ids == [permitida]
+    assert "inventada" not in parrafos[0].text

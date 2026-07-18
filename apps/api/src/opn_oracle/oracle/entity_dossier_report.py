@@ -999,7 +999,14 @@ def incorporate_entity_dossier_report(
     output_payload = result.get("output")
     if not isinstance(output_payload, dict):
         raise ReportWorkflowError("El job no conserva una salida de informe válida.")
-    output = ReportOutput.model_validate(output_payload)
+    # Se valida en modo JSON, no en modo Python, porque el payload viene de
+    # result_ref: se guardó con model_dump(mode="json"), así que los evidence_ids son
+    # cadenas. ReportOutput hereda de StrictModel (strict=True), y en modo Python eso
+    # exige instancias UUID reales y rechaza las cadenas; en modo JSON las convierte,
+    # que es lo correcto para datos que ya son JSON. El fallo estuvo oculto mientras
+    # los informes salían sin citas: con evidence_ids vacíos no había UUID que validar,
+    # y solo apareció al empezar a citar evidencia de verdad.
+    output = ReportOutput.model_validate_json(json.dumps(output_payload))
     dossier = db.session.scalar(
         select(StrategicDossier).where(
             StrategicDossier.id == dossier_id,
