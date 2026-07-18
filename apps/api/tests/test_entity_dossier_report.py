@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from flask import g
 
+from opn_oracle.ai.registry import PromptRegistry
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
 from opn_oracle.auth import permissions
 from opn_oracle.integrations import entity_intel_routes
@@ -148,6 +149,17 @@ def test_entity_intel_json_routes_use_apiflask_body_argument() -> None:
         m.group("sig") for m in pattern.finditer(source) if "json_data" not in m.group("sig")
     ]
     assert offenders == [], f"vistas con cuerpo json sin arg 'json_data': {offenders}"
+
+
+def test_entity_dossier_prompt_output_budget_matches_signal_policy() -> None:
+    """El informe cita evidencia BORME/noticias, así que su salida es larga.
+
+    Con 5000 y con 8000 se truncaba a media palabra y ReportOutput fallaba con
+    "Invalid JSON: EOF". Este valor queda sincronizado con la config gobernada de
+    la task en Signal (16000); si allí cambia, aquí debe cambiar también.
+    """
+    prompt = PromptRegistry().get(ENTITY_DOSSIER_AGENT, "v1")
+    assert prompt.max_output_tokens == 16000
 
 
 def test_entity_dossier_report_runtime_is_registered() -> None:

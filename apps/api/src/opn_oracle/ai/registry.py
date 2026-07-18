@@ -119,7 +119,12 @@ def _max_output_tokens(name: str, version: str) -> int:
     if name == "competitive_procurement_intelligence":
         return 5000
     if name == "entity_dossier_intelligence":
-        return 5000
+        # Sincronizado con la config gobernada de esta task en Signal (16000). El informe
+        # de entidad cita evidencia BORME/noticias, así que su salida es larga: con 5000 y
+        # con 8000 se truncaba a media palabra y ReportOutput fallaba con "Invalid JSON: EOF".
+        # Signal pisa este valor para tareas gobernadas, pero mandarlo correcto evita que el
+        # límite real dependa de ese parche.
+        return 16000
     if name != "dossier_situation_summary":
         return 2000
     return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900, "v5": 2600}[version]
