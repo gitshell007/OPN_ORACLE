@@ -187,13 +187,33 @@
 .entity-link-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 9px; }
 .entity-link-actions label { display: grid; gap: 5px; color: var(--va-muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .entity-link-actions select { min-width: 240px; min-height: 34px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); padding: 0 8px; text-transform: none; }
-.entity-report-card .job-progress, .entity-report-incorporate { grid-column: 1 / -1; }
+.entity-report-card .job-progress, .entity-report-incorporate, .entity-report-waiting-status, .entity-report-preview { grid-column: 1 / -1; }
+.entity-report-waiting-status { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-top: 1px solid var(--va-border); padding-top: 12px; }
+.entity-report-waiting-status > svg { color: #245cae; }
+.entity-report-waiting-status div { display: grid; gap: 3px; }
+.entity-report-waiting-status strong { color: var(--va-text); font-size: 13px; }
+.entity-report-waiting-status span { color: var(--va-muted); font-size: 12px; line-height: 1.45; }
 .entity-report-incorporate { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; border-top: 1px solid var(--va-border); padding-top: 12px; }
 .entity-report-incorporate label { display: grid; gap: 5px; color: var(--va-muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .entity-report-incorporate select { min-width: 260px; min-height: 34px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); padding: 0 8px; text-transform: none; }
-.entity-link-ok, .entity-link-error { grid-column: 1 / -1; font-size: 11px; font-weight: 750; }
+.entity-report-preview { display: grid; gap: 12px; border: 1px solid #c9d8ee; border-radius: 10px; background: #f8fbff; padding: 12px; }
+.entity-report-preview-banner { border-left: 4px solid #245cae; border-radius: 8px; background: #edf4ff; padding: 10px 12px; }
+.entity-report-preview-banner strong { color: #153f79; }
+.entity-report-preview-banner p { margin-top: 4px; color: #385879; }
+.entity-report-preview .report-content-layout { grid-template-columns: minmax(0, 1fr) 300px; }
+.entity-report-preview .report-executive-summary h2 { margin: 8px 0 4px; font-size: 18px; }
+.entity-report-preview .report-claim footer a { display: inline-flex; min-width: 27px; height: 25px; align-items: center; justify-content: center; border: 1px solid #adc3e4; border-radius: 5px; color: #245cae; background: #edf4ff; font-size: 10px; font-weight: 800; text-decoration: none; }
+.entity-report-waiting-sources { position: static; max-height: 520px; }
+.entity-report-waiting-sources li { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 6px; }
+.entity-report-waiting-sources li > div { display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: 3px 5px; padding: 9px; border: 1px dashed #adc3e4; border-radius: 7px; color: var(--va-text); background: #fbfdff; text-align: left; }
+.entity-report-waiting-sources li > div > span { grid-row: 1 / 4; color: var(--va-primary); font-weight: 800; }
+.entity-report-waiting-sources li > div > small { grid-column: 2; overflow: hidden; color: var(--va-muted); text-overflow: ellipsis; white-space: nowrap; }
+.entity-report-waiting-sources li > a { display: inline-flex; align-items: center; justify-content: center; color: #245cae; }
+.entity-link-ok, .entity-link-error, .entity-link-muted { grid-column: 1 / -1; font-size: 11px; font-weight: 750; }
 .entity-link-ok { color: #087255; }
+.entity-link-ok a { display: inline-flex; align-items: center; gap: 4px; color: #087255; text-decoration: underline; }
 .entity-link-error { color: #ad2f2f; }
+.entity-link-muted { color: var(--va-muted); }
 .entity-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .entity-profile-grid section { border: 1px solid var(--va-border); border-radius: var(--va-radius); background: var(--va-panel); padding: 14px; }
 .entity-profile-grid h2 { margin: 0 0 10px; color: var(--va-text); font-size: 15px; }

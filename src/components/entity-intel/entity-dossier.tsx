@@ -23,7 +23,7 @@ import {
   type EntityIntelRegistryProfile,
   type EntityIntelRegistryResponse,
 } from "@oracle/api-client";
-import { Bot, Building2, ExternalLink, Link2, RefreshCw, UserRound } from "lucide-react";
+import { Bot, Building2, ExternalLink, FileText, Link2, RefreshCw, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
@@ -613,12 +613,134 @@ function LinkEntityToDossierControl({
 
 const RUNNING_JOB_STATUSES = new Set(["queued", "running", "retrying"]);
 
+type WaitingClaimKind = "fact" | "inference" | "recommendation" | "decision";
+
+interface WaitingReportParagraph {
+  text: string;
+  kind: WaitingClaimKind;
+  confidence: number;
+  evidenceIds: string[];
+}
+
+interface WaitingReportSection {
+  heading: string;
+  paragraphs: WaitingReportParagraph[];
+}
+
+interface WaitingReportContent {
+  title: string;
+  executiveSummary: string;
+  confidence: number;
+  sections: WaitingReportSection[];
+  openQuestions: string[];
+  warnings: string[];
+}
+
+interface WaitingEvidenceSource {
+  id: string;
+  label: string;
+  sourceKind: string;
+  sourceUrl: string | null;
+  extract: string;
+}
+
 function reportIntentKey(name: string, type: EntityIntelKind): string {
   const suffix =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `entity-report:${type}:${name.slice(0, 80)}:${suffix}`;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function numberPercent(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+}
+
+function claimKind(value: unknown): WaitingClaimKind {
+  return ["fact", "inference", "recommendation", "decision"].includes(String(value))
+    ? value as WaitingClaimKind
+    : "inference";
+}
+
+function claimLabel(kind: WaitingClaimKind): string {
+  return {
+    fact: "Hecho",
+    inference: "Inferencia",
+    recommendation: "Recomendación",
+    decision: "Decisión",
+  }[kind];
+}
+
+function jobResult(job: EntityIntelReportJob | null | undefined): Record<string, unknown> {
+  return asRecord(job?.result);
+}
+
+function incorporatedReportId(job: EntityIntelReportJob | null | undefined): string | null {
+  const value = jobResult(job).incorporated_report_id;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function waitingReportContent(job: EntityIntelReportJob | null | undefined): WaitingReportContent | null {
+  const output = asRecord(jobResult(job).output);
+  if (!output) return null;
+  const sections = Array.isArray(output.sections)
+    ? output.sections.flatMap((rawSection) => {
+        const section = asRecord(rawSection);
+        if (!section || typeof section.heading !== "string") return [];
+        const paragraphs = Array.isArray(section.paragraphs)
+          ? section.paragraphs.flatMap((rawParagraph) => {
+              const paragraph = asRecord(rawParagraph);
+              if (!paragraph || typeof paragraph.text !== "string") return [];
+              return [{
+                text: paragraph.text,
+                kind: claimKind(paragraph.kind),
+                confidence: numberPercent(paragraph.confidence),
+                evidenceIds: stringList(paragraph.evidence_ids),
+              }];
+            })
+          : [];
+        return [{ heading: section.heading, paragraphs }];
+      })
+    : [];
+  return {
+    title: typeof output.title === "string" && output.title.trim()
+      ? output.title
+      : "Informe de entidad en espera",
+    executiveSummary: typeof output.executive_summary === "string"
+      ? output.executive_summary
+      : "",
+    confidence: numberPercent(output.confidence),
+    sections,
+    openQuestions: stringList(output.open_questions),
+    warnings: stringList(output.warnings),
+  };
+}
+
+function waitingEvidenceSources(job: EntityIntelReportJob | null | undefined): WaitingEvidenceSource[] {
+  const sources = jobResult(job).pending_evidence_sources;
+  if (!Array.isArray(sources)) return [];
+  return sources.flatMap((raw) => {
+    const source = asRecord(raw);
+    if (!source || typeof source.id !== "string") return [];
+    return [{
+      id: source.id,
+      label: typeof source.label === "string" && source.label.trim()
+        ? source.label
+        : `Fuente reservada ${source.id.slice(0, 8)}`,
+      sourceKind: typeof source.source_kind === "string" ? source.source_kind : "entity_intel",
+      sourceUrl: typeof source.source_url === "string" && source.source_url.trim()
+        ? source.source_url
+        : null,
+      extract: typeof source.extract === "string" ? source.extract : "",
+    }];
+  });
 }
 
 function EntityReportControl({
@@ -637,6 +759,7 @@ function EntityReportControl({
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [incorporating, setIncorporating] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -654,6 +777,9 @@ function EntityReportControl({
       setDossierId((current) => current || dossierResult.data[0]?.id || "");
       const running = reportResult.data.find((job) => RUNNING_JOB_STATUSES.has(job.status));
       setActiveJobId(running?.id ?? null);
+      if (!reportResult.data.some((job) => job.status === "succeeded" && !incorporatedReportId(job))) {
+        setPreviewOpen(false);
+      }
     } catch (reason) {
       setError(problemMessage(reason, "No se pudieron cargar los informes de esta entidad."));
     } finally {
@@ -683,6 +809,7 @@ function EntityReportControl({
       );
       setActiveJobId(result.job_id);
       setJobs((current) => [result.job as EntityIntelReportJob, ...current]);
+      setPreviewOpen(false);
       setMessage("Informe encolado. Puede tardar varios minutos; puedes salir y volver.");
     } catch (reason) {
       setError(problemMessage(reason, "No se pudo lanzar el informe de entidad."));
@@ -707,11 +834,13 @@ function EntityReportControl({
     }
   }
 
-  const latestSucceeded = jobs.find((job) => job.status === "succeeded");
-  const pendingIncorporation = latestSucceeded && !latestSucceeded.result?.incorporated_report_id
+  const latestSucceeded = jobs.find((job) => job.status === "succeeded") ?? null;
+  const latestIncorporatedReportId = incorporatedReportId(latestSucceeded);
+  const pendingIncorporation = latestSucceeded && !latestIncorporatedReportId
     ? latestSucceeded
     : null;
-  const incorporated = jobs.find((job) => job.result?.incorporated_report_id);
+  const previewContent = waitingReportContent(pendingIncorporation);
+  const previewSources = waitingEvidenceSources(pendingIncorporation);
 
   return (
     <PermissionGate permission="report.generate">
@@ -743,7 +872,7 @@ function EntityReportControl({
             onClick={() => void startReport()}
           >
             <Bot size={14} />
-            Informe de la entidad
+            {latestSucceeded ? "Generar nuevo informe" : "Informe de la entidad"}
           </AsyncActionButton>
           <button
             type="button"
@@ -765,6 +894,30 @@ function EntityReportControl({
               void loadReports();
             }}
           />
+        )}
+        {pendingIncorporation && (
+          <div className="entity-report-waiting-status" role="status">
+            <FileText size={17} />
+            <div>
+              <strong>Informe en espera, todavía no incorporado.</strong>
+              <span>
+                Puedes leerlo antes de elegir expediente. Sus {previewSources.length} fuentes
+                son evidencias reservadas: solo se materializan al incorporar.
+              </span>
+            </div>
+            {previewContent && (
+              <button
+                type="button"
+                className="vector-secondary"
+                onClick={() => setPreviewOpen((current) => !current)}
+              >
+                {previewOpen ? "Ocultar vista previa" : "Ver informe en espera"}
+              </button>
+            )}
+          </div>
+        )}
+        {pendingIncorporation && previewOpen && previewContent && (
+          <EntityReportWaitingPreview content={previewContent} sources={previewSources} />
         )}
         {pendingIncorporation && (
           <div className="entity-report-incorporate">
@@ -804,15 +957,146 @@ function EntityReportControl({
             </AsyncActionButton>
           </div>
         )}
-        {incorporated && (
+        {!loading && !activeJobId && !latestSucceeded && (
+          <small className="entity-link-muted">
+            Aún no hay informes generados para esta entidad. Lanza uno para revisarlo aquí antes de incorporarlo.
+          </small>
+        )}
+        {latestSucceeded && latestIncorporatedReportId && (
           <small className="entity-link-ok">
-            Informe ya incorporado a un expediente. Puedes consultarlo en la biblioteca de informes.
+            Este informe ya se incorporó a un expediente.{" "}
+            <a href={`/app/reports/${latestIncorporatedReportId}`}>
+              Abrir informe incorporado
+              <ExternalLink size={12} />
+            </a>
           </small>
         )}
         {message && <small className="entity-link-ok">{message}</small>}
         {error && <small className="entity-link-error" role="alert">{error}</small>}
       </section>
     </PermissionGate>
+  );
+}
+
+function EntityReportWaitingPreview({
+  content,
+  sources,
+}: {
+  content: WaitingReportContent;
+  sources: WaitingEvidenceSource[];
+}) {
+  const sourceById = new Map(sources.map((source, index) => [source.id, { ...source, index }]));
+  return (
+    <section className="entity-report-preview" aria-label="Vista previa del informe en espera">
+      <div className="entity-report-preview-banner" role="note">
+        <strong>Vista previa sin incorporación</strong>
+        <p>
+          Este informe vive en el área de espera. Las citas apuntan a IDs reservados;
+          todavía no son registros Evidence ni están vinculadas a ningún expediente.
+        </p>
+      </div>
+      <div className="report-content-layout">
+        <main className="report-content">
+          <section className="report-executive-summary">
+            <span className="section-kicker">Resumen ejecutivo</span>
+            <h2>{content.title}</h2>
+            <p>{content.executiveSummary || "El informe no incluye resumen ejecutivo."}</p>
+            <span className="confidence">Confianza {content.confidence}%</span>
+          </section>
+          {content.sections.map((section, sectionIndex) => (
+            <section key={`${section.heading}-${sectionIndex}`} className="report-section">
+              <h2>{section.heading}</h2>
+              {section.paragraphs.map((paragraph, paragraphIndex) => (
+                <article
+                  key={`${sectionIndex}-${paragraphIndex}`}
+                  className={`report-claim ${paragraph.kind}`}
+                >
+                  <div>
+                    <span>{claimLabel(paragraph.kind)}</span>
+                    <small>Confianza {paragraph.confidence}%</small>
+                  </div>
+                  <p>{paragraph.text}</p>
+                  {!!paragraph.evidenceIds.length && (
+                    <footer aria-label="Citas del párrafo">
+                      {paragraph.evidenceIds.map((evidenceId) => {
+                        const source = sourceById.get(evidenceId);
+                        return (
+                          <a
+                            key={evidenceId}
+                            href={source ? `#entity-report-waiting-source-${source.index + 1}` : undefined}
+                            aria-label={
+                              source
+                                ? `Ir a fuente reservada ${source.index + 1}`
+                                : "Fuente reservada no incluida en el detalle"
+                            }
+                          >
+                            [{source ? source.index + 1 : "?"}]
+                          </a>
+                        );
+                      })}
+                    </footer>
+                  )}
+                </article>
+              ))}
+            </section>
+          ))}
+          {!!content.openQuestions.length && (
+            <section className="report-open-questions">
+              <h2>Preguntas abiertas</h2>
+              <ul>
+                {content.openQuestions.map((question) => (
+                  <li key={question}>{question}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!!content.warnings.length && (
+            <section className="report-warnings" role="note">
+              <h2>Advertencias metodológicas</h2>
+              <ul>
+                {content.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </main>
+        <aside className="report-source-index entity-report-waiting-sources">
+          <span className="section-kicker">Fuentes reservadas</span>
+          <h2>Entrarían al expediente</h2>
+          <p>
+            {sources.length} fuentes citables pendientes de materializar. No existen como
+            evidencias reales hasta incorporar.
+          </p>
+          {sources.length ? (
+            <ol>
+              {sources.map((source, index) => (
+                <li key={source.id} id={`entity-report-waiting-source-${index + 1}`}>
+                  <div>
+                    <span>[{index + 1}]</span>
+                    <strong>{source.label}</strong>
+                    <small>{source.sourceKind}</small>
+                    {source.extract && <small>{source.extract}</small>}
+                  </div>
+                  {source.sourceUrl && (
+                    <a
+                      href={source.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Abrir fuente reservada ${index + 1}`}
+                    >
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>No hay fuentes citables reservadas en este job.</p>
+          )}
+        </aside>
+      </div>
+    </section>
   );
 }
 

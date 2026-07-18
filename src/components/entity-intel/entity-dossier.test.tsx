@@ -130,6 +130,41 @@ const dossierResponse = {
   cache_hit: false,
 };
 
+const waitingReportOutput = {
+  title: "Informe de entidad en espera",
+  executive_summary: "La entidad presenta actividad registral reciente y fuentes citables.",
+  confidence: 82,
+  facts: [],
+  inferences: [],
+  recommendations: [],
+  open_questions: ["Confirmar homónimos antes de decidir."],
+  warnings: ["Las fechas BORME son fechas de publicación."],
+  sections: [
+    {
+      heading: "Perfil registral",
+      paragraphs: [
+        {
+          text: "Consta un nombramiento publicado en BORME.",
+          kind: "fact",
+          confidence: 86,
+          evidence_ids: ["evidence-1"],
+        },
+      ],
+    },
+  ],
+  source_index: [{ evidence_id: "evidence-1", label: "BORME", locator: "boe" }],
+};
+
+const pendingEvidenceSources = [
+  {
+    id: "evidence-1",
+    label: "BORME · 2026-07-01 · nombramiento",
+    source_kind: "registry_act",
+    source_url: "https://www.boe.es/borme/dias/2026/07/01/",
+    extract: "Acto BORME: nombramiento. Fecha de publicación: 2026-07-01.",
+  },
+];
+
 describe("EntityDossier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -243,6 +278,71 @@ describe("EntityDossier", () => {
       expect.stringMatching(/^entity-report:company:/),
     ));
     expect(await screen.findByText(/Informe encolado/i)).toBeInTheDocument();
+  });
+
+  it("previsualiza un informe en espera sin incorporarlo", async () => {
+    mocks.reports.mockResolvedValue({
+      data: [
+        {
+          id: "job-new",
+          status: "succeeded",
+          result: {
+            output: waitingReportOutput,
+            pending_evidence_sources: pendingEvidenceSources,
+          },
+          version: 1,
+        },
+        {
+          id: "job-old",
+          status: "succeeded",
+          result: { incorporated_report_id: "report-old", output: { title: "Informe viejo" } },
+          version: 1,
+        },
+      ],
+    });
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    expect(await screen.findByText(/Informe en espera, todavía no incorporado/i)).toBeInTheDocument();
+    expect(screen.queryByText(/biblioteca de informes/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver informe en espera" }));
+
+    expect(await screen.findByRole("heading", { name: "Informe de entidad en espera" })).toBeInTheDocument();
+    expect(screen.getByText(/actividad registral reciente/i)).toBeInTheDocument();
+    expect(screen.getByText("Consta un nombramiento publicado en BORME.")).toBeInTheDocument();
+    expect(screen.getByText("BORME · 2026-07-01 · nombramiento")).toBeInTheDocument();
+    expect(screen.getByText(/todavía no son registros Evidence/i)).toBeInTheDocument();
+    expect(mocks.incorporateReport).not.toHaveBeenCalled();
+  });
+
+  it("si el informe actual ya está incorporado enlaza al informe concreto", async () => {
+    mocks.reports.mockResolvedValue({
+      data: [
+        {
+          id: "job-current",
+          status: "succeeded",
+          result: {
+            incorporated_report_id: "report-current",
+            output: waitingReportOutput,
+            pending_evidence_sources: pendingEvidenceSources,
+          },
+          version: 2,
+        },
+      ],
+    });
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    const link = await screen.findByRole("link", { name: /Abrir informe incorporado/i });
+    expect(link).toHaveAttribute("href", "/app/reports/report-current");
+    expect(screen.queryByText(/biblioteca de informes/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver informe en espera" })).not.toBeInTheDocument();
+  });
+
+  it("explica el estado vacío cuando la entidad no tiene informes", async () => {
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    expect(await screen.findByText(/Aún no hay informes generados para esta entidad/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Informe de la entidad$/i })).toBeInTheDocument();
   });
 
   it("incorpora un informe de entidad terminado a un expediente", async () => {

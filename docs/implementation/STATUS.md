@@ -1433,3 +1433,20 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Pendiente de verificación real con sesión: reproducir «Nuevo expediente» en navegador autenticado
   y generar/incorporar un informe de entidad real con ITURRI SA para confirmar citas visibles sobre
   datos de producción.
+
+## 2026-07-18 · Prompt 55 · Previsualización del informe de entidad en espera
+
+- La tarjeta «Informe IA» de la ficha de entidad permite leer un informe `succeeded` todavía no
+  incorporado sin crear `Report` ni materializar evidencias. La vista previa muestra resumen,
+  secciones, claims y `pending_evidence_sources`, dejando claro que son IDs reservados y que las
+  evidencias reales solo nacen al incorporar.
+- El estado de la tarjeta se calcula sobre el último job `succeeded` de esa entidad. Si ese job
+  está en espera, se ofrece «Ver informe en espera» e incorporación; si ese mismo job ya está
+  incorporado, se enlaza a `/app/reports/{incorporated_report_id}`. Ya no se muestra un mensaje
+  verde basado en cualquier informe histórico de la entidad.
+- La acción de generación se presenta como «Generar nuevo informe» cuando ya existe un informe
+  terminado. La idempotencia de API se mantiene y cada intento explícito usa una clave nueva.
+- Evidencia nueva pendiente: el prompt reporta que en producción el primer clic se pierde de forma
+  fiable en la ficha pesada de entidad, tanto en «Informe de la entidad» como en «Incorporar a
+  expediente». No se ha cerrado en este prompt; queda como caso real para reabrir el diagnóstico de
+  hidratación/carga del prompt 46/53 con sesión autenticada.
