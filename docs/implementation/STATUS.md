@@ -1,8 +1,35 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-17
+Actualizado: 2026-07-18
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Wizard guiado del expediente · prompts 49, 50 y 51
+
+- Prompt 49: los empty states y formularios del expediente guían mejor al usuario sin IA. Las
+  licitaciones fijadas enlazan a Contratación pública y Actores respetando permisos; Señales
+  distingue entre «sin monitor activo», «monitor activo sin señales» y monitores no disponibles; el
+  modal manual de oportunidades/riesgos incluye ayuda honesta sobre scoring, priorización y contexto
+  IA; Roles de actor incorpora ejemplos y aclara que siguen siendo texto libre del expediente.
+- Prompt 50: se añade el agente gobernado `dossier_completion_wizard` con prompt versionado
+  `dossier_completion_wizard/v1`, schema Pydantic estricto, ejecución durable por job `ai`,
+  `AIAuditLog`/`AIArtifact` estándar y contexto específico de completitud del expediente. El
+  multi-turno se resuelve acumulando respuestas y rondas previas en el contexto, sin tocar el
+  provider ni añadir streaming.
+- Prompt 50: se exponen rutas específicas
+  `POST /api/v1/ai/dossiers/{dossier_id}/completion-wizard/runs` y
+  `GET /api/v1/ai/dossiers/{dossier_id}/completion-wizard/latest`, con sesión, CSRF, permiso
+  `ai.execute`, tenant scoping, `Idempotency-Key` y contrato OpenAPI/cliente TypeScript regenerado.
+  La eval sintética «Coches de Bomberos» queda cubierta en mock y recomienda monitor, contratación
+  pública y actores competidores.
+- Prompt 51: Vector incorpora el CTA único `.vector-ai` «Mejorar con Oracle» visible desde todas
+  las pestañas del expediente. El wizard usa Radix Dialog y `JobProgress`, recupera la última ronda
+  tras recargar, muestra diagnóstico/preguntas/acciones y abre los formularios reales prefijados
+  mediante `sessionStorage` scoped por expediente + query param ligero. La búsqueda PLACSP acepta
+  prefill por URL.
+- Pendiente externo: el E2E real contra Signal no está verificado hasta que el repo de Signal aplique
+  el prompt 52 y permita la `task_key` `dossier_completion_wizard` para `opn-oracle`. La dependencia
+  permanece registrada en `OPEN_QUESTIONS.md`.
 
 ## Correcciones P0/P1 · prompts 40, 41 y 42
 
@@ -1450,3 +1477,29 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   fiable en la ficha pesada de entidad, tanto en «Informe de la entidad» como en «Incorporar a
   expediente». No se ha cerrado en este prompt; queda como caso real para reabrir el diagnóstico de
   hidratación/carga del prompt 46/53 con sesión autenticada.
+
+## 2026-07-18 · Diagnóstico instrumentado del «clic silencioso» — cerrado como artefacto de automatización
+
+- Instrumentación en producción con sesión autenticada sobre la ficha de `ITURRI SA` (lo que el
+  prompt 46 no pudo hacer): listeners de captura a nivel de documento para `pointerdown`,
+  `mousedown` y `click`, envoltura de `window.fetch` y poller del estado del botón cada 100 ms.
+- Estado del botón «Generar nuevo informe» en el momento de la prueba: `disabled=false`,
+  `data-hydrated=true`, `data-action-ready=true`, visible en viewport y sin overlays
+  (`elementFromPoint` en su centro devuelve el propio botón).
+- Clic emitido por la extensión de automatización de Chrome sobre ese botón: **cero eventos**
+  llegaron al documento (ninguno de los tres tipos, en fase de captura). Clic programático
+  (`btn.click()`) sobre el mismo botón: evento capturado, manejador React disparado y
+  `POST /api/v1/entity-intel/reports` emitido en 62 ms, creando un job real con clave idempotente
+  nueva (`entity-report:company:ITURRI SA:6ef8da2a…`, job de las 18:21:58).
+- Conclusión: el «primer clic perdido tras navegar» que motivó los prompts 46, 53 (punto 1) y 55
+  (hallazgo 4) es un **artefacto de la herramienta de automatización usada en las auditorías**
+  (descarta el primer clic tras navegación/reconexión antes de que entre al navegador), no un bug
+  del frontend. La página no puede perder un evento que nunca le llega. Esto explica por qué nunca
+  se reprodujo en local y por qué «sobrevivía» a cada arreglo.
+- Queda como único resto real del asunto la ventana pre-hidratación en botones planos sin puerta:
+  inventariados 6 en `entity-dossier.tsx` (paginación del registro ×2, vincular a expediente,
+  alternar vista previa, y cabeceras de ordenación ×2). Riesgo menor: solo afecta a clics en los
+  primeros instantes de vida de la página. No amerita prompt monográfico; puede ir en un bundle de
+  UX futuro.
+- Verificado de paso el hallazgo 3 del prompt 55 con el manejador real: regenerar crea job nuevo
+  con clave fresca; la idempotencia protege del doble envío sin impedir la regeneración.
