@@ -27,9 +27,13 @@ Interfaz canónica: `CANONICAL_UI=vector`
   tras recargar, muestra diagnóstico/preguntas/acciones y abre los formularios reales prefijados
   mediante `sessionStorage` scoped por expediente + query param ligero. La búsqueda PLACSP acepta
   prefill por URL.
-- Pendiente externo: el E2E real contra Signal no está verificado hasta que el repo de Signal aplique
-  el prompt 52 y permita la `task_key` `dossier_completion_wizard` para `opn-oracle`. La dependencia
-  permanece registrada en `OPEN_QUESTIONS.md`.
+- Prompt 52 ya está resuelto en Signal según el repo `opn_signal`: `dossier_completion_wizard`
+  figura para `opn-oracle` con `ollama/qwen3.5:9b`, fallback `ollama_titan/qwen3.6:27b`, cloud
+  cerrado, `json_mode`, `structured_output`, `require_explicit_task`, `max_output_tokens=3500` y
+  `timeout_seconds=180`. Signal documenta smoke real contra `POST /api/v1/ai/run` con consumidor
+  temporal Oracle y JSON válido; en este workspace se reejecutó la suite local de Signal con
+  `577 passed`. Sigue sin verificarse el E2E desde una sesión Oracle porque no hay servidor/sesión
+  local disponible en este contexto.
 
 ## Correcciones P0/P1 · prompts 40, 41 y 42
 
@@ -1503,3 +1507,29 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   UX futuro.
 - Verificado de paso el hallazgo 3 del prompt 55 con el manejador real: regenerar crea job nuevo
   con clave fresca; la idempotencia protege del doble envío sin impedir la regeneración.
+
+## 2026-07-18 · Mitigación nginx de los 503 en prefetch `_rsc` aplicada al host
+
+- Auditoría previa: el host no tenía **ninguna** de las tres piezas. Contra lo que se temía, el
+  mapeo host↔repo resultó ser 1:1 hoy: `/etc/nginx/conf.d/00-oracle-log-format.conf`,
+  `/etc/nginx/snippets/oracle-web-proxy.conf` y `/etc/nginx/sites-available/oracle.conf` eran
+  idénticos a `infra/nginx/{00-oracle-log-format,snippets/oracle-web-proxy,oracle-https}.conf`
+  salvo exactamente las líneas del cambio (9 + 3 + 8). El `oracle-api-proxy.conf` ya coincidía.
+  No hizo falta cirugía con `sed`: se copiaron los tres ficheros del release activo, verificados
+  antes por sha256 contra el repo local.
+- Dependencias respetadas (el orden importa: aplicar el snippet suelto deja nginx inválido):
+  el `map` vive en contexto `http`, la named location `@oracle_web_unavailable` dentro del `server`
+  y referencia esa variable, y el `error_page 502 503 504` del snippet referencia la named location.
+- Backup completo en `/root/nginx-backup-20260718T202237Z` (ruta también en
+  `/root/.last-nginx-backup`), con rollback automático armado si `nginx -t` fallaba. No hizo falta.
+- `nginx -t` OK y recarga vía `oracle-control --yes nginx-reload` (valida y recarga sin restart).
+- Verificación funcional en producción tras la recarga:
+  - `/login` 200, `/app/actors` 200; salud interna y pública en verde.
+  - Prefetch RSC legítimo (`RSC: 1` + `Next-Router-Prefetch: 1`): **200**. No se rompen los
+    prefetches buenos, que era el riesgo principal del cambio.
+  - A/B con upstream que no responde: navegación real **200** (intacta) frente a prefetch
+    **204** tras agotar `proxy_read_timeout 65s`. Es decir, el prefetch que antes habría
+    aflorado un 503 ruidoso ahora falla en silencio y el router lo reintenta.
+- Nota lateral sin relación con el cambio: una petición `_rsc` malformada con
+  `Next-Router-Prefetch: 1` y sin cabecera `RSC` hace que Next.js cuelgue hasta el timeout de 65 s.
+  Ningún navegador real emite esa combinación; queda anotado, no se ha tocado.
