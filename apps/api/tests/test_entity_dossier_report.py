@@ -243,6 +243,55 @@ def test_entity_dossier_waiting_payload_discloses_limits_and_caps_lists() -> Non
     assert entity_key(name="ITURRI, S.A.", kind="company").startswith("company:iturri-s-a")
 
 
+def test_registry_limit_caps_sources_and_discloses_the_cut() -> None:
+    """El tope de actos acota la salida y debe declararse, no ocultarse.
+
+    Cada acto se vuelve una fuente citable que el modelo enumera en su índice, así
+    que el número de actos fija el suelo de longitud de la salida: con 65 actas el
+    informe agotaba 16000 tokens y moría con "Invalid JSON: EOF". Recortar sin
+    declararlo sería peor que el fallo: presentaría un análisis de 5 actos como si
+    hubiera visto los 65.
+    """
+
+    payload = {
+        "entity": {"name": "Entidad", "type": "company"},
+        "sections": {
+            "registry": {
+                "ok": True,
+                "data": {
+                    "total": 65,
+                    "items": [
+                        {
+                            "action": "nombramiento",
+                            "date": f"2026-07-{index:02d}",
+                            "source_url": f"https://www.boe.es/borme/dias/2026/07/{index:02d}/",
+                        }
+                        for index in range(1, 28)
+                    ],
+                },
+            }
+        },
+    }
+
+    compact = compact_entity_dossier(payload, registry_limit=5)
+
+    assert len(compact["registry"]["items"]) == 5
+    assert compact["registry"]["analyzed_acts"] == 5
+    assert compact["registry"]["truncated_by_oracle"] is True
+
+    # El recorte reduce las fuentes citables, que es lo que acota la salida del modelo.
+    sources = build_pending_entity_evidence_sources(
+        entity_dossier=compact,
+        corpus_hash="b" * 64,
+    )
+    assert len(sources) == 5
+
+    disclosure = source_limits(compact)
+    assert any("5" in line and "65" in line for line in disclosure), disclosure
+    # Sin recorte no se inventa una advertencia que no aplica.
+    assert source_limits(compact_entity_dossier(payload, registry_limit=200)) == source_limits()
+
+
 def test_entity_dossier_builds_pending_citable_sources_from_urls() -> None:
     compact = {
         "registry": {

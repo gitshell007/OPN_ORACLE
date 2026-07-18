@@ -60,6 +60,9 @@ x-app-environment: &app-environment
   SIGNAL_AI_ALLOWED_HOSTS: ${ORACLE_SIGNAL_AI_ALLOWED_HOSTS:-}
   SIGNAL_AI_TIMEOUT_SECONDS: ${ORACLE_SIGNAL_AI_TIMEOUT_SECONDS:-300}
   SIGNAL_AI_API_KEY_FILE: /run/secrets/oracle_signal_ai_api_key
+  # Actos BORME que ve el modelo en el informe de entidad. Calibrable sin desplegar
+  # código: cada acto es una fuente citable que el modelo enumera en su salida.
+  ENTITY_INTEL_MAX_REGISTRY_ACTS: ${ENTITY_INTEL_MAX_REGISTRY_ACTS:-200}
   DOCUMENTS_ENABLED: "false"
   DOCUMENT_STORAGE_BACKEND: local
   DOCUMENT_LOCAL_ROOT: /var/lib/oracle-storage

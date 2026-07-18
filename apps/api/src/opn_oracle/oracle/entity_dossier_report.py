@@ -128,7 +128,21 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def compact_entity_dossier(payload: dict[str, Any]) -> dict[str, Any]:
+REGISTRY_ITEM_LIMIT = 200
+
+
+def compact_entity_dossier(
+    payload: dict[str, Any], *, registry_limit: int = REGISTRY_ITEM_LIMIT
+) -> dict[str, Any]:
+    """Recorta la ficha a lo que cabe en una llamada al modelo.
+
+    `registry_limit` acota los actos BORME que ve el modelo. No es una optimización
+    de coste: cada acto se convierte en una fuente citable que el modelo enumera en
+    su índice de fuentes, así que el número de actos fija el suelo de longitud de la
+    salida. Con las 65 actas de ITURRI el informe agotaba 16000 tokens enumerando
+    fuentes y moría con "Invalid JSON: EOF" antes de cerrar el JSON.
+    """
+
     entity = payload.get("entity") if isinstance(payload.get("entity"), dict) else {}
     registry = _section_data(payload, "registry") or {}
     graph = _section_data(payload, "graph") or {}
@@ -138,8 +152,9 @@ def compact_entity_dossier(payload: dict[str, Any]) -> dict[str, Any]:
         "registry": {
             "profile": registry.get("profile") if isinstance(registry.get("profile"), dict) else {},
             "total": registry.get("total"),
-            "items": _items(registry)[:200],
-            "truncated_by_oracle": len(_items(registry)) > 200,
+            "items": _items(registry)[:registry_limit],
+            "truncated_by_oracle": len(_items(registry)) > registry_limit,
+            "analyzed_acts": min(len(_items(registry)), registry_limit),
         },
         "graph": {
             "center": graph.get("center"),
@@ -315,8 +330,26 @@ def build_pending_entity_evidence_sources(
     return pending
 
 
-def source_limits() -> list[str]:
+def source_limits(entity_dossier: dict[str, Any] | None = None) -> list[str]:
+    """Límites de fuente que el modelo debe respetar y el informe debe declarar.
+
+    Si Oracle ha recortado los actos registrales, el recorte se declara aquí: un
+    informe que analiza 5 de 65 actos no puede presentarse como si los hubiera visto
+    todos, ni concluir ausencia de nada a partir de lo que no se le pasó.
+    """
+
+    registry = (entity_dossier or {}).get("registry")
+    limits: list[str] = []
+    if isinstance(registry, dict) and registry.get("truncated_by_oracle"):
+        analyzed = registry.get("analyzed_acts")
+        total = registry.get("total")
+        limits.append(
+            f"Oracle solo ha pasado {analyzed} actos registrales de {total} al análisis: "
+            "las conclusiones cubren ese subconjunto y no puede inferirse ausencia de "
+            "hechos a partir de los actos no analizados."
+        )
     return [
+        *limits,
         (
             "Las fechas BORME son fechas de publicación, no necesariamente fechas "
             "registrales efectivas."
@@ -390,7 +423,10 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
     finally:
         client.close()
     metrics = build_entity_dossier_metrics(dossier_payload)
-    compact = compact_entity_dossier(dossier_payload)
+    compact = compact_entity_dossier(
+        dossier_payload,
+        registry_limit=int(current_app.config["ENTITY_INTEL_MAX_REGISTRY_ACTS"]),
+    )
     corpus_hash = hashlib.sha256(_canonical(compact)).hexdigest()
     pending_evidence_sources = build_pending_entity_evidence_sources(
         entity_dossier=compact,
@@ -416,7 +452,7 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
         "prompt_version": audit.prompt_version,
         "generated_at": audit.completed_at.isoformat() if audit.completed_at else None,
         "corpus_hash": corpus_hash,
-        "source_limits": source_limits(),
+        "source_limits": source_limits(compact),
         "computed_metrics": metrics,
         "pending_evidence_schema": ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
         "pending_evidence_sources": pending_evidence_sources,
@@ -503,7 +539,7 @@ def _run_waiting_area_agent(
             for item in pending_evidence_sources
         ],
         "computed_metrics": computed_metrics,
-        "source_limits": source_limits(),
+        "source_limits": source_limits(entity_dossier),
         "corpus_hash": corpus_hash,
         "evidence_policy": {
             "materialization": (

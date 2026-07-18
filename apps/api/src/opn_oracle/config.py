@@ -190,6 +190,7 @@ class Settings:
     integration_primary_key_version: int
     document_storage_backend: str
     documents_enabled: bool
+    entity_intel_max_registry_acts: int
     document_local_root: str
     document_max_bytes: int
     document_tenant_quota_bytes: int
@@ -435,6 +436,16 @@ class Settings:
             ),
             documents_enabled=_as_bool(values.get("DOCUMENTS_ENABLED", app_env != "production")),
             document_storage_backend=str(values.get("DOCUMENT_STORAGE_BACKEND", "local")).lower(),
+            # Cuántos actos BORME se le pasan al modelo en el informe de entidad. Es un
+            # techo de *entrada* que acota la salida: el modelo enumera cada fuente citable
+            # en su índice, así que con las 65 actas de ITURRI agotaba 16000 tokens de
+            # salida sin llegar a cerrar el JSON. Se deja configurable por entorno para
+            # poder calibrarlo sin desplegar código.
+            entity_intel_max_registry_acts=_as_int(
+                values.get("ENTITY_INTEL_MAX_REGISTRY_ACTS", 200),
+                name="ENTITY_INTEL_MAX_REGISTRY_ACTS",
+                minimum=1,
+            ),
             document_local_root=str(values.get("DOCUMENT_LOCAL_ROOT", ".oracle-storage")),
             document_max_bytes=_as_int(
                 values.get("DOCUMENT_MAX_BYTES", 25 * 1024 * 1024),
