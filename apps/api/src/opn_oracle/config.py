@@ -442,7 +442,10 @@ class Settings:
             # salida sin llegar a cerrar el JSON. Se deja configurable por entorno para
             # poder calibrarlo sin desplegar código.
             entity_intel_max_registry_acts=_as_int(
-                values.get("ENTITY_INTEL_MAX_REGISTRY_ACTS", 200),
+                # Debe coincidir con REGISTRY_ITEM_LIMIT de oracle.entity_dossier_report
+                # (no se importa para no crear un ciclo config <-> oracle). Hay un test
+                # que ata ambos valores.
+                values.get("ENTITY_INTEL_MAX_REGISTRY_ACTS", 25),
                 name="ENTITY_INTEL_MAX_REGISTRY_ACTS",
                 minimum=1,
             ),

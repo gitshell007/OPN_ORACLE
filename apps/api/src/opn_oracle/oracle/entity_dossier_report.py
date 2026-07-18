@@ -128,7 +128,14 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-REGISTRY_ITEM_LIMIT = 200
+# Medido en producción sobre ITURRI SA (65 actos), con 16000 tokens de salida:
+#   5 actos  -> informe completo, 2 hechos citados, 0 citas inventadas
+#   25 actos -> informe completo y más rico (3 hechos, 17 inferencias), 0 inventadas
+#   65 actos -> vuelve a truncar ("Invalid JSON: EOF", línea 585)
+# El techo está entre 25 y 65, y depende de lo verboso que sea cada acto, así que se
+# deja 25 con margen en vez de apurar el borde: un valor que apenas funciona con esta
+# entidad fallaría con otra de actos más largos.
+REGISTRY_ITEM_LIMIT = 25
 
 
 def compact_entity_dossier(

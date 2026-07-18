@@ -16,6 +16,7 @@ from opn_oracle.jobs.service import TASK_QUEUES
 from opn_oracle.oracle.entity_dossier_report import (
     ENTITY_DOSSIER_AGENT,
     ENTITY_DOSSIER_REPORT_JOB,
+    REGISTRY_ITEM_LIMIT,
     build_entity_dossier_metrics,
     build_pending_entity_evidence_sources,
     compact_entity_dossier,
@@ -233,7 +234,9 @@ def test_entity_dossier_waiting_payload_discloses_limits_and_caps_lists() -> Non
         },
     }
 
-    compact = compact_entity_dossier(payload)
+    # Límite explícito: este test cubre el recorte y la declaración, no el valor por
+    # defecto (que se calibró aparte contra producción y tiene su propio test).
+    compact = compact_entity_dossier(payload, registry_limit=200)
 
     assert len(compact["registry"]["items"]) == 200
     assert compact["registry"]["truncated_by_oracle"] is True
@@ -241,6 +244,28 @@ def test_entity_dossier_waiting_payload_discloses_limits_and_caps_lists() -> Non
     assert compact["news"]["truncated_by_oracle"] is True
     assert any("BORME" in item and "publicación" in item for item in source_limits())
     assert entity_key(name="ITURRI, S.A.", kind="company").startswith("company:iturri-s-a")
+
+
+def test_registry_act_default_is_shared_by_config_and_report() -> None:
+    """El defecto de config y el del informe deben ser el mismo número.
+
+    config.py no importa REGISTRY_ITEM_LIMIT para no crear un ciclo config <-> oracle,
+    así que el valor está duplicado y hay que atarlo. Medido en producción: 25 actos
+    generan el informe completo y 65 lo truncan, así que un defecto demasiado alto
+    devuelve el fallo "Invalid JSON: EOF" a cualquier entorno que no fije la variable.
+    """
+    from opn_oracle.config import Settings
+
+    settings = Settings.load(
+        {
+            "APP_ENV": "test",
+            "DATABASE_URL": "postgresql://app@db/oracle",
+            "DATABASE_MIGRATION_URL": "postgresql://migrator@db/oracle",
+            "REDIS_URL": "redis://redis/0",
+            "FRONTEND_ORIGIN": "https://oracle.example",
+        }
+    )
+    assert settings.entity_intel_max_registry_acts == REGISTRY_ITEM_LIMIT
 
 
 def test_registry_limit_caps_sources_and_discloses_the_cut() -> None:
