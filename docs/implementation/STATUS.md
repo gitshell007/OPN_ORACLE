@@ -1557,3 +1557,30 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   passed, 0 skipped y 107 tests de integración excluidos**. No se ha generado un informe real de
   ITURRI SA ni se ha verificado en producción; esa validación queda expresamente pendiente tras
   desplegar.
+
+## 2026-07-19 · Prompt 56 verificado en producción · informe ejecutivo con contratación
+
+- Release `20260719T093215Z-quick-ee08339`. Salud interna y pública en verde.
+- Informe real de `ITURRI SA` generado con prompt v2 (job `2f2989a5`), `succeeded` en ~60 s:
+  - **2.023 palabras** de cuerpo (antes 1.165 troceadas en 34 párrafos telegráficos) repartidas
+    en 7 secciones de 145-386 palabras. La sección más larga es «Lectura estratégica» (386), que
+    era exactamente el objetivo: antes el análisis era el 12 % del informe.
+  - Las enumeraciones desaparecieron: «Gobierno y personas clave» tiene 4 nombres propios en
+    mayúsculas frente a los 26 en ristra del informe anterior.
+  - `top_opportunities`, `top_risks` y `recommended_actions` con 4 elementos cada uno; antes
+    salían vacíos.
+  - **Contratación pública real**: 608 contratos, 390.180.837,19 € entre 2021 y 2026, con
+    desglose anual, mediana y distribución por importes. Todos los agregados calculados en
+    Python.
+  - **45 citas, 45 permitidas, 0 inventadas.** Los 5 párrafos `fact` citan evidencia.
+- Techo global de fuentes en acción: 45 de 48 disponibles, declarado en `source_limits` junto al
+  recorte de actos (25 de 65) y las limitaciones de la contratación (matching por nombre sin CIF;
+  corpus de adjudicaciones, no de licitaciones presentadas).
+- `awards_without_date` presente y en cero para esta entidad: el desglose anual cuadra con el
+  total.
+- Auditoría previa al despliegue: 35 hallazgos, 10 confirmados tras verificación adversarial,
+  25 refutados. Los tres arreglados antes de desplegar (httpx.RequestError, techo global de
+  fuentes, adjudicaciones sin fecha) están descritos en el commit `59f1c17`.
+- Pendiente: los 107 tests de integración no se ejecutaron (Docker no disponible en local y no
+  hay `gh` para observar el CI). El informe real cubre el camino end-to-end, pero la integración
+  sigue sin gate propio en esta entrega.
