@@ -1,8 +1,29 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-18
+Actualizado: 2026-07-19
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Protocolo de verificación y entrega · prompt 58
+
+- `AGENTS.md` incorpora la receta de integración sin Docker con `uv` por ruta absoluta, los
+  escollos de logging/caplog detectados en integración, y una definición de terminado que exige
+  despacho HTTP real, mutación de tests nuevos, barrido de patrón, cuadrante de configuración,
+  mediciones tocadas, recuento de contratos con datos existentes e integración ejecutada o riesgo
+  abierto explícito.
+- `DECISIONS.md` registra D-038: los fallos recientes viven en costuras entre editor, HTTP,
+  contenedor, provider, base de datos, librerías y presupuesto de modelo; los prompts futuros deben
+  declarar invariantes conocidos y Codex debe parar si contradicen mediciones registradas.
+- Se añaden invariantes automáticos en `test_verification_protocol.py`: compose productivo sin
+  variables huérfanas de `Settings`, palancas operativas cableadas en compose y ejemplo de entorno,
+  rutas APIFlask con cuerpo JSON recibiendo `json_data`, errores `httpx.RequestError` clasificados
+  sin filtrar transporte, techo global de fuentes citables manteniendo todos los tipos conocidos, y
+  revalidación JSON de todos los modelos IA estrictos.
+- Al aplicar el invariante del cuadrante se detectó y corrigió un hueco documental: `compose.prod.yml`
+  ya exponía `DOCUMENT_ALLOW_OFFICIAL_UNSCANNED`, pero `infra/production/oracle.env.example` no lo
+  incluía. No se cambia comportamiento productivo.
+- Validación local con integración: `ORACLE_RUN_INTEGRATION=1 ... ~/.local/bin/uv run pytest -q`
+  terminó con `497 passed`, `0 skipped` y cobertura total `84.11%`.
 
 ## Wizard guiado del expediente · prompts 49, 50 y 51
 

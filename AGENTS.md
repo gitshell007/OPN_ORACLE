@@ -547,9 +547,23 @@ make compose-config
 make smoke
 make backup
 make restore-test
+
+# Backend completo sin Docker cuando ya existen PostgreSQL/Redis locales de prueba
+cd apps/api
+ORACLE_RUN_INTEGRATION=1 \
+TEST_DATABASE_URL='postgresql+psycopg://oracle_migrator:ci-migrator-only@127.0.0.1:5432/oracle_test' \
+TEST_RUNTIME_DATABASE_URL='postgresql+psycopg://oracle_app:ci-app-only@127.0.0.1:5432/oracle_test' \
+TEST_REDIS_URL='redis://127.0.0.1:6379/14' \
+~/.local/bin/uv run pytest -q
 ```
 
 No introduzcas un Makefile si el repositorio ya tiene una solución equivalente sólida; documenta los comandos reales.
+
+En esa receta de integración, no asumas que el shell interactivo ajusta el `PATH`: usa la ruta real
+de `uv` o exporta explícitamente `~/.local/bin`. Dos escollos conocidos de aislamiento: Celery
+puede reconfigurar logging con `disable_existing_loggers` al arrancar worker real, y
+`configure_logging` limpia `root.handlers` al construir la app, lo que puede retirar el handler de
+`caplog`.
 
 ---
 
@@ -565,6 +579,19 @@ Un cambio no está terminado hasta que:
 - actualiza OpenAPI y cliente TS si cambia contrato;
 - incluye migración si cambia esquema;
 - documenta configuración/variables nuevas;
+- los endpoints nuevos o modificados se prueban por despacho HTTP real (`client.get/post/...`),
+  no invocando funciones de vista;
+- cada test nuevo se verifica mutando el comportamiento que cubre; el resumen declara qué mutó y
+  qué test cayó;
+- ningún test afirma sobre código fuente, docstrings, comentarios ni nombres de símbolo: prueba
+  comportamiento observable, estado, contrato HTTP o artefactos;
+- si introduce configuración, recorre dataclass, parseo, `compose.prod.yml` y
+  `infra/production/oracle.env.example`, y comprueba que la variable llega al contenedor;
+- si corrige un fallo, barre el repo buscando el mismo patrón y declara búsqueda y resultado;
+- si toca un valor con medición registrada en comentario o `DECISIONS.md`, explica por qué sigue
+  siendo seguro;
+- si altera un contrato con datos existentes, incluye recuento de filas afectadas;
+- la suite de integración se ejecuta; si no, queda como riesgo abierto con motivo;
 - lint, tipos, tests y build pasan;
 - no hay errores relevantes de consola;
 - `STATUS.md` refleja el estado real.
@@ -583,6 +610,10 @@ Siempre informa:
 6. pruebas no ejecutadas y motivo;
 7. riesgos/deuda real;
 8. cambios manuales o credenciales aún necesarios;
-9. siguiente prompt/fase recomendada.
+9. mutaciones aplicadas y resultado;
+10. barrido del patrón: qué se buscó, dónde y qué apareció;
+11. invariantes tocados: mediciones o decisiones registradas afectadas;
+12. siguiente prompt/fase recomendada.
 
-Evita “todo funciona” sin evidencias concretas.
+Evita “todo funciona” sin evidencias concretas. Nombra gates solo cuando se hayan ejecutado todos
+sus comandos: “Ruff correcto” exige `ruff check` y `ruff format --check`.

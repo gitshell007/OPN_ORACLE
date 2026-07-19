@@ -548,3 +548,21 @@ deberá versionarse un flujo de copia/materialización separado.
   lectura ejecutiva de 1.200-2.000 palabras sin delegar aritmética al LLM ni subir el presupuesto
   de 16.000 tokens. El v1 y `ReportOutput` permanecen intactos; la evidencia sigue materializándose
   únicamente al incorporar el informe por D-035/D-036.
+
+## D-038 — Protocolo de verificación cruzando costuras
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-19
+- **Contexto:** los fallos recientes que llegaron a producción no estaban en la lógica de negocio,
+  sino en fronteras que un editor no ve: despacho HTTP real, contenedor, provider externo,
+  serialización desde base de datos, runtime de librerías y presupuesto de modelo. Parte del riesgo
+  vino de prompts incompletos, especialmente cuando no declaraban invariantes ya medidos.
+- **Decisión:** la definición de terminado exige probar endpoints por despacho HTTP real, verificar
+  cada test nuevo por mutación, evitar tests sobre texto fuente, demostrar el cableado completo de
+  configuración operativa, barrer patrones tras corregir fallos, declarar mediciones tocadas,
+  contar filas afectadas por cambios de contrato y ejecutar integración o dejar su ausencia como
+  riesgo abierto. Se añaden invariantes automáticos para configuración, rutas APIFlask, errores de
+  red, techo global de fuentes citables y relectura JSON de modelos IA estrictos.
+- **Consecuencias:** un verde local sin integración o sin mutación deja de ser una entrega completa.
+  Los prompts futuros deben enunciar explícitamente los invariantes conocidos que el cambio pueda
+  romper; si contradicen una medición registrada, Codex debe parar y señalarlo.

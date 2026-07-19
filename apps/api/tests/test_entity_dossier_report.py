@@ -135,30 +135,6 @@ def test_incorporate_entity_report_route_dispatches_body_via_http(
     assert captured["dossier_id"] == dossier_id
 
 
-def test_entity_intel_json_routes_use_apiflask_body_argument() -> None:
-    """Contrato: toda vista con @bp.input(location='json') debe recibir `json_data`.
-
-    APIFlask inyecta el cuerpo con ese nombre; una firma con otro nombre revienta
-    con TypeError solo en dispatch HTTP real. Se barre el fuente del blueprint para
-    que un tercer endpoint no repita el fallo sin que nadie se entere. Es una
-    comprobación textual a propósito: no depende de internals de APIFlask.
-    """
-    import re
-    from pathlib import Path
-
-    source = Path(entity_intel_routes.__file__).read_text(encoding="utf-8")
-    # Cada @bp.input(..., location="json") seguido (saltando otros decoradores)
-    # de la firma def ...(...): debe llevar un parámetro json_data.
-    pattern = re.compile(
-        r'location="json"\).*?\ndef \w+\((?P<sig>[^)]*)\)',
-        re.DOTALL,
-    )
-    offenders = [
-        m.group("sig") for m in pattern.finditer(source) if "json_data" not in m.group("sig")
-    ]
-    assert offenders == [], f"vistas con cuerpo json sin arg 'json_data': {offenders}"
-
-
 def test_entity_dossier_prompt_output_budget_matches_signal_policy() -> None:
     """El informe cita evidencia BORME/noticias, así que su salida es larga.
 
