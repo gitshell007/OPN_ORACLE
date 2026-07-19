@@ -1584,3 +1584,20 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Pendiente: los 107 tests de integración no se ejecutaron (Docker no disponible en local y no
   hay `gh` para observar el CI). El informe real cubre el camino end-to-end, pero la integración
   sigue sin gate propio en esta entrega.
+
+## 2026-07-19 · Tests de integración ejecutados por primera vez
+
+- Ejecutados en local sin Docker (no disponible) contra Postgres 17 y Redis de Homebrew, en una
+  base `oracle_test` aislada. **No se ejecutó nada contra producción**: la suite crea y destruye
+  esquemas, así que correrla contra la BD real habría sido destructivo.
+- Resultado inicial: 4 fallos, todos latentes desde hace días por no ejecutarse esta suite. Los
+  cuatro corregidos en `59318fb` y desplegados en `20260719T110250Z-quick-59318fb`:
+  regresión de sanitización de `error_message` (seguridad), dos aserciones de plantillas
+  obsoletas desde el prompt 45, y un test de logs dependiente del orden de ejecución.
+- Estado final: **426 pasan, 0 fallan**.
+- Queda rojo el umbral de cobertura: 80,70 % frente al 84 % exigido, con
+  `entity_dossier_report.py` al 47 % (el job, el agente y la incorporación sin cubrir) y
+  `ai/context.py` al 74 %. Prompt 57 redactado para cerrarlo.
+- Receta reutilizable para correr la suite completa sin Docker documentada en el prompt 57,
+  incluidos los dos escollos de aislamiento (Celery deshabilita loggers existentes;
+  `configure_logging` borra los handlers del logger raíz).
