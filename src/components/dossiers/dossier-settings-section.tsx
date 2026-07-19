@@ -10,6 +10,7 @@ import {
   type SignalMonitorSourceType,
 } from "@oracle/api-client";
 import { Archive, CirclePlus, PauseCircle, PlayCircle, RefreshCw, Save } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -56,6 +57,7 @@ function commaSeparated(value: string) {
 }
 
 export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
+  const searchParams = useSearchParams();
   const [dossier, setDossier] = useState<BackendDossier | null>(null);
   const [monitors, setMonitors] = useState<SignalMonitor[]>([]);
   const [connections, setConnections] = useState<SignalConnection[]>([]);
@@ -109,6 +111,53 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
     const kickoff = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(kickoff);
   }, [load]);
+
+  useEffect(() => {
+    if (loading || searchParams?.get("wizard_prefill") !== "monitor") return;
+    const key = `oracle:wizard-prefill:${dossierId}:monitor`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const value = JSON.parse(raw) as Record<string, unknown>;
+        setMonitorForm((current) => ({
+          ...current,
+          name: typeof value.name === "string" ? value.name : current.name,
+          query: typeof value.query === "string" ? value.query : current.query,
+          keywords: Array.isArray(value.keywords)
+            ? value.keywords.map(String).join(", ")
+            : current.keywords,
+          source_types: Array.isArray(value.source_types)
+            ? value.source_types
+                .map(String)
+                .filter((item): item is SignalMonitorSourceType =>
+                  safeSourceTypes.some((source) => source.value === item),
+                )
+            : current.source_types,
+          languages: Array.isArray(value.languages)
+            ? value.languages.map(String).join(", ")
+            : current.languages,
+          geographies: Array.isArray(value.geographies)
+            ? value.geographies.map(String).join(", ")
+            : current.geographies,
+          cadence:
+            value.cadence === "hourly" || value.cadence === "weekly"
+              ? value.cadence
+              : value.cadence === "daily"
+                ? "daily"
+                : current.cadence,
+        }));
+        sessionStorage.removeItem(key);
+      } catch {
+        sessionStorage.removeItem(key);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dossierId, loading, searchParams]);
 
   async function save(event: FormEvent) {
     event.preventDefault();

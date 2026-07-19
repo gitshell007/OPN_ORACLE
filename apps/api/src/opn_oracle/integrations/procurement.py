@@ -116,7 +116,12 @@ class ProcurementClient:
                 json=dict(json_body) if json_body is not None else None,
                 headers=headers,
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        # httpx.RequestError, no solo timeout/red: RemoteProtocolError, LocalProtocolError,
+        # DecodingError, ProxyError, TooManyRedirects y UnsupportedProtocol NO son subclases
+        # de las anteriores y se escapaban crudas. Un corte de keep-alive ('Server
+        # disconnected') mataba el job como fallo permanente en vez de degradar a error de
+        # proveedor reintentable.
+        except httpx.RequestError as exc:
             raise ProcurementProviderError(
                 status_code=503,
                 code="procurement_provider_unavailable",

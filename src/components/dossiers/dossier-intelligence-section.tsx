@@ -9,6 +9,7 @@ import {
   type OracleEvidence,
   type OracleOpportunity,
   type OracleRisk,
+  type SignalMonitor,
 } from "@oracle/api-client";
 import {
   ArrowRight,
@@ -29,6 +30,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { useAuth } from "@/components/auth/auth-provider";
 import { HydratedActionButton } from "@/components/ui/async-action-button";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { productScoreDetailLabel, productSignalTypeLabel } from "@/lib/product-copy";
@@ -190,6 +192,10 @@ function pageTotal(page?: DossierResourcePage<SelectedItem>["meta"]): number {
   return Number(page?.total) || 0;
 }
 
+function isActiveMonitor(item: SignalMonitor): boolean {
+  return item.status === "active" || item.desired_status === "active";
+}
+
 export function DossierIntelligenceSection({
   dossierId,
   kind,
@@ -198,6 +204,7 @@ export function DossierIntelligenceSection({
   kind: IntelligenceSectionKind;
 }) {
   const copy = SECTION_COPY[kind];
+  const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -240,6 +247,11 @@ export function DossierIntelligenceSection({
   const [manualSecondary, setManualSecondary] = useState(50);
   const [manualConfidence, setManualConfidence] = useState(50);
   const [manualError, setManualError] = useState<string | null>(null);
+  const [signalMonitors, setSignalMonitors] = useState<SignalMonitor[] | null>(
+    null,
+  );
+  const [signalMonitorsUnavailable, setSignalMonitorsUnavailable] =
+    useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -261,6 +273,17 @@ export function DossierIntelligenceSection({
             : await api.risks.list(dossierId, input);
       setItems(kind === "signals" ? dedupeSignals(result.data as DossierSignalEnvelope[]) : result.data);
       setMeta(result.meta);
+      if (kind === "signals") {
+        const monitorResult = await api.signalAvanza
+          .monitors(dossierId)
+          .then((value) => ({ value: value.data, available: true }))
+          .catch(() => ({ value: [] as SignalMonitor[], available: false }));
+        setSignalMonitors(monitorResult.value);
+        setSignalMonitorsUnavailable(!monitorResult.available);
+      } else {
+        setSignalMonitors(null);
+        setSignalMonitorsUnavailable(false);
+      }
     } catch (reason) {
       setItems([]);
       setMeta(undefined);
@@ -327,6 +350,44 @@ export function DossierIntelligenceSection({
     const kickoff = window.setTimeout(() => void openDetail(match), 0);
     return () => window.clearTimeout(kickoff);
   }, [items, openDetail, selected, selectedId]);
+
+  useEffect(() => {
+    if (kind === "signals") return;
+    const expected = kind === "opportunities" ? "opportunity" : "risk";
+    if (searchParams?.get("wizard_prefill") !== expected) return;
+    const key = `oracle:wizard-prefill:${dossierId}:${expected}`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const value = JSON.parse(raw) as Record<string, unknown>;
+        setManualTitle(typeof value.title === "string" ? value.title : "");
+        setManualDescription(
+          typeof value.description === "string" ? value.description : "",
+        );
+        setManualResponse(
+          typeof value.next_action === "string"
+            ? value.next_action
+            : typeof value.mitigation === "string"
+              ? value.mitigation
+              : "",
+        );
+        setManualPrimary(50);
+        setManualSecondary(50);
+        setManualConfidence(50);
+        setManualError(null);
+        setManualOpen(true);
+        sessionStorage.removeItem(key);
+      } catch {
+        sessionStorage.removeItem(key);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dossierId, kind, searchParams]);
 
   function applyFilters(event: FormEvent) {
     event.preventDefault();
@@ -516,6 +577,10 @@ export function DossierIntelligenceSection({
     setManualError(null);
   }
 
+  const noFilters = !appliedQuery && !statusFilter && !minimumScore;
+  const activeSignalMonitors = signalMonitors?.filter(isActiveMonitor) ?? [];
+  const signalSettingsHref = `/app/dossiers/${dossierId}/settings`;
+
   async function createManual(event: FormEvent) {
     event.preventDefault();
     if (kind === "signals") return;
@@ -651,11 +716,20 @@ export function DossierIntelligenceSection({
           <div className="intelligence-state">
             <CheckCircle2 size={24} aria-hidden="true" />
             <h2>No hay resultados</h2>
-            <p>
-              {appliedQuery || statusFilter || minimumScore
-                ? "Prueba a retirar algún filtro."
-                : `El expediente todavía no contiene ${copy.title.toLowerCase()}.`}
-            </p>
+            {noFilters && kind === "signals" ? (
+              <SignalEmptyState
+                activeMonitorCount={activeSignalMonitors.length}
+                settingsHref={signalSettingsHref}
+                canOpenSettings={auth.can("dossier.read")}
+                monitorsUnavailable={signalMonitorsUnavailable}
+              />
+            ) : (
+              <p>
+                {noFilters
+                  ? `El expediente todavía no contiene ${copy.title.toLowerCase()}.`
+                  : "Prueba a retirar algún filtro."}
+              </p>
+            )}
           </div>
         ) : (
           <>
@@ -735,14 +809,42 @@ export function DossierIntelligenceSection({
           <Dialog.Content className="dialog-content work-dialog intelligence-manual-dialog">
             <div className="dialog-header"><div><span className="section-kicker">Registro manual</span><Dialog.Title>{kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}</Dialog.Title><Dialog.Description>Registra una valoración humana inicial. Podrás enlazar evidencias y actores después.</Dialog.Description></div><Dialog.Close className="icon-button" aria-label="Cerrar"><X /></Dialog.Close></div>
             <form onSubmit={createManual}>
-              <label>Título<input required minLength={3} maxLength={300} value={manualTitle} onChange={(event) => setManualTitle(event.target.value)} autoFocus /></label>
-              <label>Descripción<textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} /></label>
+              <label className="field">Título<input required minLength={3} maxLength={300} value={manualTitle} onChange={(event) => setManualTitle(event.target.value)} autoFocus aria-describedby="manual-title-help" /></label>
+              <small id="manual-title-help">Nombra el hecho de forma concreta para que se pueda encontrar, ordenar y revisar después.</small>
+              <label className="field">Descripción<textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder={kind === "opportunities" ? "Ej.: Varios ayuntamientos preparan compras de vehículos de emergencia y conviene mapear fabricantes." : "Ej.: Dependemos de un único proveedor para una pieza crítica del proyecto."} aria-describedby="manual-description-help" /></label>
+              <small id="manual-description-help">Resume el contexto verificable. Este texto entra en el expediente y puede aparecer en el contexto que lee la IA.</small>
               <div className="manual-score-grid">
-                <label>{kind === "opportunities" ? "Encaje estratégico" : "Impacto"}<output>{manualPrimary}</output><input type="range" min="0" max="100" value={manualPrimary} onChange={(event) => setManualPrimary(Number(event.target.value))} /></label>
-                <label>{kind === "opportunities" ? "Urgencia" : "Probabilidad"}<output>{manualSecondary}</output><input type="range" min="0" max="100" value={manualSecondary} onChange={(event) => setManualSecondary(Number(event.target.value))} /></label>
-                <label>Confianza inicial<output>{manualConfidence}</output><input type="range" min="0" max="100" value={manualConfidence} onChange={(event) => setManualConfidence(Number(event.target.value))} /></label>
+                <label>{kind === "opportunities" ? "Encaje estratégico" : "Impacto"}<output>{manualPrimary}</output><input type="range" min="0" max="100" value={manualPrimary} onChange={(event) => setManualPrimary(Number(event.target.value))} aria-describedby="manual-primary-help" /></label>
+                <label>{kind === "opportunities" ? "Urgencia" : "Probabilidad"}<output>{manualSecondary}</output><input type="range" min="0" max="100" value={manualSecondary} onChange={(event) => setManualSecondary(Number(event.target.value))} aria-describedby="manual-secondary-help" /></label>
+                <label>Confianza inicial<output>{manualConfidence}</output><input type="range" min="0" max="100" value={manualConfidence} onChange={(event) => setManualConfidence(Number(event.target.value))} aria-describedby="manual-confidence-help" /></label>
               </div>
-              <label>{kind === "opportunities" ? "Siguiente acción" : "Mitigación inicial"}<textarea value={manualResponse} onChange={(event) => setManualResponse(event.target.value)} /></label>
+              <div className="manual-score-help">
+                <small id="manual-primary-help">
+                  {kind === "opportunities"
+                    ? "Mide cuánto acerca la oportunidad al objetivo del expediente. Se guarda en el score y ayuda a priorizar la lista."
+                    : "Mide el daño potencial si el riesgo ocurre. Se guarda en el score y ayuda a priorizar la vigilancia."}
+                </small>
+                <small id="manual-secondary-help">
+                  {kind === "opportunities"
+                    ? "Mide la ventana temporal: cuanto antes caduque o exija respuesta, más alto debería ser."
+                    : "Mide las opciones de que ocurra con la información actual."}
+                </small>
+                <small id="manual-confidence-help">Indica cuán seguro estás de tu valoración. Con poca información, mantenla baja; también viaja al contexto IA.</small>
+                <details>
+                  <summary>Cómo usa Oracle estas puntuaciones</summary>
+                  <p>
+                    El backend las guarda como ejes de scoring, calcula una puntuación global y las usa
+                    para ordenar recursos y construir el contexto que leen los agentes IA del expediente.
+                    No convierten una recomendación en decisión automática.
+                  </p>
+                </details>
+              </div>
+              <label className="field">{kind === "opportunities" ? "Siguiente acción" : "Mitigación inicial"}<textarea value={manualResponse} onChange={(event) => setManualResponse(event.target.value)} placeholder={kind === "opportunities" ? "Ej.: Preparar contacto con compras y validar encaje." : "Ej.: Confirmar alternativa y responsable de seguimiento."} aria-describedby="manual-response-help" /></label>
+              <small id="manual-response-help">
+                {kind === "opportunities"
+                  ? "Escribe el próximo paso concreto y verificable. Sirve para convertir la oportunidad en trabajo accionable."
+                  : "Escribe qué harías primero para reducir la probabilidad o el impacto del riesgo."}
+              </small>
               {manualError && <p className="form-error" role="alert">{manualError}</p>}
               <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy || manualTitle.trim().length < 3}>{busy ? "Guardando…" : "Crear"}</button></div>
             </form>
@@ -983,6 +1085,58 @@ export function DossierIntelligenceSection({
         </Dialog.Portal>
       </Dialog.Root>
     </section>
+  );
+}
+
+function SignalEmptyState({
+  activeMonitorCount,
+  settingsHref,
+  canOpenSettings,
+  monitorsUnavailable,
+}: {
+  activeMonitorCount: number;
+  settingsHref: string;
+  canOpenSettings: boolean;
+  monitorsUnavailable: boolean;
+}) {
+  if (monitorsUnavailable) {
+    return (
+      <>
+        <p>
+          El expediente todavía no contiene señales. No se pudo comprobar aquí
+          si hay vigilancias configuradas; revisa la pestaña Configuración si
+          tienes permiso.
+        </p>
+        {canOpenSettings && (
+          <Link className="vector-secondary" href={settingsHref}>
+            Revisar configuración
+          </Link>
+        )}
+      </>
+    );
+  }
+  if (activeMonitorCount > 0) {
+    return (
+      <p>
+        La vigilancia está activa, pero aún no hay señales vinculadas. Aparecerán
+        aquí cuando Signal Avanza sincronice resultados que encajen con los
+        criterios del expediente.
+      </p>
+    );
+  }
+  return (
+    <>
+      <p>
+        Las señales no entran solo por tener una base de trabajo: necesitas una
+        vigilancia del expediente y una conexión Signal Avanza activa en la
+        organización.
+      </p>
+      {canOpenSettings && (
+        <Link className="vector-primary" href={settingsHref}>
+          Configurar vigilancia
+        </Link>
+      )}
+    </>
   );
 }
 

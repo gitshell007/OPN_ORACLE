@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   formatDate,
@@ -115,6 +116,7 @@ export function pinnedWinnerCandidates(
 }
 
 export function DossierProcurementSection({ dossierId }: { dossierId: string }) {
+  const auth = useAuth();
   const [items, setItems] = useState<DossierProcurementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -445,7 +447,21 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
         <div className="global-inventory-state">
           <strong>No hay licitaciones o adjudicaciones fijadas</strong>
           <p>
-            Puedes fijarlas desde Contratación pública o desde el panel de Actores.
+            Puedes fijarlas desde{" "}
+            {auth.can("opportunity.read") ? (
+              <Link href="/app/procurement">Contratación pública</Link>
+            ) : (
+              "Contratación pública"
+            )}{" "}
+            o desde{" "}
+            {auth.can("actor.read") ? (
+              <Link href={`/app/dossiers/${dossierId}/actors`}>
+                el panel de Actores
+              </Link>
+            ) : (
+              "el panel de Actores"
+            )}
+            .
           </p>
         </div>
       )}

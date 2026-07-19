@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   riskEvidence: vi.fn(),
   riskUpdate: vi.fn(),
   riskCreate: vi.fn(),
+  monitors: vi.fn(),
   success: vi.fn(),
   replace: vi.fn(),
 }));
@@ -46,6 +47,9 @@ vi.mock("@oracle/api-client", () => {
         update: mocks.riskUpdate,
         create: mocks.riskCreate,
       },
+      signalAvanza: {
+        monitors: mocks.monitors,
+      },
     },
   };
 });
@@ -58,6 +62,11 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/auth/auth-boundary", () => ({
   PermissionGate: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    can: (permission: string) => ["dossier.read", "signal.read"].includes(permission),
+  }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/app/dossiers/dossier-1/signals",
@@ -145,6 +154,7 @@ describe("DossierIntelligenceSection", () => {
     mocks.riskEvidence.mockResolvedValue({ data: [] });
     mocks.riskUpdate.mockResolvedValue({});
     mocks.riskCreate.mockResolvedValue({ id: "risk-1" });
+    mocks.monitors.mockResolvedValue({ data: [] });
   });
 
   afterEach(cleanup);
@@ -391,5 +401,36 @@ describe("DossierIntelligenceSection", () => {
         likelihood: 50,
       }),
     ));
+  });
+
+  it("orienta a configuración cuando señales no tiene monitores activos", async () => {
+    mocks.signalList.mockResolvedValue({
+      data: [],
+      meta: { page: 1, size: 25, total: 0 },
+    });
+    mocks.monitors.mockResolvedValue({ data: [] });
+
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
+
+    expect(await screen.findByText(/necesitas una vigilancia del expediente/i)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Configurar vigilancia" })).toHaveAttribute(
+      "href",
+      "/app/dossiers/dossier-1/settings",
+    );
+  });
+
+  it("explica que la vigilancia está activa cuando aún no hay señales", async () => {
+    mocks.signalList.mockResolvedValue({
+      data: [],
+      meta: { page: 1, size: 25, total: 0 },
+    });
+    mocks.monitors.mockResolvedValue({
+      data: [{ id: "monitor-1", status: "active", desired_status: "active" }],
+    });
+
+    render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
+
+    expect(await screen.findByText(/La vigilancia está activa/i)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Configurar vigilancia" })).not.toBeInTheDocument();
   });
 });

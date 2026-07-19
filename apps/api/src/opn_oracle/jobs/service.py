@@ -53,6 +53,7 @@ TASK_QUEUES = {
             "evidence_reviewer",
             "weekly_change",
             "dossier_situation_summary",
+            "dossier_completion_wizard",
         )
     },
 }

@@ -17,6 +17,7 @@ from celery import Task, shared_task
 from flask import current_app
 from sqlalchemy import delete, or_, select, update
 
+from opn_oracle.ai.context import build_dossier_completion_context
 from opn_oracle.ai.models import AITenantPolicy
 from opn_oracle.ai.provider import AIUnavailable
 from opn_oracle.ai.service import (
@@ -383,6 +384,7 @@ HANDLERS: dict[str, Handler] = {
             "evidence_reviewer",
             "weekly_change",
             "dossier_situation_summary",
+            "dossier_completion_wizard",
         )
     },
 }
@@ -500,6 +502,26 @@ def _process_document(payload: dict[str, Any], job: BackgroundJob) -> dict[str, 
 def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
+        if agent == "dossier_completion_wizard":
+            supplemental_context = {
+                "round": {
+                    "answers": payload.get("answers", []),
+                    "requested_at": payload.get("requested_at"),
+                }
+            }
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                supplemental_context=supplemental_context,
+                context_factory=lambda max_tokens: build_dossier_completion_context(
+                    dossier_id,
+                    max_tokens=max_tokens,
+                    answers=payload.get("answers", []),
+                ),
+                target_type="dossier_completion_wizard",
+                target_id=dossier_id,
+            )
         return execute_agent(agent=agent, dossier_id=dossier_id, job=job)
     except (KeyError, ValueError, AIPolicyDenied) as error:
         raise PermanentJobError(str(error)) from error
@@ -896,6 +918,7 @@ AI_DURABLE_TASKS = {
         "evidence_reviewer",
         "weekly_change",
         "dossier_situation_summary",
+        "dossier_completion_wizard",
     )
 }
 

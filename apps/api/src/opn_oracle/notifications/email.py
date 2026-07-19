@@ -239,7 +239,12 @@ class GraphEmailSender(CaptureEmailSender):
                     },
                     headers={"Accept": "application/json"},
                 )
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            # httpx.RequestError, no solo timeout/red: RemoteProtocolError, LocalProtocolError,
+            # DecodingError, ProxyError, TooManyRedirects y UnsupportedProtocol NO son subclases
+            # de las anteriores y se escapaban crudas. Un corte de keep-alive ('Server
+            # disconnected') mataba el job como fallo permanente en vez de degradar a error de
+            # proveedor reintentable.
+            except httpx.RequestError as exc:
                 raise EmailTemporaryError(
                     "Microsoft Graph no esta disponible temporalmente."
                 ) from exc
@@ -296,7 +301,12 @@ class GraphEmailSender(CaptureEmailSender):
                     },
                     json={"message": message, "saveToSentItems": True},
                 )
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            # httpx.RequestError, no solo timeout/red: RemoteProtocolError, LocalProtocolError,
+            # DecodingError, ProxyError, TooManyRedirects y UnsupportedProtocol NO son subclases
+            # de las anteriores y se escapaban crudas. Un corte de keep-alive ('Server
+            # disconnected') mataba el job como fallo permanente en vez de degradar a error de
+            # proveedor reintentable.
+            except httpx.RequestError as exc:
                 raise EmailTemporaryError(
                     "Microsoft Graph no esta disponible temporalmente."
                 ) from exc

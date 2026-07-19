@@ -251,8 +251,14 @@ def _group_contracts(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any
     contracts: list[dict[str, Any]] = []
     for folder_id, entries in grouped.items():
         buyers = Counter(_text(item.get("buyer")) for item in entries if _text(item.get("buyer")))
+        titles = Counter(_text(item.get("title")) for item in entries if _text(item.get("title")))
         winners = sorted(
             {_text(item.get("winner")) for item in entries if _text(item.get("winner"))},
+            key=str.casefold,
+        )
+        cpv_codes = Counter(code for item in entries for code in _cpv_codes(item.get("cpv"))[:1])
+        source_urls = sorted(
+            {_text(item.get("source_url")) for item in entries if _text(item.get("source_url"))},
             key=str.casefold,
         )
         amounts = [
@@ -265,10 +271,17 @@ def _group_contracts(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any
             {
                 "folder_id": folder_id,
                 "buyer": buyers.most_common(1)[0][0] if buyers else "Organismo no publicado",
+                "title": titles.most_common(1)[0][0] if titles else "",
                 "winner_variants": winners,
                 "award_amount": sum(amounts, Decimal("0")) if amounts else None,
                 "award_date": dates[-1] if dates else None,
                 "is_ute": any(item.get("is_ute") is True for item in entries),
+                "primary_cpv": (
+                    sorted(cpv_codes.items(), key=lambda item: (-item[1], item[0]))[0][0]
+                    if cpv_codes
+                    else None
+                ),
+                "source_url": source_urls[0] if source_urls else None,
                 "row_count": len(entries),
             }
         )
@@ -280,6 +293,16 @@ def _group_contracts(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any
         reverse=True,
     )
     return contracts, ignored
+
+
+def _cpv_codes(value: Any) -> list[str]:
+    if isinstance(value, list):
+        values = value
+    elif isinstance(value, str):
+        values = [value]
+    else:
+        return []
+    return [text for item in values if (text := _text(item))]
 
 
 def _distribution(contracts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -361,6 +384,71 @@ def _buyer_concentration(contracts: list[dict[str, Any]]) -> list[dict[str, Any]
     return rows[:20]
 
 
+def _year_distribution(contracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_year: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for contract in contracts:
+        awarded_at = contract.get("award_date")
+        if isinstance(awarded_at, date):
+            by_year[awarded_at.year].append(contract)
+    rows: list[dict[str, Any]] = []
+    for year in sorted(by_year):
+        items = by_year[year]
+        amounts = [
+            amount for item in items if isinstance((amount := item.get("award_amount")), Decimal)
+        ]
+        rows.append(
+            {
+                "year": year,
+                "contracts": len(items),
+                "contracts_with_amount": len(amounts),
+                "contracts_without_amount": len(items) - len(amounts),
+                "total_awarded_eur": _money(sum(amounts, Decimal("0")) if amounts else None),
+            }
+        )
+    return rows
+
+
+def _undated_awards(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Adjudicaciones que quedan fuera del desglose anual, con su importe.
+
+    `_year_distribution` solo agrupa las que traen `award_date` como fecha válida, así
+    que sin esto la suma de los años no cuadra con `total_awarded_eur` y el lector no
+    tiene forma de saber por qué. Se declara el hueco en vez de esconderlo.
+    """
+
+    undated = [c for c in contracts if not isinstance(c.get("award_date"), date)]
+    amounts = [
+        amount for item in undated if isinstance((amount := item.get("award_amount")), Decimal)
+    ]
+    return {
+        "contracts": len(undated),
+        "contracts_with_amount": len(amounts),
+        "total_awarded_eur": _money(sum(amounts, Decimal("0")) if amounts else None),
+    }
+
+
+def _cpv_distribution(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = Counter(str(code) for contract in contracts if (code := contract.get("primary_cpv")))
+    denominator = sum(counts.values())
+    return {
+        "method": "primer CPV publicado por expediente; moda en adjudicaciones multilote",
+        "contracts_with_primary_cpv": denominator,
+        "contracts_without_primary_cpv": len(contracts) - denominator,
+        "denominator_contracts": len(contracts),
+        "items": [
+            {
+                "cpv": cpv,
+                "contracts": count,
+                "denominator_contracts_with_cpv": denominator,
+                "share_percent": _percent(
+                    Decimal(count) * 100 / Decimal(denominator) if denominator else None
+                ),
+            }
+            for cpv, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:20]
+        ],
+    }
+
+
 def _partners_for_winner(winner: str, company_name: str) -> list[str]:
     company_core = _company_core(company_name)
     cleaned = _UTE_MARKERS.sub(" ", winner)
@@ -405,6 +493,9 @@ def _ute_analysis(contracts: list[dict[str, Any]], company_name: str) -> dict[st
         ),
         "ute_contracts": len(ute_contracts),
         "denominator_contracts": len(contracts),
+        "ute_share_percent": _percent(
+            Decimal(len(ute_contracts)) * 100 / Decimal(len(contracts)) if contracts else None
+        ),
         "parsed_ute_contracts": parsed_contracts,
         "unparsed_ute_contracts": len(ute_contracts) - parsed_contracts,
         "partners": [
@@ -415,6 +506,139 @@ def _ute_analysis(contracts: list[dict[str, Any]], company_name: str) -> dict[st
             }
             for key, count in partner_counts.most_common(20)
         ],
+    }
+
+
+def _analysis_from_history(
+    history: AwardHistory,
+    *,
+    company_name: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    contracts, ignored_rows = _group_contracts(history.rows)
+    dated = sorted(item["award_date"] for item in contracts if isinstance(item["award_date"], date))
+    winner_counts: Counter[str] = Counter()
+    for contract in contracts:
+        winner_counts.update(set(contract["winner_variants"]))
+    return (
+        {
+            "schema": "competitive-procurement-analysis-v1",
+            "company_requested": company_name,
+            "company_normalized_by_signal": history.provider_company_norm,
+            "scope_warning": (
+                "El corpus contiene adjudicaciones publicadas, no todas las ofertas presentadas. "
+                "No permite saber dónde compitió sin resultar adjudicatario ni calcular una tasa "
+                "de éxito."
+            ),
+            "identity_warning": (
+                "Signal normaliza la consulta por nombre y puede incluir variantes registrales "
+                "o UTE. Oracle no dispone de CIF para desambiguar ni afirma identidad jurídica "
+                "entre variantes u homónimos."
+            ),
+            "corpus": {
+                "source": "Signal Avanza · histórico PLACSP de adjudicaciones",
+                "pagination": "limit/offset",
+                "provider_total_rows": history.provider_total,
+                "analyzed_rows": len(history.rows),
+                "row_cap": MAX_AWARD_ROWS,
+                "truncated": history.truncated,
+                "unique_contracts": len(contracts),
+                "ignored_rows_without_folder_id": ignored_rows,
+                "period_start": dated[0].isoformat() if dated else None,
+                "period_end": dated[-1].isoformat() if dated else None,
+                "dated_contracts": len(dated),
+                "denominator_contracts": len(contracts),
+            },
+            "winner_variants": [
+                {"winner": winner, "contracts": count}
+                for winner, count in winner_counts.most_common(20)
+            ],
+            "awards_by_year": _year_distribution(contracts),
+            "awards_without_date": _undated_awards(contracts),
+            "buyer_concentration": _buyer_concentration(contracts),
+            "amount_distribution": _distribution(contracts),
+            "primary_cpv_distribution": _cpv_distribution(contracts),
+            "ute_partners": _ute_analysis(contracts, company_name),
+        },
+        contracts,
+    )
+
+
+def _citable_award_sample(
+    contracts: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    sourceable = [contract for contract in contracts if contract.get("source_url")]
+    sourceable.sort(
+        key=lambda item: (
+            isinstance(item.get("award_amount"), Decimal),
+            item.get("award_amount")
+            if isinstance(item.get("award_amount"), Decimal)
+            else Decimal("-1"),
+            item.get("award_date") if isinstance(item.get("award_date"), date) else date.min,
+            str(item.get("folder_id")),
+        ),
+        reverse=True,
+    )
+    return [
+        {
+            "folder_id": str(contract["folder_id"]),
+            "title": str(contract.get("title") or ""),
+            "buyer": str(contract["buyer"]),
+            "winner": " · ".join(str(value) for value in contract["winner_variants"]),
+            "award_amount": _money(
+                contract["award_amount"]
+                if isinstance(contract.get("award_amount"), Decimal)
+                else None
+            ),
+            "award_date": (
+                contract["award_date"].isoformat()
+                if isinstance(contract.get("award_date"), date)
+                else None
+            ),
+            "primary_cpv": contract.get("primary_cpv"),
+            "is_ute": bool(contract.get("is_ute")),
+            "source_url": str(contract["source_url"]),
+            "row_count": int(contract["row_count"]),
+        }
+        for contract in sourceable[: max(0, limit)]
+    ]
+
+
+def build_entity_procurement_analysis(
+    client: ProcurementHistoryClient,
+    *,
+    company_name: str,
+    source_limit: int,
+    max_rows: int = MAX_AWARD_ROWS,
+    page_size: int = AWARD_PAGE_SIZE,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Build entity-report aggregates and a bounded citable sample without tender probes."""
+
+    history = fetch_award_history(
+        client,
+        company_name=company_name,
+        max_rows=max_rows,
+        page_size=page_size,
+        sleeper=sleeper,
+    )
+    analysis, contracts = _analysis_from_history(history, company_name=company_name)
+    analysis["corpus"]["row_cap"] = max_rows
+    sources = _citable_award_sample(contracts, limit=source_limit)
+    sourceable_contracts = sum(1 for item in contracts if item.get("source_url"))
+    return {
+        "computed_metrics": analysis,
+        "award_sources": sources,
+        "source_sampling": {
+            "limit": source_limit,
+            "selected": len(sources),
+            "total_contracts": len(contracts),
+            "sourceable_contracts": sourceable_contracts,
+            "contracts_without_source_url": len(contracts) - sourceable_contracts,
+            "truncated_by_oracle": sourceable_contracts > len(sources),
+            "selection": "mayor importe adjudicado; desempate por fecha y folder_id",
+        },
     }
 
 
@@ -526,47 +750,10 @@ def build_competitive_procurement_analysis(
         page_size=page_size,
         sleeper=sleeper,
     )
-    contracts, ignored_rows = _group_contracts(history.rows)
-    dated = sorted(item["award_date"] for item in contracts if isinstance(item["award_date"], date))
-    winner_counts: Counter[str] = Counter()
-    for contract in contracts:
-        winner_counts.update(set(contract["winner_variants"]))
-    return {
-        "schema": "competitive-procurement-analysis-v1",
-        "company_requested": company_name,
-        "company_normalized_by_signal": history.provider_company_norm,
-        "scope_warning": (
-            "El corpus contiene adjudicaciones publicadas, no todas las ofertas presentadas. "
-            "No permite saber dónde compitió sin resultar adjudicatario ni calcular una tasa "
-            "de éxito."
-        ),
-        "identity_warning": (
-            "Signal normaliza la consulta y puede incluir variantes registrales o UTE. "
-            "Oracle no fusiona homónimos ni afirma identidad jurídica entre variantes."
-        ),
-        "corpus": {
-            "source": "Signal Avanza · histórico PLACSP de adjudicaciones",
-            "pagination": "limit/offset",
-            "provider_total_rows": history.provider_total,
-            "analyzed_rows": len(history.rows),
-            "row_cap": max_rows,
-            "truncated": history.truncated,
-            "unique_contracts": len(contracts),
-            "ignored_rows_without_folder_id": ignored_rows,
-            "period_start": dated[0].isoformat() if dated else None,
-            "period_end": dated[-1].isoformat() if dated else None,
-            "dated_contracts": len(dated),
-            "denominator_contracts": len(contracts),
-        },
-        "winner_variants": [
-            {"winner": winner, "contracts": count}
-            for winner, count in winner_counts.most_common(20)
-        ],
-        "buyer_concentration": _buyer_concentration(contracts),
-        "amount_distribution": _distribution(contracts),
-        "discount_coverage": _discount_coverage(client, contracts, sleeper=sleeper),
-        "ute_partners": _ute_analysis(contracts, company_name),
-    }
+    analysis, contracts = _analysis_from_history(history, company_name=company_name)
+    analysis["corpus"]["row_cap"] = max_rows
+    analysis["discount_coverage"] = _discount_coverage(client, contracts, sleeper=sleeper)
+    return analysis
 
 
 def analysis_evidence_extract(analysis: dict[str, Any]) -> str:

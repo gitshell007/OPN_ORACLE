@@ -528,3 +528,23 @@ deberá versionarse un flujo de copia/materialización separado.
   evidencias huérfanas si el usuario nunca incorpora el informe. La evidencia refleja exactamente
   lo que Signal expone (enlace BORME/noticia y extracto normalizado), no el texto registral completo
   ni una desambiguación de homónimos que Oracle no posee.
+
+## D-037 — Informe ejecutivo de entidad con agregados deterministas y muestra acotada
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-18
+- **Contexto:** el informe de entidad v1 convertía la ficha BORME en un catálogo, descartaba
+  patentes/CNMV y no incorporaba contratación pública. Añadir todas las adjudicaciones como fuentes
+  granulares habría reproducido el agotamiento de salida observado con los actos registrales.
+- **Decisión:** Oracle calcula en Python los agregados de adjudicaciones por expediente
+  (`folder_id`): importes totales/anuales, órganos, CPV principal, UTE y periodo. El informe de
+  entidad no ejecuta la sonda de baja. El modelo recibe como evidencia solo las adjudicaciones de
+  mayor importe que tengan URL, con defecto configurable
+  `ENTITY_INTEL_MAX_AWARD_SOURCES=15`; el corpus, el recorte, la ausencia de CIF y el hecho de que
+  solo se observan contratos ganados se declaran explícitamente. Patentes EPO y comunicaciones
+  CNMV entran en el corpus compacto con topes y citas. Un fallo de la fuente de adjudicaciones
+  degrada solo esa sección.
+- **Consecuencias:** el prompt `entity_dossier_intelligence/v2` puede concentrar la salida en una
+  lectura ejecutiva de 1.200-2.000 palabras sin delegar aritmética al LLM ni subir el presupuesto
+  de 16.000 tokens. El v1 y `ReportOutput` permanecen intactos; la evidencia sigue materializándose
+  únicamente al incorporar el informe por D-035/D-036.

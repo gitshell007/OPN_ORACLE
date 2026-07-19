@@ -163,6 +163,169 @@ class MockLLMProvider:
                 provider="mock",
                 model=self.model,
             )
+        if request.agent == "dossier_completion_wizard":
+            snapshot = request.context.get("completion_snapshot", {})
+            counts = snapshot.get("counts", {}) if isinstance(snapshot, dict) else {}
+            dossier = snapshot.get("dossier", {}) if isinstance(snapshot, dict) else {}
+            has_monitors = int(counts.get("monitors") or 0) > 0
+            has_procurement = int(counts.get("procurement_items") or 0) > 0
+            has_actors = int(counts.get("actors") or 0) > 0
+            goal = str(dossier.get("strategic_goal") or "")
+            vehicle_keywords = [
+                "vehículos de emergencia",
+                "camiones de bomberos",
+                "autoescala",
+                "autobomba",
+                "contratación pública",
+            ]
+            output = schema.model_validate(
+                {
+                    "summary": (
+                        "El expediente tiene objetivo, pero necesita vigilancia, referencias de "
+                        "contratación y actores para convertirse en un radar operativo."
+                    ),
+                    "confidence": 72,
+                    "warnings": ["Resultado generado por proveedor mock determinista."],
+                    "section_diagnostics": [
+                        {
+                            "section": "goal",
+                            "status": "ok" if goal else "incomplete",
+                            "explanation": (
+                                "El objetivo orienta el análisis; conviene acotar ámbito y "
+                                "tipo de vehículo."
+                                if goal
+                                else "Falta un objetivo que guíe las recomendaciones."
+                            ),
+                        },
+                        {
+                            "section": "signals",
+                            "status": "ok" if has_monitors else "empty",
+                            "explanation": (
+                                "Hay vigilancia configurada; las señales dependerán de la "
+                                "sincronización."
+                                if has_monitors
+                                else "No hay monitores activos que alimenten señales al expediente."
+                            ),
+                        },
+                        {
+                            "section": "procurement",
+                            "status": "ok" if has_procurement else "empty",
+                            "explanation": (
+                                "Ya hay licitaciones o adjudicaciones fijadas."
+                                if has_procurement
+                                else (
+                                    "Sin referencias fijadas, Oracle no puede comparar "
+                                    "adjudicatarios ni organismos."
+                                )
+                            ),
+                        },
+                        {
+                            "section": "actors",
+                            "status": "ok" if has_actors else "empty",
+                            "explanation": (
+                                "Hay actores vinculados al expediente."
+                                if has_actors
+                                else (
+                                    "Faltan competidores, organismos compradores y posibles socios."
+                                )
+                            ),
+                        },
+                    ],
+                    "questions": [
+                        {
+                            "id": "scope.geography",
+                            "question": "¿Qué ámbito geográfico quieres vigilar primero?",
+                            "why_it_matters": (
+                                "Evita ruido y permite ajustar geografía del monitor y "
+                                "búsquedas de licitación."
+                            ),
+                            "expected_input": (
+                                "Ej.: España, Aragón, Comunidad Valenciana, Unión Europea."
+                            ),
+                        },
+                        {
+                            "id": "scope.vehicle_type",
+                            "question": (
+                                "¿Qué tipo de vehículo de emergencia te interesa priorizar?"
+                            ),
+                            "why_it_matters": (
+                                "Las keywords cambian si buscas autobombas, autoescalas, "
+                                "ambulancias o vehículos ligeros."
+                            ),
+                            "expected_input": (
+                                "Ej.: autobombas forestales, autoescalas, vehículos de mando."
+                            ),
+                        },
+                        {
+                            "id": "scope.buyers",
+                            "question": (
+                                "¿Hay órganos de contratación o administraciones que debamos "
+                                "seguir sí o sí?"
+                            ),
+                            "why_it_matters": (
+                                "Ayuda a fijar licitaciones relevantes y a detectar "
+                                "compradores recurrentes."
+                            ),
+                            "expected_input": (
+                                "Ej.: ayuntamientos, consorcios provinciales, diputaciones."
+                            ),
+                        },
+                    ],
+                    "recommended_actions": [
+                        {
+                            "kind": "create_signal_monitor",
+                            "title": "Crear una vigilancia de vehículos de emergencia",
+                            "rationale": "Sin monitor no entrarán señales nuevas al expediente.",
+                            "prefill": {
+                                "name": "Vehículos de emergencia y licitaciones",
+                                "query": "licitación vehículos de emergencia bomberos",
+                                "keywords": vehicle_keywords,
+                                "source_types": ["official_publication", "news"],
+                                "languages": ["es"],
+                                "geographies": ["ES"],
+                                "cadence": "daily",
+                            },
+                        },
+                        {
+                            "kind": "pin_procurement",
+                            "title": "Buscar licitaciones y adjudicaciones fijables",
+                            "rationale": (
+                                "Las referencias fijadas serán la base citable para comparar "
+                                "competencia."
+                            ),
+                            "prefill": {
+                                "procurement_query": (
+                                    "vehículos emergencia bomberos autobomba autoescala"
+                                ),
+                                "procurement_kind": "tender",
+                            },
+                        },
+                        {
+                            "kind": "create_actor",
+                            "title": "Añadir adjudicatarios habituales como competidores",
+                            "rationale": (
+                                "El mapa de actores permite entender quién compite o influye "
+                                "en el mercado."
+                            ),
+                            "prefill": {
+                                "actor_type": "organization",
+                                "tags": ["fabricante", "contratación pública"],
+                                "roles": ["competidor", "adjudicatario habitual"],
+                            },
+                        },
+                    ],
+                }
+            )
+            fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
+            return LLMResult(
+                output,
+                100 + fingerprint[0],
+                50 + fingerprint[1],
+                0,
+                1,
+                provider="mock",
+                model=self.model,
+            )
         extras: dict[str, dict[str, Any]] = {
             "intake": {
                 "proposed_title": "Expediente propuesto",

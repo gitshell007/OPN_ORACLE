@@ -334,6 +334,40 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
     return () => window.clearTimeout(kickoff);
   }, [load]);
 
+  useEffect(() => {
+    if (kind !== "actors" || searchParams.get("wizard_prefill") !== "actor") return;
+    const key = `oracle:wizard-prefill:${dossierId}:actor`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const value = JSON.parse(raw) as Record<string, unknown>;
+        setTitle(typeof value.name === "string" ? value.name : "");
+        setDetail(Array.isArray(value.roles) ? value.roles.map(String).join(", ") : "");
+        setActorTags(Array.isArray(value.tags) ? value.tags.map(String).join(", ") : "");
+        setActorType(
+          value.actor_type === "person" ||
+            value.actor_type === "organization" ||
+            value.actor_type === "institution" ||
+            value.actor_type === "program" ||
+            value.actor_type === "other"
+            ? value.actor_type
+            : "organization",
+        );
+        setActorCreateMode("new");
+        setCreateOpen(true);
+        sessionStorage.removeItem(key);
+      } catch {
+        sessionStorage.removeItem(key);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dossierId, kind, searchParams]);
+
   const selected = useMemo(
     () => rows.find((row) => row.id === searchParams.get("selected")) ?? null,
     [rows, searchParams],
@@ -685,7 +719,26 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             ) : (
               <label>Título<input required minLength={3} maxLength={300} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
             )}
-            {kind !== "tasks" && <label>{kind === "actors" ? "Roles (separados por comas)" : kind === "meetings" ? "Objetivo" : "Justificación"}<textarea value={detail} onChange={(event) => setDetail(event.target.value)} /></label>}
+            {kind !== "tasks" && (
+              <label>
+                {kind === "actors" ? "Roles (separados por comas)" : kind === "meetings" ? "Objetivo" : "Justificación"}
+                <textarea
+                  value={detail}
+                  onChange={(event) => setDetail(event.target.value)}
+                  placeholder={
+                    kind === "actors"
+                      ? "competidor, cliente potencial, adjudicatario habitual, decisor, prescriptor, socio, proveedor"
+                      : undefined
+                  }
+                  aria-describedby={kind === "actors" ? "actor-roles-help" : undefined}
+                />
+                {kind === "actors" && (
+                  <small id="actor-roles-help">
+                    Las etiquetas describen qué es el actor en general; los roles explican qué papel juega en este expediente concreto. Son texto libre.
+                  </small>
+                )}
+              </label>
+            )}
             {kind === "meetings" && <>
               <label>Fecha y hora<input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label>
               <fieldset className="meeting-participants">

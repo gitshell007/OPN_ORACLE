@@ -61,6 +61,11 @@ vi.mock("@oracle/api-client", () => {
 vi.mock("@/components/auth/auth-boundary", () => ({
   PermissionGate: ({ children }: { children: React.ReactNode }) => children,
 }));
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    can: () => true,
+  }),
+}));
 
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { ProcurementAwardsPanel } from "./procurement-awards-panel";

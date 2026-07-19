@@ -35,6 +35,9 @@ vi.mock("sonner", () => ({ toast: { success: mocks.success } }));
 vi.mock("@/components/auth/auth-boundary", () => ({
   PermissionGate: ({ children }: { children: React.ReactNode }) => children,
 }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 import { DossierSettingsSection } from "./dossier-settings-section";
 

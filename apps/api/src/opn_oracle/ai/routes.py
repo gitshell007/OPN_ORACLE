@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from apiflask import APIBlueprint
@@ -15,13 +16,14 @@ from opn_oracle.ai.schemas import AGENT_SCHEMAS
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db
-from opn_oracle.jobs.service import enqueue_job
-from opn_oracle.oracle.jobs import AIAuditLog
+from opn_oracle.jobs.service import enqueue_job, serialize_job
+from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.models import DossierSignal, Feedback, Insight, StrategicDossier
 from opn_oracle.oracle.policy import dossier_accessible
 
 bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
+DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 
 
 def _dossier(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier | None:
@@ -58,6 +60,122 @@ def enqueue_agent(dossier_id: uuid.UUID, agent: str) -> Any:
     except ValueError as error:
         return problem_response(422, detail=str(error), code="validation_error")
     return {"job_id": str(job.id), "status": job.status}, 202
+
+
+def _wizard_answers(value: Any) -> list[dict[str, str]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("answers debe ser una lista.")
+    answers: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Cada respuesta debe ser un objeto.")
+        question_id = str(item.get("question_id", "")).strip()
+        answer = str(item.get("answer", "")).strip()
+        if not question_id or not answer:
+            continue
+        if len(question_id) > 120 or len(answer) > 2000:
+            raise ValueError("Respuesta demasiado larga.")
+        answers.append({"question_id": question_id, "answer": answer})
+    return answers[:20]
+
+
+def _latest_wizard_artifact(dossier_id: uuid.UUID) -> AIArtifact | None:
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id == dossier_id,
+            AIArtifact.agent == DOSSIER_COMPLETION_WIZARD_AGENT,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_wizard_job(dossier_id: uuid.UUID) -> BackgroundJob | None:
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id == dossier_id,
+            BackgroundJob.job_type == f"oracle.ai.{DOSSIER_COMPLETION_WIZARD_AGENT}",
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _serialize_wizard_artifact(artifact: AIArtifact | None) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    return {
+        "id": str(artifact.id),
+        "dossier_id": str(artifact.dossier_id),
+        "agent": artifact.agent,
+        "schema_name": artifact.schema_name,
+        "schema_version": artifact.schema_version,
+        "status": artifact.status,
+        "output": artifact.output,
+        "created_at": artifact.created_at.isoformat(),
+        "updated_at": artifact.updated_at.isoformat(),
+        "version": artifact.version,
+    }
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/completion-wizard/runs")
+@require_permission("ai.execute")
+def enqueue_completion_wizard(dossier_id: uuid.UUID) -> Any:
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return problem_response(422, detail="Payload no válido.", code="validation_error")
+    try:
+        answers = _wizard_answers(payload.get("answers"))
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return problem_response(
+            428,
+            detail="Idempotency-Key es obligatorio para lanzar una ronda.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{DOSSIER_COMPLETION_WIZARD_AGENT}",
+            payload={
+                "dossier_id": str(dossier_id),
+                "answers": answers,
+                "requested_at": datetime.now(UTC).isoformat(),
+            },
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            dossier_id=dossier_id,
+            resource_type="strategic_dossier",
+            resource_id=dossier_id,
+        )
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_wizard_artifact(_latest_wizard_artifact(dossier_id)),
+    }, 202
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/completion-wizard/latest")
+@require_permission("ai.execute")
+def latest_completion_wizard(dossier_id: uuid.UUID) -> Any:
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    job = _latest_wizard_job(dossier_id)
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_wizard_artifact(_latest_wizard_artifact(dossier_id)),
+        "answers": job.input_payload.get("answers", []) if job else [],
+    }
 
 
 @bp.get("/audits/<uuid:audit_id>")

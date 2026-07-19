@@ -1,13 +1,17 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  home: vi.fn(),
-  reports: vi.fn(),
-  notifications: vi.fn(),
-  jobs: vi.fn(),
-  can: vi.fn(() => true),
-}));
+const mocks = vi.hoisted(() => {
+  const can = vi.fn(() => true);
+  return {
+    home: vi.fn(),
+    reports: vi.fn(),
+    notifications: vi.fn(),
+    jobs: vi.fn(),
+    can,
+    authValue: { can },
+  };
+});
 
 vi.mock("@oracle/api-client", () => ({
   ApiError: class ApiError extends Error {},
@@ -19,7 +23,7 @@ vi.mock("@oracle/api-client", () => ({
   },
 }));
 vi.mock("@/components/auth/auth-provider", () => ({
-  useAuth: () => ({ can: mocks.can }),
+  useAuth: () => mocks.authValue,
 }));
 vi.mock("./create-product-dossier-dialog", () => ({
   CreateProductDossierDialog: () => null,

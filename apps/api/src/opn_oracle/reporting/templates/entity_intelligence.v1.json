@@ -11,13 +11,14 @@
     }
   },
   "sections": [
-    "Cobertura y límites",
-    "Perfil registral",
-    "Órganos y cargos",
-    "Grafo de relaciones",
-    "Noticias y señales externas",
-    "Inferencias estratégicas",
-    "Recomendaciones"
+    "Resumen ejecutivo",
+    "Perfil y trayectoria",
+    "Gobierno y personas clave",
+    "Red societaria",
+    "Contratación pública",
+    "Señales externas",
+    "Lectura estratégica",
+    "Cobertura y límites"
   ],
   "evidence_policy": "El análisis parte de la ficha agregada de Signal y se conserva primero como artefacto de espera tenant+entidad. Las fechas BORME son de publicación; homónimos, relaciones y noticias se tratan con cautela hasta revisión humana.",
   "output_schema": "ReportOutput/v1",
@@ -29,6 +30,7 @@
   },
   "formats": ["html", "json"],
   "changelog": [
-    "v1: informe de entidad generado sin expediente y materializado al incorporarlo"
+    "v1: informe de entidad generado sin expediente y materializado al incorporarlo",
+    "v2 editorial: informe ejecutivo redactado con contratación pública y límites al final"
   ]
 }

@@ -237,7 +237,12 @@ class EntityIntelClient:
             headers["X-OPN-External-Tenant-ID"] = external_tenant_id
         try:
             response = self._client.get(path, params=params, headers=headers)
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        # httpx.RequestError, no solo timeout/red: RemoteProtocolError, LocalProtocolError,
+        # DecodingError, ProxyError, TooManyRedirects y UnsupportedProtocol NO son subclases
+        # de las anteriores y se escapaban crudas. Un corte de keep-alive ('Server
+        # disconnected') mataba el job como fallo permanente en vez de degradar a error de
+        # proveedor reintentable.
+        except httpx.RequestError as exc:
             raise EntityIntelProviderError(
                 status_code=503,
                 code="entity_intel_provider_unavailable",

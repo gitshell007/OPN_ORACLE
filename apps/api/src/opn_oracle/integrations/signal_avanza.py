@@ -352,7 +352,12 @@ class HttpSignalAvanzaAdapter:
                 response = self._client.request(
                     method, path, json=body, params=params, headers=headers
                 )
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            # httpx.RequestError, no solo timeout/red: RemoteProtocolError, LocalProtocolError,
+            # DecodingError, ProxyError, TooManyRedirects y UnsupportedProtocol NO son subclases
+            # de las anteriores y se escapaban crudas. Un corte de keep-alive ('Server
+            # disconnected') mataba el job como fallo permanente en vez de degradar a error de
+            # proveedor reintentable.
+            except httpx.RequestError as exc:
                 if attempt + 1 == attempts:
                     raise SignalTemporaryError(
                         "Proveedor Signal temporalmente no disponible."

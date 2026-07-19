@@ -466,6 +466,76 @@ class DossierSituationSummaryOutput(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class DossierWizardSectionDiagnostic(StrictModel):
+    section: Literal[
+        "goal",
+        "signals",
+        "procurement",
+        "opportunities",
+        "risks",
+        "actors",
+        "hypotheses",
+        "other",
+    ]
+    status: Literal["ok", "incomplete", "empty"]
+    explanation: str = Field(min_length=1, max_length=2000)
+
+
+class DossierWizardQuestion(StrictModel):
+    id: str = Field(min_length=1, max_length=120, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    question: str = Field(min_length=1, max_length=1000)
+    why_it_matters: str = Field(min_length=1, max_length=2000)
+    expected_input: str = Field(min_length=1, max_length=1000)
+
+
+class DossierWizardPrefill(StrictModel):
+    # create_signal_monitor
+    name: str | None = Field(default=None, max_length=200)
+    query: str | None = Field(default=None, max_length=1000)
+    keywords: list[str] = Field(default_factory=list, max_length=50)
+    source_types: list[str] = Field(default_factory=list, max_length=20)
+    languages: list[str] = Field(default_factory=list, max_length=20)
+    geographies: list[str] = Field(default_factory=list, max_length=50)
+    cadence: str | None = Field(default=None, max_length=50)
+    # pin_procurement
+    procurement_query: str | None = Field(default=None, max_length=1000)
+    procurement_kind: Literal["tender", "award"] | None = None
+    # create_opportunity/create_risk/create_actor
+    title: str | None = Field(default=None, max_length=300)
+    description: str | None = Field(default=None, max_length=4000)
+    next_action: str | None = Field(default=None, max_length=2000)
+    mitigation: str | None = Field(default=None, max_length=2000)
+    actor_type: Literal["person", "organization", "institution", "program", "other"] | None = None
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    roles: list[str] = Field(default_factory=list, max_length=30)
+    # generic guidance
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class DossierWizardRecommendedAction(StrictModel):
+    kind: Literal[
+        "create_signal_monitor",
+        "pin_procurement",
+        "create_opportunity",
+        "create_risk",
+        "create_actor",
+        "refine_goal",
+        "other",
+    ]
+    title: str = Field(min_length=1, max_length=500)
+    rationale: str = Field(min_length=1, max_length=2000)
+    prefill: DossierWizardPrefill = Field(default_factory=DossierWizardPrefill)
+
+
+class DossierCompletionWizardOutput(StrictModel):
+    summary: str = Field(min_length=1, max_length=4000)
+    confidence: int = Field(ge=0, le=100)
+    warnings: list[str] = Field(default_factory=list)
+    section_diagnostics: list[DossierWizardSectionDiagnostic] = Field(default_factory=list)
+    questions: list[DossierWizardQuestion] = Field(default_factory=list)
+    recommended_actions: list[DossierWizardRecommendedAction] = Field(default_factory=list)
+
+
 AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
@@ -481,4 +551,5 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "evidence_reviewer": EvidenceReviewerOutput,
     "weekly_change": WeeklyChangeOutput,
     "dossier_situation_summary": DossierSituationSummaryOutput,
+    "dossier_completion_wizard": DossierCompletionWizardOutput,
 }

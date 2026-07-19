@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import httpx
 import pytest
+from flask import g
 from pydantic import ValidationError
 
+from opn_oracle.ai import routes as ai_routes
 from opn_oracle.ai.context import _canonical, _fit_budget, _sanitize, validate_evidence
 from opn_oracle.ai.evals import calculate_metrics
 from opn_oracle.ai.provider import (
@@ -21,15 +27,18 @@ from opn_oracle.ai.provider import (
     SignalGovernedLLMProvider,
     provider_from_config,
 )
-from opn_oracle.ai.registry import PromptRegistry
+from opn_oracle.ai.registry import PROMPT_VERSIONS, PromptRegistry
 from opn_oracle.ai.schemas import (
     AGENT_SCHEMAS,
+    DossierCompletionWizardOutput,
     DossierSituationSummaryOutput,
     MeetingBriefingOutput,
     ReportOutput,
     SignalTriageOutput,
 )
+from opn_oracle.auth import permissions
 from opn_oracle.oracle.summary import _validated_summary_payload
+from opn_oracle.platform.models import User
 
 
 def _request(agent: str, evidence: list[str]) -> LLMRequest:
@@ -44,10 +53,45 @@ def _request(agent: str, evidence: list[str]) -> LLMRequest:
     )
 
 
+@contextmanager
+def _authenticated_ai(app: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[uuid.UUID]:
+    user = User(
+        id=uuid.uuid4(),
+        email="wizard@example.com",
+        display_name="Wizard",
+        status="active",
+    )
+    tenant_id = uuid.uuid4()
+    principal = type("Principal", (), {"id": user.id, "is_authenticated": True})()
+    monkeypatch.setattr(permissions, "current_user", principal)
+    monkeypatch.setattr(ai_routes, "current_user", principal)
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset({"ai.execute", "dossier.read"}),
+    )
+    before = app.before_request_funcs.get(None, [])
+    idx = next(
+        i for i, fn in enumerate(before) if fn.__name__ == "protect_csrf_and_install_identity"
+    )
+    original = before[idx]
+
+    def install_identity() -> None:
+        g.active_tenant_id = tenant_id
+
+    before[idx] = install_identity
+    try:
+        yield tenant_id
+    finally:
+        before[idx] = original
+
+
 def test_registry_has_complete_immutable_metadata() -> None:
     registry = PromptRegistry()
     assert {item.name for item in registry.all()} == set(AGENT_SCHEMAS)
-    assert len({(item.name, item.version) for item in registry.all()}) == len(AGENT_SCHEMAS) + 9
+    assert len({(item.name, item.version) for item in registry.all()}) == sum(
+        len(versions) for versions in PROMPT_VERSIONS.values()
+    )
     for item in registry.all():
         assert len(item.sha256) == 32
         assert item.input_contract
@@ -68,6 +112,45 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("meeting_briefing").max_output_tokens == 3500
     assert registry.get("weekly_change").version == "v2"
     assert registry.get("weekly_change").max_output_tokens == 4200
+    assert registry.get("dossier_completion_wizard").max_output_tokens == 4500
+    assert registry.get("entity_dossier_intelligence").version == "v2"
+    assert registry.get("entity_dossier_intelligence").max_output_tokens == 16000
+
+
+def test_completion_wizard_route_enqueues_round_answers_via_http(
+    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dossier_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+
+    def fake_enqueue(task_name: str, **kwargs: Any) -> Any:
+        captured["task_name"] = task_name
+        captured.update(kwargs)
+        return type("Job", (), {"id": uuid.uuid4(), "status": "queued"})()
+
+    monkeypatch.setattr(ai_routes, "_dossier", lambda dossier_id, write: object())
+    monkeypatch.setattr(ai_routes, "enqueue_job", fake_enqueue)
+    monkeypatch.setattr(
+        ai_routes,
+        "serialize_job",
+        lambda job: {"id": str(job.id), "status": job.status},
+    )
+    monkeypatch.setattr(ai_routes, "_latest_wizard_artifact", lambda dossier_id: None)
+
+    with _authenticated_ai(app, monkeypatch):
+        response = client.post(
+            f"/api/v1/ai/dossiers/{dossier_id}/completion-wizard/runs",
+            json={"answers": [{"question_id": "scope.geography", "answer": "España"}]},
+            headers={"Idempotency-Key": "wizard-round-key-1"},
+        )
+
+    assert response.status_code == 202
+    assert captured["task_name"] == "oracle.ai.dossier_completion_wizard"
+    assert captured["idempotency_key"] == "wizard-round-key-1"
+    assert captured["payload"]["dossier_id"] == str(dossier_id)
+    assert captured["payload"]["answers"] == [
+        {"question_id": "scope.geography", "answer": "España"}
+    ]
 
 
 def test_persisted_summary_json_rehydrates_strict_uuid_fields() -> None:
@@ -213,6 +296,53 @@ def test_mock_provider_is_deterministic_and_grounded() -> None:
     )
     assert first == second
     validate_evidence(first.output, {evidence_id})  # type: ignore[arg-type]
+
+
+def test_mock_completion_wizard_guides_empty_fire_truck_market() -> None:
+    provider = MockLLMProvider("wizard-fire-trucks")
+    result = provider.generate_structured(
+        LLMRequest(
+            agent="dossier_completion_wizard",
+            model="mock-oracle-v1",
+            system_prompt="system",
+            task_prompt="task",
+            context={
+                "allowed_evidence_ids": [],
+                "completion_snapshot": {
+                    "dossier": {
+                        "title": "Coches de Bomberos",
+                        "dossier_type": "market",
+                        "strategic_goal": (
+                            "Conocer las licitaciones que salen de coches de bomberos "
+                            "u otros vehículos y ver la competencia"
+                        ),
+                    },
+                    "counts": {
+                        "monitors": 0,
+                        "procurement_items": 0,
+                        "actors": 0,
+                    },
+                },
+            },
+            max_output_tokens=1000,
+            classification="internal",
+        ),
+        DossierCompletionWizardOutput,
+    )
+
+    output = result.output
+    assert any(item.kind == "create_signal_monitor" for item in output.recommended_actions)
+    assert any(item.kind == "pin_procurement" for item in output.recommended_actions)
+    assert any(item.kind == "create_actor" for item in output.recommended_actions)
+    monitor = next(
+        item for item in output.recommended_actions if item.kind == "create_signal_monitor"
+    )
+    assert "vehículos de emergencia" in monitor.prefill.keywords
+    assert {item.section for item in output.section_diagnostics} >= {
+        "signals",
+        "procurement",
+        "actors",
+    }
 
 
 @pytest.mark.parametrize(("agent", "schema"), sorted(AGENT_SCHEMAS.items()))

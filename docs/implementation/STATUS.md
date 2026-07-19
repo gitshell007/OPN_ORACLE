@@ -1533,3 +1533,27 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Nota lateral sin relación con el cambio: una petición `_rsc` malformada con
   `Next-Router-Prefetch: 1` y sin cabecera `RSC` hace que Next.js cuelgue hasta el timeout de 65 s.
   Ningún navegador real emite esa combinación; queda anotado, no se ha tocado.
+
+## 2026-07-18 · Prompt 56 · Informe ejecutivo de entidad
+
+- El job de entidad incorpora el histórico paginado de adjudicaciones de Signal y calcula en Python
+  expedientes únicos, importes totales y anuales, órganos contratantes, CPV principal, cuota UTE y
+  primera/última adjudicación. Este flujo reutiliza el núcleo competitivo pero no ejecuta
+  `tender_by_folder` ni la sonda de baja.
+- Solo se reservan como evidencia las adjudicaciones de mayor importe con URL: 15 por defecto,
+  configurable mediante `ENTITY_INTEL_MAX_AWARD_SOURCES`. `source_limits` declara N/M, coincidencia
+  por nombre sin CIF, cobertura exclusiva de contratos ganados y cualquier recorte del histórico.
+  Un error o mala configuración de la fuente degrada contratación a `unavailable` y el informe
+  continúa.
+- Patentes EPO y comunicaciones CNMV ya no se descartan: se compactan con topes, métricas,
+  `truncated_by_oracle`, estado por sección y fuentes citables materializables por D-036.
+- `entity_dossier_intelligence/v2` pasa a ser la versión activa con el mismo máximo de 16.000
+  tokens. Exige 1.200-2.000 palabras, párrafos redactados, agrupación por materialidad, ocho
+  secciones con `Lectura estratégica` como la más larga y `Cobertura y límites` al final, además de
+  3-5 oportunidades, riesgos y acciones. `v1.md`, `ReportOutput` y el repositorio de Signal no se
+  han modificado.
+- Decisión D-037 registrada. No hay migración, cambio OpenAPI ni frontend.
+- Checks locales: `scripts/api-test.sh --unit` correcto — Ruff, formato y mypy limpios; **316
+  passed, 0 skipped y 107 tests de integración excluidos**. No se ha generado un informe real de
+  ITURRI SA ni se ha verificado en producción; esa validación queda expresamente pendiente tras
+  desplegar.

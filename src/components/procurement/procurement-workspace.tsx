@@ -19,6 +19,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import {
   type FormEvent,
   useCallback,
@@ -125,10 +126,20 @@ function summaryFromTender(item: ProcurementTenderItem): SummaryState | null {
 }
 
 export function ProcurementWorkspace() {
-  const [keywords, setKeywords] = useState("");
+  const searchParams = useSearchParams();
+  const initialKeywords = searchParams?.get("keywords") ?? "";
+  const initialBuyer = searchParams?.get("buyer") ?? "";
+  const initialRegion = searchParams?.get("region") ?? "";
+  const initialActive = searchParams?.get("active");
+  const [keywords, setKeywords] = useState(initialKeywords);
   const [semanticLabel, setSemanticLabel] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filters, setFilters] = useState<TenderFiltersForm>(emptyFilters);
+  const [filters, setFilters] = useState<TenderFiltersForm>({
+    ...emptyFilters,
+    buyer: initialBuyer,
+    region: initialRegion,
+    active: initialActive === "false" ? "false" : initialActive === "" ? "" : "true",
+  });
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<ProcurementTendersResponse | null>(null);
   const [loading, setLoading] = useState(false);

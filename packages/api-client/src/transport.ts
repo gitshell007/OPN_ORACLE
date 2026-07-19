@@ -1411,6 +1411,104 @@ export interface EntityIntelGraphResponse {
 
 export type JobResponse = components["schemas"]["JobResponse"];
 
+export type DossierWizardActionKind =
+  | "create_signal_monitor"
+  | "pin_procurement"
+  | "create_opportunity"
+  | "create_risk"
+  | "create_actor"
+  | "refine_goal"
+  | "other";
+
+export interface DossierWizardAnswer {
+  question_id: string;
+  answer: string;
+}
+
+export interface DossierWizardPrefill {
+  name?: string | null;
+  query?: string | null;
+  keywords?: string[];
+  source_types?: string[];
+  languages?: string[];
+  geographies?: string[];
+  cadence?: string | null;
+  procurement_query?: string | null;
+  procurement_kind?: "tender" | "award" | null;
+  title?: string | null;
+  description?: string | null;
+  next_action?: string | null;
+  mitigation?: string | null;
+  actor_type?: "person" | "organization" | "institution" | "program" | "other" | null;
+  tags?: string[];
+  roles?: string[];
+  note?: string | null;
+}
+
+export interface DossierWizardSectionDiagnostic {
+  section: string;
+  status: "ok" | "incomplete" | "empty";
+  explanation: string;
+}
+
+export interface DossierWizardQuestion {
+  id: string;
+  question: string;
+  why_it_matters: string;
+  expected_input: string;
+}
+
+export interface DossierWizardRecommendedAction {
+  kind: DossierWizardActionKind;
+  title: string;
+  rationale: string;
+  prefill: DossierWizardPrefill;
+}
+
+export interface DossierWizardOutput {
+  summary: string;
+  confidence: number;
+  warnings: string[];
+  section_diagnostics: DossierWizardSectionDiagnostic[];
+  questions: DossierWizardQuestion[];
+  recommended_actions: DossierWizardRecommendedAction[];
+}
+
+export interface DossierWizardArtifact {
+  id: string;
+  dossier_id: string;
+  agent: "dossier_completion_wizard";
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: DossierWizardOutput;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface DossierWizardRoundResponse {
+  job: JobResponse | null;
+  artifact: DossierWizardArtifact | null;
+  answers?: DossierWizardAnswer[];
+}
+
+const dossierCompletionWizard = {
+  latest: (dossierId: string) =>
+    request<DossierWizardRoundResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/completion-wizard/latest`,
+    ),
+  run: (
+    dossierId: string,
+    input: { answers?: DossierWizardAnswer[] },
+    idempotencyKey: string,
+  ) =>
+    request<DossierWizardRoundResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/completion-wizard/runs`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
 export interface EntityIntelReportJob extends JobResponse {
   entity?: string | null;
   entity_key?: string | null;
@@ -1856,6 +1954,7 @@ export const api = {
   signalAvanza,
   dossiers,
   oracleSummary,
+  dossierCompletionWizard,
   dossierSignals,
   objectives,
   hypotheses,

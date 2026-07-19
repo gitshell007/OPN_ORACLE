@@ -191,6 +191,8 @@ class Settings:
     document_storage_backend: str
     documents_enabled: bool
     entity_intel_max_registry_acts: int
+    entity_intel_max_award_sources: int
+    entity_intel_max_evidence_sources: int
     document_local_root: str
     document_max_bytes: int
     document_tenant_quota_bytes: int
@@ -447,6 +449,23 @@ class Settings:
                 # que ata ambos valores.
                 values.get("ENTITY_INTEL_MAX_REGISTRY_ACTS", 25),
                 name="ENTITY_INTEL_MAX_REGISTRY_ACTS",
+                minimum=1,
+            ),
+            # Adjudicaciones PLACSP citables que ve el modelo en el informe de
+            # entidad. Como con los actos BORME, cada fuente aumenta el índice de
+            # salida; el tope evita que el catálogo desplace la lectura ejecutiva.
+            entity_intel_max_award_sources=_as_int(
+                values.get("ENTITY_INTEL_MAX_AWARD_SOURCES", 15),
+                name="ENTITY_INTEL_MAX_AWARD_SOURCES",
+                minimum=1,
+            ),
+            # Techo global de fuentes citables del informe de entidad. Debe coincidir
+            # con EVIDENCE_SOURCE_TOTAL_LIMIT de oracle.entity_dossier_report (no se
+            # importa para no crear un ciclo config <-> oracle); hay un test que ata
+            # ambos valores.
+            entity_intel_max_evidence_sources=_as_int(
+                values.get("ENTITY_INTEL_MAX_EVIDENCE_SOURCES", 45),
+                name="ENTITY_INTEL_MAX_EVIDENCE_SOURCES",
                 minimum=1,
             ),
             document_local_root=str(values.get("DOCUMENT_LOCAL_ROOT", ".oracle-storage")),

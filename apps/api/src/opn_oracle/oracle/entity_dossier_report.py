@@ -10,6 +10,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import httpx
 from flask import current_app
 from sqlalchemy import func, select, text
 
@@ -23,7 +24,13 @@ from opn_oracle.integrations.entity_intel import (
     entity_intel_client_from_config,
     resolve_signal_external_tenant_id_for_tenant,
 )
+from opn_oracle.integrations.procurement import (
+    ProcurementConfigurationError,
+    ProcurementProviderError,
+    procurement_client_from_config,
+)
 from opn_oracle.jobs.service import publish_job, serialize_job, stage_job
+from opn_oracle.oracle.competitive_procurement import build_entity_procurement_analysis
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.links import EvidenceDossier, ReportEvidence
 from opn_oracle.oracle.models import Evidence, Report, StrategicDossier
@@ -87,6 +94,9 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     registry = _section_data(payload, "registry") or {}
     graph = _section_data(payload, "graph") or {}
     news = _section_data(payload, "news") or {}
+    patents = _section_data(payload, "patents") or {}
+    disclosures = _section_data(payload, "disclosures") or {}
+    disclosure_errors = disclosures.get("errors")
     registry_items = _items(registry)
     raw_nodes = graph.get("nodes")
     raw_edges = graph.get("edges")
@@ -125,6 +135,16 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
             "truncated": bool(graph.get("truncated")),
         },
         "news": {"items": len(_items(news))},
+        "patents": {
+            "items": len(_items(patents)),
+            "total": patents.get("total") or len(_items(patents)),
+            "available": patents.get("available"),
+        },
+        "disclosures": {
+            "items": len(_items(disclosures)),
+            "total": disclosures.get("total") or len(_items(disclosures)),
+            "errors": len(disclosure_errors) if isinstance(disclosure_errors, list) else 0,
+        },
     }
 
 
@@ -136,10 +156,23 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
 # deja 25 con margen en vez de apurar el borde: un valor que apenas funciona con esta
 # entidad fallaría con otra de actos más largos.
 REGISTRY_ITEM_LIMIT = 25
+PATENT_ITEM_LIMIT = 20
+DISCLOSURE_ITEM_LIMIT = 20
+AWARD_SOURCE_LIMIT = 15
+# Techo GLOBAL de fuentes citables, entre todos los tipos. Los topes por tipo suman
+# hasta 110 (25 actos + 30 noticias + 20 patentes + 20 CNMV + 15 adjudicaciones), muy
+# por encima del punto de truncado medido en producción: 33 fuentes generaban informe
+# completo y 65 lo rompían con "Invalid JSON: EOF". 45 deja margen sobre el caso bueno
+# sin renunciar a que cada tipo de fuente esté representado.
+EVIDENCE_SOURCE_TOTAL_LIMIT = 45
 
 
 def compact_entity_dossier(
-    payload: dict[str, Any], *, registry_limit: int = REGISTRY_ITEM_LIMIT
+    payload: dict[str, Any],
+    *,
+    registry_limit: int = REGISTRY_ITEM_LIMIT,
+    patent_limit: int = PATENT_ITEM_LIMIT,
+    disclosure_limit: int = DISCLOSURE_ITEM_LIMIT,
 ) -> dict[str, Any]:
     """Recorta la ficha a lo que cabe en una llamada al modelo.
 
@@ -154,6 +187,10 @@ def compact_entity_dossier(
     registry = _section_data(payload, "registry") or {}
     graph = _section_data(payload, "graph") or {}
     news = _section_data(payload, "news") or {}
+    patents = _section_data(payload, "patents") or {}
+    disclosures = _section_data(payload, "disclosures") or {}
+    patent_items = _items(patents)
+    disclosure_items = _items(disclosures)
     return {
         "entity": entity,
         "registry": {
@@ -174,6 +211,23 @@ def compact_entity_dossier(
             "truncated_by_signal": bool(graph.get("truncated")),
         },
         "news": {"items": _items(news)[:30], "truncated_by_oracle": len(_items(news)) > 30},
+        "patents": {
+            "available": patents.get("available"),
+            "reason": patents.get("reason"),
+            "total": patents.get("total") or len(patent_items),
+            "items": patent_items[:patent_limit],
+            "truncated_by_oracle": len(patent_items) > patent_limit,
+            "analyzed_items": min(len(patent_items), patent_limit),
+        },
+        "disclosures": {
+            "total": disclosures.get("total") or len(disclosure_items),
+            "items": disclosure_items[:disclosure_limit],
+            "errors": disclosures.get("errors")
+            if isinstance(disclosures.get("errors"), list)
+            else [],
+            "truncated_by_oracle": len(disclosure_items) > disclosure_limit,
+            "analyzed_items": min(len(disclosure_items), disclosure_limit),
+        },
         "section_status": {
             key: {"ok": bool(value.get("ok")), "error": value.get("error")}
             for key, value in (payload.get("sections") or {}).items()
@@ -234,10 +288,111 @@ def _news_extract(item: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _patent_extract(item: dict[str, Any]) -> str:
+    number = _first_text(item, "pub_number", "publication_number") or "sin número"
+    title = _first_text(item, "title") or "sin título"
+    date = _first_text(item, "date", "publication_date")
+    applicants = item.get("applicants")
+    applicant_text = (
+        ", ".join(_text(value) for value in applicants if _text(value))
+        if isinstance(applicants, list)
+        else _text(applicants)
+    )
+    parts = [f"Patente publicada: {number}.", f"Título: {title}."]
+    if date:
+        parts.append(f"Fecha indicada: {date}.")
+    if applicant_text:
+        parts.append(f"Solicitantes indicados: {applicant_text}.")
+    cpv = _first_text(item, "ipc")
+    if cpv:
+        parts.append(f"Clasificación IPC indicada: {cpv}.")
+    return " ".join(parts)
+
+
+def _disclosure_extract(item: dict[str, Any]) -> str:
+    disclosure_type = _first_text(item, "type", "feed_label") or "sin tipo"
+    date = _first_text(item, "occurred_at", "pub_date", "publication_date")
+    body = _first_text(item, "body", "summary", "description")
+    registry_number = _first_text(item, "nreg")
+    parts = [f"Comunicación CNMV: {disclosure_type}."]
+    if date:
+        parts.append(f"Fecha indicada: {date}.")
+    if registry_number:
+        parts.append(f"Número de registro: {registry_number}.")
+    if body:
+        parts.append(f"Contenido disponible: {body}.")
+    return " ".join(parts)
+
+
+def _award_extract(item: dict[str, Any]) -> str:
+    parts = [
+        f"Adjudicación PLACSP: {_first_text(item, 'folder_id') or 'sin expediente'}.",
+        f"Órgano contratante: {_first_text(item, 'buyer') or 'no publicado'}.",
+        f"Adjudicatario publicado: {_first_text(item, 'winner') or 'no publicado'}.",
+    ]
+    title = _first_text(item, "title")
+    if title:
+        parts.append(f"Objeto: {title}.")
+    amount = _first_text(item, "award_amount")
+    if amount:
+        parts.append(f"Importe total adjudicado calculado por Oracle: {amount} EUR.")
+    date = _first_text(item, "award_date")
+    if date:
+        parts.append(f"Fecha de adjudicación publicada: {date}.")
+    cpv = _first_text(item, "primary_cpv")
+    if cpv:
+        parts.append(f"CPV principal: {cpv}.")
+    parts.append(f"UTE publicada: {'sí' if item.get('is_ute') is True else 'no'}.")
+    return " ".join(parts)
+
+
+def balance_evidence_sources(
+    sources: list[dict[str, Any]], *, total_limit: int
+) -> list[dict[str, Any]]:
+    """Acota el total de fuentes citables repartiendo el cupo entre tipos.
+
+    El techo importa porque el modelo enumera cada fuente en `source_index`, y ese
+    índice se serializa al final del JSON: es lo primero que muere al agotarse el
+    presupuesto de salida. Medido en producción: 33 fuentes generaban un informe
+    completo y 65 lo truncaban con "Invalid JSON: EOF". Al sumar patentes, CNMV y
+    adjudicaciones el techo por tipos llegaba a 110, muy por encima de ese punto.
+
+    El reparto es por turnos entre tipos en vez de un corte por el final porque las
+    adjudicaciones se construyen las últimas: truncar la lista sin más las eliminaría
+    siempre, borrando justo la contratación pública que este informe añade. Cada tipo
+    conserva sus mejores fuentes, que ya vienen ordenadas por relevancia desde su
+    constructor (importe para adjudicaciones, recencia para el resto).
+    """
+
+    if total_limit <= 0 or len(sources) <= total_limit:
+        return sources
+
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for source in sources:
+        by_kind.setdefault(str(source.get("source_kind") or "entity_intel"), []).append(source)
+
+    kept: list[dict[str, Any]] = []
+    kinds = list(by_kind)
+    position = 0
+    while len(kept) < total_limit and any(len(items) > position for items in by_kind.values()):
+        for kind in kinds:
+            items = by_kind[kind]
+            if position < len(items):
+                kept.append(items[position])
+                if len(kept) == total_limit:
+                    break
+        position += 1
+
+    # Se devuelve en el orden original para no alterar la numeración que ve el modelo.
+    kept_ids = {id(item) for item in kept}
+    return [source for source in sources if id(source) in kept_ids]
+
+
 def build_pending_entity_evidence_sources(
     *,
     entity_dossier: dict[str, Any],
     corpus_hash: str,
+    total_limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Reserve stable Evidence IDs for citable entity-intel sources.
 
@@ -245,6 +400,9 @@ def build_pending_entity_evidence_sources(
     waiting area until the user incorporates it into a dossier. These IDs let
     the LLM cite a closed set now, while real Evidence rows are materialized
     only if there is a dossier to attach them to.
+
+    `total_limit` acota el total de fuentes entre todos los tipos; ver
+    `balance_evidence_sources` para por qué el techo global importa.
     """
 
     pending: list[dict[str, Any]] = []
@@ -334,10 +492,93 @@ def build_pending_entity_evidence_sources(
             },
         )
 
+    patents = (
+        entity_dossier.get("patents") if isinstance(entity_dossier.get("patents"), dict) else {}
+    )
+    for index, item in enumerate(_items(patents), start=1):
+        source_url = _first_text(item, "url", "source_url", "link", "href")
+        if not source_url:
+            continue
+        number = _first_text(item, "pub_number", "publication_number") or "sin número"
+        title = _first_text(item, "title") or "patente"
+        add_source(
+            source_kind="patent",
+            index=index,
+            item=item,
+            label=f"EPO · {number} · {title}",
+            extract=_patent_extract(item),
+            source_url=source_url,
+            locator={
+                "kind": "signal_entity_patent",
+                "publication_number": number,
+                "source_url": source_url,
+                "ordinal": index,
+            },
+        )
+
+    disclosures = (
+        entity_dossier.get("disclosures")
+        if isinstance(entity_dossier.get("disclosures"), dict)
+        else {}
+    )
+    for index, item in enumerate(_items(disclosures), start=1):
+        source_url = _first_text(item, "link", "url", "source_url", "href")
+        if not source_url:
+            continue
+        disclosure_type = _first_text(item, "type", "feed_label") or "comunicación"
+        date = _first_text(item, "occurred_at", "pub_date", "publication_date") or "sin fecha"
+        add_source(
+            source_kind="disclosure",
+            index=index,
+            item=item,
+            label=f"CNMV · {date} · {disclosure_type}",
+            extract=_disclosure_extract(item),
+            source_url=source_url,
+            locator={
+                "kind": "signal_entity_disclosure",
+                "publication_date": date,
+                "disclosure_type": disclosure_type,
+                "source_url": source_url,
+                "ordinal": index,
+            },
+        )
+
+    raw_procurement = entity_dossier.get("procurement")
+    procurement: dict[str, Any] = dict(raw_procurement) if isinstance(raw_procurement, dict) else {}
+    for index, item in enumerate(_items(procurement.get("award_sources")), start=1):
+        source_url = _first_text(item, "source_url", "url", "link", "href")
+        if not source_url:
+            continue
+        folder_id = _first_text(item, "folder_id") or "sin expediente"
+        buyer = _first_text(item, "buyer") or "órgano no publicado"
+        date = _first_text(item, "award_date") or "sin fecha"
+        add_source(
+            source_kind="procurement_award",
+            index=index,
+            item=item,
+            label=f"PLACSP · {date} · {buyer} · {folder_id}",
+            extract=_award_extract(item),
+            source_url=source_url,
+            locator={
+                "kind": "signal_registry_award",
+                "folder_id": folder_id,
+                "award_date": date,
+                "source_url": source_url,
+                "ordinal": index,
+            },
+        )
+
+    if total_limit is not None:
+        return balance_evidence_sources(pending, total_limit=total_limit)
     return pending
 
 
-def source_limits(entity_dossier: dict[str, Any] | None = None) -> list[str]:
+def source_limits(
+    entity_dossier: dict[str, Any] | None = None,
+    *,
+    evidence_sources_kept: int | None = None,
+    evidence_sources_total: int | None = None,
+) -> list[str]:
     """Límites de fuente que el modelo debe respetar y el informe debe declarar.
 
     Si Oracle ha recortado los actos registrales, el recorte se declara aquí: un
@@ -346,7 +587,21 @@ def source_limits(entity_dossier: dict[str, Any] | None = None) -> list[str]:
     """
 
     registry = (entity_dossier or {}).get("registry")
+    patents = (entity_dossier or {}).get("patents")
+    disclosures = (entity_dossier or {}).get("disclosures")
+    procurement = (entity_dossier or {}).get("procurement")
     limits: list[str] = []
+    if (
+        evidence_sources_kept is not None
+        and evidence_sources_total is not None
+        and evidence_sources_total > evidence_sources_kept
+    ):
+        limits.append(
+            f"Oracle ha pasado {evidence_sources_kept} fuentes citables de "
+            f"{evidence_sources_total} disponibles, repartidas entre tipos de fuente. Los "
+            "agregados cubren el corpus completo, pero solo puede citarse ese subconjunto: "
+            "la ausencia de una cita no implica ausencia del hecho."
+        )
     if isinstance(registry, dict) and registry.get("truncated_by_oracle"):
         analyzed = registry.get("analyzed_acts")
         total = registry.get("total")
@@ -355,6 +610,57 @@ def source_limits(entity_dossier: dict[str, Any] | None = None) -> list[str]:
             "las conclusiones cubren ese subconjunto y no puede inferirse ausencia de "
             "hechos a partir de los actos no analizados."
         )
+    if isinstance(patents, dict) and patents.get("truncated_by_oracle"):
+        limits.append(
+            f"Oracle solo ha pasado {patents.get('analyzed_items')} patentes de "
+            f"{patents.get('total')} al análisis."
+        )
+    if isinstance(disclosures, dict) and disclosures.get("truncated_by_oracle"):
+        limits.append(
+            f"Oracle solo ha pasado {disclosures.get('analyzed_items')} comunicaciones CNMV de "
+            f"{disclosures.get('total')} al análisis."
+        )
+    if isinstance(procurement, dict):
+        status = procurement.get("status")
+        raw_sampling = procurement.get("source_sampling")
+        sampling: dict[str, Any] = dict(raw_sampling) if isinstance(raw_sampling, dict) else {}
+        raw_corpus = procurement.get("corpus")
+        corpus: dict[str, Any] = dict(raw_corpus) if isinstance(raw_corpus, dict) else {}
+        if status == "available":
+            limits.extend(
+                [
+                    (
+                        "La contratación se obtiene por coincidencia de nombre normalizado; "
+                        "Oracle no dispone de CIF para descartar homónimos, variantes registrales "
+                        "o denominaciones de UTE."
+                    ),
+                    (
+                        "El corpus de contratación contiene adjudicaciones publicadas "
+                        "(contratos ganados), no licitaciones presentadas y no ganadas; no permite "
+                        "inferir ausencia de participación ni tasa de éxito."
+                    ),
+                    (
+                        f"Oracle aporta como evidencia citable {sampling.get('selected', 0)} de "
+                        f"{sampling.get('total_contracts', 0)} adjudicaciones, priorizadas por "
+                        "importe y condicionadas a que Signal exponga una URL de fuente."
+                    ),
+                ]
+            )
+            if corpus.get("truncated"):
+                limits.append(
+                    f"El histórico de adjudicaciones se acotó a {corpus.get('analyzed_rows')} "
+                    f"filas de {corpus.get('provider_total_rows')} publicadas por Signal."
+                )
+        elif status == "unavailable":
+            limits.append(
+                "La fuente de contratación pública no estuvo disponible durante esta generación; "
+                "el informe se produjo sin datos de adjudicaciones y no debe inferir su ausencia."
+            )
+        elif status == "not_applicable":
+            limits.append(
+                "La contratación pública por adjudicatario solo se consulta para entidades de "
+                "tipo empresa; no se ha aplicado a esta ficha de persona."
+            )
     return [
         *limits,
         (
@@ -369,6 +675,92 @@ def source_limits(entity_dossier: dict[str, Any] | None = None) -> list[str]:
             "límites o inferencias cautas."
         ),
     ]
+
+
+def load_entity_procurement_context(
+    *,
+    name: str,
+    kind: str,
+    source_limit: int,
+) -> dict[str, Any]:
+    """Load awards without letting an optional provider section fail the entity report."""
+
+    if kind != "company":
+        return {
+            "status": "not_applicable",
+            "computed_metrics": {"status": "not_applicable"},
+            "award_sources": [],
+            "source_sampling": {
+                "limit": source_limit,
+                "selected": 0,
+                "total_contracts": 0,
+                "sourceable_contracts": 0,
+                "truncated_by_oracle": False,
+            },
+            "error": None,
+        }
+    client = None
+    try:
+        client = procurement_client_from_config()
+        analysis = build_entity_procurement_analysis(
+            client,
+            company_name=name,
+            source_limit=source_limit,
+        )
+    except (
+        ProcurementConfigurationError,
+        ProcurementProviderError,
+        # httpx.RequestError como red de seguridad: el cliente ya las traduce, pero la
+        # contratación es una fuente DECLARADA OPCIONAL y el job se marca
+        # retryable=False, así que una excepción que se escape aquí destruye
+        # definitivamente un informe cuyo BORME, grafo y noticias ya están pagados.
+        # Ante la duda, degradar.
+        httpx.RequestError,
+        TypeError,
+        ValueError,
+    ) as error:
+        current_app.logger.warning(
+            "No se pudo cargar la contratación para el informe de entidad",
+            extra={
+                "entity_name": name,
+                "error_type": type(error).__name__,
+                "provider_status": getattr(error, "status_code", None),
+            },
+        )
+        return {
+            "status": "unavailable",
+            "computed_metrics": {
+                "status": "unavailable",
+                "reason": "procurement_source_unavailable",
+            },
+            "award_sources": [],
+            "source_sampling": {
+                "limit": source_limit,
+                "selected": 0,
+                "total_contracts": 0,
+                "sourceable_contracts": 0,
+                "truncated_by_oracle": False,
+            },
+            "error": "procurement_source_unavailable",
+        }
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception as error:  # pragma: no cover - defensa del proveedor opcional
+                current_app.logger.warning(
+                    "No se pudo cerrar el cliente de contratación del informe de entidad",
+                    extra={"entity_name": name, "error_type": type(error).__name__},
+                )
+    return {
+        "status": "available",
+        **analysis,
+        "computed_metrics": {
+            "status": "available",
+            **analysis["computed_metrics"],
+        },
+        "error": None,
+    }
 
 
 def enqueue_entity_dossier_report(
@@ -429,15 +821,39 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
         )
     finally:
         client.close()
+    _checkpoint(job, progress=30, stage="fetching_procurement")
+    procurement = load_entity_procurement_context(
+        name=name,
+        kind=kind,
+        source_limit=int(current_app.config["ENTITY_INTEL_MAX_AWARD_SOURCES"]),
+    )
     metrics = build_entity_dossier_metrics(dossier_payload)
+    metrics["procurement"] = procurement["computed_metrics"]
     compact = compact_entity_dossier(
         dossier_payload,
         registry_limit=int(current_app.config["ENTITY_INTEL_MAX_REGISTRY_ACTS"]),
     )
+    compact["procurement"] = {
+        "status": procurement["status"],
+        "award_sources": procurement["award_sources"],
+        "source_sampling": procurement["source_sampling"],
+        "corpus": procurement["computed_metrics"].get("corpus"),
+        "error": procurement["error"],
+    }
+    compact.setdefault("section_status", {})["procurement"] = {
+        "ok": procurement["status"] == "available",
+        "error": procurement["error"],
+    }
     corpus_hash = hashlib.sha256(_canonical(compact)).hexdigest()
-    pending_evidence_sources = build_pending_entity_evidence_sources(
+    # En dos pasos a propósito: el informe tiene que poder declarar cuántas fuentes
+    # citables se han dejado fuera, y para eso hace falta el recuento previo al recorte.
+    all_evidence_sources = build_pending_entity_evidence_sources(
         entity_dossier=compact,
         corpus_hash=corpus_hash,
+    )
+    pending_evidence_sources = balance_evidence_sources(
+        all_evidence_sources,
+        total_limit=int(current_app.config["ENTITY_INTEL_MAX_EVIDENCE_SOURCES"]),
     )
     _checkpoint(job, progress=45, stage="entity_dossier_ready")
     output, audit = _run_waiting_area_agent(
@@ -447,6 +863,7 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
         computed_metrics=metrics,
         corpus_hash=corpus_hash,
         pending_evidence_sources=pending_evidence_sources,
+        evidence_sources_total=len(all_evidence_sources),
     )
     result = {
         "kind": "entity_dossier_intelligence_report",
@@ -459,7 +876,11 @@ def process_entity_dossier_report(payload: dict[str, Any], job: BackgroundJob) -
         "prompt_version": audit.prompt_version,
         "generated_at": audit.completed_at.isoformat() if audit.completed_at else None,
         "corpus_hash": corpus_hash,
-        "source_limits": source_limits(compact),
+        "source_limits": source_limits(
+            compact,
+            evidence_sources_kept=len(pending_evidence_sources),
+            evidence_sources_total=len(all_evidence_sources),
+        ),
         "computed_metrics": metrics,
         "pending_evidence_schema": ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
         "pending_evidence_sources": pending_evidence_sources,
@@ -493,6 +914,7 @@ def _run_waiting_area_agent(
     computed_metrics: dict[str, Any],
     corpus_hash: str,
     pending_evidence_sources: list[dict[str, Any]],
+    evidence_sources_total: int | None = None,
 ) -> tuple[dict[str, Any], AIAuditLog]:
     tenant_id = require_tenant_id()
     slot = f"{tenant_id}:{job.id}:{ENTITY_DOSSIER_AGENT}"
@@ -546,7 +968,11 @@ def _run_waiting_area_agent(
             for item in pending_evidence_sources
         ],
         "computed_metrics": computed_metrics,
-        "source_limits": source_limits(entity_dossier),
+        "source_limits": source_limits(
+            entity_dossier,
+            evidence_sources_kept=len(pending_evidence_sources),
+            evidence_sources_total=evidence_sources_total,
+        ),
         "corpus_hash": corpus_hash,
         "evidence_policy": {
             "materialization": (

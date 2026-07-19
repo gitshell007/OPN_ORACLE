@@ -29,6 +29,7 @@ JOB_CONTROL_PERMISSIONS = {
     "oracle.procurement_document_report.generate": "report.generate",
     "oracle.competitive_procurement_report.generate": "report.generate",
     "oracle.entity_dossier_report.generate": "report.generate",
+    "oracle.ai.dossier_completion_wizard": "ai.execute",
     "oracle.document.process": "dossier.write",
     "notifications.send_email": "tenant.users.manage",
     "maintenance.weekly_digest": "tenant.settings.manage",

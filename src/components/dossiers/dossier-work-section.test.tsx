@@ -192,9 +192,10 @@ describe("DossierWorkSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Nuevo actor" }));
     fireEvent.click(screen.getByRole("button", { name: "Vincular existente" }));
     await screen.findByRole("option", { name: "Consorcio Lumen" });
-    fireEvent.change(screen.getByLabelText("Actor existente"), { target: { value: "actor-1" } });
-    fireEvent.change(screen.getByLabelText("Roles (separados por comas)"), { target: { value: "socio, prescriptor" } });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo actor" });
+    fireEvent.change(within(dialog).getByLabelText("Actor existente"), { target: { value: "actor-1" } });
+    fireEvent.change(within(dialog).getByPlaceholderText(/adjudicatario habitual/i), { target: { value: "socio, prescriptor" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(mocks.actorAttach).toHaveBeenCalledWith("dossier-1", {
       actor_id: "actor-1",
@@ -231,12 +232,14 @@ describe("DossierWorkSection", () => {
     render(<DossierWorkSection dossierId="dossier-1" kind="actors" />);
     fireEvent.click(await screen.findByRole("button", { name: "Nuevo actor" }));
 
+    expect(screen.getByPlaceholderText(/adjudicatario habitual/i)).toBeInTheDocument();
+    expect(screen.getByText(/qué papel juega en este expediente concreto/i)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "CATL" } });
     fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "organization" } });
     fireEvent.change(screen.getByLabelText("Etiquetas (separadas por comas)"), {
       target: { value: "fabricante, baterías" },
     });
-    fireEvent.change(screen.getByLabelText("Roles (separados por comas)"), {
+    fireEvent.change(screen.getByPlaceholderText(/adjudicatario habitual/i), {
       target: { value: "competidor, socio potencial" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));

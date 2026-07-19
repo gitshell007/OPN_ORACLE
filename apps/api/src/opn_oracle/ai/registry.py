@@ -47,6 +47,9 @@ PURPOSES = {
     "evidence_reviewer": "Revisar groundedness y seguridad de un output.",
     "weekly_change": "Resumir cambios estratégicos del periodo.",
     "dossier_situation_summary": "Sintetizar la situación actual trazable de un expediente.",
+    "dossier_completion_wizard": (
+        "Diagnosticar la completitud de un expediente y proponer preguntas y acciones ejecutables."
+    ),
 }
 
 INPUT_CONTRACTS = {
@@ -93,6 +96,14 @@ INPUT_CONTRACTS = {
         "snapshot",
         "allowed_evidence_ids",
     ),
+    "dossier_completion_wizard": (
+        "tenant_id",
+        "dossier_id",
+        "completion_snapshot",
+        "previous_rounds",
+        "answers",
+        "allowed_evidence_ids",
+    ),
 }
 
 PROMPT_VERSIONS = {
@@ -102,7 +113,12 @@ PROMPT_VERSIONS = {
         else ("v1", "v2", "v3", "v4")
         if name == "report_writer"
         else ("v1", "v2")
-        if name in {"meeting_briefing", "weekly_change"}
+        if name
+        in {
+            "meeting_briefing",
+            "weekly_change",
+            "entity_dossier_intelligence",
+        }
         else ("v1",)
     )
     for name in AGENT_SCHEMAS
@@ -125,6 +141,8 @@ def _max_output_tokens(name: str, version: str) -> int:
         # Signal pisa este valor para tareas gobernadas, pero mandarlo correcto evita que el
         # límite real dependa de ese parche.
         return 16000
+    if name == "dossier_completion_wizard":
+        return 4500
     if name != "dossier_situation_summary":
         return 2000
     return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900, "v5": 2600}[version]
@@ -145,33 +163,43 @@ class PromptRegistry:
                     if section not in text:
                         raise ValueError(f"Prompt incompleto {name}/{version}: falta {section}")
                 combined = self.system + "\n\n" + text
-                changelog = (
-                    {
+                if name == "entity_dossier_intelligence":
+                    changelog = {
                         "v1": "v1: contrato inicial derivado del runtime canónico de Fase 09.",
-                        "v2": "v2: salida compacta y completa para modelos locales.",
-                        "v3": "v3: parte ejecutivo acotado para inferencia local fiable.",
-                        "v4": "v4: cierre JSON breve con margen de terminación medido.",
-                        "v5": "v5: presupuesto completo para el contrato ejecutivo de 18 bloques.",
+                        "v2": ("v2: informe ejecutivo redactado con contratación pública."),
                     }[version]
-                    if name == "dossier_situation_summary"
-                    else (
+                else:
+                    changelog = (
                         {
                             "v1": "v1: contrato inicial derivado del runtime canónico de Fase 09.",
-                            "v2": (
-                                "v2: contrato compacto y presupuesto ajustado para "
-                                "Signal/Ollama local."
-                            ),
-                            "v3": (
-                                "v3: párrafos factuales con evidencia obligatoria y "
-                                "contrato compacto."
-                            ),
-                            "v4": (
-                                "v4: las citas en prosa usan índices legibles; los UUID "
-                                "quedan fuera de la salida de negocio."
+                            "v2": "v2: salida compacta y completa para modelos locales.",
+                            "v3": "v3: parte ejecutivo acotado para inferencia local fiable.",
+                            "v4": "v4: cierre JSON breve con margen de terminación medido.",
+                            "v5": (
+                                "v5: presupuesto completo para el contrato ejecutivo de 18 bloques."
                             ),
                         }[version]
+                        if name == "dossier_situation_summary"
+                        else (
+                            {
+                                "v1": (
+                                    "v1: contrato inicial derivado del runtime canónico de Fase 09."
+                                ),
+                                "v2": (
+                                    "v2: contrato compacto y presupuesto ajustado para "
+                                    "Signal/Ollama local."
+                                ),
+                                "v3": (
+                                    "v3: párrafos factuales con evidencia obligatoria y "
+                                    "contrato compacto."
+                                ),
+                                "v4": (
+                                    "v4: las citas en prosa usan índices legibles; los UUID "
+                                    "quedan fuera de la salida de negocio."
+                                ),
+                            }[version]
+                        )
                     )
-                )
                 item = PromptDefinition(
                     name=name,
                     version=version,

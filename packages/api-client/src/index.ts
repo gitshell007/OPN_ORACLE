@@ -21,6 +21,13 @@ export type {
   DossierListQuery,
   DossierListResult,
   DossierSort,
+  DossierWizardActionKind,
+  DossierWizardAnswer,
+  DossierWizardArtifact,
+  DossierWizardOutput,
+  DossierWizardPrefill,
+  DossierWizardRecommendedAction,
+  DossierWizardRoundResponse,
   DossierResourcePage,
   DossierResourceQuery,
   DossierSignalEnvelope,
@@ -41,6 +48,7 @@ export type {
   OracleChange,
   WeeklyChangeDigest,
   GlobalSearchResult,
+  JobResponse,
   SignalReviewActionInput,
 } from "./transport";
 export type {

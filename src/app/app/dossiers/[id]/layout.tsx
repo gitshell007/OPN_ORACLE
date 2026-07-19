@@ -1,3 +1,4 @@
+import { DossierCompletionWizard } from "@/components/dossiers/dossier-completion-wizard";
 import { DossierNavigation } from "@/components/navigation/product-navigation";
 
 export default async function DossierLayout({
@@ -10,7 +11,10 @@ export default async function DossierLayout({
   const { id } = await params;
   return (
     <>
-      <DossierNavigation dossierId={id} />
+      <div className="dossier-nav-row">
+        <DossierNavigation dossierId={id} />
+        <DossierCompletionWizard dossierId={id} />
+      </div>
       {children}
     </>
   );
