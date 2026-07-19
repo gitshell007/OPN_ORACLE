@@ -79,17 +79,17 @@
   Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer `opn-oracle`,
   con salida JSON estructurada y los límites/failover/coste que decida el responsable. Oracle no
   cablea proveedores ni modelos para esta tarea y no se ha modificado el repositorio de Signal.
-- **BLOQUEA el E2E del Prompt 45 — verificado en producción el 2026-07-17.** La cadena de Oracle
-  está completa y desplegada: el job encola, construye el corpus de la ficha y llama a
-  `POST /api/v1/ai/run` de Signal. Signal responde **`403 task_not_allowed`**: la `task_key`
-  **`entity_dossier_intelligence`** no está en la lista `allowed_tasks` del consumer `opn-oracle`
-  (`app/services/ai_governance.py:566`). `competitive_procurement_intelligence` (Prompt 43) sí
-  funciona porque está en `ORACLE_GOVERNED_TASKS` (código de Signal) y en el allowlist del consumer.
-  **Es un cambio en Signal, no en Oracle**, análogo al que dio de alta la task del Prompt 43: añadir
-  `entity_dossier_intelligence` a `ORACLE_GOVERNED_TASKS` con su config (modelo/tokens/timeout,
-  salida `ReportOutput/v1`, tolerancia a minutos) y al `allowed_tasks` del consumer. Hasta entonces
-  el botón «Informe de la entidad» encola y falla con «El proveedor de análisis de entidades no está
-  disponible temporalmente».
+- Resuelto en Signal el 2026-07-18: `entity_dossier_intelligence` ya figura en el catálogo y en la
+  política efectiva del consumer `opn-oracle`, con salida estructurada y presupuesto ampliado para
+  informes largos de entidad. Queda pendiente únicamente validar desde una sesión Oracle que el
+  flujo completo del informe de entidad ya no devuelve `task_not_allowed`.
+- Resuelto en Signal el 2026-07-18: `dossier_completion_wizard` ya está dado de alta para
+  `opn-oracle` con `ollama/qwen3.5:9b`, fallback `ollama_titan/qwen3.6:27b`, cloud cerrado,
+  `json_mode`, `structured_output`, `require_explicit_task`, `max_output_tokens=3500` y
+  `timeout_seconds=180`. Signal documenta smoke real contra `POST /api/v1/ai/run` con consumidor
+  temporal Oracle y JSON válido; en este workspace se ha reejecutado la suite local de Signal con
+  `577 passed`. Queda pendiente solo el E2E desde la UI/API de Oracle con sesión o fixture
+  desplegado.
 
 ## IA y compliance
 
