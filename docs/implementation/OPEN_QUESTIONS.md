@@ -75,10 +75,12 @@
   producto quiere reemplazar la visita al BOE para detalles como ampliaciones de capital, objeto
   social o texto completo del acto, Signal debe extraer y exponer ese contenido como contrato nuevo;
   Oracle no lo inventa.
-- Pendiente antes del E2E productivo del Prompt 43: confirmar o registrar en el administrador de
-  Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer `opn-oracle`,
-  con salida JSON estructurada y los límites/failover/coste que decida el responsable. Oracle no
-  cablea proveedores ni modelos para esta tarea y no se ha modificado el repositorio de Signal.
+- Pendiente Signal para el informe competitivo ejecutivo: confirmar o actualizar en el
+  administrador de Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer
+  `opn-oracle`, con salida JSON estructurada y `max_output_tokens=16000` para `v2`. Oracle declara
+  ese presupuesto, pero las tareas gobernadas pueden ser pisadas por Signal; si Signal queda en
+  5000, el informe de 1200-2000 palabras puede truncar con JSON incompleto. Oracle no cablea
+  proveedores ni modelos para esta tarea y no se ha modificado el repositorio de Signal.
 - Resuelto en Signal el 2026-07-18: `entity_dossier_intelligence` ya figura en el catálogo y en la
   política efectiva del consumer `opn-oracle`, con salida estructurada y presupuesto ampliado para
   informes largos de entidad. Queda pendiente únicamente validar desde una sesión Oracle que el
