@@ -19,8 +19,9 @@ from redis import Redis
 from sqlalchemy import create_engine, func, select, text
 
 from opn_oracle import create_app
-from opn_oracle.ai.models import AITenantPolicy
-from opn_oracle.ai.provider import LLMRequest, LLMResult, MockLLMProvider
+from opn_oracle.ai.context import _canonical, build_dossier_completion_context
+from opn_oracle.ai.models import AIArtifact, AIAttempt, AITenantPolicy, AIUsageLedger
+from opn_oracle.ai.provider import AIUnavailable, LLMRequest, LLMResult, MockLLMProvider
 from opn_oracle.ai.schemas import ReportOutput
 from opn_oracle.auth.passwords import PasswordHasher
 from opn_oracle.cli.oracle import stable_id
@@ -45,13 +46,25 @@ from opn_oracle.documents.storage import (
     object_key,
 )
 from opn_oracle.extensions import db
-from opn_oracle.integrations.procurement import ProcurementClient
-from opn_oracle.jobs.service import enqueue_job, stage_job
-from opn_oracle.jobs.tasks import dispatch_queued_jobs, schedule_nightly_dossier_summaries
+from opn_oracle.integrations import entity_intel_routes
+from opn_oracle.integrations.procurement import ProcurementClient, ProcurementProviderError
+from opn_oracle.jobs.service import enqueue_job, payload_digest, stage_job
+from opn_oracle.jobs.tasks import (
+    dispatch_queued_jobs,
+    execute_durable,
+    schedule_nightly_dossier_summaries,
+)
 from opn_oracle.notifications.email import CaptureEmailSender
-from opn_oracle.oracle import procurement_items
-from opn_oracle.oracle.jobs import BackgroundJob
-from opn_oracle.oracle.links import DossierCollaborator
+from opn_oracle.oracle import entity_dossier_report, procurement_items
+from opn_oracle.oracle.entity_dossier_report import (
+    ENTITY_DOSSIER_AGENT,
+    ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
+    ENTITY_DOSSIER_REPORT_JOB,
+    _run_waiting_area_agent,
+    incorporate_entity_dossier_report,
+)
+from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
+from opn_oracle.oracle.links import DossierCollaborator, EvidenceDossier, ReportEvidence
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Report, StrategicDossier
 from opn_oracle.reporting.models import (
     DataExport,
@@ -59,6 +72,7 @@ from opn_oracle.reporting.models import (
     NotificationDelivery,
     NotificationPreference,
     ReportArtifact,
+    ReportRevision,
     ReportSnapshotEvidence,
 )
 from opn_oracle.reporting.notifications import (
@@ -1071,6 +1085,300 @@ def _enable_mock_ai(app: Any, ids: dict[str, uuid.UUID]) -> None:
         db.session.commit()
 
 
+def _entity_signal_payload() -> dict[str, Any]:
+    return {
+        "entity": {"name": "Entidad Cobertura SA", "type": "company"},
+        "sections": {
+            "registry": {
+                "ok": True,
+                "data": {
+                    "total": 2,
+                    "profile": {
+                        "status": "activa",
+                        "first_act_date": "2025-01-10",
+                        "last_act_date": "2026-02-11",
+                    },
+                    "items": [
+                        {
+                            "company": "Entidad Cobertura SA",
+                            "person": f"Persona {index}",
+                            "role": "Administrador",
+                            "action": "nombramiento",
+                            "date": f"2026-02-{10 + index:02d}",
+                            "province": "SEVILLA",
+                            "source_url": (
+                                f"https://www.boe.es/borme/dias/2026/02/{10 + index:02d}/"
+                            ),
+                        }
+                        for index in range(2)
+                    ],
+                },
+            },
+            "graph": {
+                "ok": True,
+                "data": {
+                    "nodes": [{"id": "company"}, {"id": "person"}],
+                    "edges": [{"source": "company", "target": "person", "date": "2026-02-10"}],
+                    "truncated": False,
+                },
+            },
+            "news": {
+                "ok": True,
+                "data": {
+                    "items": [
+                        {
+                            "title": f"Noticia verificable {index}",
+                            "published_at": f"2026-03-{10 + index:02d}",
+                            "source_name": "Medio oficial",
+                            "url": f"https://example.test/noticias/{index}",
+                        }
+                        for index in range(2)
+                    ]
+                },
+            },
+            "patents": {
+                "ok": True,
+                "data": {
+                    "available": True,
+                    "total": 2,
+                    "items": [
+                        {
+                            "pub_number": f"EP00000{index}",
+                            "title": f"Patente {index}",
+                            "date": f"2025-04-{10 + index:02d}",
+                            "applicants": ["Entidad Cobertura SA"],
+                            "ipc": "A62C",
+                            "url": f"https://worldwide.espacenet.com/patent/EP00000{index}",
+                        }
+                        for index in range(2)
+                    ],
+                },
+            },
+            "disclosures": {
+                "ok": True,
+                "data": {
+                    "total": 2,
+                    "items": [
+                        {
+                            "nreg": f"2026000{index}",
+                            "type": "Otra información relevante",
+                            "pub_date": f"2026-05-{10 + index:02d}",
+                            "body": f"Comunicación al mercado {index}.",
+                            "link": f"https://www.cnmv.es/portal/consultas/2026000{index}",
+                        }
+                        for index in range(2)
+                    ],
+                },
+            },
+        },
+    }
+
+
+def _available_procurement_context() -> dict[str, Any]:
+    award_sources = [
+        {
+            "folder_id": f"EXP-{index}",
+            "title": f"Contrato {index}",
+            "buyer": f"Organismo {index}",
+            "winner": "Entidad Cobertura SA",
+            "award_amount": f"{5000 + index}.00",
+            "award_date": f"2026-01-{10 + index:02d}",
+            "primary_cpv": "34144210",
+            "is_ute": False,
+            "source_url": f"https://contrataciondelestado.es/exp/EXP-{index}",
+        }
+        for index in range(2)
+    ]
+    return {
+        "status": "available",
+        "computed_metrics": {
+            "status": "available",
+            "corpus": {
+                "contracts": 2,
+                "analyzed_rows": 2,
+                "provider_total_rows": 2,
+                "truncated": False,
+            },
+            "amounts": {"total_awarded_eur": "10001.00"},
+        },
+        "award_sources": award_sources,
+        "source_sampling": {
+            "limit": 15,
+            "selected": 2,
+            "total_contracts": 2,
+            "sourceable_contracts": 2,
+            "contracts_without_source_url": 0,
+            "truncated_by_oracle": False,
+            "selection": "fixture determinista",
+        },
+        "error": None,
+    }
+
+
+def _new_entity_job(ids: dict[str, uuid.UUID], payload: dict[str, Any], key: str) -> BackgroundJob:
+    job = BackgroundJob(
+        tenant_id=ids["tenant_a"],
+        job_type=ENTITY_DOSSIER_REPORT_JOB,
+        status="queued",
+        queue="ai",
+        idempotency_key=key,
+        payload_hash=payload_digest(payload),
+        input_payload=payload,
+        requested_by_user_id=ids["user"],
+        resource_type="entity_intelligence_report",
+    )
+    db.session.add(job)
+    db.session.commit()
+    return job
+
+
+def _entity_report_output(evidence_ids: list[uuid.UUID]) -> dict[str, Any]:
+    cited = evidence_ids[:1]
+    output = ReportOutput(
+        title="Informe de Entidad Cobertura SA",
+        executive_summary="Síntesis ejecutiva trazable.",
+        facts=[
+            {
+                "statement": "La entidad presenta actividad pública verificable.",
+                "evidence_ids": cited,
+            }
+        ]
+        if cited
+        else [],
+        inferences=[],
+        recommendations=[],
+        confidence=80,
+        open_questions=[],
+        warnings=[],
+        sections=[
+            {
+                "heading": "Perfil y trayectoria",
+                "paragraphs": [
+                    {
+                        "text": (
+                            "La fuente pública acredita actividad."
+                            if cited
+                            else "No hay fuentes citables en esta generación."
+                        ),
+                        "kind": "fact" if cited else "inference",
+                        "confidence": 80 if cited else 30,
+                        "evidence_ids": cited,
+                    }
+                ],
+            }
+        ],
+        source_index=[
+            {
+                "evidence_id": evidence_id,
+                "label": "Fuente pública citada",
+                "locator": f"https://example.test/evidence/{evidence_id}",
+            }
+            for evidence_id in cited
+        ],
+    )
+    return output.model_dump(mode="json")
+
+
+def _completed_entity_job(
+    ids: dict[str, uuid.UUID],
+    *,
+    dossier_pending_sources: list[dict[str, Any]],
+    key: str,
+) -> tuple[BackgroundJob, AIAuditLog]:
+    job = BackgroundJob(
+        tenant_id=ids["tenant_a"],
+        job_type=ENTITY_DOSSIER_REPORT_JOB,
+        status="succeeded",
+        stage="completed",
+        progress=100,
+        queue="ai",
+        idempotency_key=key,
+        payload_hash=payload_digest({"name": "Entidad Cobertura SA", "kind": "company"}),
+        input_payload={"name": "Entidad Cobertura SA", "kind": "company"},
+        requested_by_user_id=ids["user"],
+        resource_type="entity_intelligence_report",
+    )
+    db.session.add(job)
+    db.session.flush()
+    now = datetime.now(UTC)
+    audit = AIAuditLog(
+        tenant_id=ids["tenant_a"],
+        dossier_id=None,
+        background_job_id=job.id,
+        requested_by_user_id=ids["user"],
+        use_case=ENTITY_DOSSIER_AGENT,
+        agent=ENTITY_DOSSIER_AGENT,
+        action="generate_waiting_entity_report",
+        provider="mock",
+        model="mock-oracle-v1",
+        prompt_name=ENTITY_DOSSIER_AGENT,
+        prompt_version="v2",
+        prompt_hash=hashlib.sha256(b"prompt").digest(),
+        context_hash=hashlib.sha256(b"context").digest(),
+        schema_name="ReportOutput",
+        schema_version="v1",
+        input_hash=hashlib.sha256(b"input").digest(),
+        output_hash=hashlib.sha256(b"output").digest(),
+        source_ids=[item["id"] for item in dossier_pending_sources],
+        status="succeeded",
+        data_classification="internal",
+        redaction_applied=False,
+        redaction_summary={},
+        input_tokens=100,
+        output_tokens=200,
+        actual_cost_micros=0,
+        attempt_count=1,
+        started_at=now,
+        completed_at=now,
+    )
+    db.session.add(audit)
+    db.session.flush()
+    evidence_ids = [uuid.UUID(str(item["id"])) for item in dossier_pending_sources]
+    job.result_ref = {
+        "kind": "entity_dossier_intelligence_report",
+        "entity": {
+            "name": "Entidad Cobertura SA",
+            "type": "company",
+            "key": "company:entidad-cobertura-sa",
+        },
+        "output": _entity_report_output(evidence_ids),
+        "audit_log_id": str(audit.id),
+        "provider": "mock",
+        "model": "mock-oracle-v1",
+        "prompt_name": ENTITY_DOSSIER_AGENT,
+        "prompt_version": "v2",
+        "corpus_hash": "a" * 64,
+        "source_limits": ["Cobertura declarada."],
+        "computed_metrics": {"registry": {"acts": len(dossier_pending_sources)}},
+        "pending_evidence_schema": ENTITY_DOSSIER_PENDING_EVIDENCE_SCHEMA,
+        "pending_evidence_sources": dossier_pending_sources,
+        "incorporated_report_id": None,
+        "incorporated_dossier_id": None,
+    }
+    db.session.commit()
+    return job, audit
+
+
+def _pending_entity_sources() -> list[dict[str, Any]]:
+    kinds = ("registry_act", "news", "patent", "disclosure", "procurement_award")
+    sources = []
+    for index, source_kind in enumerate(kinds):
+        evidence_id = uuid.uuid4()
+        extract = f"Extracto verificable {source_kind} {index}."
+        sources.append(
+            {
+                "id": str(evidence_id),
+                "source_kind": source_kind,
+                "label": f"Fuente {source_kind}",
+                "source_url": f"https://example.test/{source_kind}/{index}",
+                "extract": extract,
+                "locator": {"kind": source_kind, "ordinal": index},
+                "checksum": hashlib.sha256(extract.encode()).hexdigest(),
+            }
+        )
+    return sources
+
+
 def _procurement_folder_client(transport: httpx.MockTransport) -> ProcurementClient:
     return ProcurementClient(
         base_url="https://signal.example",
@@ -1078,6 +1386,1157 @@ def _procurement_folder_client(transport: httpx.MockTransport) -> ProcurementCli
         allowed_hosts=frozenset({"signal.example"}),
         transport=transport,
     )
+
+
+def test_entity_dossier_job_persists_bounded_sources_and_stable_corpus(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    payload = {
+        "name": "Entidad Cobertura SA",
+        "kind": "company",
+        "entity_key": "company:entidad-cobertura-sa",
+    }
+    clients: list[Any] = []
+
+    class FakeSignalClient:
+        closed = False
+
+        def dossier(self, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs == {
+                "name": "Entidad Cobertura SA",
+                "kind": "company",
+                "external_tenant_id": "signal-tenant-a",
+            }
+            return _entity_signal_payload()
+
+        def close(self) -> None:
+            self.closed = True
+
+    def signal_client() -> FakeSignalClient:
+        client = FakeSignalClient()
+        clients.append(client)
+        return client
+
+    checkpoints: list[tuple[int, str]] = []
+    original_checkpoint = entity_dossier_report._checkpoint
+
+    def checkpoint(job: BackgroundJob, *, progress: int, stage: str) -> None:
+        checkpoints.append((progress, stage))
+        original_checkpoint(job, progress=progress, stage=stage)
+
+    monkeypatch.setattr(entity_dossier_report, "_checkpoint", checkpoint)
+    monkeypatch.setattr(entity_dossier_report, "entity_intel_client_from_config", signal_client)
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "resolve_signal_external_tenant_id_for_tenant",
+        lambda tenant_id: "signal-tenant-a",
+    )
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "load_entity_procurement_context",
+        lambda **kwargs: _available_procurement_context(),
+    )
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "provider_from_config",
+        lambda config: MockLLMProvider("entity-report-integration"),
+    )
+    monkeypatch.setitem(app.config, "ENTITY_INTEL_MAX_EVIDENCE_SOURCES", 5)
+    monkeypatch.setitem(app.config, "ENTITY_INTEL_MAX_AWARD_SOURCES", 15)
+
+    class TaskProbe:
+        request = type("Request", (), {"id": ""})()
+
+    results: list[dict[str, Any]] = []
+    job_ids: list[uuid.UUID] = []
+    with app.app_context():
+        for _index in range(2):
+            with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+                job = _new_entity_job(ids, payload, f"entity-report-stable-{uuid.uuid4()}")
+                job_ids.append(job.id)
+            db.session.remove()
+            results.append(
+                execute_durable(  # type: ignore[arg-type]
+                    TaskProbe(),
+                    job_id=str(job_ids[-1]),
+                    tenant_id=str(ids["tenant_a"]),
+                    payload=payload,
+                )
+            )
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            stored = [db.session.get(BackgroundJob, job_id) for job_id in job_ids]
+            assert all(job is not None and job.status == "succeeded" for job in stored)
+            assert all(job is not None and job.stage == "completed" for job in stored)
+            assert all(job is not None and job.progress == 100 for job in stored)
+
+    assert (
+        checkpoints
+        == [
+            (15, "fetching_entity_dossier"),
+            (30, "fetching_procurement"),
+            (45, "entity_dossier_ready"),
+        ]
+        * 2
+    )
+    assert len(clients) == 2 and all(client.closed for client in clients)
+    assert results[0]["corpus_hash"] == results[1]["corpus_hash"]
+    assert results[0]["computed_metrics"]["registry"]["acts"] == 2
+    assert results[0]["computed_metrics"]["procurement"]["status"] == "available"
+    assert len(results[0]["pending_evidence_sources"]) == 5
+    assert {item["source_kind"] for item in results[0]["pending_evidence_sources"]} == {
+        "registry_act",
+        "news",
+        "patent",
+        "disclosure",
+        "procurement_award",
+    }
+    assert results[0]["pending_evidence_sources"] == results[1]["pending_evidence_sources"]
+    assert any(
+        "5 fuentes citables de 10 disponibles" in limit for limit in results[0]["source_limits"]
+    )
+
+
+def test_entity_dossier_job_survives_procurement_provider_failure(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    payload = {
+        "name": "Entidad Cobertura SA",
+        "kind": "company",
+        "entity_key": "company:entidad-cobertura-sa",
+    }
+    captured_requests: list[LLMRequest] = []
+    signal_closed: list[bool] = []
+    procurement_closed: list[bool] = []
+
+    class FakeSignalClient:
+        def dossier(self, **kwargs: Any) -> dict[str, Any]:
+            del kwargs
+            return _entity_signal_payload()
+
+        def close(self) -> None:
+            signal_closed.append(True)
+
+    class FailingProcurementClient:
+        def awards(self, **kwargs: Any) -> dict[str, Any]:
+            del kwargs
+            raise ProcurementProviderError(
+                status_code=503,
+                code="provider_unavailable",
+                detail="fixture",
+                retryable=True,
+            )
+
+        def close(self) -> None:
+            procurement_closed.append(True)
+
+    fallback = MockLLMProvider("entity-report-procurement-degraded")
+
+    class CapturingProvider:
+        def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
+            captured_requests.append(request)
+            return fallback.generate_structured(request, schema)
+
+    monkeypatch.setattr(entity_dossier_report, "entity_intel_client_from_config", FakeSignalClient)
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "resolve_signal_external_tenant_id_for_tenant",
+        lambda tenant_id: "signal-tenant-a",
+    )
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "procurement_client_from_config",
+        FailingProcurementClient,
+    )
+    monkeypatch.setattr(
+        entity_dossier_report, "provider_from_config", lambda config: CapturingProvider()
+    )
+
+    class TaskProbe:
+        request = type("Request", (), {"id": ""})()
+
+    with app.app_context():
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            job = _new_entity_job(ids, payload, f"entity-report-degraded-{uuid.uuid4()}")
+            job_id = job.id
+        db.session.remove()
+        result = execute_durable(  # type: ignore[arg-type]
+            TaskProbe(),
+            job_id=str(job_id),
+            tenant_id=str(ids["tenant_a"]),
+            payload=payload,
+        )
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            stored = db.session.get(BackgroundJob, job_id)
+            assert stored is not None and stored.status == "succeeded"
+
+    assert signal_closed == [True]
+    assert procurement_closed == [True]
+    assert result["computed_metrics"]["procurement"] == {
+        "status": "unavailable",
+        "reason": "procurement_source_unavailable",
+    }
+    assert not any(
+        source["source_kind"] == "procurement_award"
+        for source in result["pending_evidence_sources"]
+    )
+    assert any(
+        "fuente de contratación pública no estuvo disponible" in limit
+        for limit in result["source_limits"]
+    )
+    assert len(captured_requests) == 1
+    procurement = captured_requests[0].context["entity_dossier"]["section_status"]["procurement"]
+    assert procurement == {"ok": False, "error": "procurement_source_unavailable"}
+
+
+def test_waiting_area_provider_failure_releases_reservation_and_audits_error(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+
+    class FailingProvider:
+        def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
+            del request, schema
+            raise AIUnavailable("fallo sintético de cobertura")
+
+    monkeypatch.setattr(
+        entity_dossier_report, "provider_from_config", lambda config: FailingProvider()
+    )
+    payload = {"name": "Entidad Cobertura SA", "kind": "company"}
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job = _new_entity_job(ids, payload, f"entity-report-provider-failure-{uuid.uuid4()}")
+        job.status = "running"
+        db.session.commit()
+        job_id = job.id
+        with pytest.raises(AIUnavailable, match="fallo sintético"):
+            _run_waiting_area_agent(
+                job=job,
+                entity={"name": "Entidad Cobertura SA", "type": "company"},
+                entity_dossier={"section_status": {}},
+                computed_metrics={"registry": {"acts": 0}},
+                corpus_hash="b" * 64,
+                pending_evidence_sources=[],
+                evidence_sources_total=0,
+            )
+        audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job_id))
+        assert audit is not None
+        attempt = db.session.scalar(select(AIAttempt).where(AIAttempt.audit_log_id == audit.id))
+        usage = db.session.scalar(
+            select(AIUsageLedger).where(AIUsageLedger.audit_log_id == audit.id)
+        )
+        assert audit.status == "failed"
+        assert audit.provider == "mock"
+        assert audit.model
+        assert audit.error_code == "AIUnavailable"
+        assert audit.completed_at is not None
+        assert attempt is not None and attempt.status == "failed"
+        assert attempt.error_code == "AIUnavailable"
+        assert usage is not None and usage.status == "released"
+        assert usage.reserved_cost_micros == 0
+        monkeypatch.setattr(
+            entity_dossier_report,
+            "provider_from_config",
+            lambda config: MockLLMProvider("entity-report-recovery"),
+        )
+        recovered_output, recovered_audit = _run_waiting_area_agent(
+            job=job,
+            entity={"name": "Entidad Cobertura SA", "type": "company"},
+            entity_dossier={"section_status": {}},
+            computed_metrics={"registry": {"acts": 0}},
+            corpus_hash="b" * 64,
+            pending_evidence_sources=[],
+            evidence_sources_total=0,
+        )
+        db.session.refresh(usage)
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit.id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert recovered_output["title"]
+        assert recovered_audit.id == audit.id
+        assert recovered_audit.status == "succeeded"
+        assert recovered_audit.provider == "mock"
+        assert recovered_audit.model == "mock-oracle-v1"
+        assert [item.status for item in attempts] == ["failed", "succeeded"]
+        assert [item.attempt_number for item in attempts] == [1, 2]
+        assert usage.status == "settled"
+        assert usage.reserved_cost_micros == 0
+
+
+def test_entity_report_incorporation_materializes_evidence_and_is_idempotent(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    tmp_path: Path,
+) -> None:
+    app, ids, _ = oracle_stack
+    app.extensions["object_storage"] = LocalObjectStorage(tmp_path / "entity-report-citations")
+    dossier = _create_dossier(_client(oracle_stack), ids, "Incorporación con evidencia")
+    dossier_id = uuid.UUID(dossier["id"])
+    pending_sources = _pending_entity_sources()
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job, audit = _completed_entity_job(
+            ids,
+            dossier_pending_sources=pending_sources,
+            key=f"entity-report-incorporate-{uuid.uuid4()}",
+        )
+        report, incorporated_job = incorporate_entity_dossier_report(
+            job_id=job.id,
+            dossier_id=dossier_id,
+            actor_id=ids["user"],
+        )
+        report_id = report.id
+        evidence_ids = [uuid.UUID(item["id"]) for item in pending_sources]
+        evidence = list(
+            db.session.scalars(
+                select(Evidence).where(Evidence.id.in_(evidence_ids)).order_by(Evidence.created_at)
+            )
+        )
+        assert len(evidence) == 5
+        assert {item.source_kind for item in evidence} == {"entity_intel"}
+        assert {item.provenance["entity_intel_source_kind"] for item in evidence} == {
+            "registry_act",
+            "news",
+            "patent",
+            "disclosure",
+            "procurement_award",
+        }
+        assert (
+            db.session.scalar(
+                select(func.count())
+                .select_from(EvidenceDossier)
+                .where(EvidenceDossier.dossier_id == dossier_id)
+            )
+            == 5
+        )
+        assert (
+            db.session.scalar(
+                select(func.count())
+                .select_from(ReportEvidence)
+                .where(ReportEvidence.report_id == report_id)
+            )
+            == 5
+        )
+        assert (
+            db.session.scalar(
+                select(func.count())
+                .select_from(ReportSnapshotEvidence)
+                .where(ReportSnapshotEvidence.report_id == report_id)
+            )
+            == 5
+        )
+        artifact = db.session.scalar(select(AIArtifact).where(AIArtifact.audit_log_id == audit.id))
+        revision = db.session.scalar(
+            select(ReportRevision).where(ReportRevision.report_id == report_id)
+        )
+        formats = set(
+            db.session.scalars(
+                select(ReportArtifact.format).where(ReportArtifact.report_id == report_id)
+            )
+        )
+        assert report.status == "ready"
+        assert artifact is not None and artifact.target_id == report_id
+        assert revision is not None and revision.revision_no == 1
+        assert formats == {"html", "json"}
+        assert incorporated_job.result_ref["incorporated_report_id"] == str(report_id)
+        assert incorporated_job.result_ref["incorporated_dossier_id"] == str(dossier_id)
+        assert set(incorporated_job.result_ref["materialized_evidence_ids"]) == {
+            str(item) for item in evidence_ids
+        }
+        assert audit.dossier_id == dossier_id
+        counts_before = {
+            "reports": db.session.scalar(
+                select(func.count()).select_from(Report).where(Report.id == report_id)
+            ),
+            "evidence": db.session.scalar(
+                select(func.count())
+                .select_from(ReportSnapshotEvidence)
+                .where(ReportSnapshotEvidence.report_id == report_id)
+            ),
+            "revisions": db.session.scalar(
+                select(func.count())
+                .select_from(ReportRevision)
+                .where(ReportRevision.report_id == report_id)
+            ),
+            "artifacts": db.session.scalar(
+                select(func.count())
+                .select_from(ReportArtifact)
+                .where(ReportArtifact.report_id == report_id)
+            ),
+        }
+        repeated_report, repeated_job = incorporate_entity_dossier_report(
+            job_id=job.id,
+            dossier_id=dossier_id,
+            actor_id=ids["user"],
+        )
+        assert repeated_report.id == report_id
+        assert repeated_job.id == job.id
+        assert counts_before == {
+            "reports": db.session.scalar(
+                select(func.count()).select_from(Report).where(Report.id == report_id)
+            ),
+            "evidence": db.session.scalar(
+                select(func.count())
+                .select_from(ReportSnapshotEvidence)
+                .where(ReportSnapshotEvidence.report_id == report_id)
+            ),
+            "revisions": db.session.scalar(
+                select(func.count())
+                .select_from(ReportRevision)
+                .where(ReportRevision.report_id == report_id)
+            ),
+            "artifacts": db.session.scalar(
+                select(func.count())
+                .select_from(ReportArtifact)
+                .where(ReportArtifact.report_id == report_id)
+            ),
+        }
+
+
+def test_entity_report_without_citations_is_still_incorporated(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    tmp_path: Path,
+) -> None:
+    app, ids, _ = oracle_stack
+    app.extensions["object_storage"] = LocalObjectStorage(tmp_path / "entity-report-no-citations")
+    dossier = _create_dossier(_client(oracle_stack), ids, "Incorporación sin citas")
+    dossier_id = uuid.UUID(dossier["id"])
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job, audit = _completed_entity_job(
+            ids,
+            dossier_pending_sources=[],
+            key=f"entity-report-no-citations-{uuid.uuid4()}",
+        )
+        report, stored_job = incorporate_entity_dossier_report(
+            job_id=job.id,
+            dossier_id=dossier_id,
+            actor_id=ids["user"],
+        )
+        assert report.status == "ready"
+        assert report.content["source_index"] == []
+        assert stored_job.result_ref["materialized_evidence_ids"] == []
+        assert db.session.scalar(select(AIArtifact).where(AIArtifact.audit_log_id == audit.id))
+        assert db.session.scalar(
+            select(ReportRevision).where(ReportRevision.report_id == report.id)
+        )
+        assert (
+            db.session.scalar(
+                select(func.count())
+                .select_from(ReportArtifact)
+                .where(ReportArtifact.report_id == report.id)
+            )
+            == 2
+        )
+        assert (
+            db.session.scalar(
+                select(func.count())
+                .select_from(ReportSnapshotEvidence)
+                .where(ReportSnapshotEvidence.report_id == report.id)
+            )
+            == 0
+        )
+
+
+def test_dossier_completion_context_handles_empty_answers_and_first_round(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    dossier = _create_dossier(_client(oracle_stack), ids, "Wizard primera ronda")
+    dossier_id = uuid.UUID(dossier["id"])
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        context = build_dossier_completion_context(
+            dossier_id,
+            max_tokens=2_000,
+            answers=None,
+        )
+        assert context.payload["answers"] == []
+        assert context.payload["previous_rounds"] == []
+        assert context.payload["completion_snapshot"]["counts"] == {
+            "objectives": 0,
+            "hypotheses": 0,
+            "signals": 0,
+            "opportunities": 0,
+            "risks": 0,
+            "actors": 0,
+            "procurement_items": 0,
+            "monitors": 0,
+        }
+        assert context.payload["completion_snapshot"]["sample"] == {
+            "signals": [],
+            "procurement": [],
+            "opportunities": [],
+            "risks": [],
+            "actors": [],
+        }
+        assert context.manifest["snapshot_kind"] == "dossier_completion_wizard"
+        assert context.manifest["answer_count"] == 0
+        assert context.context_hash == hashlib.sha256(_canonical(context.payload)).digest()
+
+
+def test_dossier_completion_context_trims_large_payload_to_budget_deterministically(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    dossier = _create_dossier(_client(oracle_stack), ids, "Wizard presupuesto")
+    dossier_id = uuid.UUID(dossier["id"])
+    answers = [
+        {
+            "question_id": "scope.detail",
+            "answer": "Respuesta extensa " * 150,
+        }
+    ]
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        row = db.session.get(StrategicDossier, dossier_id)
+        assert row is not None
+        row.description = "Descripción estratégica muy extensa. " * 300
+        row.strategic_goal = "Objetivo estratégico detallado. " * 300
+        db.session.commit()
+        high = build_dossier_completion_context(
+            dossier_id,
+            max_tokens=10_000,
+            answers=answers,
+        )
+        low_first = build_dossier_completion_context(
+            dossier_id,
+            max_tokens=1_024,
+            answers=answers,
+        )
+        low_second = build_dossier_completion_context(
+            dossier_id,
+            max_tokens=1_024,
+            answers=answers,
+        )
+
+    assert len(_canonical(low_first.payload)) <= 1_024 * 4
+    assert low_first.estimated_tokens <= 1_024
+    assert len(_canonical(low_first.payload)) < len(_canonical(high.payload))
+    assert low_first.payload == low_second.payload
+    assert low_first.context_hash == low_second.context_hash
+    assert low_first.context_hash != high.context_hash
+    assert low_first.manifest == high.manifest
+    assert low_first.manifest["answer_count"] == 1
+
+
+def test_dossier_completion_wizard_runs_and_is_reviewed_through_http(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Wizard HTTP gobernado")
+    dossier_id = dossier["id"]
+    answers = [{"question_id": "scope.geography", "answer": "España"}]
+
+    launched = client.post(
+        f"/api/v1/ai/dossiers/{dossier_id}/completion-wizard/runs",
+        json={"answers": answers},
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": f"wizard-http-{uuid.uuid4()}",
+        },
+    )
+    assert launched.status_code == 202, launched.get_json()
+    launched_payload = launched.get_json()
+    assert launched_payload["job"]["status"] == "succeeded"
+    assert launched_payload["artifact"]["agent"] == "dossier_completion_wizard"
+    assert launched_payload["artifact"]["output"]["recommended_actions"]
+
+    latest = client.get(f"/api/v1/ai/dossiers/{dossier_id}/completion-wizard/latest")
+    assert latest.status_code == 200
+    latest_payload = latest.get_json()
+    assert latest_payload["job"]["id"] == launched_payload["job"]["id"]
+    assert latest_payload["artifact"]["id"] == launched_payload["artifact"]["id"]
+    assert latest_payload["answers"] == answers
+
+    artifact_id = uuid.UUID(latest_payload["artifact"]["id"])
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        artifact = db.session.get(AIArtifact, artifact_id)
+        assert artifact is not None
+        audit_id = artifact.audit_log_id
+
+    audit = client.get(f"/api/v1/ai/audits/{audit_id}")
+    assert audit.status_code == 200
+    assert audit.get_json()["agent"] == "dossier_completion_wizard"
+    assert audit.get_json()["status"] == "succeeded"
+
+    reviewed = client.post(
+        f"/api/v1/ai/artifacts/{artifact_id}/reviews",
+        json={
+            "decision": "accepted",
+            "reason": "Diagnóstico revisado en integración.",
+            "override": {},
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert reviewed.status_code == 201
+    assert reviewed.get_json()["artifact_status"] == "valid"
+
+
+def test_dossier_completion_wizard_http_rejects_invalid_rounds_and_reviews(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Wizard validación HTTP")
+    endpoint = f"/api/v1/ai/dossiers/{dossier['id']}/completion-wizard/runs"
+    csrf = _csrf(client)
+
+    assert (
+        client.post(
+            f"/api/v1/ai/dossiers/{uuid.uuid4()}/completion-wizard/runs",
+            json={},
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "wizard-missing-dossier"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(f"/api/v1/ai/dossiers/{uuid.uuid4()}/completion-wizard/latest").status_code
+        == 404
+    )
+    assert (
+        client.post(
+            endpoint,
+            json="payload no válido",
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "wizard-list-payload"},
+        ).status_code
+        == 422
+    )
+    empty_round = client.post(
+        endpoint,
+        json={},
+        headers={
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": f"wizard-empty-round-{uuid.uuid4()}",
+        },
+    )
+    assert empty_round.status_code == 202
+    assert empty_round.get_json()["job"]["status"] == "succeeded"
+    assert (
+        client.post(
+            endpoint,
+            json={"answers": "España"},
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "wizard-invalid-answers"},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            endpoint,
+            json={"answers": [1]},
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "wizard-invalid-item"},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            endpoint,
+            json={"answers": [{"question_id": "scope", "answer": ""}]},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 428
+    )
+    assert (
+        client.post(
+            endpoint,
+            json={"answers": [{"question_id": "q" * 121, "answer": "x"}]},
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "wizard-answer-too-long"},
+        ).status_code
+        == 422
+    )
+    assert client.get(f"/api/v1/ai/audits/{uuid.uuid4()}").status_code == 404
+    assert (
+        client.post(
+            f"/api/v1/ai/artifacts/{uuid.uuid4()}/reviews",
+            json={"decision": "accepted"},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/v1/ai/dossiers/{dossier['id']}/agents/no-existe/runs",
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "agent-not-found"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/v1/ai/dossiers/{uuid.uuid4()}/agents/intake/runs",
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": "agent-dossier-not-found"},
+        ).status_code
+        == 404
+    )
+    generic_key = f"agent-intake-{uuid.uuid4()}"
+    generic = client.post(
+        f"/api/v1/ai/dossiers/{dossier['id']}/agents/intake/runs",
+        headers={"X-CSRF-Token": csrf, "Idempotency-Key": generic_key},
+    )
+    assert generic.status_code == 202
+    assert generic.get_json()["status"] == "succeeded"
+    assert (
+        client.post(
+            f"/api/v1/ai/dossiers/{dossier['id']}/agents/risk/runs",
+            headers={"X-CSRF-Token": csrf, "Idempotency-Key": generic_key},
+        ).status_code
+        == 422
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        artifact = db.session.scalar(
+            select(AIArtifact)
+            .where(
+                AIArtifact.dossier_id == uuid.UUID(dossier["id"]),
+                AIArtifact.agent == "intake",
+            )
+            .order_by(AIArtifact.created_at.desc())
+        )
+        assert artifact is not None
+        artifact_id = artifact.id
+    invalid_review = client.post(
+        f"/api/v1/ai/artifacts/{artifact_id}/reviews",
+        json={"decision": "maybe"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert invalid_review.status_code == 422
+    invalid_override = client.post(
+        f"/api/v1/ai/artifacts/{artifact_id}/reviews",
+        json={"decision": "accepted", "override": []},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert invalid_override.status_code == 422
+
+
+def test_entity_report_runs_from_http_and_incorporates_through_http(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    app.extensions["object_storage"] = LocalObjectStorage(tmp_path / "entity-report-http")
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Informe entidad por HTTP")
+    payload = {
+        "name": "Entidad Cobertura SA",
+        "kind": "company",
+        "entity_key": "company:entidad-cobertura-sa",
+    }
+
+    class FakeSignalClient:
+        def dossier(self, **kwargs: Any) -> dict[str, Any]:
+            del kwargs
+            return _entity_signal_payload()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(entity_dossier_report, "entity_intel_client_from_config", FakeSignalClient)
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "resolve_signal_external_tenant_id_for_tenant",
+        lambda tenant_id: "signal-tenant-a",
+    )
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "load_entity_procurement_context",
+        lambda **kwargs: _available_procurement_context(),
+    )
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "provider_from_config",
+        lambda config: MockLLMProvider("entity-report-http"),
+    )
+    monkeypatch.setattr(entity_dossier_report, "publish_job", lambda job: None)
+    key = f"entity-http-{uuid.uuid4()}"
+    created = client.post(
+        "/api/v1/entity-intel/reports",
+        json={"name": "  Entidad   Cobertura SA  ", "type": "company"},
+        headers={"X-CSRF-Token": _csrf(client), "Idempotency-Key": key},
+    )
+    assert created.status_code == 202, created.get_json()
+    job_id = uuid.UUID(created.get_json()["job_id"])
+    assert created.get_json()["job"]["status"] == "queued"
+
+    class TaskProbe:
+        request = type("Request", (), {"id": ""})()
+
+    with app.app_context():
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            stored = db.session.get(BackgroundJob, job_id)
+            assert stored is not None and stored.input_payload == payload
+        db.session.remove()
+        result = execute_durable(  # type: ignore[arg-type]
+            TaskProbe(),
+            job_id=str(job_id),
+            tenant_id=str(ids["tenant_a"]),
+            payload=payload,
+        )
+    assert result["output"]["title"]
+
+    listed = client.get(
+        "/api/v1/entity-intel/reports",
+        query_string={"name": "Entidad Cobertura SA", "type": "company", "limit": 10},
+    )
+    assert listed.status_code == 200
+    assert listed.get_json()["data"][0]["id"] == str(job_id)
+
+    incorporated = client.post(
+        f"/api/v1/entity-intel/reports/{job_id}/incorporate",
+        json={"dossier_id": dossier["id"]},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert incorporated.status_code == 201, incorporated.get_json()
+    assert incorporated.get_json()["report"]["status"] == "ready"
+
+    repeated = client.post(
+        f"/api/v1/entity-intel/reports/{job_id}/incorporate",
+        json={"dossier_id": dossier["id"]},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert repeated.status_code == 201
+    assert repeated.get_json()["report"]["id"] == incorporated.get_json()["report"]["id"]
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        stored = db.session.get(BackgroundJob, job_id)
+        assert stored is not None
+        assert stored.result_ref["incorporated_dossier_id"] == dossier["id"]
+
+
+def test_entity_report_person_flow_declares_procurement_not_applicable(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    payload = {
+        "name": "Persona Cobertura",
+        "kind": "person",
+        "entity_key": "person:persona-cobertura",
+    }
+
+    class FakeSignalClient:
+        def dossier(self, **kwargs: Any) -> dict[str, Any]:
+            del kwargs
+            result = _entity_signal_payload()
+            result["entity"] = {"name": "Persona Cobertura", "type": "person"}
+            return result
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(entity_dossier_report, "entity_intel_client_from_config", FakeSignalClient)
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "resolve_signal_external_tenant_id_for_tenant",
+        lambda tenant_id: "signal-tenant-a",
+    )
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "provider_from_config",
+        lambda config: MockLLMProvider("entity-report-person"),
+    )
+
+    class TaskProbe:
+        request = type("Request", (), {"id": ""})()
+
+    with app.app_context():
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            job = _new_entity_job(ids, payload, f"entity-report-person-{uuid.uuid4()}")
+            job_id = job.id
+        db.session.remove()
+        result = execute_durable(  # type: ignore[arg-type]
+            TaskProbe(),
+            job_id=str(job_id),
+            tenant_id=str(ids["tenant_a"]),
+            payload=payload,
+        )
+
+    assert result["computed_metrics"]["procurement"] == {"status": "not_applicable"}
+    assert any(
+        "solo se consulta para entidades de tipo empresa" in limit
+        for limit in result["source_limits"]
+    )
+    assert not any(
+        source["source_kind"] == "procurement_award"
+        for source in result["pending_evidence_sources"]
+    )
+
+
+def test_entity_intelligence_source_routes_dispatch_valid_queries_and_provider_errors(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(oracle_stack)
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "cached_suggest",
+        lambda **kwargs: {
+            "kind": kwargs["kind"],
+            "suggestions": ["Entidad Cobertura SA"],
+            "cached_seconds": 0,
+            "cache_hit": False,
+        },
+    )
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "resolve_signal_external_tenant_id",
+        lambda: "signal-tenant-a",
+    )
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "cached_graph",
+        lambda **kwargs: {
+            "center": {"name": kwargs["name"]},
+            "nodes": [],
+            "edges": [],
+            "truncated": False,
+            "cached_seconds": 0,
+            "cache_hit": False,
+        },
+    )
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "cached_registry",
+        lambda **kwargs: {
+            "query": kwargs["name"],
+            "total": 0,
+            "items": [],
+            "cached_seconds": 0,
+            "cache_hit": False,
+        },
+    )
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "cached_dossier",
+        lambda **kwargs: {
+            "entity": {"name": kwargs["name"], "type": kwargs["kind"]},
+            "sections": {},
+            "cached_seconds": 0,
+            "cache_hit": False,
+        },
+    )
+
+    suggest = client.get(
+        "/api/v1/entity-intel/suggest",
+        query_string={"q": "Entidad", "kind": "company", "limit": 4},
+    )
+    graph = client.get(
+        "/api/v1/entity-intel/graph",
+        query_string={
+            "name": "Entidad Cobertura SA",
+            "type": "company",
+            "depth": 2,
+            "active_only": "true",
+        },
+    )
+    registry = client.get(
+        "/api/v1/entity-intel/registry",
+        query_string={
+            "name": "Entidad Cobertura SA",
+            "type": "company",
+            "limit": 10,
+            "offset": 0,
+        },
+    )
+    dossier = client.get(
+        "/api/v1/entity-intel/dossier",
+        query_string={"name": "Entidad Cobertura SA", "type": "company"},
+    )
+    assert (
+        suggest.status_code
+        == graph.status_code
+        == registry.status_code
+        == dossier.status_code
+        == 200
+    )
+    assert suggest.get_json()["suggestions"] == ["Entidad Cobertura SA"]
+    assert graph.get_json()["center"]["name"] == "Entidad Cobertura SA"
+    assert registry.get_json()["total"] == 0
+    assert dossier.get_json()["entity"]["type"] == "company"
+
+    def unavailable(**kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        raise entity_intel_routes.EntityIntelConfigurationError("sin configurar")
+
+    monkeypatch.setattr(entity_intel_routes, "cached_suggest", unavailable)
+    not_configured = client.get(
+        "/api/v1/entity-intel/suggest",
+        query_string={"q": "Entidad", "kind": "company"},
+    )
+    assert not_configured.status_code == 503
+    assert not_configured.get_json()["code"] == "entity_intel_not_configured"
+
+    def disabled(**kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        raise ProcurementProviderError(
+            status_code=403,
+            code="entity_service_disabled",
+            detail="fixture",
+        )
+
+    monkeypatch.setattr(entity_intel_routes, "cached_graph", disabled)
+    disabled_response = client.get(
+        "/api/v1/entity-intel/graph",
+        query_string={"name": "Entidad Cobertura SA", "type": "company"},
+    )
+    assert disabled_response.status_code == 403
+    assert "apagado" in disabled_response.get_json()["detail"]
+
+
+def test_governed_summary_and_weekly_digest_complete_public_async_lifecycles(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Agentes asíncronos de control")
+    dossier_id = dossier["id"]
+    csrf = _csrf(client)
+
+    empty_summary = client.get(f"/api/v1/dossiers/{dossier_id}/oracle-summary")
+    assert empty_summary.status_code == 200
+    assert empty_summary.get_json()["state"] == "empty"
+    assert (
+        client.post(
+            f"/api/v1/dossiers/{dossier_id}/oracle-summary/refresh",
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 422
+    )
+
+    first_refresh = client.post(
+        f"/api/v1/dossiers/{dossier_id}/oracle-summary/refresh",
+        headers={
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": f"summary-control-{uuid.uuid4()}",
+        },
+    )
+    assert first_refresh.status_code == 202
+    assert first_refresh.get_json()["status"] == "succeeded"
+
+    current_summary = client.get(f"/api/v1/dossiers/{dossier_id}/oracle-summary")
+    assert current_summary.status_code == 200
+    current_payload = current_summary.get_json()
+    assert current_payload["state"] == "ready"
+    assert current_payload["summary"]["status"] == "valid"
+    assert current_payload["summary"]["audit"]["status"] == "succeeded"
+    version_id = current_payload["summary"]["id"]
+
+    versions = client.get(f"/api/v1/dossiers/{dossier_id}/oracle-summary/versions")
+    assert versions.status_code == 200
+    assert [item["id"] for item in versions.get_json()["data"]] == [version_id]
+    version = client.get(f"/api/v1/dossiers/{dossier_id}/oracle-summary/versions/{version_id}")
+    assert version.status_code == 200
+    assert version.get_json()["snapshot"]["context_hash"]
+    assert (
+        client.get(
+            f"/api/v1/dossiers/{dossier_id}/oracle-summary/versions/{uuid.uuid4()}"
+        ).status_code
+        == 404
+    )
+
+    invalid_feedback = client.post(
+        f"/api/v1/dossiers/{dossier_id}/oracle-summary/{version_id}/feedback",
+        json={"rating": "alto"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert invalid_feedback.status_code == 422
+    feedback = client.post(
+        f"/api/v1/dossiers/{dossier_id}/oracle-summary/{version_id}/feedback",
+        json={"rating": 5, "comment": "Resumen útil.", "correction": {}},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert feedback.status_code == 201
+
+    empty_digest = client.get(
+        "/api/v1/changes/digest",
+        query_string={"dossier_id": dossier_id},
+    )
+    assert empty_digest.status_code == 200
+    assert empty_digest.get_json()["state"] == "empty"
+    invalid_period = client.post(
+        "/api/v1/changes/digest",
+        json={
+            "dossier_id": dossier_id,
+            "period_start": "2026-07-20T00:00:00Z",
+            "period_end": "2026-07-19T00:00:00Z",
+        },
+        headers={"X-CSRF-Token": csrf, "Idempotency-Key": "weekly-invalid-period"},
+    )
+    assert invalid_period.status_code == 422
+
+    digest_refresh = client.post(
+        "/api/v1/changes/digest",
+        json={
+            "dossier_id": dossier_id,
+            "period_start": "2026-07-12T00:00:00Z",
+            "period_end": "2026-07-19T00:00:00Z",
+        },
+        headers={
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": f"weekly-control-{uuid.uuid4()}",
+        },
+    )
+    assert digest_refresh.status_code == 202, digest_refresh.get_json()
+    digest_payload = digest_refresh.get_json()
+    assert digest_payload["state"] == "ready"
+    assert digest_payload["job"]["status"] == "succeeded"
+    assert digest_payload["digest"]["status"] == "valid"
+    assert digest_payload["digest"]["audit"]["status"] == "succeeded"
+
+    current_digest = client.get(
+        "/api/v1/changes/digest",
+        query_string={"filter[dossier_id]": dossier_id},
+    )
+    assert current_digest.status_code == 200
+    assert current_digest.get_json()["digest"]["id"] == digest_payload["digest"]["id"]
+
+    default_period_refresh = client.post(
+        "/api/v1/changes/digest",
+        json={"dossier_id": dossier_id},
+        headers={
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": f"weekly-default-period-{uuid.uuid4()}",
+        },
+    )
+    assert default_period_refresh.status_code == 202
+    assert default_period_refresh.get_json()["digest"]["version"] == 2
+    assert default_period_refresh.get_json()["digest"]["id"] != digest_payload["digest"]["id"]
 
 
 def test_procurement_folder_resolution_uses_signal_lookup_endpoints(

@@ -1601,3 +1601,28 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Receta reutilizable para correr la suite completa sin Docker documentada en el prompt 57,
   incluidos los dos escollos de aislamiento (Celery deshabilita loggers existentes;
   `configure_logging` borra los handlers del logger raíz).
+
+## 2026-07-19 · Prompt 57 · Cobertura conductual del informe de entidad y el wizard
+
+- La integración cubre el ciclo durable completo de `entity_dossier_report`: checkpoints,
+  métricas y límites, fuentes pendientes, hash estable del corpus y techo global de evidencias.
+  También prueba la degradación honesta cuando falla contratación y el caso persona, donde esa
+  fuente queda declarada como no aplicable.
+- La incorporación materializa evidencias `entity_intel` con subtipo y procedencia, crea todos los
+  vínculos y artefactos del informe y es idempotente, incluido el caso válido sin citas.
+- El fallo del proveedor en el agente del área de espera deja intento y auditoría fallidos con
+  proveedor, modelo y error, y libera la reserva de cuota; un reintento posterior puede liquidarse
+  correctamente. El wizard queda cubierto en primera ronda, respuestas vacías, recorte
+  determinista al presupuesto, validaciones HTTP y revisión.
+- Se añadieron recorridos HTTP reales para el informe de entidad, fuentes de inteligencia,
+  incorporación y ciclo del wizard. Para cerrar el gate global con comportamiento relevante —no
+  líneas artificiales— se cubrieron además los ciclos asíncronos compartidos del resumen gobernado
+  y el digest semanal.
+- Validación por mutaciones manuales: cinco cambios representativos fueron detectados por la suite
+  (eliminar el techo de fuentes, dejar escapar el fallo de contratación, no liberar cuota, alterar
+  `source_kind` y omitir el ajuste al presupuesto). El código de producción quedó restaurado y sin
+  diff.
+- Gate completo contra PostgreSQL 17 y Redis reales: **439 passed, 0 skipped**, cobertura global
+  **84,01 %** (umbral 84 %), `entity_dossier_report.py` **89 %** y `ai/context.py` **92 %**. Ruff
+  del fichero modificado también queda limpio. No hay cambios de producción, migraciones,
+  configuración, OpenAPI ni frontend.
