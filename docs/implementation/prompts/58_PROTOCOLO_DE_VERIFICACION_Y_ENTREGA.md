@@ -250,9 +250,27 @@ lo que se lleva por delante el handler de `caplog`.
 Esto es lo más valioso del prompt. Un invariante escrito en un comentario no protege nada; uno
 escrito en un test, sí. Añade al menos estos, todos verificados por mutación:
 
-1. **Cuadrante de configuración.** Test que recorre los campos de `Settings` relacionados con
-   despliegue y comprueba que cada uno aparece en `compose.prod.yml`. Hoy es la tercera vez que
-   se nos olvida cablear una variable.
+1. **Cuadrante de configuración.** Ojo: la formulación ingenua («todo campo de `Settings` debe
+   estar en `compose.prod.yml`») **es falsa y no debes implementarla**. Se ha medido: de los 110
+   campos, 44 no están en compose y la mayoría con razón (SMTP mientras el backend de correo es
+   Graph, S3 mientras el almacenamiento es local, ClamAV desactivado, políticas de sesión y
+   contraseña con defectos sanos). Ese test forzaría a cablear 44 variables inútiles.
+
+   Implementa **dos** comprobaciones, ambas objetivas:
+
+   a) **Sin variables huérfanas.** Toda clave de entorno declarada en el bloque de aplicación de
+      `compose.prod.yml` debe corresponder a un campo real de `Settings` (contemplando el sufijo
+      `_FILE`). Esto caza erratas y configuración muerta: una variable mal escrita en compose no
+      se aplica nunca y no avisa. Medido hoy: 64 claves, 0 huérfanas. El test debe pasar de
+      entrada y romperse si alguien introduce una errata.
+
+   b) **Palancas de operación cableadas.** Una lista explícita en el propio test con los ajustes
+      que existen para tocarse en caliente sin desplegar código, que hoy son al menos
+      `ENTITY_INTEL_MAX_REGISTRY_ACTS`, `ENTITY_INTEL_MAX_AWARD_SOURCES`,
+      `ENTITY_INTEL_MAX_EVIDENCE_SOURCES` y `DOCUMENT_ALLOW_OFFICIAL_UNSCANNED`. Cada una debe
+      aparecer en `compose.prod.yml` **y** en `infra/production/oracle.env.example`. La lista se
+      mantiene a mano a propósito: ningún test puede adivinar la intención de un ajuste, y esa
+      lista es justamente la declaración de intención que hoy no existe en ningún sitio.
 2. **Contrato de APIFlask.** Ya existe un barrido textual para `entity_intel_routes.py`.
    Generalízalo a **todos** los blueprints: cualquier vista con `@bp.input(location="json")` debe
    recibir `json_data`.
