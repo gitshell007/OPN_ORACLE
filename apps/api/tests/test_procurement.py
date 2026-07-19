@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -453,25 +454,51 @@ def test_procurement_award_snapshot_classifies_signal_documents_and_ute(
 
 
 @pytest.mark.unit
-def test_procurement_award_snapshot_warns_about_unclassified_provider_keys(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level("WARNING", logger=procurement_items.__name__)
+def test_procurement_award_snapshot_warns_about_unclassified_provider_keys() -> None:
+    """Avisa cuando Signal manda claves PLACSP que Oracle no sabe clasificar.
 
-    unknown_keys = procurement_items._unclassified_snapshot_keys(
-        "award",
-        {"folder_id": "P_6_26", "signal_new_field": "value"},
-    )
-    snapshot = procurement_items._snapshot(
-        "award",
-        {"folder_id": "P_6_26", "signal_new_field": "value"},
-        "P_6_26",
-    )
+    Se captura con un handler propio en vez de con `caplog`: `configure_logging`
+    hace `root.handlers.clear()` al construir la app Flask, así que en cuanto un test
+    de integración crea una app, el handler que pytest instala en el logger raíz
+    desaparece y `caplog` deja de ver nada. Con la integración desactivada el test
+    pasaba; al activarla, fallaba por orden de ejecución y no por el código.
+    """
+
+    capturados: list[logging.LogRecord] = []
+
+    class _Coleccionador(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            capturados.append(record)
+
+    handler = _Coleccionador(level=logging.WARNING)
+    modulo_logger = logging.getLogger(procurement_items.__name__)
+    nivel_previo = modulo_logger.level
+    desactivado_previo = modulo_logger.disabled
+    modulo_logger.addHandler(handler)
+    modulo_logger.setLevel(logging.WARNING)
+    # Celery, al arrancar el worker real de los tests de integración, reconfigura el
+    # logging con `disable_existing_loggers`, que deja este logger en disabled=True.
+    # Sin reactivarlo, el warning no se emite y el test falla por orden de ejecución.
+    modulo_logger.disabled = False
+    try:
+        unknown_keys = procurement_items._unclassified_snapshot_keys(
+            "award",
+            {"folder_id": "P_6_26", "signal_new_field": "value"},
+        )
+        snapshot = procurement_items._snapshot(
+            "award",
+            {"folder_id": "P_6_26", "signal_new_field": "value"},
+            "P_6_26",
+        )
+    finally:
+        modulo_logger.removeHandler(handler)
+        modulo_logger.setLevel(nivel_previo)
+        modulo_logger.disabled = desactivado_previo
 
     assert unknown_keys == {"signal_new_field"}
     assert snapshot["folder_id"] == "P_6_26"
-    assert len(caplog.records) == 1
-    assert caplog.records[0].unclassified_keys == ["signal_new_field"]
+    assert len(capturados) == 1
+    assert capturados[0].unclassified_keys == ["signal_new_field"]
 
 
 @pytest.mark.unit

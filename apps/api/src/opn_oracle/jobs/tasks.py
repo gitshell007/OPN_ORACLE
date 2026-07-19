@@ -137,7 +137,18 @@ def _retry_exhausted_message(job: BackgroundJob, root_message: str) -> str:
     return "Se agotaron los reintentos permitidos."
 
 
-def _permanent_failure_message(error: Exception) -> str:
+def _permanent_failure_message(job: BackgroundJob, error: Exception) -> str:
+    """Igual que `_retry_exhausted_message`: la causa solo para jobs de IA.
+
+    Los jobs de IA exponen la causa porque el operador la necesita para diagnosticar
+    (es lo que permitió ver el "Invalid JSON: EOF" del informe de entidad). Para el
+    resto, el mensaje debe quedar genérico: el texto de una excepción cualquiera puede
+    arrastrar fragmentos del payload. La versión anterior lo filtraba para todos los
+    tipos de job, y el test de integración que lo cubre no se estaba ejecutando.
+    """
+
+    if not (job.job_type.startswith("oracle.ai.") or job.job_type in AI_RETRY_CAUSE_JOB_TYPES):
+        return "El job no pudo completarse."
     cause = redact(str(error)).strip()
     if not cause:
         return "El job no pudo completarse."
@@ -755,7 +766,7 @@ def _execute_claimed_delivery(
         owned.status, owned.stage, owned.retryable = "failed", "failed", False
         owned.finished_at = datetime.now(UTC)
         owned.error_code = "permanent_failure"
-        owned.error_message = _permanent_failure_message(error)
+        owned.error_message = _permanent_failure_message(owned, error)
         _revoke_email_delivery(owned)
         owned.execution_lease_id = None
         owned.lease_expires_at = None

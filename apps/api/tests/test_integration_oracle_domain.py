@@ -3912,7 +3912,15 @@ def test_reporting_api_validation_retry_revision_and_policy_states(
     csrf = _csrf(client)
 
     templates = client.get("/api/v1/report-templates")
-    assert templates.status_code == 200 and len(templates.get_json()["items"]) == 9
+    assert templates.status_code == 200
+    # El recuento va contra EXPECTED_TEMPLATES del registry, no contra un número
+    # suelto: así, al añadir una plantilla, el fallo dice cuál falta en vez de
+    # obligar a adivinar. La cuenta llevaba obsoleta desde entity_intelligence
+    # (prompt 45) porque estos tests de integración no se estaban ejecutando.
+    from opn_oracle.reporting.registry import EXPECTED_TEMPLATES
+
+    devueltas = {item["key"] for item in templates.get_json()["items"]}
+    assert devueltas == set(EXPECTED_TEMPLATES)
     assert client.get("/api/v1/reports?page[number]=x").status_code == 422
     assert client.get("/api/v1/notifications?page[size]=x").status_code == 422
     assert client.get("/api/v1/exports?page[number]=x").status_code == 422

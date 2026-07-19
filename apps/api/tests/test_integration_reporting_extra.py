@@ -275,7 +275,15 @@ def test_report_routes_validation_human_revision_retry_and_download_security(
     dossier = _create_dossier(owner, ids, "Workflow adicional de informes")
 
     templates = owner.get("/api/v1/report-templates")
-    assert templates.status_code == 200 and len(templates.get_json()["items"]) == 9
+    assert templates.status_code == 200
+    # El recuento va contra EXPECTED_TEMPLATES del registry, no contra un número
+    # suelto: así, al añadir una plantilla, el fallo dice cuál falta en vez de
+    # obligar a adivinar. La cuenta llevaba obsoleta desde entity_intelligence
+    # (prompt 45) porque estos tests de integración no se estaban ejecutando.
+    from opn_oracle.reporting.registry import EXPECTED_TEMPLATES
+
+    devueltas = {item["key"] for item in templates.get_json()["items"]}
+    assert devueltas == set(EXPECTED_TEMPLATES)
     assert templates.get_json()["capabilities"] == {"pdf": False}
     assert owner.get("/api/v1/reports?page[number]=bad").status_code == 422
     invalid_nested_page = owner.get(f"/api/v1/dossiers/{dossier['id']}/reports?page[number]=bad")
