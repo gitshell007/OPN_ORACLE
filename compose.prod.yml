@@ -66,6 +66,9 @@ x-app-environment: &app-environment
   # Adjudicaciones citables priorizadas por importe. Los agregados cubren el
   # corpus completo; este tope solo acota las fuentes granulares que ve el LLM.
   ENTITY_INTEL_MAX_AWARD_SOURCES: ${ENTITY_INTEL_MAX_AWARD_SOURCES:-15}
+  # Techo GLOBAL de fuentes citables entre todos los tipos. Es la palanca que
+  # evita el truncado del informe ("Invalid JSON: EOF") sin desplegar código.
+  ENTITY_INTEL_MAX_EVIDENCE_SOURCES: ${ENTITY_INTEL_MAX_EVIDENCE_SOURCES:-45}
   DOCUMENTS_ENABLED: "false"
   DOCUMENT_STORAGE_BACKEND: local
   DOCUMENT_LOCAL_ROOT: /var/lib/oracle-storage
