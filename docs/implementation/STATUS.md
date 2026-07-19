@@ -4,6 +4,26 @@ Actualizado: 2026-07-19
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Informes ejecutivos y versionado de plantillas · prompt 59
+
+- `ReportTemplateRegistry` soporta varias versiones por clave: `get(key)` devuelve la última y
+  `get(key, version)` resuelve la versión fijada en el informe. `entity_intelligence.v1` queda
+  restaurada al contrato histórico y la versión ejecutiva actual vive en `entity_intelligence.v2`,
+  evitando congelar los 2 informes antiguos de producción.
+- `competitive_procurement_intelligence` pasa a `v2` en Oracle con presupuesto de 16.000 tokens y
+  plantilla `competitive_procurement.v2`: secciones analíticas, lectura estratégica, materialidad
+  obligatoria, baja solo con cobertura declarada, UTE como heurística y límites al final. La
+  `v1` sigue intacta para el informe competitivo ya existente.
+- `report_writer` pasa a `v5` sin tocar sus plantillas: elimina el sesgo de “completitud mínima
+  viable”, pide párrafos redactados de 60-150 palabras, agregación por materialidad y exige
+  `top_opportunities`, `top_risks` y `recommended_actions`.
+- `_validate_report_output` incorpora el cerrojo de campos ejecutivos de cierre. Para no bloquear
+  revisiones históricas, se aplica a snapshots nuevos (`closure_fields_required=true`) y a versiones
+  no `v1`; las salidas `v1` antiguas sin esa marca conservan su validación anterior.
+- Decisión D-039 registrada. Sin migraciones, sin OpenAPI nuevo y sin frontend. Queda dependencia
+  externa en Signal: alinear la task gobernada `competitive_procurement_intelligence` a
+  `max_output_tokens=16000`; si Signal conserva 5000 puede truncar JSON aunque Oracle esté listo.
+
 ## Protocolo de verificación y entrega · prompt 58
 
 - `AGENTS.md` incorpora la receta de integración sin Docker con `uv` por ruta absoluta, los

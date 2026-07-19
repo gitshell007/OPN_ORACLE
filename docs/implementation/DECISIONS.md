@@ -566,3 +566,25 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** un verde local sin integración o sin mutación deja de ser una entrega completa.
   Los prompts futuros deben enunciar explícitamente los invariantes conocidos que el cambio pueda
   romper; si contradicen una medición registrada, Codex debe parar y señalarlo.
+
+## D-039 — Plantillas versionadas e informes ejecutivos con cierre obligatorio
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-19
+- **Contexto:** las plantillas de reporting solo admitían una versión por clave. Al cambiar
+  `entity_intelligence.v1` in situ, los informes ya creados con las secciones anteriores quedaron
+  imposibles de revisar porque la validación exige que el output contenga todas las secciones de la
+  plantilla asociada. El mismo riesgo aplicaba a `competitive_procurement`, que ya tiene informes
+  reales en producción.
+- **Decisión:** `ReportTemplateRegistry` queda indexado por `(key, version)` y `get(key)` resuelve
+  la última versión disponible. `entity_intelligence.v1` se restaura byte a byte desde el histórico
+  y el contrato ejecutivo vigente pasa a `entity_intelligence.v2`. El informe competitivo añade
+  `competitive_procurement.v2` y `competitive_procurement_intelligence/v2`, con secciones
+  analíticas, materialidad obligatoria y `Cobertura y límites` al final. `report_writer/v5`
+  mantiene las plantillas existentes, pero elimina el anti-objetivo de brevedad mínima y exige
+  campos ejecutivos de cierre.
+- **Consecuencias:** los informes históricos siguen resolviendo su versión exacta sin migración de
+  datos. Los informes nuevos congelan en el snapshot que los tres campos de cierre son obligatorios;
+  las revisiones antiguas `v1` sin esa marca no quedan bloqueadas por el nuevo gate. Oracle declara
+  16.000 tokens para `competitive_procurement_intelligence/v2`, pero Signal debe alinear la task
+  gobernada para evitar truncado externo.

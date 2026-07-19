@@ -27,6 +27,7 @@ import { Bot, Building2, ExternalLink, FileText, Link2, RefreshCw, UserRound } f
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
+import { ReportNarrativeSection } from "@/components/reporting/report-narrative-section";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
 import {
@@ -669,15 +670,6 @@ function claimKind(value: unknown): WaitingClaimKind {
     : "inference";
 }
 
-function claimLabel(kind: WaitingClaimKind): string {
-  return {
-    fact: "Hecho",
-    inference: "Inferencia",
-    recommendation: "Recomendación",
-    decision: "Decisión",
-  }[kind];
-}
-
 function jobResult(job: EntityIntelReportJob | null | undefined): Record<string, unknown> {
   return asRecord(job?.result);
 }
@@ -1004,41 +996,27 @@ function EntityReportWaitingPreview({
             <span className="confidence">Confianza {content.confidence}%</span>
           </section>
           {content.sections.map((section, sectionIndex) => (
-            <section key={`${section.heading}-${sectionIndex}`} className="report-section">
-              <h2>{section.heading}</h2>
-              {section.paragraphs.map((paragraph, paragraphIndex) => (
-                <article
-                  key={`${sectionIndex}-${paragraphIndex}`}
-                  className={`report-claim ${paragraph.kind}`}
-                >
-                  <div>
-                    <span>{claimLabel(paragraph.kind)}</span>
-                    <small>Confianza {paragraph.confidence}%</small>
-                  </div>
-                  <p>{paragraph.text}</p>
-                  {!!paragraph.evidenceIds.length && (
-                    <footer aria-label="Citas del párrafo">
-                      {paragraph.evidenceIds.map((evidenceId) => {
-                        const source = sourceById.get(evidenceId);
-                        return (
-                          <a
-                            key={evidenceId}
-                            href={source ? `#entity-report-waiting-source-${source.index + 1}` : undefined}
-                            aria-label={
-                              source
-                                ? `Ir a fuente reservada ${source.index + 1}`
-                                : "Fuente reservada no incluida en el detalle"
-                            }
-                          >
-                            [{source ? source.index + 1 : "?"}]
-                          </a>
-                        );
-                      })}
-                    </footer>
-                  )}
-                </article>
-              ))}
-            </section>
+            <ReportNarrativeSection
+              key={`${section.heading}-${sectionIndex}`}
+              heading={section.heading}
+              paragraphs={section.paragraphs}
+              renderCitation={(evidenceId) => {
+                const source = sourceById.get(evidenceId);
+                return (
+                  <a
+                    key={evidenceId}
+                    href={source ? `#entity-report-waiting-source-${source.index + 1}` : undefined}
+                    aria-label={
+                      source
+                        ? `Ir a fuente reservada ${source.index + 1}`
+                        : "Fuente reservada no incluida en el detalle"
+                    }
+                  >
+                    [{source ? source.index + 1 : "?"}]
+                  </a>
+                );
+              }}
+            />
           ))}
           {!!content.openQuestions.length && (
             <section className="report-open-questions">

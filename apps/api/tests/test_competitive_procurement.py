@@ -317,11 +317,22 @@ def test_pinned_winners_are_exact_and_task_contract_is_registered() -> None:
         "ITURRI SA Y SOCIO SL UTE",
     )
     prompt = PromptRegistry().get(COMPETITIVE_PROCUREMENT_AGENT)
-    assert prompt.version == "v1"
+    assert prompt.version == "v2"
     assert prompt.output_schema_name == "ReportOutput"
-    assert prompt.max_output_tokens == 5000
+    assert prompt.max_output_tokens == 16000
+    assert PromptRegistry().get(COMPETITIVE_PROCUREMENT_AGENT, "v1").max_output_tokens == 5000
+    assert "entre 1200 y 2000 palabras" in prompt.text
+    assert "No sumes, promedies, estimes ni imputes" in prompt.text
+    assert "top_opportunities" in prompt.text
+    assert "Cobertura y límites` al final" in prompt.text
     template = ReportTemplateRegistry().get("competitive_procurement")
-    assert template.sections[0] == "Cobertura y límites"
+    assert template.version == "v2"
+    assert template.sections[0] == "Posición en el mercado"
+    assert template.sections[-1] == "Cobertura y límites"
+    assert (
+        ReportTemplateRegistry().get("competitive_procurement", "v1").sections[0]
+        == "Cobertura y límites"
+    )
 
 
 def test_discount_probe_caps_tender_lookups_and_declares_sampling() -> None:

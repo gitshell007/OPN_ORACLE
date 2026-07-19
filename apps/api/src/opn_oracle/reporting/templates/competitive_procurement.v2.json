@@ -1,0 +1,33 @@
+{
+  "key": "competitive_procurement",
+  "version": "v2",
+  "label": "Inteligencia competitiva de contratación",
+  "report_type": "competitive_procurement",
+  "input_contract": {
+    "required": ["dossier_id", "company_name"],
+    "properties": {
+      "company_name": "string"
+    }
+  },
+  "sections": [
+    "Posición en el mercado",
+    "Dependencia de organismos",
+    "Comportamiento en precio",
+    "Alianzas y UTEs",
+    "Lectura estratégica",
+    "Cobertura y límites"
+  ],
+  "evidence_policy": "Los agregados calculados por Python interpretan el histórico paginado de adjudicaciones ganadas; el modelo no recalcula cifras. La baja se publica solo con cobertura suficiente y los socios UTE se presentan como heurística de texto libre, no como dato verificado.",
+  "output_schema": "ReportOutput/v1",
+  "permissions": {
+    "generate": "report.generate",
+    "read": "report.read",
+    "review": "report.review",
+    "publish": "report.publish"
+  },
+  "formats": ["html", "pdf", "json"],
+  "changelog": [
+    "v1: histórico paginado, agregados Python y cobertura explícita de baja",
+    "v2: informe ejecutivo analítico, materialidad obligatoria y límites al final"
+  ]
+}

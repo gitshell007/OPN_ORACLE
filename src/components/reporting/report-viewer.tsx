@@ -30,20 +30,12 @@ import {
   triggerDownload,
   type ReportEvidenceView,
 } from "./reporting-utils";
+import { ReportNarrativeSection } from "./report-narrative-section";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function claimLabel(kind: string): string {
-  return {
-    fact: "Hecho",
-    inference: "Inferencia",
-    recommendation: "Recomendación",
-    decision: "Decisión",
-  }[kind] ?? kind;
 }
 
 export function ReportViewer({
@@ -294,39 +286,30 @@ export function ReportViewer({
               <span className="confidence">Confianza {content.confidence}%</span>
             </section>
             {content.sections.map((section, sectionIndex) => (
-              <section key={`${section.heading}-${sectionIndex}`} className="report-section">
-                <h2>{section.heading}</h2>
-                {section.paragraphs.map((paragraph, paragraphIndex) => (
-                  <article
-                    key={`${sectionIndex}-${paragraphIndex}`}
-                    className={`report-claim ${paragraph.kind}`}
-                  >
-                    <div>
-                      <span>{claimLabel(paragraph.kind)}</span>
-                      <small>Confianza {paragraph.confidence}%</small>
-                    </div>
-                    <p>{paragraph.text}</p>
-                    {!!paragraph.evidence_ids.length && (
-                      <footer aria-label="Citas del párrafo">
-                        {paragraph.evidence_ids.map((evidenceId, citationIndex) => {
-                          const item = evidenceById.get(evidenceId);
-                          return (
-                            <button
-                              key={evidenceId}
-                              disabled={!item}
-                              onClick={() => item && setSelectedEvidence(item)}
-                              aria-label={`Abrir evidencia ${citationIndex + 1}`}
-                              title={item?.sourceLabel || "Evidencia no incluida en el detalle"}
-                            >
-                              [{citationIndex + 1}]
-                            </button>
-                          );
-                        })}
-                      </footer>
-                    )}
-                  </article>
-                ))}
-              </section>
+              <ReportNarrativeSection
+                key={`${section.heading}-${sectionIndex}`}
+                heading={section.heading}
+                paragraphs={section.paragraphs.map((paragraph) => ({
+                  text: paragraph.text,
+                  kind: paragraph.kind,
+                  confidence: paragraph.confidence,
+                  evidenceIds: paragraph.evidence_ids,
+                }))}
+                renderCitation={(evidenceId, citationIndex) => {
+                  const item = evidenceById.get(evidenceId);
+                  return (
+                    <button
+                      key={evidenceId}
+                      disabled={!item}
+                      onClick={() => item && setSelectedEvidence(item)}
+                      aria-label={`Abrir evidencia ${citationIndex + 1}`}
+                      title={item?.sourceLabel || "Evidencia no incluida en el detalle"}
+                    >
+                      [{citationIndex + 1}]
+                    </button>
+                  );
+                }}
+              />
             ))}
             {!!content.open_questions.length && (
               <section className="report-open-questions">

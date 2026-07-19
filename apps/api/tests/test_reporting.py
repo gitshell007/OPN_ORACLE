@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import inspect
 
 from opn_oracle import create_app
+from opn_oracle.ai.schemas import ReportOutput
 from opn_oracle.config import ConfigError, Settings
 from opn_oracle.reporting.artifacts import (
     ArtifactAccessError,
@@ -29,6 +30,7 @@ from opn_oracle.reporting.rendering import (
     ReportRenderError,
     render_report_html,
 )
+from opn_oracle.reporting.service import ReportWorkflowError, _validate_report_output
 
 pytestmark = pytest.mark.unit
 
@@ -68,10 +70,89 @@ def _output(text: str = "Hecho verificable") -> dict[str, object]:
 def test_report_registry_contains_exact_supported_templates() -> None:
     registry = ReportTemplateRegistry()
     assert {item.key for item in registry.list()} == EXPECTED_TEMPLATES
-    assert all(item.version == "v1" and len(item.sha256) == 32 for item in registry.list())
+    assert all(len(item.sha256) == 32 for item in registry.list())
+    assert registry.get("entity_intelligence").version == "v2"
+    assert registry.get("competitive_procurement").version == "v2"
+    assert registry.get("entity_intelligence", "v1").sections[0] == "Cobertura y límites"
+    assert registry.get("entity_intelligence", "v2").sections[0] == "Resumen ejecutivo"
     assert registry.get("executive_dossier").permissions["publish"] == "report.publish"
     with pytest.raises(KeyError):
         registry.get("executive_dossier", "v2")
+
+
+def test_report_registry_resolves_template_versions_without_freezing_legacy_outputs() -> None:
+    registry = ReportTemplateRegistry()
+    v1 = registry.get("entity_intelligence", "v1")
+    v2 = registry.get("entity_intelligence", "v2")
+    output = ReportOutput.model_validate(
+        {
+            **_output(),
+            "sections": [
+                {
+                    "heading": heading,
+                    "paragraphs": [
+                        {
+                            "text": f"Contenido heredado de {heading}.",
+                            "kind": "inference",
+                            "confidence": 50,
+                            "evidence_ids": [],
+                        }
+                    ],
+                }
+                for heading in v1.sections
+            ],
+        }
+    )
+
+    _validate_report_output(output, template=v1, snapshot_ids=set())
+    with pytest.raises(ReportWorkflowError, match="secciones requeridas"):
+        _validate_report_output(output, template=v2, snapshot_ids=set())
+
+
+def test_report_output_closure_fields_are_required_only_when_enabled() -> None:
+    template = ReportTemplateRegistry().get("executive_dossier")
+    output = ReportOutput.model_validate(
+        {
+            **_output(),
+            "sections": [
+                {
+                    "heading": heading,
+                    "paragraphs": [
+                        {
+                            "text": f"Lectura ejecutiva de {heading}.",
+                            "kind": "inference",
+                            "confidence": 60,
+                            "evidence_ids": [],
+                        }
+                    ],
+                }
+                for heading in template.sections
+            ],
+        }
+    )
+
+    _validate_report_output(output, template=template, snapshot_ids=set())
+    with pytest.raises(ReportWorkflowError, match="campos ejecutivos de cierre"):
+        _validate_report_output(
+            output,
+            template=template,
+            snapshot_ids=set(),
+            require_closure_fields=True,
+        )
+
+    completed = output.model_copy(
+        update={
+            "top_opportunities": ["Oportunidad verificable"],
+            "top_risks": ["Riesgo verificable"],
+            "recommended_actions": ["Acción recomendada"],
+        }
+    )
+    _validate_report_output(
+        completed,
+        template=template,
+        snapshot_ids=set(),
+        require_closure_fields=True,
+    )
 
 
 def test_safe_html_escapes_content_and_rejects_resource_markup() -> None:

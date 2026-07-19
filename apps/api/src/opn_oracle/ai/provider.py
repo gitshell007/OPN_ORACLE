@@ -430,6 +430,9 @@ class MockLLMProvider:
                     if evidence
                     else []
                 ),
+                "top_opportunities": ["Priorizar una oportunidad verificable del expediente."],
+                "top_risks": ["Revisar un riesgo relevante antes de decidir."],
+                "recommended_actions": ["Contrastar el informe con la persona responsable."],
             },
             "competitive_procurement_intelligence": {
                 "title": "Inteligencia competitiva mock",
@@ -451,6 +454,9 @@ class MockLLMProvider:
                     )
                 ],
                 "source_index": [],
+                "top_opportunities": ["Explorar organismos con concentración compradora."],
+                "top_risks": ["No interpretar adjudicaciones ganadas como tasa de éxito."],
+                "recommended_actions": ["Revisar la estrategia comercial con los agregados."],
             },
             "entity_dossier_intelligence": {
                 "title": "Informe de entidad mock",

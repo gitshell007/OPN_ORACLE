@@ -202,7 +202,7 @@
 .entity-report-preview-banner p { margin-top: 4px; color: #385879; }
 .entity-report-preview .report-content-layout { grid-template-columns: minmax(0, 1fr) 300px; }
 .entity-report-preview .report-executive-summary h2 { margin: 8px 0 4px; font-size: 18px; }
-.entity-report-preview .report-claim footer a { display: inline-flex; min-width: 27px; height: 25px; align-items: center; justify-content: center; border: 1px solid #adc3e4; border-radius: 5px; color: #245cae; background: #edf4ff; font-size: 10px; font-weight: 800; text-decoration: none; }
+.entity-report-preview .report-section-citations a { display: inline-flex; min-width: 27px; height: 25px; align-items: center; justify-content: center; border: 1px solid #adc3e4; border-radius: 5px; color: #245cae; background: #edf4ff; font-size: 10px; font-weight: 800; text-decoration: none; }
 .entity-report-waiting-sources { position: static; max-height: 520px; }
 .entity-report-waiting-sources li { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 6px; }
 .entity-report-waiting-sources li > div { display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: 3px 5px; padding: 9px; border: 1px dashed #adc3e4; border-radius: 7px; color: var(--va-text); background: #fbfdff; text-align: left; }
@@ -3565,6 +3565,24 @@
 .report-artifacts h2,
 .report-review h2,
 .report-review-history h2 { margin: 0 0 12px; font-size: 16px; }
+.report-section-summary { margin-top: 8px; padding: 2px 0 0; }
+.report-section-summary p { margin: 0; color: var(--va-text); font-size: 14px; line-height: 1.7; }
+.report-section-summary p + p { margin-top: 12px; }
+.report-section-citations { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-left: 7px; vertical-align: baseline; }
+.report-section-citations button,
+.report-section-citations a { display: inline-flex; min-width: 27px; height: 25px; align-items: center; justify-content: center; border: 1px solid #adc3e4; border-radius: 5px; color: #245cae; background: #edf4ff; font-size: 10px; font-weight: 800; text-decoration: none; }
+.report-section-citations button:disabled { border-color: #d3d7dc; color: #858c95; background: #f3f4f5; }
+.report-section-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 11px; padding-top: 9px; border-top: 1px solid #e1e8f0; color: var(--va-muted); font-size: 10px; font-weight: 760; letter-spacing: .05em; text-transform: uppercase; }
+/* Bloques narrativos del informe: lectura corrida, pero el tipo de afirmación sigue
+   siendo visible por bloque. El color solo no basta (no todo el mundo lo distingue),
+   así que la etiqueta de texto es la señal primaria y el borde solo la refuerza. */
+.report-narrative-block { position: relative; padding-left: 11px; border-left: 3px solid #6f8196; }
+.report-narrative-block.fact { border-left-color: #17688d; }
+.report-narrative-block.inference { border-left-color: #aa6f0b; }
+.report-narrative-block.recommendation { border-left-color: #14805b; }
+.report-narrative-block.decision { border-left-color: #77508c; }
+.report-narrative-kind { display: block; margin-bottom: 4px; color: var(--va-muted); font-size: 9px; font-weight: 780; letter-spacing: .06em; text-transform: uppercase; }
+.report-narrative-kind small { margin-left: 8px; font-size: 9px; font-weight: 680; text-transform: none; letter-spacing: 0; }
 .report-claim { margin-top: 10px; padding: 12px 13px; border-left: 3px solid #6f8196; border-radius: 0 7px 7px 0; background: #f8fafc; }
 .report-claim.fact { border-left-color: #17688d; }
 .report-claim.inference { border-left-color: #aa6f0b; }

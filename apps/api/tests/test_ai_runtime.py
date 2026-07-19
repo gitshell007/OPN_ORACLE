@@ -105,9 +105,10 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("dossier_situation_summary", "v3").max_output_tokens == 1600
     assert registry.get("dossier_situation_summary", "v4").max_output_tokens == 1900
     assert registry.get("dossier_situation_summary").max_output_tokens == 2600
-    assert registry.get("report_writer").version == "v4"
+    assert registry.get("report_writer").version == "v5"
     assert registry.get("report_writer").max_output_tokens == 6500
     assert registry.get("report_writer", "v2").max_output_tokens == 6500
+    assert registry.get("report_writer", "v5").max_output_tokens == 6500
     assert registry.get("meeting_briefing").version == "v2"
     assert registry.get("meeting_briefing").max_output_tokens == 3500
     assert registry.get("weekly_change").version == "v2"
@@ -115,6 +116,21 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("dossier_completion_wizard").max_output_tokens == 4500
     assert registry.get("entity_dossier_intelligence").version == "v2"
     assert registry.get("entity_dossier_intelligence").max_output_tokens == 16000
+    assert registry.get("competitive_procurement_intelligence").version == "v2"
+    assert registry.get("competitive_procurement_intelligence").max_output_tokens == 16000
+    assert registry.get("competitive_procurement_intelligence", "v1").max_output_tokens == 5000
+
+
+def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viable_copy() -> None:
+    prompt = PromptRegistry().get("report_writer", "v5")
+
+    assert "Prioriza completitud mínima viable" not in prompt.text
+    assert "frases cortas" not in prompt.text
+    assert "Cada párrafo debe tener entre 60 y 150 palabras" in prompt.text
+    assert "Rellena SIEMPRE `top_opportunities`, `top_risks` y `recommended_actions`" in prompt.text
+    assert "Los tres campos ejecutivos de cierre" in prompt.text
+    assert "no pueden estar" in prompt.text
+    assert "vacíos" in prompt.text
 
 
 def test_completion_wizard_route_enqueues_round_answers_via_http(

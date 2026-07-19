@@ -240,6 +240,104 @@ describe("reports Vector", () => {
     expect(click).toHaveBeenCalled();
   });
 
+  it("presenta fragmentos cortos de una sección como un resumen narrativo único", async () => {
+    mocks.get.mockResolvedValueOnce({
+      ...baseReport,
+      revision: {
+        ...baseReport.revision,
+        content: {
+          ...baseReport.revision.content,
+          sections: [
+            {
+              heading: "Cobertura y límites",
+              paragraphs: [
+                {
+                  text: "El informe se basa en un subconjunto de actos registrales.",
+                  kind: "inference",
+                  confidence: 70,
+                  evidence_ids: [],
+                },
+                {
+                  text: "Las fechas del BORME son fechas de publicación.",
+                  kind: "inference",
+                  confidence: 70,
+                  evidence_ids: [],
+                },
+                {
+                  text: "La información relacionada no está desambiguada para homónimos.",
+                  kind: "inference",
+                  confidence: 70,
+                  evidence_ids: [],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const { container } = render(<ReportViewer reportId="report-1" routeBase="/app" />);
+
+    expect(
+      await screen.findByText(
+        "El informe se basa en un subconjunto de actos registrales. Las fechas del BORME son fechas de publicación. La información relacionada no está desambiguada para homónimos.",
+      ),
+    ).toBeVisible();
+    expect(container.querySelectorAll(".report-claim")).toHaveLength(0);
+    expect(screen.getAllByText("Inferencia")).toHaveLength(1);
+  });
+
+  it("mantiene distinguibles hecho e inferencia dentro de una misma sección", async () => {
+    // 4 de las 7 secciones del informe real de producción mezclan hecho e inferencia.
+    // Si la fusión narrativa deja el tipo solo en un pie de sección, el lector no puede
+    // saber qué frase está respaldada por evidencia y cuál es conjetura del modelo:
+    // se pierde justo la distinción que sostiene la confianza en el informe.
+    mocks.get.mockResolvedValueOnce({
+      ...baseReport,
+      revision: {
+        ...baseReport.revision,
+        content: {
+          ...baseReport.revision.content,
+          sections: [
+            {
+              heading: "Gobierno y personas clave",
+              paragraphs: [
+                {
+                  text: "El 6 de abril de 2026 se publicó el cese de cinco apoderados.",
+                  kind: "fact",
+                  confidence: 100,
+                  evidence_ids: [],
+                },
+                {
+                  text: "El movimiento sugiere una reorganización del órgano de apoderamiento.",
+                  kind: "inference",
+                  confidence: 70,
+                  evidence_ids: [],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const { container } = render(<ReportViewer reportId="report-1" routeBase="/app" />);
+
+    const hecho = await screen.findByText(/se publicó el cese de cinco apoderados/);
+    const inferencia = screen.getByText(/sugiere una reorganización/);
+    const bloqueHecho = hecho.closest("[data-claim-kind]");
+    const bloqueInferencia = inferencia.closest("[data-claim-kind]");
+
+    // No pueden acabar en el mismo bloque: son de tipos distintos.
+    expect(bloqueHecho).not.toBe(bloqueInferencia);
+    expect(bloqueHecho).toHaveAttribute("data-claim-kind", "fact");
+    expect(bloqueInferencia).toHaveAttribute("data-claim-kind", "inference");
+    // Y el tipo es legible, no solo color: el color no vale como señal única.
+    expect(container.querySelectorAll("[data-claim-kind]")).toHaveLength(2);
+    expect(screen.getByText("Hecho")).toBeVisible();
+    expect(screen.getByText("Inferencia")).toBeVisible();
+  });
+
   it("presenta las fuentes como citas legibles sin exponer el locator técnico", async () => {
     render(<ReportViewer reportId="report-1" routeBase="/app" />);
     expect(await screen.findByText("elespanol.com")).toBeVisible();

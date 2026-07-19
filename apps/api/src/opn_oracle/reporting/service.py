@@ -101,6 +101,7 @@ def _validate_report_output(
     *,
     template: ReportTemplate,
     snapshot_ids: set[uuid.UUID],
+    require_closure_fields: bool = False,
 ) -> None:
     headings = [section.heading.strip() for section in output.sections]
     missing = [heading for heading in template.sections if heading not in headings]
@@ -108,6 +109,21 @@ def _validate_report_output(
         raise ReportWorkflowError(
             f"El informe no contiene las secciones requeridas: {', '.join(missing)}."
         )
+    if require_closure_fields:
+        missing_closure = [
+            label
+            for label, value in (
+                ("top_opportunities", output.top_opportunities),
+                ("top_risks", output.top_risks),
+                ("recommended_actions", output.recommended_actions),
+            )
+            if not value
+        ]
+        if missing_closure:
+            raise ReportWorkflowError(
+                "El informe no contiene los campos ejecutivos de cierre: "
+                f"{', '.join(missing_closure)}."
+            )
     for section in output.sections:
         for paragraph in section.paragraphs:
             if paragraph.kind == "fact" and not paragraph.evidence_ids:
@@ -392,6 +408,7 @@ def _snapshot(
             "sections": list(template.sections),
             "evidence_policy": template.evidence_policy,
         },
+        "closure_fields_required": True,
         "options": options,
         "objectives": [
             {"id": str(item.id), "title": item.title, "status": item.status} for item in objectives
@@ -993,7 +1010,13 @@ def process_report(
         output = _authoritative_source_index(output, snapshot_rows)
         snapshot_ids = {item.evidence_id for item in snapshot_rows}
         template = ReportTemplateRegistry().get(report.template_key, report.template_version)
-        _validate_report_output(output, template=template, snapshot_ids=snapshot_ids)
+        _validate_report_output(
+            output,
+            template=template,
+            snapshot_ids=snapshot_ids,
+            require_closure_fields=bool(report.source_snapshot.get("closure_fields_required"))
+            or template.version != "v1",
+        )
         payload = output.model_dump(mode="json")
         owned_job = db.session.scalar(
             select(BackgroundJob)
@@ -1135,7 +1158,13 @@ def create_human_revision(
     output = _authoritative_source_index(output, snapshot_rows)
     allowed = {item.evidence_id for item in snapshot_rows}
     template = ReportTemplateRegistry().get(report.template_key, report.template_version)
-    _validate_report_output(output, template=template, snapshot_ids=allowed)
+    _validate_report_output(
+        output,
+        template=template,
+        snapshot_ids=allowed,
+        require_closure_fields=bool(report.source_snapshot.get("closure_fields_required"))
+        or template.version != "v1",
+    )
     previous = latest_revision(report.id)
     if previous is None:
         raise ReportWorkflowError("El informe no tiene una revisión base.")

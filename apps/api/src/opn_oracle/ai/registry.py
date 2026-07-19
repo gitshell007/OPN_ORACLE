@@ -110,13 +110,14 @@ PROMPT_VERSIONS = {
     name: (
         ("v1", "v2", "v3", "v4", "v5")
         if name == "dossier_situation_summary"
-        else ("v1", "v2", "v3", "v4")
+        else ("v1", "v2", "v3", "v4", "v5")
         if name == "report_writer"
         else ("v1", "v2")
         if name
         in {
             "meeting_briefing",
             "weekly_change",
+            "competitive_procurement_intelligence",
             "entity_dossier_intelligence",
         }
         else ("v1",)
@@ -126,14 +127,14 @@ PROMPT_VERSIONS = {
 
 
 def _max_output_tokens(name: str, version: str) -> int:
-    if name == "report_writer" and version in {"v2", "v3", "v4"}:
+    if name == "report_writer" and version in {"v2", "v3", "v4", "v5"}:
         return 6500
     if name == "meeting_briefing" and version == "v2":
         return 3500
     if name == "weekly_change" and version == "v2":
         return 4200
     if name == "competitive_procurement_intelligence":
-        return 5000
+        return 16000 if version == "v2" else 5000
     if name == "entity_dossier_intelligence":
         # Sincronizado con la config gobernada de esta task en Signal (16000). El informe
         # de entidad cita evidencia BORME/noticias, así que su salida es larga: con 5000 y
@@ -168,6 +169,13 @@ class PromptRegistry:
                         "v1": "v1: contrato inicial derivado del runtime canónico de Fase 09.",
                         "v2": ("v2: informe ejecutivo redactado con contratación pública."),
                     }[version]
+                elif name == "competitive_procurement_intelligence":
+                    changelog = {
+                        "v1": "v1: contrato inicial de inteligencia competitiva PLACSP.",
+                        "v2": (
+                            "v2: informe ejecutivo analítico con materialidad y límites al final."
+                        ),
+                    }[version]
                 else:
                     changelog = (
                         {
@@ -196,6 +204,9 @@ class PromptRegistry:
                                 "v4": (
                                     "v4: las citas en prosa usan índices legibles; los UUID "
                                     "quedan fuera de la salida de negocio."
+                                ),
+                                "v5": (
+                                    "v5: informe ejecutivo con materialidad y campos de cierre."
                                 ),
                             }[version]
                         )
