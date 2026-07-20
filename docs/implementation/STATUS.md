@@ -1894,3 +1894,43 @@ Queda como deuda, junto a la ya anotada de que el wizard no tiene control semán
   src/components/dossiers/dossier-inventory.test.tsx src/components/reporting/reports.test.tsx
   src/components/navigation/product-home.test.tsx src/components/auth/auth-pages.test.tsx`,
   `npm run lint -- --quiet`, `npm run typecheck` y `npm run build` correctos.
+
+## 2026-07-20 · Prompt 63 revertido en producción: rompe el informe de entidad
+
+- Desplegado `20260720T183537Z-quick-d73c47a` y verificado con un informe real, que es la prueba
+  que la entrega declaró honestamente no haber hecho. **El informe de entidad falla**: agota sus
+  3 reintentos con «La preparación del informe de entidad falló temporalmente».
+- Patrón idéntico en los tres intentos: `generate` **succeeded**, `reviewer` **failed**
+  (`ValidationError`). El informe se produce bien; lo tumba el revisor recién activado en su ruta.
+- **Rollback aplicado** a `20260720T173105Z-quick-ca55269` con las puertas de backup, y servicio
+  verificado: un informe de entidad real vuelve a completarse (`succeeded`, ~80 s).
+- El código del prompt 63 sigue en `master` (commit `d73c47a`): lo revertido es el release activo,
+  no el repositorio.
+
+### Diagnóstico
+
+El revisor **no está roto en general**. Contando intentos por agente:
+
+| Agente | reviewer succeeded | reviewer failed |
+|---|---|---|
+| `report_writer` | 6 | 0 |
+| `competitive_procurement_intelligence` | 3 | 1 |
+| `entity_dossier_intelligence` | 0 | 3 |
+
+Funciona en los otros dos informes y nunca en el de entidad. `evidence_reviewer` está gobernado en
+Signal sobre `ollama/qwen3.5:9b` (verificado con HTTP 200 desde el worker), y el informe de entidad
+es el que más evidencia le pasa: **45 fuentes citables**, frente a las pocas de los otros. La
+hipótesis es que el tamaño de esa entrada degrada la salida estructurada del modelo local, igual
+que ya vimos en el propio informe competitivo antes de moverlo a cloud.
+
+### Decisión pendiente
+
+Tres salidas, y la elección no es solo técnica:
+
+1. Mover `evidence_reviewer` a cloud en Signal, como se hizo con el competitivo. Coste por uso,
+   pero capacidad consistente.
+2. Acotar lo que recibe el revisor en la ruta de entidad, sin tocar Signal.
+3. Cuestionar el valor real del paso: el informe de entidad ya tiene validación estructural de
+   citas (medido: 45 citadas, 45 permitidas, 0 inventadas). Añadir el veredicto de un modelo de 9B
+   sobre un informe escrito por gemini puede producir más rechazos falsos que problemas detectados
+   — la evidencia de hoy es 3 rechazos de 3.
