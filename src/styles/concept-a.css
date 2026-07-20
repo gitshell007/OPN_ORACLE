@@ -742,9 +742,9 @@
   display: grid;
 }
 .home-dossier-list > a {
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(132px, max-content);
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   padding: 13px 15px;
   border-top: 1px solid var(--va-border);
@@ -757,13 +757,17 @@
 .home-dossier-list > a:focus-visible {
   background: var(--va-soft);
 }
-.home-dossier-list span:first-child,
+.home-dossier-list > a > span:first-of-type,
 .home-attention-copy {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
-.home-dossier-list span:last-child,
+.home-dossier-list > a > span:last-of-type {
+  justify-self: end;
+  text-align: right;
+}
+.home-dossier-list > a > span:last-of-type,
 .home-dossier-list small,
 .home-compact-row small {
   color: var(--va-muted);
@@ -841,7 +845,12 @@
     grid-template-columns: 1fr;
   }
   .home-dossier-list > a {
-    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .home-dossier-list > a > span:last-of-type {
+    grid-column: 2;
+    justify-self: start;
+    text-align: left;
   }
   .dossier-context-grid {
     grid-template-columns: 1fr;
@@ -4597,6 +4606,29 @@
 }
 .intelligence-table tbody tr:hover {
   background: #f8faff;
+}
+.intelligence-table tbody tr.interactive-row,
+.document-table tbody tr.interactive-row,
+.dossier-inventory-table tbody tr.interactive-row,
+.report-table tbody tr.interactive-row,
+.work-table tbody tr.interactive-row {
+  cursor: pointer;
+}
+.intelligence-table tbody tr.interactive-row:hover,
+.document-table tbody tr.interactive-row:hover,
+.dossier-inventory-table tbody tr.interactive-row:hover,
+.report-table tbody tr.interactive-row:hover,
+.work-table tbody tr.interactive-row:hover {
+  background: #f5f8ff;
+  box-shadow: inset 3px 0 0 var(--va-primary);
+}
+.intelligence-table tbody tr.interactive-row:focus-visible,
+.document-table tbody tr.interactive-row:focus-visible,
+.dossier-inventory-table tbody tr.interactive-row:focus-visible,
+.report-table tbody tr.interactive-row:focus-visible,
+.work-table tbody tr.interactive-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--va-primary) 42%, transparent);
+  outline-offset: -2px;
 }
 .intelligence-table td:first-child {
   min-width: 280px;

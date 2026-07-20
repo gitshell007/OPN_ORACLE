@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -35,6 +35,12 @@ import { DossierActorCandidates } from "./dossier-actor-candidates";
 export type DossierWorkKind = "actors" | "meetings" | "tasks" | "decisions";
 type ActorType = "person" | "organization" | "institution" | "program" | "other";
 type RawResource = OracleDossierActor | OracleMeeting | OracleTask | OracleDecision;
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" && event.key !== " ") return false;
+  event.preventDefault();
+  return true;
+}
 
 interface WorkRow {
   id: string;
@@ -402,6 +408,13 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
     router.replace(pathname, { scroll: false });
   }
 
+  const openRowDetail = useCallback(
+    (rowId: string) => {
+      router.replace(`${pathname}?selected=${encodeURIComponent(rowId)}`, { scroll: false });
+    },
+    [pathname, router],
+  );
+
   function resetCompletion() {
     setCompletionOpen(false);
     setCompletionNotes("");
@@ -685,12 +698,31 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             <table className="work-table">
               <thead><tr><th>{kind === "actors" ? "Actor" : "Título"}</th><th>Estado</th><th>Contexto</th><th>Actualización</th><th><span className="sr-only">Acciones</span></th></tr></thead>
               <tbody>{rows.map((row) => (
-                <tr key={row.id}>
+                <tr
+                  key={row.id}
+                  className="interactive-row"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Abrir detalle de ${row.title}`}
+                  onClick={() => openRowDetail(row.id)}
+                  onKeyDown={(event) => {
+                    if (isActivationKey(event)) openRowDetail(row.id);
+                  }}
+                >
                   <td><strong>{row.title}</strong><small>{row.secondary}</small></td>
                   <td><span className={`intelligence-status status-${row.status}`}>{LABELS[row.status] ?? row.status}</span></td>
                   <td>{row.detail}{row.labels?.length ? <div className="actor-labels">{row.labels.map((label) => <span key={label}>{label}</span>)}</div> : null}</td>
                   <td>{formatDate(row.updatedAt)}</td>
-                  <td><Link className="vector-secondary compact" href={`${pathname}?selected=${encodeURIComponent(row.id)}`} scroll={false}>Abrir <ArrowRight size={13} /></Link></td>
+                  <td>
+                    <Link
+                      className="vector-secondary compact"
+                      href={`${pathname}?selected=${encodeURIComponent(row.id)}`}
+                      scroll={false}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Abrir <ArrowRight size={13} />
+                    </Link>
+                  </td>
                 </tr>
               ))}</tbody>
             </table>

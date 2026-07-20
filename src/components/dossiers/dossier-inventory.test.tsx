@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   bulkDelete: vi.fn(),
   replace: vi.fn(),
+  push: vi.fn(),
   params: "",
 }));
 
@@ -24,7 +25,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/app/dossiers",
-  useRouter: () => ({ replace: mocks.replace }),
+  useRouter: () => ({ replace: mocks.replace, push: mocks.push }),
   useSearchParams: () => new URLSearchParams(mocks.params),
 }));
 
@@ -117,6 +118,18 @@ describe("DossierInventory", () => {
       ),
     );
     expect(screen.getByLabelText("Filtrar por estado")).toHaveValue("active");
+  });
+
+  it("abre el expediente desde la fila con teclado", async () => {
+    render(<DossierInventory />);
+
+    const row = await screen.findByRole("button", {
+      name: "Abrir expediente Expansión Delta",
+    });
+    expect(row).toHaveClass("interactive-row");
+    fireEvent.keyDown(row, { key: "Enter" });
+
+    expect(mocks.push).toHaveBeenCalledWith(`/app/dossiers/${dossier.id}`);
   });
 
   it("codifica búsqueda y sort en una URL compartible", async () => {

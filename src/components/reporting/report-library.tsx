@@ -22,6 +22,7 @@ import {
 import { useParams, useSearchParams } from "next/navigation";
 import {
   FormEvent,
+  KeyboardEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -41,6 +42,12 @@ import {
 } from "./reporting-utils";
 
 type ReportTemplate = components["schemas"]["ReportTemplate"];
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" && event.key !== " ") return false;
+  event.preventDefault();
+  return true;
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -515,9 +522,25 @@ export function ReportLibrary({
               </thead>
               <tbody>
                 {filtered.map((report) => (
-                  <tr key={report.id}>
+                  <tr
+                    key={report.id}
+                    className="interactive-row"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Abrir detalle de ${report.title}`}
+                    onClick={() => setSelectedReportId(report.id)}
+                    onKeyDown={(event) => {
+                      if (isActivationKey(event)) setSelectedReportId(report.id);
+                    }}
+                  >
                     <td>
-                      <button className="report-title-button" onClick={() => setSelectedReportId(report.id)}>
+                      <button
+                        className="report-title-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedReportId(report.id);
+                        }}
+                      >
                         <strong>{report.title}</strong>
                         <small>{templateName.get(report.template_key) ?? report.template_key}</small>
                       </button>
@@ -539,7 +562,10 @@ export function ReportLibrary({
                       <button
                         className="icon-button bordered"
                         aria-label={`Abrir ${report.title}`}
-                        onClick={() => setSelectedReportId(report.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedReportId(report.id);
+                        }}
                       >
                         <ChevronRight size={16} />
                       </button>

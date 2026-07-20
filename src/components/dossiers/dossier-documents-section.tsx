@@ -5,7 +5,7 @@ import { ApiError, api, type DocumentSearchResult, type OracleDocument } from "@
 import { Download, FileSearch, FileText, FileUp, RefreshCw, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
@@ -15,6 +15,12 @@ const LABELS: Record<OracleDocument["status"], string> = {
   uploaded: "Subido", queued: "En cola", processing: "Procesando", ready: "Disponible",
   failed: "Error", quarantined: "Cuarentena", deleted: "Eliminado",
 };
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" && event.key !== " ") return false;
+  event.preventDefault();
+  return true;
+}
 
 function errorMessage(reason: unknown, fallback: string) {
   if (reason instanceof ApiError && reason.problem.code === "documents_disabled") {
@@ -153,6 +159,9 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
   }
 
   function closeDocument() { router.replace(pathname, { scroll: false }); }
+  const openDocument = useCallback((documentId: string) => {
+    router.replace(`${pathname}?selected=${encodeURIComponent(documentId)}`, { scroll: false });
+  }, [pathname, router]);
 
   return <section className="vector-panel vector-documents product-documents" aria-labelledby="documents-title">
     <header className="intelligence-heading"><div><span className="section-kicker">Fuentes y trazabilidad</span><h1 id="documents-title">Documentos</h1><p>Sube, procesa, busca y convierte fuentes en evidencias citables sin confundir su contenido con una conclusión.</p></div>
@@ -164,7 +173,7 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
     {error && <p className="auth-inline-error" role="alert">{error}</p>}
     {activeJobId && <div className="document-active-job"><JobProgress jobId={activeJobId} label="Procesando documento" allowActions onTerminal={() => { setActiveJobId(null); void load(); }} /></div>}
     {loading ? <div className="work-loading" role="status"><span className="auth-spinner" /> Cargando documentos…</div> : documents.length === 0 ? <div className="work-empty"><FileText size={24}/><h2>Aún no hay documentos</h2><p>Sube una fuente para habilitar búsqueda, procesamiento y evidencia trazable.</p></div> : <>
-      <div className="document-table-wrap"><table className="document-table"><thead><tr><th>Documento</th><th>Estado</th><th>Clasificación</th><th>Tamaño</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{documents.map((document) => <tr key={document.id}><td><strong>{document.filename}</strong><small>{document.media_type}</small></td><td><span className={`document-status ${document.status}`}>{LABELS[document.status]}</span>{documentSecurityBadge(document)}</td><td>{document.classification === "internal" ? "Interno" : "Público"}</td><td>{new Intl.NumberFormat("es-ES", { style: "unit", unit: "kilobyte", maximumFractionDigits: 0 }).format(document.byte_size / 1024)}</td><td><div className="document-actions"><Link className="icon-button bordered" href={`${pathname}?selected=${encodeURIComponent(document.id)}`} scroll={false} aria-label={`Abrir ${document.filename}`}><FileSearch size={15}/></Link>{documentDownloadable(document) && <a className="icon-button bordered" href={`/api/v1/documents/${encodeURIComponent(document.id)}/download`} aria-label={`Descargar ${document.filename}`}><Download size={15}/></a>}<PermissionGate permission="documents.manage">{document.status === "failed" && <button className="icon-button bordered" disabled={busy} aria-label={`Reprocesar ${document.filename}`} onClick={() => void reprocess(document)}><RefreshCw size={15}/></button>}<button className="icon-button bordered" disabled={busy} aria-label={`Eliminar ${document.filename}`} onClick={() => setDeleteTarget(document)}><Trash2 size={15}/></button></PermissionGate></div></td></tr>)}</tbody></table></div>
+      <div className="document-table-wrap"><table className="document-table"><thead><tr><th>Documento</th><th>Estado</th><th>Clasificación</th><th>Tamaño</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{documents.map((document) => <tr key={document.id} className="interactive-row" role="button" tabIndex={0} aria-label={`Abrir detalle de ${document.filename}`} onClick={() => openDocument(document.id)} onKeyDown={(event) => { if (isActivationKey(event)) openDocument(document.id); }}><td><strong>{document.filename}</strong><small>{document.media_type}</small></td><td><span className={`document-status ${document.status}`}>{LABELS[document.status]}</span>{documentSecurityBadge(document)}</td><td>{document.classification === "internal" ? "Interno" : "Público"}</td><td>{new Intl.NumberFormat("es-ES", { style: "unit", unit: "kilobyte", maximumFractionDigits: 0 }).format(document.byte_size / 1024)}</td><td><div className="document-actions"><Link className="icon-button bordered" href={`${pathname}?selected=${encodeURIComponent(document.id)}`} scroll={false} aria-label={`Abrir ${document.filename}`} onClick={(event) => event.stopPropagation()}><FileSearch size={15}/></Link>{documentDownloadable(document) && <a className="icon-button bordered" href={`/api/v1/documents/${encodeURIComponent(document.id)}/download`} aria-label={`Descargar ${document.filename}`} onClick={(event) => event.stopPropagation()}><Download size={15}/></a>}<PermissionGate permission="documents.manage">{document.status === "failed" && <button className="icon-button bordered" disabled={busy} aria-label={`Reprocesar ${document.filename}`} onClick={(event) => { event.stopPropagation(); void reprocess(document); }}><RefreshCw size={15}/></button>}<button className="icon-button bordered" disabled={busy} aria-label={`Eliminar ${document.filename}`} onClick={(event) => { event.stopPropagation(); setDeleteTarget(document); }}><Trash2 size={15}/></button></PermissionGate></div></td></tr>)}</tbody></table></div>
       <div className="document-mobile-list">{documents.map((document) => <article key={document.id}><header><strong>{document.filename}</strong><span className={`document-status ${document.status}`}>{LABELS[document.status]}</span></header><p>{document.media_type} · {document.classification === "internal" ? "Interno" : "Público"}</p>{documentSecurityBadge(document)}<Link className="vector-secondary" href={`${pathname}?selected=${encodeURIComponent(document.id)}`} scroll={false}>Abrir detalle</Link></article>)}</div>
     </>}
     {!!results.length && <div className="document-results" aria-live="polite"><h2>Resultados ({results.length})</h2>{results.map((result) => <button key={result.chunk_id} onClick={() => setSource(result)}><strong>{result.filename}</strong><span>{result.snippet}</span><small>{sourceLocation(result.locator)}</small></button>)}</div>}

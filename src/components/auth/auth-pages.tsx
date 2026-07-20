@@ -95,9 +95,6 @@ function ProblemAlert({ error }: { error: ApiError | null }) {
           ? `Demasiados intentos. Vuelve a probar${error.retryAfter ? ` en ${error.retryAfter} segundos` : " más tarde"}.`
           : error.message}
       </span>
-      {error.problem.request_id && (
-        <small>Referencia: {error.problem.request_id}</small>
-      )}
     </div>
   );
 }

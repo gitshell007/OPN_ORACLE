@@ -133,6 +133,23 @@ describe("DossierWorkSection", () => {
     );
   });
 
+  it("abre el detalle de tareas desde la fila con teclado", async () => {
+    render(<DossierWorkSection dossierId="dossier-1" kind="tasks" />);
+
+    const row = await screen.findByRole("button", {
+      name: "Abrir detalle de Preparar propuesta",
+    });
+    expect(row).toHaveClass("interactive-row");
+    fireEvent.keyDown(row, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/app/dossiers/dossier-1/tasks?selected=task-1",
+        { scroll: false },
+      ),
+    );
+  });
+
   it("cierra una reunión creando resultados, decisiones y tareas vinculadas", async () => {
     mocks.params = new URLSearchParams("selected=meeting-1");
     mocks.meetingsList.mockResolvedValue({

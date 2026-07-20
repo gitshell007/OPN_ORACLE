@@ -74,6 +74,23 @@ describe("DossierDocumentsSection", () => {
     );
   });
 
+  it("abre el detalle desde la fila de documento con teclado", async () => {
+    render(<DossierDocumentsSection dossierId="dossier-1" />);
+
+    const row = await screen.findByRole("button", {
+      name: "Abrir detalle de convocatoria.pdf",
+    });
+    expect(row).toHaveClass("interactive-row");
+    fireEvent.keyDown(row, { key: " " });
+
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/app/dossiers/dossier-1/documents?selected=document-1",
+        { scroll: false },
+      ),
+    );
+  });
+
   it("envía una búsqueda acotada al expediente", async () => {
     render(<DossierDocumentsSection dossierId="dossier-1" />);
     await screen.findAllByText("convocatoria.pdf");

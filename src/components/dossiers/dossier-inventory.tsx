@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -144,6 +144,12 @@ function nextDeleteChallenge(): DeleteChallenge {
     left: Math.floor(Math.random() * 8) + 2,
     right: Math.floor(Math.random() * 8) + 2,
   };
+}
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" && event.key !== " ") return false;
+  event.preventDefault();
+  return true;
 }
 
 export function DossierInventory() {
@@ -483,9 +489,19 @@ export function DossierInventory() {
                 </thead>
                 <tbody>
                   {items.map((item) => (
-                    <tr key={item.id} className={selected.includes(item.id) ? "selected" : undefined}>
-                      <td className="selection-column"><input type="checkbox" checked={selected.includes(item.id)} onChange={() => toggleSelected(item.id)} aria-label={`Seleccionar ${item.title}`} /></td>
-                      <td className="sticky-name"><Link href={`/app/dossiers/${item.id}`}><strong>{item.title}</strong><small>{item.strategic_goal || "Objetivo por completar"}</small></Link></td>
+                    <tr
+                      key={item.id}
+                      className={selected.includes(item.id) ? "selected interactive-row" : "interactive-row"}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Abrir expediente ${item.title}`}
+                      onClick={() => router.push(`/app/dossiers/${item.id}`)}
+                      onKeyDown={(event) => {
+                        if (isActivationKey(event)) router.push(`/app/dossiers/${item.id}`);
+                      }}
+                    >
+                      <td className="selection-column"><input type="checkbox" checked={selected.includes(item.id)} onChange={() => toggleSelected(item.id)} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} aria-label={`Seleccionar ${item.title}`} /></td>
+                      <td className="sticky-name"><Link href={`/app/dossiers/${item.id}`} onClick={(event) => event.stopPropagation()}><strong>{item.title}</strong><small>{item.strategic_goal || "Objetivo por completar"}</small></Link></td>
                       {show("type") && <td>{TYPE_LABELS[item.dossier_type] ?? item.dossier_type}</td>}
                       {show("health") && <td><strong>{score(item.health_score)}</strong><small> / 100</small></td>}
                       {show("opportunity") && <td><strong>{score(item.opportunity_score)}</strong><small> / 100</small></td>}

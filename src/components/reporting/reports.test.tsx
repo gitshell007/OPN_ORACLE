@@ -224,6 +224,19 @@ describe("reports Vector", () => {
     );
   });
 
+  it("abre el informe desde la fila con teclado", async () => {
+    mocks.list.mockResolvedValue({ data: [baseReport], meta: { page: 1, size: 100, total: 1 } });
+    render(<ReportLibrary routeBase="/app" />);
+
+    const row = await screen.findByRole("button", {
+      name: "Abrir detalle de Informe ejecutivo",
+    });
+    expect(row).toHaveClass("interactive-row");
+    fireEvent.keyDown(row, { key: "Enter" });
+
+    expect(await screen.findByText("El expediente conserva impulso.")).toBeVisible();
+  });
+
   it("abre citas, registra revisión, publica y solicita descarga firmada", async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     render(<ReportViewer reportId="report-1" routeBase="/app" />);

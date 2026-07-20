@@ -27,7 +27,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -38,6 +38,12 @@ import { productScoreDetailLabel, productSignalTypeLabel } from "@/lib/product-c
 export type IntelligenceSectionKind = "signals" | "opportunities" | "risks";
 type ScoredResource = OracleOpportunity | OracleRisk;
 type SelectedItem = DossierSignalEnvelope | ScoredResource;
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Enter" && event.key !== " ") return false;
+  event.preventDefault();
+  return true;
+}
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Nueva",
@@ -747,7 +753,17 @@ export function DossierIntelligenceSection({
                 </thead>
                 <tbody>
                   {items.map((item) => (
-                    <tr key={isSignal(item) ? item.link.id : item.id}>
+                    <tr
+                      key={isSignal(item) ? item.link.id : item.id}
+                      className="interactive-row"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Abrir detalle de ${title(item)}`}
+                      onClick={() => void openDetail(item)}
+                      onKeyDown={(event) => {
+                        if (isActivationKey(event)) void openDetail(item);
+                      }}
+                    >
                       <td>
                         <strong>{title(item)}</strong>
                         <small>
@@ -761,7 +777,14 @@ export function DossierIntelligenceSection({
                       <td>{confidenceLabel(item)}</td>
                       <td>{formatDate(isSignal(item) ? item.link.updated_at : item.updated_at)}</td>
                       <td>
-                        <button className="text-button" onClick={() => void openDetail(item)} aria-label={`Inspeccionar ${title(item)}`}>
+                        <button
+                          className="text-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void openDetail(item);
+                          }}
+                          aria-label={`Inspeccionar ${title(item)}`}
+                        >
                           Inspeccionar <ArrowRight size={14} aria-hidden="true" />
                         </button>
                       </td>

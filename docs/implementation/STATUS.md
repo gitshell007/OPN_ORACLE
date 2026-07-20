@@ -1816,3 +1816,51 @@ permitidas, 0 inventadas—. Lo que no se ejecuta es el veredicto semántico del
 No es una regresión de este cambio: es una brecha preexistente que este cambio ha hecho visible, y
 que además ahora resulta engañosa, porque la tabla declara un control que en esa ruta no corre.
 Queda como deuda, junto a la ya anotada de que el wizard no tiene control semántico de salida.
+
+## 2026-07-20 · Login producción y referencia técnica en errores de acceso
+
+- Verificación con Playwright contra `https://oracle.opnconsultoria.com/login?next=%2Fapp`: el
+  login muestra al usuario final `Referencia: <request_id>` junto a `Credenciales no válidas`, lo
+  que resulta técnico y no accionable en una pantalla pública de autenticación.
+- Causa UI: `ProblemAlert` en `auth-pages.tsx` renderizaba siempre `error.problem.request_id` si
+  venía en Problem Details. Se elimina esa referencia de las páginas de autenticación; el
+  `request_id` sigue disponible en respuesta/cabeceras/logs para soporte, pero no se presenta en
+  login/reset/invitación.
+- Corrección de dashboard preparada: las filas de `Trabajo que requiere atención` pasan de un
+  `flex` con selectores genéricos sobre `span:first-child/last-child` a una grid de columnas
+  estables (icono, texto principal, metadato derecho) y una variante móvil que evita solapes.
+- Observación operativa: la contraseña escrita con punto final produjo `401`; el siguiente intento
+  quedó bloqueado por rate limit de identidad (`429`, 300 segundos). Un reintento controlado sin
+  punto todavía recibió `429`, por lo que no se ha podido verificar visualmente el dashboard en
+  producción en este turno.
+- Desbloqueo posterior con acceso SSH: servidor `oracle` confirmado, contenedores sanos y Redis
+  protegido por ACL/secreto. El contador `opn-oracle:login:<hash>` no existía al llegar; tras
+  reintentar sin punto y con punto final, ambos devolvieron `401`, el contador quedó en `2` y se
+  eliminó para no dejar al usuario penalizado. Base de datos confirma que `mburgos@iacell.com`
+  existe, está `active`, tiene una membership activa y su último login correcto fue el
+  `2026-07-20T16:46:37Z`. No se ha cambiado contraseña ni membership.
+- Reset autorizado: la clave inicial propuesta no cumplía el mínimo productivo de 12 caracteres.
+  Se reseteó `mburgos@iacell.com` a la clave corregida de 13 caracteres mediante `PasswordHasher`
+  dentro del contenedor API, sin imprimir el secreto ni escribirlo en historial remoto. Login
+  verificado con Playwright: `/login?next=%2Fapp` redirige correctamente a `/app`.
+- Verificación visual productiva: el bloque `Trabajo que requiere atención` está efectivamente
+  desalineado en el release actual. Las filas medidas por Playwright tienen `x` distintos para el
+  texto principal (`374`, `371`, `395`, `318`...), causado por el layout `flex` actual. La corrección
+  CSS local de grid estable apunta al defecto observado, pero aún no está desplegada.
+- Barrido de repetición UX: el mismo tipo de fallo de señal visual puede aparecer en tablas donde
+  la fila representa un detalle pero solo el botón/enlace interno parece accionable. Se corrige en
+  las tablas productivas de expediente para inteligencia (`signals`, `opportunities`, `risks`),
+  trabajo (`actors`, `meetings`, `tasks`, `decisions`), documentos, inventario de expedientes e
+  informes: la fila completa abre el detalle/recurso, tiene `cursor: pointer`, hover/focus
+  consistente y activación por Enter/Espacio. Botones, enlaces y checkboxes internos paran la
+  propagación para evitar doble apertura o navegación accidental.
+- Validación local: `npm run test -- src/components/auth/auth-pages.test.tsx
+  src/components/navigation/product-home.test.tsx`, `npm run lint -- --quiet`,
+  `npm run typecheck` y `npm run build` correctos.
+- Validación adicional de filas clicables: `npm run test --
+  src/components/dossiers/dossier-intelligence-section.test.tsx
+  src/components/dossiers/dossier-work-section.test.tsx
+  src/components/dossiers/dossier-documents-section.test.tsx
+  src/components/dossiers/dossier-inventory.test.tsx src/components/reporting/reports.test.tsx
+  src/components/navigation/product-home.test.tsx src/components/auth/auth-pages.test.tsx`,
+  `npm run lint -- --quiet`, `npm run typecheck` y `npm run build` correctos.
