@@ -974,7 +974,9 @@ def build_frozen_context(
     )
 
 
-def validate_evidence(output: BaseModel, allowed: set[uuid.UUID]) -> None:
+def cited_evidence_ids(output: BaseModel) -> set[uuid.UUID]:
+    """Recolecta todos los ``evidence_ids`` referenciados en un output IA validado."""
+
     def nested_ids(value: Any) -> set[uuid.UUID]:
         if isinstance(value, BaseModel):
             cited: set[uuid.UUID] = set()
@@ -991,5 +993,9 @@ def validate_evidence(output: BaseModel, allowed: set[uuid.UUID]) -> None:
             return {item for child in value.values() for item in nested_ids(child)}
         return set()
 
-    if not nested_ids(output).issubset(allowed):
+    return nested_ids(output)
+
+
+def validate_evidence(output: BaseModel, allowed: set[uuid.UUID]) -> None:
+    if not cited_evidence_ids(output).issubset(allowed):
         raise ValueError("El output cita evidencia no autorizada.")

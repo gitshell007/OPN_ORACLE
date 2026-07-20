@@ -14,7 +14,7 @@ import httpx
 from flask import current_app
 from sqlalchemy import func, select, text
 
-from opn_oracle.ai.context import BuiltContext, validate_evidence
+from opn_oracle.ai.context import BuiltContext, cited_evidence_ids, validate_evidence
 from opn_oracle.ai.models import AIArtifact, AIAttempt, AIUsageLedger
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
@@ -1206,6 +1206,7 @@ def _run_waiting_area_agent(
         fail(error)
         raise
     output = output_model.model_dump(mode="json")
+    cited_evidence_uuids = cited_evidence_ids(output_model)
     total_input = result.input_tokens
     total_output = result.output_tokens
     total_cost = result.cost_micros
@@ -1237,6 +1238,16 @@ def _run_waiting_area_agent(
         reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
             "evidence_reviewer"
         )
+        # El revisor comprueba la groundedness de los claims del informe, así que solo
+        # necesita la evidencia efectivamente citada, no las hasta 45 fuentes disponibles.
+        # Pasarle el índice completo hacía fallar la salida estructurada del modelo local
+        # (prompt 63): mismo mecanismo compacto que ya usa la ruta de `execute_agent`.
+        cited_evidence_sources = [
+            item
+            for item in pending_evidence_sources
+            if uuid.UUID(str(item["id"])) in cited_evidence_uuids
+        ]
+        cited_evidence_id_strings = [str(item["id"]) for item in cited_evidence_sources]
         reviewer_evidence = tuple(
             Evidence(
                 id=uuid.UUID(str(item["id"])),
@@ -1249,11 +1260,11 @@ def _run_waiting_area_agent(
                 classification="internal",
                 provenance={},
             )
-            for item in pending_evidence_sources
+            for item in cited_evidence_sources
         )
         review_context = BuiltContext(
             payload=context,
-            manifest={"evidence_ids": allowed_evidence_ids},
+            manifest={"evidence_ids": cited_evidence_id_strings},
             context_hash=context_hash,
             evidence=reviewer_evidence,
             classification="internal",

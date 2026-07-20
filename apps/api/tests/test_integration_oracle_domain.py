@@ -1787,6 +1787,73 @@ def test_entity_waiting_area_rejects_evidence_outside_pending_allowlist(
         assert usage is not None and usage.status == "released"
 
 
+def test_entity_waiting_area_reviewer_receives_only_cited_evidence(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Prompt 63 rompió el informe de entidad porque le pasaba al revisor las hasta 45 fuentes
+    # citables completas, degradando la salida del modelo local. El revisor solo debe recibir la
+    # evidencia efectivamente citada en el informe: aquí el generador cita 1 de 5 fuentes y el
+    # revisor debe ver únicamente esa 1.
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    pending_sources = _pending_entity_sources()
+    assert len(pending_sources) == 5
+    cited_id = uuid.UUID(pending_sources[0]["id"])
+    captured: dict[str, Any] = {}
+
+    class CitingEntityProvider(MockLLMProvider):
+        def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
+            if request.agent == ENTITY_DOSSIER_AGENT:
+                output = ReportOutput.model_validate(_entity_report_output([cited_id]))
+                return LLMResult(output, 100, 50, 0, 1, provider="mock", model="mock-oracle-v1")
+            if request.agent == "evidence_reviewer":
+                captured["reviewer_context"] = request.context
+            return super().generate_structured(request, schema)
+
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "provider_from_config",
+        lambda config: CitingEntityProvider("entity-reviewer-bounding"),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job = _new_entity_job(
+            ids,
+            {"name": "Entidad Cobertura SA", "kind": "company"},
+            f"entity-report-reviewer-bounding-{uuid.uuid4()}",
+        )
+        job.status = "running"
+        db.session.commit()
+        _run_waiting_area_agent(
+            job=job,
+            entity={"name": "Entidad Cobertura SA", "type": "company"},
+            entity_dossier={"section_status": {}},
+            computed_metrics={"registry": {"acts": 5}},
+            corpus_hash="d" * 64,
+            pending_evidence_sources=pending_sources,
+            evidence_sources_total=5,
+        )
+        audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
+        assert audit is not None and audit.status == "succeeded"
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit.id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert [item.kind for item in attempts] == ["generate", "reviewer"]
+        assert [item.status for item in attempts] == ["succeeded", "succeeded"]
+
+    # El revisor corrió, pero solo vio la fuente citada, no las 5 pendientes.
+    reviewer_context = captured["reviewer_context"]
+    assert reviewer_context["allowed_evidence_ids"] == [str(cited_id)]
+    assert {row["id"] for row in reviewer_context["evidence"]} == {str(cited_id)}
+
+
 def test_entity_report_incorporation_materializes_evidence_and_is_idempotent(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
     tmp_path: Path,
