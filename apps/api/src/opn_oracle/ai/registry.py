@@ -26,6 +26,7 @@ class PromptDefinition:
     sha256: bytes
     schema: type[BaseModel]
     changelog: str
+    requires_evidence_review: bool
 
 
 PURPOSES = {
@@ -104,6 +105,24 @@ INPUT_CONTRACTS = {
         "answers",
         "allowed_evidence_ids",
     ),
+}
+
+EVIDENCE_REVIEW_REQUIRED = {
+    "intake": True,
+    "signal_triage": True,
+    "entity_resolution": True,
+    "opportunity": True,
+    "risk": True,
+    "actor_partnership": True,
+    "meeting_briefing": True,
+    "report_writer": True,
+    "competitive_procurement_intelligence": True,
+    "entity_dossier_intelligence": True,
+    "memory_curator": True,
+    "evidence_reviewer": False,
+    "weekly_change": True,
+    "dossier_situation_summary": True,
+    "dossier_completion_wizard": False,
 }
 
 PROMPT_VERSIONS = {
@@ -225,6 +244,7 @@ class PromptRegistry:
                     sha256=hashlib.sha256(combined.encode()).digest(),
                     schema=schema,
                     changelog=changelog,
+                    requires_evidence_review=EVIDENCE_REVIEW_REQUIRED[name],
                 )
                 self._items[key] = item
 

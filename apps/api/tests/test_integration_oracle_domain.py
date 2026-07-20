@@ -20,7 +20,13 @@ from sqlalchemy import create_engine, func, select, text
 
 from opn_oracle import create_app
 from opn_oracle.ai.context import _canonical, build_dossier_completion_context
-from opn_oracle.ai.models import AIArtifact, AIAttempt, AITenantPolicy, AIUsageLedger
+from opn_oracle.ai.models import (
+    AIArtifact,
+    AIAttempt,
+    AIContextSnapshot,
+    AITenantPolicy,
+    AIUsageLedger,
+)
 from opn_oracle.ai.provider import AIUnavailable, LLMRequest, LLMResult, MockLLMProvider
 from opn_oracle.ai.schemas import ReportOutput
 from opn_oracle.auth.passwords import PasswordHasher
@@ -1944,7 +1950,7 @@ def test_dossier_completion_context_trims_large_payload_to_budget_deterministica
     assert low_first.manifest["answer_count"] == 1
 
 
-def test_dossier_completion_wizard_runs_and_is_reviewed_through_http(
+def test_dossier_completion_wizard_runs_twice_without_evidence_reviewer_through_http(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
     app, ids, _ = oracle_stack
@@ -1952,27 +1958,55 @@ def test_dossier_completion_wizard_runs_and_is_reviewed_through_http(
     client = _client(oracle_stack)
     dossier = _create_dossier(client, ids, "Wizard HTTP gobernado")
     dossier_id = dossier["id"]
+    actor = client.post(
+        "/api/v1/actors",
+        json={"canonical_name": "Consorcio provincial de bomberos", "actor_type": "organization"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert actor.status_code == 201
+    linked_actor = client.post(
+        f"/api/v1/dossiers/{dossier_id}/actors",
+        json={"actor_id": actor.get_json()["id"], "roles": ["comprador"], "influence": 70},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert linked_actor.status_code == 201
+
+    first = client.post(
+        f"/api/v1/ai/dossiers/{dossier_id}/completion-wizard/runs",
+        json={},
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": f"wizard-http-first-{uuid.uuid4()}",
+        },
+    )
+    assert first.status_code == 202, first.get_json()
+    first_payload = first.get_json()
+    assert first_payload["job"]["status"] == "succeeded"
+    assert first_payload["artifact"]["agent"] == "dossier_completion_wizard"
+    assert first_payload["artifact"]["output"]["recommended_actions"]
+
     answers = [{"question_id": "scope.geography", "answer": "España"}]
 
-    launched = client.post(
+    second = client.post(
         f"/api/v1/ai/dossiers/{dossier_id}/completion-wizard/runs",
         json={"answers": answers},
         headers={
             "X-CSRF-Token": _csrf(client),
-            "Idempotency-Key": f"wizard-http-{uuid.uuid4()}",
+            "Idempotency-Key": f"wizard-http-second-{uuid.uuid4()}",
         },
     )
-    assert launched.status_code == 202, launched.get_json()
-    launched_payload = launched.get_json()
-    assert launched_payload["job"]["status"] == "succeeded"
-    assert launched_payload["artifact"]["agent"] == "dossier_completion_wizard"
-    assert launched_payload["artifact"]["output"]["recommended_actions"]
+    assert second.status_code == 202, second.get_json()
+    second_payload = second.get_json()
+    assert second_payload["job"]["status"] == "succeeded"
+    assert second_payload["artifact"]["agent"] == "dossier_completion_wizard"
+    assert second_payload["artifact"]["output"]["recommended_actions"]
+    assert second_payload["artifact"]["id"] != first_payload["artifact"]["id"]
 
     latest = client.get(f"/api/v1/ai/dossiers/{dossier_id}/completion-wizard/latest")
     assert latest.status_code == 200
     latest_payload = latest.get_json()
-    assert latest_payload["job"]["id"] == launched_payload["job"]["id"]
-    assert latest_payload["artifact"]["id"] == launched_payload["artifact"]["id"]
+    assert latest_payload["job"]["id"] == second_payload["job"]["id"]
+    assert latest_payload["artifact"]["id"] == second_payload["artifact"]["id"]
     assert latest_payload["answers"] == answers
 
     artifact_id = uuid.UUID(latest_payload["artifact"]["id"])
@@ -1983,6 +2017,23 @@ def test_dossier_completion_wizard_runs_and_is_reviewed_through_http(
         artifact = db.session.get(AIArtifact, artifact_id)
         assert artifact is not None
         audit_id = artifact.audit_log_id
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit_id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        snapshot = db.session.scalar(
+            select(AIContextSnapshot).where(AIContextSnapshot.audit_log_id == audit_id)
+        )
+        assert snapshot is not None
+        assert [attempt.kind for attempt in attempts] == ["generate"]
+        assert snapshot.source_manifest["requires_evidence_review"] is False
+        assert snapshot.source_manifest["actor_link_ids"]
+        assert snapshot.source_manifest["previous_round_artifact_ids"] == [
+            first_payload["artifact"]["id"]
+        ]
 
     audit = client.get(f"/api/v1/ai/audits/{audit_id}")
     assert audit.status_code == 200

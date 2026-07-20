@@ -396,7 +396,8 @@ def execute_agent(
     lease_seconds = max(30, min(int(current_app.config["CELERY_TASK_TIME_LIMIT"]), 600))
     lease_expires_at = now + timedelta(seconds=lease_seconds)
     source_manifest = context.manifest | {
-        "requested_scope_hash": hashlib.sha256(_canonical(supplemental_context or {})).hexdigest()
+        "requested_scope_hash": hashlib.sha256(_canonical(supplemental_context or {})).hexdigest(),
+        "requires_evidence_review": prompt.requires_evidence_review,
     }
     audit = db.session.scalar(
         select(AIAuditLog)
@@ -678,7 +679,7 @@ def execute_agent(
         result.cost_micros,
     )
     reviewer_attempt_id: uuid.UUID | None = None
-    if agent != "evidence_reviewer" and not result.safe_fallback_used:
+    if prompt.requires_evidence_review and not result.safe_fallback_used:
         reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
             "evidence_reviewer"
         )

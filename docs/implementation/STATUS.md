@@ -1668,6 +1668,38 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   del fichero modificado también queda limpio. No hay cambios de producción, migraciones,
   configuración, OpenAPI ni frontend.
 
+## 2026-07-20 · Prompt 62 · Wizard de completitud sin revisor de evidencia universal
+
+- Diagnóstico asumido desde producción: `dossier_completion_wizard` generaba correctamente, pero
+  el revisor universal rechazaba el output porque el contrato del wizard diagnostica ausencias y
+  propone preguntas/acciones sin citas de evidencia. El job de producción afectado era
+  `894d9379-e2c5-427d-9545-ecb8e13e3937` sobre el expediente `Coches de Bomberos`.
+- Decisión de diseño: se aplica la opción A. El contrato de cada prompt declara ahora
+  `requires_evidence_review`; el servicio consulta esa propiedad en lugar de aplicar el revisor a
+  todo lo que no sea `evidence_reviewer`. `dossier_completion_wizard` y `evidence_reviewer` quedan
+  con `False`; los demás agentes conservan `True`.
+- Invariantes mantenidos: el revisor de evidencia sigue obligatorio para `report_writer`,
+  `competitive_procurement_intelligence` y `entity_dossier_intelligence`. No se toca el paquete
+  compacto del revisor creado en Prompt 60 y no se degrada el fallo global a warning.
+- Control actual del wizard tras el cambio: validación Pydantic del contrato de salida,
+  auditoría, cuotas, tenant context y persistencia normal de artefacto. No tiene aún un control
+  semántico específico para outputs no evidenciales; queda como deuda para una opción B futura.
+- Validación completada: el test HTTP del wizard ejecuta primera ronda sobre un expediente con
+  actor vinculado, ejecuta segunda ronda con `answers`, verifica que
+  `/completion-wizard/latest` devuelve el segundo resultado y comprueba que solo existe intento
+  `generate`, sin intento `reviewer`. El manifiesto de contexto guarda
+  `requires_evidence_review=false`, el actor usado y la ronda previa.
+- Gates ejecutados: `ruff check src tests`, `ruff format --check src tests`, `mypy src` y suite
+  completa de integración con PostgreSQL/Redis reales. Resultado final: **501 passed**, cobertura
+  global **84,20 %**.
+- Mutación manual: cambiar temporalmente `EVIDENCE_REVIEW_REQUIRED["report_writer"]` a `False`
+  hizo caer `test_report_generation_failures_never_publish_artifacts[reviewer]` porque el informe
+  pasaba a `ready` en vez de `failed`. Se restauró la bandera y los tests objetivo volvieron a
+  pasar.
+- Barrido de patrón: no queda en `ai/service.py` ninguna exención por `agent != "evidence_reviewer"`.
+  Las menciones restantes a `dossier_completion_wizard` pertenecen a rutas, contexto, mock provider
+  y tests; las menciones a la condición por agente que quedan están en tests que simulan proveedores.
+
 ## 2026-07-20 · Prompt 60 · Revisor de evidencia en informes largos
 
 - Inicio de fase P0: producción muestra fallo de `EvidenceReviewerOutput` al revisar un informe
