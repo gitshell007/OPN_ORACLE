@@ -1779,3 +1779,40 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Detalle de diseño confirmado como correcto, no como fallo: la previsualización solo se ofrece
   cuando el informe **más reciente** está en espera. Con el último ya incorporado, la tarjeta
   enlaza a ese informe en vez de ofrecer vista previa.
+
+## 2026-07-20 · Wizard verificado end-to-end por primera vez, y un hallazgo colateral
+
+- Release `20260720T163251Z-quick-566e569`. E2E real del asistente de expediente sobre «Coches de
+  Bomberos», con sesión autenticada:
+  - **Ronda 1**: `succeeded`. Diagnóstico útil, no genérico: detecta `signals:empty`,
+    `procurement:empty`, `risks:empty`, `goal:incomplete`, y propone acciones ejecutables con su
+    tipo (`create_signal_monitor`, `pin_procurement`, `create_actor`, `create_risk`).
+  - **Ronda 2** con tres respuestas del usuario: `succeeded`. Es el flujo por rondas, que era la
+    razón de ser del wizard y lo que nunca se había probado.
+  - `GET /completion-wizard/latest` devuelve el resultado.
+  - Intentos registrados del wizard: solo `generate` (2, ambos `succeeded`). Ningún `reviewer`,
+    que es exactamente el efecto buscado.
+- Antes de este cambio el histórico del agente era **1 fallo y 0 éxitos**: nunca había completado
+  una ejecución desde que se entregó su track.
+
+### Hallazgo colateral: `requires_evidence_review` no se aplica en todas las rutas
+
+Al contrastar los intentos por agente aparece que **`entity_dossier_intelligence` no tiene ni un
+solo intento de tipo `reviewer` en todo su histórico**, pese a estar declarado como
+`requires_evidence_review: True`.
+
+Causa: hay dos caminos de generación distintos.
+
+- `report_writer` y `competitive_procurement_intelligence` pasan por `reporting/service.py`, que
+  llama a `execute_agent` y por tanto ejecuta el revisor.
+- El informe de entidad usa su propia ruta, `_run_waiting_area_agent` en
+  `oracle/entity_dossier_report.py`, que invoca al proveedor directamente y **nunca llama al
+  revisor**.
+
+Matiz importante para no exagerarlo: el informe de entidad **sí tiene control estructural de
+citas** —el proveedor rechaza `evidence_ids` no autorizados, y así se midió: 45 citadas, 45
+permitidas, 0 inventadas—. Lo que no se ejecuta es el veredicto semántico del agente revisor.
+
+No es una regresión de este cambio: es una brecha preexistente que este cambio ha hecho visible, y
+que además ahora resulta engañosa, porque la tabla declara un control que en esa ruta no corre.
+Queda como deuda, junto a la ya anotada de que el wizard no tiene control semántico de salida.
