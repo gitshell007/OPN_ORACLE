@@ -6,6 +6,12 @@ Interfaz canónica: `CANONICAL_UI=vector`
 
 ## Revisión unificada de salidas IA · prompt 63
 
+> ⚠️ **Revertido en producción el 2026-07-20.** El resumen de abajo describe el trabajo tal como se
+> entregó, pero al desplegarlo rompió el informe de entidad (el revisor `evidence_reviewer` falla en
+> esa ruta). Se hizo rollback del release y el código del prompt 63 sigue en `master` sin resolver.
+> Detalle, diagnóstico y decisión pendiente en la nota **«2026-07-20 · Prompt 63 revertido en
+> producción»** al final de este documento.
+
 - Se cierra la brecha detectada en `entity_dossier_intelligence`: aunque el catálogo declaraba
   `requires_evidence_review=True`, la ruta propia del informe de entidad no pasaba por
   `execute_agent` y por tanto no creaba intento `reviewer`. `_run_waiting_area_agent` ahora ejecuta
@@ -31,8 +37,9 @@ Interfaz canónica: `CANONICAL_UI=vector`
   terminó con `505 passed`, cobertura total `84.10%`, `entity_dossier_report.py` al `89%` y
   `ai/service.py` al `84%`. `ruff check`, `ruff format --check` y `mypy src` correctos. `mypy src
   tests` sigue fallando por deuda tipada preexistente en tests no tocados.
-- Sin migraciones, sin OpenAPI nuevo y sin variables de entorno nuevas. No se ha desplegado en
-  producción en este turno.
+- Sin migraciones, sin OpenAPI nuevo y sin variables de entorno nuevas. **Actualización 2026-07-20:**
+  posteriormente sí se desplegó (`20260720T183537Z-quick-d73c47a`), rompió el informe de entidad y se
+  revirtió a `20260720T173105Z-quick-ca55269`. Ver la nota fechada al final del documento.
 
 ## Informes ejecutivos y versionado de plantillas · prompt 59
 
