@@ -47,6 +47,10 @@ class EvidenceReviewError(RuntimeError):
     """The candidate output was generated, but the mandatory evidence review failed."""
 
 
+class WizardOutputValidationError(RuntimeError):
+    """The completion wizard output contradicts the deterministic dossier snapshot."""
+
+
 def recover_stale_ai_executions(*, now: datetime | None = None) -> int:
     """Release expired reservations; fenced workers can no longer settle them."""
     tenant_id = require_tenant_id()
@@ -307,6 +311,107 @@ def _reviewer_output_budget(
     # number of reviewable claims but stays well below the 16k ceiling used for long reports.
     desired = max(reviewer_prompt_tokens, min(4_000, 1_200 + claim_count * 90))
     return min(desired, policy_tokens)
+
+
+_WIZARD_SECTION_COUNTS = {
+    "signals": "signals",
+    "procurement": "procurement_items",
+    "opportunities": "opportunities",
+    "risks": "risks",
+    "actors": "actors",
+    "hypotheses": "hypotheses",
+}
+
+_WIZARD_PREFILL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "create_signal_monitor": ("name", "query"),
+    "pin_procurement": ("procurement_query", "procurement_kind"),
+    "create_opportunity": ("title", "description"),
+    "create_risk": ("title", "description"),
+    "create_actor": ("title", "actor_type"),
+}
+
+
+def validate_dossier_completion_output(output: dict[str, Any], context: BuiltContext) -> None:
+    """Reject objectively false or unusable wizard guidance before it becomes an artifact."""
+
+    if context.manifest.get("snapshot_kind") != "dossier_completion_wizard":
+        raise WizardOutputValidationError(
+            "El contexto del wizard no es un snapshot de completitud."
+        )
+    snapshot = context.payload.get("completion_snapshot")
+    if not isinstance(snapshot, dict):
+        raise WizardOutputValidationError("Falta el snapshot determinista de completitud.")
+    counts = snapshot.get("counts")
+    if not isinstance(counts, dict):
+        raise WizardOutputValidationError("Faltan los recuentos deterministas del expediente.")
+    diagnostics = output.get("section_diagnostics")
+    if not isinstance(diagnostics, list):
+        raise WizardOutputValidationError("El diagnóstico del wizard no es una lista válida.")
+    seen_sections: set[str] = set()
+    for item in diagnostics:
+        if not isinstance(item, dict):
+            raise WizardOutputValidationError("El diagnóstico contiene un elemento inválido.")
+        section = str(item.get("section") or "")
+        status = str(item.get("status") or "")
+        seen_sections.add(section)
+        count_key = _WIZARD_SECTION_COUNTS.get(section)
+        if count_key and status == "empty" and int(counts.get(count_key) or 0) > 0:
+            raise WizardOutputValidationError(
+                f"El wizard declaró {section}: empty, pero el expediente tiene datos."
+            )
+        if section == "goal" and status == "empty":
+            dossier = snapshot.get("dossier")
+            if isinstance(dossier, dict) and str(dossier.get("strategic_goal") or "").strip():
+                raise WizardOutputValidationError(
+                    "El wizard declaró goal: empty, pero el expediente tiene objetivo."
+                )
+    required_sections = set(_WIZARD_SECTION_COUNTS) | {"goal"}
+    missing = required_sections - seen_sections
+    if missing:
+        raise WizardOutputValidationError(
+            "El diagnóstico del wizard no cubre secciones obligatorias: "
+            + ", ".join(sorted(missing))
+        )
+    questions = output.get("questions")
+    if not isinstance(questions, list):
+        raise WizardOutputValidationError("Las preguntas del wizard no son una lista válida.")
+    if int(counts.get("actors") or 0) > 0:
+        for question in questions:
+            if not isinstance(question, dict):
+                raise WizardOutputValidationError("El wizard devolvió una pregunta inválida.")
+            haystack = " ".join(
+                str(question.get(key) or "").casefold()
+                for key in ("id", "question", "why_it_matters", "expected_input")
+            )
+            if "actor" in haystack and any(
+                marker in haystack
+                for marker in ("no hay", "ningún", "ningun", "falta actor", "sin actor")
+            ):
+                raise WizardOutputValidationError(
+                    "El wizard pregunta por una ausencia de actores que no existe."
+                )
+    actions = output.get("recommended_actions")
+    if not isinstance(actions, list):
+        raise WizardOutputValidationError("Las acciones recomendadas no son una lista válida.")
+    for action in actions:
+        if not isinstance(action, dict):
+            raise WizardOutputValidationError("El wizard devolvió una acción inválida.")
+        kind = str(action.get("kind") or "")
+        required = _WIZARD_PREFILL_REQUIREMENTS.get(kind, ())
+        prefill = action.get("prefill")
+        if required and not isinstance(prefill, dict):
+            raise WizardOutputValidationError(
+                f"La acción {kind} no incluye un prefill estructurado."
+            )
+        missing_fields = [
+            field
+            for field in required
+            if not str(cast(dict[str, Any], prefill).get(field) or "").strip()
+        ]
+        if missing_fields:
+            raise WizardOutputValidationError(
+                f"La acción {kind} no incluye prefill suficiente: {', '.join(missing_fields)}."
+            )
 
 
 def execute_agent(
@@ -631,6 +736,12 @@ def execute_agent(
         fail(error, active_attempt_id=attempt_id)
         raise
     output = result.output.model_dump(mode="json")
+    try:
+        if agent == "dossier_completion_wizard":
+            validate_dossier_completion_output(output, context)
+    except Exception as error:
+        fail(error, active_attempt_id=attempt_id)
+        raise
     db.session.rollback()
     checkpoint = datetime.now(UTC)
     checked_attempt = db.session.scalar(

@@ -170,6 +170,9 @@ class MockLLMProvider:
             has_monitors = int(counts.get("monitors") or 0) > 0
             has_procurement = int(counts.get("procurement_items") or 0) > 0
             has_actors = int(counts.get("actors") or 0) > 0
+            has_opportunities = int(counts.get("opportunities") or 0) > 0
+            has_risks = int(counts.get("risks") or 0) > 0
+            has_hypotheses = int(counts.get("hypotheses") or 0) > 0
             goal = str(dossier.get("strategic_goal") or "")
             vehicle_keywords = [
                 "vehículos de emergencia",
@@ -220,6 +223,24 @@ class MockLLMProvider:
                             ),
                         },
                         {
+                            "section": "opportunities",
+                            "status": "ok" if has_opportunities else "empty",
+                            "explanation": (
+                                "Ya hay oportunidades estratégicas abiertas."
+                                if has_opportunities
+                                else "Aún no hay oportunidades derivadas de señales o fuentes."
+                            ),
+                        },
+                        {
+                            "section": "risks",
+                            "status": "ok" if has_risks else "empty",
+                            "explanation": (
+                                "Ya hay riesgos estratégicos registrados."
+                                if has_risks
+                                else "Aún no hay riesgos explícitos que proteger o vigilar."
+                            ),
+                        },
+                        {
                             "section": "actors",
                             "status": "ok" if has_actors else "empty",
                             "explanation": (
@@ -228,6 +249,15 @@ class MockLLMProvider:
                                 else (
                                     "Faltan competidores, organismos compradores y posibles socios."
                                 )
+                            ),
+                        },
+                        {
+                            "section": "hypotheses",
+                            "status": "ok" if has_hypotheses else "empty",
+                            "explanation": (
+                                "Ya hay hipótesis para contrastar."
+                                if has_hypotheses
+                                else "Faltan hipótesis de trabajo que guíen la vigilancia."
                             ),
                         },
                     ],
@@ -308,6 +338,7 @@ class MockLLMProvider:
                                 "en el mercado."
                             ),
                             "prefill": {
+                                "title": "Adjudicatario relevante",
                                 "actor_type": "organization",
                                 "tags": ["fabricante", "contratación pública"],
                                 "roles": ["competidor", "adjudicatario habitual"],

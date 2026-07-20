@@ -2320,6 +2320,92 @@ def test_ai_provider_and_reviewer_failures_terminalize_durable_state(
         )
 
 
+@pytest.mark.parametrize(
+    "agent",
+    ["report_writer", "competitive_procurement_intelligence"],
+)
+def test_report_agents_reject_evidence_outside_context_snapshot(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+    monkeypatch: pytest.MonkeyPatch,
+    agent: str,
+) -> None:
+    app, ids = jobs_stack
+    foreign = uuid.UUID("00000000-0000-4000-8000-000000000099")
+
+    class ForeignEvidenceProvider(MockLLMProvider):
+        def generate_structured(self, request: Any, schema: Any) -> Any:
+            del request, schema
+            output = ReportOutput(
+                title="Informe con cita externa",
+                executive_summary="Cita una evidencia fuera del snapshot.",
+                facts=[],
+                inferences=[],
+                recommendations=[],
+                confidence=40,
+                open_questions=[],
+                warnings=[],
+                sections=[
+                    {
+                        "heading": "Hallazgo no autorizado",
+                        "paragraphs": [
+                            {
+                                "text": "Este párrafo cita una evidencia no autorizada.",
+                                "kind": "fact",
+                                "confidence": 70,
+                                "evidence_ids": [foreign],
+                            }
+                        ],
+                    }
+                ],
+            )
+            return LLMResult(output, 100, 50, 0, 1, provider="mock", model="mock-oracle-v1")
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config",
+        lambda config: ForeignEvidenceProvider("foreign-evidence"),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        dossier_id = db.session.scalar(select(StrategicDossier.id))
+        assert dossier_id is not None
+        job = BackgroundJob(
+            tenant_id=ids["tenant"],
+            dossier_id=dossier_id,
+            job_type=f"oracle.ai.{agent}",
+            status="running",
+            queue="ai",
+            idempotency_key=f"{agent}-foreign-evidence-{uuid.uuid4()}",
+            payload_hash=hashlib.sha256(agent.encode()).digest(),
+            input_payload={"dossier_id": str(dossier_id)},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        with pytest.raises(ValueError, match="no autorizada"):
+            execute_agent(agent=agent, dossier_id=dossier_id, job=job)
+
+        audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
+        assert audit is not None and audit.status == "failed"
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit.id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert [item.kind for item in attempts] == ["generate"]
+        assert attempts[0].status == "failed"
+        assert (
+            db.session.scalar(
+                select(func.count(AIArtifact.id)).where(AIArtifact.audit_log_id == audit.id)
+            )
+            == 0
+        )
+
+
 def test_ai_recovery_fences_inflight_provider_and_prevents_resurrection(
     jobs_stack: tuple[Any, dict[str, uuid.UUID]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

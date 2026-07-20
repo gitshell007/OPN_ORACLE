@@ -14,11 +14,19 @@ import httpx
 from flask import current_app
 from sqlalchemy import func, select, text
 
+from opn_oracle.ai.context import BuiltContext, validate_evidence
 from opn_oracle.ai.models import AIArtifact, AIAttempt, AIUsageLedger
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
-from opn_oracle.ai.schemas import ReportOutput
-from opn_oracle.ai.service import AIPolicyDenied, _enforce_quota, _policy
+from opn_oracle.ai.schemas import EvidenceReviewerOutput, ReportOutput
+from opn_oracle.ai.service import (
+    AIPolicyDenied,
+    EvidenceReviewError,
+    _enforce_quota,
+    _policy,
+    _reviewer_context,
+    _reviewer_output_budget,
+)
 from opn_oracle.extensions import db
 from opn_oracle.integrations.entity_intel import (
     entity_intel_client_from_config,
@@ -1141,13 +1149,13 @@ def _run_waiting_area_agent(
         "internal",
     )
 
-    def fail(error: BaseException) -> None:
+    def fail(error: BaseException, *, active_attempt_id: uuid.UUID = attempt_id) -> None:
         db.session.rollback()
         completed = datetime.now(UTC)
         current_attempt = db.session.scalar(
             select(AIAttempt)
             .where(
-                AIAttempt.id == attempt_id,
+                AIAttempt.id == active_attempt_id,
                 AIAttempt.tenant_id == tenant_id,
                 AIAttempt.execution_token == execution_token,
             )
@@ -1185,13 +1193,167 @@ def _run_waiting_area_agent(
     try:
         attempt.status = "running"
         db.session.commit()
-        result = provider_from_config(current_app.config).generate_structured(
-            request, prompt.schema
-        )
+        provider = provider_from_config(current_app.config)
+        result = provider.generate_structured(request, prompt.schema)
     except Exception as error:
         fail(error)
         raise
-    output = ReportOutput.model_validate(result.output).model_dump(mode="json")
+    try:
+        output_model = ReportOutput.model_validate(result.output)
+        allowed_evidence_uuids = {uuid.UUID(item) for item in allowed_evidence_ids}
+        validate_evidence(output_model, allowed_evidence_uuids)
+    except Exception as error:
+        fail(error)
+        raise
+    output = output_model.model_dump(mode="json")
+    total_input = result.input_tokens
+    total_output = result.output_tokens
+    total_cost = result.cost_micros
+    db.session.rollback()
+    generation_checkpoint = datetime.now(UTC)
+    generated_attempt = db.session.scalar(
+        select(AIAttempt)
+        .where(
+            AIAttempt.id == attempt_id,
+            AIAttempt.tenant_id == tenant_id,
+            AIAttempt.execution_token == execution_token,
+            AIAttempt.status == "running",
+            AIAttempt.lease_expires_at >= generation_checkpoint,
+        )
+        .with_for_update()
+    )
+    if generated_attempt is None:
+        db.session.rollback()
+        raise AIPolicyDenied("La lease de la generación IA expiró.")
+    generated_attempt.status = "succeeded"
+    generated_attempt.response_hash = hashlib.sha256(_canonical(output)).digest()
+    generated_attempt.input_tokens = result.input_tokens
+    generated_attempt.output_tokens = result.output_tokens
+    generated_attempt.cost_micros = result.cost_micros
+    generated_attempt.latency_ms = result.latency_ms
+    generated_attempt.completed_at = generation_checkpoint
+    reviewer_attempt_id: uuid.UUID | None = None
+    if prompt.requires_evidence_review and not result.safe_fallback_used:
+        reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
+            "evidence_reviewer"
+        )
+        reviewer_evidence = tuple(
+            Evidence(
+                id=uuid.UUID(str(item["id"])),
+                tenant_id=tenant_id,
+                source_kind=str(item.get("source_kind") or "entity_intel"),
+                source_url=str(item.get("source_url") or ""),
+                extract=str(item.get("extract") or ""),
+                locator=dict(item.get("locator") or {}),
+                checksum=b"",
+                classification="internal",
+                provenance={},
+            )
+            for item in pending_evidence_sources
+        )
+        review_context = BuiltContext(
+            payload=context,
+            manifest={"evidence_ids": allowed_evidence_ids},
+            context_hash=context_hash,
+            evidence=reviewer_evidence,
+            classification="internal",
+            redaction_summary={"matches": 0},
+            injection_indicators=(),
+            estimated_tokens=min(policy.max_context_tokens, max(1, len(_canonical(context)) // 4)),
+        )
+        reviewer_context = _reviewer_context(
+            agent=ENTITY_DOSSIER_AGENT,
+            prompt=prompt,
+            context=review_context,
+            output=output,
+        )
+        reviewer_request = LLMRequest(
+            "evidence_reviewer",
+            reviewer_prompt.model,
+            reviewer_prompt.text,
+            reviewer_prompt.purpose,
+            reviewer_context,
+            _reviewer_output_budget(
+                reviewer_prompt_tokens=reviewer_prompt.max_output_tokens,
+                policy_tokens=policy.max_output_tokens,
+                claim_count=len(reviewer_context["candidate_claims"]),
+            ),
+            "internal",
+        )
+        reviewer_now = datetime.now(UTC)
+        reviewer_attempt = AIAttempt(
+            tenant_id=tenant_id,
+            audit_log_id=audit_id,
+            attempt_number=attempt_number + 1,
+            kind="reviewer",
+            status="running",
+            request_hash=hashlib.sha256(_canonical(reviewer_request.context)).digest(),
+            started_at=reviewer_now,
+            execution_token=execution_token,
+            lease_expires_at=reviewer_now + timedelta(seconds=lease_seconds),
+        )
+        db.session.add(reviewer_attempt)
+        db.session.commit()
+        reviewer_attempt_id = reviewer_attempt.id
+        try:
+            reviewer_result = provider.generate_structured(reviewer_request, EvidenceReviewerOutput)
+            reviewer = EvidenceReviewerOutput.model_validate(reviewer_result.output)
+            validate_evidence(reviewer, allowed_evidence_uuids)
+        except Exception as error:
+            fail(error, active_attempt_id=reviewer_attempt_id)
+            raise EvidenceReviewError(
+                f"La revisión de evidencia falló después de generar el output: {error}"
+            ) from error
+        total_input += reviewer_result.input_tokens
+        total_output += reviewer_result.output_tokens
+        total_cost += reviewer_result.cost_micros
+        reviewer_output = reviewer.model_dump(mode="json")
+        db.session.rollback()
+        reviewer_checkpoint = datetime.now(UTC)
+        checked_reviewer = db.session.scalar(
+            select(AIAttempt)
+            .where(
+                AIAttempt.id == reviewer_attempt_id,
+                AIAttempt.tenant_id == tenant_id,
+                AIAttempt.execution_token == execution_token,
+                AIAttempt.status == "running",
+                AIAttempt.lease_expires_at >= reviewer_checkpoint,
+            )
+            .with_for_update()
+        )
+        reviewer_audit = db.session.scalar(
+            select(AIAuditLog)
+            .where(
+                AIAuditLog.id == audit_id,
+                AIAuditLog.tenant_id == tenant_id,
+                AIAuditLog.status == "running",
+            )
+            .with_for_update()
+        )
+        reviewer_usage = db.session.scalar(
+            select(AIUsageLedger)
+            .where(
+                AIUsageLedger.id == usage_id,
+                AIUsageLedger.tenant_id == tenant_id,
+                AIUsageLedger.execution_token == execution_token,
+                AIUsageLedger.status == "reserved",
+            )
+            .with_for_update()
+        )
+        if checked_reviewer is None or reviewer_audit is None or reviewer_usage is None:
+            db.session.rollback()
+            raise AIPolicyDenied("La lease del revisor IA expiró.")
+        checked_reviewer.response_hash = hashlib.sha256(_canonical(reviewer_output)).digest()
+        checked_reviewer.input_tokens = reviewer_result.input_tokens
+        checked_reviewer.output_tokens = reviewer_result.output_tokens
+        checked_reviewer.cost_micros = reviewer_result.cost_micros
+        checked_reviewer.latency_ms = reviewer_result.latency_ms
+        checked_reviewer.completed_at = reviewer_checkpoint
+        if reviewer.verdict == "fail":
+            rejection_error = ValueError("El revisor de evidencia rechazó el output.")
+            fail(rejection_error, active_attempt_id=reviewer_attempt_id)
+            raise EvidenceReviewError(str(rejection_error)) from rejection_error
+        checked_reviewer.status = "succeeded"
     if soft_budget_warning:
         output["warnings"] = [
             *output.get("warnings", []),
@@ -1199,13 +1361,15 @@ def _run_waiting_area_agent(
         ]
     output_hash = hashlib.sha256(_canonical(output)).digest()
     settlement = datetime.now(UTC)
+    active_attempt_id = reviewer_attempt_id or attempt_id
     checked_attempt = db.session.scalar(
         select(AIAttempt)
         .where(
-            AIAttempt.id == attempt_id,
+            AIAttempt.id == active_attempt_id,
             AIAttempt.tenant_id == tenant_id,
             AIAttempt.execution_token == execution_token,
-            AIAttempt.status == "running",
+            AIAttempt.status == "succeeded",
+            AIAttempt.lease_expires_at >= settlement,
         )
         .with_for_update()
     )
@@ -1226,28 +1390,26 @@ def _run_waiting_area_agent(
     )
     if checked_attempt is None or checked_audit is None or checked_usage is None:
         raise AIPolicyDenied("La ejecución IA perdió su fencing antes de persistir.")
-    checked_attempt.status = "succeeded"
-    checked_attempt.response_hash = output_hash
-    checked_attempt.input_tokens = result.input_tokens
-    checked_attempt.output_tokens = result.output_tokens
-    checked_attempt.cost_micros = result.cost_micros
-    checked_attempt.latency_ms = result.latency_ms
-    checked_attempt.completed_at = settlement
+    if reviewer_attempt_id is None:
+        checked_attempt.response_hash = output_hash
     checked_audit.status = "succeeded"
     checked_audit.output_hash = output_hash
     checked_audit.provider = result.provider or checked_audit.provider
     checked_audit.model = result.model or checked_audit.model
-    checked_audit.input_tokens = result.input_tokens
-    checked_audit.output_tokens = result.output_tokens
-    checked_audit.actual_cost_micros = result.cost_micros
+    checked_audit.input_tokens = total_input
+    checked_audit.output_tokens = total_output
+    checked_audit.actual_cost_micros = total_cost
     checked_audit.latency_ms = result.latency_ms
-    checked_audit.attempt_count = max(checked_audit.attempt_count, attempt_number)
+    checked_audit.attempt_count = max(
+        checked_audit.attempt_count,
+        attempt_number + (1 if reviewer_attempt_id is not None else 0),
+    )
     checked_audit.completed_at = settlement
     checked_usage.provider = checked_audit.provider
     checked_usage.model = checked_audit.model
-    checked_usage.input_tokens = result.input_tokens
-    checked_usage.output_tokens = result.output_tokens
-    checked_usage.actual_cost_micros = result.cost_micros
+    checked_usage.input_tokens = total_input
+    checked_usage.output_tokens = total_output
+    checked_usage.actual_cost_micros = total_cost
     checked_usage.reserved_cost_micros = 0
     checked_usage.status = "settled"
     job.progress = 90

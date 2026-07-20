@@ -1,8 +1,38 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-19
+Actualizado: 2026-07-20
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Revisión unificada de salidas IA · prompt 63
+
+- Se cierra la brecha detectada en `entity_dossier_intelligence`: aunque el catálogo declaraba
+  `requires_evidence_review=True`, la ruta propia del informe de entidad no pasaba por
+  `execute_agent` y por tanto no creaba intento `reviewer`. `_run_waiting_area_agent` ahora ejecuta
+  el revisor obligatorio con el mismo paquete compacto de claims de Prompt 60, usando solo la
+  evidencia pendiente permitida para la ficha de entidad.
+- Se mantienen los invariantes: `report_writer`, `competitive_procurement_intelligence` y
+  `entity_dossier_intelligence` conservan revisión; `dossier_completion_wizard` y
+  `evidence_reviewer` siguen sin revisor universal; `EVIDENCE_REVIEW_REQUIRED` continúa indexándose
+  directamente en el registro.
+- El wizard gana un control determinista previo a persistir artefactos: rechaza diagnósticos que
+  contradicen el snapshot de base de datos, exige cobertura de secciones obligatorias y valida que
+  las acciones recomendadas lleven `kind` y `prefill` accionables. Esto detecta el caso falso
+  `actors: empty` cuando el expediente ya tiene actores.
+- Tests añadidos: evidencia no autorizada falla en las tres rutas de informe
+  (`report_writer`, `competitive_procurement_intelligence` y la espera de entidad), la ficha de
+  entidad correcta genera con intentos `generate` + `reviewer`, la recuperación de lease mantiene
+  el ledger coherente y el wizard de dos rondas sigue sin pasar por revisor.
+- Mutaciones verificadas: quitar `actors` del mapa determinista del wizard hizo caer el test de
+  falso `actors: empty`; anular temporalmente `validate_evidence` en la ruta de entidad hizo caer
+  el test de evidencia fuera de la allowlist. Ambas mutaciones se revirtieron y el bloque enfocado
+  volvió a `7 passed`.
+- Validación local con integración: `ORACLE_RUN_INTEGRATION=1 ... ~/.local/bin/uv run pytest -q`
+  terminó con `505 passed`, cobertura total `84.10%`, `entity_dossier_report.py` al `89%` y
+  `ai/service.py` al `84%`. `ruff check`, `ruff format --check` y `mypy src` correctos. `mypy src
+  tests` sigue fallando por deuda tipada preexistente en tests no tocados.
+- Sin migraciones, sin OpenAPI nuevo y sin variables de entorno nuevas. No se ha desplegado en
+  producción en este turno.
 
 ## Informes ejecutivos y versionado de plantillas · prompt 59
 

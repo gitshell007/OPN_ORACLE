@@ -28,7 +28,8 @@ from opn_oracle.ai.models import (
     AIUsageLedger,
 )
 from opn_oracle.ai.provider import AIUnavailable, LLMRequest, LLMResult, MockLLMProvider
-from opn_oracle.ai.schemas import ReportOutput
+from opn_oracle.ai.schemas import DossierCompletionWizardOutput, ReportOutput
+from opn_oracle.ai.service import WizardOutputValidationError, execute_agent
 from opn_oracle.auth.passwords import PasswordHasher
 from opn_oracle.cli.oracle import stable_id
 from opn_oracle.documents.models import (
@@ -1503,6 +1504,20 @@ def test_entity_dossier_job_persists_bounded_sources_and_stable_corpus(
     assert any(
         "5 fuentes citables de 10 disponibles" in limit for limit in results[0]["source_limits"]
     )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        audit_id = uuid.UUID(str(results[0]["audit_log_id"]))
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit_id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert [item.kind for item in attempts] == ["generate", "reviewer"]
+        assert [item.status for item in attempts] == ["succeeded", "succeeded"]
 
 
 def test_entity_dossier_job_survives_procurement_provider_failure(
@@ -1595,8 +1610,17 @@ def test_entity_dossier_job_survives_procurement_provider_failure(
         "fuente de contratación pública no estuvo disponible" in limit
         for limit in result["source_limits"]
     )
-    assert len(captured_requests) == 1
-    procurement = captured_requests[0].context["entity_dossier"]["section_status"]["procurement"]
+    generated_requests = [
+        request for request in captured_requests if request.agent == ENTITY_DOSSIER_AGENT
+    ]
+    reviewer_requests = [
+        request for request in captured_requests if request.agent == "evidence_reviewer"
+    ]
+    assert len(generated_requests) == 1
+    assert len(reviewer_requests) == 1
+    assert "candidate_claims" in reviewer_requests[0].context
+    assert "candidate_output" not in reviewer_requests[0].context
+    procurement = generated_requests[0].context["entity_dossier"]["section_status"]["procurement"]
     assert procurement == {"ok": False, "error": "procurement_source_unavailable"}
 
 
@@ -1676,10 +1700,91 @@ def test_waiting_area_provider_failure_releases_reservation_and_audits_error(
         assert recovered_audit.status == "succeeded"
         assert recovered_audit.provider == "mock"
         assert recovered_audit.model == "mock-oracle-v1"
-        assert [item.status for item in attempts] == ["failed", "succeeded"]
-        assert [item.attempt_number for item in attempts] == [1, 2]
+        assert [item.status for item in attempts] == ["failed", "succeeded", "succeeded"]
+        assert [item.kind for item in attempts] == ["generate", "generate", "reviewer"]
+        assert [item.attempt_number for item in attempts] == [1, 2, 3]
         assert usage.status == "settled"
         assert usage.reserved_cost_micros == 0
+
+
+def test_entity_waiting_area_rejects_evidence_outside_pending_allowlist(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    allowed_source = _pending_entity_sources()[:1]
+    foreign = uuid.UUID("00000000-0000-4000-8000-000000000099")
+
+    class ForeignEntityProvider:
+        def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
+            del request, schema
+            output = ReportOutput(
+                title="Informe de entidad con cita externa",
+                executive_summary="Cita una evidencia fuera del paquete pendiente.",
+                facts=[],
+                inferences=[],
+                recommendations=[],
+                confidence=40,
+                open_questions=[],
+                warnings=[],
+                sections=[
+                    {
+                        "heading": "Hallazgo no autorizado",
+                        "paragraphs": [
+                            {
+                                "text": "Este párrafo cita una evidencia no permitida.",
+                                "kind": "fact",
+                                "confidence": 70,
+                                "evidence_ids": [foreign],
+                            }
+                        ],
+                    }
+                ],
+            )
+            return LLMResult(output, 100, 50, 0, 1, provider="mock", model="mock-oracle-v1")
+
+    monkeypatch.setattr(
+        entity_dossier_report,
+        "provider_from_config",
+        lambda config: ForeignEntityProvider(),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job = _new_entity_job(
+            ids,
+            {"name": "Entidad Cobertura SA", "kind": "company"},
+            f"entity-report-foreign-evidence-{uuid.uuid4()}",
+        )
+        job.status = "running"
+        db.session.commit()
+        with pytest.raises(ValueError, match="no autorizada"):
+            _run_waiting_area_agent(
+                job=job,
+                entity={"name": "Entidad Cobertura SA", "type": "company"},
+                entity_dossier={"section_status": {}},
+                computed_metrics={"registry": {"acts": 1}},
+                corpus_hash="c" * 64,
+                pending_evidence_sources=allowed_source,
+                evidence_sources_total=1,
+            )
+        audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
+        assert audit is not None and audit.status == "failed"
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit.id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert [item.kind for item in attempts] == ["generate"]
+        assert attempts[0].status == "failed"
+        usage = db.session.scalar(
+            select(AIUsageLedger).where(AIUsageLedger.audit_log_id == audit.id)
+        )
+        assert usage is not None and usage.status == "released"
 
 
 def test_entity_report_incorporation_materializes_evidence_and_is_idempotent(
@@ -2051,6 +2156,128 @@ def test_dossier_completion_wizard_runs_twice_without_evidence_reviewer_through_
     )
     assert reviewed.status_code == 201
     assert reviewed.get_json()["artifact_status"] == "valid"
+
+
+def test_dossier_completion_wizard_rejects_false_empty_actor_diagnostic(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Wizard diagnóstico falso")
+    dossier_id = uuid.UUID(dossier["id"])
+    actor = client.post(
+        "/api/v1/actors",
+        json={"canonical_name": "Consorcio real", "actor_type": "organization"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert actor.status_code == 201
+    linked_actor = client.post(
+        f"/api/v1/dossiers/{dossier_id}/actors",
+        json={"actor_id": actor.get_json()["id"], "roles": ["socio"], "influence": 60},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert linked_actor.status_code == 201
+
+    class FalseWizardProvider(MockLLMProvider):
+        def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
+            if request.agent != "dossier_completion_wizard":
+                return super().generate_structured(request, schema)
+            output = DossierCompletionWizardOutput.model_validate(
+                {
+                    "summary": "Diagnóstico deliberadamente falso para probar el control.",
+                    "confidence": 70,
+                    "warnings": [],
+                    "section_diagnostics": [
+                        {"section": "goal", "status": "incomplete", "explanation": "Falta foco."},
+                        {"section": "signals", "status": "empty", "explanation": "Sin señales."},
+                        {
+                            "section": "procurement",
+                            "status": "empty",
+                            "explanation": "Sin licitaciones fijadas.",
+                        },
+                        {
+                            "section": "opportunities",
+                            "status": "empty",
+                            "explanation": "Sin oportunidades.",
+                        },
+                        {"section": "risks", "status": "empty", "explanation": "Sin riesgos."},
+                        {
+                            "section": "actors",
+                            "status": "empty",
+                            "explanation": "No hay actores vinculados.",
+                        },
+                        {
+                            "section": "hypotheses",
+                            "status": "empty",
+                            "explanation": "Sin hipótesis.",
+                        },
+                    ],
+                    "questions": [],
+                    "recommended_actions": [
+                        {
+                            "kind": "create_signal_monitor",
+                            "title": "Crear monitor",
+                            "rationale": "Necesario para alimentar el expediente.",
+                            "prefill": {"name": "Radar", "query": "sector", "keywords": ["sector"]},
+                        }
+                    ],
+                }
+            )
+            return LLMResult(output, 100, 50, 0, 1, provider="mock", model="mock-oracle-v1")
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config",
+        lambda config: FalseWizardProvider("false-wizard"),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job = BackgroundJob(
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            job_type="oracle.ai.dossier_completion_wizard",
+            status="running",
+            queue="ai",
+            idempotency_key=f"wizard-false-diagnostic-{uuid.uuid4()}",
+            payload_hash=hashlib.sha256(str(uuid.uuid4()).encode()).digest(),
+            input_payload={"dossier_id": str(dossier_id)},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+        with pytest.raises(WizardOutputValidationError, match="actors: empty"):
+            execute_agent(
+                agent="dossier_completion_wizard",
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_dossier_completion_context(
+                    dossier_id,
+                    max_tokens=max_tokens,
+                    answers=[],
+                ),
+                target_type="dossier_completion_wizard",
+                target_id=dossier_id,
+            )
+        audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
+        assert audit is not None and audit.status == "failed"
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit.id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert [item.kind for item in attempts] == ["generate"]
+        assert attempts[0].status == "failed"
+        assert (
+            db.session.scalar(
+                select(func.count(AIArtifact.id)).where(AIArtifact.audit_log_id == audit.id)
+            )
+            == 0
+        )
 
 
 def test_dossier_completion_wizard_http_rejects_invalid_rounds_and_reviews(
