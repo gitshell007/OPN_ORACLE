@@ -4395,12 +4395,24 @@ def test_report_generation_failures_never_publish_artifacts(
     report_id = response.get_json()["report"]["id"]
     report = client.get(f"/api/v1/reports/{report_id}").get_json()
     assert report["status"] == "failed"
+    if scenario == "reviewer":
+        assert "falló la revisión obligatoria de evidencias" in report["error_message"]
+    else:
+        assert "No se pudo generar el informe" in report["error_message"]
     assert report["artifacts"] == []
     assert report["revision"] is None
     with (
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
     ):
+        stored_report = db.session.get(Report, uuid.UUID(report_id))
+        assert stored_report is not None and stored_report.background_job_id is not None
+        failed_job = db.session.get(BackgroundJob, stored_report.background_job_id)
+        assert failed_job is not None
+        if scenario == "reviewer":
+            assert "La revisión de evidencia falló" in (failed_job.error_message or "")
+        else:
+            assert "La revisión de evidencia falló" not in (failed_job.error_message or "")
         assert not list(
             db.session.scalars(
                 select(ReportArtifact).where(ReportArtifact.report_id == uuid.UUID(report_id))

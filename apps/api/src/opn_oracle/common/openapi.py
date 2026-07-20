@@ -2451,6 +2451,7 @@ def _reporting_schemas() -> dict[str, Any]:
             "reviewed_at": date_time,
             "published_at": date_time,
             "error_code": {"type": "string", "nullable": True},
+            "error_message": {"type": "string", "nullable": True},
             "generation": {"oneOf": [generation, {"type": "null"}]},
             "version": {"type": "integer", "minimum": 1},
             "revision": {"oneOf": [json_object, {"type": "null"}]},

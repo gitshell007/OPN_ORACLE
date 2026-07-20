@@ -1667,3 +1667,44 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
   **84,01 %** (umbral 84 %), `entity_dossier_report.py` **89 %** y `ai/context.py` **92 %**. Ruff
   del fichero modificado también queda limpio. No hay cambios de producción, migraciones,
   configuración, OpenAPI ni frontend.
+
+## 2026-07-20 · Prompt 60 · Revisor de evidencia en informes largos
+
+- Inicio de fase P0: producción muestra fallo de `EvidenceReviewerOutput` al revisar un informe
+  competitivo largo ya generado. La investigación inicial confirma que el contrato del revisor no
+  obliga a copiar el informe; el riesgo está en la entrada enviada al revisor, que hoy incluye el
+  payload completo de generación más `candidate_output`.
+- Objetivo de implementación: mantener el revisor obligatorio, reducir su entrada a un paquete
+  compacto de claims/citas/evidencias permitidas, y distinguir en jobs/reportes el fallo de
+  generación frente al fallo de revisión. No se tocarán prompts ni plantillas competitivas.
+- Implementación completada: `execute_agent` ya no reenvía `effective_payload` ni el informe
+  completo al `evidence_reviewer`; construye un paquete compacto con `candidate_outline`,
+  `candidate_claims`, evidencias permitidas recortadas, ids autorizados y metadatos de seguridad.
+  El contrato `EvidenceReviewerOutput` se mantiene como veredicto/listas de incidencias, sin exigir
+  que el modelo repita el informe.
+- Medición protegida por prueba: un informe competitivo sintético de 14 secciones con
+  `computed_analysis` masivo fallaba al revisor cuando se reenviaba el output completo; con el
+  paquete compacto el contexto de revisión queda por debajo de 30.000 caracteres, excluye
+  `candidate_output`, `requested_scope` y `computed_analysis`, extrae 14 claims revisables y pide
+  más de 2.000 tokens de salida. El presupuesto del revisor escala por claims hasta 4.000 tokens y
+  queda siempre limitado por la política del tenant, sin subir de 16.000.
+- Se añadió `EvidenceReviewError` para distinguir "generado pero no revisado" de "no generado".
+  Los jobs lo tratan como fallo controlado y `ReportResponse.error_message` separa el mensaje de
+  generación del fallo de revisión obligatoria. OpenAPI y cliente TypeScript fueron regenerados.
+- Dependencia con Signal: Oracle ya reduce el input y no necesita relajar el revisor para el caso
+  feliz medido. Si Signal gobierna `evidence_reviewer` con un techo menor que el solicitado, los
+  informes con muchas incidencias podrían requerir alinear esa policy. El techo competitivo de
+  generación a 16.000 sigue siendo la dependencia de Signal documentada en D-039, separada de este
+  arreglo.
+- Validación: `ruff check`, `ruff format --check`, `mypy src`, `npm run api:openapi`,
+  `npm run api:client:generate`, `npm run api:client:check`, `npm run typecheck`,
+  `npm run lint` y la integración completa con PostgreSQL/Redis reales quedaron correctos. La
+  suite final registró **501 passed**, cobertura global **84,20 %**. El lint frontend mantiene un
+  aviso preexistente de React Compiler/TanStack Table en `dossier-context-panel.tsx`.
+- Mutaciones manuales: reintroducir `candidate_output` en el contexto del revisor hizo caer la
+  prueba larga con `Invalid JSON: EOF while parsing a value`; cambiar el mensaje específico de
+  `EvidenceReviewError` por el genérico hizo caer la prueba de reportes fallidos. Ambos cambios se
+  restauraron y los tests objetivo volvieron a pasar.
+- Sin migraciones, variables nuevas, cambios de prompts competitivos ni despliegue. Barrido del
+  patrón confirma que no queda `effective_payload | {"candidate_output": ...}` en producción; las
+  menciones restantes de `candidate_output` pertenecen al contrato histórico del registro y a tests.

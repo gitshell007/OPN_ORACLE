@@ -22,6 +22,7 @@ from opn_oracle.ai.models import AITenantPolicy
 from opn_oracle.ai.provider import AIUnavailable
 from opn_oracle.ai.service import (
     AIPolicyDenied,
+    EvidenceReviewError,
     SignalTriageRejected,
     execute_agent,
     recover_stale_ai_executions,
@@ -404,7 +405,7 @@ HANDLERS: dict[str, Handler] = {
 def _generate_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
         return process_report(uuid.UUID(str(payload["report_id"])), job)
-    except (KeyError, ValueError, ReportWorkflowError) as error:
+    except (KeyError, ValueError, ReportWorkflowError, EvidenceReviewError) as error:
         raise PermanentJobError(str(error)) from error
     except Exception as error:
         raise RetriableJobError("La generación de informe falló temporalmente.") from error
@@ -421,6 +422,7 @@ def _generate_procurement_document_report(
         ProcurementDocumentReportError,
         DocumentError,
         ReportWorkflowError,
+        EvidenceReviewError,
     ) as error:
         raise PermanentJobError(str(error)) from error
     except Exception as error:
@@ -441,6 +443,7 @@ def _generate_competitive_procurement_report(
         KeyError,
         ValueError,
         ReportWorkflowError,
+        EvidenceReviewError,
     ) as error:
         raise PermanentJobError(str(error)) from error
     except AIUnavailable as error:
@@ -534,7 +537,7 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                 target_id=dossier_id,
             )
         return execute_agent(agent=agent, dossier_id=dossier_id, job=job)
-    except (KeyError, ValueError, AIPolicyDenied) as error:
+    except (KeyError, ValueError, AIPolicyDenied, EvidenceReviewError) as error:
         raise PermanentJobError(str(error)) from error
 
 

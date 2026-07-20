@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select, text
 from opn_oracle.ai.context import BuiltContext, FrozenEvidence, build_frozen_context
 from opn_oracle.ai.models import AIArtifact
 from opn_oracle.ai.schemas import ReportOutput
-from opn_oracle.ai.service import execute_agent
+from opn_oracle.ai.service import EvidenceReviewError, execute_agent
 from opn_oracle.documents.storage import ObjectStorage, object_key
 from opn_oracle.extensions import db
 from opn_oracle.jobs.service import publish_job, stage_job
@@ -68,6 +68,15 @@ class ReportConflictError(ReportWorkflowError):
 
 class ReportLeaseLost(RuntimeError):
     """The worker no longer owns the durable BackgroundJob lease."""
+
+
+def _report_failure_message(error: BaseException) -> str:
+    if isinstance(error, EvidenceReviewError):
+        return (
+            "El informe se generó, pero falló la revisión obligatoria de evidencias. "
+            "Revisa el job para ver la causa."
+        )
+    return "No se pudo generar el informe. Revisa el job para más detalle."
 
 
 def _canonical(value: Any) -> bytes:
@@ -1126,7 +1135,7 @@ def process_report(
         if failed is not None and failed.status in {"draft", "generating", "failed"}:
             failed.status = "failed"
             failed.error_code = type(error).__name__[:100]
-            failed.error_message = "No se pudo generar el informe. Revisa el job para más detalle."
+            failed.error_message = _report_failure_message(error)
             failed.version += 1
             db.session.commit()
         raise
@@ -1398,6 +1407,7 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
         "reviewed_at": report.reviewed_at.isoformat() if report.reviewed_at else None,
         "published_at": report.published_at.isoformat() if report.published_at else None,
         "error_code": report.error_code,
+        "error_message": getattr(report, "error_message", None),
         "generation": generation,
         "version": report.version,
         "revision": (

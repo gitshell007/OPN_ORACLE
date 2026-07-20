@@ -29,8 +29,14 @@ from sqlalchemy import create_engine, delete, func, select, text
 from opn_oracle import create_app
 from opn_oracle.ai import routes as ai_routes
 from opn_oracle.ai.models import AIArtifact, AIAttempt, AITenantPolicy, AIUsageLedger
-from opn_oracle.ai.provider import AIUnavailable, MockLLMProvider
-from opn_oracle.ai.service import AIPolicyDenied, execute_agent, recover_stale_ai_executions
+from opn_oracle.ai.provider import AIUnavailable, LLMResult, MockLLMProvider
+from opn_oracle.ai.schemas import ReportOutput
+from opn_oracle.ai.service import (
+    AIPolicyDenied,
+    EvidenceReviewError,
+    execute_agent,
+    recover_stale_ai_executions,
+)
 from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.extensions import db
 from opn_oracle.integrations import routes as signal_routes
@@ -2031,6 +2037,129 @@ def test_ai_job_persists_reviewer_attempt_and_settles_reservation(
         assert status == 201 and review["artifact_status"] == "valid"
 
 
+def test_long_report_reviewer_uses_compact_claim_package(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids = jobs_stack
+    captured: dict[str, Any] = {}
+    long_sentence = (
+        "La posición competitiva exige una lectura material de órganos compradores, importes, "
+        "frecuencia de adjudicación y límites de cobertura para decidir el siguiente paso. "
+    )
+    long_paragraph = long_sentence * 12
+    huge_computed_analysis = {
+        "sentinel": "competitive aggregate sentinel",
+        "rows": [
+            {
+                "buyer": f"Organismo {index}",
+                "amount": index * 1000,
+                "notes": "dato agregado que no debe reenviarse al revisor " * 30,
+            }
+            for index in range(180)
+        ],
+    }
+
+    class LongReportProvider(MockLLMProvider):
+        def generate_structured(self, request: Any, schema: Any) -> LLMResult:
+            if request.agent == "competitive_procurement_intelligence":
+                output = ReportOutput.model_validate(
+                    {
+                        "facts": [],
+                        "inferences": [],
+                        "recommendations": [],
+                        "confidence": 72,
+                        "open_questions": [],
+                        "warnings": [],
+                        "title": "Informe competitivo largo",
+                        "executive_summary": long_paragraph,
+                        "sections": [
+                            {
+                                "heading": f"Sección {index}",
+                                "paragraphs": [
+                                    {
+                                        "text": long_paragraph,
+                                        "kind": "inference",
+                                        "confidence": 70,
+                                        "evidence_ids": [],
+                                    }
+                                ],
+                            }
+                            for index in range(14)
+                        ],
+                        "top_opportunities": ["Priorizar la conversación con compradores."],
+                        "top_risks": ["Cobertura incompleta del histórico público."],
+                        "recommended_actions": ["Revisar manualmente las hipótesis comerciales."],
+                        "decisions_required": [],
+                        "source_index": [],
+                    }
+                )
+                return LLMResult(output, 10_000, 3_200, 0, 1)
+            if request.agent == "evidence_reviewer":
+                encoded = json.dumps(request.context, ensure_ascii=False)
+                captured["review_context_chars"] = len(encoded)
+                captured["review_context"] = request.context
+                captured["max_output_tokens"] = request.max_output_tokens
+                if len(encoded) > 30_000 or "competitive aggregate sentinel" in encoded:
+                    raise ValueError("Invalid JSON: EOF while parsing a value")
+            return super().generate_structured(request, schema)
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config", lambda config: LongReportProvider("long")
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        dossier_id = ids["dossier"]
+        policy = db.session.scalar(select(AITenantPolicy).with_for_update())
+        assert policy is not None
+        policy.max_output_tokens = 16_000
+        job = BackgroundJob(
+            tenant_id=ids["tenant"],
+            dossier_id=dossier_id,
+            job_type="oracle.ai.competitive_procurement_intelligence",
+            status="running",
+            queue="ai",
+            idempotency_key=f"long-reviewer-{uuid.uuid4()}",
+            payload_hash=hashlib.sha256(b"long-reviewer").digest(),
+            input_payload={"dossier_id": str(dossier_id)},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        result = execute_agent(
+            agent="competitive_procurement_intelligence",
+            dossier_id=dossier_id,
+            job=job,
+            supplemental_context={"computed_analysis": huge_computed_analysis},
+        )
+
+        assert result["status"] == "candidate"
+        assert captured["review_context_chars"] < 30_000
+        assert captured["max_output_tokens"] > 2_000
+        review_context = captured["review_context"]
+        assert "candidate_claims" in review_context
+        assert "candidate_output" not in review_context
+        assert "requested_scope" not in review_context
+        assert "computed_analysis" not in review_context
+        assert len(review_context["candidate_claims"]) == 14
+        audit_id = db.session.scalar(
+            select(AIArtifact.audit_log_id).where(AIArtifact.id == uuid.UUID(result["artifact_id"]))
+        )
+        assert audit_id is not None
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == audit_id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        assert [row.kind for row in attempts] == ["generate", "reviewer"]
+        assert all(row.status == "succeeded" for row in attempts)
+
+
 def test_ai_quota_reservation_is_tenant_global_under_real_concurrency(
     jobs_stack: tuple[Any, dict[str, uuid.UUID]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2162,7 +2291,8 @@ def test_ai_provider_and_reviewer_failures_terminalize_durable_state(
         )
         db.session.add(job)
         db.session.commit()
-        with pytest.raises(AIUnavailable):
+        expected_error = EvidenceReviewError if fail_reviewer else AIUnavailable
+        with pytest.raises(expected_error):
             execute_agent(agent="opportunity", dossier_id=dossier_id, job=job)
         audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
         assert audit is not None and audit.status == "failed"

@@ -43,6 +43,10 @@ class SignalTriageRejected(RuntimeError):
     pass
 
 
+class EvidenceReviewError(RuntimeError):
+    """The candidate output was generated, but the mandatory evidence review failed."""
+
+
 def recover_stale_ai_executions(*, now: datetime | None = None) -> int:
     """Release expired reservations; fenced workers can no longer settle them."""
     tenant_id = require_tenant_id()
@@ -153,6 +157,156 @@ def _enforce_quota(policy: AITenantPolicy, tenant_id: uuid.UUID, reservation_mic
     ):
         raise AIPolicyDenied("Presupuesto mensual agotado.")
     return bool(policy.monthly_soft_budget_micros and cost >= policy.monthly_soft_budget_micros)
+
+
+def _short_text(value: Any, *, limit: int = 900) -> str:
+    text_value = str(value or "").strip()
+    if len(text_value) <= limit:
+        return text_value
+    return text_value[: limit - 1].rstrip() + "…"
+
+
+def _review_candidate_claims(value: Any, *, path: str = "$") -> list[dict[str, Any]]:
+    """Extract reviewable material claims without sending the whole generated artifact.
+
+    The reviewer only needs compact claims, their classification and cited evidence. Long report
+    paragraphs are capped here; if the cap ever hides relevant unsupported content, the remedy is a
+    stronger claim extractor, not sending procurement aggregates and full prose back to the model.
+    """
+
+    claims: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        evidence_ids = value.get("evidence_ids")
+        if isinstance(evidence_ids, list):
+            text_parts: list[str] = []
+            for key in (
+                "text",
+                "statement",
+                "action",
+                "rationale",
+                "reasoning_summary",
+                "reason",
+                "change",
+                "relevance",
+                "decision",
+            ):
+                text = value.get(key)
+                if isinstance(text, str) and text.strip():
+                    text_parts.append(text)
+            claims.append(
+                {
+                    "path": path,
+                    "kind": value.get("kind") or value.get("priority") or value.get("importance"),
+                    "confidence": value.get("confidence"),
+                    "evidence_ids": [str(item) for item in evidence_ids],
+                    "claim": _short_text(" ".join(text_parts), limit=900),
+                }
+            )
+        for key, child in value.items():
+            claims.extend(_review_candidate_claims(child, path=f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            claims.extend(_review_candidate_claims(child, path=f"{path}[{index}]"))
+    return claims
+
+
+def _review_candidate_outline(output: dict[str, Any]) -> dict[str, Any]:
+    outline: dict[str, Any] = {}
+    for key in (
+        "title",
+        "headline",
+        "executive_summary",
+        "coverage_summary",
+        "situation_status",
+        "confidence",
+    ):
+        if key in output:
+            value = output[key]
+            outline[key] = _short_text(value, limit=1_200) if isinstance(value, str) else value
+    for key in (
+        "top_opportunities",
+        "top_risks",
+        "recommended_actions",
+        "decisions_required",
+        "open_questions",
+        "warnings",
+    ):
+        value = output.get(key)
+        if isinstance(value, list):
+            outline[key] = [_short_text(item, limit=500) for item in value[:8]]
+    sections = output.get("sections")
+    if isinstance(sections, list):
+        outline["sections"] = [
+            {
+                "index": index,
+                "heading": _short_text(section.get("heading"), limit=180),
+                "paragraph_count": len(section.get("paragraphs", []))
+                if isinstance(section, dict) and isinstance(section.get("paragraphs"), list)
+                else 0,
+            }
+            for index, section in enumerate(sections[:20])
+            if isinstance(section, dict)
+        ]
+    return outline
+
+
+def _review_evidence_index(context: BuiltContext) -> list[dict[str, Any]]:
+    allowed_ids = {str(item) for item in context.manifest.get("evidence_ids", [])}
+    items: list[dict[str, Any]] = []
+    for row in context.evidence:
+        if str(row.id) not in allowed_ids:
+            continue
+        items.append(
+            {
+                "id": str(row.id),
+                "source_kind": row.source_kind,
+                "classification": row.classification,
+                "locator": row.locator,
+                "extract": _short_text(row.extract, limit=1_200),
+            }
+        )
+    return items
+
+
+def _reviewer_context(
+    *,
+    agent: str,
+    prompt: Any,
+    context: BuiltContext,
+    output: dict[str, Any],
+) -> dict[str, Any]:
+    claims = _review_candidate_claims(output)
+    return {
+        "review_task": {
+            "candidate_agent": agent,
+            "candidate_schema": prompt.output_schema_name,
+            "instruction": (
+                "Revisa solo estos claims compactos, sus evidence_ids y el índice de evidencia. "
+                "No reescribas el informe y no repitas claims válidos."
+            ),
+        },
+        "allowed_evidence_ids": [str(item) for item in context.manifest.get("evidence_ids", [])],
+        "candidate_outline": _review_candidate_outline(output),
+        "candidate_claims": claims,
+        "evidence": _review_evidence_index(context),
+        "security": {
+            "context_classification": context.classification,
+            "redaction_summary": context.redaction_summary,
+            "injection_indicators": list(context.injection_indicators),
+        },
+    }
+
+
+def _reviewer_output_budget(
+    *,
+    reviewer_prompt_tokens: int,
+    policy_tokens: int,
+    claim_count: int,
+) -> int:
+    # The reviewer emits only issues and corrections. This measured envelope scales with the
+    # number of reviewable claims but stays well below the 16k ceiling used for long reports.
+    desired = max(reviewer_prompt_tokens, min(4_000, 1_200 + claim_count * 90))
+    return min(desired, policy_tokens)
 
 
 def execute_agent(
@@ -528,13 +682,23 @@ def execute_agent(
         reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
             "evidence_reviewer"
         )
+        reviewer_context = _reviewer_context(
+            agent=agent,
+            prompt=prompt,
+            context=context,
+            output=output,
+        )
         reviewer_request = LLMRequest(
             "evidence_reviewer",
             reviewer_prompt.model,
             reviewer_prompt.text,
             reviewer_prompt.purpose,
-            effective_payload | {"candidate_output": output},
-            min(reviewer_prompt.max_output_tokens, policy.max_output_tokens),
+            reviewer_context,
+            _reviewer_output_budget(
+                reviewer_prompt_tokens=reviewer_prompt.max_output_tokens,
+                policy_tokens=policy.max_output_tokens,
+                claim_count=len(reviewer_context["candidate_claims"]),
+            ),
             context.classification,
         )
         reviewer_now = datetime.now(UTC)
@@ -558,7 +722,9 @@ def execute_agent(
             validate_evidence(reviewer, {item.id for item in context.evidence})
         except Exception as error:
             fail(error, active_attempt_id=reviewer_attempt_id)
-            raise
+            raise EvidenceReviewError(
+                f"La revisión de evidencia falló después de generar el output: {error}"
+            ) from error
         total_input += reviewer_result.input_tokens
         total_output += reviewer_result.output_tokens
         total_cost += reviewer_result.cost_micros

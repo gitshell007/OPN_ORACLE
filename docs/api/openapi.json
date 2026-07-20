@@ -4606,6 +4606,10 @@
             "nullable": true,
             "type": "string"
           },
+          "error_message": {
+            "nullable": true,
+            "type": "string"
+          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/JsonObject"

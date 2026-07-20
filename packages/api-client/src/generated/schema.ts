@@ -25836,6 +25836,7 @@ export interface components {
             /** Format: uuid */
             dossier_id: string;
             error_code?: string | null;
+            error_message?: string | null;
             evidence?: components["schemas"]["JsonObject"][];
             generation?: {
                 actual_cost_micros: number;
