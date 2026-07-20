@@ -1726,3 +1726,24 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - La mitigación con resumen de lo ya escrito no compensó: aumentó el tiempo de 143,3 s a 154,9 s y
   empeoró el solapamiento a 0,119. Recomendación documentada: adelante solo con condiciones, con
   un siguiente spike de dos secciones, validación automática de citas y reparación por sección.
+
+## 2026-07-20 · Prompt 55 verificado en producción con sesión real
+
+- Cerrada la última verificación pendiente: la vista previa del informe de entidad en espera,
+  desplegada el 18 de julio y hasta hoy sin comprobar por falta de sesión autenticada.
+- Comprobado sobre un informe recién generado desde la propia interfaz («Generar nuevo informe»),
+  con 45 fuentes citables y sin incorporar:
+  - La tarjeta declara el estado correcto: «Informe en espera, todavía no incorporado. Puedes
+    leerlo antes de elegir expediente. Sus 45 fuentes son evidencias reservadas: solo se
+    materializan al incorporar.»
+  - El botón «Ver informe en espera» abre la previsualización sin incorporar nada.
+  - El banner advierte de que las citas apuntan a IDs reservados y todavía no son registros
+    `Evidence` ni están vinculadas a ningún expediente.
+  - Se renderizan las 7 secciones del contrato v2, con «Cobertura y límites» al final.
+- Trazabilidad conservada tras el rediseño narrativo: 19 bloques, cada uno con su tipo visible
+  (14 `inference`, 5 `fact`) y su confianza propia — «HECHO · confianza 100%», «INFERENCIA ·
+  confianza 70%». Los bloques `fact` llevan citas y los `inference` no, que es exactamente el
+  contrato de gobernanza.
+- Detalle de diseño confirmado como correcto, no como fallo: la previsualización solo se ofrece
+  cuando el informe **más reciente** está en espera. Con el último ya incorporado, la tarjeta
+  enlaza a ese informe en vez de ofrecer vista previa.
