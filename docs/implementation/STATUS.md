@@ -1708,3 +1708,21 @@ Cada fase debe registrar comandos realmente ejecutados, migraciones, gates, bloq
 - Sin migraciones, variables nuevas, cambios de prompts competitivos ni despliegue. Barrido del
   patrón confirma que no queda `effective_payload | {"candidate_output": ...}` en producción; las
   menciones restantes de `candidate_output` pertenecen al contrato histórico del registro y a tests.
+
+## 2026-07-20 · Prompt 61 · Spike generación local por secciones
+
+- Spike completado sin tocar el flujo productivo de informes, jobs, prompts registrados, Signal ni
+  despliegue. La producción se leyó por SSH solo con consultas `SELECT` para extraer los reports
+  reales de ITURRI S.A.; el JSON bruto queda en `docs/implementation/spikes/.work/61`, ruta ignorada
+  por Git para evitar versionar datos reales.
+- Se creó un script instrumental desechable en `scripts/spikes/61_sectional_report_spike.py`. Llama
+  a Ollama local con `qwen3.5:9b`, genera secciones independientes y ensambla un `ReportOutput` en
+  Python sin pedir JSON global al modelo.
+- Resultado: qwen por secciones alcanza la forma editorial (1.757 palabras, 0 párrafos
+  telegráficos, solapamiento 0,094 frente a 0,177 del monolítico), pero no iguala la calidad cloud
+  porque no cita evidencias en la generación completa. La prueba de control con cita obligatoria
+  sí consiguió 3/3 párrafos citados con `[E1]`, señal de que el enfoque exige validador/retry por
+  sección antes de poder productivizarse.
+- La mitigación con resumen de lo ya escrito no compensó: aumentó el tiempo de 143,3 s a 154,9 s y
+  empeoró el solapamiento a 0,119. Recomendación documentada: adelante solo con condiciones, con
+  un siguiente spike de dos secciones, validación automática de citas y reparación por sección.
