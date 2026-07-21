@@ -1941,3 +1941,44 @@ Tres salidas, y la elección no es solo técnica:
    citas (medido: 45 citadas, 45 permitidas, 0 inventadas). Añadir el veredicto de un modelo de 9B
    sobre un informe escrito por gemini puede producir más rechazos falsos que problemas detectados
    — la evidencia de hoy es 3 rechazos de 3.
+
+## 2026-07-21 · El revisor en cloud NO arregla el informe de entidad · segundo rollback
+
+- Signal movió `evidence_reviewer` a cloud (confirmado desde el worker de Oracle:
+  `provider: openrouter`, `model: google/gemini-2.5-flash`).
+- Desplegado `20260721T085403Z-quick-e1c8aa6`, que incluye el prompt 63 más la corrección de que
+  el revisor recibe solo la evidencia citada. **El informe de entidad sigue fallando**: 3
+  reintentos agotados, con `generate` succeeded y `reviewer` failed en los tres.
+- **Rollback aplicado** a `20260720T173105Z-quick-ca55269`. Servicio verificado.
+- El código sigue en `master`: lo revertido es el release.
+
+### Lo que descarta este intento
+
+- **No es el modelo local**: el revisor ya corre en gemini y falla igual.
+- **No es Signal**: los tres `POST /api/v1/ai/run` del job devuelven **HTTP 200**. El fallo está
+  en Oracle, al interpretar la respuesta.
+- **No es el tamaño de la entrada**: la corrección de «solo evidencia citada» ya está aplicada.
+
+### Dónde está realmente
+
+El `ValidationError` nace dentro de `SignalGovernedLLMProvider.generate_structured`, en
+`schema.model_validate_json(normalized_output)`: **el JSON que devuelve el revisor no encaja con
+`EvidenceReviewerOutput`**. Uno de los tres intentos falló además con `ValueError`, que apunta a
+`validate_evidence(reviewer, allowed_evidence_uuids)` — el revisor citando evidencia fuera de la
+allowlist.
+
+Pista principal, declarada por Signal en su entrega: la task `evidence_reviewer` conserva
+**`structured_output=false`**. Sin salida estructurada forzada, el modelo cloud puede devolver
+campos extra o formas distintas, y `EvidenceReviewerOutput` hereda de `StrictModel`
+(`extra="forbid"`, `strict=True`), que los rechaza.
+
+Dato que hay que explicar en cualquier hipótesis: **el mismo revisor, con la misma configuración,
+funciona para los otros informes** (`report_writer` 6/0, `competitive_procurement` 3/1). Lo que
+cambia en la ruta de entidad no es el modelo ni el proveedor, sino el contexto que se le envía.
+
+### Asimetría encontrada de paso
+
+En `oracle/entity_dossier_report.py` conviven dos estilos de validación: líneas 1202 y 1311 usan
+`model_validate` (modo Python) mientras que la línea 1608 usa `model_validate_json`. Hoy no es la
+causa —el proveedor ya devuelve modelos validados— pero es la misma asimetría que produjo el fallo
+de los UUID hace días y conviene unificarla.
