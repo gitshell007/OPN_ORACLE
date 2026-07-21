@@ -2270,3 +2270,33 @@ por solicitante exacto, no por materia; no existe `registry/patents?q=`; el cone
 vive en `/api/v1/scopes/sync` y **no** en el namespace Oracle, así que `/oracle/monitors` con
 `source_types: patents` devolvería 422; y en producción hay 0 bindings y 0 señales de patentes, es
 decir, la capacidad está instalada pero nunca validada con una vigilancia real.
+
+## 2026-07-21 · Prompts 66, 67 y 68 desplegados y verificados en producción
+
+Release `20260721T214054Z-quick-bc9d370`. Salud en verde. Gates completos: 509 tests backend con
+integración (cobertura 84,06 %), 160 frontend, typecheck, lint y build.
+
+Auditado con mutaciones propias, distintas de las de Codex:
+
+- **66**: volver a `items[:limit]` hace caer
+  `test_registry_temporal_sample_keeps_historical_acts_when_recent_year_is_dominant`.
+- **67**: desactivar `is-focus-filtered` hace caer el test de aislamiento de vecinos.
+- **68**: cambiar `kind=buyer` por `winner` hace caer el test del autocompletado.
+
+Verificación visual en producción, que la entrega declaró no haber podido hacer por falta de
+sesión:
+
+- **Acciones de la tarjeta**: el desalineo vertical pasa de **22 px a 0**. La separación horizontal
+  sigue siendo de 527 px, pero ya no es un accidente: ambos botones cuelgan de un
+  `.procurement-card-actions` con `aria-label="Acciones para <título>"` que ocupa 760 px de una
+  tarjeta de 790, con los botones en los extremos. Queda como decisión de diseño abierta, no como
+  defecto: si se quiere el par adyacente, es un cambio de una línea de CSS.
+- **Orden**: cuatro opciones («Orden recibido de Signal» por defecto, plazo asc/desc, actualización
+  reciente) y el aviso es exactamente el que se pidió, con cifras reales: «Orden local sobre los 25
+  resultados cargados en esta página; no reordena los 611 resultados del corpus».
+- **Autocompletado de comprador**: escribiendo «ayuntamiento» devuelve 8 sugerencias reales, con
+  `aria-expanded` y `aria-autocomplete="list"`. Nota metodológica: mi primera comprobación esperó
+  1,4 s y no vio nada; el fallo era de la prueba, no del código.
+
+Hueco menor anotado: el atenuado por hover del grafo no tiene test propio; se detectó al mutarlo
+por error sin que cayera nada.
