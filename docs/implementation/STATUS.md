@@ -2333,3 +2333,27 @@ sesión:
 
 Hueco menor anotado: el atenuado por hover del grafo no tiene test propio; se detectó al mutarlo
 por error sin que cayera nada.
+
+## 2026-07-22 · Prompt 69 desplegado y verificado en producción
+
+Release `20260721T220428Z-quick-19b6f1b`. Salud en verde. Gates: 511 backend con integración
+(84,07 %), 163 frontend, typecheck, lint y build.
+
+Verificación visual real, que la entrega declaró no haber podido hacer por falta de sesión:
+
+- **TELEFONICA SA** (caso de recorte): la pestaña Patentes muestra **«25 de 569 publicaciones de
+  patente localizadas por EPO»** con sus 25 filas. Antes se veían 25 filas y nada indicaba que
+  existieran 569.
+- **ITURRI SA** (caso de fallo): la pestaña **sigue visible** y dice «La consulta de patentes no se
+  pudo completar. EPO no encontró el nombre exacto del solicitante; puede estar registrado con otra
+  grafía o mediante una filial. Este resultado no permite concluir que la entidad carezca de
+  patentes», con el código `epo_search_404`. Antes la pestaña desaparecía y era indistinguible de
+  «no tiene patentes».
+
+Auditado con mutaciones propias, distintas de las de la entrega: devolver el total ya recortado,
+silenciar el fallo de EPO, y cambiar `>` por `>=` en la condición de recorte. Las tres caen.
+
+Nota metodológica: mi primer intento de mutar la condición del aviso buscó la comparación con una
+heurística de texto y no encontró nada, dando un falso «no cazada». La mutación correcta sobre
+`patentsTruncated` sí la caza. Ya van dos veces esta semana que una mutación mal dirigida produce
+un falso negativo; conviene localizar la línea exacta antes de mutar, no buscarla por patrón.
