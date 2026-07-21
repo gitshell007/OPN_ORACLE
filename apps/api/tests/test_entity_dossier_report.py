@@ -23,6 +23,7 @@ from opn_oracle.oracle.entity_dossier_report import (
     ENTITY_DOSSIER_REPORT_JOB,
     PATENT_ITEM_LIMIT,
     REGISTRY_ITEM_LIMIT,
+    REGISTRY_SELECTION_STRATEGY,
     build_entity_dossier_metrics,
     build_pending_entity_evidence_sources,
     compact_entity_dossier,
@@ -32,6 +33,14 @@ from opn_oracle.oracle.entity_dossier_report import (
 )
 from opn_oracle.platform.models import User
 from opn_oracle.reporting.registry import ReportTemplateRegistry
+
+
+def _registry_act(action: str, date: str, index: int) -> dict[str, str]:
+    return {
+        "action": action,
+        "date": date,
+        "source_url": f"https://www.boe.es/borme/dias/{date.replace('-', '/')}/{index}/",
+    }
 
 
 @contextmanager
@@ -406,6 +415,114 @@ def test_registry_limit_caps_sources_and_discloses_the_cut() -> None:
     assert any("5" in line and "65" in line for line in disclosure), disclosure
     # Sin recorte no se inventa una advertencia que no aplica.
     assert source_limits(compact_entity_dossier(payload, registry_limit=200)) == source_limits()
+
+
+def test_registry_temporal_sample_keeps_historical_acts_when_recent_year_is_dominant() -> None:
+    """ITURRI tras el reindexado concentra la mayoría de actos en 2026.
+
+    Si se vuelve al recorte por recencia `[:25]`, esta prueba deja fuera todo lo
+    anterior a 2026 y cae: justo el fallo productivo que motiva el cambio.
+    """
+
+    old_distribution = {
+        2009: 2,
+        2011: 4,
+        2013: 3,
+        2014: 1,
+        2015: 2,
+        2016: 3,
+        2018: 1,
+        2020: 1,
+        2021: 7,
+        2022: 2,
+        2024: 1,
+        2025: 3,
+    }
+    items = [
+        _registry_act(
+            "nombramiento",
+            f"2026-{1 + (index - 1) // 28:02d}-{1 + (index - 1) % 28:02d}",
+            index,
+        )
+        for index in range(1, 52)
+    ]
+    ordinal = 100
+    for year in sorted(old_distribution, reverse=True):
+        for month in range(1, old_distribution[year] + 1):
+            items.append(_registry_act("acto histórico", f"{year}-{month:02d}-01", ordinal))
+            ordinal += 1
+    assert len(items) == 81
+
+    payload = {
+        "entity": {"name": "ITURRI SA", "type": "company"},
+        "sections": {
+            "registry": {
+                "ok": True,
+                "data": {"total": 81, "items": items},
+            }
+        },
+    }
+
+    compact = compact_entity_dossier(payload, registry_limit=REGISTRY_ITEM_LIMIT)
+    selected_dates = [item["date"] for item in compact["registry"]["items"]]
+
+    assert len(selected_dates) == REGISTRY_ITEM_LIMIT
+    assert any(date < "2020-01-01" for date in selected_dates), selected_dates
+    assert any(date.startswith("2026-") for date in selected_dates), selected_dates
+    assert compact["registry"]["selection_strategy"] == REGISTRY_SELECTION_STRATEGY
+
+
+def test_registry_temporal_sample_is_deterministic_for_same_corpus() -> None:
+    items = [
+        _registry_act(
+            "nombramiento",
+            f"2026-{1 + (index - 1) // 28:02d}-{1 + (index - 1) % 28:02d}",
+            index,
+        )
+        for index in range(1, 34)
+    ] + [_registry_act("acto histórico", f"{year}-01-15", year) for year in range(2025, 2008, -1)]
+    payload = {
+        "entity": {"name": "Entidad", "type": "company"},
+        "sections": {
+            "registry": {
+                "ok": True,
+                "data": {"total": len(items), "items": items},
+            }
+        },
+    }
+
+    first = compact_entity_dossier(payload, registry_limit=REGISTRY_ITEM_LIMIT)
+    second = compact_entity_dossier(payload, registry_limit=REGISTRY_ITEM_LIMIT)
+
+    assert first["registry"]["items"] == second["registry"]["items"]
+
+
+def test_registry_cut_declares_temporal_selection_strategy() -> None:
+    items = [
+        _registry_act(
+            "nombramiento",
+            f"2026-{1 + (index - 1) // 28:02d}-{1 + (index - 1) % 28:02d}",
+            index,
+        )
+        for index in range(1, 40)
+    ] + [_registry_act("acto histórico", f"{year}-03-01", year) for year in range(2025, 2010, -1)]
+    compact = compact_entity_dossier(
+        {
+            "entity": {"name": "Entidad", "type": "company"},
+            "sections": {
+                "registry": {
+                    "ok": True,
+                    "data": {"total": len(items), "items": items},
+                }
+            },
+        },
+        registry_limit=REGISTRY_ITEM_LIMIT,
+    )
+
+    limits = source_limits(compact)
+
+    assert any("muestra temporal determinista" in line for line in limits), limits
+    assert any("actos recientes" in line and "cola histórica" in line for line in limits), limits
 
 
 def test_entity_dossier_builds_pending_citable_sources_from_urls() -> None:

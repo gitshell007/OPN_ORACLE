@@ -166,6 +166,70 @@ AWARD_SOURCE_LIMIT = 15
 # completo y 65 lo rompían con "Invalid JSON: EOF". 45 deja margen sobre el caso bueno
 # sin renunciar a que cada tipo de fuente esté representado.
 EVIDENCE_SOURCE_TOTAL_LIMIT = 45
+REGISTRY_SELECTION_STRATEGY = "temporal_coverage_v1"
+
+
+def _registry_publication_date(item: dict[str, Any]) -> str:
+    raw = _first_text(item, "date", "publication_date", "published_at")
+    match = re.search(r"\d{4}-\d{2}-\d{2}", raw)
+    return match.group(0) if match else ""
+
+
+def select_registry_acts_for_report(
+    items: list[dict[str, Any]], *, limit: int
+) -> list[dict[str, Any]]:
+    """Select a deterministic temporal sample of registry acts for the entity report."""
+
+    if limit <= 0:
+        return []
+    if len(items) <= limit:
+        return items
+
+    dated = [
+        (index, item, _registry_publication_date(item))
+        for index, item in enumerate(items)
+        if _registry_publication_date(item)
+    ]
+    if len(dated) < 2:
+        return items[:limit]
+
+    # Signal normally sends newest first, but sorting by date makes the rule explicit.
+    by_recency = sorted(dated, key=lambda row: row[2], reverse=True)
+    newest_quota = max(1, (limit + 1) // 2)
+    oldest_quota = 0 if limit == 1 else max(1, min(limit // 5, limit - newest_quota))
+    selected_indexes: set[int] = {row[0] for row in by_recency[:newest_quota]}
+    if oldest_quota:
+        selected_indexes.update(row[0] for row in by_recency[-oldest_quota:])
+
+    remaining_slots = limit - len(selected_indexes)
+    middle = [row for row in by_recency if row[0] not in selected_indexes]
+    used_middle_positions: set[int] = set()
+    for slot in range(remaining_slots):
+        if not middle:
+            break
+        target = round((slot + 1) * (len(middle) - 1) / (remaining_slots + 1))
+        position = target
+        for offset in range(len(middle)):
+            forward = target + offset
+            backward = target - offset
+            if forward < len(middle) and forward not in used_middle_positions:
+                position = forward
+                break
+            if backward >= 0 and backward not in used_middle_positions:
+                position = backward
+                break
+        used_middle_positions.add(position)
+        selected_indexes.add(middle[position][0])
+
+    if len(selected_indexes) < limit:
+        for index in range(len(items)):
+            if index in selected_indexes:
+                continue
+            selected_indexes.add(index)
+            if len(selected_indexes) == limit:
+                break
+
+    return [items[index] for index in sorted(selected_indexes)]
 
 
 def compact_entity_dossier(
@@ -190,6 +254,11 @@ def compact_entity_dossier(
     news = _section_data(payload, "news") or {}
     patents = _section_data(payload, "patents") or {}
     disclosures = _section_data(payload, "disclosures") or {}
+    registry_items = _items(registry)
+    selected_registry_items = select_registry_acts_for_report(
+        registry_items,
+        limit=registry_limit,
+    )
     patent_items = _items(patents)
     disclosure_items = _items(disclosures)
     return {
@@ -197,9 +266,10 @@ def compact_entity_dossier(
         "registry": {
             "profile": registry.get("profile") if isinstance(registry.get("profile"), dict) else {},
             "total": registry.get("total"),
-            "items": _items(registry)[:registry_limit],
-            "truncated_by_oracle": len(_items(registry)) > registry_limit,
-            "analyzed_acts": min(len(_items(registry)), registry_limit),
+            "items": selected_registry_items,
+            "truncated_by_oracle": len(registry_items) > registry_limit,
+            "analyzed_acts": len(selected_registry_items),
+            "selection_strategy": REGISTRY_SELECTION_STRATEGY,
         },
         "graph": {
             "center": graph.get("center"),
@@ -606,10 +676,16 @@ def source_limits(
     if isinstance(registry, dict) and registry.get("truncated_by_oracle"):
         analyzed = registry.get("analyzed_acts")
         total = registry.get("total")
+        criterion = ""
+        if registry.get("selection_strategy") == REGISTRY_SELECTION_STRATEGY:
+            criterion = (
+                " Criterio de selección: muestra temporal determinista con mayoría de actos "
+                "recientes, cola histórica y puntos intermedios por fecha de publicación."
+            )
         limits.append(
             f"Oracle solo ha pasado {analyzed} actos registrales de {total} al análisis: "
             "las conclusiones cubren ese subconjunto y no puede inferirse ausencia de "
-            "hechos a partir de los actos no analizados."
+            f"hechos a partir de los actos no analizados.{criterion}"
         )
     if isinstance(patents, dict) and patents.get("truncated_by_oracle"):
         limits.append(
