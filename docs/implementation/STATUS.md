@@ -2107,3 +2107,30 @@ No es un fallo de Signal ni del modelo, y no se arregla con más tokens: el revi
 con menos contexto del que tuvo el escritor, lo que garantiza falsos positivos. Queda pendiente
 decidir si se le da el mismo contexto autorizado, si se acota qué se le manda a revisar, o si se
 declara honestamente que esa ruta usa otro control.
+
+## 2026-07-21 · Cerrada la saga del revisor: informe de entidad verificado en producción
+
+- Release `20260721T104325Z-quick-1089f22`. Salud en verde (13 comprobaciones).
+- **Informe de entidad real: `succeeded` al primer intento, en ~60 s.** Es el cierre operativo que
+  faltaba y que había fallado en los tres despliegues anteriores.
+- Intentos del agente: solo `generate: succeeded`. Ningún `reviewer`, que es el efecto declarado.
+- Integridad de citas conservada por el control que sí aplica: **36 citadas, 45 permitidas,
+  0 inventadas**. `validate_evidence` sigue siendo el guardián de esa ruta.
+- `report_writer` y `competitive_procurement_intelligence` mantienen `requires_evidence_review`.
+  Verificado por mutación: eximir al competitivo hace caer
+  `test_long_report_reviewer_uses_compact_claim_package`; retirar `validate_evidence` hace caer
+  `test_entity_waiting_area_rejects_evidence_outside_pending_allowlist`.
+- La tabla `EVIDENCE_REVIEW_REQUIRED` documenta ahora sus dos excepciones en el propio código
+  (D-039 wizard, D-040 entidad), no solo en `DECISIONS.md`.
+
+### Balance de la investigación
+
+Cuatro despliegues y tres rollbacks para llegar a una decisión de diseño, no a un parche. Se
+descartaron por experimento, en este orden: el modelo local, el proveedor cloud, el presupuesto de
+salida (900 y 4000) y la agregación de hechos del prompt v2. La causa real —que el revisor recibía
+menos contexto que el escritor— solo apareció al reproducir la llamada con un informe real y
+comprobar que el veredicto seguía siendo `fail` **con presupuesto de sobra**.
+
+Lección para futuras investigaciones: medir un mecanismo real (el truncamiento existía) no es lo
+mismo que demostrar la causa. Faltó comprobar si, eliminado ese mecanismo, el resultado cambiaba.
+Signal hizo dos cambios correctos por una hipótesis incompleta nuestra.
