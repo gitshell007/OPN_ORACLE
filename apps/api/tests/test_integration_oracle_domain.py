@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import threading
 import time
@@ -1805,7 +1806,14 @@ def test_entity_waiting_area_reviewer_receives_only_cited_evidence(
     class CitingEntityProvider(MockLLMProvider):
         def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
             if request.agent == ENTITY_DOSSIER_AGENT:
-                output = ReportOutput.model_validate(_entity_report_output([cited_id]))
+                # Modo JSON, no modo Python: `_entity_report_output` devuelve un
+                # `model_dump(mode="json")`, así que sus evidence_ids son cadenas, y
+                # ReportOutput es StrictModel: en modo Python las rechaza con
+                # "Input should be an instance of UUID". Es el mismo patrón que ya usa
+                # el código de producción al releer un informe guardado.
+                output = ReportOutput.model_validate_json(
+                    json.dumps(_entity_report_output([cited_id]))
+                )
                 return LLMResult(output, 100, 50, 0, 1, provider="mock", model="mock-oracle-v1")
             if request.agent == "evidence_reviewer":
                 captured["reviewer_context"] = request.context
