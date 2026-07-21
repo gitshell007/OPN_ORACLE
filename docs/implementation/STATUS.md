@@ -4,6 +4,52 @@ Actualizado: 2026-07-21
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Grafo de entidad legible, filtrable y enfocable · prompt 67
+
+- El layout `fcose` conserva la semilla Vogel determinista y `randomize=false`; aumenta la
+  separación de nodos de 96 a 156 px y la longitud ideal de arista de 190 a 250 px.
+- Las etiquetas son progresivas: centro y ocho nodos de mayor grado permanecen identificados; el
+  resto de nombres y roles aparece al acercar, al pasar el cursor o al aislar una vecindad. No se
+  oculta ningún nodo por defecto.
+- El panel deriva los tipos de vínculo del grafo, agrupa capitalizaciones mediante clave
+  normalizada, muestra el recuento y arranca con todos marcados. Fecha, rol y foco comparten una
+  única pasada por aristas/nodos y ocultan mediante clases, sin relayout.
+- Un toque aísla el nodo y sus relaciones directas con reencuadre; otro toque o el botón
+  «Mostrar grafo completo» restaura la vista. El doble toque sigue abriendo el detalle.
+- Pruebas nuevas verificadas por mutación: quitar la normalización por capitalización creó cuatro
+  checkboxes en vez de tres; hacer que un rol marcado retirase `is-time-filtered` revivió la
+  arista antigua; tratar todas las aristas como vecinas impidió ocultar el segundo nivel. Cada
+  mutación hizo caer su test específico y fue revertida.
+- Verificación visual real: no ejecutada. El navegador llegó correctamente a producción, pero no
+  había sesión autenticada y redirigió a `/login`; no se sustituye por un harness sintético.
+- Gates frontend: `npm run typecheck` correcto; `npm run lint` correcto con 0 errores y el aviso
+  preexistente de TanStack Table en `dossier-context-panel.tsx:158`; `npx vitest run` terminó con
+  37 ficheros y 156 tests correctos; `npm run build` compiló y generó las 18 páginas estáticas.
+
+## Muestra histórica BORME para informes de entidad · prompt 66
+
+- Signal ya entrega actos BORME históricos reindexados y la ficha web los pagina bien; el problema
+  estaba en el informe IA de entidad, que tomaba los primeros `REGISTRY_ITEM_LIMIT=25` actos por
+  recencia y podía quedarse solo con 2026 en entidades sesgadas.
+- Se mantiene `REGISTRY_ITEM_LIMIT=25` y `EVIDENCE_SOURCE_TOTAL_LIMIT=45`. El cambio es el criterio
+  de selección: `temporal_coverage_v1` conserva una mayoría reciente, reserva cola histórica y
+  añade puntos intermedios por fecha de publicación, de forma determinista y manteniendo el orden
+  original de Signal en la muestra entregada al modelo.
+- `source_limits` declara ahora el criterio del recorte BORME, no solo el número de actos pasados.
+  Los agregados de `computed_metrics` siguen cubriendo el corpus completo; no se toca la ficha web
+  ni el prompt v2 del informe.
+- Tests añadidos/verificados: corpus sintético tipo ITURRI con mayoría de actos recientes conserva
+  actos anteriores a 2020; dos llamadas con el mismo corpus devuelven la misma selección; el límite
+  declara «muestra temporal determinista». Mutación revertida: volver temporalmente a `items[:limit]`
+  hizo caer el test histórico porque la selección quedaba solo en 2026.
+- Validación local inicial: `~/.local/bin/uv run pytest -q --no-cov tests/test_entity_dossier_report.py`
+  terminó con `19 passed`.
+- Suite completa local con integración:
+  `ORACLE_RUN_INTEGRATION=1 ... ~/.local/bin/uv run pytest -q` terminó con `509 passed` y cobertura
+  total `84.06%`.
+- Checks finales: `ruff check`, `ruff format --check`, `mypy src` y `git diff --check` correctos.
+  `mypy src tests` sigue fallando por deuda tipada preexistente en tests (`122 errors in 19 files`).
+
 ## Resolución del revisor de entidad · prompt 65
 
 - Decisión aplicada: opción C del prompt. `entity_dossier_intelligence` queda declarado con
@@ -2159,3 +2205,40 @@ Signal hizo dos cambios correctos por una hipótesis incompleta nuestra.
 - Prompt 66 redactado para cambiar el criterio sin tocar el presupuesto, con criterio de aceptación
   comprobable sobre el caso real de ITURRI y exigencia de determinismo (de la selección dependen el
   `corpus_hash` y los UUID de evidencia reservada).
+
+## 2026-07-21 · Marcas y patentes: qué hay realmente
+
+Consultado a Signal y verificado contra producción.
+
+**Marcas: no existen.** Signal confirma que no hay OEPM, EUIPO ni WIPO, ni API de consulta, ni
+tarea en su roadmap. Lo que en su repositorio se llama «marca» es otra cosa: el nombre
+administrativo de las credenciales EPO, la vigilancia de patentes por solicitante y el abuso de
+marca en dominios. Su estimación para integrar **un solo** registro con búsqueda, normalización y
+tests es de 4-7 días; unificar los tres, varias semanas. **No se emprende ahora**: nadie lo ha
+pedido todavía y el coste es de iniciativa, no de arreglo.
+
+**Patentes: existen, funcionan a medias y se presentan mal.** Medido sobre cuatro empresas:
+
+| Empresa | ok | Llegan | Total real | Error |
+|---|---|---:|---:|---|
+| TELEFONICA SA | true | 25 | **569** | — |
+| INDRA SISTEMAS SA | true | 3 | 3 | — |
+| ITURRI SA | false | 0 | — | `epo_search_404` |
+| ACCIONA SA | false | 0 | — | `epo_search_404` |
+
+Dos defectos, ambos de la familia que llevamos toda la semana corrigiendo:
+
+- **Recorte no declarado**: Signal devuelve un máximo de 25 por entidad. Para Telefónica es el 4 %
+  de sus 569 publicaciones, y ni la ficha ni el informe lo dicen. El informe llega a declarar
+  «N de 25», tomando por total el número ya recortado.
+- **Fallo silencioso**: con `ok=false` la pestaña no aparece, así que «la búsqueda falló» se ve
+  igual que «no tiene patentes». Para ITURRI y ACCIONA, industriales grandes, lo segundo es
+  improbable: el 404 de EPO viene de no casar el nombre exacto del solicitante.
+
+Prompt 69 redactado para ambos. No requiere nada de Signal.
+
+**Limitaciones confirmadas por Signal, para no volver a preguntarlas:** la consulta de patentes es
+por solicitante exacto, no por materia; no existe `registry/patents?q=`; el conector de patentes
+vive en `/api/v1/scopes/sync` y **no** en el namespace Oracle, así que `/oracle/monitors` con
+`source_types: patents` devolvería 422; y en producción hay 0 bindings y 0 señales de patentes, es
+decir, la capacidad está instalada pero nunca validada con una vigilancia real.
