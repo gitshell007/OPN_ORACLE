@@ -2134,3 +2134,28 @@ comprobar que el veredicto seguía siendo `fail` **con presupuesto de sobra**.
 Lección para futuras investigaciones: medir un mecanismo real (el truncamiento existía) no es lo
 mismo que demostrar la causa. Faltó comprobar si, eliminado ese mecanismo, el resultado cambiaba.
 Signal hizo dos cambios correctos por una hipótesis incompleta nuestra.
+
+## 2026-07-21 · Signal reindexa el BORME hacia atrás: la ficha lo ve, el informe no
+
+- Verificado tras la reindexación de Signal: el índice de actos por entidad ya no tiene suelo en
+  2019-2020.
+
+| Entidad | Antes | Ahora | Más antiguo |
+|---|---:|---:|---|
+| ITURRI SA | 65 | 81 | 2009-12-04 |
+| BURGOS CANTO MIGUEL (persona) | 17 | 26 | 2009-02-03 |
+| TELEFONICA SA | 120 | 705 | 2016-12 o anterior |
+| INDRA SISTEMAS SA | 365 | 1.630 | — |
+| EULEN | 205 | 475 | — |
+
+- **La ficha web está bien**: pagina de 50 en 50 y muestra todo el histórico.
+- **El informe de IA no ve esa historia.** `compact_entity_dossier` toma `[:25]` sobre una lista
+  que Signal devuelve de más reciente a más antiguo, y ITURRI concentra 51 de sus 81 actos en 2026:
+  los 25 seleccionados son todos de ese año. El informe declara honestamente el recorte y sus
+  agregados cubren el corpus completo, pero no puede citar ni comentar nada anterior a 2026.
+- El tope no es el error: está medido y evita el truncado del informe (con 65 actos moría con
+  `Invalid JSON: EOF`). El error es el **criterio de selección**, que era adecuado cuando el corpus
+  empezaba en 2020 y dejó de serlo al ganar 17 años de historia.
+- Prompt 66 redactado para cambiar el criterio sin tocar el presupuesto, con criterio de aceptación
+  comprobable sobre el caso real de ITURRI y exigencia de determinismo (de la selección dependen el
+  `corpus_hash` y los UUID de evidencia reservada).
