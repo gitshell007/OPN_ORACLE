@@ -1982,3 +1982,49 @@ En `oracle/entity_dossier_report.py` conviven dos estilos de validación: línea
 `model_validate` (modo Python) mientras que la línea 1608 usa `model_validate_json`. Hoy no es la
 causa —el proveedor ya devuelve modelos validados— pero es la misma asimetría que produjo el fallo
 de los UUID hace días y conviene unificarla.
+
+## 2026-07-21 · Causa raíz del revisor en la ruta de entidad: el tope de salida de Signal
+
+Investigación instrumentada contra producción (solo lectura, sin desplegar), replicando la llamada
+al revisor tal como la construye `SignalGovernedLLMProvider`.
+
+**El revisor se queda sin presupuesto de salida y devuelve JSON truncado.**
+
+Prueba decisiva, con 20 claims (el volumen real del informe de entidad, que tiene ~19-21):
+
+```
+tokens de salida pedidos por Oracle: 3000
+tokens devueltos por Signal:          900   <- su tope para la task
+JSON válido: NO -> Unterminated string at char 4211
+```
+
+`ai/service.py::_reviewer_output_budget` ya escala con el número de claims —`min(4000, 1200 +
+claims*90)`, que para 20 claims da 3000— pero **Signal fija `max_output_tokens=900` para
+`evidence_reviewer`** y pisa ese valor, como corresponde a una task gobernada. Signal declaró en su
+entrega que conservó ese 900 «tal como estaba en producción»: es un valor heredado de cuando los
+informes eran cortos.
+
+### Por qué encaja con todo lo observado
+
+- **No es el modelo**: el tope es de Signal y se aplica igual en cloud. Por eso mover el revisor a
+  gemini no cambió nada.
+- **No es Signal caído**: los POST devuelven 200 correctamente; lo que llega es una respuesta
+  completa hasta agotar los 900 tokens.
+- **No es el tamaño de la entrada**: es presupuesto de **salida**.
+- **Explica la asimetría**: `report_writer` genera menos claims y su revisión cabe en 900 (6/0);
+  el competitivo, más largo, falló 1 de 4 (está en el límite); el de entidad, con ~20 claims,
+  no cabe nunca (0/3).
+- **Explica el `ValidationError`**: es JSON cortado a media cadena, no una forma inesperada.
+
+### Hipótesis descartadas por experimento, no por deducción
+
+- **Falta de contenido en la evidencia**: se probó pasando solo etiquetas y el revisor rechaza con
+  razón («la evidencia no contiene la fecha ni el número»); con `extract` real, aprueba.
+  `_review_evidence_index` sí incluye el extracto, así que no era esto.
+- **La agregación de hechos del prompt v2**: se probó un hecho agregado que cita 3 evidencias y
+  otro atómico que cita 1. **Ambos `pass`.** Agregar no rompe la revisión.
+
+### Arreglo
+
+Es de Signal: subir `max_output_tokens` de `evidence_reviewer` de 900 a 4000, que es el techo que
+Oracle ya calcula. Oracle no necesita cambios: su presupuesto por número de claims es correcto.
