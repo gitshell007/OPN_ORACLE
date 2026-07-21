@@ -588,3 +588,26 @@ deberá versionarse un flujo de copia/materialización separado.
   las revisiones antiguas `v1` sin esa marca no quedan bloqueadas por el nuevo gate. Oracle declara
   16.000 tokens para `competitive_procurement_intelligence/v2`, pero Signal debe alinear la task
   gobernada para evitar truncado externo.
+
+## D-040 — Control estructural para el informe IA de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-21
+- **Contexto:** activar `evidence_reviewer` en `entity_dossier_intelligence` falló en tres
+  despliegues productivos aunque la generación del informe sí completaba. Se descartaron modelo
+  local, proveedor Signal, presupuesto de salida y agregación de hechos. La causa demostrada es que
+  el informe de entidad se redacta desde un corpus autorizado rico (`entity_dossier`, métricas,
+  grafo, noticias, patentes, CNMV y contratación), mientras el revisor universal solo recibe claims
+  compactos y extractos de evidencia citable. Por tanto juzga con menos contexto que el escritor y
+  produce falsos `missing_evidence` sistemáticos.
+- **Decisión:** `entity_dossier_intelligence` queda declarado con
+  `requires_evidence_review=false`. Su ruta no ejecuta `evidence_reviewer`; conserva el control
+  estructural de citas mediante `validate_evidence`, que rechaza cualquier `evidence_id` fuera de
+  la allowlist pendiente y materializa esas fuentes solo al incorporar el informe a un expediente.
+  `report_writer` y `competitive_procurement_intelligence` mantienen el revisor semántico porque en
+  esos flujos el contexto del escritor y el del revisor sí comparten la misma base de evidencias.
+- **Consecuencias:** la tabla de gobierno y el comportamiento real vuelven a decir lo mismo. El
+  informe de entidad queda protegido contra citas inventadas, pero no contra una valoración
+  semántica externa de groundedness. Reabrir esta decisión exige diseñar y medir un contexto
+  compacto específico para el revisor de entidad; no basta con subir tokens, cambiar modelo ni
+  revisar solo claims citados.

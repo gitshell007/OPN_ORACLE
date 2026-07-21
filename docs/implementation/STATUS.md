@@ -1,8 +1,38 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-20
+Actualizado: 2026-07-21
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Resolución del revisor de entidad · prompt 65
+
+- Decisión aplicada: opción C del prompt. `entity_dossier_intelligence` queda declarado con
+  `requires_evidence_review=false` porque el revisor universal juzga esa ruta con menos contexto
+  autorizado del que tuvo el escritor. D-040 registra la excepción y sus condiciones.
+- La ruta `oracle.entity_dossier_report.generate` deja de ejecutar `evidence_reviewer`; conserva
+  `validate_evidence` contra la allowlist de `pending_evidence_sources`, por lo que cualquier
+  `evidence_id` fuera del paquete pendiente sigue fallando antes de persistir el output.
+- Invariantes mantenidos: `report_writer` y `competitive_procurement_intelligence` siguen con
+  revisor semántico; el wizard continúa sin revisor universal; no se modifica el prompt v2 de
+  entidad ni se pide ningún cambio a Signal.
+- Tests enfocados ejecutados: catálogo, job de entidad estable, degradación de contratación,
+  recuperación de fallo de provider, rechazo de evidencia externa, contrato de no-revisor en
+  entidad, reviewer compacto de informe competitivo, intento reviewer en runtime general y rechazo
+  de evidencia externa en `report_writer`/`competitive_procurement_intelligence`: `10 passed`.
+- Mutaciones verificadas y revertidas: poner
+  `competitive_procurement_intelligence.requires_evidence_review=false` hizo caer
+  `test_long_report_reviewer_uses_compact_claim_package`; poner
+  `report_writer.requires_evidence_review=false` hizo caer
+  `test_report_generation_failures_never_publish_artifacts[reviewer]`.
+- Suite completa local con integración:
+  `ORACLE_RUN_INTEGRATION=1 ... ~/.local/bin/uv run pytest -q` terminó con `506 passed` y cobertura
+  total `84.13%`.
+- Checks finales: `ruff check`, `ruff format --check`, `mypy src` y `git diff --check` correctos.
+  `mypy src tests` sigue fallando por la deuda tipada preexistente en tests (`122 errors in 19
+  files`).
+- Pendiente de cierre operativo: desplegar esta versión y generar un informe de entidad real en
+  producción. Si completa, la auditoría esperada en esa ruta es un único intento `generate`
+  `succeeded`; los otros informes deben seguir mostrando `generate` + `reviewer`.
 
 ## Revisión unificada de salidas IA · prompt 63
 

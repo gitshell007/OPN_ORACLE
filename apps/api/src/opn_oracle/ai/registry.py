@@ -107,6 +107,19 @@ INPUT_CONTRACTS = {
     ),
 }
 
+# Qué agentes pasan por `evidence_reviewer` tras generar. Se indexa DIRECTAMENTE (sin
+# `.get`) a propósito: un agente nuevo que olvide declararse revienta al construir el
+# registro en vez de saltarse el control en silencio.
+#
+# Las dos excepciones están razonadas y no son un descuido:
+#   - `dossier_completion_wizard` (D-039): afirma AUSENCIAS ("faltan actores"), y no se
+#     puede citar evidencia de lo que no existe. Su control es determinista, contra los
+#     recuentos reales del expediente.
+#   - `entity_dossier_intelligence` (D-040): el revisor solo recibe los claims y los
+#     extractos citados, pero el informe se redacta desde un corpus mucho más rico
+#     (grafo, noticias, patentes, CNMV, contratación). Juzgaba con menos contexto que el
+#     escritor y rechazaba sistemáticamente afirmaciones que SÍ están respaldadas por el
+#     corpus. Su control es `validate_evidence` sobre la allowlist de citas.
 EVIDENCE_REVIEW_REQUIRED = {
     "intake": True,
     "signal_triage": True,
@@ -117,7 +130,7 @@ EVIDENCE_REVIEW_REQUIRED = {
     "meeting_briefing": True,
     "report_writer": True,
     "competitive_procurement_intelligence": True,
-    "entity_dossier_intelligence": True,
+    "entity_dossier_intelligence": False,
     "memory_curator": True,
     "evidence_reviewer": False,
     "weekly_change": True,

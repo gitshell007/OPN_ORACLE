@@ -14,19 +14,12 @@ import httpx
 from flask import current_app
 from sqlalchemy import func, select, text
 
-from opn_oracle.ai.context import BuiltContext, cited_evidence_ids, validate_evidence
+from opn_oracle.ai.context import validate_evidence
 from opn_oracle.ai.models import AIArtifact, AIAttempt, AIUsageLedger
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
-from opn_oracle.ai.schemas import EvidenceReviewerOutput, ReportOutput
-from opn_oracle.ai.service import (
-    AIPolicyDenied,
-    EvidenceReviewError,
-    _enforce_quota,
-    _policy,
-    _reviewer_context,
-    _reviewer_output_budget,
-)
+from opn_oracle.ai.schemas import ReportOutput
+from opn_oracle.ai.service import AIPolicyDenied, _enforce_quota, _policy
 from opn_oracle.extensions import db
 from opn_oracle.integrations.entity_intel import (
     entity_intel_client_from_config,
@@ -1206,7 +1199,6 @@ def _run_waiting_area_agent(
         fail(error)
         raise
     output = output_model.model_dump(mode="json")
-    cited_evidence_uuids = cited_evidence_ids(output_model)
     total_input = result.input_tokens
     total_output = result.output_tokens
     total_cost = result.cost_micros
@@ -1233,138 +1225,6 @@ def _run_waiting_area_agent(
     generated_attempt.cost_micros = result.cost_micros
     generated_attempt.latency_ms = result.latency_ms
     generated_attempt.completed_at = generation_checkpoint
-    reviewer_attempt_id: uuid.UUID | None = None
-    if prompt.requires_evidence_review and not result.safe_fallback_used:
-        reviewer_prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(
-            "evidence_reviewer"
-        )
-        # El revisor comprueba la groundedness de los claims del informe, así que solo
-        # necesita la evidencia efectivamente citada, no las hasta 45 fuentes disponibles.
-        # Pasarle el índice completo hacía fallar la salida estructurada del modelo local
-        # (prompt 63): mismo mecanismo compacto que ya usa la ruta de `execute_agent`.
-        cited_evidence_sources = [
-            item
-            for item in pending_evidence_sources
-            if uuid.UUID(str(item["id"])) in cited_evidence_uuids
-        ]
-        cited_evidence_id_strings = [str(item["id"]) for item in cited_evidence_sources]
-        reviewer_evidence = tuple(
-            Evidence(
-                id=uuid.UUID(str(item["id"])),
-                tenant_id=tenant_id,
-                source_kind=str(item.get("source_kind") or "entity_intel"),
-                source_url=str(item.get("source_url") or ""),
-                extract=str(item.get("extract") or ""),
-                locator=dict(item.get("locator") or {}),
-                checksum=b"",
-                classification="internal",
-                provenance={},
-            )
-            for item in cited_evidence_sources
-        )
-        review_context = BuiltContext(
-            payload=context,
-            manifest={"evidence_ids": cited_evidence_id_strings},
-            context_hash=context_hash,
-            evidence=reviewer_evidence,
-            classification="internal",
-            redaction_summary={"matches": 0},
-            injection_indicators=(),
-            estimated_tokens=min(policy.max_context_tokens, max(1, len(_canonical(context)) // 4)),
-        )
-        reviewer_context = _reviewer_context(
-            agent=ENTITY_DOSSIER_AGENT,
-            prompt=prompt,
-            context=review_context,
-            output=output,
-        )
-        reviewer_request = LLMRequest(
-            "evidence_reviewer",
-            reviewer_prompt.model,
-            reviewer_prompt.text,
-            reviewer_prompt.purpose,
-            reviewer_context,
-            _reviewer_output_budget(
-                reviewer_prompt_tokens=reviewer_prompt.max_output_tokens,
-                policy_tokens=policy.max_output_tokens,
-                claim_count=len(reviewer_context["candidate_claims"]),
-            ),
-            "internal",
-        )
-        reviewer_now = datetime.now(UTC)
-        reviewer_attempt = AIAttempt(
-            tenant_id=tenant_id,
-            audit_log_id=audit_id,
-            attempt_number=attempt_number + 1,
-            kind="reviewer",
-            status="running",
-            request_hash=hashlib.sha256(_canonical(reviewer_request.context)).digest(),
-            started_at=reviewer_now,
-            execution_token=execution_token,
-            lease_expires_at=reviewer_now + timedelta(seconds=lease_seconds),
-        )
-        db.session.add(reviewer_attempt)
-        db.session.commit()
-        reviewer_attempt_id = reviewer_attempt.id
-        try:
-            reviewer_result = provider.generate_structured(reviewer_request, EvidenceReviewerOutput)
-            reviewer = EvidenceReviewerOutput.model_validate(reviewer_result.output)
-            validate_evidence(reviewer, allowed_evidence_uuids)
-        except Exception as error:
-            fail(error, active_attempt_id=reviewer_attempt_id)
-            raise EvidenceReviewError(
-                f"La revisión de evidencia falló después de generar el output: {error}"
-            ) from error
-        total_input += reviewer_result.input_tokens
-        total_output += reviewer_result.output_tokens
-        total_cost += reviewer_result.cost_micros
-        reviewer_output = reviewer.model_dump(mode="json")
-        db.session.rollback()
-        reviewer_checkpoint = datetime.now(UTC)
-        checked_reviewer = db.session.scalar(
-            select(AIAttempt)
-            .where(
-                AIAttempt.id == reviewer_attempt_id,
-                AIAttempt.tenant_id == tenant_id,
-                AIAttempt.execution_token == execution_token,
-                AIAttempt.status == "running",
-                AIAttempt.lease_expires_at >= reviewer_checkpoint,
-            )
-            .with_for_update()
-        )
-        reviewer_audit = db.session.scalar(
-            select(AIAuditLog)
-            .where(
-                AIAuditLog.id == audit_id,
-                AIAuditLog.tenant_id == tenant_id,
-                AIAuditLog.status == "running",
-            )
-            .with_for_update()
-        )
-        reviewer_usage = db.session.scalar(
-            select(AIUsageLedger)
-            .where(
-                AIUsageLedger.id == usage_id,
-                AIUsageLedger.tenant_id == tenant_id,
-                AIUsageLedger.execution_token == execution_token,
-                AIUsageLedger.status == "reserved",
-            )
-            .with_for_update()
-        )
-        if checked_reviewer is None or reviewer_audit is None or reviewer_usage is None:
-            db.session.rollback()
-            raise AIPolicyDenied("La lease del revisor IA expiró.")
-        checked_reviewer.response_hash = hashlib.sha256(_canonical(reviewer_output)).digest()
-        checked_reviewer.input_tokens = reviewer_result.input_tokens
-        checked_reviewer.output_tokens = reviewer_result.output_tokens
-        checked_reviewer.cost_micros = reviewer_result.cost_micros
-        checked_reviewer.latency_ms = reviewer_result.latency_ms
-        checked_reviewer.completed_at = reviewer_checkpoint
-        if reviewer.verdict == "fail":
-            rejection_error = ValueError("El revisor de evidencia rechazó el output.")
-            fail(rejection_error, active_attempt_id=reviewer_attempt_id)
-            raise EvidenceReviewError(str(rejection_error)) from rejection_error
-        checked_reviewer.status = "succeeded"
     if soft_budget_warning:
         output["warnings"] = [
             *output.get("warnings", []),
@@ -1372,11 +1232,10 @@ def _run_waiting_area_agent(
         ]
     output_hash = hashlib.sha256(_canonical(output)).digest()
     settlement = datetime.now(UTC)
-    active_attempt_id = reviewer_attempt_id or attempt_id
     checked_attempt = db.session.scalar(
         select(AIAttempt)
         .where(
-            AIAttempt.id == active_attempt_id,
+            AIAttempt.id == attempt_id,
             AIAttempt.tenant_id == tenant_id,
             AIAttempt.execution_token == execution_token,
             AIAttempt.status == "succeeded",
@@ -1401,8 +1260,7 @@ def _run_waiting_area_agent(
     )
     if checked_attempt is None or checked_audit is None or checked_usage is None:
         raise AIPolicyDenied("La ejecución IA perdió su fencing antes de persistir.")
-    if reviewer_attempt_id is None:
-        checked_attempt.response_hash = output_hash
+    checked_attempt.response_hash = output_hash
     checked_audit.status = "succeeded"
     checked_audit.output_hash = output_hash
     checked_audit.provider = result.provider or checked_audit.provider
@@ -1413,7 +1271,7 @@ def _run_waiting_area_agent(
     checked_audit.latency_ms = result.latency_ms
     checked_audit.attempt_count = max(
         checked_audit.attempt_count,
-        attempt_number + (1 if reviewer_attempt_id is not None else 0),
+        attempt_number,
     )
     checked_audit.completed_at = settlement
     checked_usage.provider = checked_audit.provider

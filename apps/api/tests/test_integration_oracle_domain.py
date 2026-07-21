@@ -1517,8 +1517,8 @@ def test_entity_dossier_job_persists_bounded_sources_and_stable_corpus(
                 .order_by(AIAttempt.attempt_number)
             )
         )
-        assert [item.kind for item in attempts] == ["generate", "reviewer"]
-        assert [item.status for item in attempts] == ["succeeded", "succeeded"]
+        assert [item.kind for item in attempts] == ["generate"]
+        assert [item.status for item in attempts] == ["succeeded"]
 
 
 def test_entity_dossier_job_survives_procurement_provider_failure(
@@ -1614,13 +1614,8 @@ def test_entity_dossier_job_survives_procurement_provider_failure(
     generated_requests = [
         request for request in captured_requests if request.agent == ENTITY_DOSSIER_AGENT
     ]
-    reviewer_requests = [
-        request for request in captured_requests if request.agent == "evidence_reviewer"
-    ]
     assert len(generated_requests) == 1
-    assert len(reviewer_requests) == 1
-    assert "candidate_claims" in reviewer_requests[0].context
-    assert "candidate_output" not in reviewer_requests[0].context
+    assert not any(request.agent == "evidence_reviewer" for request in captured_requests)
     procurement = generated_requests[0].context["entity_dossier"]["section_status"]["procurement"]
     assert procurement == {"ok": False, "error": "procurement_source_unavailable"}
 
@@ -1701,9 +1696,9 @@ def test_waiting_area_provider_failure_releases_reservation_and_audits_error(
         assert recovered_audit.status == "succeeded"
         assert recovered_audit.provider == "mock"
         assert recovered_audit.model == "mock-oracle-v1"
-        assert [item.status for item in attempts] == ["failed", "succeeded", "succeeded"]
-        assert [item.kind for item in attempts] == ["generate", "generate", "reviewer"]
-        assert [item.attempt_number for item in attempts] == [1, 2, 3]
+        assert [item.status for item in attempts] == ["failed", "succeeded"]
+        assert [item.kind for item in attempts] == ["generate", "generate"]
+        assert [item.attempt_number for item in attempts] == [1, 2]
         assert usage.status == "settled"
         assert usage.reserved_cost_micros == 0
 
@@ -1788,41 +1783,31 @@ def test_entity_waiting_area_rejects_evidence_outside_pending_allowlist(
         assert usage is not None and usage.status == "released"
 
 
-def test_entity_waiting_area_reviewer_receives_only_cited_evidence(
+def test_entity_waiting_area_uses_structural_citation_control_without_reviewer(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Prompt 63 rompió el informe de entidad porque le pasaba al revisor las hasta 45 fuentes
-    # citables completas, degradando la salida del modelo local. El revisor solo debe recibir la
-    # evidencia efectivamente citada en el informe: aquí el generador cita 1 de 5 fuentes y el
-    # revisor debe ver únicamente esa 1.
     app, ids, _ = oracle_stack
     _enable_mock_ai(app, ids)
     pending_sources = _pending_entity_sources()
     assert len(pending_sources) == 5
     cited_id = uuid.UUID(pending_sources[0]["id"])
-    captured: dict[str, Any] = {}
+    captured_agents: list[str] = []
 
     class CitingEntityProvider(MockLLMProvider):
         def generate_structured(self, request: LLMRequest, schema: type[Any]) -> LLMResult:
+            captured_agents.append(request.agent)
             if request.agent == ENTITY_DOSSIER_AGENT:
-                # Modo JSON, no modo Python: `_entity_report_output` devuelve un
-                # `model_dump(mode="json")`, así que sus evidence_ids son cadenas, y
-                # ReportOutput es StrictModel: en modo Python las rechaza con
-                # "Input should be an instance of UUID". Es el mismo patrón que ya usa
-                # el código de producción al releer un informe guardado.
                 output = ReportOutput.model_validate_json(
                     json.dumps(_entity_report_output([cited_id]))
                 )
                 return LLMResult(output, 100, 50, 0, 1, provider="mock", model="mock-oracle-v1")
-            if request.agent == "evidence_reviewer":
-                captured["reviewer_context"] = request.context
             return super().generate_structured(request, schema)
 
     monkeypatch.setattr(
         entity_dossier_report,
         "provider_from_config",
-        lambda config: CitingEntityProvider("entity-reviewer-bounding"),
+        lambda config: CitingEntityProvider("entity-structural-citation-control"),
     )
     with (
         app.app_context(),
@@ -1831,7 +1816,7 @@ def test_entity_waiting_area_reviewer_receives_only_cited_evidence(
         job = _new_entity_job(
             ids,
             {"name": "Entidad Cobertura SA", "kind": "company"},
-            f"entity-report-reviewer-bounding-{uuid.uuid4()}",
+            f"entity-report-structural-citation-control-{uuid.uuid4()}",
         )
         job.status = "running"
         db.session.commit()
@@ -1853,13 +1838,11 @@ def test_entity_waiting_area_reviewer_receives_only_cited_evidence(
                 .order_by(AIAttempt.attempt_number)
             )
         )
-        assert [item.kind for item in attempts] == ["generate", "reviewer"]
-        assert [item.status for item in attempts] == ["succeeded", "succeeded"]
+        assert [item.kind for item in attempts] == ["generate"]
+        assert [item.status for item in attempts] == ["succeeded"]
+        assert audit.source_ids == [str(item["id"]) for item in pending_sources]
 
-    # El revisor corrió, pero solo vio la fuente citada, no las 5 pendientes.
-    reviewer_context = captured["reviewer_context"]
-    assert reviewer_context["allowed_evidence_ids"] == [str(cited_id)]
-    assert {row["id"] for row in reviewer_context["evidence"]} == {str(cited_id)}
+    assert captured_agents == [ENTITY_DOSSIER_AGENT]
 
 
 def test_entity_report_incorporation_materializes_evidence_and_is_idempotent(

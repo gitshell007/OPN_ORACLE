@@ -104,7 +104,7 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("evidence_reviewer").requires_evidence_review is False
     assert registry.get("report_writer").requires_evidence_review is True
     assert registry.get("competitive_procurement_intelligence").requires_evidence_review is True
-    assert registry.get("entity_dossier_intelligence").requires_evidence_review is True
+    assert registry.get("entity_dossier_intelligence").requires_evidence_review is False
     assert registry.get("dossier_situation_summary").version == "v5"
     assert registry.get("dossier_situation_summary", "v1").version == "v1"
     assert registry.get("dossier_situation_summary", "v1").max_output_tokens == 3000
