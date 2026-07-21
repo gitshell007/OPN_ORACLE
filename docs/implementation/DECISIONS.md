@@ -666,3 +666,22 @@ deberá versionarse un flujo de copia/materialización separado.
   catálogo incompatible. La región arranca con lo observado en la carga inicial y se enriquece al
   navegar; una sugerencia global persistente requerirá un contrato explícito de Signal o un
   almacenamiento tenant-scoped en Oracle.
+
+## D-044 — Cobertura de patentes separada de disponibilidad de la fuente
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-21
+- **Contexto:** Signal limita a 25 las publicaciones de patentes que devuelve, aunque el payload
+  incluye el total real de EPO. Además, una búsqueda por denominación exacta puede fallar con
+  `epo_search_404`. Presentar 25 filas sin el total o esconder por completo una sección fallida
+  convierte respectivamente una muestra en aparente exhaustividad y un error en aparente ausencia.
+- **Decisión:** la ficha muestra aviso solo cuando `total > items.length` y conserva los valores
+  exactos recibidos. Una sección fallida hace visible la pestaña con un estado de fuente no
+  disponible; `epo_search_404` se explica como posible discordancia de denominación, sin afirmar
+  ausencia. El contexto del informe conserva `received_items`, `total`, `truncated_by_source` y el
+  recorte independiente de Oracle; `source_limits` verbaliza ambos niveles y cualquier fallo.
+- **Consecuencias:** el límite no configurable de Signal y el límite de evidencia de Oracle siguen
+  intactos, pero dejan de confundirse con el universo de patentes de la entidad. Una consulta
+  correcta con cero resultados continúa sin pestaña; los fallos sí quedan visibles y auditables en
+  el corpus del informe. Los informes históricos mantienen su snapshot; la corrección se aplica a
+  generaciones nuevas y no reescribe artefactos existentes.

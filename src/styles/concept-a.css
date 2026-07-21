@@ -236,6 +236,9 @@
 .entity-profile-grid dd { margin: 3px 0 0; color: var(--va-text); font-weight: 650; overflow-wrap: anywhere; }
 .entity-profile-grid .entity-source-limits, .entity-profile-grid .entity-wide { grid-column: 1 / -1; }
 .entity-source-limits p, .entity-section-note { margin: 0; color: var(--va-muted); line-height: 1.5; }
+.entity-section-unavailable { display: grid; gap: 5px; border: 1px solid #e6c689; border-left: 4px solid #c7860b; border-radius: 9px; background: #fff9e9; color: #694807; padding: 12px 14px; }
+.entity-section-unavailable p { margin: 0; line-height: 1.5; }
+.entity-section-unavailable small { color: #85651e; }
 .entity-table-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: #fbfdff; padding: 10px 12px; }
 .entity-table-toolbar.compact { margin-bottom: 8px; }
 .entity-table-toolbar label { display: inline-flex; align-items: center; gap: 7px; color: var(--va-muted); font-size: 12px; font-weight: 750; }

@@ -662,6 +662,56 @@ def test_patents_and_disclosures_are_compacted_with_declared_caps() -> None:
     )
 
 
+def test_patent_source_limit_uses_epo_total_instead_of_received_sample() -> None:
+    payload = {
+        "entity": {"name": "TELEFONICA SA", "type": "company"},
+        "sections": {
+            "patents": {
+                "ok": True,
+                "data": {
+                    "total": 569,
+                    "items": [{"pub_number": f"EP-{index}"} for index in range(25)],
+                },
+            }
+        },
+    }
+
+    compact = compact_entity_dossier(payload)
+    patent_context = compact["patents"]
+    assert patent_context["received_items"] == 25
+    assert patent_context["total"] == 569
+    assert patent_context["truncated_by_source"] is True
+    limits = source_limits(compact)
+    assert any("25 de 569 publicaciones de patentes" in item for item in limits)
+    assert any("25 publicaciones" in item and str(PATENT_ITEM_LIMIT) in item for item in limits)
+
+    complete = compact_entity_dossier(
+        {
+            "entity": {"name": "INDRA SISTEMAS SA", "type": "company"},
+            "sections": {
+                "patents": {
+                    "ok": True,
+                    "data": {"total": 3, "items": [{"pub_number": f"EP-{i}"} for i in range(3)]},
+                }
+            },
+        }
+    )
+    assert not any("patente" in item.casefold() for item in source_limits(complete))
+
+
+def test_patent_source_failure_forbids_inferring_absence() -> None:
+    compact = compact_entity_dossier(
+        {
+            "entity": {"name": "ITURRI SA", "type": "company"},
+            "sections": {"patents": {"ok": False, "error": "epo_search_404"}},
+        }
+    )
+
+    limits = source_limits(compact)
+    assert any("epo_search_404" in item for item in limits)
+    assert any("no puede inferirse que la entidad carezca de patentes" in item for item in limits)
+
+
 class _EntityReportProcurementClient:
     def __init__(self, rows: list[dict[str, Any]], *, failure: bool = False) -> None:
         self.rows = rows

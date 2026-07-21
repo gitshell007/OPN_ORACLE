@@ -4,6 +4,39 @@ Actualizado: 2026-07-21
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Cobertura y fallos visibles en patentes · prompt 69
+
+- La pestaña de patentes usa el `total` real de EPO: cuando Signal entrega 25 de 569 publicaciones,
+  la ficha muestra ambos valores y aclara que la muestra no es exhaustiva. Con 3 de 3 no aparece
+  advertencia de recorte.
+- Una sección `ok=false` mantiene visible la pestaña para mostrar el fallo de fuente. El caso
+  `epo_search_404` explica que la denominación exacta puede no coincidir con el solicitante o una
+  filial y prohíbe interpretar el fallo como ausencia de patentes. Una consulta correcta con cero
+  resultados conserva el comportamiento previo y no crea una pestaña vacía.
+- El informe distingue el recorte de Signal (`received_items` frente a `total`) del recorte interno
+  de Oracle (`analyzed_items`, límite 20). `source_limits` declara ambos y añade el límite de
+  no-ausencia cuando la consulta EPO falla.
+- No cambian `PATENT_ITEM_LIMIT`, la integración EPO, el cliente de Signal, OpenAPI, base de datos
+  ni configuración.
+- Los informes ya generados conservan su snapshot histórico; la cobertura corregida aparecerá al
+  generar un informe nuevo. No se reescriben filas ni artefactos existentes.
+- Cinco tests nuevos cubren recorte visible, error visible, ausencia de falso aviso, total real en
+  el informe y fallo metodológico; todos fueron verificados por mutación y restaurados.
+- Mutaciones: ocultar `patentsTruncated` hizo caer el aviso 25/569; retirar `patentError` de la
+  condición de pestaña hizo caer ITURRI; cambiar `>` por `>=` mostró un falso aviso 3/3 y cayó
+  INDRA; forzar `truncated_by_source=false` hizo caer el total real del informe; ignorar el estado
+  fallido hizo caer el límite `epo_search_404`. Los bloques enfocados restaurados terminaron con
+  `14 passed` en frontend y `21 passed` en backend.
+- Gates frontend: `npm run typecheck` correcto; `npm run lint` correcto con 0 errores y el aviso
+  preexistente de TanStack Table en `dossier-context-panel.tsx:158`; `npx vitest run` terminó con
+  37 ficheros y 163 tests correctos; `npm run build` compiló y generó 18 páginas estáticas.
+- Gates backend: `ruff check` correcto; `ruff format --check` confirmó 167 ficheros formateados;
+  `mypy src` correcto sobre 109 ficheros; suite completa con integración real terminó con
+  `511 passed` y cobertura `84.07%`.
+- Verificación visual real no completada: tanto TELEFONICA SA como ITURRI SA redirigieron a
+  `/login` porque el navegador no tenía sesión autenticada. No se usó un harness sintético como
+  equivalente.
+
 ## Licitaciones ordenables y filtros asistidos · prompt 68
 
 - Las acciones de cada tarjeta forman un único grupo accesible y visual: resumen, fuente oficial y

@@ -128,6 +128,27 @@ function listItems(data: unknown): Record<string, unknown>[] {
   return items.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
 }
 
+function sourceTotal(data: unknown, receivedItems: number): number {
+  const total = asRecord(data).total;
+  return typeof total === "number" && Number.isInteger(total) && total >= receivedItems
+    ? total
+    : receivedItems;
+}
+
+function patentFailureMessage(error: string): string {
+  if (error.toLocaleLowerCase("es-ES").includes("epo_search_404")) {
+    return (
+      "La consulta de patentes no se pudo completar. EPO no encontró el nombre exacto " +
+      "del solicitante; puede estar registrado con otra grafía o mediante una filial. " +
+      "Este resultado no permite concluir que la entidad carezca de patentes."
+    );
+  }
+  return (
+    "La consulta de patentes no se pudo completar. La ausencia de resultados no permite " +
+    "concluir que la entidad carezca de patentes."
+  );
+}
+
 function text(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "Sin dato";
 }
@@ -289,7 +310,11 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   });
   const graph = sectionData<EntityIntelGraphResponse>(dossier, "graph");
   const disclosures = listItems(sectionData(dossier, "disclosures"));
-  const patents = listItems(sectionData(dossier, "patents"));
+  const patentData = sectionData<Record<string, unknown>>(dossier, "patents");
+  const patents = listItems(patentData);
+  const patentTotal = sourceTotal(patentData, patents.length);
+  const patentsTruncated = patentTotal > patents.length;
+  const patentError = sectionError(dossier, "patents");
   const news = listItems(sectionData(dossier, "news"));
 
   const constitution = profile?.constitution_date
@@ -348,7 +373,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
             <Tabs.Trigger value="registry" onClick={() => setActiveTab("registry")}>Órganos y cargos</Tabs.Trigger>
             <Tabs.Trigger value="graph" onClick={() => setActiveTab("graph")}>Grafo</Tabs.Trigger>
             {disclosures.length > 0 && <Tabs.Trigger value="disclosures" onClick={() => setActiveTab("disclosures")}>Hechos relevantes</Tabs.Trigger>}
-            {patents.length > 0 && <Tabs.Trigger value="patents" onClick={() => setActiveTab("patents")}>Patentes</Tabs.Trigger>}
+            {(patents.length > 0 || patentError) && <Tabs.Trigger value="patents" onClick={() => setActiveTab("patents")}>Patentes</Tabs.Trigger>}
             {news.length > 0 && <Tabs.Trigger value="news" onClick={() => setActiveTab("news")}>Noticias</Tabs.Trigger>}
           </Tabs.List>
 
@@ -452,16 +477,27 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
           </Tabs.Content>
 
           <Tabs.Content value="patents" className="entity-tab-panel">
-            <SimpleItemsTable
-              items={patents}
-              columns={[
-                ["pub_number", "Publicación"],
-                ["title", "Título"],
-                ["applicants", "Solicitantes"],
-                ["date", "Fecha"],
-              ]}
-              linkKey="url"
-            />
+            {patentError ? (
+              <div className="entity-section-unavailable" role="alert">
+                <strong>Consulta de patentes no disponible</strong>
+                <p>{patentFailureMessage(patentError)}</p>
+                <small>Código de la fuente: {patentError}</small>
+              </div>
+            ) : (
+              <SimpleItemsTable
+                items={patents}
+                columns={[
+                  ["pub_number", "Publicación"],
+                  ["title", "Título"],
+                  ["applicants", "Solicitantes"],
+                  ["date", "Fecha"],
+                ]}
+                linkKey="url"
+                note={patentsTruncated
+                  ? `Se muestran ${patents.length} de ${patentTotal} publicaciones de patente localizadas por EPO. La muestra no es exhaustiva.`
+                  : undefined}
+              />
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="news" className="entity-tab-panel">

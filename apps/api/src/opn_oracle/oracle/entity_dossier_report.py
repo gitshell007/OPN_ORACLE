@@ -82,6 +82,13 @@ def _items(value: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in value if isinstance(item, dict)]
 
 
+def _source_total(value: dict[str, Any], received_items: int) -> int:
+    total = value.get("total")
+    if isinstance(total, int) and not isinstance(total, bool) and total >= received_items:
+        return total
+    return received_items
+
+
 def _section_data(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
     sections = payload.get("sections")
     section = sections.get(key) if isinstance(sections, dict) else None
@@ -138,7 +145,7 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
         "news": {"items": len(_items(news))},
         "patents": {
             "items": len(_items(patents)),
-            "total": patents.get("total") or len(_items(patents)),
+            "total": _source_total(patents, len(_items(patents))),
             "available": patents.get("available"),
         },
         "disclosures": {
@@ -260,6 +267,7 @@ def compact_entity_dossier(
         limit=registry_limit,
     )
     patent_items = _items(patents)
+    patent_total = _source_total(patents, len(patent_items))
     disclosure_items = _items(disclosures)
     return {
         "entity": entity,
@@ -285,8 +293,10 @@ def compact_entity_dossier(
         "patents": {
             "available": patents.get("available"),
             "reason": patents.get("reason"),
-            "total": patents.get("total") or len(patent_items),
+            "total": patent_total,
+            "received_items": len(patent_items),
             "items": patent_items[:patent_limit],
+            "truncated_by_source": patent_total > len(patent_items),
             "truncated_by_oracle": len(patent_items) > patent_limit,
             "analyzed_items": min(len(patent_items), patent_limit),
         },
@@ -661,6 +671,8 @@ def source_limits(
     patents = (entity_dossier or {}).get("patents")
     disclosures = (entity_dossier or {}).get("disclosures")
     procurement = (entity_dossier or {}).get("procurement")
+    section_status = (entity_dossier or {}).get("section_status")
+    patent_status = section_status.get("patents") if isinstance(section_status, dict) else None
     limits: list[str] = []
     if (
         evidence_sources_kept is not None
@@ -687,11 +699,31 @@ def source_limits(
             "las conclusiones cubren ese subconjunto y no puede inferirse ausencia de "
             f"hechos a partir de los actos no analizados.{criterion}"
         )
-    if isinstance(patents, dict) and patents.get("truncated_by_oracle"):
-        limits.append(
-            f"Oracle solo ha pasado {patents.get('analyzed_items')} patentes de "
-            f"{patents.get('total')} al análisis."
-        )
+    if isinstance(patent_status, dict) and patent_status.get("ok") is False:
+        error = _text(patent_status.get("error")) or "error no especificado"
+        if "epo_search_404" in error.casefold():
+            limits.append(
+                "La consulta de patentes en EPO no se pudo completar porque el nombre exacto "
+                f"del solicitante no produjo resultados ({error}). Puede existir otra grafía o "
+                "una filial solicitante: no puede inferirse que la entidad carezca de patentes."
+            )
+        else:
+            limits.append(
+                f"La consulta de patentes no se pudo completar ({error}); la ausencia de "
+                "resultados no permite inferir que la entidad carezca de patentes."
+            )
+    elif isinstance(patents, dict):
+        if patents.get("truncated_by_source"):
+            limits.append(
+                f"Signal devolvió {patents.get('received_items')} de {patents.get('total')} "
+                "publicaciones de patentes localizadas por EPO. Es una muestra de la fuente, no "
+                "un corpus exhaustivo, y no puede inferirse ausencia a partir de lo no recibido."
+            )
+        if patents.get("truncated_by_oracle"):
+            limits.append(
+                f"De las {patents.get('received_items')} publicaciones de patentes recibidas, "
+                f"Oracle solo ha pasado {patents.get('analyzed_items')} al análisis."
+            )
     if isinstance(disclosures, dict) and disclosures.get("truncated_by_oracle"):
         limits.append(
             f"Oracle solo ha pasado {disclosures.get('analyzed_items')} comunicaciones CNMV de "

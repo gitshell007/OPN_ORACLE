@@ -208,6 +208,85 @@ describe("EntityDossier", () => {
     expect(screen.getByRole("tab", { name: "Perfil" })).toBeInTheDocument();
   });
 
+  it("declara cuando EPO entrega una muestra recortada de patentes", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      sections: {
+        ...dossierResponse.sections,
+        patents: {
+          ok: true,
+          data: {
+            total: 569,
+            items: Array.from({ length: 25 }, (_, index) => ({
+              pub_number: `EP-${index + 1}`,
+              title: `Patente ${index + 1}`,
+              applicants: ["TELEFONICA SA"],
+              url: `https://example.test/patent/${index + 1}`,
+            })),
+          },
+        },
+      },
+    });
+
+    render(<EntityDossier name="TELEFONICA SA" type="company" />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Patentes" }));
+    expect(
+      screen.getByText(/se muestran 25 de 569 publicaciones de patente/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/la muestra no es exhaustiva/i)).toBeInTheDocument();
+  });
+
+  it("muestra el fallo de búsqueda EPO sin convertirlo en ausencia de patentes", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      entity: { name: "ITURRI SA", type: "company" },
+      sections: {
+        ...dossierResponse.sections,
+        patents: { ok: false, error: "epo_search_404" },
+      },
+    });
+
+    render(<EntityDossier name="ITURRI SA" type="company" />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Patentes" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /puede estar registrado con otra grafía o mediante una filial/i,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /no permite concluir que la entidad carezca de patentes/i,
+    );
+    expect(screen.getByText(/código de la fuente: epo_search_404/i)).toBeInTheDocument();
+  });
+
+  it("no muestra aviso de recorte cuando EPO entrega todas las patentes", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      entity: { name: "INDRA SISTEMAS SA", type: "company" },
+      sections: {
+        ...dossierResponse.sections,
+        patents: {
+          ok: true,
+          data: {
+            total: 3,
+            items: Array.from({ length: 3 }, (_, index) => ({
+              pub_number: `EP-INDRA-${index + 1}`,
+              title: `Patente INDRA ${index + 1}`,
+              applicants: ["INDRA SISTEMAS SA"],
+              url: `https://example.test/indra/${index + 1}`,
+            })),
+          },
+        },
+      },
+    });
+
+    render(<EntityDossier name="INDRA SISTEMAS SA" type="company" />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Patentes" }));
+    expect(screen.getByText("3 de 3 filas")).toBeInTheDocument();
+    expect(screen.queryByText(/la muestra no es exhaustiva/i)).not.toBeInTheDocument();
+  });
+
   it("diferencia activos y cesados y filtra por activos", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
