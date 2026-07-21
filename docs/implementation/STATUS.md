@@ -2357,3 +2357,47 @@ Nota metodológica: mi primer intento de mutar la condición del aviso buscó la
 heurística de texto y no encontró nada, dando un falso «no cazada». La mutación correcta sobre
 `patentsTruncated` sí la caza. Ya van dos veces esta semana que una mutación mal dirigida produce
 un falso negativo; conviene localizar la línea exacta antes de mutar, no buscarla por patrón.
+
+## 2026-07-22 · El resumen nocturno en cloud: mi diagnóstico estaba incompleto
+
+Signal movió `dossier_situation_summary` a `openrouter/gemini-2.5-flash` (verificado desde el
+worker de Oracle). Lanzados cuatro resúmenes reales para medir el criterio de éxito —que bajara la
+tasa histórica de fallo del 19 %— y el resultado obliga a corregir el diagnóstico.
+
+**El 19 % no tenía una causa, tenía dos.** Desglose histórico de intentos de IA:
+
+```
+generate : 66 succeeded /  6 failed / 1 abandoned
+reviewer : 48 succeeded /  8 failed
+```
+
+Los 6 fallos de generación eran el modelo local truncando: **eso sí lo arregla el paso a cloud**.
+Pero los 8 fallos de revisión son una causa **independiente** que el cambio de proveedor no toca,
+porque no es un problema técnico sino un veredicto semántico.
+
+Al pedir cuatro resúmenes hoy: 2 `succeeded` y 2 `failed`, y los dos fallos son
+«El revisor de evidencia rechazó el output», no un fallo de generación.
+
+**Hallazgo contraintuitivo:** fallan los expedientes con MÁS evidencia.
+
+| Expediente | Resultado | Evidencias |
+|---|---|---:|
+| Concurso bomberos | failed | 13 |
+| Mercado baterías LFP Europa | failed | 7 |
+| Gigafactoría CATL-Stellantis | succeeded | 3 |
+| Prueba Playwright · Mercado | succeeded | 4 |
+
+La explicación coherente con el diseño: el revisor emite un veredicto único para todo el output, y
+si es `fail` el job muere entero. Cuanto más material tiene el expediente, más afirmaciones escribe
+el modelo, y basta con que **una** resulte discutible para perder el resumen completo. Es una
+puerta de todo o nada.
+
+Para un resumen que se regenera cada noche, ese trato es malo: se pierde un informe entero por una
+frase mejorable, y el expediente se queda con el resumen viejo sin que nadie lo sepa.
+
+**Lo que sí mejoró:** ninguno de los cuatro falló generando, que era el 46 % del problema
+histórico. El cambio de Signal no fue en vano, pero no basta.
+
+**Riesgo anotado por Signal:** el fallback de esta task también es OpenRouter. Si se agota el
+presupuesto global, Signal cierra con 429 y **no** degrada a Ollama, así que el agotamiento de
+presupuesto sería un fallo total, no una degradación.
