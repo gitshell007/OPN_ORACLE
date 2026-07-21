@@ -2028,3 +2028,52 @@ informes eran cortos.
 
 Es de Signal: subir `max_output_tokens` de `evidence_reviewer` de 900 a 4000, que es el techo que
 Oracle ya calcula. Oracle no necesita cambios: su presupuesto por número de claims es correcto.
+
+## 2026-07-21 · Diagnóstico definitivo del revisor en la ruta de entidad
+
+Signal subió `evidence_reviewer` a 4000 tokens y **el informe de entidad siguió fallando**. La
+hipótesis anterior (el tope de 900) describía un mecanismo real pero tapaba la causa de fondo.
+Tercer rollback aplicado; producción vuelve a `ca55269`, sana, con el informe funcionando.
+
+### Reproducción exacta
+
+Sonda que replica la llamada del revisor usando un informe real ya guardado:
+
+```
+claims=27  (con evidencia=6, sin evidencia=21)  por tipo={inference: 21, fact: 6}
+presupuesto pedido: 4000 (tope de la formula)   ->  out=4000, JSON cortado
+con 6 claims:       presupuesto 1740            ->  out=975,  JSON valido, verdict=fail
+solo los 6 hechos citados:                      ->  out=1124, JSON valido, verdict=fail
+```
+
+Dos hallazgos, y el segundo es el importante:
+
+**1. El presupuesto se agota de verdad.** Con 27 claims la fórmula pide su techo de 4000 y la
+respuesta se corta. Real, pero secundario.
+
+**2. El revisor rechaza el informe aunque le sobre presupuesto.** Con solo 6 claims responde JSON
+válido y aun así da `verdict: fail`. Lo que señala es `missing_evidence`: afirmaciones como «casi
+80 años de historia» o «líder en soluciones integrales» que no están en ningún extracto de
+evidencia citada.
+
+### La causa estructural
+
+Se verificó en la base de datos: **«80 años» sí aparece en el corpus del job.** El modelo no
+inventa nada: lo toma del contexto autorizado (noticias del dossier compactado).
+
+El problema es que **el revisor recibe menos información que el escritor**. `_reviewer_context`
+le pasa `candidate_claims` y `evidence` (los extractos citados), pero **no el `entity_dossier`
+desde el que se redactó el informe**. Así que toda afirmación apoyada en el dossier pero no en un
+extracto citable le parece infundada, y el veredicto será `fail` sistemáticamente.
+
+Eso explica por fin la asimetría entre agentes: en `report_writer` el contexto **son** las
+evidencias del expediente, así que claims y evidencia salen del mismo sitio y cuadran. En la ruta
+de entidad, el informe se escribe desde un corpus mucho más rico (registro, grafo, noticias,
+patentes, CNMV, contratación) del que solo una parte es citable.
+
+### Consecuencia
+
+No es un fallo de Signal ni del modelo, y no se arregla con más tokens: el revisor está juzgando
+con menos contexto del que tuvo el escritor, lo que garantiza falsos positivos. Queda pendiente
+decidir si se le da el mismo contexto autorizado, si se acota qué se le manda a revisar, o si se
+declara honestamente que esa ruta usa otro control.
