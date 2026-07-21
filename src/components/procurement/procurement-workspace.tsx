@@ -22,9 +22,12 @@ import {
 import { useSearchParams } from "next/navigation";
 import {
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -38,6 +41,7 @@ import {
 } from "./procurement-helpers";
 
 type ActiveFilter = "" | "true" | "false";
+type TenderSort = "signal" | "deadline_asc" | "deadline_desc" | "updated_desc";
 
 interface TenderFiltersForm {
   cpv: string;
@@ -65,6 +69,115 @@ interface SummaryState {
   text?: string | null;
   model?: string | null;
   error?: string | null;
+}
+
+interface FreeTextAutocompleteProps {
+  label: string;
+  value: string;
+  placeholder?: string;
+  suggestions: string[];
+  loading?: boolean;
+  loadingLabel?: string;
+  onChange: (value: string) => void;
+  onSelect: (value: string) => void;
+}
+
+function FreeTextAutocomplete({
+  label,
+  value,
+  placeholder,
+  suggestions,
+  loading = false,
+  loadingLabel = "Buscando sugerencias…",
+  onChange,
+  onSelect,
+}: FreeTextAutocompleteProps) {
+  const inputId = useId();
+  const listboxId = useId();
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const showSuggestions = open && (loading || suggestions.length > 0);
+
+  function chooseSuggestion(index: number) {
+    const suggestion = suggestions[index];
+    if (!suggestion) return;
+    onSelect(suggestion);
+    setActiveIndex(-1);
+    setOpen(false);
+  }
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    if (event.key === "ArrowDown" && suggestions.length > 0) {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => current >= suggestions.length - 1 ? 0 : current + 1);
+      return;
+    }
+    if (event.key === "ArrowUp" && suggestions.length > 0) {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => current <= 0 ? suggestions.length - 1 : current - 1);
+      return;
+    }
+    if (event.key === "Enter" && open && activeIndex >= 0) {
+      event.preventDefault();
+      chooseSuggestion(activeIndex);
+    }
+  }
+
+  return (
+    <div
+      className="procurement-filter-autocomplete"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setOpen(false);
+          setActiveIndex(-1);
+        }
+      }}
+    >
+      <label htmlFor={inputId}>{label}</label>
+      <input
+        id={inputId}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-controls={listboxId}
+        aria-expanded={showSuggestions}
+        aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
+        value={value}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setActiveIndex(-1);
+          setOpen(true);
+        }}
+        onKeyDown={handleKeyDown}
+      />
+      {showSuggestions && (
+        <div id={listboxId} className="procurement-filter-suggestions" role="listbox">
+          {loading && <small role="status">{loadingLabel}</small>}
+          {suggestions.map((suggestion, index) => (
+            <button
+              id={`${listboxId}-${index}`}
+              key={suggestion}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseSuggestion(index)}
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function numericValue(value: string): number | undefined {
@@ -125,6 +238,50 @@ function summaryFromTender(item: ProcurementTenderItem): SummaryState | null {
   };
 }
 
+function tenderText(item: ProcurementTenderItem, key: string): string | null {
+  const value = item[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function tenderTimestamp(item: ProcurementTenderItem, key: string): number | null {
+  const value = tenderText(item, key);
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function compareTenderDate(
+  left: ProcurementTenderItem,
+  right: ProcurementTenderItem,
+  key: string,
+  direction: 1 | -1,
+): number {
+  const leftDate = tenderTimestamp(left, key);
+  const rightDate = tenderTimestamp(right, key);
+  if (leftDate === null && rightDate === null) return 0;
+  if (leftDate === null) return 1;
+  if (rightDate === null) return -1;
+  return (leftDate - rightDate) * direction;
+}
+
+function sortLoadedTenders(
+  items: ProcurementTenderItem[],
+  sort: TenderSort,
+): ProcurementTenderItem[] {
+  if (sort === "signal") return items;
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const compared = sort === "deadline_asc"
+        ? compareTenderDate(left.item, right.item, "deadline", 1)
+        : sort === "deadline_desc"
+          ? compareTenderDate(left.item, right.item, "deadline", -1)
+          : compareTenderDate(left.item, right.item, "feed_updated_at", -1);
+      return compared || left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
 export function ProcurementWorkspace() {
   const searchParams = useSearchParams();
   const initialKeywords = searchParams?.get("keywords") ?? "";
@@ -150,10 +307,35 @@ export function ProcurementWorkspace() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [searchesError, setSearchesError] = useState<string | null>(null);
+  const [sort, setSort] = useState<TenderSort>("signal");
+  const [buyerSuggestions, setBuyerSuggestions] = useState<string[]>([]);
+  const [buyerSuggesting, setBuyerSuggesting] = useState(false);
+  const [buyerSelectedSuggestion, setBuyerSelectedSuggestion] = useState(false);
+  const [knownRegions, setKnownRegions] = useState<string[]>([]);
+  const buyerSuggestionSequence = useRef(0);
 
   const limit = 25;
   const effectiveKeywords = (keywords.trim() || semanticLabel.trim()).trim();
   const currentFilters = useMemo(() => filterRecord(filters), [filters]);
+
+  const rememberRegions = useCallback((tenders: ProcurementTenderItem[]) => {
+    const observed = tenders
+      .map((item) => tenderText(item, "region"))
+      .filter((region): region is string => region !== null);
+    if (!observed.length) return;
+    setKnownRegions((current) =>
+      Array.from(new Set([...current, ...observed])).sort((left, right) =>
+        left.localeCompare(right, "es"),
+      ),
+    );
+  }, []);
+
+  const regionSuggestions = useMemo(() => {
+    const query = filters.region.trim().toLocaleLowerCase("es");
+    return knownRegions
+      .filter((region) => !query || region.toLocaleLowerCase("es").includes(query))
+      .slice(0, 8);
+  }, [filters.region, knownRegions]);
 
   const loadSearches = useCallback(async () => {
     setSearchesError(null);
@@ -179,6 +361,7 @@ export function ProcurementWorkspace() {
           offset: nextOffset,
         });
         setResult(response);
+        rememberRegions(response.items);
         setOffset(response.offset ?? nextOffset);
       } catch (reason) {
         setError(
@@ -188,7 +371,7 @@ export function ProcurementWorkspace() {
         setLoading(false);
       }
     },
-    [currentFilters, effectiveKeywords, offset],
+    [currentFilters, effectiveKeywords, offset, rememberRegions],
   );
 
   useEffect(() => {
@@ -202,6 +385,37 @@ export function ProcurementWorkspace() {
     // La carga inicial debe ejecutarse una vez; el usuario decide cuándo aplicar nuevos filtros.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const query = filters.buyer.trim();
+    const sequence = ++buyerSuggestionSequence.current;
+    if (!filtersOpen || buyerSelectedSuggestion || query.length < 3) {
+      setBuyerSuggestions([]);
+      setBuyerSuggesting(false);
+      return;
+    }
+    setBuyerSuggesting(true);
+    const debounce = window.setTimeout(() => {
+      void api.procurement
+        .suggest({ q: query, kind: "buyer", limit: 8 })
+        .then((response) => {
+          if (buyerSuggestionSequence.current === sequence) {
+            setBuyerSuggestions(response.suggestions);
+          }
+        })
+        .catch(() => {
+          if (buyerSuggestionSequence.current === sequence) {
+            setBuyerSuggestions([]);
+          }
+        })
+        .finally(() => {
+          if (buyerSuggestionSequence.current === sequence) {
+            setBuyerSuggesting(false);
+          }
+        });
+    }, 260);
+    return () => window.clearTimeout(debounce);
+  }, [buyerSelectedSuggestion, filters.buyer, filtersOpen]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -271,6 +485,7 @@ export function ProcurementWorkspace() {
       setSemanticLabel("");
       setFilters(nextFilters);
       setResult(response.results);
+      rememberRegions(response.results.items);
       setOffset(response.results.offset ?? 0);
     } catch (reason) {
       setError(
@@ -312,7 +527,11 @@ export function ProcurementWorkspace() {
   }
 
   const total = result?.total ?? 0;
-  const items = result?.items ?? [];
+  const loadedItems = result?.items;
+  const items = useMemo(
+    () => sortLoadedTenders(loadedItems ?? [], sort),
+    [loadedItems, sort],
+  );
   const page = Math.floor(offset / limit) + 1;
   const pages = Math.max(1, Math.ceil(total / limit));
 
@@ -430,30 +649,34 @@ export function ProcurementWorkspace() {
                   }
                 />
               </label>
-              <label>
-                <span>Órgano comprador</span>
-                <input
-                  value={filters.buyer}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      buyer: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                <span>Región</span>
-                <input
-                  value={filters.region}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      region: event.target.value,
-                    }))
-                  }
-                />
-              </label>
+              <FreeTextAutocomplete
+                label="Órgano comprador"
+                value={filters.buyer}
+                suggestions={buyerSuggestions}
+                loading={buyerSuggesting}
+                onChange={(value) => {
+                  setBuyerSelectedSuggestion(false);
+                  setBuyerSuggestions([]);
+                  setFilters((current) => ({ ...current, buyer: value }));
+                }}
+                onSelect={(value) => {
+                  setBuyerSelectedSuggestion(true);
+                  setBuyerSuggestions([]);
+                  setBuyerSuggesting(false);
+                  setFilters((current) => ({ ...current, buyer: value }));
+                }}
+              />
+              <FreeTextAutocomplete
+                label="Región"
+                value={filters.region}
+                suggestions={regionSuggestions}
+                onChange={(value) =>
+                  setFilters((current) => ({ ...current, region: value }))
+                }
+                onSelect={(value) =>
+                  setFilters((current) => ({ ...current, region: value }))
+                }
+              />
               <label>
                 <span>Estado</span>
                 <select
@@ -482,8 +705,28 @@ export function ProcurementWorkspace() {
               <span className="section-kicker">Resultados</span>
               <h2>Licitaciones encontradas</h2>
             </div>
-            <span className="procurement-count">{total} resultados</span>
+            <div className="procurement-results-tools">
+              <span className="procurement-count">{total} resultados</span>
+              <label>
+                <span>Orden de los resultados cargados</span>
+                <select
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value as TenderSort)}
+                >
+                  <option value="signal">Orden recibido de Signal</option>
+                  <option value="deadline_asc">Plazo: vence antes</option>
+                  <option value="deadline_desc">Plazo: vence después</option>
+                  <option value="updated_desc">Actualización: más reciente</option>
+                </select>
+              </label>
+            </div>
           </header>
+          {sort !== "signal" && (
+            <p className="procurement-local-sort-note" role="status">
+              Orden local sobre los {items.length} resultados cargados en esta página;
+              no reordena los {total} resultados del corpus.
+            </p>
+          )}
           {error && (
             <div className="inline-error" role="alert">
               {error}
@@ -529,6 +772,10 @@ export function ProcurementWorkspace() {
                         <dt>Región</dt>
                         <dd>{item.region || "No publicada"}</dd>
                       </div>
+                      <div>
+                        <dt>Actualizada</dt>
+                        <dd>{formatDate(tenderText(item, "feed_updated_at"))}</dd>
+                      </div>
                     </dl>
                     {summary?.text && (
                       <aside className="procurement-summary">
@@ -546,31 +793,37 @@ export function ProcurementWorkspace() {
                       </div>
                     )}
                     <footer>
-                      <button
-                        className="vector-secondary"
-                        type="button"
-                        onClick={() => void summarize(item)}
-                        disabled={summary?.loading}
+                      <div
+                        className="procurement-card-actions"
+                        role="group"
+                        aria-label={`Acciones para ${item.title || "licitación sin título"}`}
                       >
-                        <FileText size={14} />
-                        {summary?.loading ? "Resumiendo…" : "Resumen"}
-                      </button>
-                      {item.source_url && (
-                        <a
+                        <button
                           className="vector-secondary"
-                          href={item.source_url}
-                          target="_blank"
-                          rel="noreferrer"
+                          type="button"
+                          onClick={() => void summarize(item)}
+                          disabled={summary?.loading}
                         >
-                          <ExternalLink size={14} />
-                          Ver fuente oficial
-                        </a>
-                      )}
-                      <PinToDossierControl
-                        compact
-                        kind="tender"
-                        folderId={item.folder_id}
-                      />
+                          <FileText size={14} />
+                          {summary?.loading ? "Resumiendo…" : "Resumen"}
+                        </button>
+                        {item.source_url && (
+                          <a
+                            className="vector-secondary"
+                            href={item.source_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink size={14} />
+                            Ver fuente oficial
+                          </a>
+                        )}
+                        <PinToDossierControl
+                          compact
+                          kind="tender"
+                          folderId={item.folder_id}
+                        />
+                      </div>
                     </footer>
                   </article>
                 );

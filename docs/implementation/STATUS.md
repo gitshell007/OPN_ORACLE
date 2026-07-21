@@ -4,6 +4,34 @@ Actualizado: 2026-07-21
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Licitaciones ordenables y filtros asistidos · prompt 68
+
+- Las acciones de cada tarjeta forman un único grupo accesible y visual: resumen, fuente oficial y
+  fijado comparten alineación; por debajo de 680 px se apilan a ancho completo de forma predecible.
+- La búsqueda permite ordenar la página cargada por plazo ascendente/descendente o actualización
+  más reciente. Como Signal/Oracle no ofrecen orden previo a la paginación, la interfaz declara
+  expresamente cuántos resultados locales ordena y el total del corpus que no está reordenando.
+- Órgano comprador usa `procurement/suggest` con `kind=buyer`, debounce de 260 ms, protección
+  contra respuestas obsoletas y selección por teclado. Sigue siendo texto libre.
+- Región aprende, durante la sesión, los literales exactos recibidos en páginas de resultados y
+  búsquedas guardadas ejecutadas; no normaliza `Valencia/València`, no inventa catálogo y conserva
+  la escritura libre. La persistencia global queda fuera mientras Signal no exponga sugerencias de
+  región.
+- Cuatro tests nuevos cubren comprador/debounce/texto libre, región exacta, orden local paginado y
+  agrupación de acciones; cada uno fue verificado por una mutación específica y después restaurado.
+- Mutaciones: cambiar `kind=buyer` por `winner` hizo caer el test del comprador; descartar las
+  regiones observadas hizo caer el literal `Valencia/València`; anular la rama `deadline_asc` hizo
+  caer el orden esperado; sustituir el grupo accesible por presentación hizo caer el test de
+  acciones. Tras revertirlas, el fichero enfocado terminó con `10 passed`.
+- Sin cambios de backend, OpenAPI, migraciones ni variables de entorno.
+- Gates frontend: `npm run typecheck` correcto; `npm run lint` correcto con 0 errores y el aviso
+  preexistente de TanStack Table en `dossier-context-panel.tsx:158`; `npx vitest run` terminó con
+  37 ficheros y 160 tests correctos; `npm run build` compiló y generó las 18 páginas estáticas.
+- Verificación visual real: el navegador abrió
+  `https://oracle.opnconsultoria.com/app/procurement`, pero producción redirigió a
+  `/login?next=%2Fapp%2Fprocurement` por falta de sesión autenticada. No se sustituye por un harness
+  sintético y la alineación productiva queda explícitamente no verificada.
+
 ## Grafo de entidad legible, filtrable y enfocable · prompt 67
 
 - El layout `fcose` conserva la semilla Vogel determinista y `randomize=false`; aumenta la

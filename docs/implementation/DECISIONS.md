@@ -611,3 +611,58 @@ deberá versionarse un flujo de copia/materialización separado.
   semántica externa de groundedness. Reabrir esta decisión exige diseñar y medir un contexto
   compacto específico para el revisor de entidad; no basta con subir tokens, cambiar modelo ni
   revisar solo claims citados.
+
+## D-041 — Muestra temporal determinista para actos BORME en informes de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-21
+- **Contexto:** Signal reindexó BORME hacia atrás y ahora entrega historial desde 2009 para algunas
+  entidades. La ficha web pagina correctamente todo el histórico, pero el informe IA mantenía
+  `REGISTRY_ITEM_LIMIT=25` y tomaba los primeros 25 actos por recencia. En entidades sesgadas como
+  ITURRI SA, con 51 de 81 actos en 2026, eso dejaba fuera toda la historia recuperada aunque los
+  agregados de Python sí cubrieran el corpus completo.
+- **Decisión:** se mantiene `REGISTRY_ITEM_LIMIT=25` y `EVIDENCE_SOURCE_TOTAL_LIMIT=45`; no se
+  resuelve subiendo presupuesto. Cuando hay más actos que cupo, Oracle selecciona una muestra
+  temporal determinista (`temporal_coverage_v1`): mayoría de actos recientes, reserva de cola
+  histórica y puntos intermedios por fecha de publicación. La muestra se devuelve en el orden
+  original de Signal para no alterar la lectura ni la numeración de evidencias.
+- **Consecuencias:** el informe puede citar y comentar profundidad histórica sin reabrir el fallo
+  de JSON truncado por enumerar demasiadas fuentes. El recorte se declara en `source_limits` junto
+  con el criterio usado. Cambiar cuotas o topes exige nueva medición contra informes reales largos.
+
+## D-042 — Etiquetado progresivo y visibilidad compuesta en grafos de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-21
+- **Contexto:** en grafos densos, separar más los nodos no resuelve por sí solo la colisión porque
+  el usuario debe alejarse para abarcar el conjunto. CASADO FERNANDEZ GONZALO tiene 141 nodos y
+  186 aristas; mostrar simultáneamente todos los nombres y roles hace ilegible la estructura.
+- **Decisión:** se eleva la separación fija a 156 px y la longitud ideal de arista a 250 px, sin
+  alterar la semilla Vogel ni `randomize=false`. En el encuadre completo se etiquetan siempre el
+  centro y hasta ocho nodos de mayor grado; el resto aparece al acercar, al pasar el cursor o al
+  aislar una vecindad. Fecha, rol normalizado y foco se resuelven en una única pasada de
+  visibilidad por clases Cytoscape; los filtros no relanzan layout. Seleccionar un nodo encuadra
+  sus relaciones directas y volver a pulsarlo restaura el encuadre determinista.
+- **Consecuencias:** el grafo completo sigue presente al abrir, pero deja de competir por 141
+  etiquetas simultáneas. La exploración detallada conserva nombres y roles bajo demanda. Los
+  roles se derivan de Signal y se agrupan sin distinguir capitalización; cualquier filtro futuro
+  debe añadirse al mismo cálculo compuesto para no revivir elementos ocultos por otro criterio.
+
+## D-043 — Orden local honesto y vocabulario observado en licitaciones
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-21
+- **Contexto:** Oracle pagina licitaciones, pero ni su API ni el contrato conocido de Signal
+  aceptan ordenación. Ordenar una página como si fuese el corpus completo sería engañoso. A la vez,
+  Signal solo ofrece sugerencias para comprador/adjudicatario, no para región, cuyos valores pueden
+  ser provincias, ámbitos nacionales o grafías compuestas que no admiten normalización segura.
+- **Decisión:** el frontend ofrece plazo ascendente/descendente y actualización descendente solo
+  sobre los resultados cargados y muestra siempre, al activarlo, el tamaño de esa página y el total
+  que queda fuera del orden. Comprador consulta `suggest(kind=buyer)` con debounce y sigue libre.
+  Región construye durante la sesión un vocabulario exacto a partir de las páginas recibidas,
+  incluidas las ejecutadas desde búsquedas guardadas; una referencia fijada desde esta pantalla ya
+  ha sido observada en su página. No se persiste ni se comparte entre tenants desde el navegador.
+- **Consecuencias:** la UX mejora sin atribuir a Signal una capacidad no demostrada ni crear un
+  catálogo incompatible. La región arranca con lo observado en la carga inicial y se enriquece al
+  navegar; una sugerencia global persistente requerirá un contrato explícito de Signal o un
+  almacenamiento tenant-scoped en Oracle.

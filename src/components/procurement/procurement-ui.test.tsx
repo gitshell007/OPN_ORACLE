@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -87,6 +94,7 @@ const tender = {
   cpv: ["31400000"],
   amount: 1200000,
   deadline: "2026-08-01",
+  feed_updated_at: "2026-07-15T10:30:00Z",
   region: "Aragón",
   source_url: "https://contrataciondelestado.es/tender",
   is_active: true,
@@ -211,6 +219,112 @@ describe("UI de contratación pública", () => {
     fireEvent.click(screen.getByRole("button", { name: /resumen/i }));
     expect(await screen.findByText("Resumen ya calculado.")).toBeInTheDocument();
     expect(mocks.summarizeTender).not.toHaveBeenCalled();
+  });
+
+  it("sugiere órganos compradores con debounce y conserva la escritura libre", async () => {
+    mocks.suggest.mockResolvedValue({
+      kind: "buyer",
+      suggestions: ["Ayuntamiento de Soneja", "Ayuntamiento de Loriguilla"],
+      cached_seconds: 300,
+      cache_hit: false,
+    });
+
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
+    const buyer = screen.getByRole("combobox", { name: "Órgano comprador" });
+    fireEvent.change(buyer, { target: { value: "ayu" } });
+    fireEvent.change(buyer, { target: { value: "ayunt" } });
+    fireEvent.change(buyer, { target: { value: "ayunta" } });
+
+    expect(
+      await screen.findByRole("option", { name: "Ayuntamiento de Soneja" }),
+    ).toBeInTheDocument();
+    expect(mocks.suggest).toHaveBeenCalledTimes(1);
+    expect(mocks.suggest).toHaveBeenCalledWith({
+      q: "ayunta",
+      kind: "buyer",
+      limit: 8,
+    });
+
+    fireEvent.keyDown(buyer, { key: "ArrowDown" });
+    fireEvent.keyDown(buyer, { key: "Enter" });
+    expect(buyer).toHaveValue("Ayuntamiento de Soneja");
+
+    fireEvent.change(buyer, { target: { value: "Órgano fuera de catálogo" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Buscar$/ }));
+    await waitFor(() =>
+      expect(mocks.tenders).toHaveBeenLastCalledWith(
+        expect.objectContaining({ buyer: "Órgano fuera de catálogo" }),
+      ),
+    );
+  });
+
+  it("sugiere regiones observadas sin alterar su literal y mantiene texto libre", async () => {
+    mocks.tenders.mockResolvedValue({
+      ...tendersResponse,
+      items: [{ ...tender, region: "Valencia/València" }],
+    });
+
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
+    const region = screen.getByRole("combobox", { name: "Región" });
+    fireEvent.focus(region);
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Valencia/València" }),
+    );
+    expect(region).toHaveValue("Valencia/València");
+
+    fireEvent.change(region, { target: { value: "Ámbito nuevo" } });
+    expect(region).toHaveValue("Ámbito nuevo");
+  });
+
+  it("ordena por plazo solo la página cargada y declara el límite paginado", async () => {
+    mocks.tenders.mockResolvedValue({
+      ...tendersResponse,
+      total: 80,
+      offset: 25,
+      items: [
+        { ...tender, folder_id: "late", title: "Vence tarde", deadline: "2026-09-20" },
+        { ...tender, folder_id: "unknown", title: "Sin plazo", deadline: null },
+        { ...tender, folder_id: "early", title: "Vence pronto", deadline: "2026-07-25" },
+      ],
+    });
+
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Vence tarde")).toBeInTheDocument();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Orden de los resultados cargados" }),
+      { target: { value: "deadline_asc" } },
+    );
+
+    const titles = Array.from(
+      document.querySelectorAll<HTMLElement>(".procurement-card > header strong"),
+    ).map((node) => node.textContent);
+    expect(titles).toEqual(["Vence pronto", "Vence tarde", "Sin plazo"]);
+    expect(
+      screen.getByText(
+        /orden local sobre los 3 resultados cargados en esta página; no reordena los 80 resultados del corpus/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("agrupa todas las acciones de una licitación en un único control", async () => {
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    const actions = screen.getByRole("group", {
+      name: "Acciones para Suministro de baterías",
+    });
+    expect(within(actions).getByRole("button", { name: "Resumen" })).toBeInTheDocument();
+    expect(
+      within(actions).getByRole("link", { name: "Ver fuente oficial" }),
+    ).toBeInTheDocument();
+    expect(within(actions).getByRole("button", { name: "Fijar" })).toBeInTheDocument();
   });
 
   it("gestiona estados vacíos y búsquedas guardadas", async () => {

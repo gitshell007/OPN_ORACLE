@@ -148,6 +148,7 @@
 .entity-graph-side dl div { border-top: 1px solid #e1e8f0; padding-top: 9px; }
 .entity-graph-side dt { color: var(--va-muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
 .entity-graph-side dd { margin: 3px 0 0; color: var(--va-text); font-weight: 650; }
+.entity-graph-clear-focus { width: 100%; justify-content: center; margin-top: 4px; }
 .entity-graph-warning, .entity-graph-note { display: flex; align-items: flex-start; gap: 7px; border-radius: 8px; padding: 10px; background: #fff7ed; color: #8a4b11 !important; }
 .entity-graph-note { display: block; background: #eef6ff; color: #31516f !important; }
 .entity-graph-legend { display: grid; gap: 7px; margin-top: 16px; color: var(--va-muted); font-size: 12px; }
@@ -159,6 +160,18 @@
 .entity-graph-legend i.undated { width: 18px; height: 0; border-radius: 0; border-top: 2px dotted #64748b; background: transparent; }
 .entity-graph-legend i.dimmed { background: #cbd5e1; opacity: .5; }
 .entity-active-toggle { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d7e3f1; border-radius: 999px; background: white; padding: 5px 8px; color: #42536a; font-size: 11px; font-weight: 750; }
+.entity-role-filter { display: grid; gap: 9px; min-width: 0; margin: 0 0 14px; border: 1px solid #dce6f1; border-radius: 10px; background: white; padding: 12px; }
+.entity-role-filter legend { padding: 0 5px; color: var(--va-text); font-size: 14px; font-weight: 800; }
+.entity-role-filter p { margin: 0; font-size: 12px; }
+.entity-role-filter-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.entity-role-filter-actions button { border: 1px solid #cddbed; border-radius: 999px; background: #f8fbff; padding: 5px 8px; color: #31516f; font-size: 11px; font-weight: 750; }
+.entity-role-filter-actions button:hover, .entity-role-filter-actions button:focus-visible { border-color: var(--va-primary); color: var(--va-primary); outline: 2px solid #93c5fd; outline-offset: 1px; }
+.entity-role-filter-options { display: grid; gap: 3px; max-height: 210px; overflow: auto; padding-right: 3px; }
+.entity-role-filter-options label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 32px; border-radius: 6px; padding: 4px 6px; color: var(--va-text); cursor: pointer; }
+.entity-role-filter-options label:hover, .entity-role-filter-options label:focus-within { background: #edf4ff; }
+.entity-role-filter-options input { width: 16px; height: 16px; accent-color: var(--va-primary); }
+.entity-role-filter-options span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 700; }
+.entity-role-filter-options small { color: #53677f; font-size: 11px; font-variant-numeric: tabular-nums; }
 .entity-time-filter { display: grid; gap: 9px; border: 1px solid #dce6f1; border-radius: 10px; background: white; padding: 12px; }
 .entity-time-filter h3 { margin: 0; }
 .entity-time-filter p, .entity-time-filter small { margin: 0; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
@@ -293,11 +306,13 @@
 .procurement-search-form,
 .procurement-awards-search { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(220px, .7fr) auto; gap: 10px; align-items: end; }
 .procurement-search-form label,
+.procurement-filter-autocomplete,
 .procurement-awards-search label,
 .procurement-save-search label,
 .procurement-pin label,
 .procurement-search-list label { display: grid; gap: 5px; color: var(--va-muted); font-size: 11px; font-weight: 760; text-transform: uppercase; letter-spacing: .04em; }
 .procurement-autocomplete { position: relative; }
+.procurement-filter-autocomplete { align-content: start; }
 .procurement-search-form input,
 .procurement-search-form select,
 .procurement-awards-search input,
@@ -310,9 +325,19 @@
 .procurement-search-form label > div input,
 .procurement-awards-search label > div input { min-height: auto; border: 0; outline: 0; padding: 0; width: 100%; }
 .procurement-filters { grid-column: 1/-1; display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; padding: 12px; border: 1px solid #dbe5f1; border-radius: 10px; background: #f8fbff; }
+.procurement-filter-suggestions { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding: 5px; border: 1px solid #cbd6e2; border-radius: 8px; background: white; box-shadow: 0 8px 24px #1020331f; }
+.procurement-filter-suggestions button { width: 100%; border: 0; border-radius: 6px; background: transparent; color: var(--va-text); padding: 8px 9px; text-align: left; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.procurement-filter-suggestions button:hover,
+.procurement-filter-suggestions button:focus-visible,
+.procurement-filter-suggestions button[aria-selected="true"] { background: #edf4ff; color: var(--va-primary); }
+.procurement-filter-suggestions small { padding: 7px 9px; color: var(--va-muted); text-transform: none; letter-spacing: 0; }
 .procurement-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
 .procurement-count,
 .procurement-muted { color: var(--va-muted); font-size: 12px; }
+.procurement-results-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: flex-end; gap: 10px; }
+.procurement-results-tools label { display: grid; gap: 4px; color: var(--va-muted); font-size: 10px; font-weight: 760; text-transform: uppercase; letter-spacing: .04em; }
+.procurement-results-tools select { min-height: 36px; border: 1px solid var(--va-border); border-radius: 7px; background: white; color: var(--va-text); padding: 0 9px; text-transform: none; }
+.procurement-local-sort-note { margin: -3px 0 12px; border-left: 3px solid #d29b19; border-radius: 6px; background: #fff9e9; color: #755009; padding: 8px 10px; font-size: 11px; line-height: 1.45; }
 .procurement-card-list,
 .procurement-awards-list,
 .procurement-search-list { display: grid; gap: 12px; }
@@ -329,7 +354,7 @@
 .procurement-search-list small { display: block; color: var(--va-muted); margin-top: 4px; }
 .procurement-card p,
 .procurement-award-card p { color: #42536a; line-height: 1.45; margin: 10px 0; }
-.procurement-card dl,
+.procurement-card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 9px; margin: 12px 0; }
 .procurement-award-card dl { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 9px; margin: 12px 0; }
 .procurement-card dt,
 .procurement-award-card dt { color: var(--va-muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
@@ -337,6 +362,8 @@
 .procurement-award-card dd { margin: 3px 0 0; color: var(--va-text); font-weight: 650; }
 .procurement-card footer,
 .procurement-award-card footer { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; border-top: 1px solid #edf2f7; padding-top: 12px; }
+.procurement-card-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; width: 100%; }
+.procurement-card-actions .procurement-pin { align-items: flex-end; }
 .procurement-summary { border-left: 3px solid var(--va-primary); background: #f5f9ff; border-radius: 9px; padding: 10px 12px; margin: 10px 0; }
 .procurement-summary p { margin: 4px 0; }
 .procurement-save-search { display: grid; gap: 8px; margin-bottom: 12px; }
@@ -380,6 +407,15 @@
   .procurement-competitive-controls,
   .procurement-card dl,
   .procurement-award-card dl { grid-template-columns: 1fr; }
+  .procurement-results > header,
+  .procurement-results-tools { align-items: stretch; flex-direction: column; }
+  .procurement-results-tools select { width: 100%; }
+  .procurement-card-actions { align-items: stretch; flex-direction: column; }
+  .procurement-card-actions > a,
+  .procurement-card-actions > button,
+  .procurement-card-actions .procurement-pin,
+  .procurement-card-actions .procurement-pin select { width: 100%; max-width: none; }
+  .procurement-card-actions .procurement-pin { align-items: stretch; flex-direction: column; }
 }
 .changes-filters { display: flex; align-items: end; gap: 8px; margin-bottom: 14px; }
 .changes-filters > label:first-child { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 260px; padding: 0 10px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); }
