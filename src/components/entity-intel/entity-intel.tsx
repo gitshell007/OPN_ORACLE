@@ -34,10 +34,18 @@ const MIN_READABLE_GRAPH_ZOOM = 1.05;
 const MAX_MANAGEABLE_INITIAL_ZOOM = 1.35;
 const MAX_INITIAL_FOCUS_ELEMENTS = 90;
 const GRAPH_DOUBLE_TAP_MS = 360;
-const GRAPH_FIXED_NODE_SEPARATION = 96;
-const GRAPH_FIXED_EDGE_LENGTH = 190;
+const GRAPH_FIXED_NODE_SEPARATION = 156;
+const GRAPH_FIXED_EDGE_LENGTH = 250;
 const GRAPH_SEED_GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const GRAPH_SEED_RADIUS = 58;
+const GRAPH_PRIORITY_LABEL_LIMIT = 8;
+const GRAPH_ALL_LABELS_MIN_ZOOMED_FONT_SIZE = 13.5;
+const GRAPH_FOCUS_PADDING = 72;
+const GRAPH_HIDDEN_CLASSES = [
+  "is-time-filtered",
+  "is-role-filtered",
+  "is-focus-filtered",
+] as const;
 
 interface TemporalBounds {
   min: number;
@@ -50,6 +58,17 @@ interface TemporalBounds {
 interface TimeFilterState {
   key: string;
   range: [number, number];
+}
+
+interface RoleFilterOption {
+  key: string;
+  label: string;
+  count: number;
+}
+
+interface RoleFilterState {
+  key: string;
+  enabledKeys: string[];
 }
 
 function problemMessage(reason: unknown, fallback: string): string {
@@ -301,6 +320,45 @@ function edgeRole(edge: EntityIntelGraphEdge): string {
   return String(edge.role ?? edge.roles ?? "Relación");
 }
 
+function edgeRoleValues(edge: EntityIntelGraphEdge): string[] {
+  const values = Array.isArray(edge.roles)
+    ? edge.roles
+    : [edge.role ?? edge.roles ?? "Relación"];
+  const normalized = values
+    .map((value) => String(value).trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : ["Relación"];
+}
+
+function normalizedRoleKey(role: string): string {
+  return role.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("es-ES");
+}
+
+function displayRole(role: string): string {
+  const clean = role.trim().replace(/\s+/g, " ");
+  return clean ? `${clean[0].toLocaleUpperCase("es-ES")}${clean.slice(1)}` : "Relación";
+}
+
+export function graphRoleOptions(graph: EntityIntelGraphResponse | null): RoleFilterOption[] {
+  if (!graph) return [];
+  const roles = new Map<string, RoleFilterOption>();
+  graph.edges.forEach((edge) => {
+    const uniqueRoles = new Map<string, string>();
+    edgeRoleValues(edge).forEach((role) => uniqueRoles.set(normalizedRoleKey(role), role));
+    uniqueRoles.forEach((role, key) => {
+      const current = roles.get(key);
+      roles.set(key, {
+        key,
+        label: current?.label ?? displayRole(role),
+        count: (current?.count ?? 0) + 1,
+      });
+    });
+  });
+  return [...roles.values()].sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label, "es"),
+  );
+}
+
 function parseEdgeDate(value: unknown): number | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
@@ -339,11 +397,42 @@ function nodeKind(node: EntityIntelGraphNode | null | undefined): EntityIntelKin
   return node?.type === "person" || node?.entityType === "person" ? "person" : "company";
 }
 
+function priorityLabelNodeIds(graph: EntityIntelGraphResponse): Set<string> {
+  const degrees = new Map<string, number>();
+  graph.nodes.forEach((node, index) => degrees.set(nodeIdentity(node, index), 0));
+  graph.edges.forEach((edge) => {
+    const source = String(edge.source);
+    const target = String(edge.target);
+    if (degrees.has(source)) degrees.set(source, (degrees.get(source) ?? 0) + 1);
+    if (degrees.has(target)) degrees.set(target, (degrees.get(target) ?? 0) + 1);
+  });
+  const ranked = graph.nodes
+    .map((node, index) => {
+      const id = nodeIdentity(node, index);
+      return {
+        id,
+        center: node.is_center === true,
+        degree: Math.max(degrees.get(id) ?? 0, typeof node.degree === "number" ? node.degree : 0),
+      };
+    })
+    .sort((left, right) => (
+      Number(right.center) - Number(left.center)
+      || right.degree - left.degree
+      || left.id.localeCompare(right.id, "es")
+    ));
+  return new Set(ranked.slice(0, GRAPH_PRIORITY_LABEL_LIMIT).map((node) => node.id));
+}
+
 function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefinition[] {
   const known = new Set<string>();
+  const priorityLabels = priorityLabelNodeIds(graph);
   const nodes = graph.nodes.map((node, index) => {
     const id = nodeIdentity(node, index);
     known.add(id);
+    const classes = [
+      node.is_center === true ? "is-center-node" : "",
+      priorityLabels.has(id) ? "is-priority-label" : "",
+    ].filter(Boolean).join(" ");
     return {
       data: {
         ...node,
@@ -352,7 +441,7 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
         entityType: String(node.type ?? "entity"),
       },
       position: seededInitialPosition(id, index, node),
-      classes: node.is_center === true ? "is-center-node" : undefined,
+      classes: classes || undefined,
     };
   });
   const edges = graph.edges.flatMap((edge, index) => {
@@ -443,34 +532,72 @@ function initialGraphFocus(instance: cytoscape.Core) {
   instance.center(center);
 }
 
-function applyTemporalGraphFilter(
+function elementIsGraphHidden(element: cytoscape.SingularElementArgument): boolean {
+  return GRAPH_HIDDEN_CLASSES.some((className) => element.hasClass(className));
+}
+
+function applyGraphVisibility(
   instance: cytoscape.Core,
   bounds: TemporalBounds | null,
   range: [number, number] | null,
+  enabledRoleKeys: ReadonlySet<string>,
+  focusedNodeId: string | null,
 ) {
   const start = bounds && range ? timelineDateFromOffset(bounds, range[0]) : null;
   const end = bounds && range ? timelineDateFromOffset(bounds, range[1]) : null;
+  const focusedNodeIds = new Set(focusedNodeId ? [focusedNodeId] : []);
+  let visibleEdgeCount = 0;
   instance.batch(() => {
     instance.edges().forEach((edge: cytoscape.EdgeSingular) => {
-      edge.removeClass("is-time-filtered is-undated");
+      edge.removeClass("is-time-filtered is-role-filtered is-focus-filtered is-undated is-focus-label");
       const timestamp = parseEdgeDate(edge.data("date"));
       if (timestamp === null) {
         edge.addClass("is-undated");
-        return;
-      }
-      if (start !== null && end !== null && (timestamp < start || timestamp > end)) {
+      } else if (start !== null && end !== null && (timestamp < start || timestamp > end)) {
         edge.addClass("is-time-filtered");
       }
+      const roleKeys = edgeRoleValues(edge.data() as EntityIntelGraphEdge).map(normalizedRoleKey);
+      if (!roleKeys.some((key) => enabledRoleKeys.has(key))) edge.addClass("is-role-filtered");
+      const source = String(edge.data("source"));
+      const target = String(edge.data("target"));
+      const touchesFocus = focusedNodeId !== null && (source === focusedNodeId || target === focusedNodeId);
+      if (focusedNodeId !== null && !touchesFocus) edge.addClass("is-focus-filtered");
+      if (touchesFocus && !elementIsGraphHidden(edge)) {
+        focusedNodeIds.add(source);
+        focusedNodeIds.add(target);
+        edge.addClass("is-focus-label");
+      }
+      if (!elementIsGraphHidden(edge)) visibleEdgeCount += 1;
     });
     instance.nodes().forEach((node: cytoscape.NodeSingular) => {
-      node.removeClass("is-orphaned-after-filter");
-      if (node.data("is_center") === true) return;
+      node.removeClass("is-orphaned-after-filter is-focus-filtered is-focus-label");
+      const nodeId = String(node.id());
+      if (focusedNodeId !== null && !focusedNodeIds.has(nodeId)) {
+        node.addClass("is-focus-filtered");
+      }
       const visibleEdges = node
         .connectedEdges()
-        .filter((edge: cytoscape.EdgeSingular) => !edge.hasClass("is-time-filtered"));
-      if (visibleEdges.length === 0) node.addClass("is-orphaned-after-filter");
+        .filter((edge: cytoscape.EdgeSingular) => !elementIsGraphHidden(edge));
+      const anchorVisible = focusedNodeId === nodeId
+        || (focusedNodeId === null && node.data("is_center") === true);
+      if (visibleEdges.length === 0 && !anchorVisible) node.addClass("is-orphaned-after-filter");
+      if (focusedNodeId !== null && focusedNodeIds.has(nodeId) && !elementIsGraphHidden(node)) {
+        node.addClass("is-focus-label");
+      }
     });
   });
+  return visibleEdgeCount;
+}
+
+function focusGraphNode(instance: cytoscape.Core, nodeId: string) {
+  const node = instance.getElementById(nodeId);
+  if (node.length === 0) return;
+  const visibleNeighborhood = node
+    .closedNeighborhood()
+    .filter((element) => !elementIsGraphHidden(element));
+  instance.fit(visibleNeighborhood, GRAPH_FOCUS_PADDING);
+  if (instance.zoom() > 1.75) instance.zoom(1.75);
+  instance.center(node);
 }
 
 export function EntityGraphExplorer({
@@ -489,15 +616,20 @@ export function EntityGraphExplorer({
   const graphRef = useRef<cytoscape.Core | null>(null);
   const temporalBoundsRef = useRef<TemporalBounds | null>(null);
   const timeRangeRef = useRef<[number, number] | null>(null);
+  const enabledRoleKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const focusedNodeIdRef = useRef<string | null>(null);
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
   const [selected, setSelected] = useState<EntityIntelGraphNode | null>(null);
+  const [detailEntity, setDetailEntity] = useState<EntityIntelGraphNode | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(!initialGraph);
   const [error, setError] = useState<string | null>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
+  const [visibleEdgeCount, setVisibleEdgeCount] = useState(graph?.edges.length ?? 0);
   const [timeFilter, setTimeFilter] = useState<TimeFilterState | null>(null);
+  const [roleFilter, setRoleFilter] = useState<RoleFilterState | null>(null);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -511,6 +643,7 @@ export function EntityGraphExplorer({
       });
       setGraph(result);
       setSelected(null);
+      focusedNodeIdRef.current = null;
     } catch (reason) {
       setGraph(null);
       setError(problemMessage(reason, "No se pudo cargar el grafo de la entidad."));
@@ -524,6 +657,7 @@ export function EntityGraphExplorer({
       const handle = window.setTimeout(() => {
         setGraph(initialGraph);
         setSelected(null);
+        focusedNodeIdRef.current = null;
         setLoading(false);
       }, 0);
       return () => window.clearTimeout(handle);
@@ -533,6 +667,13 @@ export function EntityGraphExplorer({
   }, [activeOnly, initialGraph, loadGraph]);
 
   const elements = useMemo(() => (graph ? graphElements(graph) : []), [graph]);
+  const roleOptions = useMemo(() => graphRoleOptions(graph), [graph]);
+  const roleOptionsKey = roleOptions.map((role) => `${role.key}:${role.count}`).join("|");
+  const enabledRoleKeys = useMemo(() => new Set(
+    roleFilter?.key === roleOptionsKey
+      ? roleFilter.enabledKeys
+      : roleOptions.map((role) => role.key),
+  ), [roleFilter, roleOptions, roleOptionsKey]);
   const temporalBounds = useMemo(() => temporalBoundsFor(graph), [graph]);
   const temporalKey = temporalBounds
     ? `${temporalBounds.min}:${temporalBounds.max}:${temporalBounds.maxOffset}`
@@ -542,21 +683,15 @@ export function EntityGraphExplorer({
       ? timeFilter.range
       : [0, temporalBounds.maxOffset] satisfies [number, number]
     : null;
-  const visibleEdgeCount = useMemo(() => {
-    if (!graph) return 0;
-    if (!temporalBounds || !timeRange) return graph.edges.length;
-    const start = timelineDateFromOffset(temporalBounds, timeRange[0]);
-    const end = timelineDateFromOffset(temporalBounds, timeRange[1]);
-    return graph.edges.filter((edge) => {
-      const timestamp = parseEdgeDate(edge.date);
-      return timestamp === null || (timestamp >= start && timestamp <= end);
-    }).length;
-  }, [graph, temporalBounds, timeRange]);
-
+  const selectedNodeId = useMemo(() => (
+    graph && selected ? selectedNodeIdentity(graph, selected) : null
+  ), [graph, selected]);
   useEffect(() => {
     temporalBoundsRef.current = temporalBounds;
     timeRangeRef.current = timeRange;
-  }, [temporalBounds, timeRange]);
+    enabledRoleKeysRef.current = enabledRoleKeys;
+    focusedNodeIdRef.current = selectedNodeId;
+  }, [enabledRoleKeys, selectedNodeId, temporalBounds, timeRange]);
 
   const zoomGraph = useCallback((factor: number) => {
     const instance = graphRef.current;
@@ -608,7 +743,7 @@ export function EntityGraphExplorer({
                 color: "#102033",
                 "font-size": 9,
                 label: "data(label)",
-                "min-zoomed-font-size": 6,
+                "min-zoomed-font-size": GRAPH_ALL_LABELS_MIN_ZOOMED_FONT_SIZE,
                 "overlay-opacity": 0,
                 "text-background-color": "#ffffff",
                 "text-background-opacity": 0.86,
@@ -628,6 +763,10 @@ export function EntityGraphExplorer({
               style: { "background-color": "#7c3aed" },
             },
             {
+              selector: "node.is-priority-label, node.is-hover-label, node.is-focus-label",
+              style: { "min-zoomed-font-size": 0 },
+            },
+            {
               selector: "node.is-center-node",
               style: {
                 "background-color": "#0891b2",
@@ -643,6 +782,7 @@ export function EntityGraphExplorer({
                 "curve-style": "bezier",
                 "font-size": 7,
                 label: "data(label)",
+                "min-zoomed-font-size": 10.5,
                 "line-color": "#9fb2c8",
                 "target-arrow-color": "#9fb2c8",
                 "target-arrow-shape": "triangle",
@@ -671,7 +811,11 @@ export function EntityGraphExplorer({
               },
             },
             {
-              selector: ".is-time-filtered",
+              selector: "edge.is-hover-label, edge.is-focus-label",
+              style: { "min-zoomed-font-size": 0 },
+            },
+            {
+              selector: ".is-time-filtered, .is-role-filtered, .is-focus-filtered",
               style: {
                 display: "none",
               },
@@ -720,19 +864,20 @@ export function EntityGraphExplorer({
             gravityRange: 3.8,
             nestingFactor: 0.9,
             numIter: 1800,
-            padding: 42,
+            padding: 56,
             randomize: false,
           } as cytoscape.LayoutOptions,
         });
         const clearHover = () => {
           if (containerRef.current) containerRef.current.style.cursor = "";
-          instance.elements().removeClass("is-hovered is-dimmed");
+          instance.elements().removeClass("is-hovered is-dimmed is-hover-label");
         };
         const applyHover = (node: cytoscape.NodeSingular) => {
           clearHover();
           if (containerRef.current) containerRef.current.style.cursor = "pointer";
           const neighborhood = node.closedNeighborhood();
           instance.elements().not(neighborhood).addClass("is-dimmed");
+          neighborhood.addClass("is-hover-label");
           node.addClass("is-hovered");
         };
         const onMouseOver = (event: cytoscape.EventObject) => applyHover(event.target as cytoscape.NodeSingular);
@@ -744,12 +889,24 @@ export function EntityGraphExplorer({
           const now = Date.now();
           const isDoubleTap = lastTap?.id === id && now - lastTap.at <= GRAPH_DOUBLE_TAP_MS;
           lastTap = { id, at: now };
-          setSelected(node);
-          if (isDoubleTap) setDetailOpen(true);
+          const nextSelected = focusedNodeIdRef.current === id ? null : node;
+          focusedNodeIdRef.current = nextSelected ? id : null;
+          setSelected(nextSelected);
+          if (isDoubleTap) {
+            setDetailEntity(node);
+            setDetailOpen(true);
+          }
         };
         const applyInitialFocus = () => {
           initialGraphFocus(instance);
-          applyTemporalGraphFilter(instance, temporalBoundsRef.current, timeRangeRef.current);
+          const nextVisibleEdgeCount = applyGraphVisibility(
+            instance,
+            temporalBoundsRef.current,
+            timeRangeRef.current,
+            enabledRoleKeysRef.current,
+            focusedNodeIdRef.current,
+          );
+          setVisibleEdgeCount(nextVisibleEdgeCount);
           setZoomPercent(Math.round(instance.zoom() * 100));
         };
         const onZoom = () => setZoomPercent(Math.round(instance.zoom() * 100));
@@ -783,12 +940,28 @@ export function EntityGraphExplorer({
 
   useEffect(() => {
     if (!graphRef.current) return;
-    applyTemporalGraphFilter(graphRef.current, temporalBounds, timeRange);
-  }, [temporalBounds, timeRange]);
+    const nextVisibleEdgeCount = applyGraphVisibility(
+      graphRef.current,
+      temporalBounds,
+      timeRange,
+      enabledRoleKeys,
+      selectedNodeId,
+    );
+    setVisibleEdgeCount(nextVisibleEdgeCount);
+    if (selectedNodeId) {
+      focusGraphNode(graphRef.current, selectedNodeId);
+    } else {
+      initialGraphFocus(graphRef.current);
+    }
+    setZoomPercent(Math.round(graphRef.current.zoom() * 100));
+  }, [enabledRoleKeys, selectedNodeId, temporalBounds, timeRange]);
 
-  const relations = useMemo(() => directRelations(graph, selected), [graph, selected]);
+  const detailTarget = detailOpen ? detailEntity ?? selected : selected;
+  const relations = useMemo(() => directRelations(graph, detailTarget), [detailTarget, graph]);
   const openSelectedDetail = useCallback(() => {
-    if (selected) setDetailOpen(true);
+    if (!selected) return;
+    setDetailEntity(selected);
+    setDetailOpen(true);
   }, [selected]);
 
   return (
@@ -872,6 +1045,18 @@ export function EntityGraphExplorer({
             <aside className="entity-graph-side">
               <h3>Lectura rápida</h3>
               <p>{selectedDescription(selected)}</p>
+              {selected && (
+                <button
+                  type="button"
+                  className="vector-secondary small entity-graph-clear-focus"
+                  onClick={() => {
+                    focusedNodeIdRef.current = null;
+                    setSelected(null);
+                  }}
+                >
+                  Mostrar grafo completo
+                </button>
+              )}
               <dl>
                 <div>
                   <dt>Tipo consultado</dt>
@@ -883,20 +1068,65 @@ export function EntityGraphExplorer({
                 </div>
                 <div>
                   <dt>Encuadre inicial</dt>
-                  <dd>Centro legible; primer nivel si no satura la vista</dd>
+                  <dd>Centro y nodos clave etiquetados; más nombres al acercar</dd>
                 </div>
                 <div>
                   <dt>Origen</dt>
                   <dd>Signal vía Flask</dd>
                 </div>
               </dl>
+              {roleOptions.length > 0 && (
+                <fieldset className="entity-role-filter">
+                  <legend>Tipos de vínculo</legend>
+                  <p>
+                    {enabledRoleKeys.size} de {roleOptions.length} tipos visibles. Desmarca el
+                    ruido para leer la estructura; el grafo no se recoloca.
+                  </p>
+                  <div className="entity-role-filter-actions">
+                    <button
+                      type="button"
+                      onClick={() => setRoleFilter({
+                        key: roleOptionsKey,
+                        enabledKeys: roleOptions.map((role) => role.key),
+                      })}
+                    >
+                      Marcar todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRoleFilter({ key: roleOptionsKey, enabledKeys: [] })}
+                    >
+                      Desmarcar todos
+                    </button>
+                  </div>
+                  <div className="entity-role-filter-options">
+                    {roleOptions.map((role) => (
+                      <label key={role.key}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${role.label}, ${role.count} ${role.count === 1 ? "vínculo" : "vínculos"}`}
+                          checked={enabledRoleKeys.has(role.key)}
+                          onChange={(event) => {
+                            const next = new Set(enabledRoleKeys);
+                            if (event.target.checked) next.add(role.key);
+                            else next.delete(role.key);
+                            setRoleFilter({ key: roleOptionsKey, enabledKeys: [...next] });
+                          }}
+                        />
+                        <span>{role.label}</span>
+                        <small>{role.count} {role.count === 1 ? "vínculo" : "vínculos"}</small>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
               {temporalBounds && timeRange ? (
                 <section className="entity-time-filter" aria-label="Cronograma del grafo">
                   <h3>Cronograma</h3>
                   <p>
                     {visibleEdgeCount} de {graph.edges.length} vínculos visibles. Los vínculos sin
-                    fecha se mantienen visibles; los nodos sin vínculos dentro del rango se ocultan,
-                    sin relayout.
+                    fecha se mantienen visibles; los filtros de fecha, tipo y foco se componen y los
+                    nodos sin vínculos visibles se ocultan, sin relayout.
                   </p>
                   <label>
                     <span>Desde {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[0]))}</span>
@@ -980,10 +1210,13 @@ export function EntityGraphExplorer({
       <div ref={returnFocusRef} tabIndex={-1} aria-hidden="true" />
       <EntityDetailDialog
         open={detailOpen}
-        entity={selected}
+        entity={detailTarget}
         relations={relations}
         returnFocusRef={returnFocusRef}
-        onOpenChange={setDetailOpen}
+        onOpenChange={(open) => {
+          setDetailOpen(open);
+          if (!open) setDetailEntity(null);
+        }}
         onNavigate={(nextKind, nextName) => {
           setDetailOpen(false);
           router.push(entityRoute(nextKind, nextName));

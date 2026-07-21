@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import type { Mock } from "vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ type MockGraphEvent = {
   target: { data(): unknown; closedNeighborhood?(): unknown; addClass?(name: string): void };
 };
 type MockElement = {
+  id: Mock<() => string>;
   addClass: Mock<(name: string) => void>;
   removeClass: Mock<(name: string) => void>;
   hasClass: Mock<(name: string) => boolean>;
@@ -37,7 +38,7 @@ type MockCytoscapeInstance = {
   edgesList: MockElement[];
   handlers: Record<string, (event: MockGraphEvent) => void>;
   destroy: Mock<() => void>;
-  fit: Mock<() => void>;
+  fit: Mock<(...args: unknown[]) => void>;
   center: Mock<() => void>;
   batch: Mock<(callback: () => void) => void>;
   maxZoom: Mock<() => number>;
@@ -47,6 +48,7 @@ type MockCytoscapeInstance = {
   elements: Mock<() => MockCollection>;
   nodes: Mock<(selector?: string) => MockCollection>;
   edges: Mock<() => MockCollection>;
+  getElementById: Mock<(id: string) => MockCollection>;
   on: Mock<(event: string, selectorOrHandler: unknown, maybeHandler?: (event: MockGraphEvent) => void) => void>;
   removeListener: Mock<() => void>;
 };
@@ -103,6 +105,7 @@ vi.mock("cytoscape", () => {
   function element(data: Record<string, unknown>, initialClasses = ""): MockElement {
     const classes = new Set(initialClasses.split(" ").filter(Boolean));
     return {
+      id: vi.fn(() => String(data.id)),
       addClass: vi.fn((name: string) => {
         for (const item of name.split(" ")) classes.add(item);
       }),
@@ -124,9 +127,20 @@ vi.mock("cytoscape", () => {
     const edges = options.elements
       .filter((item) => item.data.source)
       .map((item) => element(item.data, item.classes));
+    const nodesById = new Map(nodes.map((node) => [node.id(), node]));
     for (const node of nodes) {
-      node.connectedEdges.mockReturnValue(collection(edges));
-      node.closedNeighborhood.mockReturnValue(collection([node, ...edges]));
+      const connected = edges.filter((edge) => (
+        String(edge.data("source")) === node.id() || String(edge.data("target")) === node.id()
+      ));
+      const neighbors = connected.flatMap((edge) => {
+        const otherId = String(edge.data("source")) === node.id()
+          ? String(edge.data("target"))
+          : String(edge.data("source"));
+        const other = nodesById.get(otherId);
+        return other ? [other] : [];
+      });
+      node.connectedEdges.mockReturnValue(collection(connected));
+      node.closedNeighborhood.mockReturnValue(collection([node, ...neighbors, ...connected]));
     }
     let zoomLevel = 1;
     const instance = {
@@ -153,6 +167,7 @@ vi.mock("cytoscape", () => {
           : collection(nodes)
       )),
       edges: vi.fn(() => collection(edges)),
+      getElementById: vi.fn((id: string) => collection(nodes.filter((node) => node.id() === id))),
       on: vi.fn((event: string, selectorOrHandler: unknown, maybeHandler?: (event: MockGraphEvent) => void) => {
         const handler = typeof selectorOrHandler === "function"
           ? selectorOrHandler as (event: MockGraphEvent) => void
@@ -431,6 +446,109 @@ describe("EntityGraphExplorer", () => {
     }));
   });
 
+  it("deriva los tipos de vínculo, agrupa capitalizaciones y los marca todos al cargar", async () => {
+    mocks.graph.mockResolvedValue({
+      ...graphResponse,
+      edges: [
+        ...graphResponse.edges,
+        {
+          id: "edge-3",
+          source: "ib",
+          target: "miguel",
+          role: "socio único",
+          active: true,
+          date: "2025-02-01",
+        },
+        {
+          id: "edge-4",
+          source: "ib",
+          target: "ana",
+          role: "Socio único",
+          active: true,
+          date: "2025-03-01",
+        },
+      ],
+    });
+
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    const roleGroup = await screen.findByRole("group", { name: "Tipos de vínculo" });
+    const roleChecks = within(roleGroup).getAllByRole("checkbox");
+    expect(roleChecks).toHaveLength(3);
+    roleChecks.forEach((checkbox) => expect(checkbox).toBeChecked());
+    expect(
+      within(roleGroup).getByRole("checkbox", { name: /Socio único, 2 vínculos/i }),
+    ).toBeChecked();
+    expect(within(roleGroup).queryAllByText(/socio único/i)).toHaveLength(1);
+  });
+
+  it("compone el filtro por rol con el cronograma sin revivir aristas temporales", async () => {
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    fireEvent.change(screen.getByLabelText("Fecha inicial del cronograma"), {
+      target: { value: "365" },
+    });
+    await waitFor(() => expect(instance.edgesList[1].classes.has("is-time-filtered")).toBe(true));
+
+    const apoderado = screen.getByRole("checkbox", { name: /Apoderado, 1 vínculo/i });
+    fireEvent.click(apoderado);
+    await waitFor(() => expect(instance.edgesList[1].classes.has("is-role-filtered")).toBe(true));
+    fireEvent.click(apoderado);
+
+    await waitFor(() => {
+      expect(instance.edgesList[1].classes.has("is-role-filtered")).toBe(false);
+      expect(instance.edgesList[1].classes.has("is-time-filtered")).toBe(true);
+    });
+    expect(mocks.cytoscapeInstances).toHaveLength(1);
+  });
+
+  it("aísla vecinos directos al seleccionar y restaura al pulsar el mismo nodo", async () => {
+    mocks.graph.mockResolvedValue({
+      ...graphResponse,
+      nodes: [
+        ...graphResponse.nodes,
+        { id: "remote", label: "NODO DE SEGUNDO NIVEL", type: "company", degree: 1 },
+      ],
+      edges: [
+        ...graphResponse.edges,
+        {
+          id: "edge-remote",
+          source: "miguel",
+          target: "remote",
+          role: "Consejero",
+          active: true,
+          date: "2026-06-01",
+        },
+      ],
+    });
+    const clock = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_500);
+
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.tap({ target: instance.nodesList[0] }));
+
+    await waitFor(() => {
+      expect(instance.nodesList[3].classes.has("is-focus-filtered")).toBe(true);
+      expect(instance.edgesList[2].classes.has("is-focus-filtered")).toBe(true);
+    });
+    expect(instance.nodesList[1].classes.has("is-focus-filtered")).toBe(false);
+    expect(instance.fit).toHaveBeenCalled();
+
+    act(() => instance.handlers.tap({ target: instance.nodesList[0] }));
+
+    await waitFor(() => {
+      expect(instance.nodesList[3].classes.has("is-focus-filtered")).toBe(false);
+      expect(instance.edgesList[2].classes.has("is-focus-filtered")).toBe(false);
+    });
+    clock.mockRestore();
+  });
+
   it("arranca con encuadre navegable y controles de zoom visibles", async () => {
     render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
 
@@ -441,8 +559,8 @@ describe("EntityGraphExplorer", () => {
     const instance = mocks.cytoscapeInstances[0];
     expect(instance.options.layout).toMatchObject({
       fit: false,
-      nodeSeparation: 96,
-      idealEdgeLength: 190,
+      nodeSeparation: 156,
+      idealEdgeLength: 250,
       randomize: false,
     });
 
