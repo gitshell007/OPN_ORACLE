@@ -189,7 +189,13 @@ export function EntityDetailDialog({
     setRegistry(null);
     setRegistryError(null);
     setRegistryLoading(true);
-    void api.entityIntel.registry({ name: lookupName, type: kind, limit: 100, offset: 0 })
+    void api.entityIntel.registry({
+      name: lookupName,
+      type: kind,
+      view: "history",
+      limit: 100,
+      offset: 0,
+    })
       .then((result) => {
         if (cancelled) return;
         registryCache.current.set(cacheKey, result);
@@ -207,13 +213,17 @@ export function EntityDetailDialog({
   }, [entity, kind, open]);
 
   if (!entity) return null;
-  const counts = registryStatusCounts(registry?.items ?? [], kind);
+  const localCounts = registryStatusCounts(registry?.items ?? [], kind);
+  const activeRelationships = registry?.summary?.current_relationships ?? localCounts.active;
+  const endedRelationships = registry?.summary?.ended_relationships ?? localCounts.ended;
   const acts = chronologicalActs(registry);
   const groupedActs = actsByYear(acts);
   const profile = registry?.profile;
   const loadedActs = registry?.items.length ?? 0;
-  const totalActs = typeof registry?.total === "number" ? registry.total : loadedActs;
-  const countScope = totalActs > loadedActs && loadedActs > 0
+  const totalActs = typeof registry?.source_total === "number"
+    ? registry.source_total
+    : typeof registry?.total === "number" ? registry.total : loadedActs;
+  const countScope = !registry?.summary && totalActs > loadedActs && loadedActs > 0
     ? ` de los últimos ${loadedActs} actos`
     : "";
 
@@ -299,12 +309,12 @@ export function EntityDetailDialog({
                     </div>
                   ) : null}
                   <div>
-                    <dt>Vínculos activos</dt>
-                    <dd>{registryLoading ? "Cargando..." : `${counts.active}${countScope}`}</dd>
+                    <dt>Cargos actuales</dt>
+                    <dd>{registryLoading ? "Cargando..." : `${activeRelationships}${countScope}`}</dd>
                   </div>
                   <div>
-                    <dt>Ceses detectados</dt>
-                    <dd>{registryLoading ? "Cargando..." : `${counts.ended}${countScope}`}</dd>
+                    <dt>Relaciones cuyo último evento es cese</dt>
+                    <dd>{registryLoading ? "Cargando..." : `${endedRelationships}${countScope}`}</dd>
                   </div>
                   {dates.length ? dates.map(([label, value]) => (
                     <div key={`${label}-${value}`}>
@@ -329,7 +339,7 @@ export function EntityDetailDialog({
                 ) : acts.length ? (
                   <div className="entity-acts-timeline">
                     <p className="entity-section-note">
-                      Mostrando {loadedActs} de {totalActs} actos cargados desde Signal. La ficha no
+                      Mostrando {loadedActs} de {totalActs} eventos de cargos cargados desde Signal. La ficha no
                       sustituye al BORME oficial: Signal no entrega el texto íntegro del acto, solo
                       persona, cargo, acción, fecha, provincia y cita.
                     </p>
@@ -341,8 +351,8 @@ export function EntityDetailDialog({
                             <time dateTime={act.date ?? undefined}>{formatDate(act.date) ?? "Sin fecha"}</time>
                             <dl>
                               <div>
-                                <dt>Persona</dt>
-                                <dd>{act.person ?? "No indicada"}</dd>
+                                <dt>{kind === "person" ? "Empresa" : "Contraparte"}</dt>
+                                <dd>{act.counterpart ?? (kind === "person" ? act.company : act.person) ?? "No indicada"}</dd>
                               </div>
                               <div>
                                 <dt>Cargo</dt>

@@ -37,6 +37,15 @@ describe("EntityDetailDialog", () => {
         { person: "OTRA PERSONA", role: "Consejero", action: "cese", date: "2026-06-01", province: "SEVILLA", source_url: "https://boe.test/2" },
       ],
       total: 75,
+      source_total: 75,
+      summary: {
+        history_events: 75,
+        received_events: 75,
+        history_complete: true,
+        current_relationships: 15,
+        ended_relationships: 50,
+        company_acts: 17,
+      },
       cached_seconds: 600,
       cache_hit: false,
     });
@@ -74,15 +83,19 @@ describe("EntityDetailDialog", () => {
     expect(screen.getByText("16/7/2026")).toBeInTheDocument();
     expect(screen.getByText("3 conexiones")).toBeInTheDocument();
     expect(await screen.findByText("activa")).toBeInTheDocument();
-    expect(screen.getAllByText("1 de los últimos 2 actos")).toHaveLength(2);
+    expect(screen.getByText("Cargos actuales")).toBeInTheDocument();
+    expect(screen.getByText("15")).toBeInTheDocument();
+    expect(screen.getByText("Relaciones cuyo último evento es cese")).toBeInTheDocument();
+    expect(screen.getByText("50")).toBeInTheDocument();
     expect(mocks.registry).toHaveBeenCalledWith({
       name: "IBERDROLA CLIENTES ESPANA SOCIEDAD ANONIMA",
       type: "company",
+      view: "history",
       limit: 100,
       offset: 0,
     });
     expect(await screen.findByText("Cronología BORME")).toBeInTheDocument();
-    expect(screen.getByText(/Mostrando 2 de 75 actos cargados/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 2 de 75 eventos de cargos cargados/i)).toBeInTheDocument();
     expect(screen.getByText("OTRA PERSONA")).toBeInTheDocument();
     expect(screen.getByText("SEVILLA")).toBeInTheDocument();
     expect(screen.getAllByText("Cita BOE")).toHaveLength(2);

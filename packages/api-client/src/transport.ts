@@ -1206,12 +1206,20 @@ const entityIntel = {
     type?: EntityIntelKind;
     limit?: number;
     offset?: number;
+    view?: EntityIntelRegistryView;
+    q?: string;
+    province?: string;
+    sort?: EntityIntelRegistrySort;
   }) => {
     const query = new URLSearchParams({
       name: input.name,
       type: input.type ?? "company",
       limit: String(input.limit ?? 50),
       offset: String(input.offset ?? 0),
+      view: input.view ?? "history",
+      q: input.q ?? "",
+      province: input.province ?? "",
+      sort: input.sort ?? "-date",
     });
     return request<EntityIntelRegistryResponse>(
       `/api/v1/entity-intel/registry?${query.toString()}`,
@@ -1316,6 +1324,16 @@ export type NotificationPreference =
 export type OracleExport = components["schemas"]["ExportResponse"];
 
 export type EntityIntelKind = "company" | "person";
+export type EntityIntelRegistryView = "current" | "history";
+export type EntityIntelRegistrySort =
+  | "date"
+  | "-date"
+  | "counterpart"
+  | "-counterpart"
+  | "role"
+  | "-role"
+  | "province"
+  | "-province";
 
 export interface EntityIntelSuggestResponse {
   kind: EntityIntelKind | string;
@@ -1335,7 +1353,20 @@ export interface EntityIntelRegistryAct {
   source_url?: string | null;
   act_type?: string | null;
   details?: string | null;
+  counterpart?: string | null;
+  counterpart_kind?: EntityIntelKind | null;
+  counterpart_kind_verified?: boolean;
+  relationship_status?: "active" | null;
   [key: string]: unknown;
+}
+
+export interface EntityIntelRegistrySummary {
+  history_events: number;
+  received_events: number;
+  history_complete: boolean;
+  current_relationships: number;
+  ended_relationships: number;
+  company_acts: number | null;
 }
 
 export interface EntityIntelRegistryProfile {
@@ -1355,7 +1386,11 @@ export interface EntityIntelRegistryResponse {
   company_norm?: unknown;
   person_norm?: unknown;
   total?: number | null;
+  source_total?: number | null;
+  view?: EntityIntelRegistryView;
   items: EntityIntelRegistryAct[];
+  available_provinces?: string[];
+  summary?: EntityIntelRegistrySummary | null;
   companies?: unknown[];
   roles?: unknown[];
   profile?: EntityIntelRegistryProfile | null;

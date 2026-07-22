@@ -130,6 +130,51 @@ const dossierResponse = {
   cache_hit: false,
 };
 
+const currentRegistryResponse = {
+  query: "IBERDROLA",
+  view: "current",
+  total: 1,
+  source_total: 3,
+  profile: dossierResponse.sections.registry.data.profile,
+  available_provinces: ["BIZKAIA", "MADRID"],
+  summary: {
+    history_events: 3,
+    received_events: 3,
+    history_complete: true,
+    current_relationships: 1,
+    ended_relationships: 1,
+    company_acts: 3,
+  },
+  items: [
+    {
+      person: "BURGOS CANTO MIGUEL",
+      counterpart: "BURGOS CANTO MIGUEL",
+      counterpart_kind: null,
+      counterpart_kind_verified: false,
+      role: "Administrador",
+      action: "nombramiento",
+      relationship_status: "active",
+      date: "2026-07-01",
+      province: "BIZKAIA",
+      source_url: "https://boe.test/1",
+    },
+  ],
+  cached_seconds: 600,
+  cache_hit: false,
+};
+
+const historyRegistryResponse = {
+  ...currentRegistryResponse,
+  view: "history",
+  total: 3,
+  items: dossierResponse.sections.registry.data.items.map((item) => ({
+    ...item,
+    counterpart: item.person,
+    counterpart_kind: null,
+    counterpart_kind_verified: false,
+  })),
+};
+
 const waitingReportOutput = {
   title: "Informe de entidad en espera",
   executive_summary: "La entidad presenta actividad registral reciente y fuentes citables.",
@@ -170,7 +215,7 @@ describe("EntityDossier", () => {
     vi.clearAllMocks();
     mocks.dossier.mockResolvedValue(dossierResponse);
     mocks.suggest.mockResolvedValue({ suggestions: [], kind: "company", cached_seconds: 600, cache_hit: false });
-    mocks.registry.mockResolvedValue({ items: [], total: 0, cached_seconds: 600, cache_hit: false });
+    mocks.registry.mockResolvedValue(currentRegistryResponse);
     mocks.graph.mockResolvedValue({ nodes: [], edges: [], truncated: false, cached_seconds: 600, cache_hit: false });
     mocks.reports.mockResolvedValue({ data: [] });
     mocks.startReport.mockResolvedValue({
@@ -195,6 +240,10 @@ describe("EntityDossier", () => {
     expect(await screen.findByText("IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA")).toBeInTheDocument();
     expect(screen.getByText("activa")).toBeInTheDocument();
     expect(screen.getByText(/Constitución:/)).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === "3 eventos de cargos")).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === "3 actos societarios")).toBeInTheDocument();
+    expect(screen.getByText("Actos societarios publicados")).toBeInTheDocument();
+    expect(screen.getByText("Eventos de cargos y órganos")).toBeInTheDocument();
     expect(screen.getByText(/Las fechas son de publicación en BORME/i)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Noticias" })).toBeInTheDocument();
   });
@@ -287,40 +336,55 @@ describe("EntityDossier", () => {
     expect(screen.queryByText(/la muestra no es exhaustiva/i)).not.toBeInTheDocument();
   });
 
-  it("diferencia activos y cesados y filtra por activos", async () => {
+  it("separa cargos actuales del histórico sin atribuir estado actual a cada evento", async () => {
+    mocks.registry
+      .mockResolvedValueOnce(currentRegistryResponse)
+      .mockResolvedValueOnce(historyRegistryResponse);
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
 
     expect(screen.getByText("BURGOS CANTO MIGUEL")).toBeInTheDocument();
-    expect(screen.getAllByText("PEREZ LOPEZ ANA")).toHaveLength(2);
-    expect(screen.getAllByText("Cesado")).toHaveLength(2);
-
-    fireEvent.click(screen.getByLabelText("Solo activos"));
-
-    expect(screen.getByText("BURGOS CANTO MIGUEL")).toBeInTheDocument();
     expect(screen.queryByText("PEREZ LOPEZ ANA")).not.toBeInTheDocument();
+    expect(screen.getByText("Actual")).toBeInTheDocument();
+    expect(screen.getByText(/Una fila por contraparte y cargo/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Histórico BORME/i }));
+
+    expect(await screen.findAllByText("PEREZ LOPEZ ANA")).toHaveLength(2);
+    expect(screen.getAllByText("cese")).toHaveLength(1);
+    expect(screen.queryByText("Cesado")).not.toBeInTheDocument();
+    expect(screen.getByText(/no el estado actual de todas las filas anteriores/i)).toBeInTheDocument();
   });
 
-  it("ordena cronológicamente por defecto y permite filtrar la tabla de cargos", async () => {
+  it("envía búsqueda, provincia y orden al backend para aplicarlos a todo el corpus", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
+    await screen.findByText("BURGOS CANTO MIGUEL");
 
-    const rows = await screen.findAllByRole("row");
-    expect(rows[1]).toHaveTextContent("BURGOS CANTO MIGUEL");
-
-    fireEvent.click(screen.getByRole("button", { name: /Publicación BORME, orden descendente/i }));
-    await waitFor(() => {
-      const sortedRows = screen.getAllByRole("row");
-      expect(sortedRows[1]).toHaveTextContent("PEREZ LOPEZ ANA");
-      expect(sortedRows[1]).toHaveTextContent("2019");
+    fireEvent.change(screen.getByLabelText("Buscar en todo el histórico"), {
+      target: { value: "auditor" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar filtros" }));
+    await waitFor(() => expect(mocks.registry).toHaveBeenLastCalledWith(expect.objectContaining({
+      q: "auditor",
+      view: "current",
+      offset: 0,
+    })));
 
-    fireEvent.change(screen.getByLabelText("Filtrar tabla de actos"), { target: { value: "BIZKAIA" } });
+    fireEvent.change(screen.getByLabelText("Provincia"), { target: { value: "MADRID" } });
+    await waitFor(() => expect(mocks.registry).toHaveBeenLastCalledWith(expect.objectContaining({
+      q: "auditor",
+      province: "MADRID",
+      offset: 0,
+    })));
 
-    expect(screen.getByText("BURGOS CANTO MIGUEL")).toBeInTheDocument();
-    expect(screen.queryByText("PEREZ LOPEZ ANA")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Cargo, sin ordenar/i }));
+    await waitFor(() => expect(mocks.registry).toHaveBeenLastCalledWith(expect.objectContaining({
+      sort: "role",
+      offset: 0,
+    })));
   });
 
   it("materializa la entidad de Signal como actor interno al vincularla a un expediente", async () => {
@@ -460,12 +524,21 @@ describe("EntityDossier", () => {
         },
       },
     });
-    mocks.registry.mockResolvedValueOnce({
-      items: [{ person: "SEGUNDA PAGINA", role: "Administrador", action: "nombramiento", date: "2026-01-01" }],
-      total: 75,
-      cached_seconds: 600,
-      cache_hit: false,
-    });
+    mocks.registry
+      .mockResolvedValueOnce({ ...currentRegistryResponse, total: 75 })
+      .mockResolvedValueOnce({
+        ...currentRegistryResponse,
+        items: [{
+          person: "SEGUNDA PAGINA",
+          counterpart: "SEGUNDA PAGINA",
+          counterpart_kind: null,
+          counterpart_kind_verified: false,
+          role: "Administrador",
+          action: "nombramiento",
+          date: "2026-01-01",
+        }],
+        total: 75,
+      });
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
@@ -476,6 +549,10 @@ describe("EntityDossier", () => {
       type: "company",
       limit: 50,
       offset: 50,
+      view: "current",
+      q: "",
+      province: "",
+      sort: "-date",
     }));
     expect(await screen.findByText("SEGUNDA PAGINA")).toBeInTheDocument();
   });

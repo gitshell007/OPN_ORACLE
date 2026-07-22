@@ -4,6 +4,34 @@ Actualizado: 2026-07-22
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Fase 1 de la ficha de entidad: verdad registral estable
+
+- La ficha separa dos universos BORME que antes llamaba indistintamente «actos»: actos societarios
+  de empresa (`profile.total_acts`) y eventos históricos de cargos/órganos (`registry.total`). Los
+  contadores dejan de cambiar al paginar y se etiquetan con su significado completo.
+- `/api/v1/entity-intel/registry` conserva por defecto el histórico compatible, pero admite
+  `view=current|history`, búsqueda, provincia y orden. Oracle recupera el corpus paginado de Signal
+  una vez, con caché tenant-scoped de 10 minutos, calcula el último evento por contraparte+cargo y
+  solo después filtra y pagina. Si supera el límite de seguridad de 10.000 eventos lo declara como
+  cobertura parcial; no presenta el agregado como completo.
+- «Cargos actuales» muestra una fila por relación cuyo último evento no es un cese. «Histórico
+  BORME» muestra publicaciones, no estados: un nombramiento antiguo ya no hereda la etiqueta
+  «Activo» de la relación actual.
+- Signal no clasifica si el campo `person` de una consulta de empresa contiene una persona física o
+  una firma (caso productivo ERNST & YOUNG SL). Oracle deja esa contraparte sin enlace en lugar de
+  inventar `/person/...`; en consultas de persona, la contraparte `company` sí se enlaza como
+  empresa por contrato.
+- OpenAPI y el cliente TypeScript quedan regenerados. No hay migraciones, variables nuevas ni
+  cambios en el grafo o en la jerarquía general de la ficha, reservados para las fases siguientes.
+- Gates finales: suite backend unitaria, Ruff lint/formato y mypy correctos; suite backend completa
+  con PostgreSQL/Redis reales en 521 tests correctos y cobertura 84,06 %; lint, tipos, 174 tests
+  Vitest y build frontend correctos. ESLint conserva únicamente el aviso conocido de TanStack
+  Table en `dossier-context-panel.tsx:159`.
+- Smoke local autenticado sobre la ruta de ITURRI: la ficha, los contadores diferenciados, la
+  pestaña registral, sus dos vistas y sus filtros cargan sin romper la página. El entorno E2E no
+  tiene credenciales de Signal y mostró el error explícito previsto; los 65 actos reales y la
+  clasificación completa de ITURRI quedan pendientes de verificación post-despliegue en producción.
+
 ## Protecciones de E2E y botones de mutación
 
 - La suite Playwright autenticada se mantiene y queda conectada a CI como job `frontend-e2e`, con

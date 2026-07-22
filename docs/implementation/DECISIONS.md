@@ -812,6 +812,26 @@ deberá versionarse un flujo de copia/materialización separado.
   nativos. Las nuevas mutaciones deben pasar por la puerta hidratada o ampliar deliberadamente el
   invariante si aparece un patrón legítimo no cubierto.
 
+## D-052 — Eventos BORME separados de estado registral y actos societarios
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** la ficha de ITURRI SA mostraba 81 «actos» en cabecera y 17 «Actos publicados» en
+  Perfil porque mezclaba eventos persona+cargo con actos societarios. Además, calculaba activos y
+  ceses sobre la página visible, repetía filas al pasar de los 81 elementos incrustados en dossier
+  a la API paginada y marcaba todos los nombramientos históricos con el estado actual de su
+  relación. Signal tampoco distingue si `person` es persona física o sociedad auditora.
+- **Decisión:** tratar cada fila de `registry` como evento histórico inmutable; derivar el estado de
+  la relación exclusivamente del evento más reciente para la clave normalizada
+  contraparte+cargo; calcular el agregado sobre todo el corpus recibido antes de filtrar/paginar;
+  separar explícitamente `history_events` de `company_acts`; y enlazar una contraparte solo cuando
+  su tipo venga demostrado por el contrato. La cobertura incompleta se expone y no se oculta.
+- **Consecuencias:** paginar o filtrar ya no cambia los contadores, el histórico deja de afirmar
+  estados falsos y la primera página comparte el mismo origen que las siguientes. Oracle realiza
+  varias lecturas upstream solo cuando una entidad supera 1.000 eventos, con tope de 10.000 y caché
+  de 10 minutos. Para recuperar enlaces de personas/firmas en consultas de empresa, Signal deberá
+  añadir un discriminador de contraparte; Oracle no lo inferirá por sufijos del nombre.
+
 ## D-042 — Codex commitea siempre, y solo sus ficheros
 
 - **Estado:** accepted

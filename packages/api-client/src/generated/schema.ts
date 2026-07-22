@@ -10184,6 +10184,10 @@ export interface paths {
                     type?: "company" | "person";
                     limit?: number;
                     offset?: number;
+                    view?: "current" | "history";
+                    q?: string;
+                    province?: string;
+                    sort?: "date" | "-date" | "counterpart" | "-counterpart" | "role" | "-role" | "province" | "-province";
                 };
                 header?: never;
                 path?: never;
@@ -25412,6 +25416,7 @@ export interface components {
             truncated: boolean;
         };
         EntityRegistryResponse: {
+            available_provinces?: string[];
             cache_hit: boolean;
             cached_seconds: number;
             companies?: unknown[];
@@ -25425,7 +25430,12 @@ export interface components {
             } | null;
             query?: unknown;
             roles?: unknown[];
+            source_total?: number | null;
+            summary?: {
+                [key: string]: unknown;
+            } | null;
             total?: number | null;
+            view?: string | null;
         };
         EntityReportIncorporate: {
             dossier_id: string;

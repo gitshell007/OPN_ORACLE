@@ -17,9 +17,11 @@ from opn_oracle.integrations.entity_intel import (
     EntityIntelClient,
     EntityIntelConfigurationError,
     EntityIntelProviderError,
+    build_registry_view,
     cached_dossier,
     cached_graph,
     cached_registry,
+    cached_registry_view,
     cached_suggest,
     entity_intel_client_from_config,
     person_name_variants,
@@ -334,6 +336,141 @@ def test_entity_intel_registry_calls_signal_without_tenant_and_preserves_profile
 
 
 @pytest.mark.unit
+def test_registry_view_separates_current_relationships_from_historical_events() -> None:
+    payload = {
+        "total": 5,
+        "profile": {"total_acts": 17},
+        "items": [
+            {
+                "person": "ERNST & YOUNG SL",
+                "role": "Auditor",
+                "action": "cese",
+                "date": "2026-04-06",
+                "province": "SEVILLA",
+            },
+            {
+                "person": "ANA PÉREZ",
+                "role": "Consejera",
+                "action": "nombramiento",
+                "date": "2025-01-02",
+                "province": "MADRID",
+            },
+            {
+                "person": "ERNST & YOUNG SL",
+                "role": "Auditor",
+                "action": "nombramiento",
+                "date": "2024-01-01",
+                "province": "SEVILLA",
+            },
+            {
+                "person": "ANA PÉREZ",
+                "role": "Consejera",
+                "action": "cese",
+                "date": "2023-01-01",
+                "province": "MADRID",
+            },
+            {
+                "person": "ANA PÉREZ",
+                "role": "Consejera",
+                "action": "nombramiento",
+                "date": "2020-01-01",
+                "province": "MADRID",
+            },
+        ],
+    }
+
+    current = build_registry_view(
+        payload,
+        kind="company",
+        view="current",
+        limit=50,
+        offset=0,
+    )
+    history = build_registry_view(
+        payload,
+        kind="company",
+        view="history",
+        limit=2,
+        offset=2,
+        query="ernst",
+    )
+
+    assert [item["counterpart"] for item in current["items"]] == ["ANA PÉREZ"]
+    assert current["items"][0]["relationship_status"] == "active"
+    assert current["items"][0]["counterpart_kind"] is None
+    assert current["items"][0]["counterpart_kind_verified"] is False
+    assert current["summary"] == {
+        "history_events": 5,
+        "received_events": 5,
+        "history_complete": True,
+        "current_relationships": 1,
+        "ended_relationships": 1,
+        "company_acts": 17,
+    }
+    assert history["total"] == 2
+    assert history["items"] == []
+    assert history["source_total"] == 5
+
+
+@pytest.mark.unit
+def test_cached_registry_view_fetches_complete_corpus_once_before_paging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PagingClient:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+            self.closed = 0
+
+        def registry(self, *, name: str, kind: str, limit: int, offset: int) -> dict[str, Any]:
+            del name, kind, limit
+            self.calls.append(offset)
+            items = [
+                {
+                    "person": f"PERSONA {index:04d}",
+                    "role": "Consejera",
+                    "action": "nombramiento",
+                    "date": f"2026-01-{(index % 28) + 1:02d}",
+                }
+                for index in range(offset, min(offset + 1000, 1001))
+            ]
+            return {"total": 1001, "items": items, "profile": {"total_acts": 3}}
+
+        def close(self) -> None:
+            self.closed += 1
+
+    client = PagingClient()
+    monkeypatch.setattr(entity_intel, "_CACHE", EntityIntelCache(ttl_seconds=60))
+    monkeypatch.setattr(entity_intel, "entity_intel_client_from_config", lambda: client)
+
+    first = cached_registry_view(
+        tenant_id="tenant",
+        name="ITURRI SA",
+        kind="company",
+        view="history",
+        limit=50,
+        offset=0,
+    )
+    second = cached_registry_view(
+        tenant_id="tenant",
+        name="ITURRI SA",
+        kind="company",
+        view="history",
+        limit=50,
+        offset=50,
+    )
+
+    assert client.calls == [0, 1000]
+    assert client.closed == 1
+    assert len(first["items"]) == len(second["items"]) == 50
+    assert {item["counterpart"] for item in first["items"]}.isdisjoint(
+        {item["counterpart"] for item in second["items"]}
+    )
+    assert first["summary"]["history_complete"] is True
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+
+
+@pytest.mark.unit
 def test_entity_intel_dossier_sends_external_tenant_and_accepts_degraded_sections() -> None:
     seen: dict[str, Any] = {}
 
@@ -455,6 +592,58 @@ def test_entity_intel_authenticated_invalid_queries_still_validate(
     assert response.status_code == 422
     assert "errors" in payload
     assert field in str(payload["errors"])
+
+
+@pytest.mark.unit
+def test_entity_intel_registry_http_dispatch_forwards_global_view_controls(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_registry_view(**kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {
+            "query": "ITURRI SA",
+            "view": "history",
+            "total": 1,
+            "source_total": 81,
+            "items": [],
+            "available_provinces": ["SEVILLA"],
+            "summary": {
+                "history_events": 81,
+                "received_events": 81,
+                "history_complete": True,
+                "current_relationships": 15,
+                "ended_relationships": 50,
+                "company_acts": 17,
+            },
+            "cached_seconds": 600,
+            "cache_hit": False,
+        }
+
+    monkeypatch.setattr(entity_intel_routes, "cached_registry_view", fake_registry_view)
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.read"})):
+        response = client.get(
+            "/api/v1/entity-intel/registry"
+            "?name=ITURRI%20SA&type=company&view=history&limit=25&offset=50"
+            "&q=auditor&province=SEVILLA&sort=role"
+        )
+
+    assert response.status_code == 200
+    assert response.get_json()["summary"]["history_events"] == 81
+    assert uuid.UUID(seen.pop("tenant_id"))
+    assert seen == {
+        "name": "ITURRI SA",
+        "kind": "company",
+        "view": "history",
+        "limit": 25,
+        "offset": 50,
+        "query": "auditor",
+        "province": "SEVILLA",
+        "sort": "role",
+    }
 
 
 @pytest.mark.unit

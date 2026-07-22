@@ -26,7 +26,7 @@ from opn_oracle.integrations.entity_intel import (
     EntityIntelProviderError,
     cached_dossier,
     cached_graph,
-    cached_registry,
+    cached_registry_view,
     cached_suggest,
     resolve_signal_external_tenant_id,
 )
@@ -87,6 +87,24 @@ class EntityRegistryQuerySchema(Schema):
     type = String(load_default="company", validate=validate.OneOf(["company", "person"]))
     limit = Integer(load_default=50, validate=validate.Range(min=1, max=200))
     offset = Integer(load_default=0, validate=validate.Range(min=0, max=10000))
+    view = String(load_default="history", validate=validate.OneOf(["current", "history"]))
+    q = String(load_default="", validate=validate.Length(max=200))
+    province = String(load_default="", validate=validate.Length(max=120))
+    sort = String(
+        load_default="-date",
+        validate=validate.OneOf(
+            [
+                "date",
+                "-date",
+                "counterpart",
+                "-counterpart",
+                "role",
+                "-role",
+                "province",
+                "-province",
+            ]
+        ),
+    )
 
 
 class EntityRegistryResponseSchema(Schema):
@@ -94,7 +112,11 @@ class EntityRegistryResponseSchema(Schema):
     company_norm = Raw(required=False, allow_none=True)
     person_norm = Raw(required=False, allow_none=True)
     total = Integer(required=False, allow_none=True)
+    source_total = Integer(required=False, allow_none=True)
+    view = String(required=False, allow_none=True)
     items = List(Dict(keys=String(), values=Raw()), required=True)
+    available_provinces = List(String(), required=False)
+    summary = Dict(keys=String(), values=Raw(), required=False, allow_none=True)
     companies = List(Raw(), required=False)
     roles = List(Raw(), required=False)
     profile = Dict(keys=String(), values=Raw(), required=False, allow_none=True)
@@ -223,12 +245,16 @@ def entity_graph(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 def entity_registry(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
     try:
-        return cached_registry(
+        return cached_registry_view(
             tenant_id=tenant_id,
             name=cast(str, query_data["name"]).strip(),
             kind=cast(Any, query_data["type"]),
+            view=cast(Any, query_data["view"]),
             limit=int(query_data["limit"]),
             offset=int(query_data["offset"]),
+            query=cast(str, query_data["q"]).strip(),
+            province=cast(str, query_data["province"]).strip(),
+            sort=cast(str, query_data["sort"]),
         )
     except EntityIntelConfigurationError as exc:
         return _configuration_error_response(exc)

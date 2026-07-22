@@ -22,6 +22,8 @@ import {
   type EntityIntelRegistryAct,
   type EntityIntelRegistryProfile,
   type EntityIntelRegistryResponse,
+  type EntityIntelRegistrySort,
+  type EntityIntelRegistryView,
 } from "@oracle/api-client";
 import { Bot, Building2, ExternalLink, FileText, Link2, RefreshCw, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -30,13 +32,7 @@ import { JobProgress } from "@/components/reporting/job-progress";
 import { ReportNarrativeSection } from "@/components/reporting/report-narrative-section";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
-import {
-  latestRegistryStatuses,
-  registryActDedupeKey,
-  registryCounterpartLabel,
-  registryStatusCounts,
-  registryStatusKey,
-} from "./registry-status";
+import { registryCounterpartLabel } from "./registry-status";
 
 const KIND_LABELS: Record<EntityIntelKind, string> = {
   company: "Empresa",
@@ -50,16 +46,12 @@ type ActorType = NonNullable<DossierActorWriteInput["actor_type"]>;
 interface EntityActRow {
   id: string;
   counterpart: string;
-  counterpartKind: EntityIntelKind;
+  counterpartKind: EntityIntelKind | null;
   role: string;
   action: string;
-  active: boolean;
-  status: string;
-  dateValue: number;
   dateLabel: string;
   province: string;
   sourceUrl: string | null;
-  searchText: string;
 }
 
 interface SimpleItemRow {
@@ -102,10 +94,6 @@ function sectionError(dossier: EntityIntelDossierResponse | null, key: string): 
 
 function registryProfile(registry: EntityIntelRegistryResponse | null): EntityIntelRegistryProfile | null {
   return registry?.profile ?? null;
-}
-
-function counterpartKind(kind: EntityIntelKind): EntityIntelKind {
-  return kind === "company" ? "person" : "company";
 }
 
 function registryWithDefaults(data: unknown): EntityIntelRegistryResponse {
@@ -160,12 +148,6 @@ function normalizeForSearch(value: unknown): string {
     .toLocaleLowerCase("es-ES");
 }
 
-function sortableDate(value: unknown): number {
-  if (typeof value !== "string" || !value.trim()) return 0;
-  const timestamp = new Date(value).getTime();
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
 function sourceLink(url: unknown, label = "Fuente") {
   if (typeof url !== "string" || !url.trim()) return <span>Sin enlace</span>;
   return (
@@ -206,9 +188,11 @@ function signalIdentifiers(profile: EntityIntelRegistryProfile | null): Record<s
 export function EntityDossier({ name, type }: { name: string; type: EntityIntelKind }) {
   const [dossier, setDossier] = useState<EntityIntelDossierResponse | null>(null);
   const [registryPage, setRegistryPage] = useState<EntityIntelRegistryResponse | null>(null);
-  const [registryHistory, setRegistryHistory] = useState<EntityIntelRegistryAct[]>([]);
   const [offset, setOffset] = useState(0);
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [registryView, setRegistryView] = useState<EntityIntelRegistryView>("current");
+  const [registrySort, setRegistrySort] = useState<EntityIntelRegistrySort>("-date");
+  const [registryQueryInput, setRegistryQueryInput] = useState("");
+  const [registryQuery, setRegistryQuery] = useState("");
   const [province, setProvince] = useState("");
   const [loading, setLoading] = useState(true);
   const [registryLoading, setRegistryLoading] = useState(false);
@@ -219,13 +203,39 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   const loadDossier = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setRegistryError(null);
     try {
-      const result = await api.entityIntel.dossier({ name, type });
+      const [dossierResult, registryResult] = await Promise.allSettled([
+        api.entityIntel.dossier({ name, type }),
+        api.entityIntel.registry({
+          name,
+          type,
+          view: "current",
+          limit: REGISTRY_PAGE_SIZE,
+          offset: 0,
+          sort: "-date",
+        }),
+      ]);
+      if (dossierResult.status === "rejected") throw dossierResult.reason;
+      const result = dossierResult.value;
       setDossier(result);
-      const registry = sectionData<EntityIntelRegistryResponse>(result, "registry");
-      const normalizedRegistry = registry ? registryWithDefaults(registry) : null;
-      setRegistryPage(normalizedRegistry);
-      setRegistryHistory(normalizedRegistry?.items ?? []);
+      if (registryResult.status === "fulfilled") {
+        setRegistryPage(registryResult.value);
+        setRegistryView("current");
+      } else {
+        const fallback = sectionData<EntityIntelRegistryResponse>(result, "registry");
+        setRegistryPage(fallback ? registryWithDefaults(fallback) : null);
+        setRegistryView("history");
+        setRegistryError(problemMessage(
+          registryResult.reason,
+          "No se pudo calcular la vista completa de cargos. Se muestra el histórico recibido con la ficha.",
+        ));
+      }
+      setRegistrySort("-date");
+      setRegistryQueryInput("");
+      setRegistryQuery("");
+      setProvince("");
+      setOffset(0);
     } catch (reason) {
       setDossier(null);
       setRegistryPage(null);
@@ -245,15 +255,19 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     };
   }, [loadDossier]);
 
-  const loadRegistryPage = useCallback(async (nextOffset: number) => {
-    if (nextOffset === 0) {
-      const registry = sectionData<EntityIntelRegistryResponse>(dossier, "registry");
-      const normalizedRegistry = registry ? registryWithDefaults(registry) : null;
-      setRegistryPage(normalizedRegistry);
-      setRegistryHistory(normalizedRegistry?.items ?? []);
-      setOffset(0);
-      return;
-    }
+  const loadRegistryPage = useCallback(async (
+    nextOffset: number,
+    options: {
+      view?: EntityIntelRegistryView;
+      query?: string;
+      province?: string;
+      sort?: EntityIntelRegistrySort;
+    } = {},
+  ) => {
+    const nextView = options.view ?? registryView;
+    const nextQuery = options.query ?? registryQuery;
+    const nextProvince = options.province ?? province;
+    const nextSort = options.sort ?? registrySort;
     setRegistryLoading(true);
     setRegistryError(null);
     try {
@@ -262,52 +276,40 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
         type,
         limit: REGISTRY_PAGE_SIZE,
         offset: nextOffset,
+        view: nextView,
+        q: nextQuery,
+        province: nextProvince,
+        sort: nextSort,
       });
       setRegistryPage(result);
-      setRegistryHistory((current) => {
-        const seen = new Set(
-          current.map((item) => registryActDedupeKey(type, item)),
-        );
-        return [
-          ...current,
-          ...result.items.filter((item) => {
-            const key = registryActDedupeKey(type, item);
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          }),
-        ];
-      });
+      setRegistryView(nextView);
+      setRegistryQuery(nextQuery);
+      setProvince(nextProvince);
+      setRegistrySort(nextSort);
       setOffset(nextOffset);
     } catch (reason) {
       setRegistryError(problemMessage(reason, "No se pudo cargar esta página del histórico."));
     } finally {
       setRegistryLoading(false);
     }
-  }, [dossier, name, type]);
+  }, [name, province, registryQuery, registrySort, registryView, type]);
 
   const registry = useMemo(
     () => registryPage ?? registryWithDefaults(sectionData<EntityIntelRegistryResponse>(dossier, "registry")),
     [dossier, registryPage],
   );
   const profile = registryProfile(registry);
-  const counts = registryStatusCounts(registry.items, type);
+  const summary = registry.summary;
+  const historyEvents = summary?.history_events ?? registry.source_total ?? registry.total ?? 0;
+  const currentRelationships = summary?.current_relationships ?? null;
+  const endedRelationships = summary?.ended_relationships ?? null;
+  const companyActs = summary?.company_acts ?? profile?.total_acts ?? null;
   const provinces = useMemo(() => {
+    if (Array.isArray(registry.available_provinces)) return registry.available_provinces;
     const fromProfile = Array.isArray(profile?.provinces) ? profile.provinces : [];
     const fromItems = registry.items.map((item) => item.province).filter((value): value is string => Boolean(value));
     return Array.from(new Set([...fromProfile, ...fromItems])).sort((a, b) => a.localeCompare(b, "es"));
-  }, [profile, registry.items]);
-  const statuses = useMemo(
-    () => latestRegistryStatuses(registryHistory.length ? registryHistory : registry.items, type),
-    [registry.items, registryHistory, type],
-  );
-  const filteredItems = registry.items.filter((item) => {
-    const key = registryStatusKey(type, item);
-    const isActive = statuses.get(key)?.action !== "cese";
-    if (activeOnly && !isActive) return false;
-    if (province && item.province !== province) return false;
-    return true;
-  });
+  }, [profile, registry.available_provinces, registry.items]);
   const graph = sectionData<EntityIntelGraphResponse>(dossier, "graph");
   const disclosures = listItems(sectionData(dossier, "disclosures"));
   const patentData = sectionData<Record<string, unknown>>(dossier, "patents");
@@ -322,6 +324,26 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     : profile?.first_act_date
       ? { label: "Primer acto BORME publicado", value: formatDate(profile.first_act_date) }
       : null;
+
+  function applyRegistryQuery(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void loadRegistryPage(0, { query: registryQueryInput.trim() });
+  }
+
+  function changeRegistryView(nextView: EntityIntelRegistryView) {
+    if (nextView === registryView) return;
+    void loadRegistryPage(0, { view: nextView });
+  }
+
+  function changeRegistrySort(field: "date" | "counterpart" | "role" | "province") {
+    const currentField = registrySort.replace(/^-/, "");
+    const nextSort = (
+      currentField === field
+        ? registrySort.startsWith("-") ? field : `-${field}`
+        : field === "date" ? "-date" : field
+    ) as EntityIntelRegistrySort;
+    void loadRegistryPage(0, { sort: nextSort });
+  }
 
   return (
     <div className="entity-intel-page entity-dossier">
@@ -359,7 +381,8 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
             {constitution.label}: <strong>{constitution.value}</strong>
           </span>
         )}
-        <span>{registry.total ?? registry.items.length} actos</span>
+        <span><strong>{historyEvents}</strong> eventos de cargos</span>
+        {companyActs !== null && <span><strong>{companyActs}</strong> actos societarios</span>}
         {provinces.length > 0 && <span>{provinces.join(", ")}</span>}
       </section>
 
@@ -387,9 +410,10 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
                   <dl>
                     <div><dt>Nombre consultado</dt><dd>{name}</dd></div>
                     <div><dt>Tipo</dt><dd>{KIND_LABELS[type]}</dd></div>
-                    <div><dt>Actos publicados</dt><dd>{profile?.total_acts ?? registry.total ?? registry.items.length}</dd></div>
-                    <div><dt>Vínculos activos</dt><dd>{counts.active}</dd></div>
-                    <div><dt>Ceses</dt><dd>{counts.ended}</dd></div>
+                    <div><dt>Actos societarios publicados</dt><dd>{companyActs ?? "Sin dato"}</dd></div>
+                    <div><dt>Eventos de cargos y órganos</dt><dd>{historyEvents}</dd></div>
+                    <div><dt>Cargos actuales</dt><dd>{currentRelationships ?? "Sin dato"}</dd></div>
+                    <div><dt>Relaciones cuyo último evento es cese</dt><dd>{endedRelationships ?? "Sin dato"}</dd></div>
                   </dl>
                 </section>
                 <section>
@@ -404,36 +428,86 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
                   <h2>Límites de la fuente</h2>
                   <p>Las fechas son de publicación en BORME. La fuente recoge cargos y socio único; no incluye capital social ni porcentajes. Los homónimos no están desambiguados automáticamente.</p>
                 </section>
-                {Array.isArray(profile?.acts) && profile.acts.length > 0 && (
-                  <section className="entity-wide">
-                    <h2>Actos societarios</h2>
-                    <EntityActsTable items={profile.acts} type={type} statuses={statuses} />
-                  </section>
-                )}
               </div>
             )}
           </Tabs.Content>
 
           <Tabs.Content value="registry" className="entity-tab-panel">
             {registryError && <div className="inline-error">{registryError}</div>}
-            <div className="entity-table-toolbar">
+            <div className="entity-registry-view-switch" role="tablist" aria-label="Vista registral">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={registryView === "current"}
+                className={registryView === "current" ? "is-active" : ""}
+                onClick={() => changeRegistryView("current")}
+              >
+                Cargos actuales <span>{currentRelationships ?? "—"}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={registryView === "history"}
+                className={registryView === "history" ? "is-active" : ""}
+                onClick={() => changeRegistryView("history")}
+              >
+                Histórico BORME <span>{historyEvents}</span>
+              </button>
+            </div>
+            <p className="entity-registry-explanation">
+              {registryView === "current"
+                ? "Una fila por contraparte y cargo. El estado se obtiene del evento BORME más reciente de toda la serie disponible."
+                : "Cada fila es una publicación histórica. Nombramiento y cese describen ese evento; no el estado actual de todas las filas anteriores."}
+            </p>
+            {summary?.history_complete === false && (
+              <div className="inline-warning" role="note">
+                Signal informa de {summary.history_events} eventos, pero Oracle solo recibió {summary.received_events}.
+                Los agregados de relaciones son parciales.
+              </div>
+            )}
+            <form className="entity-table-toolbar" onSubmit={applyRegistryQuery}>
               <label>
+                Buscar en todo el histórico
                 <input
-                  type="checkbox"
-                  checked={activeOnly}
-                  onChange={(event) => setActiveOnly(event.target.checked)}
+                  type="search"
+                  value={registryQueryInput}
+                  onChange={(event) => setRegistryQueryInput(event.target.value)}
+                  placeholder="Contraparte, cargo, acción…"
                 />
-                Solo activos
               </label>
               <label>
                 Provincia
-                <select value={province} onChange={(event) => setProvince(event.target.value)}>
+                <select
+                  value={province}
+                  onChange={(event) => void loadRegistryPage(0, { province: event.target.value })}
+                >
                   <option value="">Todas</option>
                   {provinces.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
-            </div>
-            <EntityActsTable items={filteredItems} type={type} statuses={statuses} />
+              <button className="vector-secondary" type="submit" disabled={registryLoading}>
+                Aplicar filtros
+              </button>
+              {(registryQuery || province) && (
+                <button
+                  className="vector-ghost"
+                  type="button"
+                  onClick={() => {
+                    setRegistryQueryInput("");
+                    void loadRegistryPage(0, { query: "", province: "" });
+                  }}
+                >
+                  Limpiar
+                </button>
+              )}
+            </form>
+            <EntityActsTable
+              items={registry.items}
+              type={type}
+              view={registryView}
+              sort={registrySort}
+              onSort={changeRegistrySort}
+            />
             {(registry.total ?? 0) > REGISTRY_PAGE_SIZE && (
               <div className="entity-pagination">
                 <button
@@ -443,7 +517,9 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
                 >
                   Anterior
                 </button>
-                <span>{offset + 1}-{Math.min(offset + REGISTRY_PAGE_SIZE, registry.total ?? 0)} de {registry.total}</span>
+                <span>
+                  {offset + 1}-{Math.min(offset + registry.items.length, registry.total ?? 0)} de {registry.total}
+                </span>
                 <button
                   className="vector-secondary"
                   disabled={offset + REGISTRY_PAGE_SIZE >= (registry.total ?? 0) || registryLoading}
@@ -1117,18 +1193,24 @@ function EntityReportWaitingPreview({
 function EntityActsTable({
   items,
   type,
-  statuses,
+  view,
+  sort,
+  onSort,
 }: {
   items: EntityIntelRegistryAct[];
   type: EntityIntelKind;
-  statuses: ReturnType<typeof latestRegistryStatuses>;
+  view: EntityIntelRegistryView;
+  sort: EntityIntelRegistrySort;
+  onSort: (field: "date" | "counterpart" | "role" | "province") => void;
 }) {
-  const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
-  const [globalFilter, setGlobalFilter] = useState("");
   const rows = useMemo<EntityActRow[]>(() => items.map((item, index) => {
-    const counterpart = registryCounterpartLabel(type, item);
-    const key = registryStatusKey(type, item);
-    const active = statuses.get(key)?.action !== "cese";
+    const counterpart = typeof item.counterpart === "string" && item.counterpart.trim()
+      ? item.counterpart.trim()
+      : registryCounterpartLabel(type, item);
+    const counterpartKind = item.counterpart_kind_verified
+      && (item.counterpart_kind === "company" || item.counterpart_kind === "person")
+      ? item.counterpart_kind
+      : null;
     const role = item.role ?? item.act_type ?? "Sin cargo";
     const action = item.action ?? "acto";
     const province = item.province ?? "Sin dato";
@@ -1137,127 +1219,109 @@ function EntityActsTable({
     return {
       id: `${sourceUrl ?? counterpart}-${index}`,
       counterpart,
-      counterpartKind: counterpartKind(type),
+      counterpartKind,
       role,
       action,
-      active,
-      status: active ? "Activo" : "Cesado",
-      dateValue: sortableDate(item.date),
       dateLabel,
       province,
       sourceUrl,
-      searchText: normalizeForSearch(`${counterpart} ${role} ${action} ${active ? "Activo" : "Cesado"} ${dateLabel} ${province}`),
     };
-  }), [items, statuses, type]);
-  const columns = useMemo<ColumnDef<EntityActRow>[]>(() => [
-    {
-      id: "counterpart",
-      accessorKey: "counterpart",
-      header: type === "company" ? "Persona" : "Empresa",
-      cell: ({ row }) => (
-        <a href={entityRoute(row.original.counterpartKind, row.original.counterpart)}>
-          {row.original.counterpart}
-        </a>
-      ),
-    },
-    { id: "role", accessorKey: "role", header: "Cargo" },
-    { id: "action", accessorKey: "action", header: "Acción" },
-    {
-      id: "status",
-      accessorKey: "status",
-      header: "Estado",
-      cell: ({ row }) => (
-        <span className={`entity-state ${row.original.active ? "active" : "ended"}`}>
-          {row.original.status}
-        </span>
-      ),
-    },
-    {
-      id: "date",
-      accessorKey: "dateValue",
-      header: "Publicación BORME",
-      cell: ({ row }) => row.original.dateLabel,
-    },
-    { id: "province", accessorKey: "province", header: "Provincia" },
-    {
-      id: "source",
-      accessorKey: "sourceUrl",
-      header: "Fuente",
-      enableSorting: false,
-      cell: ({ row }) => sourceLink(row.original.sourceUrl, "BORME"),
-    },
-  ], [type]);
-  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table es el patrón canónico de datatables del proyecto.
-  const table = useReactTable({
-    data: rows,
-    columns,
-    state: { sorting, globalFilter },
-    onSortingChange: setSorting,
-    onGlobalFilterChange: setGlobalFilter,
-    globalFilterFn: (row, _columnId, filterValue) =>
-      row.original.searchText.includes(normalizeForSearch(filterValue)),
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
-  const visibleRows = table.getRowModel().rows;
+  }), [items, type]);
+
+  function serverSortLabel(field: "date" | "counterpart" | "role" | "province") {
+    if (sort.replace(/^-/, "") !== field) return "";
+    return sort.startsWith("-") ? " ↓" : " ↑";
+  }
+
+  function serverSortAria(label: string, field: "date" | "counterpart" | "role" | "province") {
+    if (sort.replace(/^-/, "") !== field) return `${label}, sin ordenar`;
+    return `${label}, orden ${sort.startsWith("-") ? "descendente" : "ascendente"}`;
+  }
 
   if (items.length === 0) {
-    return <div className="global-inventory-state">Sin actos registrales para estos filtros.</div>;
+    return (
+      <div className="global-inventory-state">
+        {view === "current"
+          ? "No hay cargos actuales para estos filtros."
+          : "No hay eventos BORME para estos filtros."}
+      </div>
+    );
   }
   return (
-    <>
-      <div className="entity-table-toolbar compact">
-        <label>
-          Filtrar tabla
-          <input
-            value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
-            placeholder="Persona, cargo, provincia…"
-            aria-label="Filtrar tabla de actos"
-          />
-        </label>
-        <span>{visibleRows.length} de {rows.length} filas</span>
-      </div>
-      <div className="entity-table-wrap">
-        <table className="entity-acts-table">
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th key={header.id}>
-                    {header.column.getCanSort() ? (
-                      <button
-                        type="button"
-                        className="entity-sort-button"
-                        onClick={header.column.getToggleSortingHandler()}
-                        aria-label={sortButtonLabel(String(header.column.columnDef.header), header.column.getIsSorted())}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {sortLabel(header.column.getIsSorted())}
-                      </button>
-                    ) : (
-                      flexRender(header.column.columnDef.header, header.getContext())
-                    )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {visibleRows.length ? visibleRows.map((row) => (
-              <tr key={row.original.id} className={row.original.active ? "is-active" : "is-ended"}>
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                ))}
-              </tr>
-            )) : (
-              <tr><td colSpan={columns.length}>Sin coincidencias para el filtro.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </>
+    <div className="entity-table-wrap" aria-busy={false}>
+      <table className="entity-acts-table">
+        <thead>
+          <tr>
+            <th>
+              <button
+                type="button"
+                className="entity-sort-button"
+                onClick={() => onSort("counterpart")}
+                aria-label={serverSortAria(type === "person" ? "Empresa" : "Contraparte", "counterpart")}
+              >
+                {type === "person" ? "Empresa" : "Contraparte"}{serverSortLabel("counterpart")}
+              </button>
+            </th>
+            <th>
+              <button
+                type="button"
+                className="entity-sort-button"
+                onClick={() => onSort("role")}
+                aria-label={serverSortAria("Cargo", "role")}
+              >
+                Cargo{serverSortLabel("role")}
+              </button>
+            </th>
+            {view === "history" && <th>Evento</th>}
+            {view === "current" && <th>Estado</th>}
+            <th>
+              <button
+                type="button"
+                className="entity-sort-button"
+                onClick={() => onSort("date")}
+                aria-label={serverSortAria("Publicación BORME", "date")}
+              >
+                Publicación BORME{serverSortLabel("date")}
+              </button>
+            </th>
+            <th>
+              <button
+                type="button"
+                className="entity-sort-button"
+                onClick={() => onSort("province")}
+                aria-label={serverSortAria("Provincia", "province")}
+              >
+                Provincia{serverSortLabel("province")}
+              </button>
+            </th>
+            <th>Fuente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} className={view === "history" && row.action === "cese" ? "is-ended" : "is-active"}>
+              <td>
+                {row.counterpartKind ? (
+                  <a href={entityRoute(row.counterpartKind, row.counterpart)}>{row.counterpart}</a>
+                ) : (
+                  <span title="Signal no clasifica esta contraparte como persona o empresa">
+                    {row.counterpart}
+                  </span>
+                )}
+              </td>
+              <td>{row.role}</td>
+              {view === "history" && <td>{row.action}</td>}
+              {view === "current" && (
+                <td><span className="entity-state active">Actual</span></td>
+              )}
+              <td>{row.dateLabel}</td>
+              <td>{row.province}</td>
+              <td>{sourceLink(row.sourceUrl, "BORME")}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

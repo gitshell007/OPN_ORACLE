@@ -248,7 +248,12 @@
 .entity-table-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: #fbfdff; padding: 10px 12px; }
 .entity-table-toolbar.compact { margin-bottom: 8px; }
 .entity-table-toolbar label { display: inline-flex; align-items: center; gap: 7px; color: var(--va-muted); font-size: 12px; font-weight: 750; }
-.entity-table-toolbar select, .entity-table-toolbar input[type="text"], .entity-table-toolbar input:not([type]) { min-height: 34px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); padding: 0 8px; }
+.entity-table-toolbar select, .entity-table-toolbar input[type="text"], .entity-table-toolbar input[type="search"], .entity-table-toolbar input:not([type]) { min-height: 34px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); padding: 0 8px; }
+.entity-registry-view-switch { display: inline-flex; gap: 4px; border: 1px solid var(--va-border); border-radius: 10px; background: #f5f8fc; padding: 4px; }
+.entity-registry-view-switch button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; border: 0; border-radius: 7px; background: transparent; color: var(--va-muted); padding: 0 12px; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+.entity-registry-view-switch button span { border-radius: 999px; background: #e5edf7; padding: 2px 7px; font-size: 10px; }
+.entity-registry-view-switch button.is-active { background: var(--va-panel); color: var(--va-text); box-shadow: 0 1px 3px rgb(15 23 42 / 10%); }
+.entity-registry-explanation { max-width: 820px; margin: 10px 0; color: var(--va-muted); font-size: 12px; line-height: 1.55; }
 .entity-table-wrap { overflow-x: auto; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: var(--va-panel); }
 .entity-acts-table { width: 100%; border-collapse: collapse; min-width: 760px; }
 .entity-acts-table th { background: #f5f8fc; color: var(--va-muted); font-size: 10px; font-weight: 850; text-align: left; text-transform: uppercase; padding: 10px; border-bottom: 1px solid var(--va-border); }

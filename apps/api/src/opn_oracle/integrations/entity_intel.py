@@ -10,6 +10,7 @@ import ipaddress
 import re
 import socket
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from threading import RLock
@@ -24,9 +25,12 @@ from opn_oracle.extensions import db
 from opn_oracle.platform.models import IntegrationConnection
 
 EntityKind = Literal["company", "person"]
+EntityRegistryView = Literal["current", "history"]
 
 ENTITY_INTEL_CACHE_TTL_SECONDS = 600
 ENTITY_INTEL_MAX_BYTES = 2_000_000
+ENTITY_INTEL_REGISTRY_FETCH_SIZE = 1_000
+ENTITY_INTEL_REGISTRY_MAX_EVENTS = 10_000
 
 
 class EntityIntelConfigurationError(RuntimeError):
@@ -549,6 +553,221 @@ def cached_registry(
         client.close()
     _CACHE.set(key, value)
     return {**value, "cache_hit": False}
+
+
+def _registry_text(value: Any) -> str:
+    text = unicodedata.normalize("NFD", str(value or ""))
+    without_marks = "".join(
+        character for character in text if unicodedata.category(character) != "Mn"
+    )
+    return without_marks.casefold().strip()
+
+
+def _registry_counterpart(item: dict[str, Any], kind: EntityKind) -> str:
+    key = "person" if kind == "company" else "company"
+    return str(item.get(key) or "").strip()
+
+
+def _registry_relationship_key(item: dict[str, Any], kind: EntityKind) -> tuple[str, str]:
+    return (
+        _registry_text(_registry_counterpart(item, kind)),
+        _registry_text(item.get("role")),
+    )
+
+
+def _registry_item_with_contract(item: dict[str, Any], kind: EntityKind) -> dict[str, Any]:
+    counterpart_kind: EntityKind | None = "company" if kind == "person" else None
+    return {
+        **item,
+        "counterpart": _registry_counterpart(item, kind),
+        "counterpart_kind": counterpart_kind,
+        "counterpart_kind_verified": counterpart_kind is not None,
+    }
+
+
+def build_registry_view(
+    payload: dict[str, Any],
+    *,
+    kind: EntityKind,
+    view: EntityRegistryView,
+    limit: int,
+    offset: int,
+    query: str = "",
+    province: str = "",
+    sort: str = "-date",
+    history_complete: bool = True,
+) -> dict[str, Any]:
+    """Build a stable, honest view over a complete Signal registry history.
+
+    Signal rows are ordered newest-first. The first row for a counterpart+role
+    is therefore the current relationship state; historical rows remain events
+    and never inherit that state.
+    """
+
+    raw_items = payload.get("items", [])
+    items = [
+        _registry_item_with_contract(item, kind) for item in raw_items if isinstance(item, dict)
+    ]
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in items:
+        key = _registry_relationship_key(item, kind)
+        if key == ("", "") or key in latest:
+            continue
+        latest[key] = item
+
+    active_items = [
+        {**item, "relationship_status": "active"}
+        for item in latest.values()
+        if _registry_text(item.get("action")) != "cese"
+    ]
+    ended_total = sum(1 for item in latest.values() if _registry_text(item.get("action")) == "cese")
+    candidates = active_items if view == "current" else items
+
+    normalized_query = _registry_text(query)
+    normalized_province = _registry_text(province)
+    if normalized_query:
+        candidates = [
+            item
+            for item in candidates
+            if normalized_query
+            in _registry_text(
+                " ".join(
+                    str(item.get(key) or "")
+                    for key in (
+                        "counterpart",
+                        "company",
+                        "person",
+                        "role",
+                        "action",
+                        "province",
+                        "date",
+                    )
+                )
+            )
+        ]
+    if normalized_province:
+        candidates = [
+            item
+            for item in candidates
+            if _registry_text(item.get("province")) == normalized_province
+        ]
+
+    sort_descending = sort.startswith("-")
+    sort_key = sort.removeprefix("-")
+    sort_field = {
+        "counterpart": "counterpart",
+        "role": "role",
+        "province": "province",
+        "date": "date",
+    }.get(sort_key, "date")
+    candidates = sorted(
+        candidates,
+        key=lambda item: (
+            _registry_text(item.get(sort_field)),
+            _registry_text(item.get("counterpart")),
+        ),
+        reverse=sort_descending,
+    )
+
+    source_total = payload.get("total")
+    if not isinstance(source_total, int) or source_total < len(items):
+        source_total = len(items)
+    profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else None
+    company_act_total = profile.get("total_acts") if profile else None
+    if not isinstance(company_act_total, int) or company_act_total < 0:
+        company_act_total = None
+    provinces = sorted(
+        {
+            str(item.get("province")).strip()
+            for item in items
+            if str(item.get("province") or "").strip()
+        },
+        key=_registry_text,
+    )
+    total = len(candidates)
+    return {
+        **{key: value for key, value in payload.items() if key != "items"},
+        "view": view,
+        "total": total,
+        "source_total": source_total,
+        "items": candidates[offset : offset + limit],
+        "available_provinces": provinces,
+        "summary": {
+            "history_events": source_total,
+            "received_events": len(items),
+            "history_complete": history_complete,
+            "current_relationships": len(active_items),
+            "ended_relationships": ended_total,
+            "company_acts": company_act_total,
+        },
+        "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
+    }
+
+
+def cached_registry_view(
+    *,
+    tenant_id: str,
+    name: str,
+    kind: EntityKind,
+    view: EntityRegistryView,
+    limit: int,
+    offset: int,
+    query: str = "",
+    province: str = "",
+    sort: str = "-date",
+) -> dict[str, Any]:
+    corpus_key = ("registry-corpus", tenant_id, name.casefold(), kind)
+    cached_corpus = _CACHE.get(corpus_key)
+    cache_hit = cached_corpus is not None
+    if cached_corpus is None:
+        client = entity_intel_client_from_config()
+        try:
+            first = client.registry(
+                name=name,
+                kind=kind,
+                limit=ENTITY_INTEL_REGISTRY_FETCH_SIZE,
+                offset=0,
+            )
+            all_items = list(first.get("items", []))
+            source_total = first.get("total")
+            expected_total = source_total if isinstance(source_total, int) else len(all_items)
+            while (
+                len(all_items) < expected_total
+                and len(all_items) < ENTITY_INTEL_REGISTRY_MAX_EVENTS
+            ):
+                page = client.registry(
+                    name=name,
+                    kind=kind,
+                    limit=min(
+                        ENTITY_INTEL_REGISTRY_FETCH_SIZE,
+                        ENTITY_INTEL_REGISTRY_MAX_EVENTS - len(all_items),
+                    ),
+                    offset=len(all_items),
+                )
+                page_items = page.get("items", [])
+                if not page_items:
+                    break
+                all_items.extend(page_items)
+            cached_corpus = {
+                **first,
+                "items": all_items,
+                "history_complete": len(all_items) >= expected_total,
+            }
+        finally:
+            client.close()
+        _CACHE.set(corpus_key, cached_corpus)
+    result = build_registry_view(
+        cached_corpus,
+        kind=kind,
+        view=view,
+        limit=limit,
+        offset=offset,
+        query=query,
+        province=province,
+        sort=sort,
+        history_complete=bool(cached_corpus.get("history_complete", True)),
+    )
+    return {**result, "cache_hit": cache_hit}
 
 
 def cached_dossier(

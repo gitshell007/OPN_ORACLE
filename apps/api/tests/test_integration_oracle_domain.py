@@ -2672,7 +2672,7 @@ def test_entity_intelligence_source_routes_dispatch_valid_queries_and_provider_e
     )
     monkeypatch.setattr(
         entity_intel_routes,
-        "cached_registry",
+        "cached_registry_view",
         lambda **kwargs: {
             "query": kwargs["name"],
             "total": 0,

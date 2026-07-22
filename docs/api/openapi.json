@@ -1898,6 +1898,12 @@
       "EntityRegistryResponse": {
         "additionalProperties": false,
         "properties": {
+          "available_provinces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "cache_hit": {
             "type": "boolean"
           },
@@ -1933,9 +1939,22 @@
             "items": {},
             "type": "array"
           },
+          "source_total": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "summary": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
           "total": {
             "nullable": true,
             "type": "integer"
+          },
+          "view": {
+            "nullable": true,
+            "type": "string"
           }
         },
         "required": [
@@ -20542,6 +20561,58 @@
               "maximum": 10000,
               "minimum": 0,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "history",
+              "enum": [
+                "current",
+                "history"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "province",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 120,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "-date",
+              "enum": [
+                "date",
+                "-date",
+                "counterpart",
+                "-counterpart",
+                "role",
+                "-role",
+                "province",
+                "-province"
+              ],
+              "type": "string"
             }
           }
         ],

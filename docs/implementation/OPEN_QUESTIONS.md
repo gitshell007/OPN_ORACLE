@@ -92,7 +92,10 @@
   Signal devuelve hoy (`action`, `company`, `date`, `person`, `province`, `role`, `source_url`). Si
   producto quiere reemplazar la visita al BOE para detalles como ampliaciones de capital, objeto
   social o texto completo del acto, Signal debe extraer y exponer ese contenido como contrato nuevo;
-  Oracle no lo inventa.
+  Oracle no lo inventa. También falta un discriminador `counterpart_kind` en las consultas de
+  empresa: `person` contiene tanto personas físicas como firmas (por ejemplo, ERNST & YOUNG SL).
+  Hasta que Signal lo clasifique, Oracle muestra esas contrapartes sin enlace y no deduce el tipo
+  por el nombre.
 - Pendiente Signal para el informe competitivo ejecutivo: confirmar o actualizar en el
   administrador de Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer
   `opn-oracle`, con salida JSON estructurada y `max_output_tokens=16000` para `v2`. Oracle declara
