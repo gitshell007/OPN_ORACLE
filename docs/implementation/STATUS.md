@@ -2564,3 +2564,28 @@ prompt 70 no llega a aplicarse casi nunca.
 3. **Hueco de diagnóstico**: el mensaje «objeciones que no se pueden retirar por claim» no
    distingue entre «el revisor no nombró ningún claim» y «hay objeciones globales», y son cosas
    distintas con arreglos distintos.
+
+## 2026-07-22 · Identidad visual desplegada, y un fallo de empaquetado que destapó
+
+Release `20260722T113146Z-quick-353cdbd`. Salud en verde.
+
+La identidad visual (tokens «Porcelana camaleónica», manifest, marca en `public/brand`) pasó todos
+los gates de frontend y se desplegó sin incidencias, pero al mirarla en producción **el logotipo
+del login aparecía como imagen rota**.
+
+**Causa:** Next.js con `output: standalone` **no incluye `public/`** en el bundle; hay que copiarlo
+aparte. `Dockerfile.web` copiaba `.next/standalone` y `.next/static` pero nunca `public/`, y hasta
+hoy no se notaba porque ese directorio no existía en el proyecto.
+
+El fichero estaba en el release del servidor —verificado en
+`/opt/opn-oracle/releases/.../public/brand/`— pero producción devolvía 404, porque nunca llegó a
+entrar en la imagen del contenedor. Afectaba igual al favicon y al icono de aplicación del
+manifest.
+
+Corregido y verificado: los cuatro recursos (`symbol.svg`, `favicon.png`, `app-icon.png` y
+`manifest.webmanifest`) responden 200, y el logotipo se ve en el login.
+
+**Lección:** ningún gate podía detectarlo. `npm run build` es correcto, los 167 tests pasan y el
+despliegue no falla; el fallo solo existe dentro de la imagen del contenedor y solo se ve mirando
+la página. Es exactamente la clase de costura que el protocolo del prompt 58 describe: los gates
+verifican el código, no el empaquetado.
