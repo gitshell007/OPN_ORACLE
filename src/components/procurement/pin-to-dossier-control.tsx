@@ -8,6 +8,7 @@ import {
 import { Pin, RefreshCw } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { problemMessage } from "./procurement-helpers";
 
 export function PinToDossierControl({
@@ -103,14 +104,15 @@ export function PinToDossierControl({
             )}
           </select>
         </label>
-        <button
+        <AsyncActionButton
           className="vector-secondary"
           type="submit"
-          disabled={loading || pinning || !dossierId}
+          disabled={loading || !dossierId}
+          loading={pinning}
         >
           {pinning ? <RefreshCw size={14} /> : <Pin size={14} />}
           {compact ? "Fijar" : "Fijar"}
-        </button>
+        </AsyncActionButton>
         {message && <small className="procurement-pin-ok">{message}</small>}
         {error && (
           <small className="procurement-pin-error" role="alert">

@@ -21,6 +21,7 @@ import { Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 
 const HYPOTHESIS_STATUS: Record<string, string> = {
   open: "Activa",
@@ -343,7 +344,7 @@ export function DossierContextPanel({ dossierId }: { dossierId: string }) {
                         : "Sin evidencia vinculada todavía."}
                   </p>
                   <label>Vincular evidencia<select value={evidenceId} onChange={(event) => setEvidenceId(event.target.value)}><option value="">Seleccionar evidencia…</option>{evidence.map((item) => <option key={item.id} value={item.id}>{item.extract || item.id}</option>)}</select></label>
-                  <button className="vector-secondary" type="button" disabled={!evidenceId || busy} onClick={() => void linkEvidence()}>Vincular</button>
+                  <AsyncActionButton className="vector-secondary" type="button" disabled={!evidenceId} loading={busy} onClick={() => void linkEvidence()}>Vincular</AsyncActionButton>
                 </section>
               )}
               {error && <p className="form-error" role="alert">{error}</p>}
@@ -351,10 +352,10 @@ export function DossierContextPanel({ dossierId }: { dossierId: string }) {
                 {selected && (
                   <div className="destructive-inline">
                     {confirmDelete ? (
-                      <button className="vector-danger" type="button" disabled={busy} onClick={() => void deleteHypothesis()}>
+                      <AsyncActionButton className="vector-danger" type="button" loading={busy} onClick={() => void deleteHypothesis()}>
                         <Trash2 size={15} />
                         Confirmar borrado
-                      </button>
+                      </AsyncActionButton>
                     ) : (
                       <button className="vector-secondary" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>
                         <Trash2 size={15} />
@@ -365,7 +366,7 @@ export function DossierContextPanel({ dossierId }: { dossierId: string }) {
                 )}
                 <div>
                   <Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close>
-                  <button className="vector-primary" disabled={busy || statement.trim().length < 3}>{busy ? "Guardando…" : "Guardar"}</button>
+                  <AsyncActionButton className="vector-primary" type="submit" disabled={statement.trim().length < 3} loading={busy}>{busy ? "Guardando…" : "Guardar"}</AsyncActionButton>
                 </div>
               </div>
             </form>

@@ -20,7 +20,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminNav } from "@/components/admin/tenant-admin";
 import { useRecentAuth } from "@/components/auth/recent-auth";
-import { HydratedActionButton } from "@/components/ui/async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { productStatusLabel } from "@/lib/product-copy";
 
 type HealthState = "configured" | "healthy" | "degraded" | "error";
@@ -380,9 +380,9 @@ export function SignalAdmin() {
                 }
               />
             </label>
-            <button className="vector-primary" disabled={busy === "create"}>
+            <AsyncActionButton className="vector-primary" type="submit" loading={busy === "create"}>
               {busy === "create" ? "Guardando…" : "Guardar conexión"}
-            </button>
+            </AsyncActionButton>
           </form>
         </section>
       )}
@@ -430,13 +430,13 @@ export function SignalAdmin() {
                     <p className="connection-error" role="status">{connection.last_error}</p>
                   )}
                   <div className="signal-actions">
-                    <button
+                    <AsyncActionButton
                       className="vector-secondary"
-                      disabled={busy === `test-${connection.id}`}
+                      loading={busy === `test-${connection.id}`}
                       onClick={() => void testConnection(connection)}
                     >
                       <Activity size={15} /> Probar conexión
-                    </button>
+                    </AsyncActionButton>
                     <button
                       className="vector-secondary"
                       onClick={() =>
@@ -450,13 +450,13 @@ export function SignalAdmin() {
                       <KeyRound size={15} /> Rotar credencial
                     </button>
                     {(state === "degraded" || state === "error") && (
-                      <button
+                      <AsyncActionButton
                         className="vector-secondary"
-                        disabled={busy === `reconcile-${connection.id}`}
+                        loading={busy === `reconcile-${connection.id}`}
                         onClick={() => void reconcileConnection(connection)}
                       >
                         <RefreshCw size={15} /> Reconciliar
-                      </button>
+                      </AsyncActionButton>
                     )}
                   </div>
                   {rotation?.connectionId === connection.id && (
@@ -491,9 +491,9 @@ export function SignalAdmin() {
                         />
                       </label>
                       <div>
-                        <button className="vector-primary" disabled={busy === "rotate"}>
+                        <AsyncActionButton className="vector-primary" type="submit" loading={busy === "rotate"}>
                           Rotar
-                        </button>
+                        </AsyncActionButton>
                         <button
                           type="button"
                           className="vector-secondary"
@@ -590,9 +590,9 @@ export function SignalAdmin() {
                 <option value="weekly">Semanal</option>
               </select>
             </label>
-            <button className="vector-primary" disabled={busy === "create-monitor"}>
+            <AsyncActionButton className="vector-primary" type="submit" loading={busy === "create-monitor"}>
               Crear vigilancia
-            </button>
+            </AsyncActionButton>
           </form>
         )}
         {monitors.length === 0 ? (
@@ -635,12 +635,14 @@ export function SignalAdmin() {
                       </td>
                       <td>
                         <div className="row-actions signal-row-actions">
-                          <button
+                          <AsyncActionButton
+                            className=""
                             aria-label={`Sincronizar ${monitor.external_id ?? monitor.id}`}
                             title="Sincronizar ahora"
                             onClick={() => void monitorAction(monitor, "sync")}
-                          ><RotateCw size={15} /></button>
-                          <button
+                          ><RotateCw size={15} /></AsyncActionButton>
+                          <AsyncActionButton
+                            className=""
                             aria-label={`${monitor.status === "paused" ? "Reanudar" : "Pausar"} ${monitor.external_id ?? monitor.id}`}
                             title={monitor.status === "paused" ? "Reanudar" : "Pausar"}
                             onClick={() =>
@@ -649,11 +651,11 @@ export function SignalAdmin() {
                                 monitor.status === "paused" ? "resume" : "pause",
                               )
                             }
-                          >{monitor.status === "paused" ? <Play size={15} /> : <Pause size={15} />}</button>
+                          >{monitor.status === "paused" ? <Play size={15} /> : <Pause size={15} />}</AsyncActionButton>
                           {tracked?.status === "failed" && (
-                            <button className="text-action" onClick={() => void retryJob(tracked.id)}>
+                            <AsyncActionButton className="text-action" onClick={() => void retryJob(tracked.id)}>
                               Reintentar proceso
-                            </button>
+                            </AsyncActionButton>
                           )}
                         </div>
                       </td>

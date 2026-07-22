@@ -16,6 +16,7 @@ import {
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 
 const EMPTY: PlatformBackupList = {
   items: [],
@@ -159,14 +160,14 @@ export function PlatformBackups() {
             recuperación auditada para superadministradores.
           </p>
         </div>
-        <button
+        <AsyncActionButton
           className="platform-primary"
-          disabled={creating}
+          loading={creating}
           onClick={() => void createBackup()}
         >
           {creating ? <RefreshCw className="spin" size={16} /> : <DatabaseBackup size={16} />}
           {creating ? "Solicitando…" : "Crear copia ahora"}
-        </button>
+        </AsyncActionButton>
       </header>
 
       {error && (
@@ -314,13 +315,14 @@ export function PlatformBackups() {
                 <button type="button" onClick={closeRestore} disabled={restoring}>
                   Cancelar
                 </button>
-                <button
+                <AsyncActionButton
                   className="backup-danger"
-                  disabled={confirmation !== `RECUPERAR ${restore.backup_name}` || restoring}
+                  disabled={confirmation !== `RECUPERAR ${restore.backup_name}`}
+                  loading={restoring}
                   type="submit"
                 >
                   {restoring ? "Solicitando…" : "Solicitar recuperación"}
-                </button>
+                </AsyncActionButton>
               </div>
             </form>
           </section>

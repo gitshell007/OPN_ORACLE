@@ -17,6 +17,7 @@ import {
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { JobProgress } from "./job-progress";
 import {
   formatBytes,
@@ -326,9 +327,9 @@ export function ExportCenter({
             <span className="section-kicker">Nueva exportación</span>
             <h2>Configurar CSV</h2>
           </div>
-          <button className="vector-primary" disabled={busy}>
+          <AsyncActionButton className="vector-primary" type="submit" loading={busy}>
             <FileDown size={16} /> {busy ? "Solicitando…" : "Generar CSV"}
-          </button>
+          </AsyncActionButton>
         </header>
         <div className="export-fields">
           <label>

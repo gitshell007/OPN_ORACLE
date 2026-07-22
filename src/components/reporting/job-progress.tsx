@@ -5,6 +5,7 @@ import type { components } from "@oracle/api-client";
 import { useEffect, useRef, useState } from "react";
 import { RotateCcw, Square } from "lucide-react";
 import { toast } from "sonner";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { productStatusLabel } from "@/lib/product-copy";
 
 type Job = components["schemas"]["JobResponse"];
@@ -145,15 +146,15 @@ export function JobProgress({
       {allowActions && job && (
         <div className="job-progress-actions">
           {job.status === "failed" && job.retryable && (
-            <button disabled={mutating} onClick={() => void mutate("retry")}>
+            <AsyncActionButton className="" loading={mutating} onClick={() => void mutate("retry")}>
               <RotateCcw size={12} /> Reintentar
-            </button>
+            </AsyncActionButton>
           )}
           {["queued", "running", "retrying"].includes(job.status) &&
             !job.cancel_requested && (
-              <button disabled={mutating} onClick={() => void mutate("cancel")}>
+              <AsyncActionButton className="" loading={mutating} onClick={() => void mutate("cancel")}>
                 <Square size={11} /> Cancelar
-              </button>
+              </AsyncActionButton>
             )}
         </div>
       )}

@@ -34,6 +34,7 @@ import {
   useState,
 } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { PinToDossierControl } from "./pin-to-dossier-control";
 import {
   cpvLabel,
@@ -932,10 +933,10 @@ export function ProcurementWorkspace() {
                   placeholder="Vigilancia movilidad eléctrica"
                 />
               </label>
-              <button className="vector-primary" type="submit">
+              <AsyncActionButton className="vector-primary" type="submit">
                 <Save size={14} />
                 Guardar actual
-              </button>
+              </AsyncActionButton>
             </form>
           </PermissionGate>
           {searchesError && (
@@ -965,23 +966,23 @@ export function ProcurementWorkspace() {
                     </div>
                   )}
                   <div className="procurement-search-actions">
-                    <button
+                    <AsyncActionButton
                       className="vector-secondary"
                       type="button"
                       onClick={() => void runSearch(search)}
                     >
                       <Play size={14} />
                       Ejecutar
-                    </button>
+                    </AsyncActionButton>
                     <PermissionGate permission="opportunity.write">
                       {editingId === search.id ? (
-                        <button
+                        <AsyncActionButton
                           className="vector-secondary"
                           type="button"
                           onClick={() => void patchSearch(search)}
                         >
                           Guardar edición
-                        </button>
+                        </AsyncActionButton>
                       ) : (
                         <button
                           className="vector-secondary"
@@ -995,14 +996,14 @@ export function ProcurementWorkspace() {
                           Editar
                         </button>
                       )}
-                      <button
+                      <AsyncActionButton
                         className="vector-danger"
                         type="button"
                         onClick={() => void removeSearch(search)}
                       >
                         <Trash2 size={14} />
                         Eliminar
-                      </button>
+                      </AsyncActionButton>
                     </PermissionGate>
                   </div>
                 </article>

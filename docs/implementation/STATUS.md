@@ -4,6 +4,45 @@ Actualizado: 2026-07-22
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Protecciones de E2E y botones de mutación
+
+- La suite Playwright autenticada se mantiene y queda conectada a CI como job `frontend-e2e`, con
+  PostgreSQL y Redis de servicio, API Flask arrancada por `scripts/run-auth-e2e-api.sh`, Next en
+  `127.0.0.1:3000` y Chromium instalado en el workflow.
+- `scripts/run-auth-e2e-api.sh` admite ahora modo local por socket Unix y modo CI por TCP mediante
+  `E2E_POSTGRES_HOST`, `E2E_POSTGRES_PORT`, `E2E_DB_NAME`, `E2E_REDIS_DB`,
+  `E2E_ORACLE_MIGRATOR_PASSWORD` y `E2E_ORACLE_APP_PASSWORD`.
+- Las aserciones E2E obsoletas se alinean con la UI actual: promoción a oportunidad, alta de actor,
+  preparación de reunión, enlace principal de Señales y redirección del superadmin. La subida
+  documental tenía primero una ruta capturada antes de terminar la navegación; tras corregirla, la
+  ejecución completa descubrió además una carrera CSRF real al actuar antes de acabar las lecturas.
+  El test funcional espera el estado cargado y la carrera queda abierta, no corregida, en
+  `OPEN_QUESTIONS.md`.
+- El recorrido Axe ya no se salta entero. Continúa comprobando todas las rutas y solo descuenta una
+  lista exacta de deudas preexistentes: contraste de `.auth-eyebrow`, pestañas y `summary`; filas
+  interactivas anidadas; tamaño de checkboxes, `.text-button` y `.back-link`. Cualquier combinación
+  nueva de ruta, regla y selector sigue fallando.
+- Los botones que disparan mutaciones de backend usan `AsyncActionButton` o `HydratedActionButton`.
+  Se mantienen como botones nativos las acciones puramente locales o de navegación de UI, como
+  ordenar, paginar, abrir diálogos y alternar vistas.
+- El barrido final amplió la protección a login, recuperación/alta de contraseña y reautenticación
+  reciente; sus handlers tienen nombres explícitos incluidos en el mismo invariante, sin clasificar
+  como mutación los formularios de búsqueda que también usan un handler llamado `submit`.
+- Añadido un invariante estático que recorre TSX y falla si vuelve un `<button>` nativo conectado a
+  handlers mutantes conocidos, submits de formularios mutantes o llamadas inline a `api.*`.
+  Calibración verificada con tres mutaciones restauradas: sustituir la puerta real de
+  `dossier-inventory.tsx:593` señaló ese fichero; retirar `deleteSelected` de la clasificación hizo
+  caer el caso sintético; clasificar `setPage` como mutación hizo caer la exclusión de paginación y
+  señaló cuatro controles puramente locales. Ordenar y abrir diálogo permanecen permitidos.
+- Sin cambios de backend, OpenAPI, migraciones ni variables runtime productivas.
+- Gates frontend: `npm run typecheck` correcto; `npm run lint` sin errores y con el aviso conocido
+  de TanStack Table en `dossier-context-panel.tsx:159`; `npx vitest run` terminó con 38 ficheros y
+  174 tests correctos; `npm run build` compiló y generó 19 páginas estáticas.
+- Playwright completo se ejecutó por el camino TCP equivalente al job de CI, no solo por socket
+  Unix: 25 tests correctos y 7 omisiones intencionadas por matriz escritorio/móvil. La subida real
+  procesó un documento y la redirección del superadmin quedó cubierta. El workflow se validó como
+  YAML, pero el job remoto de GitHub solo podrá observarse después de commit/push.
+
 ## Alcance adaptativo por niveles en el grafo de entidades
 
 - El panel lateral incorpora «Niveles visibles», un selector derivado por BFS desde la entidad

@@ -5,6 +5,7 @@ import { ArrowRight, History, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 
 const RESOURCE_LABELS: Record<string, string> = {
   signal: "Señal",
@@ -141,7 +142,7 @@ export function ProductChanges() {
             <h2>Resumen semanal de cambios</h2>
             <p>{digest?.dossier_title ? `Expediente: ${digest.dossier_title}` : "Se prepara sobre el expediente con actividad reciente."}</p>
           </div>
-          <button className="vector-secondary" disabled={digestLoading || digestBusy} onClick={() => void refreshDigest()}><RefreshCw size={15} /> {digestBusy ? "Preparando…" : "Actualizar digest"}</button>
+          <AsyncActionButton className="vector-secondary" disabled={digestLoading} loading={digestBusy} onClick={() => void refreshDigest()}><RefreshCw size={15} /> {digestBusy ? "Preparando…" : "Actualizar digest"}</AsyncActionButton>
         </header>
         {digestLoading ? (
           <p role="status">Consultando el último digest…</p>

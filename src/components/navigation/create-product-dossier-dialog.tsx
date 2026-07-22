@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { starterProfileFor } from "@/lib/dossier-starter-profiles";
 
 const DOSSIER_TYPES = [
@@ -278,10 +279,10 @@ export function CreateProductDossierDialog({
               <Dialog.Close className="vector-secondary" type="button">
                 Cancelar
               </Dialog.Close>
-              <button className="vector-primary" disabled={busy || !title.trim() || !goal.trim() || (type === "competitive_intelligence" && (!ownOffer.trim() || !competitors.trim()))}>
+              <AsyncActionButton className="vector-primary" type="submit" disabled={!title.trim() || !goal.trim() || (type === "competitive_intelligence" && (!ownOffer.trim() || !competitors.trim()))} loading={busy}>
                 <FilePlus2 size={16} />
                 {busy ? "Procesando…" : type === "competitive_intelligence" && !reviewing ? "Revisar expediente" : "Crear expediente"}
-              </button>
+              </AsyncActionButton>
             </div>
           </form>
         </Dialog.Content>

@@ -10,6 +10,7 @@ import { AlertCircle, CheckCircle2, FilePlus2, History, RefreshCw, Send, Sparkle
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 
 type SummaryOutput = {
   headline?: string;
@@ -240,9 +241,9 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           <h2 id="oracle-summary-title">Oráculo del expediente</h2>
         </div>
         <PermissionGate permission="ai.execute">
-          <button className="vector-secondary" onClick={() => void refresh()} disabled={busy || jobRunning}>
+          <AsyncActionButton className="vector-secondary" onClick={() => void refresh()} disabled={jobRunning} loading={busy}>
             <RefreshCw size={15} /> {jobRunning ? "Actualizando" : "Actualizar análisis"}
-          </button>
+          </AsyncActionButton>
         </PermissionGate>
       </header>
       {loading ? (
@@ -324,9 +325,9 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
               value={feedback}
               onChange={(event) => setFeedback(event.target.value)}
             />
-            <button className="vector-secondary" onClick={() => void sendFeedback()} disabled={busy || !feedback.trim()}>
+            <AsyncActionButton className="vector-secondary" onClick={() => void sendFeedback()} disabled={!feedback.trim()} loading={busy}>
               <Send size={15} /> Enviar comentario
-            </button>
+            </AsyncActionButton>
           </div>
         </>
       )}
@@ -343,9 +344,9 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
             <p className="reporting-hint">Se guardará como propuesta pendiente de revisión; no se considerará un hecho ni una decisión aprobada.</p>
             <div className="vector-dialog-actions">
               <button className="vector-secondary" type="button" disabled={busy} onClick={() => setPendingDraft(null)}>Cancelar</button>
-              <button className="vector-primary" type="button" disabled={busy} onClick={() => void createDraft()}>
+              <AsyncActionButton className="vector-primary" type="button" loading={busy} onClick={() => void createDraft()}>
                 <FilePlus2 size={15} /> {busy ? "Creando…" : "Confirmar borrador"}
-              </button>
+              </AsyncActionButton>
             </div>
           </div>
         </div>

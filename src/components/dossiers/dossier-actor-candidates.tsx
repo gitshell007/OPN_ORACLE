@@ -10,6 +10,7 @@ import { ExternalLink, Import, RefreshCw, RotateCcw, ScanSearch, Trash2, X } fro
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 
 const TYPE_LABELS: Record<string, string> = {
   person: "Persona",
@@ -140,7 +141,7 @@ export function DossierActorCandidates({
                   <td>{TYPE_LABELS[candidate.suggested_actor_type] ?? candidate.suggested_actor_type}</td>
                   <td><div className="actor-labels">{candidate.suggested_labels.length ? candidate.suggested_labels.map((label) => <span key={label}>{label}</span>) : <small>Sin sugerencias</small>}</div></td>
                   <td><strong>{candidate.source_count}</strong><small>{candidate.sources[0]?.source_name}</small></td>
-                  <td><PermissionGate permission="actor.write"><div className="candidate-actions">{candidate.status === "dismissed" ? <button className="icon-button bordered" type="button" title="Restaurar candidato" aria-label={`Restaurar ${candidate.name}`} disabled={busy} onClick={() => void reviewStatus(candidate, "candidate")}><RotateCcw size={14} /></button> : <><button className="vector-secondary compact" disabled={candidate.status === "linked" || busy} onClick={() => review(candidate)}><Import size={13} /> {candidate.status === "existing" ? "Vincular" : "Revisar"}</button>{candidate.status !== "linked" && <button className="icon-button bordered danger" type="button" title="Descartar candidato" aria-label={`Descartar ${candidate.name}`} disabled={busy} onClick={() => void reviewStatus(candidate, "dismissed")}><Trash2 size={14} /></button>}</>}</div></PermissionGate></td>
+                  <td><PermissionGate permission="actor.write"><div className="candidate-actions">{candidate.status === "dismissed" ? <AsyncActionButton className="icon-button bordered" type="button" title="Restaurar candidato" aria-label={`Restaurar ${candidate.name}`} loading={busy} onClick={() => void reviewStatus(candidate, "candidate")}><RotateCcw size={14} /></AsyncActionButton> : <><button className="vector-secondary compact" disabled={candidate.status === "linked" || busy} onClick={() => review(candidate)}><Import size={13} /> {candidate.status === "existing" ? "Vincular" : "Revisar"}</button>{candidate.status !== "linked" && <AsyncActionButton className="icon-button bordered danger" type="button" title="Descartar candidato" aria-label={`Descartar ${candidate.name}`} loading={busy} onClick={() => void reviewStatus(candidate, "dismissed")}><Trash2 size={14} /></AsyncActionButton>}</>}</div></PermissionGate></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -150,7 +151,7 @@ export function DossierActorCandidates({
               <header><span className={`intelligence-status status-${candidate.status}`}>{candidate.status === "linked" ? "Vinculado" : "Candidato"}</span><small>{candidate.source_count} fuentes</small></header>
               <h2>{candidate.name}</h2>
               <p>{TYPE_LABELS[candidate.suggested_actor_type] ?? candidate.suggested_actor_type}</p>
-              <PermissionGate permission="actor.write">{candidate.status === "dismissed" ? <button className="vector-secondary" disabled={busy} onClick={() => void reviewStatus(candidate, "candidate")}><RotateCcw size={14} /> Restaurar</button> : <div className="candidate-actions"><button className="vector-secondary" disabled={candidate.status === "linked" || busy} onClick={() => review(candidate)}>Revisar candidato</button>{candidate.status !== "linked" && <button className="icon-button bordered danger" type="button" aria-label={`Descartar ${candidate.name}`} disabled={busy} onClick={() => void reviewStatus(candidate, "dismissed")}><Trash2 size={14} /></button>}</div>}</PermissionGate>
+              <PermissionGate permission="actor.write">{candidate.status === "dismissed" ? <AsyncActionButton className="vector-secondary" loading={busy} onClick={() => void reviewStatus(candidate, "candidate")}><RotateCcw size={14} /> Restaurar</AsyncActionButton> : <div className="candidate-actions"><button className="vector-secondary" disabled={candidate.status === "linked" || busy} onClick={() => review(candidate)}>Revisar candidato</button>{candidate.status !== "linked" && <AsyncActionButton className="icon-button bordered danger" type="button" aria-label={`Descartar ${candidate.name}`} loading={busy} onClick={() => void reviewStatus(candidate, "dismissed")}><Trash2 size={14} /></AsyncActionButton>}</div>}</PermissionGate>
             </article>
           ))}</div>
         </>
@@ -168,7 +169,7 @@ export function DossierActorCandidates({
                 <label>Roles en este expediente (separados por comas)<input value={roles} onChange={(event) => setRoles(event.target.value)} placeholder="competidor, aliado potencial" /></label>
                 <section className="candidate-sources" aria-label="Fuentes del candidato"><h3>Procedencia</h3><ul>{selected.sources.map((source) => <li key={source.dossier_signal_id}><div><strong>{source.title}</strong><small>{source.source_name}</small></div>{source.source_url && <a href={source.source_url} target="_blank" rel="noreferrer" aria-label={`Abrir fuente de ${source.title}`}><ExternalLink size={13} /></a>}</li>)}</ul></section>
                 {formError && <p className="form-error" role="alert">{formError}</p>}
-                <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy}>{busy ? "Incorporando…" : "Incorporar actor"}</button></div>
+                <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><AsyncActionButton className="vector-primary" type="submit" loading={busy}>{busy ? "Incorporando…" : "Incorporar actor"}</AsyncActionButton></div>
               </form>
             </>}
           </Dialog.Content>

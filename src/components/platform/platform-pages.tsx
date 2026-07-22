@@ -6,6 +6,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { productAuditActionLabel, productPlanLabel, productStatusLabel } from "@/lib/product-copy";
 
 type Tenant = components["schemas"]["TenantResponse"];
@@ -147,7 +148,7 @@ export function PlatformTenants() {
                 <option value="trial">Evaluación</option>
               </select>
             </label>
-            <button className="platform-primary">Crear organización</button>
+            <AsyncActionButton className="platform-primary" type="submit">Crear organización</AsyncActionButton>
           </form>
         </section>
       )}
@@ -196,18 +197,18 @@ export function PlatformTenants() {
                     <td>
                       {confirmStatus === item.id ? (
                         <div className="row-actions">
-                          <button
+                          <AsyncActionButton
                             className="confirm-delete"
                             onClick={() => void status(item)}
                           >
                             Confirmar
-                          </button>
+                          </AsyncActionButton>
                           <button onClick={() => setConfirmStatus(null)}>
                             Cancelar
                           </button>
                         </div>
                       ) : (
-                        <button
+                        <AsyncActionButton
                           className="platform-icon-action"
                           onClick={() =>
                             item.status === "active"
@@ -226,7 +227,7 @@ export function PlatformTenants() {
                               Reactivar
                             </>
                           )}
-                        </button>
+                        </AsyncActionButton>
                       )}
                     </td>
                   </tr>
@@ -346,7 +347,7 @@ export function PlatformTenantDetail({ id }: { id: string }) {
               onChange={(event) => setName(event.target.value)}
             />
           </label>
-          <button className="platform-primary">Enviar invitación</button>
+          <AsyncActionButton className="platform-primary" type="submit">Enviar invitación</AsyncActionButton>
         </form>
         {error && (
           <p className="form-error" role="alert">

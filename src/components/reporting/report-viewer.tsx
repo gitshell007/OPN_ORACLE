@@ -18,6 +18,7 @@ import { useParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { JobProgress } from "./job-progress";
 import {
   formatBytes,
@@ -224,16 +225,16 @@ export function ReportViewer({
         <div className="report-viewer-actions">
           {report.status === "failed" && (
             <PermissionGate permission="report.generate">
-              <button className="vector-secondary" disabled={busy} onClick={() => void retry()}>
+              <AsyncActionButton className="vector-secondary" loading={busy} onClick={() => void retry()}>
                 <RefreshCw size={16} /> Reintentar
-              </button>
+              </AsyncActionButton>
             </PermissionGate>
           )}
           {report.status === "reviewed" && (
             <PermissionGate permission="report.publish">
-              <button className="vector-primary" disabled={busy} onClick={() => void publish()}>
+              <AsyncActionButton className="vector-primary" loading={busy} onClick={() => void publish()}>
                 <Send size={16} /> Publicar
-              </button>
+              </AsyncActionButton>
             </PermissionGate>
           )}
           {["published", "superseded"].includes(report.status) && (
@@ -433,9 +434,9 @@ export function ReportViewer({
                 />
               </label>
             </div>
-            <button className="vector-primary" disabled={busy}>
+            <AsyncActionButton className="vector-primary" type="submit" loading={busy}>
               <CheckCircle2 size={16} /> {busy ? "Guardando…" : "Registrar revisión"}
-            </button>
+            </AsyncActionButton>
           </form>
         </PermissionGate>
       )}

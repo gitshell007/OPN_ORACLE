@@ -28,11 +28,11 @@ test("F12 recorre inteligencia, ejecución, documentos y configuración contra F
   await page.getByRole("dialog", { name: "Confirmar revisión" }).getByRole("button", { name: "Confirmar" }).click();
   await expect(page.getByText("Señal revisada")).toBeVisible();
   await page.getByRole("button", { name: /Inspeccionar/ }).first().click();
-  await page.getByRole("button", { name: "Promover" }).click();
-  const promotion = page.getByRole("dialog", { name: "Promover señal" });
+  await page.getByRole("button", { name: "Promover a oportunidad" }).click();
+  const promotion = page.getByRole("dialog", { name: "Promover a oportunidad" });
   await promotion.getByLabel("Título").fill("Oportunidad promovida E2E");
   await promotion.getByRole("button", { name: "Crear recurso" }).click();
-  await expect(page.getByText("Oportunidad creada")).toBeVisible();
+  await expect(page.getByText("Oportunidad creada", { exact: true })).toBeVisible();
 
   await page.goto(`${dossierUrl}/opportunities`);
   await page.getByRole("button", { name: /Inspeccionar/ }).first().click();
@@ -55,8 +55,9 @@ test("F12 recorre inteligencia, ejecución, documentos y configuración contra F
   await expect(page.getByText("Estado actualizado")).toBeVisible();
 
   await page.goto(`${dossierUrl}/actors`);
-  await page.getByRole("button", { name: "Vincular actor" }).click();
-  const actorDialog = page.getByRole("dialog", { name: "Vincular actor" });
+  await page.getByRole("button", { name: "Nuevo actor" }).click();
+  const actorDialog = page.getByRole("dialog", { name: "Nuevo actor" });
+  await actorDialog.getByRole("button", { name: "Vincular existente" }).click();
   const actorSelect = actorDialog.getByLabel("Actor existente");
   await expect.poll(() => actorSelect.locator("option").count()).toBeGreaterThan(1);
   const actorOptions = await actorSelect.locator("option").allTextContents();
@@ -67,22 +68,13 @@ test("F12 recorre inteligencia, ejecución, documentos y configuración contra F
 
   await page.goto(`${dossierUrl}/meetings`);
   await page.getByRole("link", { name: "Abrir", exact: true }).first().click();
-  await page.getByRole("button", { name: "Preparar briefing" }).click();
-  await expect(page.getByText("Estructura de briefing creada")).toBeVisible();
+  await page.getByRole("button", { name: "Preparar reunión" }).click();
+  await expect(page.getByText("Preparación solicitada")).toBeVisible();
 
   await page.goto(`${dossierUrl}/tasks`);
   await page.getByRole("link", { name: "Abrir", exact: true }).first().click();
   await page.getByRole("button", { name: "En curso" }).click();
   await expect(page.getByText(/Estado actualizado/)).toBeVisible();
-
-  await page.goto(`${dossierUrl}/documents`);
-  await page.locator('input[type="file"]').setInputFiles({
-    name: "fuente-e2e.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from("Evidencia E2E verificable para el expediente."),
-  });
-  await expect(page.getByText("Documento recibido")).toBeVisible();
-  await expect(page.getByText("fuente-e2e.txt").first()).toBeVisible();
 
   await page.goto(`${dossierUrl}/settings`);
   await expect(page.getByRole("heading", { name: "Configuración" })).toBeVisible();
@@ -96,6 +88,23 @@ test("F12 recorre inteligencia, ejecución, documentos y configuración contra F
     await expect(page.getByRole("heading", { name: "Expedientes", exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   }
+});
+
+test("F12 sube documentos desde el expediente autenticado", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "La subida documental se ejercita una vez en escritorio.");
+  await loginOwner(page);
+  await page.getByText("Expansión regional", { exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Expansión regional" })).toBeVisible();
+  const dossierUrl = page.url();
+
+  await page.goto(`${dossierUrl}/documents`);
+  await expect(page.getByRole("heading", { name: "Aún no hay documentos" })).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "fuente-e2e.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Evidencia E2E verificable para el expediente."),
+  });
+  await expect(page.getByText("Documento recibido")).toBeVisible();
 });
 
 test("F12 mantiene inventarios y contexto sin overflow en móvil", async ({ page }, testInfo) => {

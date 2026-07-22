@@ -28,7 +28,7 @@ import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CreateProductDossierDialog } from "@/components/navigation/create-product-dossier-dialog";
-import { HydratedActionButton } from "@/components/ui/async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 
 const STATUS_OPTIONS = ["draft", "active", "paused", "archived"] as const;
 const TYPE_OPTIONS = [
@@ -590,9 +590,9 @@ export function DossierInventory() {
             </label>
             <div className="dialog-actions">
               <Dialog.Close className="vector-secondary" disabled={deleteBusy}>Cancelar</Dialog.Close>
-              <button className="vector-danger" disabled={!deleteConfirmed || deleteBusy} onClick={() => void deleteSelected()}>
+              <AsyncActionButton className="vector-danger" disabled={!deleteConfirmed} loading={deleteBusy} onClick={() => void deleteSelected()}>
                 <Trash2 size={15} aria-hidden="true" /> {deleteBusy ? "Eliminando…" : "Eliminar definitivamente"}
-              </button>
+              </AsyncActionButton>
             </div>
           </Dialog.Content>
         </Dialog.Portal>

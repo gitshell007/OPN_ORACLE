@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   formatDateTime,
   notificationSeverityLabel,
@@ -71,11 +72,11 @@ function NotificationItem({
       </button>
       {!compact && (
         <footer>
-          {!item.read_at && onRead && <button onClick={onRead}>Marcar como leída</button>}
+          {!item.read_at && onRead && <AsyncActionButton className="" onClick={onRead}>Marcar como leída</AsyncActionButton>}
           {onDismiss && (
-            <button className="danger-text" onClick={onDismiss}>
+            <AsyncActionButton className="danger-text" onClick={onDismiss}>
               <Trash2 size={13} /> Descartar
-            </button>
+            </AsyncActionButton>
           )}
         </footer>
       )}
@@ -274,9 +275,9 @@ export function NotificationCenter({
           <Link className="vector-secondary" href={`${routeBase}/account/notifications`}>
             <Settings2 size={16} /> Preferencias
           </Link>
-          <button className="vector-primary" disabled={!unread} onClick={() => void readAll()}>
+          <AsyncActionButton className="vector-primary" disabled={!unread} onClick={() => void readAll()}>
             <CheckCheck size={16} /> Marcar todas como leídas
-          </button>
+          </AsyncActionButton>
         </div>
       </header>
 
@@ -458,9 +459,9 @@ export function NotificationPreferences() {
               <span className="section-kicker">Regla personal</span>
               <h2>{typeLabel[type] ?? type}</h2>
             </div>
-            <button className="vector-primary" disabled={busy}>
+            <AsyncActionButton className="vector-primary" type="submit" loading={busy}>
               {busy ? "Guardando…" : "Guardar preferencias"}
-            </button>
+            </AsyncActionButton>
           </header>
           <div className="preference-layout">
             <nav aria-label="Tipos de notificación">

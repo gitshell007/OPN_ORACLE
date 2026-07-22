@@ -109,9 +109,64 @@ jobs:
           uv run flask --app opn_oracle.wsgi:app db upgrade
           uv run flask --app opn_oracle.wsgi:app db check
 
+  frontend-e2e:
+    name: Frontend E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7.4-bookworm
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: ci-postgres-only
+      E2E_POSTGRES_HOST: 127.0.0.1
+      E2E_POSTGRES_PORT: 5432
+      E2E_POSTGRES_USER: postgres
+      E2E_ORACLE_MIGRATOR_PASSWORD: ci-migrator-only
+      E2E_ORACLE_APP_PASSWORD: ci-app-only
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.25"
+          working-directory: apps/api
+          enable-cache: true
+      - run: npm ci
+      - working-directory: apps/api
+        run: uv sync --frozen
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Authenticated browser regression
+        run: npm run test:e2e
+
   security-and-images:
     name: Security, images and SBOM
-    needs: [frontend, backend]
+    needs: [frontend, backend, frontend-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

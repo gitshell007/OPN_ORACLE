@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
-import { HydratedActionButton } from "@/components/ui/async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import {
   productAuditActionLabel,
   productJobTypeLabel,
@@ -263,7 +263,8 @@ export function MembersAdmin() {
                     <td>
                       <div className="row-actions">
                         {member.status === "invited" && (
-                          <button
+                          <AsyncActionButton
+                            className=""
                             title="Reenviar invitación"
                             aria-label={`Reenviar invitación a ${member.email}`}
                             onClick={() =>
@@ -274,10 +275,11 @@ export function MembersAdmin() {
                             }
                           >
                             <RefreshCw size={15} />
-                          </button>
+                          </AsyncActionButton>
                         )}
                         {member.status === "active" && (
-                          <button
+                          <AsyncActionButton
+                            className=""
                             title="Suspender"
                             aria-label={`Suspender a ${member.email}`}
                             onClick={() =>
@@ -292,10 +294,11 @@ export function MembersAdmin() {
                             }
                           >
                             <Ban size={15} />
-                          </button>
+                          </AsyncActionButton>
                         )}
                         {member.status === "suspended" && (
-                          <button
+                          <AsyncActionButton
+                            className=""
                             title="Reactivar"
                             aria-label={`Reactivar a ${member.email}`}
                             onClick={() =>
@@ -310,11 +313,11 @@ export function MembersAdmin() {
                             }
                           >
                             <RefreshCw size={15} />
-                          </button>
+                          </AsyncActionButton>
                         )}
                         {confirmRemove === member.id ? (
                           <>
-                            <button
+                            <AsyncActionButton
                               className="confirm-delete"
                               onClick={() =>
                                 void mutate(
@@ -324,7 +327,7 @@ export function MembersAdmin() {
                               }
                             >
                               Confirmar
-                            </button>
+                            </AsyncActionButton>
                             <button onClick={() => setConfirmRemove(null)}>
                               Cancelar
                             </button>
@@ -552,7 +555,7 @@ export function TenantAIAdmin() {
     } finally { setTesting(false); }
   }
   return <div className="admin-page">
-    <header className="admin-heading"><div><p className="eyebrow">Administración de organización</p><h1>Inteligencia artificial</h1><p>Política efectiva, límites y último resultado, sin exponer credenciales.</p></div><button className="vector-primary" disabled={testing || !policy?.enabled || policy.kill_switch} onClick={() => void testConnection()}>{testing ? "Comprobando…" : "Comprobar configuración"}</button></header>
+    <header className="admin-heading"><div><p className="eyebrow">Administración de organización</p><h1>Inteligencia artificial</h1><p>Política efectiva, límites y último resultado, sin exponer credenciales.</p></div><AsyncActionButton className="vector-primary" disabled={!policy?.enabled || policy.kill_switch} loading={testing} onClick={() => void testConnection()}>{testing ? "Comprobando…" : "Comprobar configuración"}</AsyncActionButton></header>
     {error && <div className="inline-error" role="alert">{error}<button onClick={() => void load()}>Reintentar</button></div>}
     {loading ? <p role="status">Cargando política IA…</p> : policy && <section className="admin-table-card ai-policy-grid">
       <article><strong>Estado</strong><p>{policy.enabled && !policy.kill_switch ? "Activa" : "Desactivada"}</p>{(!policy.enabled || policy.kill_switch) && <small>Solicita a un administrador que revise el kill switch y la política del tenant.</small>}</article>

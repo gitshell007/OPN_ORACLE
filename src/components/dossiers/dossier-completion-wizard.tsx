@@ -20,7 +20,7 @@ import {
 import { useRouter } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { JobProgress } from "@/components/reporting/job-progress";
-import { HydratedActionButton } from "@/components/ui/async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
 
@@ -221,10 +221,10 @@ export function DossierCompletionWizard({ dossierId }: { dossierId: string }) {
                     Revisaré objetivo, señales, licitaciones, actores, oportunidades y riesgos para
                     sugerir el siguiente paso concreto.
                   </p>
-                  <button className="vector-ai" type="button" onClick={() => void runRound()}>
+                  <AsyncActionButton className="vector-ai" type="button" loading={running} onClick={() => void runRound()}>
                     <Sparkles size={15} aria-hidden="true" />
                     Lanzar diagnóstico
-                  </button>
+                  </AsyncActionButton>
                 </section>
               )}
 
@@ -317,7 +317,7 @@ export function DossierCompletionWizard({ dossierId }: { dossierId: string }) {
                     <Dialog.Close className="vector-secondary" type="button">
                       Cerrar
                     </Dialog.Close>
-                    <button className="vector-ai" type="submit" disabled={running}>
+                    <AsyncActionButton className="vector-ai" type="submit" loading={running}>
                       {running ? (
                         <>
                           <RefreshCw size={15} aria-hidden="true" />
@@ -329,7 +329,7 @@ export function DossierCompletionWizard({ dossierId }: { dossierId: string }) {
                           Lanzar nueva ronda
                         </>
                       )}
-                    </button>
+                    </AsyncActionButton>
                   </div>
                 </form>
               )}

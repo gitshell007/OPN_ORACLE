@@ -86,7 +86,7 @@ test("login real abre Vector canónico, navegación, sesiones y administración 
   await page.getByRole("button", { name: "Entrar en Oracle" }).click();
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText("Olivia Owner")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Señales" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Señales", exact: true })).toHaveAttribute(
     "href",
     "/app/signals",
   );
@@ -174,9 +174,8 @@ test("superadmin real accede solo al portal de plataforma", async ({
   await expect(page.getByText("Asterion E2E")).toBeVisible();
   await expect(page.getByText("Datos de plataforma").first()).toBeVisible();
   await page.goto("/app");
-  await expect(
-    page.getByRole("heading", { name: "Acceso restringido" }),
-  ).toBeVisible();
+  await expect(page).toHaveURL(/\/platform\/tenants$/);
+  await expect(page.getByRole("heading", { name: "Organizaciones" })).toBeVisible();
 });
 
 test("Vector F11 abre informes, notificaciones, preferencias y exportaciones", async ({

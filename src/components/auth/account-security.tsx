@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { useAuth } from "./auth-provider";
 import { useRecentAuth } from "./recent-auth";
 
@@ -190,10 +191,10 @@ export function SecuritySettings() {
               {error}
             </p>
           )}
-          <button className="vector-primary" disabled={busy}>
+          <AsyncActionButton className="vector-primary" type="submit" loading={busy}>
             <KeyRound size={16} />
             {busy ? "Actualizando…" : "Cambiar contraseña"}
-          </button>
+          </AsyncActionButton>
         </form>
       </section>
     </div>
@@ -290,14 +291,14 @@ export function SessionsSettings() {
                   </small>
                 </div>
                 {item.current && <span className="status active">Actual</span>}
-                <button
+                <AsyncActionButton
                   className="vector-secondary danger-outline"
                   onClick={() => void revoke(item)}
                   aria-label={`Revocar ${item.current ? "sesión actual" : "sesión"}`}
                 >
                   <Trash2 size={15} />
                   Revocar
-                </button>
+                </AsyncActionButton>
               </article>
             ))}
           </div>
@@ -306,12 +307,12 @@ export function SessionsSettings() {
           {confirmOthers ? (
             <>
               <span>¿Cerrar todas las demás sesiones?</span>
-              <button
+              <AsyncActionButton
                 className="vector-danger"
                 onClick={() => void revokeOthers()}
               >
                 Confirmar
-              </button>
+              </AsyncActionButton>
               <button
                 className="vector-secondary"
                 onClick={() => setConfirmOthers(false)}

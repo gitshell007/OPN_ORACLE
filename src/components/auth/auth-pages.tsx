@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { authenticatedLanding } from "@/lib/auth/safe-next";
 import { useAuth } from "./auth-provider";
 
@@ -118,7 +119,7 @@ export function LoginPage() {
     { tenant_id: string; tenant_name: string; tenant_slug: string }[]
   >([]);
   const [tenantId, setTenantId] = useState("");
-  async function submit(event: FormEvent) {
+  async function submitLogin(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -152,7 +153,7 @@ export function LoginPage() {
       title="Bienvenido a Oracle"
       copy="Identifícate con tu cuenta corporativa para abrir el centro de operaciones."
     >
-      <form onSubmit={submit} className="auth-form">
+      <form onSubmit={submitLogin} className="auth-form">
         <label className="auth-field">
           <span>Correo electrónico</span>
           <div>
@@ -192,9 +193,9 @@ export function LoginPage() {
           <Link href="/forgot-password">¿Has olvidado la contraseña?</Link>
         </div>
         <ProblemAlert error={error} />
-        <button className="auth-submit" disabled={busy}>
+        <AsyncActionButton className="auth-submit" type="submit" loading={busy}>
           {busy ? "Verificando…" : "Entrar en Oracle"}
-        </button>
+        </AsyncActionButton>
       </form>
       <p className="auth-footnote">
         El acceso y los cambios sensibles quedan registrados en la auditoría de
@@ -209,7 +210,7 @@ export function ForgotPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
-  async function submit(event: FormEvent) {
+  async function requestPasswordReset(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -238,7 +239,7 @@ export function ForgotPasswordPage() {
           <Link href="/login">Volver al acceso</Link>
         </div>
       ) : (
-        <form onSubmit={submit} className="auth-form">
+        <form onSubmit={requestPasswordReset} className="auth-form">
           <label className="auth-field">
             <span>Correo electrónico</span>
             <div>
@@ -254,9 +255,9 @@ export function ForgotPasswordPage() {
             </div>
           </label>
           <ProblemAlert error={error} />
-          <button className="auth-submit" disabled={busy}>
+          <AsyncActionButton className="auth-submit" type="submit" loading={busy}>
             {busy ? "Enviando…" : "Enviar instrucciones"}
-          </button>
+          </AsyncActionButton>
           <Link className="auth-back" href="/login">
             Volver al acceso
           </Link>
@@ -274,7 +275,7 @@ export function NewPasswordPage({ mode }: { mode: "reset" | "invite" }) {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
-  async function submit(event: FormEvent) {
+  async function submitNewPassword(event: FormEvent) {
     event.preventDefault();
     if (password !== confirm) {
       setError(
@@ -312,7 +313,7 @@ export function NewPasswordPage({ mode }: { mode: "reset" | "invite" }) {
       }
       copy="Usa una frase larga, única y fácil de recordar. El servidor verificará la política vigente."
     >
-      <form onSubmit={submit} className="auth-form">
+      <form onSubmit={submitNewPassword} className="auth-form">
         {!token && (
           <div className="auth-alert" role="alert">
             El enlace no contiene un token válido.
@@ -334,13 +335,13 @@ export function NewPasswordPage({ mode }: { mode: "reset" | "invite" }) {
           Evita contraseñas reutilizadas o triviales.
         </p>
         <ProblemAlert error={error} />
-        <button className="auth-submit" disabled={busy || !token}>
+        <AsyncActionButton className="auth-submit" type="submit" disabled={!token} loading={busy}>
           {busy
             ? "Guardando…"
             : mode === "reset"
               ? "Cambiar contraseña"
               : "Aceptar invitación"}
-        </button>
+        </AsyncActionButton>
       </form>
     </AuthFrame>
   );

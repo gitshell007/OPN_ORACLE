@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 
 interface PendingAction {
   action: () => Promise<unknown>;
@@ -52,7 +53,7 @@ export function RecentAuthProvider({
       });
     }
   }, []);
-  async function submit(event: FormEvent) {
+  async function confirmIdentity(event: FormEvent) {
     event.preventDefault();
     if (!pending.current) return;
     setBusy(true);
@@ -96,7 +97,7 @@ export function RecentAuthProvider({
             <Dialog.Description>
               Esta acción afecta a la seguridad o al acceso de otras personas.
             </Dialog.Description>
-            <form onSubmit={submit}>
+            <form onSubmit={confirmIdentity}>
               <label className="field">
                 <span>Contraseña</span>
                 <input
@@ -121,9 +122,9 @@ export function RecentAuthProvider({
                 >
                   Cancelar
                 </button>
-                <button className="vector-primary" disabled={busy}>
+                <AsyncActionButton className="vector-primary" type="submit" loading={busy}>
                   {busy ? "Confirmando…" : "Confirmar y continuar"}
-                </button>
+                </AsyncActionButton>
               </div>
             </form>
           </Dialog.Content>

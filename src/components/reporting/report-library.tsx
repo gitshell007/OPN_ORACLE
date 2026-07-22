@@ -31,7 +31,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
-import { HydratedActionButton } from "@/components/ui/async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { ExportMenu } from "./exports";
 import { JobProgress } from "./job-progress";
 import { ReportDrawer } from "./report-viewer";
@@ -306,9 +306,9 @@ function ReportGenerateWizard({
             {error && <p className="auth-inline-error" role="alert">{error}</p>}
             <footer>
               <Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close>
-              <button className="vector-primary" disabled={busy || !templates.length}>
+              <AsyncActionButton className="vector-primary" type="submit" disabled={!templates.length} loading={busy}>
                 <FilePlus2 size={16} /> {busy ? "Solicitando…" : "Generar informe"}
-              </button>
+              </AsyncActionButton>
             </footer>
           </form>
         </Dialog.Content>

@@ -785,15 +785,18 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Estado:** accepted
 - **Fecha:** 2026-07-22
 - **Contexto:** existía una suite Playwright útil pero no obligatoria en CI. Al conectarla aparecían
-  selectores obsoletos y tres fallos ajenos al objetivo inmediato: contraste insuficiente de
-  `.auth-eyebrow`, expectativa desalineada del acceso superadmin y subida documental E2E con CSRF
-  ausente.
+  selectores obsoletos y deudas WCAG ajenas al objetivo inmediato. El primer diagnóstico de CSRF en
+  la subida documental era falso: el test construía la ruta antes de que Next terminase de navegar.
+  La suite completa sí reveló después una carrera distinta de sesión/CSRF al subir antes de terminar
+  las lecturas iniciales; queda abierta por separado. La expectativa de acceso restringido del
+  superadmin contradecía la redirección aceptada a `/platform/tenants`.
 - **Decisión:** conservar la suite, corregir los selectores stale y ejecutarla en CI con servicios
-  PostgreSQL/Redis. Las deudas no relacionadas quedan como `test.fixme` con motivo concreto para
-  que el job sea accionable sin ocultar producto pendiente.
+  PostgreSQL/Redis. Las deudas WCAG no relacionadas se excluyen mediante una lista exacta por ruta,
+  regla y selector; el recorrido Axe y el control de consola siguen ejecutándose y cualquier
+  hallazgo distinto bloquea el job. No se usa un `fixme` que salte el recorrido completo.
 - **Consecuencias:** cada PR vuelve a recorrer login, navegación, permisos, flujos F11/F12 y smoke
-  móvil/escritorio. Corregir accesibilidad, política de superadmin o documentos reactivará esos
-  tests retirando el `fixme`; no se borra cobertura ni se declara resuelto lo que sigue pendiente.
+  móvil/escritorio. La subida documental y el límite de plataforma vuelven a ejecutarse; las deudas
+  WCAG enumeradas continúan abiertas, pero no silencian nuevas violaciones ni errores de consola.
 
 ## D-051 — Mutaciones de UI detrás de botones hidratados
 

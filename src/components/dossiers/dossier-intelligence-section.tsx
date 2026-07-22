@@ -31,7 +31,7 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } f
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
-import { HydratedActionButton } from "@/components/ui/async-action-button";
+import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { productScoreDetailLabel, productSignalTypeLabel } from "@/lib/product-copy";
 
@@ -869,7 +869,7 @@ export function DossierIntelligenceSection({
                   : "Escribe qué harías primero para reducir la probabilidad o el impacto del riesgo."}
               </small>
               {manualError && <p className="form-error" role="alert">{manualError}</p>}
-              <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><button className="vector-primary" disabled={busy || manualTitle.trim().length < 3}>{busy ? "Guardando…" : "Crear"}</button></div>
+              <div className="dialog-actions"><Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close><AsyncActionButton className="vector-primary" type="submit" disabled={manualTitle.trim().length < 3} loading={busy}>{busy ? "Guardando…" : "Crear"}</AsyncActionButton></div>
             </form>
           </Dialog.Content>
         </Dialog.Portal>
@@ -953,9 +953,9 @@ export function DossierIntelligenceSection({
                       <>
                         <PermissionGate permission="signal.review">
                           {status(selected) !== "promoted" && status(selected) !== "dismissed" && (
-                            <button className="vector-secondary" onClick={() => setConfirmAction("review")} disabled={busy}>
+                            <AsyncActionButton className="vector-secondary" onClick={() => setConfirmAction("review")} loading={busy}>
                               <CheckCircle2 size={15} /> Marcar revisada
-                            </button>
+                            </AsyncActionButton>
                           )}
                         </PermissionGate>
                         <PermissionGate permission="signal.promote">
@@ -963,21 +963,21 @@ export function DossierIntelligenceSection({
                             <div className="signal-promotion-actions">
                               {status(selected) === "new" ? (
                                 <PermissionGate permission="signal.review">
-                                  <button className="vector-primary" onClick={() => void beginPromotion("opportunity")} disabled={busy}>
+                                  <AsyncActionButton className="vector-primary" onClick={() => void beginPromotion("opportunity")} loading={busy}>
                                     <Sparkles size={15} /> Promover a oportunidad
-                                  </button>
-                                  <button className="vector-secondary" onClick={() => void beginPromotion("risk")} disabled={busy}>
+                                  </AsyncActionButton>
+                                  <AsyncActionButton className="vector-secondary" onClick={() => void beginPromotion("risk")} loading={busy}>
                                     <ShieldAlert size={15} /> Promover a riesgo
-                                  </button>
+                                  </AsyncActionButton>
                                 </PermissionGate>
                               ) : (
                                 <>
-                                  <button className="vector-primary" onClick={() => void beginPromotion("opportunity")} disabled={busy}>
+                                  <AsyncActionButton className="vector-primary" onClick={() => void beginPromotion("opportunity")} loading={busy}>
                                     <Sparkles size={15} /> Promover a oportunidad
-                                  </button>
-                                  <button className="vector-secondary" onClick={() => void beginPromotion("risk")} disabled={busy}>
+                                  </AsyncActionButton>
+                                  <AsyncActionButton className="vector-secondary" onClick={() => void beginPromotion("risk")} loading={busy}>
                                     <ShieldAlert size={15} /> Promover a riesgo
-                                  </button>
+                                  </AsyncActionButton>
                                 </>
                               )}
                             </div>
@@ -995,9 +995,9 @@ export function DossierIntelligenceSection({
                         )}
                         <PermissionGate permission="signal.review">
                           {status(selected) !== "promoted" && status(selected) !== "dismissed" && (
-                            <button className="vector-danger" onClick={() => setConfirmAction("dismiss")} disabled={busy}>
+                            <AsyncActionButton className="vector-danger" onClick={() => setConfirmAction("dismiss")} loading={busy}>
                               <XCircle size={15} /> Descartar
-                            </button>
+                            </AsyncActionButton>
                           )}
                         </PermissionGate>
                       </>
@@ -1012,9 +1012,9 @@ export function DossierIntelligenceSection({
                               {transitions.map((value) => <option key={value} value={value}>{STATUS_LABELS[value] ?? value}</option>)}
                             </select>
                           </label>
-                          <button className="vector-primary" disabled={!nextStatus || busy} onClick={() => setConfirmAction("transition")}>
+                          <AsyncActionButton className="vector-primary" disabled={!nextStatus} loading={busy} onClick={() => setConfirmAction("transition")}>
                             Actualizar estado
-                          </button>
+                          </AsyncActionButton>
                         </>
                         ) : <p>Este recurso está en un estado terminal.</p>}
                       </PermissionGate>
@@ -1099,9 +1099,9 @@ export function DossierIntelligenceSection({
               {mutationError && <p className="form-error" role="alert">{mutationError}</p>}
               <div className="dialog-actions">
                 <Dialog.Close className="vector-secondary" type="button">Cancelar</Dialog.Close>
-                <button className="vector-primary" disabled={busy || promotionTitle.trim().length < 2}>
+                <AsyncActionButton className="vector-primary" type="submit" disabled={promotionTitle.trim().length < 2} loading={busy}>
                   {busy ? "Promoviendo…" : "Crear recurso"}
-                </button>
+                </AsyncActionButton>
               </div>
             </form>
           </Dialog.Content>
@@ -1229,9 +1229,9 @@ function ConfirmationDialog({
           <Dialog.Description>{description}</Dialog.Description>
           <div className="dialog-actions">
             <button className="vector-secondary" type="button" onClick={onCancel} disabled={busy}>Cancelar</button>
-            <button className={destructive ? "vector-danger" : "vector-primary"} type="button" onClick={onConfirm} disabled={busy}>
+            <AsyncActionButton className={destructive ? "vector-danger" : "vector-primary"} type="button" onClick={onConfirm} loading={busy}>
               {busy ? "Guardando…" : "Confirmar"}
-            </button>
+            </AsyncActionButton>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
