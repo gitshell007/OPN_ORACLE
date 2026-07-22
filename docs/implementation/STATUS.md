@@ -28,6 +28,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   aviso conocido de TanStack Table; TypeScript correcto; Vitest 38 ficheros/184 tests; build Next
   correcto con 19 páginas; Playwright autenticado 25 tests correctos y 7 omisiones intencionadas de
   matriz. La suite backend completa ejecutó 521 tests con PostgreSQL/Redis reales y alcanzó 84,06 %.
+- El primer despacho manual del CI para el SHA `9eca77b` detectó una carencia del runner, no del
+  producto: el job E2E levantaba Redis pero no instalaba `redis-cli`, requerido por el script de
+  preparación autenticada. El workflow instala ahora `redis-tools` antes de Playwright; el
+  despliegue continúa condicionado a repetir y superar el CI para el nuevo SHA exacto.
 - Línea base productiva previa al despliegue medida con sesión real: ITURRI mostraba las acciones
   antes de los datos y el grafo abría con 300 nodos, 301 enlaces y el aviso de recorte al final del
   lateral. La verificación post-despliegue queda pendiente en este punto del historial.
