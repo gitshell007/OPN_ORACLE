@@ -211,14 +211,14 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
           >
             <Image
               className="oracle-symbol"
-              src="/brand/opn-oracle-symbol.svg"
+              src="/brand/opn-symbol-white.svg"
               alt=""
-              width={30}
-              height={32}
+              width={28}
+              height={30}
               priority
             />
             <span>
-              <b>OPN</b> Oracle{!canonical && <small>Vector</small>}
+              <b>OPN</b> <em>Oracle</em>{!canonical && <small>Vector</small>}
             </span>
           </Link>
           <button

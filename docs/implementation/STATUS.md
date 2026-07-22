@@ -14,6 +14,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   entregado. Los botones primarios usan `--or-deep` y el filete inferior de oro; los gradientes
   se limitan al activo de marca. Los estados de éxito, información y riesgo conservan sus colores
   semánticos y el oro no se usa como serie de datos.
+- Ajuste posterior del handoff: login y sidebar usan el símbolo blanco sobre fondo oscuro; el
+  lockup separa `OPN` en blanco de `Oracle` en `--or-light`. En superficies oscuras, eyebrows,
+  checks, avatar y etiquetas de navegación usan oro claro; `--opn-gold` queda solo en filetes y
+  separadores. En superficies claras, los textos oro siguen en `--opn-gold-text`.
 - Favicon, icono Apple y manifiesto PWA apuntan a los PNG de Oracle entregados. No cambian rutas,
   copy, contratos, backend, migraciones ni variables de entorno.
 - Gates frontend: `npm run lint` terminó con 0 errores y un aviso conocido de TanStack Table;

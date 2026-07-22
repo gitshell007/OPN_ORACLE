@@ -25,13 +25,13 @@ function AuthFrame({
       <section className="auth-brand-panel" aria-label="OPN Oracle">
         <div className="auth-brand">
           <Image
-            src="/brand/opn-oracle-symbol.svg"
+            src="/brand/opn-symbol-white.svg"
             alt=""
-            width={38}
-            height={41}
+            width={32}
+            height={34}
             priority
           />
-          <strong><b>OPN</b> Oracle</strong>
+          <strong><b>OPN</b> <em>Oracle</em></strong>
         </div>
         <div>
           <p>INTELIGENCIA ESTRATÉGICA</p>

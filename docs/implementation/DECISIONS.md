@@ -738,10 +738,11 @@ deberá versionarse un flujo de copia/materialización separado.
   declara `tokens/tokens.css` como fuente de verdad. Su tabla narrativa atribuye `#F6F4EF` a
   `--opn-porcelain`, pero el token entregado fija ese valor en `#EFECE6`.
 - **Decisión:** se incorpora el CSS de tokens sin modificarlo y el producto consume
-  `--opn-porcelain` (`#EFECE6`) como canvas efectivo. `--or-deep`, `--opn-gold` y
-  `--opn-gold-text` se aplican respectivamente a acción, acento y texto; los gradientes se
-  restringen al símbolo. Las tipografías se declaran con fallback local hasta disponer de ficheros
-  de fuente con licencia de distribución.
+  `--opn-porcelain` (`#EFECE6`) como canvas efectivo. `--or-deep` es acción; sobre fondo oscuro
+  el texto/acento usa `--or-light` y `--opn-gold` se reserva a filetes; sobre claro el texto oro
+  usa `--opn-gold-text`. Los gradientes se restringen al símbolo y la marca oscura usa el activo
+  blanco sin caja ni contenedor. Las tipografías se declaran con fallback local hasta disponer de
+  ficheros de fuente con licencia de distribución.
 - **Consecuencias:** no se duplica una paleta paralela ni se resuelve silenciosamente la
   discrepancia del handoff. Un cambio futuro de color se realiza en el archivo de tokens y se
   propaga por variables; adjuntar fuentes requerirá una decisión de licencia, hospedaje y CSP.
