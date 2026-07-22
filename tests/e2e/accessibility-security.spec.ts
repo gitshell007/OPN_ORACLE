@@ -64,6 +64,10 @@ async function loginOwner(page: Page, testInfo: TestInfo) {
 }
 
 async function expectWcagAA(page: Page, route: string) {
+  // A client navigation can update the URL before Next has finished streaming
+  // the document head. Axe must inspect the settled page, while still failing
+  // if the title never becomes available.
+  await expect(page).toHaveTitle(/\S/);
   const result = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   const violations: WcagFinding[] = result.violations.flatMap((violation) =>
     violation.nodes.map((node) => ({

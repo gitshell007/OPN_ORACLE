@@ -32,6 +32,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   producto: el job E2E levantaba Redis pero no instalaba `redis-cli`, requerido por el script de
   preparación autenticada. El workflow instala ahora `redis-tools` antes de Playwright; el
   despliegue continúa condicionado a repetir y superar el CI para el nuevo SHA exacto.
+- La siguiente ejecución llegó al recorrido Axe y expuso una carrera del gate móvil: la navegación
+  cliente confirmaba la URL antes de que Next terminase de reponer el `<title>` durante el streaming
+  del head. El gate espera ahora un título no vacío antes de analizar; no se añade una excepción y
+  un documento que carezca realmente de título continúa fallando.
 - Línea base productiva previa al despliegue medida con sesión real: ITURRI mostraba las acciones
   antes de los datos y el grafo abría con 300 nodos, 301 enlaces y el aviso de recorte al final del
   lateral. La verificación post-despliegue queda pendiente en este punto del historial.
