@@ -505,13 +505,28 @@ Para tareas amplias, usa subagentes aislados por módulo: backend, frontend, DB,
 
 ### Commits
 
-Si el usuario autoriza commits:
+**Commitea siempre en `master` al terminar, sin preguntar.** En este proyecto conviven varias
+sesiones de Codex sobre el mismo árbol de trabajo. Lo que se deja sin commitear acaba recogiéndolo
+otra sesión o quien audita, atribuido a quien no lo hizo, y ya ha provocado auditorías repetidas y
+entregas mezcladas.
 
-- un commit lógico por fase o unidad coherente;
-- mensajes descriptivos;
-- no mezclar reformateos masivos;
-- no hacer force push;
-- no borrar ramas.
+- **Añade solo tus ficheros, por ruta explícita.** Nunca `git add -A`, `git add .` ni
+  `git commit -a`: con el árbol compartido capturarían el trabajo a medio hacer de otra sesión.
+- **`git pull --rebase` antes de empezar y antes de commitear.** Otra sesión puede haber avanzado
+  mientras trabajabas.
+- **Push inmediato** después de cada commit, para que las demás sesiones y el auditor lo vean.
+- Un commit lógico por unidad coherente.
+- **Prefijo convencional** con ámbito: `feat(entity-intel):`, `fix(ai):`, `docs:`, `test:`,
+  `refactor:`, `chore:`.
+- **Cuerpo amplio**: qué cambia, **por qué**, y qué se midió o se decidió. Un cuerpo que solo
+  repite el título no sirve para reconstruir el motivo dentro de tres semanas.
+- **Trailer `Prompt: <n>`** cuando el trabajo venga de un prompt numerado.
+- Si el trabajo queda a medias, commitea igualmente lo que esté terminado y **dilo en el resumen**;
+  no lo dejes en el árbol.
+- No mezclar reformateos masivos. No hacer force push. No borrar ramas.
+
+Esto no resuelve el problema de raíz: dos sesiones editando el mismo fichero a la vez seguirán
+chocando. Lo que evita es que el trabajo terminado quede en el limbo y se atribuya mal.
 
 ---
 
@@ -613,7 +628,8 @@ Siempre informa:
 9. mutaciones aplicadas y resultado;
 10. barrido del patrón: qué se buscó, dónde y qué apareció;
 11. invariantes tocados: mediciones o decisiones registradas afectadas;
-12. siguiente prompt/fase recomendada.
+12. **commits creados: hash corto y título de cada uno**, y confirmación de que se hizo push;
+13. siguiente prompt/fase recomendada.
 
 Evita “todo funciona” sin evidencias concretas. Nombra gates solo cuando se hayan ejecutado todos
 sus comandos: “Ruff correcto” exige `ruff check` y `ruff format --check`.

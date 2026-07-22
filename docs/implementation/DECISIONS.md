@@ -779,3 +779,55 @@ deberá versionarse un flujo de copia/materialización separado.
   ofrecen 1 y 2. El control crecerá automáticamente si el payload contiene más niveles, pero
   habilitarlos en origen requiere una fase coordinada en Signal con límites de coste, nodos,
   latencia y truncamiento antes de ampliar el contrato de Oracle.
+
+## D-050 — E2E conectado con deudas explícitas, no silenciosas
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** existía una suite Playwright útil pero no obligatoria en CI. Al conectarla aparecían
+  selectores obsoletos y tres fallos ajenos al objetivo inmediato: contraste insuficiente de
+  `.auth-eyebrow`, expectativa desalineada del acceso superadmin y subida documental E2E con CSRF
+  ausente.
+- **Decisión:** conservar la suite, corregir los selectores stale y ejecutarla en CI con servicios
+  PostgreSQL/Redis. Las deudas no relacionadas quedan como `test.fixme` con motivo concreto para
+  que el job sea accionable sin ocultar producto pendiente.
+- **Consecuencias:** cada PR vuelve a recorrer login, navegación, permisos, flujos F11/F12 y smoke
+  móvil/escritorio. Corregir accesibilidad, política de superadmin o documentos reactivará esos
+  tests retirando el `fixme`; no se borra cobertura ni se declara resuelto lo que sigue pendiente.
+
+## D-051 — Mutaciones de UI detrás de botones hidratados
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** `AsyncActionButton` y `HydratedActionButton` ya existían para evitar doble envío,
+  estados inconsistentes e interacción antes de hidratación, pero no había una regla que impidiera
+  volver a usar `<button>` en mutaciones de backend.
+- **Decisión:** migrar las acciones de negocio a `AsyncActionButton`/`HydratedActionButton` sin
+  modificar esos componentes base, y añadir un invariante estático sobre TSX que detecta botones
+  nativos con handlers mutantes, submits de formularios mutantes o llamadas inline a `api.*`.
+- **Consecuencias:** ordenar, paginar, abrir diálogos y toggles locales siguen siendo botones
+  nativos. Las nuevas mutaciones deben pasar por la puerta hidratada o ampliar deliberadamente el
+  invariante si aparece un patrón legítimo no cubierto.
+
+## D-042 — Codex commitea siempre, y solo sus ficheros
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** el proyecto se desarrolla con dos o tres sesiones de Codex simultáneas sobre el
+  **mismo árbol de trabajo**, y la norma anterior condicionaba el commit a una autorización
+  explícita del usuario. El resultado medido en un solo día: trabajo terminado que se quedaba sin
+  commitear, recogido después por otra sesión o por el auditor y atribuido a quien no lo hizo; el
+  prompt 66 auditado dos veces; una vertical completa confundida con «otra tanda»; y dos tracks
+  entrelazados en `test_ai_runtime.py` que ya no se pudieron separar por fichero.
+- **Decisión:** Codex commitea siempre en `master` al terminar, sin preguntar, añadiendo **solo sus
+  ficheros por ruta explícita** (nunca `git add -A`, que con el árbol compartido captura el trabajo
+  a medias de otra sesión), con `git pull --rebase` antes, push inmediato después, prefijo
+  convencional, cuerpo amplio que explique el porqué y trailer `Prompt: <n>`. El resumen final debe
+  incluir los hashes creados.
+- **Consecuencia asumida:** la auditoría pasa a ser posterior al commit en lugar de previa. Se
+  pierde la posibilidad de frenar algo antes de que entre en la historia —hoy mismo se frenaron
+  cosas así— a cambio de que deje de haber trabajo huérfano. Como el despliegue se hace desde
+  `master` y siempre con backup y rollback probados, corregir hacia delante es aceptable.
+- **Lo que NO resuelve:** dos sesiones editando el mismo fichero a la vez seguirán chocando. La
+  solución completa sería aislar cada sesión en su propio worktree, descartado por ahora porque el
+  responsable no quiere ramas que queden atrás y diverjan.
