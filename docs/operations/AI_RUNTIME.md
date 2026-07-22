@@ -1,5 +1,18 @@
 # Runtime IA de Oracle
 
+## Política inicial y autoridad de enrutado
+
+Cada tenant nuevo recibe una `AITenantPolicy` en su transacción de alta. La política hereda el modo
+configurado por Oracle cuando la IA está habilitada y queda con kill switch cuando no lo está; no
+incluye nombres de modelos permitidos porque las tareas gobernadas pertenecen a Signal. El
+propietario puede consultar el estado en `/app/admin/ai` y ejecutar una comprobación de
+configuración. Esa comprobación no equivale a una inferencia real ni garantiza conectividad de red
+con todos los proveedores secundarios.
+
+Proveedor, modelo, fallback, timeout y presupuesto por `task_key` se administran en Signal. Para
+habilitar un secundario cloud hay que aprobar clasificación, redacción y presupuesto en Signal; no
+se añaden credenciales cloud a Oracle ni se fuerza fallback desde este repositorio.
+
 La fase 09 funciona cerrada por defecto y no configura ningún proveedor externo. Las peticiones HTTP solo encolan `BackgroundJob`; el worker de la cola `ai` construye un snapshot tenant-scoped, reserva cuota, ejecuta el provider y el revisor de evidencia y persiste auditoría y un artefacto candidato.
 
 ## Modos y variables

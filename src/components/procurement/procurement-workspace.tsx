@@ -1,5 +1,6 @@
 "use client";
 
+import * as Popover from "@radix-ui/react-popover";
 import {
   api,
   type ProcurementTenderFilters,
@@ -10,6 +11,7 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   ExternalLink,
   FileText,
   Pencil,
@@ -23,6 +25,7 @@ import { useSearchParams } from "next/navigation";
 import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
@@ -69,6 +72,32 @@ interface SummaryState {
   text?: string | null;
   model?: string | null;
   error?: string | null;
+}
+
+function FieldHelp({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          className="procurement-field-help-trigger"
+          type="button"
+          aria-label={`Ayuda sobre ${label}`}
+        >
+          <CircleHelp size={14} />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className="procurement-field-help-content"
+          align="start"
+          sideOffset={6}
+        >
+          {children}
+          <Popover.Arrow className="procurement-field-help-arrow" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
 }
 
 interface FreeTextAutocompleteProps {
@@ -572,26 +601,43 @@ export function ProcurementWorkspace() {
           </button>
         </header>
         <form className="procurement-search-form" onSubmit={submit}>
-          <label>
-            <span>Keywords CSV</span>
-            <div>
+          <div className="procurement-search-field">
+            <div className="procurement-search-field-label">
+              <label htmlFor="procurement-keywords">Términos de búsqueda</label>
+              <FieldHelp label="términos de búsqueda">
+                Escribe una o varias palabras que esperas encontrar en la licitación. Si usas
+                varias, sepáralas con comas: por ejemplo, baterías, hidrógeno, mantenimiento.
+              </FieldHelp>
+            </div>
+            <div className="procurement-search-control">
               <Search size={15} />
               <input
+                id="procurement-keywords"
                 value={keywords}
                 onChange={(event) => setKeywords(event.target.value)}
-                placeholder="baterías, hidrógeno, mantenimiento"
+                placeholder="Ej. baterías, hidrógeno, mantenimiento"
               />
             </div>
-          </label>
-          <label>
-            <span>Etiqueta semántica</span>
-            <input
-              value={semanticLabel}
-              onChange={(event) => setSemanticLabel(event.target.value)}
-              placeholder="p. ej. movilidad eléctrica"
-              disabled={keywords.trim().length > 0}
-            />
-          </label>
+          </div>
+          <div className="procurement-search-field">
+            <div className="procurement-search-field-label">
+              <label htmlFor="procurement-topic">Descripción del tema</label>
+              <FieldHelp label="descripción del tema">
+                Alternativa a los términos: describe la necesidad con una frase breve, por
+                ejemplo, movilidad eléctrica municipal. Si escribes términos, este campo se
+                desactiva para no mezclar los dos modos de búsqueda.
+              </FieldHelp>
+            </div>
+            <div className="procurement-search-control">
+              <input
+                id="procurement-topic"
+                value={semanticLabel}
+                onChange={(event) => setSemanticLabel(event.target.value)}
+                placeholder="Ej. movilidad eléctrica municipal"
+                disabled={keywords.trim().length > 0}
+              />
+            </div>
+          </div>
           <button className="vector-primary" type="submit" disabled={loading}>
             Buscar
           </button>

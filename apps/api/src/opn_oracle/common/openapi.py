@@ -267,6 +267,16 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
         ),
         ("/api/v1/tenant-admin/roles", "get"): ("200", "RoleListResponse"),
         ("/api/v1/tenant-admin/audit", "get"): ("200", "AuditListResponse"),
+        ("/api/v1/tenant-admin/ai-policy", "get"): ("200", "AIPolicyResponse"),
+        ("/api/v1/tenant-admin/ai-policy/test", "post"): ("200", "AIHealthResponse"),
+        ("/api/v1/dossiers/competitive-intelligence/readiness", "get"): (
+            "200",
+            "CompetitiveReadinessResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote", "post"): (
+            "201",
+            "ProcurementPromotionResponse",
+        ),
         ("/api/v1/jobs", "get"): ("200", "JobListResponse"),
         ("/api/v1/jobs/{job_id}", "get"): ("200", "JobResponse"),
         ("/api/v1/jobs/{job_id}/cancel", "post"): ("202", "JobResponse"),
@@ -287,6 +297,100 @@ def _response_schemas() -> dict[str, Any]:
 
     return {
         "IdResponse": {"type": "object", "required": ["id"], "properties": {"id": uuid}},
+        "AIHealthResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status"],
+            "properties": {
+                "status": {"type": "string"},
+                "model": {"type": "string", "nullable": True},
+            },
+        },
+        "AIPolicyResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["enabled", "provider", "kill_switch", "limits", "routing_authority"],
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "provider": {"type": "string"},
+                "allowed_models": {"type": "array", "items": {"type": "string"}},
+                "kill_switch": {"type": "boolean"},
+                "max_classification": {"type": "string"},
+                "limits": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "daily_calls": {"type": "integer"},
+                        "max_concurrency": {"type": "integer"},
+                        "max_context_tokens": {"type": "integer"},
+                        "max_output_tokens": {"type": "integer"},
+                        "monthly_soft_budget_micros": {"type": "integer"},
+                        "monthly_hard_budget_micros": {"type": "integer"},
+                    },
+                },
+                "routing_authority": {"type": "string"},
+                "last_run": {
+                    "type": "object",
+                    "nullable": True,
+                    "additionalProperties": False,
+                    "properties": {
+                        "status": {"type": "string"},
+                        "provider": {"type": "string"},
+                        "model": {"type": "string"},
+                        "error_code": {"type": "string", "nullable": True},
+                        "updated_at": {"type": "string", "format": "date-time"},
+                    },
+                },
+                "last_error": {
+                    "type": "object",
+                    "nullable": True,
+                    "additionalProperties": False,
+                    "properties": {
+                        "error_code": {"type": "string", "nullable": True},
+                        "provider": {"type": "string"},
+                        "model": {"type": "string"},
+                        "updated_at": {"type": "string", "format": "date-time"},
+                    },
+                },
+            },
+        },
+        "CompetitiveReadinessResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["ready", "checks"],
+            "properties": {
+                "ready": {"type": "boolean"},
+                "checks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["key", "ready", "label", "detail", "action_href"],
+                        "properties": {
+                            "key": {"type": "string"},
+                            "ready": {"type": "boolean"},
+                            "label": {"type": "string"},
+                            "detail": {"type": "string"},
+                            "action_href": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+        "ProcurementPromotionResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["opportunity", "replayed"],
+            "properties": {
+                "opportunity": {"$ref": "#/components/schemas/OpportunityResource"},
+                "replayed": {"type": "boolean"},
+            },
+        },
+        "ProcurementPromoteInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        },
         "MembershipIdResponse": {
             "type": "object",
             "required": ["membership_id"],
@@ -650,6 +754,8 @@ def _declare_oracle_operation(
             schema = "DossierPatchInput"
         elif path.endswith("/review"):
             schema = "SignalReviewInput"
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
+            schema = "ProcurementPromoteInput"
         elif path.endswith("/promote"):
             schema = "SignalPromoteInput"
         elif path.endswith("/merge"):
@@ -672,6 +778,8 @@ def _declare_oracle_operation(
             "required": True,
             "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/{schema}"}}},
         }
+        if path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
+            operation["requestBody"]["required"] = False
     if (
         signal_monitor_create
         or signal_monitor_update
@@ -760,6 +868,8 @@ def _declare_oracle_operation(
             response = {"$ref": "#/components/schemas/LinkMutationResponse"}
         elif path == "/api/v1/dossiers/bulk-delete":
             response = {"$ref": "#/components/schemas/DossierBulkDeleteResponse"}
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
+            response = {"$ref": "#/components/schemas/ProcurementPromotionResponse"}
         elif path.endswith("/promote"):
             response = {"$ref": "#/components/schemas/PromotionResponse"}
         elif path.endswith("/retriage"):
@@ -1329,6 +1439,43 @@ def _oracle_schemas() -> dict[str, Any]:
                 "total": {"type": "integer"},
             }
         ),
+        "CompetitiveCompetitorInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 300},
+                "website": {"type": "string", "format": "uri"},
+                "aliases": string_array,
+                "tax_id": {"type": "string", "maxLength": 80},
+                "country": {"type": "string", "maxLength": 120},
+            },
+        },
+        "CompetitiveProfileInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["own_offer", "competitors", "business_objective"],
+            "properties": {
+                "own_offer": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "competitors": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {"$ref": "#/components/schemas/CompetitiveCompetitorInput"},
+                },
+                "segments": string_array,
+                "geographies": string_array,
+                "target_buyers": string_array,
+                "horizon": {"type": "string", "maxLength": 500},
+                "business_objective": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "keywords": string_array,
+                "cpv": string_array,
+                "sources": string_array,
+                "participation_criteria": {"type": "string", "maxLength": 3000},
+                "exclusion_criteria": {"type": "string", "maxLength": 3000},
+                "success_indicators": string_array,
+            },
+        },
         "DossierCreateInput": {
             "type": "object",
             "additionalProperties": False,
@@ -1345,6 +1492,8 @@ def _oracle_schemas() -> dict[str, Any]:
                 "sectors": string_array,
                 "languages": string_array,
                 "scoring_config": json_object,
+                "profile_config": {"$ref": "#/components/schemas/CompetitiveProfileInput"},
+                "initial_status": {"type": "string", "enum": ["draft", "active"]},
                 "create_starter_profile": {"type": "boolean"},
             },
         },

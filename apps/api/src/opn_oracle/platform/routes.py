@@ -13,6 +13,7 @@ from flask import current_app, request
 from flask_login import current_user
 from sqlalchemy import select, text, update
 
+from opn_oracle.ai.policy_defaults import default_ai_policy
 from opn_oracle.auth.permissions import recent_auth_required, require_platform_admin
 from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.common.errors import problem_response
@@ -99,6 +100,7 @@ def create_tenant() -> tuple[Any, int]:
             )
         )
         seed_system_roles(db.session, tenant.id)
+        db.session.add(default_ai_policy(tenant.id, current_app.config))
         append_audit_event(
             db.session,
             action="platform.tenant.created",

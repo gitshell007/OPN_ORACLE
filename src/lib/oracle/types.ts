@@ -1,5 +1,5 @@
 export type DossierStatus = "draft" | "active" | "paused" | "archived";
-export type DossierType = "project" | "strategic_account" | "market" | "technology" | "tender_or_grant" | "investment" | "partnership" | "regulatory_affair" | "custom";
+export type DossierType = "project" | "strategic_account" | "market" | "technology" | "tender_or_grant" | "investment" | "partnership" | "regulatory_affair" | "competitive_intelligence" | "custom";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type Density = "compact" | "balanced" | "comfortable";
 export type SignalStatus = "new" | "reviewed" | "dismissed" | "promoted";

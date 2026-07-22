@@ -72,7 +72,12 @@ from opn_oracle.oracle.entity_dossier_report import (
     incorporate_entity_dossier_report,
 )
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
-from opn_oracle.oracle.links import DossierCollaborator, EvidenceDossier, ReportEvidence
+from opn_oracle.oracle.links import (
+    DossierCollaborator,
+    EvidenceDossier,
+    OpportunityEvidence,
+    ReportEvidence,
+)
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Report, StrategicDossier
 from opn_oracle.reporting.models import (
     DataExport,
@@ -2980,7 +2985,8 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, ids, _ = oracle_stack
-    dossier = _create_dossier(_client(oracle_stack), ids, "Procurement idempotente")
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Procurement idempotente")
     dossier_id = uuid.UUID(dossier["id"])
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -3032,6 +3038,32 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
         assert first_created is True
         assert second_created is False
         assert second.id == first_id
+        opportunity, promoted = procurement_items.promote_procurement_to_opportunity(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=first_id,
+            actor_id=ids["user"],
+        )
+        replay, promoted_again = procurement_items.promote_procurement_to_opportunity(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=first_id,
+            actor_id=ids["user"],
+        )
+        db.session.commit()
+        assert promoted is True
+        assert promoted_again is False
+        assert replay.id == opportunity.id
+        assert opportunity.confidence == 70
+        assert (
+            db.session.get(
+                OpportunityEvidence,
+                (ids["tenant_a"], opportunity.id, first.evidence_id),
+            )
+            is not None
+        )
         assert (
             db.session.scalar(
                 select(func.count(DossierProcurementItem.id)).where(
@@ -3076,6 +3108,16 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
             dossier_id=dossier_id,
         )
         assert [item.id for item in remaining] == [first_id]
+
+    replayed = client.post(
+        f"/api/v1/dossiers/{dossier_id}/procurement/{first_id}/promote",
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": f"promote-{first_id}",
+        },
+    )
+    assert replayed.status_code == 200
+    assert replayed.get_json()["replayed"] is True
 
 
 def test_tender_report_context_cites_pinned_procurement_evidence(
@@ -3365,6 +3407,73 @@ def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(
             "title": "Tipo no booleano",
             "type": "project",
             "create_starter_profile": "yes",
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert invalid.status_code == 422
+
+
+def test_competitive_intelligence_creation_is_active_specific_and_honest(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    _, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    response = client.post(
+        "/api/v1/dossiers",
+        json={
+            "workspace_id": str(ids["workspace_a"]),
+            "title": "Competidores de vehículos especiales",
+            "type": "competitive_intelligence",
+            "strategic_goal": "Elegir oportunidades abordables durante los próximos 24 meses.",
+            "initial_status": "active",
+            "create_starter_profile": True,
+            "profile_config": {
+                "own_offer": "Vehículos especiales y mantenimiento",
+                "competitors": [
+                    {
+                        "name": "Compañía Alfa",
+                        "website": "https://alfa.example",
+                        "aliases": ["Alfa Industrial"],
+                    },
+                    {"name": "Compañía Beta", "aliases": []},
+                ],
+                "segments": ["emergencias"],
+                "geographies": ["Europa"],
+                "target_buyers": ["servicios públicos"],
+                "horizon": "24 meses",
+                "business_objective": "Priorizar concursos con encaje demostrable.",
+                "keywords": ["vehículo especial"],
+                "cpv": ["34144210"],
+                "sources": ["fuentes oficiales"],
+                "participation_criteria": "Capacidad técnica acreditada",
+                "exclusion_criteria": "Plazo inviable",
+                "success_indicators": ["oportunidades cualificadas"],
+            },
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 201
+    dossier = response.get_json()
+    assert dossier["status"] == "active"
+    assert dossier["profile_config"]["version"] == "competitive-intelligence.v1"
+    dossier_id = dossier["id"]
+    actors = client.get(f"/api/v1/dossiers/{dossier_id}/actors").get_json()["data"]
+    tasks = client.get(f"/api/v1/dossiers/{dossier_id}/tasks").get_json()["data"]
+    watchlist = client.get(f"/api/v1/dossiers/{dossier_id}/watchlists").get_json()["data"][0]
+    assert len(actors) == 2
+    assert all(item["roles"] == ["competidor"] for item in actors)
+    assert all(item["influence"] == 0 for item in actors)
+    assert len(tasks) == 3
+    assert watchlist["query_config"]["cpv"] == ["34144210"]
+    assert watchlist["query_config"]["competitors"] == ["Compañía Alfa", "Compañía Beta"]
+
+    invalid = client.post(
+        "/api/v1/dossiers",
+        json={
+            "title": "Perfil sin competidores",
+            "type": "competitive_intelligence",
+            "strategic_goal": "No debe persistirse",
+            "profile_config": {"own_offer": "Producto", "business_objective": "Objetivo"},
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )

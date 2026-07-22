@@ -140,6 +140,7 @@ class IntakeOutput(AgentOutput):
         "product_launch",
         "regulatory_affair",
         "risk_watch",
+        "competitive_intelligence",
         "custom",
     ]
 

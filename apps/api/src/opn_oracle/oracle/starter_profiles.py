@@ -126,6 +126,21 @@ STARTER_PROFILES: dict[str, StarterProfile] = {
         ),
         ("regulatory_signal", "official_publication", "news", "risk_signal", "relationship_signal"),
     ),
+    "competitive_intelligence": StarterProfile(
+        "Entender y anticipar el movimiento competitivo",
+        "Comparar capacidades, compradores y contratación para decidir dónde actuar.",
+        (
+            (
+                "Los competidores priorizados muestran patrones de adjudicación relevantes.",
+                "Contrastar adjudicaciones, compradores, CPV, importes y evolución temporal.",
+            ),
+            (
+                "Existe una diferenciación defendible para competir o colaborar.",
+                "Validar capacidades, evidencias, socios y criterios de participación.",
+            ),
+        ),
+        ("company_signal", "market_signal", "tender_or_grant", "official_publication"),
+    ),
     "custom": StarterProfile(
         "Aclarar la prioridad estratégica",
         "Delimitar el contexto, los actores, la evidencia disponible y la siguiente decisión.",

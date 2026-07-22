@@ -9,6 +9,7 @@ import {
   BarChart3,
   ExternalLink,
   FileText,
+  Lightbulb,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -120,6 +121,7 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
   const [items, setItems] = useState<DossierProcurementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatingCompetitive, setGeneratingCompetitive] = useState(false);
@@ -183,6 +185,19 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
       );
     } finally {
       setRemovingId(null);
+    }
+  }
+
+  async function promote(itemId: string) {
+    setPromotingId(itemId);
+    setError(null);
+    try {
+      const result = await api.dossierProcurement.promote(dossierId, itemId);
+      setItems((current) => current.map((item) => item.id === itemId ? { ...item, linked_opportunity_id: result.opportunity.id } : item));
+    } catch (reason) {
+      setError(problemMessage(reason, "No se pudo crear el borrador de oportunidad."));
+    } finally {
+      setPromotingId(null);
     }
   }
 
@@ -422,6 +437,15 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     </a>
                   )}
                   <PermissionGate permission="opportunity.write">
+                    {item.linked_opportunity_id ? (
+                      <Link className="vector-secondary" href={`/app/dossiers/${dossierId}/opportunities?selected=${item.linked_opportunity_id}`}>
+                        <Lightbulb size={14} /> Abrir oportunidad
+                      </Link>
+                    ) : (
+                      <AsyncActionButton className="vector-secondary" type="button" loading={promotingId === item.id} loadingLabel="Creando borrador…" onClick={() => void promote(item.id)}>
+                        <Lightbulb size={14} /> Crear oportunidad
+                      </AsyncActionButton>
+                    )}
                     <AsyncActionButton
                       className="vector-danger"
                       type="button"

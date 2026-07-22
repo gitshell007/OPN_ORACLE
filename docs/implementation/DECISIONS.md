@@ -685,3 +685,47 @@ deberá versionarse un flujo de copia/materialización separado.
   correcta con cero resultados continúa sin pestaña; los fallos sí quedan visibles y auditables en
   el corpus del informe. Los informes históricos mantienen su snapshot; la corrección se aplica a
   generaciones nuevas y no reescribe artefactos existentes.
+
+## D-045 — Respuesta explícita por agente al rechazo del revisor
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** `dossier_situation_summary` se regenera cada noche y un único claim discutible
+  hacía perder el output completo. En respuestas reales, el revisor devolvió para «Concurso
+  bomberos» una ruta inventada sobre su paquete compacto (`$.candidate_claims[5].claim`) y para
+  «Mercado baterías LFP Europa» la ruta original (`$.relevant_actors[0]`). En el primer caso el
+  texto del claim coincidía exactamente y de forma única con el claim enviado, cuya ruta original
+  también era `$.relevant_actors[0]`.
+- **Decisión:** `EVIDENCE_REVIEW_FAILURE_POLICY` declara por agente `not_required`,
+  `reject_output` o `strip_claims`. Solo `dossier_situation_summary` usa `strip_claims`:
+  retira el bloque objetado, revalida schema y allowlist, y añade avisos visibles con el claim y el
+  motivo. Una ruta solo se acepta si coincide con el claim enviado; en otro caso se exige
+  coincidencia textual exacta y única. Objeciones no anclables, ambiguas o de seguridad global
+  mantienen fallo duro. `report_writer` y `competitive_procurement_intelligence` quedan
+  explícitamente en `reject_output`.
+- **Consecuencias:** una objeción quirúrgica ya no destruye el resumen nocturno, pero tampoco se
+  publica como hecho. La política efectiva queda congelada en el manifest del snapshot de
+  auditoría. No cambian el paquete compacto, los prompts, Signal, los presupuestos ni la validación
+  de citas permitidas; un informe rechazado o con evidencia ajena al snapshot sigue sin artefacto.
+
+## D-046 — Perfil competitivo estructurado sin invadir el gobierno de Signal
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** el alta genérica de expedientes no podía conservar oferta propia, competidores,
+  ámbito, criterios bid/no-bid ni KPIs, y los actores manuales recibían puntuaciones que podían
+  confundirse con confianza probada. La petición de proveedor primario/secundario contradice
+  D-015 si Oracle elige modelos que pertenecen al catálogo gobernado de Signal.
+- **Decisión:** `StrategicDossier.profile_config` conserva el intake competitivo versionado como
+  `competitive-intelligence.v1`; el expediente nace activo salvo elección explícita de borrador y
+  genera objetivos, hipótesis, vigilancia, actores competidores y tareas desde los datos revisados.
+  La confianza del actor manual queda sin valor y con base «sin evidencias», separada de relevancia
+  e influencia. Todo tenant nuevo recibe una `AITenantPolicy` fail-closed en la misma transacción.
+  La administración muestra esa política y el estado de configuración, pero Signal sigue siendo
+  la única autoridad de proveedor, modelo y fallback. Una recomendación del Oráculo solo se
+  materializa tras confirmación y guarda la versión de origen.
+- **Consecuencias:** el flujo ya no depende de texto genérico ni inventa confianza. Activar Gemini
+  u OpenRouter, clasificar errores recuperables o cambiar modelos exige hacerlo en Signal y cerrar
+  antes presupuesto, clasificación y redacción; Oracle no simula una conectividad que no ha
+  probado. La configuración JSON permite evolucionar el intake con versión explícita sin crear
+  columnas sectoriales.

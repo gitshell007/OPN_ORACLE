@@ -4709,6 +4709,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/competitive-intelligence/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Competitive Intelligence Readiness */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}": {
         parameters: {
             query?: never;
@@ -8572,6 +8662,115 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dossier Procurement Promote */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    dossier_id: string;
+                    item_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ProcurementPromoteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementPromotionResponse"];
+                    };
+                };
+                /** @description Operación completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementPromotionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -23317,6 +23516,152 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/tenant-admin/ai-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ai Policy */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AIPolicyResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant-admin/ai-policy/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Ai Policy */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AIHealthResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant-admin/audit": {
         parameters: {
             query?: never;
@@ -24540,10 +24885,45 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AIHealthResponse: {
+            model?: string | null;
+            status: string;
+        };
         AIJobEnqueueResponse: {
             /** Format: uuid */
             job_id: string;
             status: string;
+        };
+        AIPolicyResponse: {
+            allowed_models?: string[];
+            enabled: boolean;
+            kill_switch: boolean;
+            last_error?: {
+                error_code?: string | null;
+                model?: string;
+                provider?: string;
+                /** Format: date-time */
+                updated_at?: string;
+            } | null;
+            last_run?: {
+                error_code?: string | null;
+                model?: string;
+                provider?: string;
+                status?: string;
+                /** Format: date-time */
+                updated_at?: string;
+            } | null;
+            limits: {
+                daily_calls?: number;
+                max_concurrency?: number;
+                max_context_tokens?: number;
+                max_output_tokens?: number;
+                monthly_hard_budget_micros?: number;
+                monthly_soft_budget_micros?: number;
+            };
+            max_classification?: string;
+            provider: string;
+            routing_authority: string;
         };
         AIRetriageInput: Record<string, never>;
         ActorCandidate: {
@@ -24772,6 +25152,39 @@ export interface components {
             /** @enum {string} */
             role?: "owner" | "editor" | "collaborator" | "viewer";
         };
+        CompetitiveCompetitorInput: {
+            aliases?: string[];
+            country?: string;
+            name: string;
+            tax_id?: string;
+            /** Format: uri */
+            website?: string;
+        };
+        CompetitiveProfileInput: {
+            business_objective: string;
+            competitors: components["schemas"]["CompetitiveCompetitorInput"][];
+            cpv?: string[];
+            exclusion_criteria?: string;
+            geographies?: string[];
+            horizon?: string;
+            keywords?: string[];
+            own_offer: string;
+            participation_criteria?: string;
+            segments?: string[];
+            sources?: string[];
+            success_indicators?: string[];
+            target_buyers?: string[];
+        };
+        CompetitiveReadinessResponse: {
+            checks: {
+                action_href: string;
+                detail: string;
+                key: string;
+                label: string;
+                ready: boolean;
+            }[];
+            ready: boolean;
+        };
         CsrfResponse: {
             csrf_token: string;
         };
@@ -24858,9 +25271,12 @@ export interface components {
             create_starter_profile?: boolean;
             description?: string;
             geography?: string[];
+            /** @enum {string} */
+            initial_status?: "draft" | "active";
             languages?: string[];
             /** Format: uuid */
             owner_user_id?: string;
+            profile_config?: components["schemas"]["CompetitiveProfileInput"];
             scoring_config?: components["schemas"]["JsonObject"];
             sectors?: string[];
             strategic_goal?: string;
@@ -25740,6 +26156,11 @@ export interface components {
             status: number;
             title: string;
             type: string;
+        };
+        ProcurementPromoteInput: Record<string, never>;
+        ProcurementPromotionResponse: {
+            opportunity: components["schemas"]["OpportunityResource"];
+            replayed: boolean;
         };
         ProcurementSuggestResponse: {
             cache_hit: boolean;

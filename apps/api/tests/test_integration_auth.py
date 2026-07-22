@@ -18,9 +18,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
 from opn_oracle import create_app
+from opn_oracle.ai.policy_defaults import default_ai_policy
 from opn_oracle.auth.passwords import PasswordHasher
+from opn_oracle.extensions import db
 from opn_oracle.jobs.tasks import dispatch_queued_jobs
 from opn_oracle.notifications.email import CaptureEmailSender
+from opn_oracle.tenants.context import TenantContext, tenant_context
 
 pytestmark = pytest.mark.integration
 
@@ -376,6 +379,14 @@ def test_superadmin_platform_tenant_lifecycle_and_global_audit(
     )
     assert created.status_code == 201
     tenant_id = created.get_json()["id"]
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.connect() as connection:
+        policy_count = connection.scalar(
+            text("SELECT count(*) FROM ai_tenant_policies WHERE tenant_id=:tenant_id"),
+            {"tenant_id": tenant_id},
+        )
+    engine.dispose()
+    assert policy_count == 1
     assert client.get("/api/v1/platform/tenants").status_code == 200
     assert client.get(f"/api/v1/platform/tenants/{tenant_id}").status_code == 200
     assert client.get("/api/v1/platform/audit").status_code == 200
@@ -596,6 +607,52 @@ def test_tenant_admin_invite_roles_last_owner_and_audit(
         == 409
     )
     assert client.get("/api/v1/tenant-admin/audit").status_code == 200
+
+
+def test_tenant_owner_can_inspect_and_check_provisioned_ai_policy(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = auth_stack
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        db.session.add(
+            default_ai_policy(
+                ids["tenant"],
+                {"AI_ENABLED": True, "AI_MODE": "mock", "AI_DEFAULT_MODEL": "mock-oracle-v1"},
+            )
+        )
+        db.session.commit()
+
+    client = app.test_client()
+    assert _login(client, "owner@example.test", password, ids["tenant"]).status_code == 200
+    response = client.get("/api/v1/tenant-admin/ai-policy")
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "enabled": True,
+        "provider": "mock",
+        "allowed_models": ["mock-oracle-v1"],
+        "kill_switch": False,
+        "max_classification": "public",
+        "limits": {
+            "daily_calls": 100,
+            "max_concurrency": 2,
+            "max_context_tokens": 8000,
+            "max_output_tokens": 6500,
+            "monthly_soft_budget_micros": 0,
+            "monthly_hard_budget_micros": 0,
+        },
+        "routing_authority": "oracle",
+        "last_run": None,
+        "last_error": None,
+    }
+    tested = client.post(
+        "/api/v1/tenant-admin/ai-policy/test",
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert tested.status_code == 200
+    assert tested.get_json()["status"] == "disabled"
 
 
 def test_permission_revocation_is_effective_for_an_open_session(

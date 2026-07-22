@@ -46,6 +46,12 @@
 
 ## Signal Avanza
 
+- Pendiente de Signal/compliance para inteligencia competitiva: decidir si se autoriza Gemini vía
+  OpenRouter como secundario, con clasificación máxima, redacción, presupuesto y conjunto explícito
+  de errores recuperables. Oracle no cableará proveedor ni modelo por D-015. También falta un
+  contrato demostrado para búsqueda booleana Y/O/NO, agrupación de expedientes y estimación de
+  renovaciones; la UI no debe prometer esas capacidades hasta medirlas.
+
 - Resuelto: productor `/Users/gitshell/PycharmProjects/opn_signal`, contrato `2026-07-01`, URL
   `https://signal.opnconsultoria.com/api/v1/oracle`, API key, scopes y allowlist de tenants.
 - Resuelto: cursor opaco ligado a tenant/monitor, retención de 365 días y límite 1–200.

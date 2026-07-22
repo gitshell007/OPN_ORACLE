@@ -224,6 +224,7 @@ export const ADMIN_ROUTES = [
   { id: "admin-members", label: "Miembros", href: "/app/admin/members", group: "admin", icon: Users, permission: "tenant.users.manage" },
   { id: "admin-roles", label: "Roles y permisos", href: "/app/admin/roles", group: "admin", icon: ShieldCheck, permission: "tenant.users.manage" },
   { id: "admin-workspaces", label: "Espacios de trabajo", href: "/app/admin/workspaces", group: "admin", icon: Workflow, permission: "tenant.settings.manage" },
+  { id: "admin-ai", label: "Inteligencia artificial", href: "/app/admin/ai", group: "admin", icon: Sparkles, permission: "tenant.settings.manage" },
   { id: "admin-integrations", label: "Integraciones", href: "/app/admin/integrations", group: "admin", icon: PlugZap, permission: "tenant.integrations.manage" },
   { id: "admin-signal", label: "Signal Avanza", href: "/app/admin/integrations/signal-avanza", group: "admin", icon: RadioTower, permission: "tenant.integrations.manage" },
   { id: "admin-audit", label: "Auditoría", href: "/app/admin/audit", group: "admin", icon: SearchCheck, permission: "audit.read" },

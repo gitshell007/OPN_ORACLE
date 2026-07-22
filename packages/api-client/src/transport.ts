@@ -296,6 +296,15 @@ const tenantAdmin = {
     request<components["schemas"]["AuditListResponse"]>(
       "/api/v1/tenant-admin/audit",
     ),
+  aiPolicy: () =>
+    request<components["schemas"]["AIPolicyResponse"]>(
+      "/api/v1/tenant-admin/ai-policy",
+    ),
+  testAI: () =>
+    request<components["schemas"]["AIHealthResponse"]>(
+      "/api/v1/tenant-admin/ai-policy/test",
+      { method: "POST" },
+    ),
   invite: (input: components["schemas"]["InviteMemberInput"]) =>
     request<components["schemas"]["IdResponse"]>(
       "/api/v1/tenant-admin/members",
@@ -604,6 +613,7 @@ export interface BackendDossier {
   workspace_id?: string;
   updated_at: string;
   version?: number;
+  profile_config?: Record<string, unknown>;
 }
 
 export type DossierSort =
@@ -660,6 +670,10 @@ const dossiers = {
       method: "POST",
       body: input,
     }),
+  competitiveReadiness: () =>
+    request<components["schemas"]["CompetitiveReadinessResponse"]>(
+      "/api/v1/dossiers/competitive-intelligence/readiness",
+    ),
   update: (
     dossierId: string,
     input: components["schemas"]["DossierPatchInput"],
@@ -1652,6 +1666,7 @@ export interface DossierProcurementItem {
   source_url?: string | null;
   evidence_id: string;
   pinned_by_user_id?: string | null;
+  linked_opportunity_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1768,6 +1783,11 @@ const dossierProcurement = {
     request<{ deleted: boolean; id: string }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}`,
       { method: "DELETE" },
+    ),
+  promote: (dossierId: string, itemId: string) =>
+    request<{ opportunity: OracleOpportunity; replayed: boolean }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}/promote`,
+      { method: "POST", idempotencyKey: `procurement-promote-${dossierId}-${itemId}` },
     ),
   createDocumentReport: (
     dossierId: string,

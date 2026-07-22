@@ -14,6 +14,7 @@ from flask_login import current_user
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from opn_oracle.ai.models import AITenantPolicy
 from opn_oracle.auth.permissions import current_permissions, require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.documents.models import Document
@@ -101,6 +102,7 @@ from opn_oracle.oracle.procurement_items import (
     delete_procurement_item,
     list_procurement_items,
     pin_procurement_item,
+    promote_procurement_to_opportunity,
     serialize_procurement_item,
 )
 from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
@@ -130,6 +132,7 @@ from opn_oracle.oracle.summary import (
     list_summary_versions,
 )
 from opn_oracle.platform.audit import append_audit_event
+from opn_oracle.platform.models import IntegrationConnection
 from opn_oracle.reporting.service import (
     ReportConflictError,
     ReportWorkflowError,
@@ -1028,6 +1031,48 @@ def dossiers_create() -> Any:
         return _domain_error(error)
 
 
+@bp.get("/dossiers/competitive-intelligence/readiness")
+@require_permission("dossier.write")
+def competitive_intelligence_readiness() -> dict[str, Any]:
+    policy = db.session.scalar(
+        select(AITenantPolicy).where(AITenantPolicy.tenant_id == g.active_tenant_id)
+    )
+    connection = db.session.scalar(
+        select(IntegrationConnection).where(
+            IntegrationConnection.tenant_id == g.active_tenant_id,
+            IntegrationConnection.provider == "signal_avanza",
+            IntegrationConnection.status == "active",
+        )
+    )
+    ai_ready = bool(policy and policy.enabled and not policy.kill_switch)
+    signal_ready = connection is not None
+    checks = [
+        {
+            "key": "ai",
+            "ready": ai_ready,
+            "label": "Análisis con IA",
+            "detail": (
+                "La política IA está activa."
+                if ai_ready
+                else "La política IA está desactivada o todavía no está provisionada."
+            ),
+            "action_href": "/app/admin/ai",
+        },
+        {
+            "key": "signal",
+            "ready": signal_ready,
+            "label": "Signal Avanza",
+            "detail": (
+                "La conexión de la organización está activa."
+                if signal_ready
+                else "Configura y prueba Signal para enriquecer y vigilar el expediente."
+            ),
+            "action_href": "/app/admin/integrations/signal-avanza",
+        },
+    ]
+    return {"ready": all(item["ready"] for item in checks), "checks": checks}
+
+
 @bp.post("/dossiers/bulk-delete")
 @require_permission("dossier.delete")
 def dossiers_bulk_delete() -> Any:
@@ -1644,6 +1689,35 @@ def dossier_procurement_delete(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any
         return problem_response(404, detail="Ítem de contratación no encontrado.", code="not_found")
     db.session.commit()
     return {"deleted": True, "id": str(item_id)}
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>/promote")
+@require_permission("opportunity.write")
+def dossier_procurement_promote(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any:
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if not request.headers.get("Idempotency-Key", "").strip():
+        return problem_response(
+            428,
+            detail="Idempotency-Key es obligatorio para crear la oportunidad.",
+            code="precondition_required",
+        )
+    try:
+        opportunity, created = promote_procurement_to_opportunity(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            dossier_id=dossier.id,
+            item_id=item_id,
+            actor_id=current_user.id,
+        )
+        db.session.commit()
+        return {"opportunity": _serialize(opportunity), "replayed": not created}, (
+            201 if created else 200
+        )
+    except ProcurementItemError as error:
+        db.session.rollback()
+        return problem_response(404, detail=str(error), code="not_found")
 
 
 NESTED: dict[str, tuple[type[Any], str, str]] = {

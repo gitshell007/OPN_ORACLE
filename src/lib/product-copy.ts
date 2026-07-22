@@ -127,6 +127,7 @@ const DOSSIER_TYPE_LABELS: Record<string, string> = {
   partnership: "Alianza",
   product_launch: "Lanzamiento de producto",
   regulatory_affair: "Asunto regulatorio",
+  competitive_intelligence: "Inteligencia competitiva",
   risk_watch: "Seguimiento de riesgos",
   custom: "Otro",
 };

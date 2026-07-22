@@ -526,3 +526,42 @@ export function TenantAudit() {
     </div>
   );
 }
+
+export function TenantAIAdmin() {
+  const [policy, setPolicy] = useState<components["schemas"]["AIPolicyResponse"] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try { setPolicy(await api.tenantAdmin.aiPolicy()); }
+    catch (reason) { setError(reason instanceof ApiError ? reason.problem.detail : "No se pudo cargar la política IA."); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
+  async function testConnection() {
+    setTesting(true);
+    setError(null);
+    try {
+      const result = await api.tenantAdmin.testAI();
+      toast.success("Configuración IA comprobada", { description: `${result.status}${result.model ? ` · ${result.model}` : ""}. Esta comprobación no ejecuta una inferencia.` });
+      await load();
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.problem.detail : "No se pudo comprobar la configuración IA.");
+    } finally { setTesting(false); }
+  }
+  return <div className="admin-page">
+    <header className="admin-heading"><div><p className="eyebrow">Administración de organización</p><h1>Inteligencia artificial</h1><p>Política efectiva, límites y último resultado, sin exponer credenciales.</p></div><button className="vector-primary" disabled={testing || !policy?.enabled || policy.kill_switch} onClick={() => void testConnection()}>{testing ? "Comprobando…" : "Comprobar configuración"}</button></header>
+    {error && <div className="inline-error" role="alert">{error}<button onClick={() => void load()}>Reintentar</button></div>}
+    {loading ? <p role="status">Cargando política IA…</p> : policy && <section className="admin-table-card ai-policy-grid">
+      <article><strong>Estado</strong><p>{policy.enabled && !policy.kill_switch ? "Activa" : "Desactivada"}</p>{(!policy.enabled || policy.kill_switch) && <small>Solicita a un administrador que revise el kill switch y la política del tenant.</small>}</article>
+      <article><strong>Proveedor de acceso</strong><p>{policy.provider}</p><small>{policy.routing_authority === "signal" ? "Signal decide proveedor y modelo por task_key." : "Oracle usa la política local configurada."}</small></article>
+      <article><strong>Modelos permitidos</strong><p>{policy.allowed_models?.length ? policy.allowed_models.join(", ") : "Gobernados por Signal"}</p></article>
+      <article><strong>Límites</strong><p>{String(policy.limits.daily_calls ?? 0)} llamadas/día · {String(policy.limits.max_concurrency ?? 0)} simultáneas</p></article>
+      <article><strong>Presupuesto</strong><p>{Number(policy.limits.monthly_hard_budget_micros ?? 0) > 0 ? `${Number(policy.limits.monthly_hard_budget_micros) / 1_000_000} €` : "Sin techo económico configurado en Oracle"}</p></article>
+      <article><strong>Último resultado</strong><p>{policy.last_run ? `${String(policy.last_run.status)} · ${String(policy.last_run.provider ?? "proveedor no informado")}` : "Todavía no hay ejecuciones"}</p></article>
+      <article><strong>Último error</strong><p>{policy.last_error ? `${String(policy.last_error.error_code ?? "error no clasificado")} · ${String(policy.last_error.provider ?? "proveedor no informado")}` : "No hay errores registrados"}</p></article>
+    </section>}
+  </div>;
+}

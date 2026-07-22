@@ -183,6 +183,7 @@ describe("UI de contratación pública", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("muestra resultados de licitaciones, filtros y resumen LLM cacheado sin POST", async () => {
@@ -190,7 +191,7 @@ describe("UI de contratación pública", () => {
 
     expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
-    fireEvent.change(screen.getByLabelText("Keywords CSV"), {
+    fireEvent.change(screen.getByLabelText("Términos de búsqueda"), {
       target: { value: "baterías, movilidad" },
     });
     fireEvent.change(screen.getByLabelText("CPV"), {
@@ -219,6 +220,40 @@ describe("UI de contratación pública", () => {
     fireEvent.click(screen.getByRole("button", { name: /resumen/i }));
     expect(await screen.findByText("Resumen ya calculado.")).toBeInTheDocument();
     expect(mocks.summarizeTender).not.toHaveBeenCalled();
+  });
+
+  it("explica con lenguaje claro los dos modos de búsqueda", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserverMock {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Términos de búsqueda" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Descripción del tema" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Keywords CSV")).not.toBeInTheDocument();
+    expect(screen.queryByText("Etiqueta semántica")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ayuda sobre términos de búsqueda" }),
+    );
+    expect(await screen.findByText(/sepáralas con comas/i)).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ayuda sobre descripción del tema" }),
+    );
+    expect(await screen.findByText(/alternativa a los términos/i)).toBeInTheDocument();
+    expect(screen.getByText(/se desactiva para no mezclar/i)).toBeInTheDocument();
   });
 
   it("sugiere órganos compradores con debounce y conserva la escritura libre", async () => {

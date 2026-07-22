@@ -1,8 +1,103 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-21
+Actualizado: 2026-07-22
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Expediente guiado de inteligencia competitiva
+
+- Añadido el perfil `competitive_intelligence` con intake revisable de oferta propia, competidores
+  y alias, segmentos, geografías, compradores, horizonte, objetivo, términos/CPV, fuentes,
+  criterios participar/no participar e indicadores. El alta crea un expediente activo por defecto
+  o explica el estado borrador antes de confirmar.
+- El bootstrap genera objetivos e hipótesis específicas, actores competidores reutilizables,
+  vigilancia enriquecida y tres tareas iniciales. Un registro manual no recibe confianza opaca:
+  conserva `confidence=null`, influencia 0 y relevancia independiente hasta vincular evidencias.
+- Todo tenant nuevo recibe una política IA fail-closed. La nueva vista `/app/admin/ai` expone
+  activación, autoridad de enrutado, proveedor configurado, límites, presupuesto, último intento y
+  una comprobación honesta de configuración. Signal continúa gobernando modelos y fallback por
+  `task_key` según D-015.
+- La preparación del alta comprueba política IA y conexión Signal y ofrece acciones seguras sin
+  impedir guardar el expediente. Las referencias de contratación fijadas pueden convertirse de
+  forma idempotente en oportunidades conservando el enlace de evidencia.
+- Las recomendaciones del Oráculo permiten crear, siempre tras una segunda confirmación, borradores
+  de tarea, oportunidad, riesgo, actor, hipótesis o decisión; el origen y versión del resumen se
+  guardan donde el recurso admite metadata.
+- Contrato actualizado con migración `20260722_0021`, OpenAPI y cliente TypeScript regenerado. No
+  hay variables de entorno nuevas ni se ha modificado Signal.
+- Gates backend: `ruff check` correcto; `ruff format --check` confirmó 146 ficheros; mypy correcto
+  sobre 110 ficheros; suite completa con PostgreSQL/Redis reales terminó con `518 passed` y
+  cobertura `84,02 %`. La migración recorrió upgrade y downgrade en integración.
+- Gates frontend: lint terminó con 0 errores y el aviso conocido de TanStack Table en
+  `dossier-context-panel.tsx:158`; typecheck correcto; Vitest terminó con 37 ficheros y 167 tests;
+  el build de Next generó 18 páginas estáticas.
+- Playwright local, tras instalar el Chromium correspondiente a la versión fijada: 20 casos
+  correctos, 6 omitidos y 4 fallidos. Los fallos observados son invariantes preexistentes fuera de
+  este cambio: controles interactivos anidados en `/app/dossiers`, un selector antiguo ambiguo
+  para «Promover», la expectativa de acceso restringido del superadmin y el tamaño táctil de
+  `.back-link` en móvil. No se han corregido dentro de esta fase ni se contabilizan como gate verde.
+- Mutaciones restauradas: permitir que Oracle fije el modelo de Signal, forzar borrador, retirar el
+  vínculo `OpportunityEvidence`, omitir la política del alta de tenant, falsear la autoridad de
+  enrutado, saltar la revisión UI, crear una tarea cerrada y degradar el schema HTTP 200 de la
+  promoción hicieron caer sus tests respectivos.
+- Alcance aún no verificado en producción: la aceptación completa solo mediante UI (tenant nuevo,
+  tres empresas, resolución registral, Oracle e informe real) requiere sesión y despliegue. Los
+  paneles analíticos avanzados, el lenguaje booleano Y/O/NO y las estimaciones de renovación no se
+  atribuyen a Signal mientras no exista contrato demostrado. El navegador real llegó a
+  `/login?next=%2Fapp%2Fdossiers`; no había sesión y no se usó un harness como sustituto.
+
+## Recorte quirúrgico del resumen ante un revisor negativo · prompt 70
+
+- D-045 introduce `EVIDENCE_REVIEW_FAILURE_POLICY`, indexada directamente para todos los agentes.
+  `dossier_situation_summary` usa `strip_claims`; `report_writer` y
+  `competitive_procurement_intelligence` conservan explícitamente `reject_output`.
+- El resumen retira solo bloques objetados con anclaje seguro, revalida schema y allowlist, y
+  persiste avisos visibles con recuento, claim retirado y motivo. Una objeción no anclable,
+  ambigua, de clasificación, privacidad, inyección o confianza sigue fallando en duro.
+- Sonda read-only sobre respuestas reales de Signal: «Concurso bomberos» recibió la ruta inventada
+  `$.candidate_claims[5].claim`, cuyo texto casó exacta y únicamente con el claim enviado en
+  `$.relevant_actors[0]`; «Mercado baterías LFP Europa» recibió directamente
+  `$.relevant_actors[0]`. La implementación y los tests cubren ambas formas.
+- La política efectiva queda registrada en el manifest del snapshot. No cambian prompts, paquete
+  compacto del revisor, proveedores, presupuestos, Signal, OpenAPI, base de datos ni configuración.
+- Tests integrados enfocados restaurados: las dos variantes del resumen completan con el claim
+  fuera del artefacto y auditoría/ledger cerrados; `report_writer` y el competitivo fallan ante
+  veredicto negativo; ambos rechazan una cita fuera del snapshot (`6 passed`). El panel muestra el
+  recorte y el caso sano no muestra aviso (`4 passed`).
+- Mutaciones verificadas y restauradas: retirar el fallback textual hizo caer el caso de ruta
+  inventada; cambiar ambos informes a `strip_claims` hizo caer sus dos casos de fallo duro; ocultar
+  `output.warnings` hizo caer el test visual; retirar la validación de allowlist hizo caer los dos
+  tests de evidencia no autorizada.
+- Gates backend: `ruff check .` correcto; `ruff format --check .` confirmó 167 ficheros
+  formateados; `mypy src` correcto sobre 109 ficheros; suite completa con integración real terminó
+  con `515 passed` y cobertura total `84.09%`.
+- Gates frontend: `npm run typecheck` correcto; `npm run lint` terminó con 0 errores y el aviso
+  preexistente de TanStack Table en `dossier-context-panel.tsx:158`; `npx vitest run` terminó con
+  37 ficheros y 165 tests correctos; `npm run build` compiló y generó 18 páginas estáticas.
+- Verificación productiva posterior al cambio pendiente de despliegue autorizado: no se ha
+  modificado producción. La sonda previa confirma que ambos expedientes siguen fallando con la
+  versión actualmente desplegada.
+
+## Búsqueda de licitaciones comprensible y alineada
+
+- Los rótulos internos «Keywords CSV» y «Etiqueta semántica» pasan a «Términos de búsqueda» y
+  «Descripción del tema». Ambos incorporan una ayuda accionable y accesible con ejemplos de qué
+  escribir y explican que son modos alternativos.
+- Los dos campos comparten ahora la misma estructura, etiqueta, altura de control y alineación con
+  el botón Buscar. La adaptación móvil conserva una sola columna.
+- No cambia el contrato: ambos modos siguen resolviéndose al parámetro `keywords`; los términos
+  explícitos mantienen la precedencia y desactivan la descripción del tema. No se promete una
+  búsqueda semántica que la API no distingue.
+- Un test nuevo verifica los nombres comprensibles, elimina la jerga visible y abre las dos ayudas.
+  Mutación comprobada: cambiar el nombre accesible de la segunda ayuda a «Ayuda sobre tema» hizo
+  caer el test; restaurado, el fichero enfocado terminó con `11 passed`.
+- Gates frontend: `npm run typecheck` correcto; `npm run lint` correcto con 0 errores y el aviso
+  preexistente de TanStack Table en `dossier-context-panel.tsx:158`; `npx vitest run` terminó con
+  37 ficheros y 164 tests correctos; `npm run build` compiló y generó 18 páginas estáticas.
+- Verificación visual real no completada: producción redirigió a
+  `/login?next=%2Fapp%2Fprocurement` por falta de sesión autenticada. No se utilizó un harness
+  sintético como equivalente.
+- Sin cambios de backend, OpenAPI, migraciones, variables de entorno ni datos existentes.
 
 ## Cobertura y fallos visibles en patentes · prompt 69
 

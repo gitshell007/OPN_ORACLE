@@ -10,6 +10,7 @@ import click
 from flask import Flask, current_app
 from sqlalchemy import select
 
+from opn_oracle.ai.policy_defaults import default_ai_policy
 from opn_oracle.auth.passwords import PasswordHasher, PasswordPolicy, PasswordPolicyError
 from opn_oracle.extensions import db
 from opn_oracle.platform.audit import append_global_audit_event
@@ -173,6 +174,7 @@ def register_platform_cli(app: Flask) -> None:
             )
             db.session.flush()
             roles = seed_system_roles(db.session(), tenant_id)
+            db.session.add(default_ai_policy(tenant_id, current_app.config))
             db.session.add(
                 MembershipRole(
                     tenant_id=tenant_id,

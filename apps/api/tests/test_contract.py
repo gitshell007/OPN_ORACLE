@@ -253,6 +253,16 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
     assert spec["paths"]["/api/v1/signals/{link_id}/promote"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"] == {"$ref": "#/components/schemas/SignalPromoteInput"}
+    procurement_promote = spec["paths"][
+        "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote"
+    ]["post"]
+    assert procurement_promote["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProcurementPromoteInput"
+    }
+    for status in ("200", "201"):
+        assert procurement_promote["responses"][status]["content"]["application/json"][
+            "schema"
+        ] == {"$ref": "#/components/schemas/ProcurementPromotionResponse"}
     assert "409" in spec["paths"]["/api/v1/dossiers/{dossier_id}"]["patch"]["responses"]
     schemas = spec["components"]["schemas"]
     assert "OracleResource" not in schemas

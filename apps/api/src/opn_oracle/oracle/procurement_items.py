@@ -18,8 +18,8 @@ from opn_oracle.integrations.procurement import (
     ProcurementProviderError,
     procurement_client_from_config,
 )
-from opn_oracle.oracle.links import EvidenceDossier
-from opn_oracle.oracle.models import DossierProcurementItem, Evidence
+from opn_oracle.oracle.links import EvidenceDossier, OpportunityEvidence
+from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Opportunity
 from opn_oracle.platform.audit import append_audit_event
 
 ProcurementKind = Literal["tender", "award"]
@@ -602,6 +602,78 @@ def delete_procurement_item(
     return True
 
 
+def promote_procurement_to_opportunity(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    item_id: uuid.UUID,
+    actor_id: uuid.UUID,
+) -> tuple[Opportunity, bool]:
+    item = session.scalar(
+        select(DossierProcurementItem)
+        .where(
+            DossierProcurementItem.id == item_id,
+            DossierProcurementItem.tenant_id == tenant_id,
+            DossierProcurementItem.dossier_id == dossier_id,
+        )
+        .with_for_update()
+    )
+    if item is None:
+        raise ProcurementItemError("Referencia de contratación no encontrada.")
+    if item.linked_opportunity_id is not None:
+        existing = session.scalar(
+            select(Opportunity).where(
+                Opportunity.id == item.linked_opportunity_id,
+                Opportunity.tenant_id == tenant_id,
+                Opportunity.dossier_id == dossier_id,
+            )
+        )
+        if existing is not None:
+            return existing, False
+    title = str(item.snapshot.get("title") or f"Contratación {item.folder_id}")[:300]
+    opportunity = Opportunity(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        opportunity_type="public_procurement",
+        title=title,
+        description=procurement_evidence_extract(item.snapshot)[:10000],
+        confidence=70,
+        overall_score=0,
+        score_details={
+            "confidence": {
+                "value": 70,
+                "basis": (
+                    "Una referencia oficial fijada como evidencia; evaluación humana pendiente."
+                ),
+                "evidence_ids": [str(item.evidence_id)],
+            }
+        },
+        next_action="Completar la evaluación participar/no participar.",
+        owner_user_id=actor_id,
+    )
+    session.add(opportunity)
+    session.flush()
+    session.add(
+        OpportunityEvidence(
+            tenant_id=tenant_id,
+            opportunity_id=opportunity.id,
+            evidence_id=item.evidence_id,
+        )
+    )
+    item.linked_opportunity_id = opportunity.id
+    append_audit_event(
+        session,
+        action="procurement.promoted_to_opportunity",
+        resource_type="opportunity",
+        resource_id=opportunity.id,
+        dossier_id=dossier_id,
+        result="success",
+        metadata={"procurement_item_id": str(item.id), "folder_id": item.folder_id},
+    )
+    return opportunity, True
+
+
 def serialize_procurement_item(item: DossierProcurementItem) -> dict[str, Any]:
     return {
         "id": str(item.id),
@@ -613,6 +685,9 @@ def serialize_procurement_item(item: DossierProcurementItem) -> dict[str, Any]:
         "source_url": item.source_url,
         "evidence_id": str(item.evidence_id),
         "pinned_by_user_id": str(item.pinned_by_user_id) if item.pinned_by_user_id else None,
+        "linked_opportunity_id": (
+            str(item.linked_opportunity_id) if item.linked_opportunity_id else None
+        ),
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }

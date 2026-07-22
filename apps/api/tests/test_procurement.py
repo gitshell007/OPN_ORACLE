@@ -1071,6 +1071,7 @@ class _FakePinnedItem:
         self.source_url = "https://contrataciondelestado.es/tender"
         self.evidence_id = uuid.uuid4()
         self.pinned_by_user_id = uuid.uuid4()
+        self.linked_opportunity_id = None
         self.created_at = now
         self.updated_at = now
 

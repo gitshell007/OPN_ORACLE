@@ -29,6 +29,11 @@ export const DOSSIER_STARTER_PROFILES = {
     bestFor: "Úsalo cuando un cambio normativo o administrativo puede abrir una oportunidad o alterar el plan.",
     focus: "Creará un objetivo regulatorio, dos hipótesis y una vigilancia inicial de publicaciones, regulador y posibles impactos.",
   },
+  competitive_intelligence: {
+    description: "Para seguir competidores, contratación y movimientos de mercado.",
+    bestFor: "Úsalo cuando necesitas comparar organizaciones y convertir señales o licitaciones en decisiones trazables.",
+    focus: "Creará actores competidores, hipótesis, vigilancia y tareas específicas a partir del alcance revisado.",
+  },
   custom: {
     description: "Para cualquier prioridad estratégica que no encaje en las categorías anteriores.",
     bestFor: "Úsalo cuando necesitas empezar con una estructura mínima y adaptar después el expediente a mano.",

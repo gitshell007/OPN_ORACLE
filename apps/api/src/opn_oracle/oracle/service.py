@@ -76,6 +76,7 @@ DOSSIER_TYPES = frozenset(
         "product_launch",
         "regulatory_affair",
         "risk_watch",
+        "competitive_intelligence",
         "custom",
     }
 )
@@ -180,6 +181,72 @@ def _active_user(session: Session, tenant_id: uuid.UUID, value: Any, field: str)
     return user_id
 
 
+def _profile_strings(value: Any, field: str, *, limit: int = 30) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        raise DomainValidationError(f"{field} debe ser una lista.")
+    cleaned = [" ".join(str(item).strip().split())[:300] for item in value]
+    return list(dict.fromkeys(item for item in cleaned if item))[:limit]
+
+
+def _validated_profile(value: Any, dossier_type: str) -> dict[str, Any]:
+    if value in (None, {}):
+        if dossier_type == "competitive_intelligence":
+            raise DomainValidationError("Completa el perfil de inteligencia competitiva.")
+        return {}
+    if not isinstance(value, dict):
+        raise DomainValidationError("profile_config debe ser un objeto.")
+    if dossier_type != "competitive_intelligence":
+        return dict(value)
+    own_offer = " ".join(str(value.get("own_offer", "")).strip().split())[:500]
+    business_objective = str(value.get("business_objective", "")).strip()[:3000]
+    raw_competitors = value.get("competitors", [])
+    if not own_offer or not business_objective or not isinstance(raw_competitors, list):
+        raise DomainValidationError(
+            "La inteligencia competitiva exige oferta propia, objetivo y competidores."
+        )
+    competitors: list[dict[str, Any]] = []
+    for raw in raw_competitors[:20]:
+        if not isinstance(raw, dict):
+            raise DomainValidationError("Cada competidor debe ser un objeto.")
+        name = " ".join(str(raw.get("name", "")).strip().split())[:300]
+        if not name:
+            continue
+        website = str(raw.get("website", "")).strip()[:1500]
+        if website and not website.startswith(("https://", "http://")):
+            raise DomainValidationError("La web del competidor debe usar http o https.")
+        competitors.append(
+            {
+                "name": name,
+                "website": website,
+                "aliases": _profile_strings(raw.get("aliases", []), "aliases"),
+                "country": str(raw.get("country", "")).strip()[:120],
+                "tax_id": str(raw.get("tax_id", "")).strip()[:120],
+            }
+        )
+    if not competitors:
+        raise DomainValidationError("Añade al menos un competidor.")
+    return {
+        "version": "competitive-intelligence.v1",
+        "own_offer": own_offer,
+        "competitors": competitors,
+        "segments": _profile_strings(value.get("segments", []), "segments"),
+        "geographies": _profile_strings(value.get("geographies", []), "geographies"),
+        "target_buyers": _profile_strings(value.get("target_buyers", []), "target_buyers"),
+        "horizon": str(value.get("horizon", "")).strip()[:300],
+        "business_objective": business_objective,
+        "keywords": _profile_strings(value.get("keywords", []), "keywords", limit=60),
+        "cpv": _profile_strings(value.get("cpv", []), "cpv", limit=60),
+        "sources": _profile_strings(value.get("sources", []), "sources"),
+        "participation_criteria": str(value.get("participation_criteria", "")).strip()[:5000],
+        "exclusion_criteria": str(value.get("exclusion_criteria", "")).strip()[:5000],
+        "success_indicators": _profile_strings(
+            value.get("success_indicators", []), "success_indicators"
+        ),
+    }
+
+
 def create_dossier(
     session: Session, payload: dict[str, Any], *, actor_id: uuid.UUID
 ) -> StrategicDossier:
@@ -223,6 +290,10 @@ def create_dossier(
     create_starter_profile = payload.get("create_starter_profile", False)
     if not isinstance(create_starter_profile, bool):
         raise DomainValidationError("create_starter_profile debe ser booleano.")
+    initial_status = str(payload.get("initial_status", "draft"))
+    if initial_status not in {"draft", "active"}:
+        raise DomainValidationError("initial_status solo admite draft o active.")
+    profile_config = _validated_profile(payload.get("profile_config", {}), dossier_type)
     _weights(scoring_config, "opportunity_weights", OPPORTUNITY_WEIGHTS)
     _weights(scoring_config, "risk_weights", RISK_WEIGHTS)
     _weights(scoring_config, "signal_weights", SIGNAL_WEIGHTS)
@@ -233,18 +304,21 @@ def create_dossier(
         title=title,
         description=str(payload.get("description", ""))[:10000],
         dossier_type=dossier_type,
-        status="draft",
+        status=initial_status,
         strategic_goal=str(payload.get("strategic_goal", ""))[:5000],
         geography=list(payload.get("geography", [])),
         sectors=list(payload.get("sectors", [])),
         languages=list(payload.get("languages", [])),
         owner_user_id=owner_id,
         scoring_config=scoring_config,
+        profile_config=profile_config,
     )
     session.add(dossier)
     session.flush()
     if create_starter_profile:
         _apply_starter_profile(session, dossier)
+        if dossier_type == "competitive_intelligence":
+            _apply_competitive_profile(session, dossier, actor_id=actor_id)
     collaborators = payload.get("collaborator_user_ids", [])
     if not isinstance(collaborators, list):
         raise DomainValidationError("collaborator_user_ids debe ser una lista.")
@@ -266,6 +340,10 @@ def create_dossier(
         resource_id=dossier.id,
         dossier_id=dossier.id,
         result="success",
+        metadata={
+            "initial_status": initial_status,
+            "profile_version": profile_config.get("version") if profile_config else None,
+        },
     )
     session.commit()
     return dossier
@@ -314,6 +392,117 @@ def _apply_starter_profile(session: Session, dossier: StrategicDossier) -> None:
             cadence="daily",
         )
     )
+
+
+def _apply_competitive_profile(
+    session: Session, dossier: StrategicDossier, *, actor_id: uuid.UUID
+) -> None:
+    """Create specific editable work without claiming unverified confidence."""
+
+    profile = dossier.profile_config
+    for competitor in profile.get("competitors", []):
+        canonical_name = str(competitor["name"])
+        canonical_key = actor_canonical_key(canonical_name)
+        actor = session.scalar(
+            select(Actor).where(
+                Actor.tenant_id == dossier.tenant_id,
+                Actor.canonical_key == canonical_key,
+            )
+        )
+        if actor is None:
+            identifiers = {"tax_id": competitor["tax_id"]} if competitor.get("tax_id") else {}
+            actor = Actor(
+                tenant_id=dossier.tenant_id,
+                actor_type="organization",
+                canonical_name=canonical_name,
+                canonical_key=canonical_key,
+                aliases=list(competitor.get("aliases", [])),
+                identifiers=identifiers,
+                actor_metadata={
+                    "website": competitor.get("website", ""),
+                    "country": competitor.get("country", ""),
+                    "competitive_profile": {
+                        "confidence": None,
+                        "confidence_basis": "Sin evidencias vinculadas",
+                        "updated_at": datetime.now(UTC).isoformat(),
+                    },
+                },
+                provenance={"source": "competitive_intelligence_intake", "verified": False},
+            )
+            session.add(actor)
+            session.flush()
+        link = session.scalar(
+            select(DossierActor).where(
+                DossierActor.tenant_id == dossier.tenant_id,
+                DossierActor.dossier_id == dossier.id,
+                DossierActor.actor_id == actor.id,
+            )
+        )
+        if link is None:
+            components = {
+                "influence": 0,
+                "relevance_to_dossier": 70,
+                "relationship_strength": 0,
+                "accessibility": 0,
+                "strategic_alignment": 0,
+                "recent_activity": 0,
+            }
+            score = score_actor_priority(
+                components,
+                weights=_weights(dossier.scoring_config, "actor_weights", ACTOR_PRIORITY_WEIGHTS),
+            )
+            session.add(
+                DossierActor(
+                    tenant_id=dossier.tenant_id,
+                    dossier_id=dossier.id,
+                    actor_id=actor.id,
+                    roles=["competidor"],
+                    notes=(
+                        "Alta guiada: identidad, capacidades y relaciones pendientes de "
+                        "contraste con evidencias."
+                    ),
+                    priority=score.score,
+                    score_details=score.as_dict(),
+                    **components,
+                )
+            )
+    watchlist = session.scalar(
+        select(Watchlist).where(
+            Watchlist.tenant_id == dossier.tenant_id,
+            Watchlist.dossier_id == dossier.id,
+            Watchlist.name == "Vigilancia inicial",
+        )
+    )
+    if watchlist is not None:
+        watchlist.query_config = {
+            **watchlist.query_config,
+            "keywords": profile["keywords"],
+            "cpv": profile["cpv"],
+            "competitors": [item["name"] for item in profile["competitors"]],
+            "aliases": [alias for item in profile["competitors"] for alias in item["aliases"]],
+            "geographies": profile["geographies"],
+            "buyers": profile["target_buyers"],
+            "sources": profile["sources"],
+        }
+    for position, title in enumerate(
+        (
+            "Resolver variantes registrales de los competidores",
+            "Revisar adjudicaciones y licitaciones del alcance definido",
+            "Validar capacidades y diferenciadores con evidencia",
+        )
+    ):
+        session.add(
+            Task(
+                tenant_id=dossier.tenant_id,
+                dossier_id=dossier.id,
+                title=title,
+                status="open",
+                owner_user_id=actor_id,
+                priority="high" if position == 0 else "medium",
+                origin="starter_profile",
+                content={"profile_version": profile["version"]},
+            )
+        )
 
 
 def update_dossier(

@@ -12,11 +12,14 @@ from flask import current_app, g, request
 from flask_login import current_user
 from sqlalchemy import delete, func, select, update
 
+from opn_oracle.ai.models import AITenantPolicy
+from opn_oracle.ai.provider import provider_from_config
 from opn_oracle.auth.permissions import recent_auth_required, require_permission
 from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db
 from opn_oracle.jobs.service import publish_job, stage_job
+from opn_oracle.oracle.jobs import AIAuditLog
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import (
     AuditEvent,
@@ -31,6 +34,117 @@ from opn_oracle.platform.models import (
 bp = APIBlueprint(
     "tenant_admin", __name__, url_prefix="/api/v1/tenant-admin", tag="Administración de tenant"
 )
+
+
+def _serialize_ai_policy(policy: AITenantPolicy) -> dict[str, Any]:
+    last = db.session.scalar(
+        select(AIAuditLog)
+        .where(AIAuditLog.tenant_id == g.active_tenant_id)
+        .order_by(AIAuditLog.created_at.desc())
+        .limit(1)
+    )
+    last_error = db.session.scalar(
+        select(AIAuditLog)
+        .where(
+            AIAuditLog.tenant_id == g.active_tenant_id,
+            AIAuditLog.status == "failed",
+        )
+        .order_by(AIAuditLog.updated_at.desc())
+        .limit(1)
+    )
+    return {
+        "enabled": policy.enabled,
+        "provider": policy.provider,
+        "allowed_models": policy.allowed_models,
+        "kill_switch": policy.kill_switch,
+        "max_classification": policy.max_classification,
+        "limits": {
+            "daily_calls": policy.daily_call_limit,
+            "max_concurrency": policy.max_concurrency,
+            "max_context_tokens": policy.max_context_tokens,
+            "max_output_tokens": policy.max_output_tokens,
+            "monthly_soft_budget_micros": policy.monthly_soft_budget_micros,
+            "monthly_hard_budget_micros": policy.monthly_hard_budget_micros,
+        },
+        "routing_authority": "signal" if policy.provider == "signal" else "oracle",
+        "last_run": (
+            {
+                "status": last.status,
+                "provider": last.provider,
+                "model": last.model,
+                "error_code": last.error_code,
+                "updated_at": last.updated_at.isoformat(),
+            }
+            if last
+            else None
+        ),
+        "last_error": (
+            {
+                "error_code": last_error.error_code,
+                "provider": last_error.provider,
+                "model": last_error.model,
+                "updated_at": last_error.updated_at.isoformat(),
+            }
+            if last_error
+            else None
+        ),
+    }
+
+
+@bp.get("/ai-policy")
+@require_permission("tenant.settings.manage")
+def ai_policy() -> tuple[Any, int] | dict[str, Any]:
+    policy = db.session.scalar(
+        select(AITenantPolicy).where(AITenantPolicy.tenant_id == g.active_tenant_id)
+    )
+    if policy is None:
+        return problem_response(
+            503,
+            detail="La organización no tiene una política IA provisionada.",
+            code="ai_policy_missing",
+        )[:2]
+    return _serialize_ai_policy(policy)
+
+
+@bp.post("/ai-policy/test")
+@require_permission("tenant.settings.manage")
+def test_ai_policy() -> tuple[Any, int] | dict[str, Any]:
+    policy = db.session.scalar(
+        select(AITenantPolicy).where(AITenantPolicy.tenant_id == g.active_tenant_id)
+    )
+    if policy is None or not policy.enabled or policy.kill_switch:
+        return problem_response(
+            409,
+            detail="La IA está desactivada. Un administrador debe revisar la política.",
+            code="ai_disabled",
+        )[:2]
+    try:
+        health = provider_from_config(current_app.config).health()
+    except Exception:
+        append_audit_event(
+            db.session,
+            action="tenant.ai_policy.tested",
+            resource_type="ai_policy",
+            resource_id=policy.id,
+            result="failure",
+            metadata={"status": "unavailable"},
+        )
+        db.session.commit()
+        return problem_response(
+            503,
+            detail="No se pudo comprobar la configuración IA. Revisa el proveedor configurado.",
+            code="ai_health_unavailable",
+        )[:2]
+    append_audit_event(
+        db.session,
+        action="tenant.ai_policy.tested",
+        resource_type="ai_policy",
+        resource_id=policy.id,
+        result="success",
+        metadata={"status": health.status},
+    )
+    db.session.commit()
+    return {"status": health.status, "model": health.model}
 
 
 def _payload() -> dict[str, Any]:

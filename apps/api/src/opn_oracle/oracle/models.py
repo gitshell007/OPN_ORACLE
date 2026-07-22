@@ -51,6 +51,7 @@ class StrategicDossier(TenantDomainMixin, Base):
         ),
         CheckConstraint("status IN ('draft','active','paused','archived')", name="dossier_status"),
         CheckConstraint("version >= 1", name="dossier_version_positive"),
+        CheckConstraint("jsonb_typeof(profile_config)='object'", name="dossier_profile_config"),
         CheckConstraint(
             "health_score BETWEEN 0 AND 100 AND opportunity_score BETWEEN 0 AND 100 "
             "AND risk_score BETWEEN 0 AND 100",
@@ -73,6 +74,7 @@ class StrategicDossier(TenantDomainMixin, Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     scoring_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    profile_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     opportunity_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     risk_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -350,6 +352,12 @@ class DossierProcurementItem(TenantDomainMixin, Base):
             ("tenant_memberships.tenant_id", "tenant_memberships.user_id"),
             name="fk_dossier_procurement_items_pinner_membership",
         ),
+        ForeignKeyConstraint(
+            ("linked_opportunity_id", "tenant_id"),
+            ("opportunities.id", "opportunities.tenant_id"),
+            ondelete="RESTRICT",
+            name="fk_dossier_procurement_items_opportunity_tenant",
+        ),
         CheckConstraint("kind IN ('tender','award')", name="dossier_procurement_item_kind"),
         CheckConstraint("jsonb_typeof(snapshot)='object'", name="procurement_snapshot_object"),
         Index("ix_dossier_procurement_items_dossier", "tenant_id", "dossier_id"),
@@ -361,6 +369,7 @@ class DossierProcurementItem(TenantDomainMixin, Base):
     source_url: Mapped[str | None] = mapped_column(String(1500))
     evidence_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     pinned_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    linked_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class Evidence(TenantDomainMixin, Base):
