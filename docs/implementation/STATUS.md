@@ -2496,3 +2496,53 @@ histórico. El cambio de Signal no fue en vano, pero no basta.
 **Riesgo anotado por Signal:** el fallback de esta task también es OpenRouter. Si se agota el
 presupuesto global, Signal cierra con 429 y **no** degrada a Ollama, así que el agotamiento de
 presupuesto sería un fallo total, no una degradación.
+
+## 2026-07-22 · El prompt 70 funciona, pero el problema era otro y lo causamos nosotros
+
+Desplegado `20260722T080332Z-quick-9f1d89a` (prompt 70 + vertical de inteligencia competitiva,
+con migración 0021 aplicada). Salud en verde.
+
+**El mecanismo del prompt 70 es correcto** —declara la política por agente, conserva el fallo duro
+en los informes publicables y falla cerrado ante ambigüedad— **pero no arregla el caso real**, y al
+medirlo aparecen dos correcciones importantes a lo que dimos por bueno ayer.
+
+### Corrección 1: no fallan los expedientes ricos, falla la tirada
+
+Ayer concluí, sobre 4 muestras, que fallaban los expedientes con más evidencia. **Con 8 muestras no
+se sostiene**: «Mercado baterías LFP» y «Prueba Playwright» fallaron en una tirada y completaron en
+la siguiente, minutos después, con el mismo código. Cada ejecución genera un resumen distinto y el
+revisor lo juzga de nuevo, así que el resultado varía. Era una conclusión sacada de una muestra
+demasiado pequeña.
+
+### Corrección 2: mover el revisor a cloud lo hizo mucho más estricto
+
+Fue **recomendación mía**, y tiene un coste medible. Intentos del revisor en
+`dossier_situation_summary`:
+
+| Periodo | OK | Falla | Tasa de fallo |
+|---|---:|---:|---|
+| Revisor en `qwen3.5:9b` local | 46 | 6 | **12 %** |
+| Revisor en `gemini-2.5-flash` cloud | 5 | 11 | **69 %** |
+
+Y no es solo el resumen. Contando todos los agentes que pasan por el revisor: **21 % de fallo con
+el revisor local frente a 71 % con el de cloud**.
+
+El motivo por el que se movió a cloud era arreglar el `ValidationError` del informe de entidad. Ese
+problema acabó resolviéndose por otra vía (D-040, exención declarada), así que el cambio de
+proveedor **no dejó ningún beneficio** y sí un revisor entre tres y seis veces más severo.
+
+Además, los rechazos actuales caen en los cubos **no retirables por claim**
+(`classification_errors`, `privacy_or_security_issues`, `prompt_injection_indicators`,
+`confidence_issues`) o llegan sin nombrar ningún claim, de modo que el saneado quirúrgico del
+prompt 70 no llega a aplicarse casi nunca.
+
+### Pendiente de decidir
+
+1. **Volver el revisor a local** en Signal. Restauraría el 12 % y revierte un cambio que no aportó
+   nada. Es lo más barato y lo que yo haría primero.
+2. Antes de darlo por bueno, saber **si las objeciones de gemini son legítimas**: puede estar
+   detectando problemas reales que qwen pasaba por alto. Eso cambiaría la lectura, aunque un 69 %
+   de rechazo no es operable en ningún caso.
+3. **Hueco de diagnóstico**: el mensaje «objeciones que no se pueden retirar por claim» no
+   distingue entre «el revisor no nombró ningún claim» y «hay objeciones globales», y son cosas
+   distintas con arreglos distintos.
