@@ -39,10 +39,19 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - El gate de seguridad detectó advisories high nuevos en `js-yaml<4.3.0` y `sharp<0.35.0`. Se
   mantienen Next 16 y el bloqueo de auditoría: el lock adopta la revisión 16.2.x vigente y fija las
   primeras versiones corregidas mediante overrides documentados en D-055; build, E2E, imágenes y
-  escáner deben validarlos antes del despliegue.
+  Trivy los validaron sin vulnerabilidades high/critical. El CI completo del SHA `39a2551` quedó
+  verde en la ejecución `29959609929`, incluidos integración, migraciones, E2E, SAST y SBOM.
 - Línea base productiva previa al despliegue medida con sesión real: ITURRI mostraba las acciones
   antes de los datos y el grafo abría con 300 nodos, 301 enlaces y el aviso de recorte al final del
-  lateral. La verificación post-despliegue queda pendiente en este punto del historial.
+  lateral. La release `20260722T213922Z-quick-39a2551` se activó después del backup
+  `20260722T213929Z-20260722T193226Z-quick-5e2baf5` y de su restore aislado. Health, validate y smoke
+  público quedaron verdes, con punteros e imágenes coherentes y rollback conservado.
+- Verificación post-despliegue con sesión real de Chrome: ITURRI muestra identidad y pestañas antes
+  de las acciones, 81 eventos/17 actos, 15 cargos actuales, estados de CNMV/EPO/noticias explícitos
+  y grafo 300/301 con recorte visible. Filtrar Auditor conservó Zoom 105 %, buscar y seleccionar no
+  ocultó contexto, aislar dejó 2 nodos/1 enlace, volver de Perfil conservó el foco y restaurar repuso
+  300/301. ITURRIN SA validó el extremo pequeño con 7 nodos/6 enlaces plenamente encuadrados. Chrome
+  no registró errores de consola.
 
 ## Fase 1 de la ficha de entidad: verdad registral estable
 
