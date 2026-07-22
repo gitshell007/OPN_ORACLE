@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from importlib.resources import files
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -27,6 +28,10 @@ class PromptDefinition:
     schema: type[BaseModel]
     changelog: str
     requires_evidence_review: bool
+    evidence_review_failure_policy: EvidenceReviewFailurePolicy
+
+
+EvidenceReviewFailurePolicy = Literal["not_required", "reject_output", "strip_claims"]
 
 
 PURPOSES = {
@@ -136,6 +141,27 @@ EVIDENCE_REVIEW_REQUIRED = {
     "weekly_change": True,
     "dossier_situation_summary": True,
     "dossier_completion_wizard": False,
+}
+
+# Respuesta al veredicto `fail`, declarada por agente y consultada directamente. Los informes
+# publicables conservan rechazo duro. Solo el resumen nocturno puede retirar quirúrgicamente
+# claims objetados y continuar, porque mantiene visible el recorte y se regenera automáticamente.
+EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
+    "intake": "reject_output",
+    "signal_triage": "reject_output",
+    "entity_resolution": "reject_output",
+    "opportunity": "reject_output",
+    "risk": "reject_output",
+    "actor_partnership": "reject_output",
+    "meeting_briefing": "reject_output",
+    "report_writer": "reject_output",
+    "competitive_procurement_intelligence": "reject_output",
+    "entity_dossier_intelligence": "not_required",
+    "memory_curator": "reject_output",
+    "evidence_reviewer": "not_required",
+    "weekly_change": "reject_output",
+    "dossier_situation_summary": "strip_claims",
+    "dossier_completion_wizard": "not_required",
 }
 
 PROMPT_VERSIONS = {
@@ -258,6 +284,7 @@ class PromptRegistry:
                     schema=schema,
                     changelog=changelog,
                     requires_evidence_review=EVIDENCE_REVIEW_REQUIRED[name],
+                    evidence_review_failure_policy=EVIDENCE_REVIEW_FAILURE_POLICY[name],
                 )
                 self._items[key] = item
 

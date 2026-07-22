@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from opn_oracle.ai import routes as ai_routes
 from opn_oracle.ai.context import _canonical, _fit_budget, _sanitize, validate_evidence
 from opn_oracle.ai.evals import calculate_metrics
+from opn_oracle.ai.policy_defaults import default_ai_policy
 from opn_oracle.ai.provider import (
     AIUnavailable,
     DisabledLLMProvider,
@@ -27,7 +28,12 @@ from opn_oracle.ai.provider import (
     SignalGovernedLLMProvider,
     provider_from_config,
 )
-from opn_oracle.ai.registry import EVIDENCE_REVIEW_REQUIRED, PROMPT_VERSIONS, PromptRegistry
+from opn_oracle.ai.registry import (
+    EVIDENCE_REVIEW_FAILURE_POLICY,
+    EVIDENCE_REVIEW_REQUIRED,
+    PROMPT_VERSIONS,
+    PromptRegistry,
+)
 from opn_oracle.ai.schemas import (
     AGENT_SCHEMAS,
     DossierCompletionWizardOutput,
@@ -51,6 +57,33 @@ def _request(agent: str, evidence: list[str]) -> LLMRequest:
         max_output_tokens=500,
         classification="internal",
     )
+
+
+def test_new_tenant_ai_policy_is_fail_closed_and_leaves_signal_model_routing_external() -> None:
+    tenant_id = uuid.uuid4()
+    disabled = default_ai_policy(
+        tenant_id,
+        {"AI_ENABLED": False, "AI_MODE": "signal", "AI_DEFAULT_MODEL": "not-used"},
+    )
+    assert disabled.enabled is False
+    assert disabled.provider == "disabled"
+    assert disabled.kill_switch is True
+    assert disabled.allowed_models == []
+
+    signal = default_ai_policy(
+        tenant_id,
+        {"AI_ENABLED": True, "AI_MODE": "signal", "AI_DEFAULT_MODEL": "not-oracles-choice"},
+    )
+    assert signal.enabled is True
+    assert signal.provider == "signal"
+    assert signal.kill_switch is False
+    assert signal.allowed_models == []
+
+    local = default_ai_policy(
+        tenant_id,
+        {"AI_ENABLED": True, "AI_MODE": "ollama", "AI_DEFAULT_MODEL": "local-model"},
+    )
+    assert local.allowed_models == ["local-model"]
 
 
 @contextmanager
@@ -99,11 +132,24 @@ def test_registry_has_complete_immutable_metadata() -> None:
         assert item.changelog.startswith(f"{item.version}:")
         assert "## Reglas" in item.text
         assert item.requires_evidence_review == EVIDENCE_REVIEW_REQUIRED[item.name]
+        assert item.evidence_review_failure_policy == EVIDENCE_REVIEW_FAILURE_POLICY[item.name]
+        assert (item.evidence_review_failure_policy == "not_required") is (
+            not item.requires_evidence_review
+        )
     assert set(EVIDENCE_REVIEW_REQUIRED) == set(AGENT_SCHEMAS)
+    assert set(EVIDENCE_REVIEW_FAILURE_POLICY) == set(AGENT_SCHEMAS)
     assert registry.get("dossier_completion_wizard").requires_evidence_review is False
     assert registry.get("evidence_reviewer").requires_evidence_review is False
     assert registry.get("report_writer").requires_evidence_review is True
     assert registry.get("competitive_procurement_intelligence").requires_evidence_review is True
+    assert registry.get("report_writer").evidence_review_failure_policy == "reject_output"
+    assert (
+        registry.get("competitive_procurement_intelligence").evidence_review_failure_policy
+        == "reject_output"
+    )
+    assert (
+        registry.get("dossier_situation_summary").evidence_review_failure_policy == "strip_claims"
+    )
     assert registry.get("entity_dossier_intelligence").requires_evidence_review is False
     assert registry.get("dossier_situation_summary").version == "v5"
     assert registry.get("dossier_situation_summary", "v1").version == "v1"

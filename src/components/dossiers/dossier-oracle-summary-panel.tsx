@@ -6,7 +6,7 @@ import {
   type OracleSummaryCurrent,
   type OracleSummaryVersion,
 } from "@oracle/api-client";
-import { AlertCircle, CheckCircle2, History, RefreshCw, Send, Sparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, FilePlus2, History, RefreshCw, Send, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -24,6 +24,17 @@ type SummaryOutput = {
   confidence?: number;
   evidence_coverage?: { cited_items?: number; available_items?: number; limitations?: string[] };
   warnings?: string[];
+};
+
+type DraftKind = "task" | "opportunity" | "risk" | "actor" | "hypothesis" | "decision";
+
+const DRAFT_LABELS: Record<DraftKind, string> = {
+  task: "tarea",
+  opportunity: "oportunidad",
+  risk: "riesgo",
+  actor: "actor",
+  hypothesis: "hipótesis",
+  decision: "decisión",
 };
 
 function message(reason: unknown, fallback: string): string {
@@ -72,6 +83,11 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [pendingDraft, setPendingDraft] = useState<{
+    kind: DraftKind;
+    title: string;
+    rationale: string;
+  } | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -146,6 +162,76 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
     }
   }
 
+  async function createDraft() {
+    if (!pendingDraft || !current) return;
+    setBusy(true);
+    const { kind, title, rationale } = pendingDraft;
+    const provenance = {
+      source: "oracle_recommendation",
+      oracle_summary_id: current.id,
+      oracle_summary_version: current.version ?? 1,
+      requires_human_review: true,
+    };
+    const sourceNote = `Origen: recomendación del Oráculo, análisis v${provenance.oracle_summary_version} (${provenance.oracle_summary_id}).`;
+    try {
+      if (kind === "task") {
+        await api.tasks.create(dossierId, {
+          title,
+          priority: "medium",
+          status: "open",
+          content: { rationale, ...provenance },
+        });
+      } else if (kind === "opportunity") {
+        await api.opportunities.create(dossierId, {
+          title,
+          description: `${rationale}\n\n${sourceNote}`.trim(),
+          status: "identified",
+          confidence: 0,
+          next_action: "Validar la recomendación del Oráculo y vincular evidencia.",
+        });
+      } else if (kind === "risk") {
+        await api.risks.create(dossierId, {
+          title,
+          description: `${rationale}\n\n${sourceNote}`.trim(),
+          status: "open",
+          confidence: 0,
+          mitigation: "Validar la recomendación del Oráculo y vincular evidencia.",
+        });
+      } else if (kind === "actor") {
+        await api.actors.attach(dossierId, {
+          canonical_name: title,
+          actor_type: "organization",
+          roles: ["Recomendación del Oráculo"],
+          influence: 0,
+          relevance_to_dossier: 50,
+          provenance: { rationale, ...provenance },
+        });
+      } else if (kind === "hypothesis") {
+        await api.hypotheses.create(dossierId, {
+          statement: title,
+          rationale: `${rationale}\n\n${sourceNote}`.trim(),
+          status: "open",
+          confidence: 0,
+        });
+      } else {
+        await api.decisions.create(dossierId, {
+          title,
+          rationale,
+          status: "proposed",
+          content: provenance,
+        });
+      }
+      toast.success(`Borrador de ${DRAFT_LABELS[kind]} creado`, {
+        description: "Revísalo en el expediente antes de darlo por válido.",
+      });
+      setPendingDraft(null);
+    } catch (reason) {
+      toast.error(message(reason, `No se pudo crear el borrador de ${DRAFT_LABELS[kind]}.`));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="vector-panel oracle-summary-panel" aria-labelledby="oracle-summary-title">
       <header>
@@ -195,13 +281,30 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           {fallbackUsed && (
             <p className="oracle-warning"><AlertCircle size={15} /> Se usó proveedor secundario por indisponibilidad técnica del primario.</p>
           )}
+          {(output.warnings ?? []).map((warning, index) => (
+            <p className="oracle-warning oracle-output-warning" key={`${index}-${warning}`}>
+              <AlertCircle size={15} /> {warning}
+            </p>
+          ))}
           <div className="oracle-summary-grid">
             <Block title="Hechos confirmados" citations={citations} items={(output.facts ?? []).map((item) => ({ title: item.text ?? "", evidenceIds: item.evidence_ids }))} />
             <Block title="Cambios materiales" citations={citations} items={(output.material_changes ?? []).map((item) => ({ title: item.change ?? "", meta: levelLabel(item.importance), evidenceIds: item.evidence_ids }))} />
             <Block title="Oportunidades" citations={citations} items={(output.opportunities ?? []).map((item) => ({ title: item.title ?? "", meta: item.rationale ?? "" }))} />
             <Block title="Riesgos" citations={citations} items={(output.risks ?? []).map((item) => ({ title: item.title ?? "", meta: item.rationale ?? "" }))} />
-            <Block title="Decisiones pendientes" citations={citations} items={(output.decisions_required ?? []).map((item) => ({ title: item.decision ?? "", meta: item.reason ?? "" }))} />
-            <Block title="Siguientes acciones" citations={citations} items={(output.recommended_actions ?? []).map((item) => ({ title: item.action ?? "", meta: item.rationale ?? "" }))} />
+            <Block
+              title="Decisiones pendientes"
+              citations={citations}
+              items={(output.decisions_required ?? []).map((item) => ({ title: item.decision ?? "", meta: item.reason ?? "" }))}
+              allowedDraftKinds={["decision"]}
+              onDraft={(item) => setPendingDraft({ kind: "decision", title: item.title, rationale: item.meta ?? "" })}
+            />
+            <Block
+              title="Siguientes acciones"
+              citations={citations}
+              items={(output.recommended_actions ?? []).map((item) => ({ title: item.action ?? "", meta: item.rationale ?? "" }))}
+              allowedDraftKinds={["task", "opportunity", "risk", "actor", "hypothesis", "decision"]}
+              onDraft={(item, kind) => setPendingDraft({ kind, title: item.title, rationale: item.meta ?? "" })}
+            />
           </div>
           <details className="oracle-history">
             <summary><History size={15} /> Historial de análisis ({versions.length})</summary>
@@ -230,6 +333,23 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
       {state?.job?.status === "failed" && (
         <p className="oracle-warning"><AlertCircle size={15} /> La última actualización falló; se conserva la versión anterior.</p>
       )}
+      {pendingDraft && (
+        <div className="vector-dialog-backdrop" role="presentation">
+          <div className="vector-dialog oracle-draft-confirm" role="dialog" aria-modal="true" aria-labelledby="oracle-draft-title">
+            <span className="section-kicker">Confirmación humana</span>
+            <h2 id="oracle-draft-title">Crear borrador de {DRAFT_LABELS[pendingDraft.kind]}</h2>
+            <p><strong>{pendingDraft.title}</strong></p>
+            {pendingDraft.rationale && <p>{pendingDraft.rationale}</p>}
+            <p className="reporting-hint">Se guardará como propuesta pendiente de revisión; no se considerará un hecho ni una decisión aprobada.</p>
+            <div className="vector-dialog-actions">
+              <button className="vector-secondary" type="button" disabled={busy} onClick={() => setPendingDraft(null)}>Cancelar</button>
+              <button className="vector-primary" type="button" disabled={busy} onClick={() => void createDraft()}>
+                <FilePlus2 size={15} /> {busy ? "Creando…" : "Confirmar borrador"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -238,11 +358,16 @@ function Block({
   title,
   items,
   citations,
+  allowedDraftKinds,
+  onDraft,
 }: {
   title: string;
   items: Array<{ title: string; meta?: string; evidenceIds?: string[] }>;
   citations: Map<string, SummaryCitation>;
+  allowedDraftKinds?: DraftKind[];
+  onDraft?: (item: { title: string; meta?: string }, kind: DraftKind) => void;
 }) {
+  const [draftKinds, setDraftKinds] = useState<Record<number, DraftKind>>({});
   return (
     <article>
       <h3>{title}</h3>
@@ -269,6 +394,29 @@ function Block({
                       );
                     }) : "Sin cita"}
                   </small>
+                )}
+                {onDraft && allowedDraftKinds?.length && (
+                  <span className="oracle-draft-action">
+                    {allowedDraftKinds.length > 1 && (
+                      <select
+                        aria-label={`Tipo de borrador para ${item.title}`}
+                        value={draftKinds[index] ?? allowedDraftKinds[0]}
+                        onChange={(event) => setDraftKinds((current) => ({
+                          ...current,
+                          [index]: event.target.value as DraftKind,
+                        }))}
+                      >
+                        {allowedDraftKinds.map((kind) => <option value={kind} key={kind}>{DRAFT_LABELS[kind]}</option>)}
+                      </select>
+                    )}
+                    <button
+                      className="vector-tertiary"
+                      type="button"
+                      onClick={() => onDraft(item, draftKinds[index] ?? allowedDraftKinds[0])}
+                    >
+                      <FilePlus2 size={13} /> Crear borrador{allowedDraftKinds.length === 1 ? ` de ${DRAFT_LABELS[allowedDraftKinds[0]]}` : ""}
+                    </button>
+                  </span>
                 )}
               </span>
             </li>

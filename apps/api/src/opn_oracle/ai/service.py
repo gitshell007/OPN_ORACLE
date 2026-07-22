@@ -313,6 +313,89 @@ def _reviewer_output_budget(
     return min(desired, policy_tokens)
 
 
+def _strip_reviewer_rejected_claims(
+    output: dict[str, Any], reviewer: EvidenceReviewerOutput
+) -> dict[str, Any]:
+    """Remove only claim blocks that a failed reviewer identifies unambiguously.
+
+    Signal has returned both original JSON paths and paths invented over the compact reviewer
+    package. A direct path is trusted only when it names a claim Oracle actually sent and carries
+    the same text. Otherwise an exact, unique text match recovers the original output path. Any
+    ambiguity or unscoped safety objection keeps the historical fail-closed behaviour.
+    """
+
+    scoped_issues = [
+        *reviewer.unsupported_claims,
+        *reviewer.misused_evidence,
+        *reviewer.missing_evidence,
+    ]
+    unscoped_issues = [
+        *reviewer.classification_errors,
+        *reviewer.privacy_or_security_issues,
+        *reviewer.prompt_injection_indicators,
+        *reviewer.confidence_issues,
+    ]
+    if not scoped_issues or unscoped_issues:
+        raise EvidenceReviewError(
+            "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
+        )
+
+    candidates = _review_candidate_claims(output)
+    resolved: dict[str, Any] = {}
+    for issue in scoped_issues:
+        direct = [
+            candidate
+            for candidate in candidates
+            if candidate["path"] == issue.path and candidate["claim"] == issue.claim
+        ]
+        matches = direct or [
+            candidate for candidate in candidates if candidate["claim"] == issue.claim
+        ]
+        unique_paths = {str(candidate["path"]) for candidate in matches}
+        if len(unique_paths) != 1 or "$" in unique_paths:
+            raise EvidenceReviewError(
+                "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
+            )
+        resolved[next(iter(unique_paths))] = issue
+
+    dropped = object()
+
+    def clean(value: Any, *, path: str = "$") -> Any:
+        if path in resolved:
+            return dropped
+        if isinstance(value, dict):
+            cleaned: dict[str, Any] = {}
+            for key, child in value.items():
+                candidate = clean(child, path=f"{path}.{key}")
+                if candidate is not dropped:
+                    cleaned[key] = candidate
+            return cleaned
+        if isinstance(value, list):
+            cleaned_items = [
+                clean(child, path=f"{path}[{index}]") for index, child in enumerate(value)
+            ]
+            return [item for item in cleaned_items if item is not dropped]
+        return value
+
+    cleaned_output = clean(output)
+    if not isinstance(cleaned_output, dict):
+        raise EvidenceReviewError("El revisor objetó el resumen completo; no se puede publicar.")
+    warnings = cleaned_output.get("warnings")
+    if not isinstance(warnings, list):
+        raise EvidenceReviewError("El resumen no permite declarar el recorte del revisor.")
+    count = len(resolved)
+    warnings.append(
+        f"Revisión de evidencia: se retiraron {count} "
+        f"{'afirmación objetada' if count == 1 else 'afirmaciones objetadas'} antes de publicar."
+    )
+    for issue in resolved.values():
+        warnings.append(
+            "Afirmación retirada: "
+            f"{_short_text(issue.claim, limit=500)} Motivo: {_short_text(issue.reason, limit=500)}"
+        )
+    return cleaned_output
+
+
 _WIZARD_SECTION_COUNTS = {
     "signals": "signals",
     "procurement": "procurement_items",
@@ -503,6 +586,7 @@ def execute_agent(
     source_manifest = context.manifest | {
         "requested_scope_hash": hashlib.sha256(_canonical(supplemental_context or {})).hexdigest(),
         "requires_evidence_review": prompt.requires_evidence_review,
+        "evidence_review_failure_policy": prompt.evidence_review_failure_policy,
     }
     audit = db.session.scalar(
         select(AIAuditLog)
@@ -883,9 +967,21 @@ def execute_agent(
         checked_reviewer.latency_ms = reviewer_result.latency_ms
         checked_reviewer.completed_at = reviewer_checkpoint
         if reviewer.verdict == "fail":
-            rejection_error = ValueError("El revisor de evidencia rechazó el output.")
-            fail(rejection_error, active_attempt_id=reviewer_attempt_id)
-            raise rejection_error
+            if prompt.evidence_review_failure_policy == "strip_claims":
+                try:
+                    cleaned_output = _strip_reviewer_rejected_claims(output, reviewer)
+                    cleaned_model = prompt.schema.model_validate_json(json.dumps(cleaned_output))
+                    validate_evidence(
+                        cast(AgentOutput, cleaned_model), {item.id for item in context.evidence}
+                    )
+                    output = cleaned_model.model_dump(mode="json")
+                except Exception as error:
+                    fail(error, active_attempt_id=reviewer_attempt_id)
+                    raise
+            else:
+                rejection_error = ValueError("El revisor de evidencia rechazó el output.")
+                fail(rejection_error, active_attempt_id=reviewer_attempt_id)
+                raise rejection_error
         checked_reviewer.status = "succeeded"
     if soft_budget_warning:
         output["warnings"] = [

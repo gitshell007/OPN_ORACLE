@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -6,6 +6,12 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   versions: vi.fn(),
   feedback: vi.fn(),
+  createTask: vi.fn(),
+  createDecision: vi.fn(),
+  createOpportunity: vi.fn(),
+  createRisk: vi.fn(),
+  attachActor: vi.fn(),
+  createHypothesis: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }));
@@ -26,6 +32,12 @@ vi.mock("@oracle/api-client", () => ({
       versions: mocks.versions,
       feedback: mocks.feedback,
     },
+    tasks: { create: mocks.createTask },
+    decisions: { create: mocks.createDecision },
+    opportunities: { create: mocks.createOpportunity },
+    risks: { create: mocks.createRisk },
+    actors: { attach: mocks.attachActor },
+    hypotheses: { create: mocks.createHypothesis },
   },
 }));
 
@@ -102,6 +114,8 @@ describe("DossierOracleSummaryPanel", () => {
     mocks.versions.mockResolvedValue({ data: [version] });
     mocks.refresh.mockResolvedValue({ job_id: "job-1", status: "queued" });
     mocks.feedback.mockResolvedValue({ feedback_id: "feedback-1" });
+    mocks.createTask.mockResolvedValue({ id: "task-1" });
+    mocks.createDecision.mockResolvedValue({ id: "decision-1" });
   });
 
   afterEach(cleanup);
@@ -116,12 +130,41 @@ describe("DossierOracleSummaryPanel", () => {
     expect(screen.getByText("La convocatoria está abierta.")).toBeVisible();
     expect(screen.getByText("Alta")).toBeVisible();
     expect(screen.getByText("Generación nocturna")).toBeVisible();
+    expect(screen.queryByText(/Revisión de evidencia:/)).not.toBeInTheDocument();
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(screen.queryByText("high")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Fuente #eeeeeeee" })).toHaveAttribute(
       "href",
       "https://example.com/fuente",
     );
+  });
+
+  it("hace visible el recorte del revisor sin presentar el claim como hecho", async () => {
+    const reviewedVersion = {
+      ...version,
+      output: {
+        ...version.output,
+        facts: [],
+        warnings: [
+          "Revisión de evidencia: se retiraron 1 afirmación objetada antes de publicar.",
+          "Afirmación retirada: La convocatoria cubre toda Europa. Motivo: La fuente solo acredita España.",
+        ],
+      },
+    };
+    mocks.get.mockResolvedValueOnce({
+      state: "ready",
+      summary: reviewedVersion,
+      living_summary_version: 4,
+      last_refreshed_at: "2026-07-22T08:05:00Z",
+      generation_trigger: "nightly",
+      job: null,
+    });
+
+    render(<DossierOracleSummaryPanel dossierId="dossier-1" />);
+
+    expect(await screen.findByText(/se retiraron 1 afirmación objetada/)).toBeVisible();
+    expect(screen.getByText(/Afirmación retirada: La convocatoria cubre toda Europa/)).toBeVisible();
+    expect(screen.queryByText("La convocatoria está abierta.")).not.toBeInTheDocument();
   });
 
   it("conserva la versión publicada mientras una regeneración está en curso", async () => {
@@ -158,5 +201,35 @@ describe("DossierOracleSummaryPanel", () => {
         expect.objectContaining({ comment: "La oportunidad necesita más contexto documental." }),
       ),
     );
+  });
+
+  it("materializa tarea y decisión solo después de confirmación humana", async () => {
+    render(<DossierOracleSummaryPanel dossierId="dossier-1" />);
+    await screen.findByText("Avance con una decisión pendiente");
+
+    const action = screen.getByText("Asignar responsable").closest("li");
+    expect(action).not.toBeNull();
+    fireEvent.click(within(action!).getByRole("button", { name: "Crear borrador" }));
+    expect(mocks.createTask).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Crear borrador de tarea" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar borrador" }));
+    await waitFor(() => expect(mocks.createTask).toHaveBeenCalledWith(
+      "dossier-1",
+      expect.objectContaining({
+        title: "Asignar responsable",
+        status: "open",
+        content: expect.objectContaining({ oracle_summary_id: version.id, requires_human_review: true }),
+      }),
+    ));
+
+    const decision = screen.getByText("Aprobar presentación").closest("li");
+    expect(decision).not.toBeNull();
+    fireEvent.click(within(decision!).getByRole("button", { name: "Crear borrador de decisión" }));
+    expect(mocks.createDecision).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar borrador" }));
+    await waitFor(() => expect(mocks.createDecision).toHaveBeenCalledWith(
+      "dossier-1",
+      expect.objectContaining({ title: "Aprobar presentación", status: "proposed" }),
+    ));
   });
 });

@@ -28,9 +28,15 @@ from sqlalchemy import create_engine, delete, func, select, text
 
 from opn_oracle import create_app
 from opn_oracle.ai import routes as ai_routes
-from opn_oracle.ai.models import AIArtifact, AIAttempt, AITenantPolicy, AIUsageLedger
+from opn_oracle.ai.models import (
+    AIArtifact,
+    AIAttempt,
+    AIContextSnapshot,
+    AITenantPolicy,
+    AIUsageLedger,
+)
 from opn_oracle.ai.provider import AIUnavailable, LLMResult, MockLLMProvider
-from opn_oracle.ai.schemas import ReportOutput
+from opn_oracle.ai.schemas import EvidenceReviewerOutput, ReportOutput
 from opn_oracle.ai.service import (
     AIPolicyDenied,
     EvidenceReviewError,
@@ -74,8 +80,10 @@ from opn_oracle.jobs import tasks as job_tasks
 from opn_oracle.jobs.service import enqueue_job, publish_job, stage_job
 from opn_oracle.jobs.tasks import execute_durable
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob, JobSchedule
+from opn_oracle.oracle.links import EvidenceDossier
 from opn_oracle.oracle.models import (
     DossierSignal,
+    Evidence,
     Signal,
     SignalMonitor,
     StrategicDossier,
@@ -2035,6 +2043,277 @@ def test_ai_job_persists_reviewer_attempt_and_settles_reservation(
         g.active_tenant_id = ids["tenant"]
         review, status = inspect.unwrap(ai_routes.review_artifact)(artifact_id)
         assert status == 201 and review["artifact_status"] == "valid"
+
+
+@pytest.mark.parametrize("reported_path", ["original", "review_package"])
+def test_summary_reviewer_fail_strips_uniquely_matched_claim_and_declares_it(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+    monkeypatch: pytest.MonkeyPatch,
+    reported_path: str,
+) -> None:
+    app, ids = jobs_stack
+    rejected: dict[str, str] = {}
+
+    class OneObjectionProvider(MockLLMProvider):
+        def generate_structured(self, request: Any, schema: Any) -> LLMResult:
+            if request.agent != "evidence_reviewer":
+                generated = super().generate_structured(request, schema)
+                payload = generated.output.model_dump(mode="json")
+                payload["facts"] = []
+                payload["relevant_actors"] = [
+                    {
+                        "actor_id": None,
+                        "name": "Actor institucional relacionado",
+                        "relevance": "Participa en el expediente según la fuente autorizada.",
+                        "evidence_ids": [request.context["allowed_evidence_ids"][0]],
+                    }
+                ]
+                output = schema.model_validate_json(json.dumps(payload))
+                return LLMResult(
+                    output,
+                    generated.input_tokens,
+                    generated.output_tokens,
+                    generated.cost_micros,
+                    generated.latency_ms,
+                    provider=generated.provider,
+                    model=generated.model,
+                )
+            candidate = request.context["candidate_claims"][0]
+            rejected.update(path=candidate["path"], claim=candidate["claim"])
+            output = EvidenceReviewerOutput.model_validate(
+                {
+                    "facts": [],
+                    "inferences": [],
+                    "recommendations": [],
+                    "confidence": 90,
+                    "open_questions": [],
+                    "warnings": [],
+                    "verdict": "fail",
+                    "unsupported_claims": [
+                        {
+                            "path": (
+                                candidate["path"]
+                                if reported_path == "original"
+                                else "$.candidate_claims[0].claim"
+                            ),
+                            "claim": candidate["claim"],
+                            "reason": "La formulación excede lo acreditado por la fuente.",
+                        }
+                    ],
+                    "required_corrections": ["Retirar la afirmación objetada."],
+                }
+            )
+            return LLMResult(output, 120, 60, 0, 1, provider="mock", model=self.model)
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config",
+        lambda config: OneObjectionProvider("summary-review-objection"),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        policy = db.session.scalar(select(AITenantPolicy).with_for_update())
+        assert policy is not None
+        policy.daily_call_limit = 0
+        signal = Signal(
+            tenant_id=ids["tenant"],
+            provider="prompt-70-fixture",
+            external_id=f"prompt-70-{uuid.uuid4()}",
+            title="Licitación pública vinculada",
+            summary="La fuente acredita una licitación pública vinculada al expediente.",
+            source_type="official_publication",
+            source_name="PLACSP",
+            source_url="https://contrataciondelestado.es/fixture",
+            raw_hash=hashlib.sha256(uuid.uuid4().bytes).digest(),
+        )
+        db.session.add(signal)
+        db.session.flush()
+        evidence = Evidence(
+            tenant_id=ids["tenant"],
+            signal_id=signal.id,
+            source_kind="signal",
+            source_url="https://contrataciondelestado.es/fixture",
+            extract="La fuente acredita una licitación pública vinculada al expediente.",
+            locator={"folder_id": "fixture-review-70"},
+            checksum=hashlib.sha256(b"fixture-review-70").digest(),
+            classification="public",
+            provenance={"source_kind": "signal"},
+        )
+        db.session.add(evidence)
+        db.session.flush()
+        db.session.add(
+            EvidenceDossier(
+                tenant_id=ids["tenant"], evidence_id=evidence.id, dossier_id=ids["dossier"]
+            )
+        )
+        job = BackgroundJob(
+            tenant_id=ids["tenant"],
+            dossier_id=ids["dossier"],
+            job_type="oracle.dossier_summary.refresh",
+            status="running",
+            queue="ai",
+            idempotency_key=f"summary-review-strip-{uuid.uuid4()}",
+            payload_hash=hashlib.sha256(b"summary-review-strip").digest(),
+            input_payload={"dossier_id": str(ids["dossier"]), "trigger": "nightly"},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        result = execute_agent(
+            agent="dossier_situation_summary", dossier_id=ids["dossier"], job=job
+        )
+
+        artifact = db.session.get(AIArtifact, uuid.UUID(result["artifact_id"]))
+        assert artifact is not None
+        assert rejected["path"] == "$.relevant_actors[0]"
+        assert artifact.output["relevant_actors"] == []
+        assert rejected["claim"] not in json.dumps(
+            artifact.output["relevant_actors"], ensure_ascii=False
+        )
+        assert any(
+            "se retiraron 1 afirmación objetada" in warning
+            for warning in artifact.output["warnings"]
+        )
+        assert any(
+            rejected["claim"] in warning and "Motivo:" in warning
+            for warning in artifact.output["warnings"]
+        )
+        audit = db.session.get(AIAuditLog, artifact.audit_log_id)
+        attempts = list(
+            db.session.scalars(
+                select(AIAttempt)
+                .where(AIAttempt.audit_log_id == artifact.audit_log_id)
+                .order_by(AIAttempt.attempt_number)
+            )
+        )
+        ledger = db.session.scalar(
+            select(AIUsageLedger).where(AIUsageLedger.audit_log_id == artifact.audit_log_id)
+        )
+        snapshot = db.session.scalar(
+            select(AIContextSnapshot).where(AIContextSnapshot.audit_log_id == artifact.audit_log_id)
+        )
+        assert audit is not None and audit.status == "succeeded"
+        assert [item.kind for item in attempts] == ["generate", "reviewer"]
+        assert all(item.status == "succeeded" for item in attempts)
+        assert ledger is not None and ledger.status == "settled"
+        assert snapshot is not None
+        assert snapshot.source_manifest["evidence_review_failure_policy"] == "strip_claims"
+
+
+@pytest.mark.parametrize(
+    "agent",
+    ["report_writer", "competitive_procurement_intelligence"],
+)
+def test_report_agents_keep_hard_failure_on_negative_reviewer_verdict(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+    monkeypatch: pytest.MonkeyPatch,
+    agent: str,
+) -> None:
+    app, ids = jobs_stack
+
+    class RejectedReportProvider(MockLLMProvider):
+        def generate_structured(self, request: Any, schema: Any) -> LLMResult:
+            if request.agent == "evidence_reviewer":
+                candidate = request.context["candidate_claims"][0]
+                output = EvidenceReviewerOutput.model_validate(
+                    {
+                        "facts": [],
+                        "inferences": [],
+                        "recommendations": [],
+                        "confidence": 90,
+                        "open_questions": [],
+                        "warnings": [],
+                        "verdict": "fail",
+                        "unsupported_claims": [
+                            {
+                                "path": candidate["path"],
+                                "claim": candidate["claim"],
+                                "reason": "La cita no respalda esta formulación.",
+                            }
+                        ],
+                        "required_corrections": ["Retirar la afirmación."],
+                    }
+                )
+                return LLMResult(output, 120, 60, 0, 1, provider="mock", model=self.model)
+            output = ReportOutput.model_validate(
+                {
+                    "facts": [],
+                    "inferences": [],
+                    "recommendations": [],
+                    "confidence": 70,
+                    "open_questions": [],
+                    "warnings": [],
+                    "title": "Informe sujeto a revisión",
+                    "executive_summary": "Síntesis ejecutiva.",
+                    "sections": [
+                        {
+                            "heading": "Análisis",
+                            "paragraphs": [
+                                {
+                                    "text": "Una afirmación que el revisor debe rechazar.",
+                                    "kind": "fact",
+                                    "confidence": 70,
+                                    "evidence_ids": [],
+                                }
+                            ],
+                        }
+                    ],
+                    "top_opportunities": [],
+                    "top_risks": [],
+                    "recommended_actions": [],
+                    "decisions_required": [],
+                    "source_index": [],
+                }
+            )
+            return LLMResult(output, 100, 50, 0, 1, provider="mock", model=self.model)
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config",
+        lambda config: RejectedReportProvider(f"{agent}-review-rejection"),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        policy = db.session.scalar(select(AITenantPolicy).with_for_update())
+        assert policy is not None
+        policy.daily_call_limit = 0
+        job = BackgroundJob(
+            tenant_id=ids["tenant"],
+            dossier_id=ids["dossier"],
+            job_type=f"oracle.ai.{agent}",
+            status="running",
+            queue="ai",
+            idempotency_key=f"{agent}-review-rejection-{uuid.uuid4()}",
+            payload_hash=hashlib.sha256(agent.encode()).digest(),
+            input_payload={"dossier_id": str(ids["dossier"])},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        supplemental = (
+            {"computed_analysis": {}}
+            if agent == "competitive_procurement_intelligence"
+            else {"report_scope": {}}
+        )
+        with pytest.raises(ValueError, match="revisor de evidencia rechazó"):
+            execute_agent(
+                agent=agent,
+                dossier_id=ids["dossier"],
+                job=job,
+                supplemental_context=supplemental,
+            )
+        audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
+        assert audit is not None and audit.status == "failed"
+        assert (
+            db.session.scalar(
+                select(func.count(AIArtifact.id)).where(AIArtifact.audit_log_id == audit.id)
+            )
+            == 0
+        )
 
 
 def test_long_report_reviewer_uses_compact_claim_package(
