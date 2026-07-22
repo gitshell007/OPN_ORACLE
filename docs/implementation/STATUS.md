@@ -2711,3 +2711,37 @@ Queda una pregunta abierta, deliberadamente sin responder: **si las objeciones d
 legítimas**, el revisor local podría estar dejando pasar afirmaciones flojas que el de cloud
 detectaba. No se investiga ahora porque un 69 % de rechazo no es operable en ningún caso, pero es
 una pregunta de calidad, no de infraestructura, y merece su propio análisis.
+
+## 2026-07-22 · Prompt 71 desplegado, y la norma de commits ya está dando fruto
+
+Release `20260722T193226Z-quick-5e2baf5`. Salud en verde. Gates: 518 backend con integración, 174
+frontend, typecheck, lint y build.
+
+**La deuda queda cerrada por las dos vías que pedía el prompt:**
+
+- La suite E2E se **conecta al CI** (`frontend-e2e` en `ci.yml`, con PostgreSQL y Redis), se reparan
+  los flujos caducados y queda como dependencia del job final: 25 pasan y 7 saltos intencionados.
+- Los botones de mutación pasan por la puerta de hidratación, y queda un invariante
+  (`mutation-action-button-invariant.test.ts`) con los tres casos exigidos, incluido el de **no**
+  exigir la puerta a botones de interfaz pura.
+
+**Verificado por mí con mutación:** devolver `publish()` a `<button>` nativo hace caer el
+invariante, y además nombra el fichero y la línea exactos (`report-viewer.tsx:235`).
+
+**Límite honesto del invariante**, medido al auditarlo: detecta por dos vías, un patrón general
+para llamadas `api.*.<verbo>` y una **lista de 29 nombres de manejador**. Un botón nuevo con un
+manejador nuevo que no llame a `api.*` en línea **no quedaría cubierto**. Protege bien lo arreglado
+hoy; no protege automáticamente lo que se añada mañana. La primera mutación que probé cayó
+justamente en ese hueco y no saltó.
+
+**Hallazgo colateral bien gestionado:** al ejecutar el E2E completo apareció una carrera CSRF al
+subir documentos durante la carga inicial (403 `csrf_failed` con varias lecturas en vuelo). Se
+registró en `OPEN_QUESTIONS.md` con hipótesis y siguiente paso, **sin tocar producción**, que es
+exactamente lo que pedía el prompt.
+
+### La norma de commits (D-042) funciona desde el primer día
+
+El árbol quedó limpio y apareció commiteado también `4d2eee7` («filtrar niveles visibles en grafo
+de entidades»), de otra sesión. Antes ese trabajo habría quedado sin commitear y lo habría
+recogido otro atribuyéndoselo. El commit del prompt 71 llega además con prefijo convencional,
+cuerpo amplio y trailer `Prompt: 71`.
