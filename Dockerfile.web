@@ -36,6 +36,11 @@ RUN groupadd --system --gid 10001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# `output: standalone` NO incluye `public/`: hay que copiarlo aparte o el servidor
+# devuelve 404 para todo lo estático. Hasta la identidad visual no existía ese
+# directorio, así que la omisión no se notaba; con ella, el logotipo salía roto en
+# el login pese a estar el fichero en el release.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 EXPOSE 3000
