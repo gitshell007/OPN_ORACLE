@@ -20,6 +20,7 @@ import {
 } from "react";
 import type cytoscape from "cytoscape";
 import { EntityDetailDialog, type EntityDetailRelation } from "./entity-detail-dialog";
+import { graphNodeDepths, separateGraphNodePositions } from "./entity-graph-layout";
 
 const KIND_LABELS: Record<EntityIntelKind, string> = {
   company: "Empresa",
@@ -39,11 +40,14 @@ const GRAPH_FIXED_EDGE_LENGTH = 250;
 const GRAPH_SEED_GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const GRAPH_SEED_RADIUS = 58;
 const GRAPH_PRIORITY_LABEL_LIMIT = 8;
-const GRAPH_ALL_LABELS_MIN_ZOOMED_FONT_SIZE = 13.5;
+const GRAPH_ALL_LABELS_MIN_ZOOM = 1.5;
 const GRAPH_FOCUS_PADDING = 72;
+const GRAPH_NODE_RADIUS = 15;
+const GRAPH_CENTER_NODE_RADIUS = 23;
 const GRAPH_HIDDEN_CLASSES = [
   "is-time-filtered",
   "is-role-filtered",
+  "is-depth-filtered",
   "is-focus-filtered",
 ] as const;
 
@@ -299,6 +303,28 @@ function stableHash(value: string): number {
   return hash >>> 0;
 }
 
+function separateGraphNodes(instance: cytoscape.Core) {
+  const graphNodes: cytoscape.NodeSingular[] = [];
+  instance.nodes().forEach((node: cytoscape.NodeSingular) => {
+    graphNodes.push(node);
+  });
+  const centerId = graphNodes.find((node) => node.data("is_center") === true)?.id();
+  const separated = separateGraphNodePositions(graphNodes.map((node) => ({
+    id: node.id(),
+    x: node.position("x"),
+    y: node.position("y"),
+    radius: node.data("is_center") === true ? GRAPH_CENTER_NODE_RADIUS : GRAPH_NODE_RADIUS,
+    anchored: node.id() === centerId,
+  })));
+  const positionsById = new Map(separated.map((node) => [node.id, { x: node.x, y: node.y }]));
+  instance.batch(() => {
+    graphNodes.forEach((node) => {
+      const position = positionsById.get(node.id());
+      if (position) node.position(position);
+    });
+  });
+}
+
 function seededInitialPosition(
   id: string,
   index: number,
@@ -464,6 +490,26 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
   return [...nodes, ...edges];
 }
 
+function graphCenterId(graph: EntityIntelGraphResponse): string | null {
+  const centerIndex = graph.nodes.findIndex((node) => node.is_center === true);
+  if (centerIndex >= 0) return nodeIdentity(graph.nodes[centerIndex], centerIndex);
+  const explicitCenter = graph.center;
+  if (typeof explicitCenter === "string" || typeof explicitCenter === "number") {
+    const explicitId = String(explicitCenter);
+    if (graph.nodes.some((node, index) => nodeIdentity(node, index) === explicitId)) {
+      return explicitId;
+    }
+  }
+  return graph.nodes.length > 0 ? nodeIdentity(graph.nodes[0], 0) : null;
+}
+
+function graphDepthMap(graph: EntityIntelGraphResponse | null): Map<string, number> {
+  if (!graph) return new Map();
+  const nodeIds = graph.nodes.map((node, index) => nodeIdentity(node, index));
+  const centerId = graphCenterId(graph);
+  return centerId ? graphNodeDepths(centerId, nodeIds, graph.edges) : new Map();
+}
+
 function selectedDescription(item: EntityIntelGraphNode | null): string {
   if (!item) return "Selecciona un nodo del grafo para ver sus datos básicos.";
   const degree = typeof item.degree === "number" ? ` · ${item.degree} relaciones` : "";
@@ -541,6 +587,8 @@ function applyGraphVisibility(
   bounds: TemporalBounds | null,
   range: [number, number] | null,
   enabledRoleKeys: ReadonlySet<string>,
+  nodeDepths: ReadonlyMap<string, number>,
+  visibleDepth: number,
   focusedNodeId: string | null,
 ) {
   const start = bounds && range ? timelineDateFromOffset(bounds, range[0]) : null;
@@ -549,7 +597,7 @@ function applyGraphVisibility(
   let visibleEdgeCount = 0;
   instance.batch(() => {
     instance.edges().forEach((edge: cytoscape.EdgeSingular) => {
-      edge.removeClass("is-time-filtered is-role-filtered is-focus-filtered is-undated is-focus-label");
+      edge.removeClass("is-time-filtered is-role-filtered is-depth-filtered is-focus-filtered is-undated is-focus-label");
       const timestamp = parseEdgeDate(edge.data("date"));
       if (timestamp === null) {
         edge.addClass("is-undated");
@@ -560,6 +608,16 @@ function applyGraphVisibility(
       if (!roleKeys.some((key) => enabledRoleKeys.has(key))) edge.addClass("is-role-filtered");
       const source = String(edge.data("source"));
       const target = String(edge.data("target"));
+      const sourceDepth = nodeDepths.get(source);
+      const targetDepth = nodeDepths.get(target);
+      if (
+        sourceDepth === undefined
+        || targetDepth === undefined
+        || sourceDepth > visibleDepth
+        || targetDepth > visibleDepth
+      ) {
+        edge.addClass("is-depth-filtered");
+      }
       const touchesFocus = focusedNodeId !== null && (source === focusedNodeId || target === focusedNodeId);
       if (focusedNodeId !== null && !touchesFocus) edge.addClass("is-focus-filtered");
       if (touchesFocus && !elementIsGraphHidden(edge)) {
@@ -570,8 +628,10 @@ function applyGraphVisibility(
       if (!elementIsGraphHidden(edge)) visibleEdgeCount += 1;
     });
     instance.nodes().forEach((node: cytoscape.NodeSingular) => {
-      node.removeClass("is-orphaned-after-filter is-focus-filtered is-focus-label");
+      node.removeClass("is-orphaned-after-filter is-depth-filtered is-focus-filtered is-focus-label");
       const nodeId = String(node.id());
+      const nodeDepth = nodeDepths.get(nodeId);
+      if (nodeDepth === undefined || nodeDepth > visibleDepth) node.addClass("is-depth-filtered");
       if (focusedNodeId !== null && !focusedNodeIds.has(nodeId)) {
         node.addClass("is-focus-filtered");
       }
@@ -617,6 +677,8 @@ export function EntityGraphExplorer({
   const temporalBoundsRef = useRef<TemporalBounds | null>(null);
   const timeRangeRef = useRef<[number, number] | null>(null);
   const enabledRoleKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const nodeDepthsRef = useRef<ReadonlyMap<string, number>>(new Map());
+  const visibleDepthRef = useRef(1);
   const focusedNodeIdRef = useRef<string | null>(null);
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
@@ -630,6 +692,7 @@ export function EntityGraphExplorer({
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(graph?.edges.length ?? 0);
   const [timeFilter, setTimeFilter] = useState<TimeFilterState | null>(null);
   const [roleFilter, setRoleFilter] = useState<RoleFilterState | null>(null);
+  const [requestedDepth, setRequestedDepth] = useState<number | null>(null);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -643,6 +706,7 @@ export function EntityGraphExplorer({
       });
       setGraph(result);
       setSelected(null);
+      setRequestedDepth(null);
       focusedNodeIdRef.current = null;
     } catch (reason) {
       setGraph(null);
@@ -657,6 +721,7 @@ export function EntityGraphExplorer({
       const handle = window.setTimeout(() => {
         setGraph(initialGraph);
         setSelected(null);
+        setRequestedDepth(null);
         focusedNodeIdRef.current = null;
         setLoading(false);
       }, 0);
@@ -668,6 +733,22 @@ export function EntityGraphExplorer({
 
   const elements = useMemo(() => (graph ? graphElements(graph) : []), [graph]);
   const roleOptions = useMemo(() => graphRoleOptions(graph), [graph]);
+  const nodeDepths = useMemo(() => graphDepthMap(graph), [graph]);
+  const availableDepth = Math.max(1, ...nodeDepths.values());
+  const visibleDepth = requestedDepth === null
+    ? availableDepth
+    : Math.min(requestedDepth, availableDepth);
+  const depthOptions = useMemo(() => Array.from(
+    { length: availableDepth },
+    (_, index) => {
+      const depth = index + 1;
+      return {
+        depth,
+        nodeCount: [...nodeDepths.values()].filter((nodeDepth) => nodeDepth <= depth).length,
+      };
+    },
+  ), [availableDepth, nodeDepths]);
+  const visibleNodeCount = depthOptions[visibleDepth - 1]?.nodeCount ?? graph?.nodes.length ?? 0;
   const roleOptionsKey = roleOptions.map((role) => `${role.key}:${role.count}`).join("|");
   const enabledRoleKeys = useMemo(() => new Set(
     roleFilter?.key === roleOptionsKey
@@ -690,8 +771,10 @@ export function EntityGraphExplorer({
     temporalBoundsRef.current = temporalBounds;
     timeRangeRef.current = timeRange;
     enabledRoleKeysRef.current = enabledRoleKeys;
+    nodeDepthsRef.current = nodeDepths;
+    visibleDepthRef.current = visibleDepth;
     focusedNodeIdRef.current = selectedNodeId;
-  }, [enabledRoleKeys, selectedNodeId, temporalBounds, timeRange]);
+  }, [enabledRoleKeys, nodeDepths, selectedNodeId, temporalBounds, timeRange, visibleDepth]);
 
   const zoomGraph = useCallback((factor: number) => {
     const instance = graphRef.current;
@@ -742,8 +825,7 @@ export function EntityGraphExplorer({
                 "border-width": 2,
                 color: "#102033",
                 "font-size": 9,
-                label: "data(label)",
-                "min-zoomed-font-size": GRAPH_ALL_LABELS_MIN_ZOOMED_FONT_SIZE,
+                label: "",
                 "overlay-opacity": 0,
                 "text-background-color": "#ffffff",
                 "text-background-opacity": 0.86,
@@ -763,8 +845,8 @@ export function EntityGraphExplorer({
               style: { "background-color": "#7c3aed" },
             },
             {
-              selector: "node.is-priority-label, node.is-hover-label, node.is-focus-label",
-              style: { "min-zoomed-font-size": 0 },
+              selector: "node.is-priority-label, node.is-hover-label, node.is-focus-label, node.is-readable-zoom",
+              style: { label: "data(label)" },
             },
             {
               selector: "node.is-center-node",
@@ -781,8 +863,7 @@ export function EntityGraphExplorer({
               style: {
                 "curve-style": "bezier",
                 "font-size": 7,
-                label: "data(label)",
-                "min-zoomed-font-size": 10.5,
+                label: "",
                 "line-color": "#9fb2c8",
                 "target-arrow-color": "#9fb2c8",
                 "target-arrow-shape": "triangle",
@@ -811,11 +892,11 @@ export function EntityGraphExplorer({
               },
             },
             {
-              selector: "edge.is-hover-label, edge.is-focus-label",
-              style: { "min-zoomed-font-size": 0 },
+              selector: "edge.is-hover-label, edge.is-focus-label, edge.is-readable-zoom",
+              style: { label: "data(label)" },
             },
             {
-              selector: ".is-time-filtered, .is-role-filtered, .is-focus-filtered",
+              selector: ".is-time-filtered, .is-role-filtered, .is-depth-filtered, .is-focus-filtered",
               style: {
                 display: "none",
               },
@@ -877,8 +958,15 @@ export function EntityGraphExplorer({
           if (containerRef.current) containerRef.current.style.cursor = "pointer";
           const neighborhood = node.closedNeighborhood();
           instance.elements().not(neighborhood).addClass("is-dimmed");
-          neighborhood.addClass("is-hover-label");
-          node.addClass("is-hovered");
+          node.addClass("is-hovered is-hover-label");
+        };
+        const syncZoomLabels = () => {
+          const allElements = instance.elements();
+          if (instance.zoom() >= GRAPH_ALL_LABELS_MIN_ZOOM) {
+            allElements.addClass("is-readable-zoom");
+          } else {
+            allElements.removeClass("is-readable-zoom");
+          }
         };
         const onMouseOver = (event: cytoscape.EventObject) => applyHover(event.target as cytoscape.NodeSingular);
         const onMouseOut = () => clearHover();
@@ -897,19 +985,30 @@ export function EntityGraphExplorer({
             setDetailOpen(true);
           }
         };
+        let spacingApplied = false;
         const applyInitialFocus = () => {
+          if (!spacingApplied) {
+            separateGraphNodes(instance);
+            spacingApplied = true;
+          }
           initialGraphFocus(instance);
+          syncZoomLabels();
           const nextVisibleEdgeCount = applyGraphVisibility(
             instance,
             temporalBoundsRef.current,
             timeRangeRef.current,
             enabledRoleKeysRef.current,
+            nodeDepthsRef.current,
+            visibleDepthRef.current,
             focusedNodeIdRef.current,
           );
           setVisibleEdgeCount(nextVisibleEdgeCount);
           setZoomPercent(Math.round(instance.zoom() * 100));
         };
-        const onZoom = () => setZoomPercent(Math.round(instance.zoom() * 100));
+        const onZoom = () => {
+          syncZoomLabels();
+          setZoomPercent(Math.round(instance.zoom() * 100));
+        };
         const container = containerRef.current;
         container.addEventListener("mouseleave", clearHover);
         instance.on("mouseover", "node", onMouseOver);
@@ -945,6 +1044,8 @@ export function EntityGraphExplorer({
       temporalBounds,
       timeRange,
       enabledRoleKeys,
+      nodeDepths,
+      visibleDepth,
       selectedNodeId,
     );
     setVisibleEdgeCount(nextVisibleEdgeCount);
@@ -954,7 +1055,7 @@ export function EntityGraphExplorer({
       initialGraphFocus(graphRef.current);
     }
     setZoomPercent(Math.round(graphRef.current.zoom() * 100));
-  }, [enabledRoleKeys, selectedNodeId, temporalBounds, timeRange]);
+  }, [enabledRoleKeys, nodeDepths, selectedNodeId, temporalBounds, timeRange, visibleDepth]);
 
   const detailTarget = detailOpen ? detailEntity ?? selected : selected;
   const relations = useMemo(() => directRelations(graph, detailTarget), [detailTarget, graph]);
@@ -1057,6 +1158,28 @@ export function EntityGraphExplorer({
                   Mostrar grafo completo
                 </button>
               )}
+              <label className="entity-depth-filter">
+                <span>
+                  <strong>Niveles visibles</strong>
+                  <small>{visibleNodeCount} de {graph.nodes.length} nodos</small>
+                </span>
+                <select
+                  aria-label="Número de niveles visibles"
+                  value={visibleDepth}
+                  disabled={availableDepth === 1}
+                  onChange={(event) => {
+                    focusedNodeIdRef.current = null;
+                    setSelected(null);
+                    setRequestedDepth(Number(event.target.value));
+                  }}
+                >
+                  {depthOptions.map((option) => (
+                    <option key={option.depth} value={option.depth}>
+                      Hasta nivel {option.depth} · {option.nodeCount} nodos
+                    </option>
+                  ))}
+                </select>
+              </label>
               <dl>
                 <div>
                   <dt>Tipo consultado</dt>
@@ -1064,7 +1187,10 @@ export function EntityGraphExplorer({
                 </div>
                 <div>
                   <dt>Profundidad</dt>
-                  <dd>2 niveles · {activeOnly ? "solo vínculos activos" : "activos y cesados"}</dd>
+                  <dd>
+                    Nivel {visibleDepth} de {availableDepth} disponible
+                    {availableDepth === 1 ? "" : "s"} · {activeOnly ? "solo vínculos activos" : "activos y cesados"}
+                  </dd>
                 </div>
                 <div>
                   <dt>Encuadre inicial</dt>

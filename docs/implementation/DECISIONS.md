@@ -746,3 +746,36 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** no se duplica una paleta paralela ni se resuelve silenciosamente la
   discrepancia del handoff. Un cambio futuro de color se realiza en el archivo de tokens y se
   propaga por variables; adjuntar fuentes requerirá una decisión de licencia, hospedaje y CSP.
+
+## D-048 — Separación física posterior a fCoSE en grafos densos
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** D-042 elevó `nodeSeparation` y la longitud ideal, pero esos parámetros orientan el
+  layout y no garantizan distancia final. En ITURRI SA, un grafo estrella de 300 nodos seguía
+  mostrando círculos superpuestos; además, el hover del centro anulaba el etiquetado progresivo al
+  revelar toda su vecindad.
+- **Decisión:** conservar `fcose`, la semilla determinista y el centro anclado, y aplicar una sola
+  relajación geométrica determinista tras el layout que exige 14 px entre perímetros. El etiquetado
+  se gobierna por clases: centro y ocho nodos clave al abrir, nodo señalado durante hover y todos
+  los nombres y roles desde zoom 150 %. La selección sigue aislando una vecindad completa.
+- **Consecuencias:** el grafo puede ocupar más superficie y requerir pan, coherente con D-034, pero
+  los círculos dejan de colisionar sin sustituir el motor ni recalcular al filtrar. El coste es
+  cuadrático y acotado a 128 pasadas sobre el tamaño productivo observado de 300 nodos; si Signal
+  amplía ese tamaño, habrá que volver a medir tiempo de layout y separación.
+
+## D-049 — Profundidad visible adaptada a la topología recibida
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** un selector fijo de 1 a 20 sugeriría que Oracle puede consultar veinte saltos, pero
+  Signal declara `max_depth=2`, valida `depth <= 2`, vuelve a recortarlo en el BFS y limita el grafo
+  a 300 nodos. ITURRI SA ya alcanza ese límite con la profundidad vigente.
+- **Decisión:** Oracle sigue solicitando profundidad 2 y calcula por BFS la distancia mínima de
+  cada nodo a la entidad central. La interfaz ofrece únicamente los niveles presentes y aplica el
+  nivel elegido dentro de la visibilidad compuesta, sin nueva consulta ni relayout. El máximo
+  disponible queda seleccionado inicialmente.
+- **Consecuencias:** empresas con un único salto no muestran opciones inútiles; grafos con dos
+  ofrecen 1 y 2. El control crecerá automáticamente si el payload contiene más niveles, pero
+  habilitarlos en origen requiere una fase coordinada en Signal con límites de coste, nodos,
+  latencia y truncamiento antes de ampliar el contrato de Oracle.

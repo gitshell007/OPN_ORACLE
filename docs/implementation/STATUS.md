@@ -4,6 +4,54 @@ Actualizado: 2026-07-22
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Alcance adaptativo por niveles en el grafo de entidades
+
+- El panel lateral incorpora «Niveles visibles», un selector derivado por BFS desde la entidad
+  central. Solo ofrece profundidades que existen en la topología recibida y cada opción muestra el
+  recuento acumulado de nodos; abre con el máximo disponible para conservar la vista actual.
+- Nivel, fecha, tipo de vínculo y foco se resuelven en la misma pasada por clases Cytoscape. Bajar
+  el alcance oculta nodos y aristas posteriores, limpia el foco activo y no reconstruye elementos,
+  relanza `fcose` ni hace otra petición a Signal.
+- No se ofrece un rango ficticio 1–20. Revisado el repositorio de Signal: configuración
+  `max_depth=2`, query `le=2`, recorte interno a 2 y `max_nodes=300`. Oracle mantiene `depth=2`; si
+  Signal amplía su contrato, el selector ya crecerá con los niveles realmente devueltos.
+- Prueba nueva verificada con dos mutaciones: aplanar el BFS a nivel 1 eliminó la segunda opción;
+  retirar la ocultación del nodo profundo lo mantuvo visible. Ambas hicieron caer el flujo de dos
+  niveles y fueron revertidas.
+- Sin cambios de backend, OpenAPI, cliente generado, migraciones ni variables de entorno.
+- Verificación visual local en Chrome con 81 nodos: nivel 2 mostró 81 nodos y 80 vínculos; nivel 1
+  pasó a 41 nodos y 40 vínculos sin relayout. El selector quedó alineado en el lateral de escritorio
+  y apilado en móvil; a 390 px el control y la página cumplieron `scrollWidth === clientWidth`. La
+  consola quedó sin errores ni avisos. La ruta de QA se eliminó después.
+- Gates frontend finales: `npm run typecheck` correcto; `npm run lint` sin errores y con el aviso
+  conocido de TanStack Table en `dossier-context-panel.tsx:158`; `npm run test` terminó con 37
+  ficheros y 171 tests correctos; `npm run build` compiló y generó 19 páginas estáticas.
+
+## Separación física y hover acotado en el grafo de entidades
+
+- Revisados los cambios de los prompts 39, 41 y 67: la semilla Vogel resolvió la diagonal y el
+  etiquetado progresivo redujo el ruido inicial, pero `nodeSeparation=156` de `fcose` no garantizaba
+  distancia física en un grafo estrella de 300 nodos como ITURRI SA.
+- Se conserva `fcose`, su geometría y el centro anclado. Tras terminar el layout, una relajación
+  determinista acotada separa los círculos con un hueco mínimo de 14 px; no relanza el layout al
+  filtrar y no cambia contratos ni datos.
+- El etiquetado progresivo deja de depender de `min-zoomed-font-size`, cuyo resultado variaba con
+  el render: al 105 % solo se identifican centro y ocho nodos clave; el hover revela únicamente el
+  nodo señalado y todos los nombres y roles se habilitan de forma explícita desde zoom 150 %.
+- Pruebas nuevas verificadas por mutación: eliminar el hueco hizo caer el caso de 300 nodos
+  coincidentes; restaurar el etiquetado de toda la vecindad hizo caer el caso de hover central.
+  Elevar el umbral explícito por encima del zoom simulado hizo caer también su caso de
+  comportamiento. Las tres mutaciones se revirtieron.
+- Sin cambios de backend, OpenAPI, migraciones ni variables de entorno.
+- Verificación visual en Chrome: la ruta productiva autenticada de ITURRI SA confirmó el estado
+  anterior con 300 nodos y 301 enlaces comprimidos. Una ruta local efímera, eliminada tras la
+  prueba, renderizó el componente corregido con un grafo estrella de 300 nodos: a zoom 105 % los
+  círculos conservan espacio y no aparece la masa de rótulos; el hover destaca un único nodo.
+  Producción no se ha desplegado y conserva la versión anterior hasta el siguiente release.
+- Gates frontend finales: `npm run typecheck` correcto; `npm run lint` sin errores y con el aviso
+  conocido de TanStack Table en `dossier-context-panel.tsx:158`; `npm run test` terminó con 37
+  ficheros y 170 tests correctos; `npm run build` compiló y generó 19 páginas estáticas.
+
 ## Identidad visual Oracle · brand handoff
 
 - Integrados los tokens oficiales de la dirección «Porcelana camaleónica» en

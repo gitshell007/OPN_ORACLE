@@ -14,6 +14,7 @@ type MockElement = {
   data: Mock<(key?: string) => unknown>;
   connectedEdges: Mock<() => MockCollection>;
   closedNeighborhood: Mock<() => MockCollection>;
+  position: Mock<(next?: { x: number; y: number } | "x" | "y") => { x: number; y: number } | number>;
   classes: Set<string>;
 };
 type MockCollection = MockElement[] & {
@@ -102,8 +103,13 @@ vi.mock("cytoscape", () => {
     return list;
   }
 
-  function element(data: Record<string, unknown>, initialClasses = ""): MockElement {
+  function element(
+    data: Record<string, unknown>,
+    initialClasses = "",
+    initialPosition = { x: 0, y: 0 },
+  ): MockElement {
     const classes = new Set(initialClasses.split(" ").filter(Boolean));
+    let position = { ...initialPosition };
     return {
       id: vi.fn(() => String(data.id)),
       addClass: vi.fn((name: string) => {
@@ -116,6 +122,11 @@ vi.mock("cytoscape", () => {
       data: vi.fn((key?: string) => (key ? data[key] : data)),
       connectedEdges: vi.fn(() => collection([])),
       closedNeighborhood: vi.fn(() => collection([])),
+      position: vi.fn((next?: { x: number; y: number } | "x" | "y") => {
+        if (next === "x" || next === "y") return position[next];
+        if (next) position = { ...next };
+        return { ...position };
+      }),
       classes,
     };
   }
@@ -123,7 +134,7 @@ vi.mock("cytoscape", () => {
   const factory = vi.fn((options: MockCytoscapeOptions) => {
     const nodes = options.elements
       .filter((item) => !item.data.source)
-      .map((item) => element(item.data, item.classes));
+      .map((item) => element(item.data, item.classes, item.position));
     const edges = options.elements
       .filter((item) => item.data.source)
       .map((item) => element(item.data, item.classes));
@@ -183,7 +194,11 @@ vi.mock("cytoscape", () => {
   return { default: factory };
 });
 
-import { EntityGraphExplorer, EntitySearchPanel } from "./entity-intel";
+import {
+  EntityGraphExplorer,
+  EntitySearchPanel,
+} from "./entity-intel";
+import { separateGraphNodePositions } from "./entity-graph-layout";
 
 const graphResponse = {
   center: "IBERDROLA",
@@ -504,6 +519,55 @@ describe("EntityGraphExplorer", () => {
     expect(mocks.cytoscapeInstances).toHaveLength(1);
   });
 
+  it("ofrece los niveles existentes y oculta los saltos posteriores sin relayout", async () => {
+    mocks.graph.mockResolvedValue({
+      ...graphResponse,
+      nodes: [
+        ...graphResponse.nodes,
+        { id: "remote", label: "NODO DE SEGUNDO NIVEL", type: "company", degree: 1 },
+      ],
+      edges: [
+        ...graphResponse.edges,
+        {
+          id: "edge-remote",
+          source: "miguel",
+          target: "remote",
+          role: "Consejero",
+          active: true,
+          date: "2026-06-01",
+        },
+      ],
+    });
+
+    render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
+
+    const depthSelect = await screen.findByLabelText("Número de niveles visibles");
+    const options = within(depthSelect).getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent("Hasta nivel 1 · 3 nodos");
+    expect(options[1]).toHaveTextContent("Hasta nivel 2 · 4 nodos");
+    expect(depthSelect).toHaveValue("2");
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    fireEvent.change(depthSelect, { target: { value: "1" } });
+
+    await waitFor(() => {
+      expect(instance.nodesList[3].classes.has("is-depth-filtered")).toBe(true);
+      expect(instance.edgesList[2].classes.has("is-depth-filtered")).toBe(true);
+    });
+    expect(instance.nodesList[1].classes.has("is-depth-filtered")).toBe(false);
+    expect(instance.edgesList[0].classes.has("is-depth-filtered")).toBe(false);
+    expect(screen.getByText(/2 de 3 vínculos visibles/)).toBeInTheDocument();
+    expect(mocks.cytoscapeInstances).toHaveLength(1);
+
+    fireEvent.change(depthSelect, { target: { value: "2" } });
+    await waitFor(() => {
+      expect(instance.nodesList[3].classes.has("is-depth-filtered")).toBe(false);
+      expect(instance.edgesList[2].classes.has("is-depth-filtered")).toBe(false);
+    });
+  });
+
   it("aísla vecinos directos al seleccionar y restaura al pulsar el mismo nodo", async () => {
     mocks.graph.mockResolvedValue({
       ...graphResponse,
@@ -615,6 +679,53 @@ describe("EntityGraphExplorer", () => {
     expect(distinctY.size).toBeGreaterThan(12);
     expect(diagonalKeys.size).toBeGreaterThan(12);
     expect(mocks.cytoscapeInstances[0].options.layout).toMatchObject({ randomize: false });
+  });
+
+  it("mantiene un hueco visible entre 300 nodos aunque el layout los entregue solapados", () => {
+    const separated = separateGraphNodePositions(Array.from({ length: 300 }, (_, index) => ({
+      id: index === 0 ? "center" : `node-${index}`,
+      x: 0,
+      y: 0,
+      radius: index === 0 ? 23 : 15,
+      anchored: index === 0,
+    })));
+
+    expect(separated.find((node) => node.id === "center")).toMatchObject({ x: 0, y: 0 });
+    for (let leftIndex = 0; leftIndex < separated.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < separated.length; rightIndex += 1) {
+        const left = separated[leftIndex];
+        const right = separated[rightIndex];
+        const distance = Math.hypot(right.x - left.x, right.y - left.y);
+        expect(distance).toBeGreaterThanOrEqual(left.radius + right.radius + 14 - 0.01);
+      }
+    }
+  });
+
+  it("al pasar por el nodo central no revela las etiquetas de toda su vecindad", async () => {
+    render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.mouseover({ target: instance.nodesList[0] }));
+
+    expect(instance.nodesList[0].classes.has("is-hovered")).toBe(true);
+    expect(instance.nodesList[0].classes.has("is-hover-label")).toBe(true);
+    expect(instance.nodesList[1].classes.has("is-hover-label")).toBe(false);
+    expect(instance.edgesList[0].classes.has("is-hover-label")).toBe(false);
+  });
+
+  it("solo activa todas las etiquetas al alcanzar un zoom de lectura", async () => {
+    render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    expect(instance.nodesList[1].classes.has("is-readable-zoom")).toBe(false);
+
+    instance.zoom({ level: 1.6 });
+    act(() => instance.handlers.zoom({ target: instance.nodesList[0] }));
+
+    expect(instance.nodesList[1].classes.has("is-readable-zoom")).toBe(true);
+    expect(instance.edgesList[0].classes.has("is-readable-zoom")).toBe(true);
   });
 
   it("filtra el grafo por cronograma sin reconstruir elementos", async () => {
