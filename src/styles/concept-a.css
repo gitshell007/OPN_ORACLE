@@ -1,20 +1,20 @@
 :root {
-  --va-shell: #07111f;
-  --va-shell-2: #0c1a2b;
-  --va-canvas: #f4f7fb;
+  --va-shell: #0c1440;
+  --va-shell-2: var(--opn-night);
+  --va-canvas: var(--opn-porcelain);
   --va-panel: #fff;
-  --va-text: #102033;
-  --va-muted: #5b6b7f;
-  --va-primary: #1d56d8;
-  --va-primary-hover: #1748ba;
-  --va-signal: #007f9a;
-  --va-success: #0e8065;
-  --va-warning: #a66409;
-  --va-danger: #c93636;
-  --va-border: #d9e1ec;
-  --va-soft: #edf3f9;
-  --va-shadow: 0 8px 22px #17314d0b;
-  --va-radius: 9px;
+  --va-text: var(--opn-blue);
+  --va-muted: var(--opn-ink-soft);
+  --va-primary: var(--or-deep);
+  --va-primary-hover: #122570;
+  --va-signal: var(--sem-info);
+  --va-success: var(--sem-ok);
+  --va-warning: var(--sev-low);
+  --va-danger: var(--sev-high);
+  --va-border: var(--opn-neutral-200);
+  --va-soft: var(--opn-paper);
+  --va-shadow: none;
+  --va-radius: 6px;
 }
 .dossier-settings-product { display: grid; gap: 14px; }
 .dossier-settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
@@ -905,9 +905,10 @@
   margin-right: 8px;
 }
 .attention-kind-label {
-  border: 1px solid var(--va-border);
+  border: 1px solid #c9cff0;
   border-radius: 999px;
-  background: var(--va-soft);
+  background: #e8ebff;
+  color: var(--or-deep);
   display: inline-flex;
   padding: 2px 8px;
 }
@@ -1167,7 +1168,7 @@
   inset: 0 auto 0 0;
   width: 244px;
   background: var(--va-shell);
-  color: #d7e3f0;
+  color: #aeb8d8;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -1217,10 +1218,6 @@
 .vector-brand .oracle-logo {
   color: white;
 }
-.vector-brand .oracle-mark {
-  border-color: #5d7899;
-  background: #12243a;
-}
 .workspace-chip {
   display: flex;
   align-items: center;
@@ -1251,7 +1248,7 @@
 .workspace-chip small,
 .vector-user small {
   font-size: 10px;
-  color: #8fa5bd;
+  color: #aeb8d8;
 }
 .workspace-avatar,
 .user-avatar {
@@ -1261,8 +1258,8 @@
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  background: #153c70;
-  color: #a7ccff;
+  background: var(--opn-gold);
+  color: #0c1440;
   font-size: 11px;
   font-weight: 750;
 }
@@ -1275,7 +1272,7 @@
   text-transform: uppercase;
   font-size: 9px;
   letter-spacing: 0.13em;
-  color: #8298b0;
+  color: var(--opn-gold);
   font-weight: 800;
   padding: 15px 10px 6px;
   margin: 0;
@@ -1287,18 +1284,18 @@
   align-items: center;
   gap: 11px;
   padding: 0 10px;
-  color: #9db0c4;
+  color: #aeb8d8;
   font-size: 12px;
   font-weight: 620;
   margin: 2px 0;
 }
 .vector-nav a:hover,
 .vector-nav a.active {
-  background: #16304f;
+  background: rgb(255 255 255 / 10%);
   color: #fff;
 }
 .vector-nav a.active {
-  box-shadow: inset 3px 0 #4f83ff;
+  box-shadow: inset 2px 0 var(--opn-gold);
 }
 .vector-nav a b {
   margin-left: auto;
@@ -1313,7 +1310,7 @@
   border: 0;
   border-top: 1px solid #ffffff12;
   background: transparent;
-  color: #8298b0;
+  color: #aeb8d8;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1539,17 +1536,19 @@
   background: var(--va-primary);
   color: white;
   border-color: var(--va-primary);
+  border-bottom-color: var(--opn-gold);
+  border-bottom-width: 2px;
 }
 .vector-primary:hover {
   background: var(--va-primary-hover);
 }
 .vector-secondary {
   background: white;
-  border-color: #cbd6e2;
-  color: #263950;
+  border-color: var(--opn-neutral-200);
+  color: var(--opn-blue);
 }
 .vector-secondary:hover {
-  background: #f7f9fc;
+  background: var(--opn-paper);
 }
 .vector-danger {
   background: var(--va-danger);
@@ -1557,13 +1556,15 @@
   color: white;
 }
 .vector-ai {
-  background: linear-gradient(135deg, #174ea6, #5f3dc4);
-  border-color: #5f3dc4;
+  background: var(--va-primary);
+  border-color: var(--va-primary);
+  border-bottom-color: var(--opn-gold);
+  border-bottom-width: 2px;
   color: white;
-  box-shadow: 0 10px 24px rgba(47, 107, 255, 0.22);
+  box-shadow: none;
 }
 .vector-ai:hover {
-  background: linear-gradient(135deg, #123f87, #5130ad);
+  background: var(--va-primary-hover);
 }
 .vector-primary:disabled,
 .vector-secondary:disabled,
@@ -1697,7 +1698,7 @@
   border-radius: 7px;
   display: grid;
   place-items: center;
-  background: #eef4ff;
+  background: #e8ebff;
   color: var(--va-primary);
   flex: 0 0 auto;
 }
@@ -2080,8 +2081,8 @@
   color: #08775b;
 }
 .new-count {
-  background: #e9f0ff;
-  color: #2059c6;
+  background: #e8ebff;
+  color: var(--or-deep);
   border-radius: 999px;
   padding: 3px 7px;
   font-weight: 750;

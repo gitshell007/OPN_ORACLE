@@ -4,6 +4,24 @@ Actualizado: 2026-07-22
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Identidad visual Oracle · brand handoff
+
+- Integrados los tokens oficiales de la dirección «Porcelana camaleónica» en
+  `src/styles/tokens.css`; el shell Vector ahora usa índigo noche, canvas porcelana, superficies
+  blancas sin sombra decorativa y bordes de 6 px. La fuente mantiene fallback local hasta que se
+  entregue un archivo tipográfico licenciado de Libre Franklin e IBM Plex Mono.
+- Login y sidebar sustituyen la marca tipográfica anterior por el símbolo vectorial Oracle
+  entregado. Los botones primarios usan `--or-deep` y el filete inferior de oro; los gradientes
+  se limitan al activo de marca. Los estados de éxito, información y riesgo conservan sus colores
+  semánticos y el oro no se usa como serie de datos.
+- Favicon, icono Apple y manifiesto PWA apuntan a los PNG de Oracle entregados. No cambian rutas,
+  copy, contratos, backend, migraciones ni variables de entorno.
+- Gates frontend: `npm run lint` terminó con 0 errores y un aviso conocido de TanStack Table;
+  `npm run typecheck` correcto; `npm run test` terminó con `37 passed` y `167 passed`; `npm run
+  build` correcto y generó 19 rutas estáticas, incluido `/manifest.webmanifest`.
+- Verificación visual local: `http://127.0.0.1:3010/login` revisado a 1280 px y 390 px; no hubo
+  solapes, recortes ni errores de consola. No se ha desplegado ni comprobado producción.
+
 ## Expediente guiado de inteligencia competitiva
 
 - Añadido el perfil `competitive_intelligence` con intake revisable de oferta propia, competidores

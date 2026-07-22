@@ -1,0 +1,45 @@
+/* OPN Consultoría — Design tokens v1.0 (Dirección «Porcelana camaleónica», decisión 7a) */
+:root{
+  /* Core */
+  --opn-night:#020A2E;
+  --opn-blue:#122052;
+  --opn-blue-mid:#0C6FA6;
+  --opn-cyan:#55C7E4;
+  --opn-cyan-light:#B4ECF7;
+  --opn-gold:#C79A4B;
+  --opn-gold-text:#8A6B2F;   /* only gold allowed in text (AA) */
+  --opn-gold-light:#F0D48A;
+  --opn-porcelain:#EFECE6;
+  --opn-paper:#FAF9F6;
+  --opn-ink:#1C1B18;
+  --opn-ink-soft:#4A4438;
+  --opn-neutral-400:#8A8478;
+  --opn-neutral-300:#B5AFA3;
+  --opn-neutral-200:#D8D3C8;
+  /* Products: deep (light bg) / light (dark bg) */
+  --nx-deep:#3E34A0; --nx-light:#8F83F0;
+  --or-deep:#1C2F8F; --or-light:#F0D48A; /* Oracle inherits the gold */
+  --co-deep:#095E66; --co-light:#4FC4B0;
+  --ra-deep:#D00000; --ra-light:#FF5400;
+  /* Product brand gradients (symbols >=24px, covers, app icons only) */
+  --nx-gradient:linear-gradient(150deg,#8F83F0,#3E34A0);
+  --or-gradient:linear-gradient(150deg,#F0D48A,#C79A4B 40%,#1C2F8F 75%,#0C1440);
+  --co-gradient:linear-gradient(150deg,#4FC4B0,#095E66);
+  --ra-gradient:linear-gradient(150deg,#FF9E00,#FF5400 40%,#D00000 75%,#8D0801);
+  /* Semantic */
+  --sem-ok:#217A52;
+  --sem-info:#0C6FA6;
+  /* Severity (shared; mirrors Risk Advisor ramp) */
+  --sev-low:#FF9E00;
+  --sev-medium:#FF5400;
+  --sev-high:#D00000;
+  --sev-critical:#8D0801;
+  /* Data series (fixed order; gold never a data colour) */
+  --data-s1:#1C2F8F; --data-s2:#55C7E4; --data-s3:#0E8B96;
+  --data-s4:#8F83F0; --data-s5:#B5AFA3; --data-s6:#4A4438;
+  --data-threshold:#C79A4B; /* target/threshold lines only */
+  /* Type */
+  --font-ui:'Libre Franklin',system-ui,sans-serif;
+  --font-editorial:'Spectral',Georgia,serif;
+  --font-mono:'IBM Plex Mono',Consolas,monospace;
+}

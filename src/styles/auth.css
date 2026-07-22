@@ -2,28 +2,18 @@
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(320px, 44%) 1fr;
-  background: #f4f7fb;
-  color: #122033;
+  background: var(--opn-porcelain);
+  color: var(--opn-blue);
 }
 .auth-brand-panel {
   padding: 48px clamp(32px, 6vw, 88px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background: #0c223d;
+  background: #0c1440;
   color: white;
   position: relative;
   overflow: hidden;
-}
-.auth-brand-panel:after {
-  content: "";
-  position: absolute;
-  width: 420px;
-  height: 420px;
-  border: 1px solid #4b85b744;
-  border-radius: 50%;
-  right: -210px;
-  bottom: -170px;
 }
 .auth-brand {
   display: flex;
@@ -31,14 +21,16 @@
   gap: 12px;
   font-size: 19px;
 }
-.auth-brand > span {
+.auth-brand img {
+  display: block;
   width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #80c7e8;
-  border-radius: 10px;
-  font-weight: 850;
+  height: 41px;
+  object-fit: contain;
+}
+.auth-brand b,
+.vector-brand .oracle-logo b {
+  color: white;
+  font-weight: 800;
 }
 .auth-brand-panel > div:nth-child(2) {
   max-width: 520px;
@@ -46,7 +38,7 @@
   z-index: 1;
 }
 .auth-brand-panel p {
-  color: #7fd1e7;
+  color: var(--opn-gold);
   font-size: 12px;
   letter-spacing: 0.16em;
   font-weight: 800;
@@ -54,7 +46,7 @@
 .auth-brand-panel h2 {
   font-size: clamp(32px, 4vw, 54px);
   line-height: 1.08;
-  letter-spacing: -0.045em;
+  letter-spacing: 0;
   margin: 18px 0 30px;
 }
 .auth-brand-panel ul {
@@ -63,16 +55,16 @@
   margin: 0;
   display: grid;
   gap: 12px;
-  color: #c8d7e7;
+  color: #aeb8d8;
 }
 .auth-brand-panel li:before {
   content: "✓";
-  color: #63d1bb;
+  color: var(--opn-gold);
   font-weight: 800;
   margin-right: 10px;
 }
 .auth-brand-panel small {
-  color: #91a9c0;
+  color: #aeb8d8;
 }
 .auth-form-panel {
   display: grid;
@@ -83,7 +75,7 @@
   width: min(440px, 100%);
 }
 .auth-eyebrow {
-  color: #1d6fa3;
+  color: var(--opn-gold-text);
   font-size: 12px;
   letter-spacing: 0.13em;
   font-weight: 800;
@@ -96,7 +88,7 @@
   margin-bottom: 10px;
 }
 .auth-intro {
-  color: #637287;
+  color: var(--opn-ink-soft);
   line-height: 1.55;
   margin-bottom: 28px;
 }
@@ -113,16 +105,16 @@
 .auth-field > div {
   display: flex;
   align-items: center;
-  border: 1px solid #c9d4e2;
-  border-radius: 9px;
+  border: 1px solid var(--opn-neutral-200);
+  border-radius: 6px;
   background: white;
   min-height: 46px;
   padding: 0 12px;
   color: #728096;
 }
 .auth-field > div:focus-within {
-  border-color: #2778ad;
-  box-shadow: 0 0 0 3px #2f80b51c;
+  border-color: var(--or-deep);
+  box-shadow: 0 0 0 3px #1c2f8f1c;
 }
 .auth-field input,
 .auth-field select {
@@ -131,7 +123,7 @@
   min-width: 0;
   flex: 1;
   padding: 11px;
-  color: #152438;
+  color: var(--opn-blue);
   background: transparent;
 }
 .auth-field select {
@@ -152,20 +144,21 @@
 .auth-form-meta a,
 .auth-back {
   font-size: 13px;
-  color: #17658f;
+  color: var(--or-deep);
   font-weight: 700;
 }
 .auth-submit {
   border: 0;
-  border-radius: 9px;
-  background: #145f8b;
+  border-radius: 6px;
+  border-bottom: 2px solid var(--opn-gold);
+  background: var(--or-deep);
   color: white;
   min-height: 47px;
   font-weight: 750;
-  box-shadow: 0 7px 20px #0f527224;
+  box-shadow: none;
 }
 .auth-submit:hover {
-  background: #0f527a;
+  background: #122570;
 }
 .auth-alert {
   display: grid;
@@ -214,8 +207,9 @@
 .auth-state a,
 .auth-state button {
   border: 0;
-  border-radius: 8px;
-  background: #145f8b;
+  border-radius: 6px;
+  border-bottom: 2px solid var(--opn-gold);
+  background: var(--or-deep);
   color: white;
   padding: 11px 16px;
   font-weight: 700;
@@ -223,8 +217,8 @@
 .auth-spinner {
   width: 30px;
   height: 30px;
-  border: 3px solid #bed2e1;
-  border-top-color: #145f8b;
+  border: 3px solid var(--opn-neutral-200);
+  border-top-color: var(--or-deep);
   border-radius: 50%;
   animation: auth-spin 0.7s linear infinite;
 }

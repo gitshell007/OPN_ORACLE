@@ -2,6 +2,7 @@
 
 import { ApiError, api } from "@oracle/api-client";
 import { Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -23,8 +24,14 @@ function AuthFrame({
     <main className="auth-page">
       <section className="auth-brand-panel" aria-label="OPN Oracle">
         <div className="auth-brand">
-          <span>O</span>
-          <strong>OPN Oracle</strong>
+          <Image
+            src="/brand/opn-oracle-symbol.svg"
+            alt=""
+            width={38}
+            height={41}
+            priority
+          />
+          <strong><b>OPN</b> Oracle</strong>
         </div>
         <div>
           <p>INTELIGENCIA ESTRATÉGICA</p>

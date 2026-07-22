@@ -11,6 +11,10 @@ export const metadata: Metadata = {
     template: "%s · OPN Oracle",
   },
   description: "Inteligencia estratégica trazable para decidir el siguiente movimiento.",
+  icons: {
+    icon: "/brand/opn-oracle-favicon.png",
+    apple: "/brand/opn-oracle-app-icon.png",
+  },
 };
 
 export default function RootLayout({

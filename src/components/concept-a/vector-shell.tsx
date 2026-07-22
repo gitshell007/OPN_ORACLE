@@ -11,6 +11,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { api } from "@oracle/api-client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -208,11 +209,16 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
             className="oracle-logo"
             aria-label="OPN Oracle, ir al centro de operaciones"
           >
-            <span className="oracle-mark" aria-hidden="true">
-              O
-            </span>
+            <Image
+              className="oracle-symbol"
+              src="/brand/opn-oracle-symbol.svg"
+              alt=""
+              width={30}
+              height={32}
+              priority
+            />
             <span>
-              OPN Oracle{!canonical && <small>Vector</small>}
+              <b>OPN</b> Oracle{!canonical && <small>Vector</small>}
             </span>
           </Link>
           <button

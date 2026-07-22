@@ -1,5 +1,8 @@
+@import "../styles/tokens.css";
+
 :root {
   font-family:
+    "Libre Franklin",
     Inter,
     ui-sans-serif,
     system-ui,
@@ -7,8 +10,8 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #102033;
-  background: #f4f7fb;
+  color: var(--opn-blue);
+  background: var(--opn-porcelain);
   font-synthesis: none;
 }
 * {
@@ -55,11 +58,11 @@ table {
   border-collapse: collapse;
 }
 ::selection {
-  background: #b9d5ff;
-  color: #07111f;
+  background: var(--opn-gold-light);
+  color: var(--opn-blue);
 }
 :focus-visible {
-  outline: 3px solid #6aa0ff;
+  outline: 3px solid var(--opn-blue-mid);
   outline-offset: 2px;
 }
 .sr-only {
@@ -78,29 +81,14 @@ table {
   align-items: center;
   gap: 10px;
   font-weight: 760;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
-.oracle-mark {
+.oracle-symbol {
+  display: block;
   width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 9px;
-  font-size: 15px;
-  font-weight: 850;
-  position: relative;
-}
-.oracle-mark:after {
-  content: "";
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #46c5e3;
-  right: -3px;
-  top: 4px;
-  border: 2px solid currentColor;
+  height: 32px;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 .oracle-logo small {
   display: block;
