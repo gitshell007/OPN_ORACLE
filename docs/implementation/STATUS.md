@@ -4,6 +4,34 @@ Actualizado: 2026-07-22
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Ficha de entidad operable: cámara estable, jerarquía y fuentes honestas
+
+- La ficha presenta primero identidad, cobertura y navegación. «Cambiar entidad», «Añadir a
+  expediente» e «Informe IA» son acciones secundarias desplegables; la lista de expedientes se
+  carga una sola vez y solo cuando una de las dos acciones que la necesita se abre.
+- Hechos relevantes, Patentes y Noticias permanecen siempre accesibles. Cada pestaña declara
+  resultados, vacío, cobertura parcial o fallo; un error de CNMV/EPO/búsqueda web ya no se parece a
+  una ausencia. Noticias conserva el ranking del proveedor cuando no existe una fecha fiable.
+- La pestaña activa se conserva en `?tab=`. Una recarga mantiene el contenido anterior si la nueva
+  consulta falla y el grafo se monta al visitarlo por primera vez, pero no se desmonta al consultar
+  otra pestaña: filtros, selección y viewport sobreviven a la navegación interna.
+- El centro del grafo se resuelve mediante `is_center`, `graph.center` y la entidad consultada; no
+  se adopta el primer nodo como centro semántico. Filtros de rol, fecha y profundidad solo cambian
+  visibilidad: no recentran ni alteran el zoom. El layout se inicializa una vez y cancela el
+  fallback tardío.
+- Un clic selecciona sin destruir el contexto. «Aislar relaciones», «Abrir ficha» y «Mostrar grafo
+  completo» son acciones explícitas; el foco encaja la vecindad sin volver a centrar solo el nodo.
+  El porcentaje procede del viewport real, hay búsqueda accesible de nodos y la cabecera muestra
+  nodos/enlaces visibles frente a recibidos, con el recorte de Signal en primer plano.
+- No hay cambios de backend adicionales, migraciones ni variables. Gates locales finales:
+  `scripts/api-test.sh --unit` ejecutó 389 tests sin omisiones; ESLint terminó sin errores y con el
+  aviso conocido de TanStack Table; TypeScript correcto; Vitest 38 ficheros/184 tests; build Next
+  correcto con 19 páginas; Playwright autenticado 25 tests correctos y 7 omisiones intencionadas de
+  matriz. La suite backend completa ejecutó 521 tests con PostgreSQL/Redis reales y alcanzó 84,06 %.
+- Línea base productiva previa al despliegue medida con sesión real: ITURRI mostraba las acciones
+  antes de los datos y el grafo abría con 300 nodos, 301 enlaces y el aviso de recorte al final del
+  lateral. La verificación post-despliegue queda pendiente en este punto del historial.
+
 ## Fase 1 de la ficha de entidad: verdad registral estable
 
 - La ficha separa dos universos BORME que antes llamaba indistintamente «actos»: actos societarios

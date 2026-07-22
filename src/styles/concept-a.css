@@ -186,6 +186,7 @@
 .entity-intel-page.embedded { gap: 0; }
 .entity-dossier-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: var(--va-panel); padding: 12px 14px; color: var(--va-muted); font-size: 12px; }
 .entity-dossier-header strong { color: var(--va-text); }
+.entity-cache-status { margin-left: auto; }
 .entity-status-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; background: #e8f7ef; color: #087255; font-size: 11px; font-weight: 850; text-transform: uppercase; }
 .entity-status-pill.disuelta, .entity-status-pill.extinguida { background: #fdeaea; color: #a92f2f; }
 .entity-tabs { display: grid; gap: 12px; }
@@ -199,7 +200,14 @@
   outline: 3px solid #93c5fd;
   outline-offset: 2px;
 }
+.entity-dossier-actions { display: grid; gap: 10px; }
+.entity-dossier-actions-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.entity-dossier-actions-bar button.is-active { border-color: #1d4ed8; background: #eaf2ff; color: #143d8f; }
+.entity-dossier-action-panel { display: grid; gap: 10px; }
+.entity-dossier-action-panel > .entity-search-card,
+.entity-dossier-action-panel > .entity-link-card { margin: 0; }
 .entity-tab-panel { display: grid; gap: 12px; }
+.entity-tab-panel[data-state="inactive"] { display: none; }
 .entity-link-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: end; border: 1px solid var(--va-border); border-radius: var(--va-radius); background: #fbfdff; padding: 14px; }
 .entity-link-card h2 { margin: 2px 0 5px; color: var(--va-text); font-size: 16px; }
 .entity-link-card p { margin: 0; color: var(--va-muted); font-size: 12px; line-height: 1.5; }
@@ -242,6 +250,18 @@
 .entity-profile-grid dd { margin: 3px 0 0; color: var(--va-text); font-weight: 650; overflow-wrap: anywhere; }
 .entity-profile-grid .entity-source-limits, .entity-profile-grid .entity-wide { grid-column: 1 / -1; }
 .entity-source-limits p, .entity-section-note { margin: 0; color: var(--va-muted); line-height: 1.5; }
+.entity-source-status { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 11px; border: 1px solid #d8e3ef; border-left-width: 4px; border-radius: 9px; background: #f8fbff; padding: 11px 13px; }
+.entity-source-status > span { border-radius: 999px; background: #e8f7ef; color: #087255; padding: 4px 8px; font-size: 10px; font-weight: 850; text-transform: uppercase; white-space: nowrap; }
+.entity-source-status > div { display: grid; gap: 3px; }
+.entity-source-status strong { color: var(--va-text); font-size: 13px; }
+.entity-source-status p { margin: 0; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
+.entity-source-status small { color: #53677f; font-size: 11px; overflow-wrap: anywhere; }
+.entity-source-status.is-empty { border-left-color: #7890ab; background: #f8fafc; }
+.entity-source-status.is-empty > span { background: #e9eef4; color: #43566d; }
+.entity-source-status.is-partial { border-left-color: #c7860b; background: #fff9e9; }
+.entity-source-status.is-partial > span { background: #fae8b7; color: #73500c; }
+.entity-source-status.is-error { border-left-color: #b23b3b; background: #fff4f4; }
+.entity-source-status.is-error > span { background: #f9dada; color: #922d2d; }
 .entity-section-unavailable { display: grid; gap: 5px; border: 1px solid #e6c689; border-left: 4px solid #c7860b; border-radius: 9px; background: #fff9e9; color: #694807; padding: 12px 14px; }
 .entity-section-unavailable p { margin: 0; line-height: 1.5; }
 .entity-section-unavailable small { color: #85651e; }
@@ -422,6 +442,16 @@
   .entity-depth-filter { grid-template-columns: 1fr; }
   .entity-detail-pairs { grid-template-columns: 1fr; }
   .entity-profile-grid { grid-template-columns: 1fr; }
+  .entity-cache-status { width: 100%; margin-left: 0; }
+  .entity-dossier-actions-bar { justify-content: flex-start; }
+  .entity-dossier-actions-bar button { flex: 1 1 auto; justify-content: center; }
+  .entity-link-card { grid-template-columns: 1fr; align-items: stretch; }
+  .entity-link-actions { justify-content: flex-start; }
+  .entity-link-actions label, .entity-link-actions select { width: 100%; min-width: 0; }
+  .entity-report-waiting-status { grid-template-columns: 28px minmax(0, 1fr); }
+  .entity-report-waiting-status > button { grid-column: 1 / -1; justify-self: start; }
+  .entity-source-status { grid-template-columns: 1fr; }
+  .entity-source-status > span { width: fit-content; }
   .entity-pagination { justify-content: flex-start; }
   .procurement-search-form,
   .procurement-awards-search,

@@ -365,6 +365,36 @@ function displayRole(role: string): string {
   return clean ? `${clean[0].toLocaleUpperCase("es-ES")}${clean.slice(1)}` : "Relación";
 }
 
+function normalizedEntityIdentity(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const normalized = String(value)
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("es-ES");
+  return normalized || null;
+}
+
+function graphNodeIdentityValues(node: EntityIntelGraphNode, index: number): Set<string> {
+  return new Set(
+    [nodeIdentity(node, index), node.id, node.norm, node.name, node.label]
+      .map(normalizedEntityIdentity)
+      .filter((value): value is string => value !== null),
+  );
+}
+
+function graphCenterCandidates(graph: EntityIntelGraphResponse, queryName: string): Set<string> {
+  const explicitCenter = graph.center;
+  const explicitValues = explicitCenter && typeof explicitCenter === "object"
+    ? Object.values(explicitCenter as Record<string, unknown>)
+    : [explicitCenter];
+  return new Set(
+    [...explicitValues, queryName]
+      .map(normalizedEntityIdentity)
+      .filter((value): value is string => value !== null),
+  );
+}
+
 export function graphRoleOptions(graph: EntityIntelGraphResponse | null): RoleFilterOption[] {
   if (!graph) return [];
   const roles = new Map<string, RoleFilterOption>();
@@ -423,7 +453,10 @@ function nodeKind(node: EntityIntelGraphNode | null | undefined): EntityIntelKin
   return node?.type === "person" || node?.entityType === "person" ? "person" : "company";
 }
 
-function priorityLabelNodeIds(graph: EntityIntelGraphResponse): Set<string> {
+function priorityLabelNodeIds(
+  graph: EntityIntelGraphResponse,
+  centerId: string | null,
+): Set<string> {
   const degrees = new Map<string, number>();
   graph.nodes.forEach((node, index) => degrees.set(nodeIdentity(node, index), 0));
   graph.edges.forEach((edge) => {
@@ -437,7 +470,7 @@ function priorityLabelNodeIds(graph: EntityIntelGraphResponse): Set<string> {
       const id = nodeIdentity(node, index);
       return {
         id,
-        center: node.is_center === true,
+        center: id === centerId,
         degree: Math.max(degrees.get(id) ?? 0, typeof node.degree === "number" ? node.degree : 0),
       };
     })
@@ -449,14 +482,19 @@ function priorityLabelNodeIds(graph: EntityIntelGraphResponse): Set<string> {
   return new Set(ranked.slice(0, GRAPH_PRIORITY_LABEL_LIMIT).map((node) => node.id));
 }
 
-function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefinition[] {
+function graphElements(
+  graph: EntityIntelGraphResponse,
+  queryName: string,
+): cytoscape.ElementDefinition[] {
   const known = new Set<string>();
-  const priorityLabels = priorityLabelNodeIds(graph);
+  const centerId = graphCenterId(graph, queryName);
+  const priorityLabels = priorityLabelNodeIds(graph, centerId);
   const nodes = graph.nodes.map((node, index) => {
     const id = nodeIdentity(node, index);
+    const isCenter = id === centerId;
     known.add(id);
     const classes = [
-      node.is_center === true ? "is-center-node" : "",
+      isCenter ? "is-center-node" : "",
       priorityLabels.has(id) ? "is-priority-label" : "",
     ].filter(Boolean).join(" ");
     return {
@@ -465,8 +503,9 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
         id,
         label: nodeLabel(node),
         entityType: String(node.type ?? "entity"),
+        is_center: isCenter,
       },
-      position: seededInitialPosition(id, index, node),
+      position: seededInitialPosition(id, index, { ...node, is_center: isCenter }),
       classes: classes || undefined,
     };
   });
@@ -490,23 +529,24 @@ function graphElements(graph: EntityIntelGraphResponse): cytoscape.ElementDefini
   return [...nodes, ...edges];
 }
 
-function graphCenterId(graph: EntityIntelGraphResponse): string | null {
+function graphCenterId(graph: EntityIntelGraphResponse, queryName: string): string | null {
   const centerIndex = graph.nodes.findIndex((node) => node.is_center === true);
   if (centerIndex >= 0) return nodeIdentity(graph.nodes[centerIndex], centerIndex);
-  const explicitCenter = graph.center;
-  if (typeof explicitCenter === "string" || typeof explicitCenter === "number") {
-    const explicitId = String(explicitCenter);
-    if (graph.nodes.some((node, index) => nodeIdentity(node, index) === explicitId)) {
-      return explicitId;
-    }
-  }
-  return graph.nodes.length > 0 ? nodeIdentity(graph.nodes[0], 0) : null;
+  const candidates = graphCenterCandidates(graph, queryName);
+  const matchingIndex = graph.nodes.findIndex((node, index) => {
+    const values = graphNodeIdentityValues(node, index);
+    return [...candidates].some((candidate) => values.has(candidate));
+  });
+  return matchingIndex >= 0 ? nodeIdentity(graph.nodes[matchingIndex], matchingIndex) : null;
 }
 
-function graphDepthMap(graph: EntityIntelGraphResponse | null): Map<string, number> {
+function graphDepthMap(
+  graph: EntityIntelGraphResponse | null,
+  queryName: string,
+): Map<string, number> {
   if (!graph) return new Map();
   const nodeIds = graph.nodes.map((node, index) => nodeIdentity(node, index));
-  const centerId = graphCenterId(graph);
+  const centerId = graphCenterId(graph, queryName);
   return centerId ? graphNodeDepths(centerId, nodeIds, graph.edges) : new Map();
 }
 
@@ -560,8 +600,7 @@ function directRelations(
 }
 
 function initialGraphFocus(instance: cytoscape.Core) {
-  const centerNodes = instance.nodes(".is-center-node");
-  const center = centerNodes.length > 0 ? centerNodes : instance.nodes().first();
+  const center = instance.nodes(".is-center-node");
   if (center.length === 0) return;
   const neighborhood = center.closedNeighborhood();
   const denseGraph = neighborhood.length > MAX_INITIAL_FOCUS_ELEMENTS;
@@ -582,6 +621,15 @@ function elementIsGraphHidden(element: cytoscape.SingularElementArgument): boole
   return GRAPH_HIDDEN_CLASSES.some((className) => element.hasClass(className));
 }
 
+function nodeIsGraphHidden(node: cytoscape.NodeSingular): boolean {
+  return elementIsGraphHidden(node) || node.hasClass("is-orphaned-after-filter");
+}
+
+interface GraphVisibilityCounts {
+  edges: number;
+  nodes: number;
+}
+
 function applyGraphVisibility(
   instance: cytoscape.Core,
   bounds: TemporalBounds | null,
@@ -590,11 +638,12 @@ function applyGraphVisibility(
   nodeDepths: ReadonlyMap<string, number>,
   visibleDepth: number,
   focusedNodeId: string | null,
-) {
+): GraphVisibilityCounts {
   const start = bounds && range ? timelineDateFromOffset(bounds, range[0]) : null;
   const end = bounds && range ? timelineDateFromOffset(bounds, range[1]) : null;
   const focusedNodeIds = new Set(focusedNodeId ? [focusedNodeId] : []);
   let visibleEdgeCount = 0;
+  let visibleNodeCount = 0;
   instance.batch(() => {
     instance.edges().forEach((edge: cytoscape.EdgeSingular) => {
       edge.removeClass("is-time-filtered is-role-filtered is-depth-filtered is-focus-filtered is-undated is-focus-label");
@@ -644,9 +693,10 @@ function applyGraphVisibility(
       if (focusedNodeId !== null && focusedNodeIds.has(nodeId) && !elementIsGraphHidden(node)) {
         node.addClass("is-focus-label");
       }
+      if (!nodeIsGraphHidden(node)) visibleNodeCount += 1;
     });
   });
-  return visibleEdgeCount;
+  return { edges: visibleEdgeCount, nodes: visibleNodeCount };
 }
 
 function focusGraphNode(instance: cytoscape.Core, nodeId: string) {
@@ -657,7 +707,6 @@ function focusGraphNode(instance: cytoscape.Core, nodeId: string) {
     .filter((element) => !elementIsGraphHidden(element));
   instance.fit(visibleNeighborhood, GRAPH_FOCUS_PADDING);
   if (instance.zoom() > 1.75) instance.zoom(1.75);
-  instance.center(node);
 }
 
 export function EntityGraphExplorer({
@@ -679,20 +728,25 @@ export function EntityGraphExplorer({
   const enabledRoleKeysRef = useRef<ReadonlySet<string>>(new Set());
   const nodeDepthsRef = useRef<ReadonlyMap<string, number>>(new Map());
   const visibleDepthRef = useRef(1);
-  const focusedNodeIdRef = useRef<string | null>(null);
+  const selectedNodeIdRef = useRef<string | null>(null);
+  const isolatedNodeIdRef = useRef<string | null>(null);
+  const previousIsolatedNodeIdRef = useRef<string | null>(null);
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
   const [selected, setSelected] = useState<EntityIntelGraphNode | null>(null);
+  const [isolatedNodeId, setIsolatedNodeId] = useState<string | null>(null);
   const [detailEntity, setDetailEntity] = useState<EntityIntelGraphNode | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(!initialGraph);
   const [error, setError] = useState<string | null>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(graph?.edges.length ?? 0);
+  const [visibleNodeCount, setVisibleNodeCount] = useState(graph?.nodes.length ?? 0);
   const [timeFilter, setTimeFilter] = useState<TimeFilterState | null>(null);
   const [roleFilter, setRoleFilter] = useState<RoleFilterState | null>(null);
   const [requestedDepth, setRequestedDepth] = useState<number | null>(null);
+  const [nodeQuery, setNodeQuery] = useState("");
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -706,8 +760,11 @@ export function EntityGraphExplorer({
       });
       setGraph(result);
       setSelected(null);
+      setIsolatedNodeId(null);
       setRequestedDepth(null);
-      focusedNodeIdRef.current = null;
+      selectedNodeIdRef.current = null;
+      isolatedNodeIdRef.current = null;
+      previousIsolatedNodeIdRef.current = null;
     } catch (reason) {
       setGraph(null);
       setError(problemMessage(reason, "No se pudo cargar el grafo de la entidad."));
@@ -721,8 +778,11 @@ export function EntityGraphExplorer({
       const handle = window.setTimeout(() => {
         setGraph(initialGraph);
         setSelected(null);
+        setIsolatedNodeId(null);
         setRequestedDepth(null);
-        focusedNodeIdRef.current = null;
+        selectedNodeIdRef.current = null;
+        isolatedNodeIdRef.current = null;
+        previousIsolatedNodeIdRef.current = null;
         setLoading(false);
       }, 0);
       return () => window.clearTimeout(handle);
@@ -731,9 +791,9 @@ export function EntityGraphExplorer({
     return () => window.clearTimeout(kickoff);
   }, [activeOnly, initialGraph, loadGraph]);
 
-  const elements = useMemo(() => (graph ? graphElements(graph) : []), [graph]);
+  const elements = useMemo(() => (graph ? graphElements(graph, name) : []), [graph, name]);
   const roleOptions = useMemo(() => graphRoleOptions(graph), [graph]);
-  const nodeDepths = useMemo(() => graphDepthMap(graph), [graph]);
+  const nodeDepths = useMemo(() => graphDepthMap(graph, name), [graph, name]);
   const availableDepth = Math.max(1, ...nodeDepths.values());
   const visibleDepth = requestedDepth === null
     ? availableDepth
@@ -748,7 +808,7 @@ export function EntityGraphExplorer({
       };
     },
   ), [availableDepth, nodeDepths]);
-  const visibleNodeCount = depthOptions[visibleDepth - 1]?.nodeCount ?? graph?.nodes.length ?? 0;
+  const depthVisibleNodeCount = depthOptions[visibleDepth - 1]?.nodeCount ?? graph?.nodes.length ?? 0;
   const roleOptionsKey = roleOptions.map((role) => `${role.key}:${role.count}`).join("|");
   const enabledRoleKeys = useMemo(() => new Set(
     roleFilter?.key === roleOptionsKey
@@ -767,14 +827,27 @@ export function EntityGraphExplorer({
   const selectedNodeId = useMemo(() => (
     graph && selected ? selectedNodeIdentity(graph, selected) : null
   ), [graph, selected]);
+  const matchingNodes = useMemo(() => {
+    const normalizedQuery = normalizedEntityIdentity(nodeQuery);
+    if (!graph || !normalizedQuery) return [];
+    return graph.nodes
+      .map((node, index) => ({ node, id: nodeIdentity(node, index), label: nodeLabel(node) }))
+      .filter(({ node, label }) => (
+        normalizedEntityIdentity(label)?.includes(normalizedQuery)
+        || normalizedEntityIdentity(node.norm)?.includes(normalizedQuery)
+      ))
+      .sort((left, right) => left.label.localeCompare(right.label, "es"))
+      .slice(0, 12);
+  }, [graph, nodeQuery]);
   useEffect(() => {
     temporalBoundsRef.current = temporalBounds;
     timeRangeRef.current = timeRange;
     enabledRoleKeysRef.current = enabledRoleKeys;
     nodeDepthsRef.current = nodeDepths;
     visibleDepthRef.current = visibleDepth;
-    focusedNodeIdRef.current = selectedNodeId;
-  }, [enabledRoleKeys, nodeDepths, selectedNodeId, temporalBounds, timeRange, visibleDepth]);
+    selectedNodeIdRef.current = selectedNodeId;
+    isolatedNodeIdRef.current = isolatedNodeId;
+  }, [enabledRoleKeys, isolatedNodeId, nodeDepths, selectedNodeId, temporalBounds, timeRange, visibleDepth]);
 
   const zoomGraph = useCallback((factor: number) => {
     const instance = graphRef.current;
@@ -786,14 +859,12 @@ export function EntityGraphExplorer({
       : undefined;
     const nextZoom = Math.min(instance.maxZoom(), Math.max(instance.minZoom(), instance.zoom() * factor));
     instance.zoom(renderedPosition ? { level: nextZoom, renderedPosition } : nextZoom);
-    setZoomPercent(Math.round(instance.zoom() * 100));
   }, []);
 
   const resetGraphFocus = useCallback(() => {
     const instance = graphRef.current;
     if (!instance) return;
     initialGraphFocus(instance);
-    setZoomPercent(Math.round(instance.zoom() * 100));
   }, []);
 
   useEffect(() => {
@@ -977,35 +1048,46 @@ export function EntityGraphExplorer({
           const now = Date.now();
           const isDoubleTap = lastTap?.id === id && now - lastTap.at <= GRAPH_DOUBLE_TAP_MS;
           lastTap = { id, at: now };
-          const nextSelected = focusedNodeIdRef.current === id ? null : node;
-          focusedNodeIdRef.current = nextSelected ? id : null;
-          setSelected(nextSelected);
           if (isDoubleTap) {
+            selectedNodeIdRef.current = id;
+            setSelected(node);
             setDetailEntity(node);
             setDetailOpen(true);
+            return;
           }
+          const nextSelected = selectedNodeIdRef.current === id ? null : node;
+          selectedNodeIdRef.current = nextSelected ? id : null;
+          setSelected(nextSelected);
         };
-        let spacingApplied = false;
+        let initialized = false;
         const applyInitialFocus = () => {
-          if (!spacingApplied) {
-            separateGraphNodes(instance);
-            spacingApplied = true;
+          if (initialized) return;
+          initialized = true;
+          if (focusTimer !== null) {
+            window.clearTimeout(focusTimer);
+            focusTimer = null;
           }
-          initialGraphFocus(instance);
-          syncZoomLabels();
-          const nextVisibleEdgeCount = applyGraphVisibility(
+          separateGraphNodes(instance);
+          const visibility = applyGraphVisibility(
             instance,
             temporalBoundsRef.current,
             timeRangeRef.current,
             enabledRoleKeysRef.current,
             nodeDepthsRef.current,
             visibleDepthRef.current,
-            focusedNodeIdRef.current,
+            isolatedNodeIdRef.current,
           );
-          setVisibleEdgeCount(nextVisibleEdgeCount);
+          setVisibleEdgeCount(visibility.edges);
+          setVisibleNodeCount(visibility.nodes);
+          if (isolatedNodeIdRef.current) {
+            focusGraphNode(instance, isolatedNodeIdRef.current);
+          } else {
+            initialGraphFocus(instance);
+          }
+          syncZoomLabels();
           setZoomPercent(Math.round(instance.zoom() * 100));
         };
-        const onZoom = () => {
+        const onViewport = () => {
           syncZoomLabels();
           setZoomPercent(Math.round(instance.zoom() * 100));
         };
@@ -1014,7 +1096,7 @@ export function EntityGraphExplorer({
         instance.on("mouseover", "node", onMouseOver);
         instance.on("mouseout", "node", onMouseOut);
         instance.on("tap", "node", onTap);
-        instance.on("zoom", onZoom);
+        instance.on("viewport", onViewport);
         instance.on("layoutstop", applyInitialFocus);
         graphRef.current = instance;
         focusTimer = window.setTimeout(applyInitialFocus, 900);
@@ -1023,7 +1105,7 @@ export function EntityGraphExplorer({
           instance.removeListener("mouseover", "node", onMouseOver);
           instance.removeListener("mouseout", "node", onMouseOut);
           instance.removeListener("tap", "node", onTap);
-          instance.removeListener("zoom", onZoom);
+          instance.removeListener("viewport", onViewport);
           instance.removeListener("layoutstop", applyInitialFocus);
         };
       },
@@ -1039,23 +1121,29 @@ export function EntityGraphExplorer({
 
   useEffect(() => {
     if (!graphRef.current) return;
-    const nextVisibleEdgeCount = applyGraphVisibility(
+    const visibility = applyGraphVisibility(
       graphRef.current,
       temporalBounds,
       timeRange,
       enabledRoleKeys,
       nodeDepths,
       visibleDepth,
-      selectedNodeId,
+      isolatedNodeId,
     );
-    setVisibleEdgeCount(nextVisibleEdgeCount);
-    if (selectedNodeId) {
-      focusGraphNode(graphRef.current, selectedNodeId);
+    setVisibleEdgeCount(visibility.edges);
+    setVisibleNodeCount(visibility.nodes);
+  }, [enabledRoleKeys, isolatedNodeId, nodeDepths, temporalBounds, timeRange, visibleDepth]);
+
+  useEffect(() => {
+    const instance = graphRef.current;
+    if (!instance || previousIsolatedNodeIdRef.current === isolatedNodeId) return;
+    previousIsolatedNodeIdRef.current = isolatedNodeId;
+    if (isolatedNodeId) {
+      focusGraphNode(instance, isolatedNodeId);
     } else {
-      initialGraphFocus(graphRef.current);
+      initialGraphFocus(instance);
     }
-    setZoomPercent(Math.round(graphRef.current.zoom() * 100));
-  }, [enabledRoleKeys, nodeDepths, selectedNodeId, temporalBounds, timeRange, visibleDepth]);
+  }, [isolatedNodeId]);
 
   const detailTarget = detailOpen ? detailEntity ?? selected : selected;
   const relations = useMemo(() => directRelations(graph, detailTarget), [detailTarget, graph]);
@@ -1102,8 +1190,9 @@ export function EntityGraphExplorer({
               />
               Solo vínculos activos
             </label>
-            <span>{graph?.nodes.length ?? 0} nodos</span>
-            <span>{graph?.edges.length ?? 0} enlaces</span>
+            <span>{visibleNodeCount} de {graph?.nodes.length ?? 0} nodos visibles</span>
+            <span>{visibleEdgeCount} de {graph?.edges.length ?? 0} enlaces visibles</span>
+            {graph?.truncated && <span>Vista recortada por Signal</span>}
             {graph?.cache_hit && <span>Caché activo</span>}
             <button className="vector-secondary small" disabled={loading} onClick={() => void loadGraph()}>
               <RefreshCw size={14} />
@@ -1147,29 +1236,70 @@ export function EntityGraphExplorer({
               <h3>Lectura rápida</h3>
               <p>{selectedDescription(selected)}</p>
               {selected && (
+                <div className="entity-role-filter-actions">
+                  {selectedNodeId !== isolatedNodeId && (
+                    <button
+                      type="button"
+                      onClick={() => setIsolatedNodeId(selectedNodeId)}
+                    >
+                      Aislar relaciones
+                    </button>
+                  )}
+                  <button type="button" onClick={openSelectedDetail}>
+                    Abrir ficha
+                  </button>
+                </div>
+              )}
+              {isolatedNodeId && (
                 <button
                   type="button"
                   className="vector-secondary small entity-graph-clear-focus"
-                  onClick={() => {
-                    focusedNodeIdRef.current = null;
-                    setSelected(null);
-                  }}
+                  onClick={() => setIsolatedNodeId(null)}
                 >
                   Mostrar grafo completo
                 </button>
               )}
+              <div className="entity-table-toolbar compact">
+                <label>
+                  Buscar nodo
+                  <input
+                    type="search"
+                    value={nodeQuery}
+                    onChange={(event) => setNodeQuery(event.target.value)}
+                    placeholder="Empresa o persona…"
+                    aria-label="Buscar nodo del grafo"
+                  />
+                </label>
+              </div>
+              {nodeQuery.trim() && (
+                <div className="entity-relation-list" aria-label="Nodos encontrados">
+                  {matchingNodes.length > 0 ? matchingNodes.map(({ id, label, node }) => (
+                    <button
+                      type="button"
+                      key={id}
+                      onClick={() => {
+                        selectedNodeIdRef.current = id;
+                        setSelected(node);
+                      }}
+                    >
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{KIND_LABELS[nodeKind(node)]}</small>
+                      </span>
+                    </button>
+                  )) : <p>No hay nodos que coincidan.</p>}
+                </div>
+              )}
               <label className="entity-depth-filter">
                 <span>
                   <strong>Niveles visibles</strong>
-                  <small>{visibleNodeCount} de {graph.nodes.length} nodos</small>
+                  <small>{depthVisibleNodeCount} de {graph.nodes.length} nodos por nivel</small>
                 </span>
                 <select
                   aria-label="Número de niveles visibles"
                   value={visibleDepth}
                   disabled={availableDepth === 1}
                   onChange={(event) => {
-                    focusedNodeIdRef.current = null;
-                    setSelected(null);
                     setRequestedDepth(Number(event.target.value));
                   }}
                 >

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -213,6 +213,7 @@ const pendingEvidenceSources = [
 describe("EntityDossier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/app/actors/entity/company/IBERDROLA");
     mocks.dossier.mockResolvedValue(dossierResponse);
     mocks.suggest.mockResolvedValue({ suggestions: [], kind: "company", cached_seconds: 600, cache_hit: false });
     mocks.registry.mockResolvedValue(currentRegistryResponse);
@@ -245,16 +246,157 @@ describe("EntityDossier", () => {
     expect(screen.getByText("Actos societarios publicados")).toBeInTheDocument();
     expect(screen.getByText("Eventos de cargos y órganos")).toBeInTheDocument();
     expect(screen.getByText(/Las fechas son de publicación en BORME/i)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Noticias" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Noticias/i })).toBeInTheDocument();
+  });
+
+  it("prioriza identidad y navegación antes de diferir las acciones secundarias", async () => {
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    const tabList = await screen.findByRole("tablist", {
+      name: "Secciones de la ficha de entidad",
+    });
+    const toolbar = screen.getByRole("toolbar", { name: "Acciones secundarias" });
+    expect(
+      tabList.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(mocks.dossiersList).not.toHaveBeenCalled();
+    expect(mocks.reports).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Añadir a expediente" }));
+    expect(await screen.findByText("Expediente ITURRI")).toBeInTheDocument();
+    expect(mocks.dossiersList).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Informe IA" }));
+    expect(await screen.findByRole("heading", { name: "Informe de la entidad" })).toBeInTheDocument();
+    await waitFor(() => expect(mocks.reports).toHaveBeenCalledTimes(1));
+    expect(mocks.dossiersList).toHaveBeenCalledTimes(1);
+  });
+
+  it("mantiene visibles las fuentes y distingue vacío, parcial y error", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      sections: {
+        ...dossierResponse.sections,
+        disclosures: {
+          ok: true,
+          data: {
+            items: [{ type: "Participación significativa", pub_date: "2026-07-20" }],
+            errors: ["feed_temporalmente_no_disponible"],
+          },
+        },
+        patents: { ok: true, data: { available: true, total: 0, items: [] } },
+        news: { ok: true, data: { items: [], error: "search_provider_unavailable" } },
+      },
+    });
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    const disclosureTab = await screen.findByRole("tab", { name: /Hechos relevantes/i });
+    const patentTab = screen.getByRole("tab", { name: /Patentes/i });
+    const newsTab = screen.getByRole("tab", { name: /Noticias/i });
+
+    fireEvent.mouseDown(disclosureTab);
+    expect(screen.getByRole("status")).toHaveTextContent(/Cobertura parcial/i);
+    expect(screen.getByText(/una o más fuentes CNMV no respondieron/i)).toBeInTheDocument();
+
+    fireEvent.mouseDown(patentTab);
+    expect(screen.getByRole("status")).toHaveTextContent(/Sin resultados/i);
+    expect(screen.getByText(/no permite concluir que la entidad carezca de patentes/i)).toBeInTheDocument();
+
+    fireEvent.mouseDown(newsTab);
+    expect(screen.getByRole("alert")).toHaveTextContent(/No disponible/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/no equivale a ausencia de menciones/i);
+    expect(screen.getByText(/search_provider_unavailable/i)).toBeInTheDocument();
+  });
+
+  it("conserva el orden de relevancia que entrega el proveedor de noticias", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      sections: {
+        ...dossierResponse.sections,
+        news: {
+          ok: true,
+          data: {
+            items: [
+              { title: "Zeta, primera por relevancia", source: "Fuente A" },
+              { title: "Alfa, segunda por relevancia", source: "Fuente B" },
+            ],
+          },
+        },
+      },
+    });
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Noticias/i }));
+    const first = screen.getByText("Zeta, primera por relevancia");
+    const second = screen.getByText("Alfa, segunda por relevancia");
+    expect(
+      first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText(/Orden de relevancia recibido del proveedor/i)).toBeInTheDocument();
+  });
+
+  it("restaura una pestaña válida desde la URL y normaliza valores retirados", async () => {
+    window.history.replaceState(null, "", "/app/actors/entity/company/IBERDROLA?tab=news");
+    const { rerender } = render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    const newsTab = await screen.findByRole("tab", { name: /Noticias/i });
+    await waitFor(() => expect(newsTab).toHaveAttribute("aria-selected", "true"));
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Órganos y cargos" }));
+    expect(new URL(window.location.href).searchParams.get("tab")).toBe("registry");
+
+    window.history.replaceState(null, "", "/app/actors/entity/company/OTRA?tab=retirada");
+    rerender(<EntityDossier name="OTRA" type="company" />);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Perfil" })).toHaveAttribute("aria-selected", "true");
+      expect(new URL(window.location.href).searchParams.has("tab")).toBe(false);
+    });
+  });
+
+  it("conserva la pestaña y el contenido durante una recarga fallida", async () => {
+    let rejectRefresh: ((reason?: unknown) => void) | null = null;
+    mocks.dossier
+      .mockResolvedValueOnce(dossierResponse)
+      .mockImplementationOnce(() => new Promise((_, reject) => {
+        rejectRefresh = reject;
+      }));
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Noticias/i }));
+    expect(await screen.findByText("Noticia relevante")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Recargar vista" }));
+    expect(screen.getByRole("button", { name: "Recargando vista…" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: /Noticias/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Noticia relevante")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectRefresh?.(new Error("fallo temporal"));
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/No se pudo cargar la ficha/i);
+    expect(screen.getByText("Noticia relevante")).toBeInTheDocument();
   });
 
   it("muestra degradación de grafo sin tumbar el resto", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Grafo" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Grafo" }));
 
     expect(screen.getByText("Grafo deshabilitado en Signal.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Perfil" })).toBeInTheDocument();
+  });
+
+  it("monta el grafo al visitarlo y conserva su estado al cambiar de pestaña", async () => {
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    await screen.findByRole("tab", { name: "Grafo" });
+    expect(screen.queryByText("Grafo deshabilitado en Signal.")).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Grafo" }));
+    expect(screen.getByText("Grafo deshabilitado en Signal.")).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Perfil" }));
+    expect(screen.getByText("Grafo deshabilitado en Signal.")).toBeInTheDocument();
   });
 
   it("declara cuando EPO entrega una muestra recortada de patentes", async () => {
@@ -279,11 +421,11 @@ describe("EntityDossier", () => {
 
     render(<EntityDossier name="TELEFONICA SA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Patentes" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Patentes/i }));
     expect(
       screen.getByText(/se muestran 25 de 569 publicaciones de patente/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/la muestra no es exhaustiva/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/la muestra no es exhaustiva/i)).toHaveLength(2);
   });
 
   it("muestra el fallo de búsqueda EPO sin convertirlo en ausencia de patentes", async () => {
@@ -298,14 +440,14 @@ describe("EntityDossier", () => {
 
     render(<EntityDossier name="ITURRI SA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Patentes" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Patentes/i }));
     expect(screen.getByRole("alert")).toHaveTextContent(
       /puede estar registrado con otra grafía o mediante una filial/i,
     );
     expect(screen.getByRole("alert")).toHaveTextContent(
       /no permite concluir que la entidad carezca de patentes/i,
     );
-    expect(screen.getByText(/código de la fuente: epo_search_404/i)).toBeInTheDocument();
+    expect(screen.getByText(/detalle de la fuente: epo_search_404/i)).toBeInTheDocument();
   });
 
   it("no muestra aviso de recorte cuando EPO entrega todas las patentes", async () => {
@@ -331,7 +473,7 @@ describe("EntityDossier", () => {
 
     render(<EntityDossier name="INDRA SISTEMAS SA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Patentes" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Patentes/i }));
     expect(screen.getByText("3 de 3 filas")).toBeInTheDocument();
     expect(screen.queryByText(/la muestra no es exhaustiva/i)).not.toBeInTheDocument();
   });
@@ -342,7 +484,7 @@ describe("EntityDossier", () => {
       .mockResolvedValueOnce(historyRegistryResponse);
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Órganos y cargos" }));
 
     expect(screen.getByText("BURGOS CANTO MIGUEL")).toBeInTheDocument();
     expect(screen.queryByText("PEREZ LOPEZ ANA")).not.toBeInTheDocument();
@@ -360,7 +502,7 @@ describe("EntityDossier", () => {
   it("envía búsqueda, provincia y orden al backend para aplicarlos a todo el corpus", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Órganos y cargos" }));
     await screen.findByText("BURGOS CANTO MIGUEL");
 
     fireEvent.change(screen.getByLabelText("Buscar en todo el histórico"), {
@@ -390,6 +532,7 @@ describe("EntityDossier", () => {
   it("materializa la entidad de Signal como actor interno al vincularla a un expediente", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Añadir a expediente" }));
     expect(await screen.findByText("Expediente ITURRI")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Añadir actor/i }));
@@ -414,6 +557,7 @@ describe("EntityDossier", () => {
   it("lanza el informe IA de entidad con idempotency-key de intento", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Informe IA" }));
     fireEvent.click(await screen.findByRole("button", { name: /^Informe de la entidad$/i }));
 
     await waitFor(() => expect(mocks.startReport).toHaveBeenCalledWith(
@@ -445,6 +589,7 @@ describe("EntityDossier", () => {
     });
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Informe IA" }));
     expect(await screen.findByText(/Informe en espera, todavía no incorporado/i)).toBeInTheDocument();
     expect(screen.queryByText(/biblioteca de informes/i)).not.toBeInTheDocument();
 
@@ -475,6 +620,7 @@ describe("EntityDossier", () => {
     });
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Informe IA" }));
     const link = await screen.findByRole("link", { name: /Abrir informe incorporado/i });
     expect(link).toHaveAttribute("href", "/app/reports/report-current");
     expect(screen.queryByText(/biblioteca de informes/i)).not.toBeInTheDocument();
@@ -484,6 +630,7 @@ describe("EntityDossier", () => {
   it("explica el estado vacío cuando la entidad no tiene informes", async () => {
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Informe IA" }));
     expect(await screen.findByText(/Aún no hay informes generados para esta entidad/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Informe de la entidad$/i })).toBeInTheDocument();
   });
@@ -501,6 +648,7 @@ describe("EntityDossier", () => {
     });
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Informe IA" }));
     fireEvent.click(await screen.findByRole("button", { name: /Incorporar a expediente/i }));
 
     await waitFor(() => expect(mocks.incorporateReport).toHaveBeenCalledWith(
@@ -541,7 +689,7 @@ describe("EntityDossier", () => {
       });
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Órganos y cargos" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Órganos y cargos" }));
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
 
     await waitFor(() => expect(mocks.registry).toHaveBeenCalledWith({

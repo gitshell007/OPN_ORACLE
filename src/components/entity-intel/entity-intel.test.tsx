@@ -160,7 +160,10 @@ vi.mock("cytoscape", () => {
       edgesList: edges,
       handlers: {} as Record<string, (event: { target: { data(): unknown; closedNeighborhood?(): unknown; addClass?(name: string): void } }) => void>,
       destroy: vi.fn(),
-      fit: vi.fn(),
+      fit: vi.fn(() => {
+        zoomLevel = 2.1;
+        instance.handlers.viewport?.({ target: nodes[0] });
+      }),
       center: vi.fn(),
       batch: vi.fn((callback: () => void) => callback()),
       maxZoom: vi.fn(() => 2.2),
@@ -168,6 +171,7 @@ vi.mock("cytoscape", () => {
       zoom: vi.fn((next?: number | { level: number }) => {
         if (typeof next === "number") zoomLevel = next;
         if (next && typeof next === "object") zoomLevel = next.level;
+        if (next !== undefined) instance.handlers.viewport?.({ target: nodes[0] });
         return zoomLevel;
       }),
       container: vi.fn(() => ({ getBoundingClientRect: () => ({ width: 900, height: 620 }) })),
@@ -461,6 +465,39 @@ describe("EntityGraphExplorer", () => {
     }));
   });
 
+  it("resuelve la entidad central por el contrato center aunque el nodo no traiga is_center", async () => {
+    mocks.graph.mockResolvedValue({
+      ...graphResponse,
+      center: "ITURRI SA",
+      nodes: [
+        { id: "auditor", label: "AUDITOR CONTABLE", type: "person", degree: 1 },
+        { id: "iturri-id", name: "ITURRI SA", type: "company", degree: 1 },
+      ],
+      edges: [{
+        id: "edge-center",
+        source: "iturri-id",
+        target: "auditor",
+        role: "Auditor",
+        active: true,
+      }],
+    });
+
+    render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const nodeElements = mocks.cytoscapeInstances[0].options.elements.filter(
+      (item) => !item.data.source,
+    );
+    expect(nodeElements[0]).toMatchObject({
+      data: { id: "auditor", is_center: false },
+    });
+    expect(nodeElements[1]).toMatchObject({
+      data: { id: "iturri-id", is_center: true },
+      position: { x: 0, y: 0 },
+      classes: expect.stringContaining("is-center-node"),
+    });
+  });
+
   it("deriva los tipos de vínculo, agrupa capitalizaciones y los marca todos al cargar", async () => {
     mocks.graph.mockResolvedValue({
       ...graphResponse,
@@ -519,6 +556,24 @@ describe("EntityGraphExplorer", () => {
     expect(mocks.cytoscapeInstances).toHaveLength(1);
   });
 
+  it("aplica filtros sin recentrar ni cambiar el zoom del usuario", async () => {
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+    const centerCalls = instance.center.mock.calls.length;
+    const fitCalls = instance.fit.mock.calls.length;
+    const zoomCalls = instance.zoom.mock.calls.length;
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Apoderado, 1 vínculo/i }));
+
+    await waitFor(() => expect(instance.edgesList[1].classes.has("is-role-filtered")).toBe(true));
+    expect(instance.center).toHaveBeenCalledTimes(centerCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(fitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(zoomCalls);
+  });
+
   it("ofrece los niveles existentes y oculta los saltos posteriores sin relayout", async () => {
     mocks.graph.mockResolvedValue({
       ...graphResponse,
@@ -568,7 +623,7 @@ describe("EntityGraphExplorer", () => {
     });
   });
 
-  it("aísla vecinos directos al seleccionar y restaura al pulsar el mismo nodo", async () => {
+  it("selecciona sin alterar la vista y aísla o restaura solo mediante acciones explícitas", async () => {
     mocks.graph.mockResolvedValue({
       ...graphResponse,
       nodes: [
@@ -587,30 +642,38 @@ describe("EntityGraphExplorer", () => {
         },
       ],
     });
-    const clock = vi.spyOn(Date, "now")
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(1_500);
-
     render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
 
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
     const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+    const centerCallsBeforeSelection = instance.center.mock.calls.length;
+    const fitCallsBeforeSelection = instance.fit.mock.calls.length;
     act(() => instance.handlers.tap({ target: instance.nodesList[0] }));
+
+    expect(await screen.findByRole("button", { name: "Aislar relaciones" })).toBeInTheDocument();
+    expect(screen.getByText(/IBERDROLA CLIENTES ESPAÑA SOCIEDAD ANONIMA · 1 relaciones/)).toBeInTheDocument();
+    expect(instance.nodesList[3].classes.has("is-focus-filtered")).toBe(false);
+    expect(instance.edgesList[2].classes.has("is-focus-filtered")).toBe(false);
+    expect(instance.fit).toHaveBeenCalledTimes(fitCallsBeforeSelection);
+
+    fireEvent.click(screen.getByRole("button", { name: "Aislar relaciones" }));
 
     await waitFor(() => {
       expect(instance.nodesList[3].classes.has("is-focus-filtered")).toBe(true);
       expect(instance.edgesList[2].classes.has("is-focus-filtered")).toBe(true);
     });
     expect(instance.nodesList[1].classes.has("is-focus-filtered")).toBe(false);
-    expect(instance.fit).toHaveBeenCalled();
+    expect(instance.fit).toHaveBeenCalledTimes(fitCallsBeforeSelection + 1);
+    expect(instance.center).toHaveBeenCalledTimes(centerCallsBeforeSelection);
 
-    act(() => instance.handlers.tap({ target: instance.nodesList[0] }));
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar grafo completo" }));
 
     await waitFor(() => {
       expect(instance.nodesList[3].classes.has("is-focus-filtered")).toBe(false);
       expect(instance.edgesList[2].classes.has("is-focus-filtered")).toBe(false);
     });
-    clock.mockRestore();
+    expect(instance.center).toHaveBeenCalledTimes(centerCallsBeforeSelection + 1);
   });
 
   it("arranca con encuadre navegable y controles de zoom visibles", async () => {
@@ -633,6 +696,24 @@ describe("EntityGraphExplorer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Volver al encuadre inicial" }));
     expect(instance.center).toHaveBeenCalled();
+  });
+
+  it("finaliza el layout una sola vez y cancela el fallback tardío", async () => {
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+    const centerCalls = instance.center.mock.calls.length;
+    const positionCalls = instance.nodesList.map((node) => node.position.mock.calls.length);
+
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 950));
+    });
+
+    expect(instance.center).toHaveBeenCalledTimes(centerCalls);
+    expect(instance.nodesList.map((node) => node.position.mock.calls.length)).toEqual(positionCalls);
   });
 
   it("siembra posiciones deterministas no degeneradas antes de ejecutar fcose", async () => {
@@ -722,10 +803,33 @@ describe("EntityGraphExplorer", () => {
     expect(instance.nodesList[1].classes.has("is-readable-zoom")).toBe(false);
 
     instance.zoom({ level: 1.6 });
-    act(() => instance.handlers.zoom({ target: instance.nodesList[0] }));
+    act(() => instance.handlers.viewport({ target: instance.nodesList[0] }));
 
     expect(instance.nodesList[1].classes.has("is-readable-zoom")).toBe(true);
     expect(instance.edgesList[0].classes.has("is-readable-zoom")).toBe(true);
+    expect(screen.getByText("Zoom 160%")).toBeInTheDocument();
+  });
+
+  it("expone recorte, contadores compuestos y búsqueda accesible de nodos", async () => {
+    mocks.graph.mockResolvedValue({ ...graphResponse, truncated: true });
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    expect(await screen.findByText("3 de 3 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("2 de 2 enlaces visibles")).toBeInTheDocument();
+    expect(screen.getByText("Vista recortada por Signal")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Buscar nodo del grafo"), {
+      target: { value: "burgos" },
+    });
+    const results = screen.getByLabelText("Nodos encontrados");
+    fireEvent.click(within(results).getByRole("button", { name: /BURGOS CANTO MIGUEL/i }));
+
+    expect(screen.getByText(/BURGOS CANTO MIGUEL · 1 relaciones/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aislar relaciones" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Desmarcar todos" }));
+    expect(await screen.findByText("1 de 3 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("0 de 2 enlaces visibles")).toBeInTheDocument();
   });
 
   it("filtra el grafo por cronograma sin reconstruir elementos", async () => {

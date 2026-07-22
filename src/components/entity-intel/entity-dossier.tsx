@@ -25,8 +25,8 @@ import {
   type EntityIntelRegistrySort,
   type EntityIntelRegistryView,
 } from "@oracle/api-client";
-import { Bot, Building2, ExternalLink, FileText, Link2, RefreshCw, UserRound } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bot, Building2, ExternalLink, FileText, Link2, RefreshCw, Search, UserRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
 import { ReportNarrativeSection } from "@/components/reporting/report-narrative-section";
@@ -40,6 +40,18 @@ const KIND_LABELS: Record<EntityIntelKind, string> = {
 };
 
 const REGISTRY_PAGE_SIZE = 50;
+const ENTITY_TAB_VALUES = [
+  "profile",
+  "registry",
+  "graph",
+  "disclosures",
+  "patents",
+  "news",
+] as const;
+const ENTITY_TAB_SET = new Set<string>(ENTITY_TAB_VALUES);
+type EntityTab = typeof ENTITY_TAB_VALUES[number];
+type EntityTool = "search" | "link" | "report";
+type EntitySourceState = "results" | "empty" | "partial" | "error";
 type DossierActorWriteInput = components["schemas"]["DossierActorWriteInput"];
 type ActorType = NonNullable<DossierActorWriteInput["actor_type"]>;
 
@@ -59,6 +71,13 @@ interface SimpleItemRow {
   values: Record<string, string>;
   link: unknown;
   searchText: string;
+}
+
+interface EntitySourceStatusProps {
+  state: EntitySourceState;
+  title: string;
+  detail: string;
+  technicalDetail?: string | null;
 }
 
 function problemMessage(reason: unknown, fallback: string): string {
@@ -121,6 +140,67 @@ function sourceTotal(data: unknown, receivedItems: number): number {
   return typeof total === "number" && Number.isInteger(total) && total >= receivedItems
     ? total
     : receivedItems;
+}
+
+function sourceErrors(data: unknown): string[] {
+  const errors = asRecord(data).errors;
+  return Array.isArray(errors)
+    ? errors.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function sourceEmbeddedError(data: unknown): string | null {
+  const error = asRecord(data).error;
+  return typeof error === "string" && error.trim() ? error.trim() : null;
+}
+
+function sourceState(
+  itemCount: number,
+  options: { error?: string | null; partial?: boolean } = {},
+): EntitySourceState {
+  if (options.error) return "error";
+  if (options.partial) return "partial";
+  return itemCount > 0 ? "results" : "empty";
+}
+
+function sourceTabAria(label: string, count: number, state: EntitySourceState): string {
+  if (state === "error") return `${label}, consulta no disponible`;
+  if (state === "partial") return `${label}, ${count} resultados, cobertura parcial`;
+  if (state === "empty") return `${label}, sin resultados`;
+  return `${label}, ${count} resultados`;
+}
+
+function sourceTabBadge(count: number, state: EntitySourceState, total?: number): string {
+  if (state === "error") return "!";
+  if (state === "partial" && total && total > count) return `${count}/${total}`;
+  return String(count);
+}
+
+function EntitySourceStatus({
+  state,
+  title,
+  detail,
+  technicalDetail,
+}: EntitySourceStatusProps) {
+  const labels: Record<EntitySourceState, string> = {
+    results: "Disponible",
+    empty: "Sin resultados",
+    partial: "Cobertura parcial",
+    error: "No disponible",
+  };
+  return (
+    <div
+      className={`entity-source-status is-${state}`}
+      role={state === "error" ? "alert" : "status"}
+    >
+      <span>{labels[state]}</span>
+      <div>
+        <strong>{title}</strong>
+        <p>{detail}</p>
+        {technicalDetail && <small>Detalle de la fuente: {technicalDetail}</small>}
+      </div>
+    </div>
+  );
 }
 
 function patentFailureMessage(error: string): string {
@@ -198,7 +278,10 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   const [registryLoading, setRegistryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registryError, setRegistryError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("profile");
+  const [activeTab, setActiveTab] = useState<EntityTab>("profile");
+  const [graphVisited, setGraphVisited] = useState(false);
+  const [activeTool, setActiveTool] = useState<EntityTool | null>(null);
+  const tabInteractionStarted = useRef(false);
 
   const loadDossier = useCallback(async () => {
     setLoading(true);
@@ -237,8 +320,6 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
       setProvince("");
       setOffset(0);
     } catch (reason) {
-      setDossier(null);
-      setRegistryPage(null);
       setError(problemMessage(reason, "No se pudo cargar la ficha de entidad."));
     } finally {
       setLoading(false);
@@ -254,6 +335,28 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
       cancelled = true;
     };
   }, [loadDossier]);
+
+  useEffect(() => {
+    let cancelled = false;
+    tabInteractionStarted.current = false;
+    queueMicrotask(() => {
+      if (cancelled || tabInteractionStarted.current) return;
+      const url = new URL(window.location.href);
+      const requestedTab = url.searchParams.get("tab");
+      const nextTab = requestedTab && ENTITY_TAB_SET.has(requestedTab)
+        ? requestedTab as EntityTab
+        : "profile";
+      setActiveTab(nextTab);
+      setGraphVisited(nextTab === "graph");
+      if (requestedTab && requestedTab !== nextTab) {
+        url.searchParams.delete("tab");
+        window.history.replaceState(window.history.state, "", url);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [name, type]);
 
   const loadRegistryPage = useCallback(async (
     nextOffset: number,
@@ -311,19 +414,73 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     return Array.from(new Set([...fromProfile, ...fromItems])).sort((a, b) => a.localeCompare(b, "es"));
   }, [profile, registry.available_provinces, registry.items]);
   const graph = sectionData<EntityIntelGraphResponse>(dossier, "graph");
-  const disclosures = listItems(sectionData(dossier, "disclosures"));
+  const disclosureData = sectionData<Record<string, unknown>>(dossier, "disclosures");
+  const disclosures = listItems(disclosureData);
+  const disclosureErrors = sourceErrors(disclosureData);
+  const disclosureSectionError = sectionError(dossier, "disclosures");
+  const disclosureError = disclosureSectionError
+    ?? (disclosures.length === 0 && disclosureErrors.length > 0 ? "cnmv_sources_failed" : null);
+  const disclosureState = sourceState(disclosures.length, {
+    error: disclosureError,
+    partial: disclosureErrors.length > 0,
+  });
   const patentData = sectionData<Record<string, unknown>>(dossier, "patents");
   const patents = listItems(patentData);
   const patentTotal = sourceTotal(patentData, patents.length);
   const patentsTruncated = patentTotal > patents.length;
-  const patentError = sectionError(dossier, "patents");
-  const news = listItems(sectionData(dossier, "news"));
+  const patentUnavailable = asRecord(patentData).available === false;
+  const patentReason = asRecord(patentData).reason;
+  const patentError = sectionError(dossier, "patents")
+    ?? sourceEmbeddedError(patentData)
+    ?? (patentUnavailable
+      ? typeof patentReason === "string" && patentReason.trim()
+        ? patentReason.trim()
+        : "epo_unavailable"
+      : null);
+  const patentState = sourceState(patents.length, {
+    error: patentError,
+    partial: patentsTruncated,
+  });
+  const newsData = sectionData<Record<string, unknown>>(dossier, "news");
+  const news = listItems(newsData);
+  const newsErrors = sourceErrors(newsData);
+  const newsError = sectionError(dossier, "news")
+    ?? sourceEmbeddedError(newsData)
+    ?? (news.length === 0 && newsErrors.length > 0 ? "news_sources_failed" : null);
+  const newsState = sourceState(news.length, {
+    error: newsError,
+    partial: newsErrors.length > 0,
+  });
 
   const constitution = profile?.constitution_date
     ? { label: "Constitución", value: formatDate(profile.constitution_date) }
     : profile?.first_act_date
       ? { label: "Primer acto BORME publicado", value: formatDate(profile.first_act_date) }
       : null;
+  const cacheMinutes = dossier?.cached_seconds
+    ? Math.max(1, Math.round(dossier.cached_seconds / 60))
+    : null;
+  const disclosureStatusDetail = disclosureState === "error"
+    ? "No se pudo completar la consulta de comunicaciones recientes. Este estado no equivale a ausencia de hechos relevantes."
+    : disclosureState === "partial"
+      ? `Se recibieron ${disclosures.length} comunicaciones, pero una o más fuentes CNMV no respondieron.`
+      : disclosureState === "empty"
+        ? "La consulta terminó sin comunicaciones recientes. La fuente libre no cubre el histórico profundo."
+        : `${disclosures.length} comunicaciones recientes disponibles.`;
+  const patentStatusDetail = patentState === "error"
+    ? patentFailureMessage(patentError ?? "epo_unavailable")
+    : patentState === "partial"
+      ? `Se muestran ${patents.length} de ${patentTotal} publicaciones localizadas. La muestra no es exhaustiva.`
+      : patentState === "empty"
+        ? "La consulta terminó sin publicaciones para esta denominación. No permite concluir que la entidad carezca de patentes."
+        : `${patents.length} publicaciones de patente localizadas para esta denominación.`;
+  const newsStatusDetail = newsState === "error"
+    ? "No se pudo completar la búsqueda web. Este estado no equivale a ausencia de menciones."
+    : newsState === "partial"
+      ? `Se recibieron ${news.length} menciones, pero el proveedor comunicó una cobertura parcial.`
+      : newsState === "empty"
+        ? "La búsqueda web terminó sin menciones. No permite inferir que la entidad no tenga cobertura pública."
+        : `${news.length} menciones web disponibles en el orden de relevancia del proveedor.`;
 
   function applyRegistryQuery(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -345,6 +502,18 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     void loadRegistryPage(0, { sort: nextSort });
   }
 
+  function changeEntityTab(value: string) {
+    const nextTab = ENTITY_TAB_SET.has(value) ? value as EntityTab : "profile";
+    tabInteractionStarted.current = true;
+    if (nextTab === "graph") setGraphVisited(true);
+    setActiveTab(nextTab);
+    setActiveTool(null);
+    const url = new URL(window.location.href);
+    if (nextTab === "profile") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", nextTab);
+    window.history.replaceState(window.history.state, "", url);
+  }
+
   return (
     <div className="entity-intel-page entity-dossier">
       <section className="page-heading">
@@ -356,49 +525,79 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
             no necesariamente fechas registrales efectivas.
           </p>
         </div>
-        <button className="vector-secondary" disabled={loading} onClick={() => void loadDossier()}>
+        <button
+          className="vector-secondary"
+          disabled={loading}
+          onClick={() => void loadDossier()}
+        >
           <RefreshCw size={15} />
-          Actualizar ficha
+          {loading && dossier ? "Recargando vista…" : "Recargar vista"}
         </button>
       </section>
 
-      <EntitySearchPanel initialQuery={name} initialKind={type} compact />
-      <LinkEntityToDossierControl
-        entityName={dossier?.entity.name ?? name}
-        profile={profile}
-        type={type}
-      />
-      <EntityReportControl entityName={dossier?.entity.name ?? name} entityLoading={loading} type={type} />
-
-      <section className="entity-dossier-header" aria-busy={loading}>
-        <span className={`entity-kind-chip ${type}`}>
-          {type === "person" ? <UserRound size={14} /> : <Building2 size={14} />}
-          {KIND_LABELS[type]}
-        </span>
-        {profile?.status && <strong className={`entity-status-pill ${profile.status}`}>{profile.status}</strong>}
-        {constitution?.value && (
-          <span>
-            {constitution.label}: <strong>{constitution.value}</strong>
-          </span>
-        )}
-        <span><strong>{historyEvents}</strong> eventos de cargos</span>
-        {companyActs !== null && <span><strong>{companyActs}</strong> actos societarios</span>}
-        {provinces.length > 0 && <span>{provinces.join(", ")}</span>}
-      </section>
-
       {error && <div className="inline-error" role="alert">{error}</div>}
-      {loading ? (
+      {loading && !dossier ? (
         <div className="global-inventory-state" role="status">Cargando ficha de entidad...</div>
-      ) : (
-        <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="entity-tabs">
+      ) : dossier ? (
+        <>
+          <section className="entity-dossier-header" aria-busy={loading}>
+            <span className={`entity-kind-chip ${type}`}>
+              {type === "person" ? <UserRound size={14} /> : <Building2 size={14} />}
+              {KIND_LABELS[type]}
+            </span>
+            {profile?.status && <strong className={`entity-status-pill ${profile.status}`}>{profile.status}</strong>}
+            {constitution?.value && (
+              <span>
+                {constitution.label}: <strong>{constitution.value}</strong>
+              </span>
+            )}
+            <span><strong>{historyEvents}</strong> eventos de cargos</span>
+            {companyActs !== null && <span><strong>{companyActs}</strong> actos societarios</span>}
+            {provinces.length > 0 && <span>{provinces.join(", ")}</span>}
+            {cacheMinutes && (
+              <span className="entity-cache-status">
+                {dossier.cache_hit ? "Respuesta reutilizada" : "Consulta completada"}
+                {` · caché de Oracle hasta ${cacheMinutes} min`}
+              </span>
+            )}
+          </section>
+
+          <Tabs.Root value={activeTab} onValueChange={changeEntityTab} className="entity-tabs">
           <Tabs.List className="dossier-tabs" aria-label="Secciones de la ficha de entidad">
-            <Tabs.Trigger value="profile" onClick={() => setActiveTab("profile")}>Perfil</Tabs.Trigger>
-            <Tabs.Trigger value="registry" onClick={() => setActiveTab("registry")}>Órganos y cargos</Tabs.Trigger>
-            <Tabs.Trigger value="graph" onClick={() => setActiveTab("graph")}>Grafo</Tabs.Trigger>
-            {disclosures.length > 0 && <Tabs.Trigger value="disclosures" onClick={() => setActiveTab("disclosures")}>Hechos relevantes</Tabs.Trigger>}
-            {(patents.length > 0 || patentError) && <Tabs.Trigger value="patents" onClick={() => setActiveTab("patents")}>Patentes</Tabs.Trigger>}
-            {news.length > 0 && <Tabs.Trigger value="news" onClick={() => setActiveTab("news")}>Noticias</Tabs.Trigger>}
+            <Tabs.Trigger value="profile">Perfil</Tabs.Trigger>
+            <Tabs.Trigger value="registry">Órganos y cargos</Tabs.Trigger>
+            <Tabs.Trigger value="graph">Grafo</Tabs.Trigger>
+            <Tabs.Trigger
+              value="disclosures"
+              aria-label={sourceTabAria("Hechos relevantes", disclosures.length, disclosureState)}
+            >
+              Hechos relevantes
+              <b aria-hidden="true">{sourceTabBadge(disclosures.length, disclosureState)}</b>
+            </Tabs.Trigger>
+            <Tabs.Trigger
+              value="patents"
+              aria-label={sourceTabAria("Patentes", patents.length, patentState)}
+            >
+              Patentes
+              <b aria-hidden="true">{sourceTabBadge(patents.length, patentState, patentTotal)}</b>
+            </Tabs.Trigger>
+            <Tabs.Trigger
+              value="news"
+              aria-label={sourceTabAria("Noticias", news.length, newsState)}
+            >
+              Noticias
+              <b aria-hidden="true">{sourceTabBadge(news.length, newsState)}</b>
+            </Tabs.Trigger>
           </Tabs.List>
+
+          <EntityDossierActions
+            activeTool={activeTool}
+            onActiveToolChange={setActiveTool}
+            entityName={dossier.entity.name ?? name}
+            entityLoading={loading}
+            profile={profile}
+            type={type}
+          />
 
           <Tabs.Content value="profile" className="entity-tab-panel">
             {sectionError(dossier, "registry") ? (
@@ -531,7 +730,11 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
             )}
           </Tabs.Content>
 
-          <Tabs.Content value="graph" className="entity-tab-panel">
+          <Tabs.Content
+            value="graph"
+            className="entity-tab-panel"
+            forceMount={graphVisited || activeTab === "graph" ? true : undefined}
+          >
             {sectionError(dossier, "graph") ? (
               <div className="inline-error">{sectionError(dossier, "graph")}</div>
             ) : (
@@ -540,26 +743,34 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
           </Tabs.Content>
 
           <Tabs.Content value="disclosures" className="entity-tab-panel">
-            <SimpleItemsTable
-              items={disclosures}
-              columns={[
-                ["type", "Tipo"],
-                ["pub_date", "Fecha"],
-                ["feed_label", "Fuente"],
-              ]}
-              linkKey="link"
-              note="CNMV: solo hechos recientes disponibles en Signal."
+            <EntitySourceStatus
+              state={disclosureState}
+              title="Comunicaciones CNMV"
+              detail={disclosureStatusDetail}
+              technicalDetail={disclosureSectionError}
             />
+            {disclosures.length > 0 && (
+              <SimpleItemsTable
+                items={disclosures}
+                columns={[
+                  ["type", "Tipo"],
+                  ["pub_date", "Fecha"],
+                  ["feed_label", "Fuente"],
+                ]}
+                linkKey="link"
+                note="CNMV: solo hechos recientes disponibles en Signal."
+              />
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="patents" className="entity-tab-panel">
-            {patentError ? (
-              <div className="entity-section-unavailable" role="alert">
-                <strong>Consulta de patentes no disponible</strong>
-                <p>{patentFailureMessage(patentError)}</p>
-                <small>Código de la fuente: {patentError}</small>
-              </div>
-            ) : (
+            <EntitySourceStatus
+              state={patentState}
+              title="Consulta de patentes EPO"
+              detail={patentStatusDetail}
+              technicalDetail={patentError}
+            />
+            {patents.length > 0 && (
               <SimpleItemsTable
                 items={patents}
                 columns={[
@@ -577,19 +788,161 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
           </Tabs.Content>
 
           <Tabs.Content value="news" className="entity-tab-panel">
-            <SimpleItemsTable
-              items={news}
-              columns={[
-                ["title", "Título"],
-                ["source", "Fuente"],
-                ["snippet", "Resumen"],
-              ]}
-              linkKey="url"
+            <EntitySourceStatus
+              state={newsState}
+              title="Menciones en búsqueda web"
+              detail={newsStatusDetail}
+              technicalDetail={newsError}
             />
+            {news.length > 0 && (
+              <SimpleItemsTable
+                items={news}
+                columns={[
+                  ["title", "Título"],
+                  ["source", "Fuente"],
+                  ["snippet", "Resumen"],
+                ]}
+                linkKey="url"
+                defaultSort={null}
+                note="Orden de relevancia recibido del proveedor. Las menciones no están desambiguadas automáticamente: verifica entidad y fuente antes de utilizarlas."
+              />
+            )}
           </Tabs.Content>
         </Tabs.Root>
+        </>
+      ) : (
+        <div className="global-inventory-state">
+          No hay una ficha disponible. Reintenta la consulta desde esta vista.
+        </div>
       )}
     </div>
+  );
+}
+
+function EntityDossierActions({
+  activeTool,
+  onActiveToolChange,
+  entityName,
+  entityLoading,
+  profile,
+  type,
+}: {
+  activeTool: EntityTool | null;
+  onActiveToolChange: (tool: EntityTool | null) => void;
+  entityName: string;
+  entityLoading: boolean;
+  profile: EntityIntelRegistryProfile | null;
+  type: EntityIntelKind;
+}) {
+  const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
+  const [dossiersLoading, setDossiersLoading] = useState(false);
+  const [dossiersLoaded, setDossiersLoaded] = useState(false);
+  const [dossiersError, setDossiersError] = useState<string | null>(null);
+  const requestStarted = useRef(false);
+
+  const loadDossiers = useCallback(async () => {
+    if (requestStarted.current || dossiersLoaded) return;
+    requestStarted.current = true;
+    setDossiersLoading(true);
+    setDossiersError(null);
+    try {
+      const result = await api.dossiers.list({
+        page: 1,
+        size: 100,
+        sort: "-updated_at",
+      });
+      setDossiers(result.data);
+      setDossiersLoaded(true);
+    } catch (reason) {
+      requestStarted.current = false;
+      setDossiersError(problemMessage(reason, "No se pudieron cargar tus expedientes."));
+    } finally {
+      setDossiersLoading(false);
+    }
+  }, [dossiersLoaded]);
+
+  useEffect(() => {
+    if (activeTool !== "link" && activeTool !== "report") return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadDossiers();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTool, loadDossiers]);
+
+  function toggleTool(tool: EntityTool) {
+    onActiveToolChange(activeTool === tool ? null : tool);
+  }
+
+  return (
+    <section className="entity-dossier-actions" aria-label="Acciones de la ficha">
+      <div className="entity-dossier-actions-bar" role="toolbar" aria-label="Acciones secundarias">
+        <button
+          type="button"
+          className={activeTool === "search" ? "vector-secondary is-active" : "vector-secondary"}
+          aria-expanded={activeTool === "search"}
+          aria-controls="entity-tool-search"
+          onClick={() => toggleTool("search")}
+        >
+          <Search size={14} />
+          Cambiar entidad
+        </button>
+        <PermissionGate permission="actor.write">
+          <button
+            type="button"
+            className={activeTool === "link" ? "vector-secondary is-active" : "vector-secondary"}
+            aria-expanded={activeTool === "link"}
+            aria-controls="entity-tool-link"
+            onClick={() => toggleTool("link")}
+          >
+            <Link2 size={14} />
+            Añadir a expediente
+          </button>
+        </PermissionGate>
+        <PermissionGate permission="report.generate">
+          <button
+            type="button"
+            className={activeTool === "report" ? "vector-secondary is-active" : "vector-secondary"}
+            aria-expanded={activeTool === "report"}
+            aria-controls="entity-tool-report"
+            onClick={() => toggleTool("report")}
+          >
+            <Bot size={14} />
+            Informe IA
+          </button>
+        </PermissionGate>
+      </div>
+
+      {activeTool && (
+        <div className="entity-dossier-action-panel" id={`entity-tool-${activeTool}`}>
+          {activeTool === "search" && (
+            <EntitySearchPanel initialQuery={entityName} initialKind={type} compact />
+          )}
+          {activeTool === "link" && (
+            <LinkEntityToDossierControl
+              entityName={entityName}
+              profile={profile}
+              type={type}
+              dossiers={dossiers}
+              dossiersLoading={dossiersLoading}
+              dossiersError={dossiersError}
+            />
+          )}
+          {activeTool === "report" && (
+            <EntityReportControl
+              entityName={entityName}
+              entityLoading={entityLoading}
+              type={type}
+              dossiers={dossiers}
+              dossiersLoading={dossiersLoading}
+              dossiersError={dossiersError}
+            />
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -597,48 +950,27 @@ function LinkEntityToDossierControl({
   entityName,
   profile,
   type,
+  dossiers,
+  dossiersLoading,
+  dossiersError,
 }: {
   entityName: string;
   profile: EntityIntelRegistryProfile | null;
   type: EntityIntelKind;
+  dossiers: BackendDossier[];
+  dossiersLoading: boolean;
+  dossiersError: string | null;
 }) {
-  const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
   const [dossierId, setDossierId] = useState("");
-  const [loading, setLoading] = useState(() => Boolean(entityName.trim()));
   const [linking, setLinking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadDossiers() {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await api.dossiers.list({
-          page: 1,
-          size: 100,
-          sort: "-updated_at",
-        });
-        if (cancelled) return;
-        setDossiers(result.data);
-        setDossierId((current) => current || result.data[0]?.id || "");
-      } catch (reason) {
-        if (!cancelled) setError(problemMessage(reason, "No se pudieron cargar tus expedientes."));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    queueMicrotask(() => {
-      if (!cancelled) void loadDossiers();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const selectedDossierId = dossiers.some((dossier) => dossier.id === dossierId)
+    ? dossierId
+    : dossiers[0]?.id ?? "";
 
   async function linkEntity() {
-    if (!dossierId || !entityName.trim()) return;
+    if (!selectedDossierId || !entityName.trim()) return;
     const identifiers = signalIdentifiers(profile);
     const identifierProvenance = Object.fromEntries(
       Object.entries(identifiers).map(([key, value]) => [`identifier_${key}`, value]),
@@ -666,7 +998,7 @@ function LinkEntityToDossierControl({
     setMessage(null);
     setError(null);
     try {
-      await api.actors.attach(dossierId, payload);
+      await api.actors.attach(selectedDossierId, payload);
       setMessage("Entidad vinculada al expediente como actor interno.");
     } catch (reason) {
       setError(problemMessage(reason, "No se pudo vincular esta entidad al expediente."));
@@ -690,13 +1022,13 @@ function LinkEntityToDossierControl({
           <label>
             <span>Expediente destino</span>
             <select
-              value={dossierId}
+              value={selectedDossierId}
               onChange={(event) => setDossierId(event.target.value)}
-              disabled={loading || linking || dossiers.length === 0}
+              disabled={dossiersLoading || linking || dossiers.length === 0}
             >
               {dossiers.length === 0 ? (
                 <option value="">
-                  {loading ? "Cargando expedientes…" : "Sin expedientes activos"}
+                  {dossiersLoading ? "Cargando expedientes…" : "Sin expedientes activos"}
                 </option>
               ) : (
                 dossiers.map((dossier) => (
@@ -707,17 +1039,25 @@ function LinkEntityToDossierControl({
               )}
             </select>
           </label>
-          <button
+          <AsyncActionButton
             type="button"
             className="vector-secondary"
-            disabled={loading || linking || !dossierId}
+            loading={linking}
+            loadingLabel={
+              <>
+                <RefreshCw size={14} />
+                Añadiendo…
+              </>
+            }
+            disabled={dossiersLoading || !selectedDossierId}
             onClick={() => void linkEntity()}
           >
-            {linking ? <RefreshCw size={14} /> : <Link2 size={14} />}
+            <Link2 size={14} />
             Añadir actor
-          </button>
+          </AsyncActionButton>
         </div>
         {message && <small className="entity-link-ok">{message}</small>}
+        {dossiersError && <small className="entity-link-error" role="alert">{dossiersError}</small>}
         {error && <small className="entity-link-error" role="alert">{error}</small>}
       </section>
     </PermissionGate>
@@ -851,14 +1191,19 @@ function EntityReportControl({
   entityName,
   entityLoading,
   type,
+  dossiers,
+  dossiersLoading,
+  dossiersError,
 }: {
   entityName: string;
   entityLoading: boolean;
   type: EntityIntelKind;
+  dossiers: BackendDossier[];
+  dossiersLoading: boolean;
+  dossiersError: string | null;
 }) {
   const [jobs, setJobs] = useState<EntityIntelReportJob[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
   const [dossierId, setDossierId] = useState("");
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -872,13 +1217,8 @@ function EntityReportControl({
     setLoading(true);
     setError(null);
     try {
-      const [reportResult, dossierResult] = await Promise.all([
-        api.entityIntel.reports({ name: entityName, type, limit: 10 }),
-        api.dossiers.list({ page: 1, size: 100, sort: "-updated_at" }),
-      ]);
+      const reportResult = await api.entityIntel.reports({ name: entityName, type, limit: 10 });
       setJobs(reportResult.data);
-      setDossiers(dossierResult.data);
-      setDossierId((current) => current || dossierResult.data[0]?.id || "");
       const running = reportResult.data.find((job) => RUNNING_JOB_STATUSES.has(job.status));
       setActiveJobId(running?.id ?? null);
       if (!reportResult.data.some((job) => job.status === "succeeded" && !incorporatedReportId(job))) {
@@ -890,6 +1230,10 @@ function EntityReportControl({
       setLoading(false);
     }
   }, [entityName, type]);
+
+  const selectedDossierId = dossiers.some((dossier) => dossier.id === dossierId)
+    ? dossierId
+    : dossiers[0]?.id ?? "";
 
   useEffect(() => {
     let cancelled = false;
@@ -923,12 +1267,12 @@ function EntityReportControl({
   }
 
   async function incorporate(jobId: string) {
-    if (!dossierId) return;
+    if (!selectedDossierId) return;
     setIncorporating(true);
     setMessage(null);
     setError(null);
     try {
-      const result = await api.entityIntel.incorporateReport(jobId, { dossier_id: dossierId });
+      const result = await api.entityIntel.incorporateReport(jobId, { dossier_id: selectedDossierId });
       setMessage(`Informe incorporado: ${result.report.title || "listo para revisar"}.`);
       await loadReports();
     } catch (reason) {
@@ -1028,8 +1372,8 @@ function EntityReportControl({
             <label>
               <span>Expediente destino</span>
               <select
-                value={dossierId}
-                disabled={incorporating || dossiers.length === 0}
+                value={selectedDossierId}
+                disabled={dossiersLoading || incorporating || dossiers.length === 0}
                 onChange={(event) => setDossierId(event.target.value)}
               >
                 {dossiers.length === 0 ? (
@@ -1053,7 +1397,7 @@ function EntityReportControl({
                   Incorporando…
                 </>
               }
-              disabled={!dossierId}
+              disabled={dossiersLoading || !selectedDossierId}
               onClick={() => void incorporate(pendingIncorporation.id)}
             >
               <Link2 size={14} />
@@ -1076,6 +1420,7 @@ function EntityReportControl({
           </small>
         )}
         {message && <small className="entity-link-ok">{message}</small>}
+        {dossiersError && <small className="entity-link-error" role="alert">{dossiersError}</small>}
         {error && <small className="entity-link-error" role="alert">{error}</small>}
       </section>
     </PermissionGate>
@@ -1330,16 +1675,22 @@ function SimpleItemsTable({
   columns,
   linkKey,
   note,
+  defaultSort,
 }: {
   items: Record<string, unknown>[];
   columns: Array<[string, string]>;
   linkKey: string;
   note?: string;
+  defaultSort?: string | null;
 }) {
   const [globalFilter, setGlobalFilter] = useState("");
-  const defaultSort = columns.find(([key]) => key.includes("date"))?.[0] ?? columns[0]?.[0] ?? "";
+  const resolvedDefaultSort = defaultSort === undefined
+    ? columns.find(([key]) => key.includes("date"))?.[0] ?? columns[0]?.[0] ?? ""
+    : defaultSort ?? "";
   const [sorting, setSorting] = useState<SortingState>(
-    defaultSort ? [{ id: defaultSort, desc: defaultSort.includes("date") }] : [],
+    resolvedDefaultSort
+      ? [{ id: resolvedDefaultSort, desc: resolvedDefaultSort.includes("date") }]
+      : [],
   );
   const rows = useMemo<SimpleItemRow[]>(() => items.map((item, index) => {
     const values = Object.fromEntries(

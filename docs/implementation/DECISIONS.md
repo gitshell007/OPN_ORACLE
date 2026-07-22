@@ -832,6 +832,42 @@ deberá versionarse un flujo de copia/materialización separado.
   de 10 minutos. Para recuperar enlaces de personas/firmas en consultas de empresa, Signal deberá
   añadir un discriminador de contraparte; Oracle no lo inferirá por sufijos del nombre.
 
+## D-053 — La exploración del grafo no modifica la cámara de forma implícita
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** en ITURRI SA, desmarcar roles o seleccionar un nodo alteraba el viewport; el foco
+  hacía `fit` de la vecindad y después centraba solo el nodo, recortando al vecino. Un fallback a
+  900 ms podía repetir el encuadre y cambiar de pestaña desmontaba Cytoscape. Además, el primer nodo
+  podía convertirse en centro cuando `graph.center` no coincidía literalmente con su `id`.
+- **Decisión:** resolver el centro por el contrato completo y no inventarlo; inicializar layout y
+  cámara una sola vez; aplicar filtros únicamente como visibilidad; reservar los cambios de cámara
+  a acciones explícitas; seleccionar sin aislar y separar «Aislar relaciones», «Abrir ficha» y
+  «Mostrar grafo completo». El grafo se monta de forma diferida y permanece montado tras la primera
+  visita. La cabecera publica visible/recibido y truncamiento, y el zoom se sincroniza desde el
+  viewport real.
+- **Consecuencias:** se conservan fCoSE determinista, separación, cronograma y controles existentes,
+  pero D-048 deja de implicar aislamiento automático al seleccionar. La pestaña consume memoria
+  mientras la ficha siga abierta después de visitarla, coste aceptado para preservar orientación,
+  filtros y cámara. No se crea una vista-resumen que oculte relaciones por defecto.
+
+## D-054 — Fuentes estables y acciones secundarias bajo demanda en la ficha de entidad
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** búsqueda, vinculación e informe ocupaban la parte superior antes de la información;
+  además cargaban dos veces la misma lista de expedientes. CNMV y Noticias podían desaparecer tanto
+  por vacío como por fallo, y las noticias sin fecha se ordenaban alfabéticamente, destruyendo el
+  ranking de relevancia del proveedor.
+- **Decisión:** presentar identidad y pestañas antes de las acciones, cargar datos de acciones al
+  abrirlas y compartir el listado de expedientes. Mantener siempre las pestañas de fuentes con
+  estados explícitos de resultados, vacío, parcial y error; conservar el orden upstream de noticias
+  cuando no hay fecha autoritativa; persistir la pestaña en URL y conservar el snapshot visible si
+  una recarga falla.
+- **Consecuencias:** el usuario distingue «no encontrado» de «no consultado» sin interpretar la
+  ausencia de una pestaña. Las acciones dejan de competir con la lectura y se reduce trabajo de red
+  al abrir la ficha. Los errores técnicos se muestran como detalle, no como conclusión de negocio.
+
 ## D-042 — Codex commitea siempre, y solo sus ficheros
 
 - **Estado:** accepted
