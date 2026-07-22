@@ -2589,3 +2589,34 @@ Corregido y verificado: los cuatro recursos (`symbol.svg`, `favicon.png`, `app-i
 despliegue no falla; el fallo solo existe dentro de la imagen del contenedor y solo se ve mirando
 la página. Es exactamente la clase de costura que el protocolo del prompt 58 describe: los gates
 verifican el código, no el empaquetado.
+
+## 2026-07-22 · Revisor devuelto a local: el resumen nocturno vuelve a completarse
+
+Signal revirtió `evidence_reviewer` a `ollama/qwen3.5:9b` conservando los 4000 tokens de salida
+(ese cambio sí era correcto y no se tocó). Verificado el enrutado desde el worker de Oracle.
+
+Criterio de éxito medido con ocho resúmenes reales, dos tandas de cuatro sobre los mismos
+expedientes usados en las pruebas anteriores:
+
+| Periodo | Revisor aprueba | Rechaza | Tasa de rechazo |
+|---|---:|---:|---:|
+| A · local, histórico | 46 | 6 | 12 % |
+| B · cloud (gemini) | 5 | 11 | **69 %** |
+| C · devuelto a local | **8** | **0** | **0 %** |
+
+**Ocho de ocho completados**, incluidos «Concurso bomberos» y «Mercado baterías LFP Europa», que
+fallaban de forma reproducible con el revisor en cloud.
+
+Con esto se cierra el ciclo completo del resumen nocturno:
+
+- El paso de `dossier_situation_summary` a cloud **se conserva**: eliminó los 6 fallos históricos
+  de generación por truncado del modelo local, y ese beneficio sigue vigente.
+- El paso del **revisor** a cloud se revierte: no aportó nada —el problema que lo motivó se
+  resolvió por otra vía— y multiplicaba por seis el rechazo.
+- El mecanismo del prompt 70 queda instalado y correcto, aunque hoy apenas se ejercita porque ya
+  casi no hay rechazos que sanear. Es red de seguridad, no parche.
+
+Queda una pregunta abierta, deliberadamente sin responder: **si las objeciones de gemini eran
+legítimas**, el revisor local podría estar dejando pasar afirmaciones flojas que el de cloud
+detectaba. No se investiga ahora porque un 69 % de rechazo no es operable en ningún caso, pero es
+una pregunta de calidad, no de infraestructura, y merece su propio análisis.
