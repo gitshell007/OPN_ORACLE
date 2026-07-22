@@ -36,6 +36,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   cliente confirmaba la URL antes de que Next terminase de reponer el `<title>` durante el streaming
   del head. El gate espera ahora un título no vacío antes de analizar; no se añade una excepción y
   un documento que carezca realmente de título continúa fallando.
+- El gate de seguridad detectó advisories high nuevos en `js-yaml<4.3.0` y `sharp<0.35.0`. Se
+  mantienen Next 16 y el bloqueo de auditoría: el lock adopta la revisión 16.2.x vigente y fija las
+  primeras versiones corregidas mediante overrides documentados en D-055; build, E2E, imágenes y
+  escáner deben validarlos antes del despliegue.
 - Línea base productiva previa al despliegue medida con sesión real: ITURRI mostraba las acciones
   antes de los datos y el grafo abría con 300 nodos, 301 enlaces y el aviso de recorte al final del
   lateral. La verificación post-despliegue queda pendiente en este punto del historial.

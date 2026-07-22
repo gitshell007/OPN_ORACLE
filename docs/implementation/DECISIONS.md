@@ -868,6 +868,21 @@ deberá versionarse un flujo de copia/materialización separado.
   ausencia de una pestaña. Las acciones dejan de competir con la lectura y se reduce trabajo de red
   al abrir la ficha. Los errores técnicos se muestran como detalle, no como conclusión de negocio.
 
+## D-055 — Resolver avisos transitivos bloqueantes sin degradar Next
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-22
+- **Contexto:** el gate exacto previo al despliegue recibió dos avisos high publicados después del
+  último lock: `js-yaml<4.3.0`, transitivo de Redocly, y `sharp<0.35.0`, opcional de Next. `npm audit
+  fix --force` proponía bajar Next 16 a 14 y no era una remediación aceptable. Next 16.2.11 sigue
+  declarando `sharp ^0.34.5`, aunque sharp 0.35.3 es la primera línea libre del aviso.
+- **Decisión:** actualizar el lock a la última revisión 16.2.x de Next y fijar mediante `overrides`
+  las primeras versiones corregidas `js-yaml=4.3.0` y `sharp=0.35.3`. La compatibilidad de sharp se
+  acepta solo si superan build, E2E autenticado, construcción de imagen y escaneo del artefacto.
+- **Consecuencias:** `npm audit --audit-level=high` vuelve a ser bloqueante sin degradar el framework
+  ni silenciar advisories. El override de sharp debe retirarse cuando Next amplíe oficialmente su
+  rango a 0.35; hasta entonces es deuda explícita y verificada por los gates de cada release.
+
 ## D-042 — Codex commitea siempre, y solo sus ficheros
 
 - **Estado:** accepted
