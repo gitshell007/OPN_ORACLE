@@ -158,20 +158,31 @@
   `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md`. Hasta esa decisión no se crean migraciones,
   endpoints, task keys ni fuentes nuevas.
 - Pendiente medir en un spike la cobertura real de participantes no adjudicatarios. PLACSP
-  estructura adjudicatario y número de ofertas, pero no garantiza una lista nominal completa; la
-  identidad de admitidos, excluidos o perdedores puede residir solo en actas, valoraciones y
-  resoluciones. Oracle no prometerá exhaustividad ni transformará «no localizado» en «no se
-  presentó».
+  estructura adjudicatario y el recuento comunicado de licitadores participantes, pero no
+  garantiza una lista nominal completa; la identidad de admitidos, excluidos o perdedores puede
+  residir solo en el perfil, actas, valoraciones y resoluciones. Oracle no prometerá exhaustividad
+  ni transformará «no localizado» en «no se presentó».
 - Pendiente Signal: contrato incremental de participantes por expediente/lote, con documento,
-  página/fragmento, rol y cobertura; y `counterpart_kind` fiable para no inferir por el nombre si
-  una contraparte BORME es persona física o jurídica.
+  página/fragmento, rol y cobertura; `counterpart_kind` fiable para no inferir por el nombre si una
+  contraparte BORME es persona física o jurídica; y disponibilidad/cobertura real de
+  `ReceivedTenderQuantity`.
+- Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
+  conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
+  una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y
+  borrado definidos.
 - Pendiente decidir acceso autorizado, coste y condiciones de uso de notas/certificaciones del
   Registro Mercantil. No se automatizará vaciado masivo ni se sortearán autenticación, CAPTCHA o
-  límites de fuente.
+  límites de fuente. El spike debe evaluar si compensa verificar de forma puntual los 5–10 nodos
+  que sostengan tesis materiales, registrando licencia, fuente y coste por run, y medir qué campos
+  aporta realmente una nota frente a la certificación probatoria.
 - Pendiente compliance/DPO: finalidad, base jurídica, ponderación, información del artículo 14,
   derechos, retención y necesidad de EIPD para enlazar trayectorias profesionales de personas
   físicas entre fuentes. El workflow propuesto excluye vida privada, categorías especiales y
   decisiones adversas automatizadas.
 - Pendiente benchmark local antes de elegir bandas de modelo, contexto y presupuesto. Oracle
   enviaría solo task keys gobernadas por Signal; si producto exige local, Signal fijaría Ollama y
-  cloud desactivado para esas tareas.
+  cloud desactivado para esas tareas. Debe medir también el reviewer con errores sembrados antes de
+  elegir `reject_output`, reparación o bloqueo por sección; la validación determinista de citas no
+  se delega al modelo.
+- Pendiente fijar la ventana temporal por finalidad y evidencia. No se adopta automáticamente un
+  corte de cuatro años como política de relevancia, expansión o retención.

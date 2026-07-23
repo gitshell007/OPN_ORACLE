@@ -134,10 +134,19 @@ Los huecos reales son:
 | Fuente | Uso propuesto | Acceso | Valor probatorio y límite |
 |---|---|---|---|
 | [BORME / AEBOE](https://www.boe.es/datosabiertos/api/api.php) | actos, nombramientos, ceses, poderes, fusiones y otros eventos | sumario diario JSON/XML y documentos PDF/HTML/XML; disponible desde enero de 2009 según la [FAQ oficial](https://www.boe.es/datosabiertos/faq/borme.php) | fuente oficial de publicaciones históricas; no es por sí sola una foto completa del estado vigente y el PDF firmado es el documento auténtico |
-| [Registro Mercantil](https://sede.registradores.org/site/mercantil?lang=es_ES) | confirmar identidad, NIF, representación vigente, capital, actos y cuentas | nota/certificación de pago; búsqueda por denominación, NIF o representación | cierre probatorio para afirmaciones vigentes; no debe vaciarse masivamente ni tratarse como una API abierta |
+| [Registro Mercantil](https://sede.registradores.org/site/mercantil?lang=es_ES) | contrastar identidad, representación vigente, capital, actos y cuentas | nota/certificación de pago; búsqueda por denominación, NIF o representación | la nota es informativa y la certificación es el medio probatorio oficial; hay que medir campos e identificadores disponibles y no tratar el servicio como una API abierta |
 | [PLACSP](https://contrataciondelestado.es/wps/portal/DatosAbiertos) | procedimientos, lotes, CPV, presupuesto, órganos, resultados, adjudicatarios y documentos | feeds/datasets abiertos CODICE y adjuntos del perfil | fuente principal española; calidad y completitud dependen de publicación y agregación |
 | Documentos PLACSP | identidad de licitadores, admitidos, excluidos, retirados y valoraciones | actas de mesa/apertura, informes y resoluciones enlazados desde el expediente | evidencia necesaria para no adjudicatarios; disponibilidad, formato y estructura varían |
 | [TED Search API](https://docs.ted.europa.eu/api/latest/intro.html) | procedimientos sujetos a publicidad europea y contraste transfronterizo | búsqueda y descarga de anuncios publicados | no cubre toda la contratación española ni garantiza la identidad de todos los perdedores |
+
+BORME no debe modelarse como un padrón completo de identidad o propiedad. Algunas publicaciones
+incluyen ocasionalmente DNI/NIF en texto libre —por ejemplo, al designar al representante físico de
+un administrador persona jurídica, como muestra este
+[acto oficial](https://www.boe.es/borme/dias/2025/12/29/pdfs/BORME-A-2025-247-49.pdf)—, pero no
+existe un identificador personal uniforme y estructurado para todos los cargos. También publica
+declaraciones y cambios de socio único y actos puntuales con socios, pero no una tabla completa y
+vigente de accionariado. La presencia de esos datos puede reforzar un claim; su ausencia no
+demuestra que no exista identidad, propiedad o control.
 
 ### 5.2 Fuentes de enriquecimiento, no obligatorias para el MVP
 
@@ -154,9 +163,12 @@ identidad verificable.
 
 ### 5.3 El límite decisivo de los no adjudicatarios
 
-La documentación abierta de PLACSP muestra de forma estructurada el adjudicatario, su identificador
-y el número de ofertas, pero no una colección fiable de las identidades de todos los licitadores.
-Sí expone la existencia de actas y otros documentos publicados en el
+La sindicación abierta de PLACSP muestra de forma estructurada el adjudicatario, su identificador y
+`ReceivedTenderQuantity`, definido como número de licitadores participantes, pero no una colección
+fiable de sus identidades. El campo es opcional, puede variar por lote y puede repetirse por cada
+adjudicatario del mismo lote, como documenta la
+[especificación oficial de sindicación](https://contrataciondelsectorpublico.gob.es/datosabiertos/especificacion-sindicacion.pdf).
+También se expone la existencia de actas y otros documentos publicados en el
 [resumen oficial de datos abiertos](https://contrataciondelestado.es/datosabiertos/DGPE_PLACSP_ResumenDatosAbiertos.pdf).
 El [artículo 63.3.e de la LCSP](https://www.boe.es/eli/es/l/2017/11/08/9/con) exige publicar en el
 perfil el número e identidad de los participantes, las actas, los informes de valoración y la
@@ -220,6 +232,12 @@ hasta disponer de:
 - combinación de nombre, cargo, sociedad, provincia y fechas suficientemente discriminante; o
 - revisión humana documentada.
 
+Para ordenar la cola se calcula un triaje determinista con rareza del nombre dentro del corpus,
+coaparición en sociedades, provincia registral, continuidad temporal, roles y puentes ya
+confirmados. Son señales explicables de prioridad, no pruebas de identidad. Ollama puede resumir
+señales a favor y en contra, pero ni ese análisis ni un umbral numérico autorizan un merge o la
+expansión de una persona.
+
 Signal todavía puede entregar en el campo de contraparte tanto personas físicas como firmas. Oracle
 no debe inferir el tipo por sufijos como `SL`, por apariencia del nombre ni mediante Ollama. El
 contrato upstream debe aportar `counterpart_kind`; mientras no exista, el candidato queda
@@ -259,8 +277,16 @@ compartido del tenant.
 
 - BORME/Registro según disponibilidad y autorización;
 - grafo actual e histórico;
+- priorizar actos explícitos de administrador persona jurídica y socio único por ofrecer vínculos
+  societarios menos ambiguos;
+- priorizar su representante físico solo si el acto aporta un identificador oficial inequívoco; en
+  caso contrario sigue el mismo gate de homonimia que cualquier persona;
 - contratación estructurada de la semilla;
 - snapshot inmutable con URL, fecha, hash, parser y cobertura.
+
+Esos actos acreditan únicamente el cargo, representación o unipersonalidad publicados. Un
+administrador común no acredita matriz, propiedad ni unidad de decisión, y la ausencia de socio
+único publicado no acredita accionariado disperso.
 
 ### R3 — Normalización determinista
 
@@ -273,16 +299,20 @@ compartido del tenant.
 ### R4 — Revisión de identidad
 
 - autoaceptar solo identificadores oficiales inequívocos;
+- ordenar el resto mediante el triaje determinista, conservando por separado confianza de
+  identidad y de relación;
 - enviar homónimos y tipos dudosos a bandeja humana;
-- Ollama puede explicar por qué dos registros parecen coincidir, pero no ejecutar el merge.
+- Ollama puede explicar por qué dos registros parecen coincidir, pero no ejecutar el merge;
+- exigir checkpoint humano antes de que una persona sin identificador oficial abra otra oleada.
 
 ### R5 — Expansión de frontera
 
 - recorrer por anchura una oleada cada vez;
 - profundidad automática recomendada: dos saltos societarios;
+- expandir por defecto gobierno y propiedad explícitamente documentada;
+- hacer representación, apoderados y relaciones operativas opt-in según la pregunta;
 - conservar la relación pero no expandir por defecto auditores, secretarios, asesores o
-  profesionales ubicuos;
-- priorizar gobierno, propiedad demostrada, UTE y representación material;
+  liquidadores y profesionales ubicuos;
 - registrar cada rama podada y su motivo.
 
 ### R6 — Contratación por sociedad verificada
@@ -290,11 +320,22 @@ compartido del tenant.
 - consultar adjudicaciones y procedimientos por identificador cuando sea posible;
 - en su defecto, denominación exacta y aliases aprobados;
 - congelar todas las versiones del procedimiento;
+- conservar `ReceivedTenderQuantity` o campo equivalente cuando la fuente lo entregue, con su
+  cobertura por procedimiento, lote y versión;
+- deduplicar el recuento a nivel de lote/versión y no sumarlo cuando se repita por varios
+  adjudicatarios;
 - calcular en Python importes, órganos, CPV, lotes y periodos;
-- no interpretar adjudicaciones ganadas como participación total.
+- detectar órganos de contratación compartidos por varias sociedades verificadas;
+- no interpretar adjudicaciones ganadas como participación total;
+- no transformar el recuento en identidad de licitadores, tasa de éxito ni prueba de que otra
+  sociedad concreta se presentó.
 
 ### R7 — Documentos y participantes
 
+- cerrar el MVP con adjudicaciones estructuradas y tratar la minería nominal de no adjudicatarios
+  como fase posterior y opt-in;
+- priorizar entonces expedientes materiales, órganos compartidos, lotes con competencia conocida y
+  procedimientos seleccionados por el analista;
 - descargar solo desde hosts y referencias permitidos;
 - conservar checksum, versión y procedencia;
 - antivirus y cuarentena según la política documental;
@@ -337,6 +378,8 @@ Python calcula:
 - distancia, vigencia y contemporaneidad;
 - grados y supernodos;
 - concentración por órganos, CPV y periodo;
+- órganos compradores compartidos por dos o más sociedades verificadas, con periodo y cobertura;
+- contexto competitivo únicamente en lotes cuyo recuento comunicado de licitadores sea conocido;
 - importes y denominadores;
 - cobertura por fuente, entidad y procedimiento;
 - cambios desde una revisión previa.
@@ -379,6 +422,18 @@ InvestigationRun
   → revisión humana
 ```
 
+Para producto y operación, las doce rondas se agrupan en seis macropasadas sin convertirlas en seis
+jobs monolíticos:
+
+| Macropasada | Rondas | Resultado durable |
+|---|---|---|
+| P0 · Semilla | R0–R1 | encargo congelado e identidad raíz aprobada |
+| P1 · Núcleo | R2–R3 | corpus registral inicial, candidatos y normalización |
+| P2 · Expansión | R4–R5 | frontera revisada por nivel, podas y checkpoint humano |
+| P3 · Contratación | R6–R7 | adjudicaciones y, si se activa, participaciones documentales |
+| P4 · Consolidación | R8–R10 | claims, contradicciones, cobertura, métricas y caminos |
+| P5 · Informe | R11 | secciones, síntesis, crítica, anexos y aprobación |
+
 Un dispatcher consulta PostgreSQL y solo encola pasos cuyas dependencias estén completadas. Redis
 no es historial ni fuente de verdad. No se usa un chord de Celery como estado autoritativo.
 
@@ -391,6 +446,12 @@ Distribución en colas existentes:
 - `maintenance`: reconciliación de pasos huérfanos.
 
 No se añade una cola nueva hasta medir contención y registrar la decisión arquitectónica.
+
+Subir `OLLAMA_TIMEOUT_SECONDS` a 1.800 segundos no resolvería una síntesis lenta: excedería el hard
+limit Celery de 720 segundos y la lease IA de 600. Cada llamada debe caber dentro de su lease mediante
+chunking o redacción por secciones. Si el benchmark demuestra que una task indivisible necesita más,
+hará falta una decisión explícita sobre límites por tarea, heartbeat y recuperación; no un cambio
+global de timeout que pueda duplicar ejecución.
 
 ### 8.2 Ollama detrás de Signal
 
@@ -408,7 +469,9 @@ Task keys propuestas:
 - `investigation_opinion`.
 
 Si se exige procesamiento local, la política del consumer en Signal fija Ollama y desactiva cloud
-para estas tasks. `AIAuditLog` conserva proveedor/modelo efectivos, versión y hash de política.
+para estas tasks. `AIAuditLog` ya conserva proveedor/modelo efectivos; la investigación deberá
+conservar además versión y hash de política en el audit log o en el manifest inmutable del run,
+según el diseño de esquema aprobado.
 
 Antes de elegir modelos se ejecuta un benchmark sobre el hardware real y un corpus etiquetado.
 Oracle no promete una familia concreta desde código. La configuración inicial debe priorizar:
@@ -419,6 +482,11 @@ Oracle no promete una familia concreta desde código. La configuración inicial 
 - digest de modelo registrado;
 - métricas de tokens, duración y throughput;
 - backpressure y kill switch.
+
+Los perfiles Ollama de 9B y 27B ya documentados en otras tareas pueden formar parte del benchmark,
+pero esta propuesta no presupone su disponibilidad ni los asigna. Tampoco se adopta aún una
+duración de 2,5–5 horas: es una hipótesis de capacidad que depende del tamaño de la frontera, cuotas
+Signal, documentos, colas, tokens por segundo, reparaciones y revisiones humanas.
 
 Ollama admite JSON Schema en `format` y la validación con Pydantic, según su
 [documentación de structured outputs](https://docs.ollama.com/capabilities/structured-outputs).
@@ -478,9 +546,37 @@ Cada sección guarda `writer_source_pack_hash`. El revisor recibe la sección ca
 paquete completo, y debe devolver ese hash. Las incidencias se anclan a `paragraph_id`, `claim_id` y
 `evidence_id`.
 
+Cada sección tiene presupuesto propio de claims y evidencias, balance entre tipos de fuente y un
+registro de candidatos excluidos o truncados. No se eleva silenciosamente el techo global histórico
+de 45 fuentes del informe de entidad: el spike debe medir cuánto cabe por sección y el ensamblador
+genera un índice único solo con las fuentes realmente citadas.
+
 Esta simetría evita repetir el fallo ya documentado en Oracle donde un reviewer juzgaba un informe
 con menos contexto que el escritor. Un comentario global sin anclaje no elimina automáticamente un
 hecho.
+
+`reject_output` es una política de fallo posible, no una garantía de calidad. Antes del reviewer se
+ejecutan validadores deterministas de schema, allowlists, existencia de claims/evidencias,
+localizadores, métricas y contradicciones. La Fase 0 debe sembrar citas rotas, hechos no soportados
+y atribuciones erróneas para medir si el revisor local los detecta; aprobar todo o rechazar mucho no
+demuestra precisión. Un fallo bloquea o repara la sección afectada, sin perder el resto del run.
+
+### 8.6 Contratos iniciales de prompts
+
+Los cuatro borradores aportados se conservan como requisitos de contrato, no como prompts
+aceptados ni como asignación de modelo:
+
+| Task key | Entrada mínima | Salida estructurada | Gate |
+|---|---|---|---|
+| `investigation_identity_resolution` | `pair_id`, candidatos, perfiles registrales, señales deterministas, evidencias y límites | señales a favor/en contra, prioridad y `uncertain` | nunca fusiona, promueve ni abre frontera |
+| `investigation_procurement_participation_extraction` | expediente, lote, tipo de documento, texto paginado y evidencia | denominación literal, identificador si consta, UTE/miembros explícitos, rol/resultado, cita, página y ambigüedad | sin lote y localizador no existe participación confirmada |
+| `investigation_report_section` | paquete de claims de una sección, métricas, contradicciones, cobertura y allowlists | `paragraph_id`, `kind`, texto, `claim_ids`, `evidence_ids`, confianza y límites locales | usa un schema de capítulo; no reutiliza parcialmente `ReportOutput` |
+| `investigation_opinion` | secciones validadas más el paquete estructurado completo y su hash | resumen, lectura estratégica y recomendaciones ancladas a claims | no introduce hechos, cifras, fuentes ni valoraciones personales nuevas |
+
+El reviewer necesita además un contrato propio con incidencias ancladas a párrafo, claim y evidencia,
+severidad, acción recomendada y `source_pack_hash`. Los prompts versionados se redactarán tras el
+spike y se registrarán en Oracle y Signal con schemas y evals, no copiando literalmente estos
+borradores.
 
 ## 9. Modelo de datos propuesto
 
@@ -496,11 +592,14 @@ Todo es tenant-scoped y depende de `StrategicDossier`.
 
 ### `InvestigationStep` y dependencias
 
-- etapa, sujeto, estado, intentos y lease;
+- etapa, sujeto, dependencias, estado de dominio y resultado;
 - input/result refs pequeños;
 - hashes de fuente, prompt, schema y política;
-- dependencia entre pasos;
-- vínculo a `BackgroundJob`.
+- vínculo al `BackgroundJob` vigente y a su historial.
+
+`BackgroundJob` sigue siendo la autoridad de ejecución para intentos, lease, heartbeat, fencing,
+retry y terminalidad. `InvestigationStep` describe el DAG y proyecta su resultado funcional; no
+duplica un segundo state machine de workers.
 
 ### `ResearchEntity` y `ResearchAlias`
 
@@ -529,7 +628,7 @@ Todo es tenant-scoped y depende de `StrategicDossier`.
 
 - proveedor, clase, identificador externo y URL;
 - publicación, captura y validez;
-- checksum, payload/blob, parser y versión;
+- checksum, referencia externa/content-addressed, parser y versión;
 - licencia/política aplicada;
 - cobertura, cursor, truncamiento y errores.
 
@@ -541,9 +640,17 @@ Todo es tenant-scoped y depende de `StrategicDossier`.
 - confianza, estado y revisión;
 - claims incompatibles y resolución.
 
-Los documentos exploratorios no deben forzarse al esquema canónico `Document` si todavía no hay una
-decisión de incorporación. Se mantienen como snapshots del run; al aceptarlos se materializan en
-`Document`/`Evidence` dentro del expediente.
+La decisión D-028 mantiene a Signal como productor del dato vivo y permite a Oracle conservar
+únicamente snapshots de contratación seleccionados por el usuario. Por tanto, el diseño por defecto
+guarda en Oracle el manifest, referencias, hashes, localizadores, claims y extractos seleccionados,
+no una copia durable de todo payload o PDF explorado. Durante el run puede usar caché temporal
+direccionada por contenido; al aceptar una fuente se materializa en `Document`/`Evidence` dentro del
+expediente.
+
+Si la reproducibilidad exige congelar el corpus bruto completo, la Fase 0 debe definir primero el
+contrato de snapshot en Signal o proponer un cambio explícito de D-028, con licencia, volumen,
+retención, borrado y responsabilidad de cada sistema. No se introduce esa excepción de forma
+implícita desde el nuevo agregado.
 
 PostgreSQL es suficiente para esta primera versión. No se introduce Neo4j: los grafos son acotados,
 las relaciones ya viven en SQL y Cytoscape cubre la visualización. Una base de grafos solo se
@@ -624,6 +731,10 @@ Reglas editoriales:
 - no se presenta un dato histórico como vigente;
 - no se ocultan fuentes fallidas, recortes ni identidades dudosas.
 
+La cabecera de cobertura y cualquier disclaimer se versionan según audiencia y fuentes realmente
+usadas. No pueden afirmar «solo fuentes públicas» si el run incluye una nota de pago, ni «datos
+reproducidos tal cual» cuando existan normalización, OCR, extracción o inferencias.
+
 ## 12. Seguridad, privacidad y legalidad
 
 Ollama local reduce transferencias a terceros, pero no resuelve por sí solo protección de datos,
@@ -673,6 +784,10 @@ Perfiles iniciales para medir, no promesas de exhaustividad:
 | Piloto | 90 min | 1 | 30 | 300 | 40 |
 | Estándar | 6 h | 2 | 150 | 2.000 | 250 |
 | Profundo | aprobación nueva | configurable | configurable | configurable | configurable |
+
+La Fase 0 comprobará si una red mediana puede completar P0–P5 en 2,5–5 horas dentro del presupuesto
+estándar. Hasta disponer de distribución de tiempos por etapa y percentiles, esa horquilla es una
+hipótesis de benchmark, no un SLA ni una estimación comercial.
 
 Paradas duras:
 
@@ -727,14 +842,29 @@ Reglas:
 
 Sin nueva UI productiva:
 
+- ejecutar primero un micro-spike técnico de 2–4 días para obtener un go/no-go temprano sobre
+  contratos Signal, identidad y capacidad local;
 - definir protocolo, fuentes, taxonomía y gate jurídico;
 - medir resolución de identidad BORME/Registro;
+- inventariar consulta inversa, paginación, cuota, completitud, identificadores,
+  `counterpart_kind`, truncación y `ReceivedTenderQuantity` efectivos en Signal;
+- definir cómo Signal congela o versiona el corpus exploratorio y qué manifest/extractos puede
+  retener Oracle sin alterar implícitamente D-028;
 - medir en una muestra PLACSP cuántos expedientes ofrecen identidad completa de participantes en
   datos estructurados o documentos;
 - medir descarga, OCR, tablas y localizadores;
-- benchmark de Ollama por task y tamaño de contexto;
+- benchmark de Ollama por task y tamaño de contexto, registrando digest/cuantización, memoria,
+  cold/warm runs, tokens, throughput, cola, reparaciones y tiempo por etapa;
+- ejecutar un micro-DAG con interrupción, reinicio, fencing e idempotencia;
+- evaluar verificación registral de pago para 5–10 nodos críticos, sin fijar proveedor ni precio;
+- sembrar claims soportados, no soportados, mal atribuidos y citas rotas para medir el reviewer y
+  decidir su política de fallo;
 - preparar corpus oro con homónimos, persona jurídica administradora, cese, UTE, multilote,
   adjudicatario, perdedor, excluido, fuente caída y prompt injection.
+
+Una muestra inicial de veinte homónimos puede descubrir fallos y ajustar el protocolo, pero no
+justifica precisión de auto-merge ni un release. La segunda parte de la fase amplía y estratifica el
+corpus antes de fijar umbrales.
 
 **Gate:** decisión informada sobre si el producto se vende como adjudicaciones, participación
 documentada o cobertura exhaustiva. La tercera opción no se acepta sin evidencia.
@@ -742,6 +872,8 @@ documentada o cobertura exhaustiva. La tercera opción no se acepta sin evidenci
 ### Fase 1 — MVP determinista · 2–3 semanas
 
 - `InvestigationRun`, pasos, candidatos, relaciones y fuentes;
+- registrar task names `investigation.*` de forma cerrada en allowlists, handlers, `TASK_QUEUES` y
+  `TASK_ROUTES`, sin despacho dinámico ni cola nueva no medida;
 - semilla y grafo de profundidad 1–2;
 - contratación ganada de todas las sociedades verificadas;
 - caminos, cobertura, pause/resume/cancel;
@@ -790,7 +922,8 @@ calendario; las licencias y la cobertura documental pueden ampliarlo.
 ## 16. Métricas y gates de release
 
 - 100 % de identidad raíz confirmada;
-- precisión de merges automáticos ≥ 99 % sobre corpus oro; el resto, revisión;
+- 0 merges automáticos de personas basados solo en nombre, heurística o LLM;
+- precisión medida de autoaceptación por identificador oficial y calidad del ranking de revisión;
 - 100 % de citas existentes, permitidas y con localizador válido;
 - 0 claims factuales sin evidencia;
 - precisión ≥ 98 % en rol/resultado de participación documentada;
@@ -838,6 +971,14 @@ Recomendación por defecto:
 8. **No:** prometer todos los licitadores hasta tener un índice documental medido.
 9. **Pendiente:** acceso autorizado y presupuesto para Registro Mercantil.
 10. **Pendiente:** EIPD/base jurídica, información y retención para grafos de personas.
+11. **Pendiente:** permitir verificación registral de pago para los nodos que sostienen una tesis
+    material, con autorización, licencia, coste y fuente registrados por run.
+12. **Pendiente:** elegir `reject_output`, reparación o bloqueo por sección solo después de medir el
+    reviewer local contra errores sembrados y mantener siempre la validación determinista.
+13. **Pendiente:** fijar ventana temporal por finalidad y evidencia; no adoptar automáticamente un
+    corte de cuatro años como política de relevancia o retención.
+14. **Pendiente:** mantener D-028 con corpus bruto en Signal y manifest/extractos en Oracle, o
+    aprobar una excepción explícita para snapshots completos con licencia, volumen y retención.
 
 ## 19. Siguiente prompt recomendado
 
@@ -849,6 +990,9 @@ Entregables:
 - muestra etiquetada de entidades, relaciones y expedientes;
 - medición de cobertura de participantes PLACSP;
 - benchmark real de Ollama con schemas;
+- tabla medida de llamadas, tokens, memoria, throughput y tiempo por macropasada;
+- evaluación del reviewer con errores sembrados y recomendación de política de fallo;
+- decisión de frontera y snapshot Signal/Oracle compatible con D-028;
 - diseño OpenAPI/ERD sin aplicar migración;
 - decisión go/no-go y alcance honesto del MVP;
 - estimación revisada basada en mediciones.

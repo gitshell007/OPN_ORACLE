@@ -3122,8 +3122,8 @@ La propuesta corrige dos expectativas:
 - Ollama extrae, contrasta y redacta detrás de task keys de Signal; no navega ni es fuente de
   verdad. Una investigación de horas se divide en un DAG durable de jobs cortos porque producción
   limita Celery a 690/720 segundos y las leases IA a 600.
-- PLACSP ofrece adjudicatario y número de ofertas de forma estructurada, pero no garantiza los
-  nombres de todos los licitadores. «Perdió» solo se publica cuando un documento identifica al
+- PLACSP ofrece adjudicatario y recuento comunicado de licitadores de forma estructurada, pero no
+  garantiza los nombres de todos ellos. «Perdió» solo se publica cuando una fuente identifica al
   licitador y otro adjudicatario en el mismo lote; ausencia de resultado permanece `unknown`.
 
 Se proponen una Fase 0 de 1–2 semanas para medir identidad, cobertura documental y Ollama, seguida
@@ -3187,3 +3187,47 @@ empresas grandes, y eso hay que corregirlo, no asumirlo.
 **Siguiente paso propuesto:** aceptar el nombre comercial —los tokens de identidad sin exigir la
 forma societaria— cuando otras señales respalden la atribución, en lugar de exigir la razón social
 literal. Queda anotado, no se improvisa ahora.
+
+## 2026-07-23 · Complemento revisado de ORACLE-EXP-INVESTIGACIONES
+
+Se contrasta el borrador complementario aportado por producto con
+`docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md`, el runtime actual y fuentes oficiales. Se
+integran seis macropasadas P0–P5 sobre las doce rondas existentes, prioridad operativa para
+administrador persona jurídica y socio único, triaje explicable de homónimos, checkpoint humano
+antes de expandir personas, compradores públicos compartidos, recuento comunicado de licitadores
+como contexto, minería documental dirigida y cuatro contratos iniciales de prompts.
+
+También se incorpora un micro-spike técnico de 2–4 días dentro de la Fase 0 de 1–2 semanas:
+inventario real de Signal, micro-DAG reanudable, benchmark por etapa, prueba de fuentes registrales
+de pago para nodos críticos, evaluación del reviewer con errores sembrados y decisión sobre la
+frontera de snapshots Signal/Oracle exigida por D-028.
+
+No se adoptan como hechos el «70 % ya construido», las 2,5–5 horas, modelos 9B/27B concretos,
+precios comerciales ni un corte fijo de cuatro años. Tampoco se permite que Ollama fusione
+homónimos. BORME puede publicar ocasionalmente DNI/NIF o socios en texto libre; el límite correcto
+es que no ofrece un identificador personal ni un accionariado completos, uniformes y estructurados.
+Un administrador compartido no acredita matriz o control. `ReceivedTenderQuantity` se conserva por
+procedimiento/lote/versión y no se suma cuando se repite por varios adjudicatarios.
+
+No se codifica una interpretación cerrada del AI Act ni se usa como requisito funcional para este
+workflow interno. Sí se conservan privacy-by-design, minimización, exactitud, licencia de fuentes y
+revisión humana como controles de calidad y seguridad ya exigidos por el producto.
+
+`BackgroundJob` permanece como autoridad única de intentos, leases, fencing y retry;
+`InvestigationStep` solo proyecta el DAG y su resultado de dominio. D-028 permanece vigente:
+Oracle guarda por defecto manifest, hashes, extractos y fuentes promovidas, mientras Signal produce
+el corpus vivo. Retener payloads/PDFs exploratorios completos requiere una decisión explícita.
+La expansión usa gobierno y propiedad documentada por defecto; representación es opt-in y un
+representante físico solo recibe prioridad identitaria con identificador oficial. Tampoco se afirma
+que `AIAuditLog` guarde hoy `policy_hash`: el diseño deberá incorporarlo al log o al manifest.
+
+No hay código runtime, migración, API, variable ni decisión arquitectónica aceptada nuevos. La
+propuesta continúa pendiente de validación de producto y `DECISIONS.md` no cambia.
+
+Validación documental: `git diff --check` limpio, 10 enlaces Markdown locales resueltos con 0
+ausentes y 66 filas de tablas con columnas consistentes. Se abrieron las especificaciones oficiales
+de BORME, sindicación PLACSP, LCSP y el criterio AEPD citado. El barrido de
+`ReceivedTenderQuantity`, tiempos, modelos, merges, Camerdata, AI Act, `BackgroundJob` y D-028
+confirma que las cifras/modelos quedan como hipótesis, el recuento no se suma por adjudicatario, el
+merge personal probabilístico está prohibido y no se duplican autoridad de jobs ni corpus bruto.
+No se ejecutan suites de aplicación al no cambiar comportamiento.
