@@ -12,6 +12,7 @@ from kombu import Queue
 QUEUES = ("default", "signals", "ai", "documents", "notifications", "maintenance")
 TASK_ROUTES = {
     "oracle.signal.*": {"queue": "signals"},
+    "oracle.procurement_watch.*": {"queue": "signals"},
     "oracle.memory.*": {"queue": "ai"},
     "oracle.dossier_summary.*": {"queue": "ai"},
     "oracle.ai.*": {"queue": "ai"},
@@ -62,6 +63,11 @@ def celery_init_app(app: Flask) -> Celery:
         },
         "documents-retention": {
             "task": "maintenance.documents_retention",
+            "schedule": 3600.0,
+            "options": {"queue": "maintenance"},
+        },
+        "procurement-watch-retention": {
+            "task": "maintenance.procurement_watch_retention",
             "schedule": 3600.0,
             "options": {"queue": "maintenance"},
         },

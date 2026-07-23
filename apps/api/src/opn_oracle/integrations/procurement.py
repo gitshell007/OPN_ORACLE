@@ -636,9 +636,19 @@ def delete_tender_search(*, search_id: str) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
     client = procurement_client_from_config()
     try:
-        return client.delete_search(search_id=search_id, external_tenant_id=external_tenant_id)
+        deleted = client.delete_search(search_id=search_id, external_tenant_id=external_tenant_id)
     finally:
         client.close()
+    # Import lazily: the watch module reads saved searches through this module.
+    # Retiring is deliberately local and deterministic; it disables the durable
+    # schedule but leaves seen-state available to the 90-day retention task.
+    from opn_oracle.extensions import db
+    from opn_oracle.oracle.procurement_search_watch import (
+        retire_procurement_search_watch_for_tender_search,
+    )
+
+    retire_procurement_search_watch_for_tender_search(db.session(), tender_search_id=search_id)
+    return deleted
 
 
 def run_tender_search(*, search_id: str, limit: int, offset: int) -> dict[str, Any]:

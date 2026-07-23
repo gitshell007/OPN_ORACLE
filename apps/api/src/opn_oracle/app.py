@@ -52,6 +52,7 @@ from opn_oracle.oracle.procurement_search_feedback_routes import (
 from opn_oracle.oracle.procurement_search_profile_routes import (
     bp as procurement_search_profiles_bp,
 )
+from opn_oracle.oracle.procurement_search_watch_routes import bp as procurement_search_watches_bp
 from opn_oracle.oracle.routes import bp as oracle_bp
 from opn_oracle.platform.backup_routes import bp as platform_backups_bp
 from opn_oracle.platform.routes import bp as platform_bp
@@ -186,6 +187,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> APIFlask:
     app.register_blueprint(procurement_bp)
     app.register_blueprint(procurement_search_profiles_bp)
     app.register_blueprint(procurement_search_feedback_bp)
+    app.register_blueprint(procurement_search_watches_bp)
     app.register_blueprint(signal_webhooks_bp)
     app.register_blueprint(metrics_bp)
     app.spec_processor(declare_problem_responses)

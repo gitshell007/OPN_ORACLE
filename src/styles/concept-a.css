@@ -485,6 +485,15 @@
 .procurement-feedback-digest p { margin: 0; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
 .procurement-feedback-digest > div { display: grid; gap: 4px; }
 .procurement-feedback-digest > small { color: var(--va-muted); }
+.procurement-watch-status { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: 0 14px 14px; border: 1px solid #cdd9e6; border-radius: 11px; background: #f7f9fc; padding: 12px 13px; }
+.procurement-watch-status strong { color: var(--va-text); font-size: 13px; }
+.procurement-watch-status p { margin: 4px 0 0; color: var(--va-muted); font-size: 12px; line-height: 1.4; }
+.procurement-watch-badge { display: inline-flex; align-items: center; border: 1px solid #8eb7db; border-radius: 999px; background: #edf7ff; color: #155a8a; padding: 3px 7px; font-size: 10px; font-weight: 700; }
+.procurement-watch-badge.changed { border-color: #d0a75b; background: #fff8e7; color: #7a5000; }
+.procurement-watch-review { display: flex; align-items: center; }
+.procurement-watch-aside-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 9px; border-top: 1px solid var(--va-border); }
+.procurement-watch-aside-status small { flex: 1 1 100%; color: var(--va-muted); font-size: 11px; line-height: 1.4; }
+.procurement-watch-cadence select { min-height: 31px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-surface); color: var(--va-text); font: inherit; font-size: 12px; padding: 0 7px; }
 .procurement-pin { display: flex; flex-wrap: wrap; gap: 7px; align-items: end; }
 .procurement-pin.compact { padding: 0; }
 .procurement-pin select { max-width: 230px; }
@@ -670,6 +679,7 @@
   .procurement-wizard-preview > header,
   .procurement-wizard-latest { align-items: stretch; flex-direction: column; }
   .procurement-feedback-digest > header { flex-direction: column; }
+  .procurement-watch-status { align-items: stretch; flex-direction: column; }
   .procurement-plan-diff-groups { grid-template-columns: 1fr; }
   .procurement-wizard-accepted form { grid-template-columns: 1fr; }
   .procurement-wizard-footer { align-items: stretch; }

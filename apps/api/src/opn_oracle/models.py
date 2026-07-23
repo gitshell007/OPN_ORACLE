@@ -18,6 +18,7 @@ from opn_oracle.oracle.procurement_search_feedback import (
     PROCUREMENT_SEARCH_FEEDBACK_MODELS,
 )
 from opn_oracle.oracle.procurement_search_profiles import PROCUREMENT_SEARCH_PROFILE_MODELS
+from opn_oracle.oracle.procurement_search_watch import PROCUREMENT_SEARCH_WATCH_MODELS
 from opn_oracle.platform.backups import BACKUP_MODELS
 from opn_oracle.platform.models import (
     ApiCredential,
@@ -79,6 +80,7 @@ MODEL_REGISTRY = (
     *INTEGRATION_MODELS,
     *ORACLE_MODELS,
     *PROCUREMENT_SEARCH_PROFILE_MODELS,
+    *PROCUREMENT_SEARCH_WATCH_MODELS,
     *PROCUREMENT_SEARCH_FEEDBACK_MODELS,
     *LINK_MODELS,
     *JOB_MODELS,

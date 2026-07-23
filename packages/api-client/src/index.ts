@@ -90,6 +90,8 @@ export type {
   ProcurementSearchFeedbackList,
   ProcurementSearchFeedbackReason,
   ProcurementSearchFeedbackVerdict,
+  ProcurementSearchWatch,
+  ProcurementSearchWatchItem,
   ProcurementSuggestKind,
   ProcurementSuggestQuery,
   ProcurementSuggestResponse,

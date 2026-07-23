@@ -7,6 +7,8 @@ import {
   type ProcurementSearchFeedbackDigest,
   type ProcurementSearchFeedbackReason,
   type ProcurementSearchProfile,
+  type ProcurementSearchWatch,
+  type ProcurementSearchWatchItem,
   type ProcurementTenderFilters,
   type ProcurementTenderItem,
   type ProcurementTendersResponse,
@@ -168,6 +170,25 @@ function canonicalStatusLabel(item: ProcurementTenderItem): string {
   return "Estado no confirmado por la fuente";
 }
 
+function watchChangeLabel(fields: string[]): string {
+  const labels: Record<string, string> = {
+    amount: "importe",
+    buyer: "comprador",
+    canonical_status: "estado",
+    cpvs: "CPV",
+    deadline: "plazo",
+    object: "objeto",
+    title: "título",
+  };
+  return fields.map((field) => labels[field] ?? field).join(", ");
+}
+
+function watchCadenceLabel(seconds: number): string {
+  if (seconds === 86_400) return "Cada día";
+  if (seconds === 3600) return "Cada hora";
+  return "Cada 15 min";
+}
+
 function summaryFromTender(item: ProcurementTenderItem): SummaryState | null {
   if (!item.llm_summary) return null;
   return {
@@ -260,6 +281,15 @@ export function ProcurementWorkspace() {
   const [searchProfiles, setSearchProfiles] = useState<
     ProcurementSearchProfile[]
   >([]);
+  const [watches, setWatches] = useState<ProcurementSearchWatch[]>([]);
+  const [activeWatch, setActiveWatch] = useState<ProcurementSearchWatch | null>(
+    null,
+  );
+  const [watchItemsByFolder, setWatchItemsByFolder] = useState<
+    Record<string, ProcurementSearchWatchItem>
+  >({});
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const [watchBusy, setWatchBusy] = useState(false);
   const [activeSearchProfile, setActiveSearchProfile] =
     useState<ProcurementSearchProfile | null>(null);
   const [feedbackByFolder, setFeedbackByFolder] = useState<
@@ -332,6 +362,32 @@ export function ProcurementWorkspace() {
     }
   }, []);
 
+  const loadWatches = useCallback(async () => {
+    try {
+      const response = await api.procurementSearchWatches.list();
+      setWatches(response.items);
+    } catch (reason) {
+      setWatchError(
+        problemMessage(reason, "No se pudo cargar el estado de la vigilancia."),
+      );
+    }
+  }, []);
+
+  const loadWatchItems = useCallback(async (watch: ProcurementSearchWatch) => {
+    setWatchError(null);
+    try {
+      const response = await api.procurementSearchWatches.items(watch.id);
+      setWatchItemsByFolder(
+        Object.fromEntries(response.items.map((item) => [item.folder_id, item])),
+      );
+    } catch (reason) {
+      setWatchItemsByFolder({});
+      setWatchError(
+        problemMessage(reason, "No se pudieron cargar las novedades de la vigilancia."),
+      );
+    }
+  }, []);
+
   const loadFeedback = useCallback(
     async (profile: ProcurementSearchProfile) => {
       setFeedbackError(null);
@@ -388,6 +444,11 @@ export function ProcurementWorkspace() {
   }, [loadSearches]);
 
   useEffect(() => {
+    const kickoff = window.setTimeout(() => void loadWatches(), 0);
+    return () => window.clearTimeout(kickoff);
+  }, [loadWatches]);
+
+  useEffect(() => {
     const kickoff = window.setTimeout(() => void loadTenders(0), 0);
     return () => window.clearTimeout(kickoff);
     // La carga inicial debe ejecutarse una vez; el usuario decide cuándo aplicar nuevos filtros.
@@ -431,6 +492,8 @@ export function ProcurementWorkspace() {
     setFeedbackByFolder({});
     setFeedbackDigest(null);
     setFeedbackError(null);
+    setActiveWatch(null);
+    setWatchItemsByFolder({});
     void loadTenders(0);
   }
 
@@ -508,11 +571,20 @@ export function ProcurementWorkspace() {
           (candidate) => candidate.tender_search_id === search.id,
         ) ?? null;
       setActiveSearchProfile(profile);
+      const watch = watches.find(
+        (candidate) => candidate.tender_search_id === search.id,
+      ) ?? null;
+      setActiveWatch(watch);
       if (profile) {
         await loadFeedback(profile);
       } else {
         setFeedbackByFolder({});
         setFeedbackDigest(null);
+      }
+      if (watch) {
+        await loadWatchItems(watch);
+      } else {
+        setWatchItemsByFolder({});
       }
     } catch (reason) {
       setError(
@@ -602,6 +674,56 @@ export function ProcurementWorkspace() {
     }
   }
 
+  async function updateWatch(
+    watch: ProcurementSearchWatch,
+    enabled: boolean,
+    cadenceSeconds = watch.cadence_seconds,
+  ) {
+    setWatchBusy(true);
+    setWatchError(null);
+    try {
+      const updated = await api.procurementSearchWatches.update(watch.id, {
+        enabled,
+        notifications_enabled: enabled,
+        cadence_seconds: cadenceSeconds,
+      });
+      setWatches((current) =>
+        current.map((candidate) =>
+          candidate.id === updated.id ? updated : candidate,
+        ),
+      );
+      if (activeWatch?.id === updated.id) setActiveWatch(updated);
+    } catch (reason) {
+      setWatchError(
+        problemMessage(reason, "No se pudo actualizar la vigilancia."),
+      );
+    } finally {
+      setWatchBusy(false);
+    }
+  }
+
+  async function reviewWatchItems(folderIds: string[], reviewed: boolean) {
+    if (!activeWatch || !folderIds.length) return;
+    setWatchBusy(true);
+    setWatchError(null);
+    try {
+      const response = await api.procurementSearchWatches.reviewItems(
+        activeWatch.id,
+        { folder_ids: folderIds, reviewed },
+      );
+      setWatchItemsByFolder(
+        Object.fromEntries(response.items.map((item) => [item.folder_id, item])),
+      );
+      await loadWatches();
+    } catch (reason) {
+      setWatchError(
+        problemMessage(reason, "No se pudo actualizar la revisión."),
+      );
+    } finally {
+      setWatchBusy(false);
+    }
+  }
+
   async function patchSearch(search: TenderSearchResource) {
     if (!search.id) return;
     try {
@@ -652,6 +774,16 @@ export function ProcurementWorkspace() {
       ),
     [searchProfiles],
   );
+  const visibleUnreviewedFolders = useMemo(
+    () =>
+      items
+        .map((item) => item.folder_id)
+        .filter((folderId) => {
+          const watchItem = watchItemsByFolder[folderId];
+          return watchItem && watchItem.state !== "reviewed";
+        }),
+    [items, watchItemsByFolder],
+  );
 
   return (
     <div className="procurement-page">
@@ -666,7 +798,10 @@ export function ProcurementWorkspace() {
         </div>
         <div className="procurement-heading-actions">
           <ProcurementSearchWizard
-            onWatchSaved={loadSearches}
+            onWatchSaved={() => {
+              void loadSearches();
+              void loadWatches();
+            }}
             replanRequest={replanRequest}
           />
           <button
@@ -875,6 +1010,34 @@ export function ProcurementWorkspace() {
               </label>
             </div>
           </header>
+          {activeWatch && (
+            <section className="procurement-watch-status" aria-live="polite">
+              <div>
+                <strong>{activeWatch.name}</strong>
+                {activeWatch.last_error_code ? (
+                  <p role="alert">
+                    La última vigilancia falló. Conservamos la última ejecución
+                    correcta; no equivale a cero novedades.
+                  </p>
+                ) : activeWatch.last_success_at && activeWatch.new_count === 0 ? (
+                  <p>Sin novedades desde {formatDate(activeWatch.last_success_at)}.</p>
+                ) : (
+                  <p>
+                    {activeWatch.new_count} novedades pendientes de revisar.
+                  </p>
+                )}
+              </div>
+              {visibleUnreviewedFolders.length > 0 && (
+                <AsyncActionButton
+                  className="vector-secondary"
+                  disabled={watchBusy}
+                  onClick={() => void reviewWatchItems(visibleUnreviewedFolders, true)}
+                >
+                  Marcar visibles como revisadas
+                </AsyncActionButton>
+              )}
+            </section>
+          )}
           {sort !== "signal" && (
             <p className="procurement-local-sort-note" role="status">
               Orden local sobre los {items.length} resultados cargados en esta
@@ -962,6 +1125,7 @@ export function ProcurementWorkspace() {
               {items.map((item) => {
                 const summary = summaries[item.folder_id];
                 const feedback = feedbackByFolder[item.folder_id];
+                const watchItem = watchItemsByFolder[item.folder_id];
                 return (
                   <article
                     className={`procurement-card${feedback ? " has-feedback" : ""}`}
@@ -977,6 +1141,14 @@ export function ProcurementWorkspace() {
                       >
                         {canonicalStatusLabel(item)}
                       </span>
+                      {watchItem?.state === "new" && (
+                        <span className="procurement-watch-badge">Nuevo</span>
+                      )}
+                      {watchItem?.state === "changed" && (
+                        <span className="procurement-watch-badge changed">
+                          Cambió: {watchChangeLabel(watchItem.changed_fields)}
+                        </span>
+                      )}
                     </header>
                     <p>
                       {item.summary_feed || "Sin resumen de feed disponible."}
@@ -1078,6 +1250,29 @@ export function ProcurementWorkspace() {
                           />
                         </PermissionGate>
                       )}
+                      {activeWatch && watchItem && (
+                        <div className="procurement-watch-review">
+                          {watchItem.state === "reviewed" ? (
+                            <button
+                              className="vector-secondary"
+                              type="button"
+                              disabled={watchBusy}
+                              onClick={() => void reviewWatchItems([item.folder_id], false)}
+                            >
+                              Deshacer revisión
+                            </button>
+                          ) : (
+                            <button
+                              className="vector-secondary"
+                              type="button"
+                              disabled={watchBusy}
+                              onClick={() => void reviewWatchItems([item.folder_id], true)}
+                            >
+                              Marcar como revisada
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </footer>
                   </article>
                 );
@@ -1166,10 +1361,19 @@ export function ProcurementWorkspace() {
               {searchesError}
             </div>
           )}
+          {watchError && (
+            <div className="inline-error" role="alert">
+              {watchError}
+            </div>
+          )}
           <div className="procurement-search-list">
             {searches.length ? (
-              searches.map((search) => (
-                <article key={search.id || search.name}>
+              searches.map((search) => {
+                const watch = watches.find(
+                  (candidate) => candidate.tender_search_id === search.id,
+                );
+                return (
+                  <article key={search.id || search.name}>
                   {editingId === search.id ? (
                     <label>
                       <span>Nuevo nombre</span>
@@ -1236,8 +1440,56 @@ export function ProcurementWorkspace() {
                       </AsyncActionButton>
                     </PermissionGate>
                   </div>
-                </article>
-              ))
+                    {watch && (
+                      <div className="procurement-watch-aside-status">
+                        {watch.last_error_code ? (
+                          <small role="alert">
+                            Última vigilancia fallida; último éxito: {formatDate(watch.last_success_at)}.
+                          </small>
+                        ) : watch.last_success_at && watch.new_count === 0 ? (
+                          <small>Sin novedades desde {formatDate(watch.last_success_at)}.</small>
+                        ) : (
+                          <small>
+                            {watch.new_count} novedades pendientes · {watchCadenceLabel(watch.cadence_seconds)}.
+                          </small>
+                        )}
+                        <PermissionGate permission="opportunity.write">
+                          <label className="procurement-watch-cadence">
+                            <span className="sr-only">
+                              Frecuencia de vigilancia {watch.name}
+                            </span>
+                            <select
+                              value={watch.cadence_seconds}
+                              disabled={watchBusy}
+                              onChange={(event) =>
+                                void updateWatch(
+                                  watch,
+                                  watch.enabled,
+                                  Number(event.target.value),
+                                )
+                              }
+                            >
+                              <option value={900}>Cada 15 min</option>
+                              <option value={3600}>Cada hora</option>
+                              <option value={86400}>Cada día</option>
+                            </select>
+                          </label>
+                          <AsyncActionButton
+                            className="vector-secondary"
+                            type="button"
+                            disabled={watchBusy}
+                            onClick={() => void updateWatch(watch, !watch.enabled)}
+                          >
+                            {watch.enabled
+                              ? "Pausar vigilancia"
+                              : "Activar vigilancia y avisos"}
+                          </AsyncActionButton>
+                        </PermissionGate>
+                      </div>
+                    )}
+                  </article>
+                );
+              })
             ) : (
               <p className="procurement-muted">
                 Aún no hay búsquedas guardadas.

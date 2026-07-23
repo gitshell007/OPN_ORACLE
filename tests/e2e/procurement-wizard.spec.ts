@@ -102,6 +102,23 @@ async function installProcurementContract(page: Page) {
   let saved = false;
   let feedbackSaved = false;
   let profileVersion = 1;
+  let watchEnabled = false;
+  const watch = () => ({
+    id: "watch-e2e-1",
+    profile_id: profile.id,
+    tender_search_id: "search-wizard-1",
+    name: "Equipamiento y mantenimiento para emergencias públicas",
+    enabled: watchEnabled,
+    notifications_enabled: watchEnabled,
+    cadence_seconds: 900,
+    new_count: 1,
+    last_success_at: "2026-07-23T10:07:00Z",
+    last_attempt_at: "2026-07-23T10:07:00Z",
+    last_error_code: null,
+    last_error_message: null,
+    created_at: "2026-07-23T10:00:00Z",
+    updated_at: "2026-07-23T10:07:00Z",
+  });
   const currentProfile = () => ({
     ...profile,
     version: profileVersion,
@@ -169,6 +186,46 @@ async function installProcurementContract(page: Page) {
             limit: 25,
             offset: 0,
           },
+        },
+      });
+    },
+  );
+  await page.route("**/api/v1/procurement-search-watches", async (route) => {
+    await route.fulfill({ json: { items: saved ? [watch()] : [] } });
+  });
+  await page.route(
+    "**/api/v1/procurement-search-watches/watch-e2e-1",
+    async (route) => {
+      if (route.request().method() === "PATCH") {
+        watchEnabled = Boolean(route.request().postDataJSON()?.enabled);
+      }
+      await route.fulfill({ json: watch() });
+    },
+  );
+  await page.route(
+    "**/api/v1/procurement-search-watches/watch-e2e-1/items",
+    async (route) => {
+      await route.fulfill({
+        json: {
+          items: [
+            {
+              id: "watch-item-e2e-1",
+              folder_id: tender.folder_id,
+              snapshot: {
+                title: tender.title,
+                buyer: tender.buyer,
+                amount: String(tender.amount),
+                deadline: tender.deadline,
+                canonical_status: "open",
+                cpvs: tender.cpv,
+              },
+              state: "new",
+              changed_fields: ["new"],
+              first_seen_at: "2026-07-23T10:07:00Z",
+              last_changed_at: "2026-07-23T10:07:00Z",
+              reviewed_at: null,
+            },
+          ],
         },
       });
     },
@@ -469,9 +526,19 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   ).toBeVisible();
   await page
     .locator(".procurement-saved-searches")
+    .getByRole("button", { name: "Activar vigilancia y avisos" })
+    .click();
+  await expect(
+    page.locator(".procurement-saved-searches").getByRole("button", {
+      name: "Pausar vigilancia",
+    }),
+  ).toBeVisible();
+  await page
+    .locator(".procurement-saved-searches")
     .getByRole("button", { name: "Ejecutar" })
     .click();
   await expect(page.getByText(tender.title)).toBeVisible();
+  await expect(page.getByText("Nuevo", { exact: true })).toBeVisible();
   await page
     .getByRole("group", { name: `Valoración para ${tender.title}` })
     .getByRole("button", { name: "No relevante" })

@@ -23,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   createFeedback: vi.fn(),
   removeFeedback: vi.fn(),
   feedbackDigest: vi.fn(),
+  listWatches: vi.fn(),
+  updateWatch: vi.fn(),
+  watchItems: vi.fn(),
+  reviewWatchItems: vi.fn(),
   dossiersList: vi.fn(),
   pin: vi.fn(),
   listPinned: vi.fn(),
@@ -61,6 +65,12 @@ vi.mock("@oracle/api-client", () => {
         createFeedback: mocks.createFeedback,
         removeFeedback: mocks.removeFeedback,
         feedbackDigest: mocks.feedbackDigest,
+      },
+      procurementSearchWatches: {
+        list: mocks.listWatches,
+        update: mocks.updateWatch,
+        items: mocks.watchItems,
+        reviewItems: mocks.reviewWatchItems,
       },
       dossiers: { list: mocks.dossiersList },
       dossierProcurement: {
@@ -131,6 +141,8 @@ describe("UI de contratación pública", () => {
     mocks.tenders.mockResolvedValue(tendersResponse);
     mocks.searches.mockResolvedValue({ items: [] });
     mocks.listSearchProfiles.mockResolvedValue({ items: [] });
+    mocks.listWatches.mockResolvedValue({ items: [] });
+    mocks.watchItems.mockResolvedValue({ items: [] });
     mocks.listFeedback.mockResolvedValue({ items: [] });
     mocks.feedbackDigest.mockResolvedValue({
       profile_id: "profile-1",
@@ -551,6 +563,26 @@ describe("UI de contratación pública", () => {
         },
       ],
     });
+    mocks.listWatches.mockResolvedValue({
+      items: [
+        {
+          id: "watch-1",
+          profile_id: "profile-1",
+          tender_search_id: "search-wizard-1",
+          name: "Emergencias activas",
+          enabled: false,
+          notifications_enabled: false,
+          cadence_seconds: 900,
+          new_count: 2,
+          last_success_at: null,
+          last_attempt_at: null,
+          last_error_code: null,
+          last_error_message: null,
+          created_at: "2026-07-23T20:00:00Z",
+          updated_at: "2026-07-23T20:00:00Z",
+        },
+      ],
+    });
 
     render(<ProcurementWorkspace />);
 
@@ -558,6 +590,11 @@ describe("UI de contratación pública", () => {
     const card = searchName.closest("article");
     expect(card).not.toBeNull();
     expect(within(card as HTMLElement).getByText("v4")).toBeInTheDocument();
+    expect(
+      within(card as HTMLElement).getByRole("button", {
+        name: "Activar vigilancia y avisos",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("registra feedback neutro sobre resultados correlacionados y permite deshacerlo", async () => {

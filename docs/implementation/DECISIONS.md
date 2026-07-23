@@ -1239,7 +1239,7 @@ deberá versionarse un flujo de copia/materialización separado.
   registrar el resto como estado de material. El gate de gold no se relaja: solo anotación humana y
   adjudicación pueden crear labels utilizables para precisión/recall.
 
-## D-073 — La novedad de una licitación es local, material y revisable
+## D-074 — La novedad de una licitación es local, material y revisable
 
 - **Estado:** accepted
 - **Fecha:** 2026-07-24

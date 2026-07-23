@@ -59,6 +59,11 @@ from opn_oracle.oracle.procurement_report import (
     process_procurement_document_report,
 )
 from opn_oracle.oracle.procurement_search_profiles import get_procurement_search_profile
+from opn_oracle.oracle.procurement_search_watch import (
+    ProcurementSearchWatchScanError,
+    purge_retired_procurement_search_watch_memory,
+    scan_procurement_search_watch,
+)
 from opn_oracle.oracle.summary import enqueue_summary_refresh, process_summary_refresh
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import (
@@ -363,6 +368,7 @@ def _stable_reset_token(job_id: uuid.UUID) -> str:
 HANDLERS: dict[str, Handler] = {
     "oracle.signal.sync_monitor": lambda payload, job: _sync_monitor(payload, job),
     "oracle.signal.triage": lambda payload, job: _triage_signal(payload, job),
+    "oracle.procurement_watch.scan": lambda payload, job: _scan_procurement_watch(payload, job),
     "oracle.memory.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
     "oracle.dossier_summary.refresh": lambda payload, job: _refresh_dossier_summary(payload, job),
     "oracle.meeting_briefing.refresh": lambda payload, job: _refresh_meeting_briefing(payload, job),
@@ -662,6 +668,19 @@ def _sync_monitor(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]
     return sync_monitor(monitor, job_id=job.id)
 
 
+def _scan_procurement_watch(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        watch_id = uuid.UUID(str(payload["watch_id"]))
+    except (KeyError, ValueError):
+        raise PermanentJobError("Vigilancia de licitaciones no válida.") from None
+    try:
+        return scan_procurement_search_watch(db.session(), watch_id, job_id=job.id)
+    except ProcurementSearchWatchScanError as error:
+        if error.retryable:
+            raise RetriableJobError(str(error)) from error
+        raise PermanentJobError(str(error)) from error
+
+
 def _weekly_digest(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     del job
     timezone = str(payload.get("timezone", ""))
@@ -959,6 +978,7 @@ def _durable_task(name: str) -> Any:
 
 signal_sync_monitor = _durable_task("oracle.signal.sync_monitor")
 signal_triage = _durable_task("oracle.signal.triage")
+procurement_watch_scan = _durable_task("oracle.procurement_watch.scan")
 memory_refresh = _durable_task("oracle.memory.refresh")
 dossier_summary_refresh = _durable_task("oracle.dossier_summary.refresh")
 meeting_briefing_refresh = _durable_task("oracle.meeting_briefing.refresh")
@@ -1064,6 +1084,16 @@ def cleanup_tokens() -> int:
                 + int(cast(Any, invitations).rowcount)
                 + purge_expired_exports(now=datetime.now(UTC))
             )
+        db.session.remove()
+    return total
+
+
+@shared_task(name="maintenance.procurement_watch_retention")
+def procurement_watch_retention() -> int:
+    total = 0
+    for tenant_id in _all_tenant_ids():
+        with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=None)):
+            total += purge_retired_procurement_search_watch_memory(db.session())
         db.session.remove()
     return total
 

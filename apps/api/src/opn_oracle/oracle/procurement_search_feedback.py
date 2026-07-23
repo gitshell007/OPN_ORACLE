@@ -326,6 +326,13 @@ def register_procurement_search_feedback(
     )
     session.add(feedback)
     session.flush()
+    # El feedback es una acción humana explícita sobre el resultado: si la
+    # vigilancia ya lo conoce, deja de contar como novedad sin esperar al
+    # siguiente barrido. No crea filas ni llama a Signal/IA si aún no existe
+    # memoria de vistos para este perfil.
+    from opn_oracle.oracle.procurement_search_watch import mark_feedback_folder_seen
+
+    mark_feedback_folder_seen(session, profile.id, folder_id, actor_id=actor_id)
     append_audit_event(
         session,
         action="procurement.search_feedback.register",

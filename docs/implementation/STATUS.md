@@ -86,20 +86,28 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - Smoke con Signal real no verificado en local: la configuración de ejemplo mantiene
   `SIGNAL_AVANZA_MODE=mock` y `ORACLE_AI_MODE=disabled`; el E2E usa mocks contractuales.
 
-## Prompt 83 · vigilancia incremental y memoria de vistos (en curso)
+## Prompt 83 · vigilancia incremental y memoria de vistos (completado)
 
 - **[Solo Oracle · API + UX]** Implementada la memoria RLS por vigilancia guardada y `folder_id`:
   `first_seen_at`, revisión humana, snapshot y hash SHA-256 material. La huella ignora
   explícitamente `feed_updated_at` y compara título, objeto, comprador, importe, plazo, estado y
   CPV; la primera aparición o un cambio material reabre el ítem.
 - Cada vigilancia se crea inactiva, se activa con aviso explícito y reutiliza `JobSchedule`/beat y
-  la cola `signals` cada 15 minutos (cuatro páginas de 200, sin cursor ni orden fingidos). Un ciclo
-  idéntico no notifica; un error preserva el último éxito y se propaga como retryable o permanente.
-  Las notificaciones siguen preferencias existentes y se agrupan por vigilancia/ciclo.
+  la cola `signals` con frecuencia elegible de 15 minutos, una hora o un día (cuatro páginas de
+  200, sin cursor ni orden fingidos). Un ciclo idéntico no notifica; un error preserva el último
+  éxito y se propaga como retryable o permanente. Las notificaciones siguen preferencias existentes
+  y se agrupan por vigilancia/ciclo.
 - Vector muestra el contador, último éxito/error, badges `Nuevo`/`Cambió` y revisión individual o
   masiva con deshacer. El feedback marca el ítem como visto; borrar la búsqueda pausa la vigilancia
-  y la memoria se retiene 90 días antes de purgarse. Pendientes de ejecutar los gates completos y
-  el smoke real de Signal antes de marcar el prompt cerrado.
+  y la memoria se retiene 90 días antes de purgarse.
+- Gates: Ruff format/check y mypy correctos; suite backend integrada limpia 693/693 con
+  PostgreSQL/Redis/Celery y 84,71 % de cobertura; TypeScript correcto; Vitest completo 41
+  ficheros/218 tests; build Next correcto; Playwright del wizard desktop+móvil 2/2 con activación
+  de vigilancia, novedad, feedback, replanificación y aceptación v2. El lint conserva únicamente
+  el aviso preexistente de TanStack Table fuera de este carril.
+- Smoke Signal real no verificado: local permanece con `SIGNAL_AVANZA_MODE=mock` y
+  `ORACLE_AI_MODE=disabled`; el E2E utiliza contratos mock. Sigue pendiente registrar
+  `tender_search_wizard` en Signal si producción usa `AI_MODE=signal`.
 
 ## Prompt 81 · deuda visible antes del feedback (completado)
 

@@ -1809,6 +1809,34 @@ export interface ProcurementSearchFeedbackDigest {
   };
 }
 
+export interface ProcurementSearchWatch {
+  id: string;
+  profile_id: string;
+  tender_search_id: string;
+  name: string;
+  enabled: boolean;
+  notifications_enabled: boolean;
+  cadence_seconds: number;
+  new_count: number;
+  last_success_at: string | null;
+  last_attempt_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProcurementSearchWatchItem {
+  id: string;
+  folder_id: string;
+  snapshot: Record<string, unknown>;
+  state: "new" | "changed" | "reviewed";
+  changed_fields: string[];
+  first_seen_at: string;
+  last_changed_at: string;
+  reviewed_at: string | null;
+}
+
 export interface TenderSearchPreviewChip {
   kind: "term" | "cpv";
   value: string;
@@ -2111,6 +2139,39 @@ const procurementSearchProfiles = {
     ),
 };
 
+const procurementSearchWatches = {
+  list: () =>
+    request<{ items: ProcurementSearchWatch[] }>(
+      "/api/v1/procurement-search-watches",
+      { retry: false },
+    ),
+  update: (
+    watchId: string,
+    input: {
+      enabled: boolean;
+      notifications_enabled: boolean;
+      cadence_seconds?: number | null;
+    },
+  ) =>
+    request<ProcurementSearchWatch>(
+      `/api/v1/procurement-search-watches/${encodeURIComponent(watchId)}`,
+      { method: "PATCH", body: input },
+    ),
+  items: (watchId: string) =>
+    request<{ items: ProcurementSearchWatchItem[] }>(
+      `/api/v1/procurement-search-watches/${encodeURIComponent(watchId)}/items`,
+      { retry: false },
+    ),
+  reviewItems: (
+    watchId: string,
+    input: { folder_ids: string[]; reviewed: boolean },
+  ) =>
+    request<{ items: ProcurementSearchWatchItem[] }>(
+      `/api/v1/procurement-search-watches/${encodeURIComponent(watchId)}/items/reviewed`,
+      { method: "POST", body: input },
+    ),
+};
+
 const dossierProcurement = {
   list: (dossierId: string) =>
     request<DossierProcurementListResponse>(
@@ -2339,6 +2400,7 @@ export const api = {
   procurement,
   tenderSearchWizard,
   procurementSearchProfiles,
+  procurementSearchWatches,
   dossierProcurement,
   decisions,
   documents,

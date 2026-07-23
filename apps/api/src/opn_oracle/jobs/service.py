@@ -21,6 +21,7 @@ from opn_oracle.tenants.context import require_tenant_id
 TASK_QUEUES = {
     "oracle.signal.sync_monitor": "signals",
     "oracle.signal.triage": "signals",
+    "oracle.procurement_watch.scan": "signals",
     "oracle.memory.refresh": "ai",
     "oracle.dossier_summary.refresh": "ai",
     "oracle.meeting_briefing.refresh": "ai",

@@ -6494,6 +6494,29 @@
         ],
         "type": "object"
       },
+      "ReviewWatchItems": {
+        "additionalProperties": false,
+        "properties": {
+          "folder_ids": {
+            "items": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "type": "array"
+          },
+          "reviewed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "folder_ids",
+          "reviewed"
+        ],
+        "type": "object"
+      },
       "RiskResource": {
         "additionalProperties": false,
         "properties": {
@@ -8430,6 +8453,33 @@
         ],
         "type": "object"
       },
+      "UpdateWatch": {
+        "additionalProperties": false,
+        "properties": {
+          "cadence_seconds": {
+            "default": null,
+            "enum": [
+              900,
+              3600,
+              86400,
+              null
+            ],
+            "nullable": true,
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "notifications_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "notifications_enabled"
+        ],
+        "type": "object"
+      },
       "UserListResponse": {
         "properties": {
           "items": {
@@ -8470,6 +8520,102 @@
           "email",
           "display_name",
           "status"
+        ],
+        "type": "object"
+      },
+      "WatchItems": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "WatchList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "WatchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cadence_seconds": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_attempt_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "last_error_code": {
+            "nullable": true,
+            "type": "string"
+          },
+          "last_error_message": {
+            "nullable": true,
+            "type": "string"
+          },
+          "last_success_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "new_count": {
+            "type": "integer"
+          },
+          "notifications_enabled": {
+            "type": "boolean"
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "tender_search_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cadence_seconds",
+          "created_at",
+          "enabled",
+          "id",
+          "name",
+          "new_count",
+          "notifications_enabled",
+          "profile_id",
+          "tender_search_id",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -33810,6 +33956,363 @@
         ]
       }
     },
+    "/api/v1/procurement-search-watches": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchList"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Watches List",
+        "tags": [
+          "Vigilancia incremental de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement-search-watches/{watch_id}": {
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Watches Update",
+        "tags": [
+          "Vigilancia incremental de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement-search-watches/{watch_id}/items": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchItems"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Watches Items",
+        "tags": [
+          "Vigilancia incremental de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement-search-watches/{watch_id}/items/reviewed": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewWatchItems"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchItems"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Watches Review Items",
+        "tags": [
+          "Vigilancia incremental de licitaciones"
+        ]
+      }
+    },
     "/api/v1/procurement/awards": {
       "get": {
         "parameters": [
@@ -42959,6 +43462,9 @@
     },
     {
       "name": "Feedback de b\u00fasquedas de licitaciones"
+    },
+    {
+      "name": "Vigilancia incremental de licitaciones"
     },
     {
       "name": "Signal_Webhooks"
