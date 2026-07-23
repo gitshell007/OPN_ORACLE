@@ -195,3 +195,32 @@ No puede afirmarse:
 3. Añadir OCR local para los cinco documentos sin texto.
 4. Completar A/B y adjudicación humana.
 5. Solo después congelar candidate+gold y calcular precisión/recall por celda.
+
+## 9. Seguimiento INV-04: chunking y merge candidato
+
+Se implementó `placsp-participation-chunk/v1` como unidad compacta por trozo de página y un merge
+determinista hacia `placsp-participation-candidate/v2`. Cada trozo valida `document_id`, SHA-256,
+`chunk_id`, página, cita literal única y presencia del nombre en la cita; el merge final se vuelve
+a validar contra páginas físicas. La caché incluye parámetros de inferencia.
+
+Smoke real acotado con qwen3.5:9b:
+
+| Medida | Resultado |
+|---|---:|
+| Objetos reutilizados | 130 |
+| Documentos parseados nativos | 125 |
+| Documentos con OCR pendiente | 5 |
+| Documentos elegibles | 111 |
+| Documentos ejecutados | 2 |
+| Trozos ejecutados | 12 |
+| Llamadas físicas | 13 |
+| Schema por trozo | 12/12 |
+| Validación estructural por trozo | 5/12 |
+| Merge final válido | 2/2 |
+| Candidatos fusionados citables | 13 |
+| Agotamientos de salida | 1 |
+| Mediana de llamada física | 21,9 s |
+
+El cambio es un `GO` metodológico para continuar con extracción candidata por chunks. Sigue siendo
+`NO-GO` para promoción, precisión/recall o afirmaciones sobre participantes hasta completar gold
+A/B y adjudicación humana.

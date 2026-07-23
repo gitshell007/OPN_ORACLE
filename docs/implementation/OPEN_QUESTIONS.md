@@ -85,17 +85,10 @@
   `ProcurementSearchProfile`. Preview y guardado no ejecutan IA; las vigilancias siguen siendo
   active-only. Capacidades y exclusiones son propiedad de este perfil; `profile_config` no las
   duplica. La replanificación con feedback sigue reservada a una revisión futura explícita.
-- **Prompt 80 · deuda de contrato visible en UI:** `ComparableProfileResponse` no expone
-  `measured_at`; hasta que lo haga, Oracle solo muestra la ventana observada y edad de caché.
-  Los 422 de aceptación no garantizan errores estructurados por ruta; Oracle los pinta junto al
-  campo solo cuando `Problem.errors` lo permite y usa un banner accesible en otro caso.
-- **Prompt 80 · taxonomía CPV:** la taxonomía local valida códigos en backend, pero falta un
-  endpoint de autocomplete para que la UI añada de forma segura un CPV arbitrario con etiqueta
-  oficial. El wizard permite retirar/recuperar CPV medidos y no inventa etiquetas.
-- **Prompt 80 · continuidad entre sesiones:** el último artefacto no identifica de forma inequívoca
-  qué `ProcurementSearchProfile` anterior debe versionar cuando existen varios perfiles. La sesión
-  actual versiona el perfil que acaba de aceptar; reabrir propone continuar el artefacto, pero no
-  selecciona silenciosamente un perfil persistido.
+- **Resuelto en Prompt 81, Solo Oracle:** el agregado comparable expone `measured_at` estable bajo
+  caché; la taxonomía CPV se consulta mediante un autocomplete local acotado; los 422 de plan,
+  aceptación, preview y guardado siempre incluyen rutas de campo; y el último artefacto devuelve
+  su aceptación exacta (perfil, versión y fecha) sin inferencia de cliente.
 - **Pendiente Signal:** registrar/autorizar `tender_search_wizard` para el consumer productivo si
   Oracle usa `AI_MODE=signal`. El código funciona también en disabled/mock/ollama, pero Oracle no
   modifica unilateralmente el catálogo ni la allowlist gobernada de Signal.
@@ -218,10 +211,11 @@
   referencias. La repetición autorizada recuperó 130 PDF/DOCX, parseó texto nativo en 125 y dejó
   cinco para OCR; ClamAV ya no es bloqueo del benchmark interno por D-065. Quedan cuatro errores
   HTTP, seis respuestas desconocidas y tres ZIP fuera del parser actual.
-- Pendiente gold INV-03: las hojas A=96/B=24 existen vacías, pero siguen 0 completadas y 0
-  adjudicadas. `qwen3.5:9b` solo validó 2/4 schemas sintéticos; sobre diez documentos reales validó
-  6/10 schemas, 5/10 estructuras y cero aserciones. El chunking/merge, extractor, reviewer
-  bloqueante y promoción automática continúan en `NO-GO`.
+- Pendiente gold INV-03/04: las hojas A=96/B=24 existen vacías, pero siguen 0 completadas y 0
+  adjudicadas. `qwen3.5:9b` por documento completo validó 6/10 schemas, 5/10 estructuras y cero
+  aserciones. El chunking/merge ya tiene smoke real candidato con 12/12 schemas, 5/12 chunks
+  estructurales y 2/2 merges finales válidos sobre dos documentos, pero extractor, reviewer
+  bloqueante, promoción automática y métricas precision/recall continúan en `NO-GO` hasta gold.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y

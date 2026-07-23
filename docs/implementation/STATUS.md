@@ -4,6 +4,51 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 81 · deuda visible antes del feedback (completado)
+
+- **[Solo Oracle · contrato + UX]** El perfil comparable declara `measured_at`, fijado al
+  construir el agregado y estable durante el TTL tenant-scoped de seis horas. El wizard presenta
+  su edad en vez de fingir que la medición es actual.
+- La taxonomía CPV offline queda disponible mediante sugerencias acotadas de Oracle: prefijo de
+  código o subcadena de etiqueta con folding de acentos, mínimo dos caracteres, máximo veinte
+  resultados, caché privada de una hora y límite de 60/minuto. El navegador no recibe el JSON
+  completo. Los chips aceptan texto libre, etiquetan códigos oficiales y hacen visibles los
+  descartes inválidos.
+- Las cuatro superficies de validación —plan, aceptación, preview y guardado— devuelven 422 con
+  `errors` por ruta. El wizard enlaza ese contrato directamente con el campo o chip, sin inferir
+  nada de `detail`.
+- `GET /api/v1/ai/tender-search-wizard/latest` devuelve la aceptación del artefacto exacto
+  (`profile_id`, versión y fecha), siempre dentro del tenant. Al reabrir, el wizard distingue el
+  plan ya aceptado y ofrece revisarlo o regenerar expresamente; no ejecuta IA por esa lectura.
+- Sin migración, variables nuevas, Signal, feedback, replanificación ni diff visual de planes.
+
+## ORACLE-EXP-INV-04 · chunking y merge candidato
+
+- Añadido contrato compacto `placsp-participation-chunk/v1`: Ollama ve un trozo de una página, no
+  el documento completo. Cada salida se valida contra `document_id`, SHA-256, `chunk_id`, página,
+  cita literal única y nombre/identificador/lote dentro de la cita. El documento sigue siendo dato,
+  no instrucciones.
+- El merge vuelve a `placsp-participation-candidate/v2` de forma determinista en Python:
+  deduplicación por nombre normalizado, identificador, lote y rol; citas ordenadas; `needs_human_review=true`;
+  y revalidación final contra páginas físicas. El modelo no fusiona identidades ni decide promoción.
+- La huella de caché de `candidate/v2` y `chunk/v1` incluye ya parámetros de inferencia
+  (`num_ctx`, tokens de salida y tamaño de chunk), además de hashes de página/trozo, modelo y prompt.
+- Smoke real acotado con qwen3.5:9b sobre documentos ya recuperados y autorizados internamente:
+  130 objetos reutilizados, 125 parseados nativos, cinco OCR; 111 elegibles. Sobre 2 documentos,
+  12 trozos ejecutados, 13 llamadas físicas, 12/12 schema, 5/12 validación estructural de chunk,
+  2/2 merges finales válidos, 13 candidatos citables, un único agotamiento de salida y mediana
+  21,9 s por llamada. Roles agregados: 11 `unknown` y 2 `non_awarded_bidder`.
+- Resultado: `GO` metodológico para extracción por chunk y merge candidato; `NO-GO` para
+  promoción, precisión/recall o conclusiones de participantes hasta gold A/B adjudicado. Los
+  candidatos reales permanecen privados bajo `.work` e ignorados por Git.
+- Gates: Ruff check y format-check correctos sobre los tres ficheros tocados;
+  `tests/test_investigation_documents.py` 37/37 con `--no-cov`; mypy correcto sobre 118 módulos
+  productivos; suite completa con PostgreSQL/Redis/Celery reales tras migrar la base local de test
+  a `0022`: 670 pruebas y 84,68 % de cobertura.
+- Mutaciones verificadas: cambiar `max_output_tokens` en fingerprint invalida caché; el merge
+  duplicado conserva una sola aserción citable; el validador de chunk rechaza una cita fuera del
+  trozo o sin nombre literal.
+
 ## Prompt 80 · UI del wizard de búsqueda (completado)
 
 - **[Solo Oracle · frontend]** `/app/procurement` incorpora el wizard gobernado de dos pasos sobre

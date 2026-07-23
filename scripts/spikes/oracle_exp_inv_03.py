@@ -18,6 +18,7 @@ from investigation_documents import (
     MAX_REQUESTS,
     MAX_TOTAL_BYTES,
     PROTOCOL_VERSION,
+    ParticipationChunkOutput,
     ParticipationCandidateOutput,
     acquisition_result_json,
     acquisition_summary,
@@ -26,11 +27,16 @@ from investigation_documents import (
     candidate_fingerprint,
     candidate_page_hashes,
     candidate_prompt_contract,
+    chunk_candidate_fingerprint,
+    chunk_candidate_prompt_contract,
+    merge_chunk_candidates,
     parse_authorized_acquisition,
     parse_result_json,
     select_candidate_pages,
     select_double_blind_units,
     source_reference_id,
+    split_candidate_pages_into_chunks,
+    validate_chunk_candidate_against_chunk,
     validate_candidate_against_pages,
 )
 from investigation_harness import (
@@ -178,6 +184,7 @@ def run_synthetic_ollama(
             document_sha256=document_sha,
             page_hashes=candidate_page_hashes(page_map),
             model_manifest=model_manifest,
+            inference_params={"max_output_tokens": 1_200, "num_ctx": num_ctx},
         )
         cache_path = work_dir / "ollama_synthetic" / f"{case['case_id']}.json"
         cached: JsonObject | None = None
@@ -304,6 +311,7 @@ def run_real_document_ollama(
             document_sha256=document_sha,
             page_hashes=page_hashes,
             model_manifest=model_manifest,
+            inference_params={"max_output_tokens": 1_600, "num_ctx": num_ctx},
         )
         cache_path = work_dir / "ollama_real_candidates" / f"{source_ref_id}.json"
         cached: JsonObject | None = None
@@ -410,6 +418,221 @@ def run_real_document_ollama(
         "precision": "not_available_pending_gold",
         "recall": "not_available_pending_gold",
         "release_status": "candidate_only_human_review_required",
+        "results": results,
+    }
+
+
+def run_real_document_chunked_ollama(
+    *,
+    parsed_documents: list[JsonObject],
+    work_dir: Path,
+    base_url: str,
+    model: str,
+    timeout_seconds: float,
+    max_calls: int,
+    num_ctx: int,
+    max_documents: int,
+    max_chunks: int,
+    chunk_characters: int,
+    chunk_output_tokens: int,
+) -> JsonObject:
+    model_manifest = inspect_ollama_model(
+        base_url=base_url,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+    budget = CallBudget(maximum=max_calls)
+    client = OllamaClient(
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        budget=budget,
+    )
+    prompt = chunk_candidate_prompt_contract()
+    eligible = []
+    for document in parsed_documents:
+        if document.get("status") != "parsed_native":
+            continue
+        pages = select_candidate_pages(document.get("blocks", []))
+        chunks = split_candidate_pages_into_chunks(
+            pages,
+            max_chunk_characters=chunk_characters,
+        )
+        if chunks:
+            eligible.append((str(document["source_ref_id"]), document, pages, chunks))
+    eligible.sort(key=lambda row: hashlib.sha256(row[0].encode()).hexdigest())
+    inference_params = {
+        "max_output_tokens": chunk_output_tokens,
+        "num_ctx": num_ctx,
+        "chunk_characters": chunk_characters,
+    }
+    results = []
+    total_chunks_seen = 0
+    total_chunks_selected = 0
+    for source_ref_id, document, pages, chunks in eligible[:max_documents]:
+        document_sha = str(document["document_sha256"])
+        valid_chunk_outputs: list[ParticipationChunkOutput] = []
+        chunk_results = []
+        for chunk in chunks:
+            if total_chunks_selected >= max_chunks:
+                break
+            total_chunks_selected += 1
+            fingerprint = chunk_candidate_fingerprint(
+                document_sha256=document_sha,
+                chunk=chunk,
+                model_manifest=model_manifest,
+                inference_params=inference_params,
+            )
+            cache_path = (
+                work_dir
+                / "ollama_real_chunk_candidates"
+                / source_ref_id
+                / f"{chunk['chunk_id']}.json"
+            )
+            cached: JsonObject | None = None
+            if cache_path.exists():
+                candidate = json.loads(cache_path.read_text(encoding="utf-8"))
+                if candidate.get("fingerprint") == fingerprint:
+                    cached = candidate
+            reused = cached is not None
+            if cached is None:
+                context = {
+                    "document_id": source_ref_id,
+                    "document_sha256": document_sha,
+                    "authorization": document.get("authorization"),
+                    "chunk": chunk,
+                }
+                call = ollama_structured_call(
+                    client=client,
+                    model=model,
+                    schema=ParticipationChunkOutput,
+                    system_prompt=str(prompt["system"]),
+                    task_prompt=str(prompt["task"]),
+                    context=context,
+                    max_output_tokens=chunk_output_tokens,
+                    num_ctx=num_ctx,
+                )
+                cached = {"fingerprint": fingerprint, "call": call}
+                _write_private_json(cache_path, cached)
+            call = cached["call"]
+            raw_output = call.get("output")
+            output = (
+                ParticipationChunkOutput.model_validate(raw_output)
+                if isinstance(raw_output, dict)
+                else None
+            )
+            structural = (
+                validate_chunk_candidate_against_chunk(
+                    output,
+                    expected_document_id=source_ref_id,
+                    expected_document_sha256=document_sha,
+                    chunk=chunk,
+                )
+                if output is not None
+                else {"valid": False, "errors": ["schema_invalid"]}
+            )
+            if output is not None and structural["valid"]:
+                valid_chunk_outputs.append(output)
+            chunk_results.append(
+                {
+                    "chunk_id": chunk["chunk_id"],
+                    "page": chunk["page"],
+                    "reused": reused,
+                    "schema_pass": output is not None,
+                    "structural": structural,
+                    "assertions": len(output.assertions) if output is not None else 0,
+                    "repair_used": bool(call.get("repair_used")),
+                    "attempts": len(call.get("attempts", [])),
+                    "attempt_metrics": [
+                        attempt.get("metrics", {})
+                        for attempt in call.get("attempts", [])
+                        if isinstance(attempt, dict)
+                    ],
+                }
+            )
+        total_chunks_seen += len(chunks)
+        merged = merge_chunk_candidates(
+            document_id=source_ref_id,
+            document_sha256=document_sha,
+            pages=pages,
+            chunks=valid_chunk_outputs,
+        )
+        merged_structural = validate_candidate_against_pages(
+            merged,
+            expected_document_id=source_ref_id,
+            expected_document_sha256=document_sha,
+            pages=pages,
+        )
+        roles = [assertion.role for assertion in merged.assertions]
+        results.append(
+            {
+                "source_ref_id": source_ref_id,
+                "pages_selected": len(pages),
+                "chunks_available": len(chunks),
+                "chunks_run": len(chunk_results),
+                "chunks_schema_pass": sum(
+                    result["schema_pass"] for result in chunk_results
+                ),
+                "chunks_structural_pass": sum(
+                    result["structural"]["valid"] for result in chunk_results
+                ),
+                "merged_structural": merged_structural,
+                "merged_assertions": len(merged.assertions),
+                "roles": roles,
+                "chunks": chunk_results,
+            }
+        )
+        if total_chunks_selected >= max_chunks:
+            break
+    physical_calls = [
+        metrics
+        for result in results
+        for chunk in result["chunks"]
+        if not chunk["reused"]
+        for metrics in chunk["attempt_metrics"]
+    ]
+    wall_values = [int(metrics.get("wall_ms") or 0) for metrics in physical_calls]
+    role_counts: dict[str, int] = {}
+    for result in results:
+        for role in result["roles"]:
+            role_counts[role] = role_counts.get(role, 0) + 1
+    return {
+        "model": model_manifest,
+        "eligible_documents": len(eligible),
+        "selected_documents": len(results),
+        "chunks_available_in_selected_documents": total_chunks_seen,
+        "chunks_run": total_chunks_selected,
+        "call_budget": {"maximum": max_calls, "used": budget.used},
+        "executed_chunks": sum(
+            not chunk["reused"] for result in results for chunk in result["chunks"]
+        ),
+        "reused_chunks": sum(
+            chunk["reused"] for result in results for chunk in result["chunks"]
+        ),
+        "chunk_schema_pass": sum(result["chunks_schema_pass"] for result in results),
+        "chunk_structural_pass": sum(
+            result["chunks_structural_pass"] for result in results
+        ),
+        "merged_structural_pass": sum(
+            result["merged_structural"]["valid"] for result in results
+        ),
+        "merged_assertions": sum(result["merged_assertions"] for result in results),
+        "role_counts": dict(sorted(role_counts.items())),
+        "repairs": sum(
+            chunk["repair_used"] for result in results for chunk in result["chunks"]
+        ),
+        "physical_calls": len(physical_calls),
+        "output_limit_hits": sum(
+            metrics.get("output_tokens") == chunk_output_tokens
+            for metrics in physical_calls
+        ),
+        "wall_ms": {
+            "total": sum(wall_values),
+            "median": round(statistics.median(wall_values)) if wall_values else 0,
+            "max": max(wall_values, default=0),
+        },
+        "precision": "not_available_pending_gold",
+        "recall": "not_available_pending_gold",
+        "release_status": "chunked_candidate_only_human_review_required",
         "results": results,
     }
 
@@ -529,6 +752,23 @@ def execute(args: argparse.Namespace) -> JsonObject:
         if args.real_ollama
         else {"status": "not_run"}
     )
+    chunked_ollama = (
+        run_real_document_chunked_ollama(
+            parsed_documents=parsed_documents,
+            work_dir=work_dir,
+            base_url=args.ollama_url,
+            model=args.model,
+            timeout_seconds=args.ollama_timeout,
+            max_calls=args.max_real_calls,
+            num_ctx=args.num_ctx,
+            max_documents=args.max_real_documents,
+            max_chunks=args.max_real_chunks,
+            chunk_characters=args.chunk_characters,
+            chunk_output_tokens=args.chunk_output_tokens,
+        )
+        if args.real_ollama_chunked
+        else {"status": "not_run"}
+    )
     parsed_native = parse_status_counts.get("parsed_native", 0)
     ocr_required = parse_status_counts.get("ocr_required", 0)
     if args.allow_unscanned_internal and parsed_native:
@@ -558,6 +798,7 @@ def execute(args: argparse.Namespace) -> JsonObject:
             "ocr_required": ocr_required,
         },
         "ollama_real_documents": real_ollama,
+        "ollama_real_document_chunks": chunked_ollama,
         "ollama_synthetic_contract": synthetic_ollama,
         "gold": {
             "annotator_a_completed": 0,
@@ -583,8 +824,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-document-bytes", type=int, default=MAX_DOCUMENT_BYTES)
     parser.add_argument("--allow-unscanned-internal", action="store_true")
     parser.add_argument("--real-ollama", action="store_true")
+    parser.add_argument("--real-ollama-chunked", action="store_true")
     parser.add_argument("--max-real-documents", type=int, default=10)
     parser.add_argument("--max-real-calls", type=int, default=24)
+    parser.add_argument("--max-real-chunks", type=int, default=36)
+    parser.add_argument("--chunk-characters", type=int, default=3_000)
+    parser.add_argument("--chunk-output-tokens", type=int, default=900)
     parser.add_argument("--synthetic-ollama", action="store_true")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     parser.add_argument("--model", default="qwen3.5:9b")

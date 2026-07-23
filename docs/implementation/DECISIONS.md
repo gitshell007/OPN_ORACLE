@@ -1129,3 +1129,35 @@ deberá versionarse un flujo de copia/materialización separado.
   búsquedas. El preview nunca suma sondas solapadas ni reintenta un 429. La UI falla de forma
   honesta ante carencias del contrato: no inventa fecha de medición, label de CPV arbitrario,
   campo de un 422 no estructurado, histórico exclusivo ni vigilancia fuera de `active`.
+
+## D-068 — Frescura, CPV y aceptación son contratos recuperables
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** el agregado comparable se cachea, la taxonomía CPV es local y el perfil aceptado
+  ya referencia un artefacto, pero la UI no podía expresar de cuándo era una medición, añadir un
+  CPV oficial sin cargar todo el vocabulario, ni saber al reabrir si el último artefacto ya era
+  memoria aceptada.
+- **Decisión:** Oracle fija `measured_at` al construir el agregado, sirve sugerencias CPV locales
+  limitadas por prefijo o etiqueta plegada y obliga a que todo 422 de las cuatro fronteras incluya
+  rutas de campo. El endpoint `latest` retorna la aceptación del artefacto exacto con perfil,
+  versión y fecha bajo tenant scope; el cliente no correlaciona hashes ni genera por esa lectura.
+- **Consecuencias:** el usuario puede evaluar la frescura, corregir un chip concreto y continuar
+  una aceptación real sin automatismos. No se introduce feedback, replanificación, análisis por
+  licitación ni una visualización de diff; esas decisiones continúan en P2.
+
+## D-067 — INV documental extrae por chunk y fusiona fuera del modelo
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** INV-03 demostró que pedir un candidato por documento completo a `qwen3.5:9b`
+  producía truncados y cero aserciones validadas, incluso en documentos donde el diagnóstico manual
+  observó listas nominales. Aumentar el presupuesto sin cambiar la unidad de trabajo mezcla coste,
+  latencia y errores de estructura.
+- **Decisión:** la extracción documental real pasa por `placsp-participation-chunk/v1`, un contrato
+  compacto por trozo de página. Cada trozo se valida localmente y solo los trozos estructuralmente
+  válidos alimentan un merge determinista en Python hacia `placsp-participation-candidate/v2`. Los
+  fingerprints incluyen parámetros de inferencia para no reutilizar cachés incompatibles.
+- **Consecuencias:** Oracle puede medir el extractor candidato sin ceder al modelo deduplicación,
+  completitud, identidad ni promoción. Los resultados reales siguen privados, candidatos y sujetos
+  a revisión humana; precisión/recall permanecen cerrados hasta adjudicar gold A/B.

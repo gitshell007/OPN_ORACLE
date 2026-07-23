@@ -17,22 +17,28 @@ if str(SPIKE_DIR) not in sys.path:
     sys.path.insert(0, str(SPIKE_DIR))
 
 from investigation_documents import (  # noqa: E402
+    CANDIDATE_CHUNK_SCHEMA_VERSION,
     CANDIDATE_SCHEMA_VERSION,
     AcquisitionResult,
     ParticipationCandidateOutput,
+    ParticipationChunkOutput,
     acquire_reference,
     build_blinded_annotation_packs,
     candidate_fingerprint,
     candidate_page_hashes,
+    chunk_candidate_fingerprint,
     curl_command,
     curl_environment,
     load_product_parser_module,
+    merge_chunk_candidates,
     parse_authorized_acquisition,
     select_candidate_pages,
     select_double_blind_units,
     sniff_document,
     source_reference_id,
+    split_candidate_pages_into_chunks,
     validate_candidate_against_pages,
+    validate_chunk_candidate_against_chunk,
     validate_reference_url,
 )
 
@@ -422,6 +428,23 @@ def test_candidate_fingerprint_cannot_depend_on_gold() -> None:
     assert first == second
 
 
+def test_candidate_fingerprint_includes_inference_parameters() -> None:
+    page_hashes = candidate_page_hashes({1: "fixture"})
+    first = candidate_fingerprint(
+        document_sha256="a" * 64,
+        page_hashes=page_hashes,
+        model_manifest={"model": "fixture", "digest": "one"},
+        inference_params={"num_ctx": 4096, "max_output_tokens": 800},
+    )
+    second = candidate_fingerprint(
+        document_sha256="a" * 64,
+        page_hashes=page_hashes,
+        model_manifest={"model": "fixture", "digest": "one"},
+        inference_params={"num_ctx": 4096, "max_output_tokens": 1600},
+    )
+    assert first != second
+
+
 def test_product_parser_load_does_not_cross_runtime_boundary() -> None:
     module, provenance = load_product_parser_module()
     assert module.PARSER_VERSION == "documents-parser-v1"
@@ -507,3 +530,130 @@ def test_candidate_page_selection_is_bounded_and_prefers_participation() -> None
     selected = select_candidate_pages(blocks, max_pages=2, max_characters=1_000)
     assert list(selected) == [1, 3]
     assert "admite" in selected[3]
+
+
+def test_candidate_chunks_are_bounded_per_physical_page() -> None:
+    pages = {2: "Párrafo inicial.\n\n" + ("licitador ALFA " * 120)}
+    chunks = split_candidate_pages_into_chunks(
+        pages,
+        max_chunk_characters=300,
+        max_chunks_per_page=3,
+    )
+    assert [chunk["chunk_id"] for chunk in chunks] == [
+        "p0002-c01",
+        "p0002-c02",
+        "p0002-c03",
+    ]
+    assert {chunk["page"] for chunk in chunks} == {2}
+    assert all(len(chunk["text"]) <= 300 for chunk in chunks)
+    assert all(len(str(chunk["sha256"])) == 64 for chunk in chunks)
+
+
+def _chunk_output(
+    *,
+    chunk_id: str,
+    page: int,
+    quote: str,
+    literal_name: str = "ALFA SINTÉTICA, S.L.",
+    role: str = "admitted_bidder",
+) -> ParticipationChunkOutput:
+    return ParticipationChunkOutput.model_validate(
+        {
+            "schema_version": CANDIDATE_CHUNK_SCHEMA_VERSION,
+            "document_id": "doc-1",
+            "document_sha256": "a" * 64,
+            "chunk_id": chunk_id,
+            "page": page,
+            "assessment": {
+                "participant_content": "present",
+                "list_completeness": "partial",
+            },
+            "assertions": [
+                {
+                    "candidate_ordinal": 1,
+                    "literal_name": literal_name,
+                    "identifier_literal": None,
+                    "lot_literal": None,
+                    "role": role,
+                    "ute_status": "unknown",
+                    "quote": quote,
+                    "ambiguity_reasons": ["fragmento"],
+                    "needs_human_review": True,
+                }
+            ],
+            "limitations": ["chunk"],
+        }
+    )
+
+
+def test_chunk_candidate_validation_and_merge_preserve_exact_citations() -> None:
+    quote = "Se admite la oferta de ALFA SINTÉTICA, S.L."
+    chunk = {
+        "chunk_id": "p0001-c01",
+        "page": 1,
+        "text": quote,
+        "sha256": hashlib.sha256(quote.encode()).hexdigest(),
+    }
+    output = _chunk_output(chunk_id="p0001-c01", page=1, quote=quote)
+    structural = validate_chunk_candidate_against_chunk(
+        output,
+        expected_document_id="doc-1",
+        expected_document_sha256="a" * 64,
+        chunk=chunk,
+    )
+    assert structural["valid"] is True
+    invalid = validate_chunk_candidate_against_chunk(
+        _chunk_output(
+            chunk_id="p0001-c01",
+            page=1,
+            quote=quote,
+            literal_name="BETA SINTÉTICA, S.L.",
+        ),
+        expected_document_id="doc-1",
+        expected_document_sha256="a" * 64,
+        chunk=chunk,
+    )
+    assert "name_not_in_quote" in invalid["errors"]
+    merged = merge_chunk_candidates(
+        document_id="doc-1",
+        document_sha256="a" * 64,
+        pages={1: quote},
+        chunks=[
+            output,
+            _chunk_output(chunk_id="p0001-c02", page=1, quote=quote),
+        ],
+    )
+    assert len(merged.assertions) == 1
+    assert merged.assertions[0].needs_human_review is True
+    assert merged.assertions[0].citations[0].quote == quote
+    final = validate_candidate_against_pages(
+        merged,
+        expected_document_id="doc-1",
+        expected_document_sha256="a" * 64,
+        pages={1: quote},
+    )
+    assert final["valid"] is True
+
+
+def test_chunk_fingerprint_changes_with_chunk_or_parameters() -> None:
+    chunk = {"chunk_id": "p0001-c01", "page": 1, "sha256": "b" * 64}
+    first = chunk_candidate_fingerprint(
+        document_sha256="a" * 64,
+        chunk=chunk,
+        model_manifest={"model": "fixture"},
+        inference_params={"num_ctx": 4096, "max_output_tokens": 800},
+    )
+    different_params = chunk_candidate_fingerprint(
+        document_sha256="a" * 64,
+        chunk=chunk,
+        model_manifest={"model": "fixture"},
+        inference_params={"num_ctx": 4096, "max_output_tokens": 900},
+    )
+    different_chunk = chunk_candidate_fingerprint(
+        document_sha256="a" * 64,
+        chunk=chunk | {"sha256": "c" * 64},
+        model_manifest={"model": "fixture"},
+        inference_params={"num_ctx": 4096, "max_output_tokens": 800},
+    )
+    assert first != different_params
+    assert first != different_chunk
