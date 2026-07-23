@@ -4,6 +4,15 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Tarjeta social de Oracle
+
+- La raíz declara metadata Open Graph y Twitter explícita con una imagen horizontal de 1200×630,
+  título único y URL canónica. El icono cuadrado queda reservado para favicon/PWA y deja de actuar
+  como vista previa accidental en WhatsApp.
+- El layout autenticado usa un título absoluto para evitar `OPN Oracle · OPN Oracle`. La tarjeta
+  social reutiliza el símbolo y los colores de Vector, conserva márgenes seguros y muestra el
+  propósito del producto antes que el logotipo.
+
 ## ORACLE-EXP-INV-02 · marcos oficiales y concordancia
 
 - Publicado el protocolo v1.1: las 96 PLACSP y 72 BORME se tratan como marcos/challenge sets, no

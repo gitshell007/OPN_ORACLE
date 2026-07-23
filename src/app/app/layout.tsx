@@ -4,7 +4,9 @@ import { AuthBoundary } from "@/components/auth/auth-boundary";
 import { VectorShell } from "@/components/concept-a/vector-shell";
 
 export const metadata: Metadata = {
-  title: "OPN Oracle",
+  title: {
+    absolute: "OPN Oracle",
+  },
   description: "Inteligencia estratégica trazable",
 };
 

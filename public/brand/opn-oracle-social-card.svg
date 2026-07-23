@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="background" x1="72" y1="32" x2="1140" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101D57"/>
+      <stop offset="1" stop-color="#07102F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(994 126) rotate(125) scale(470 510)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2844A9" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#101D57" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="78" y1="96" x2="655" y2="506" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0D48A"/>
+      <stop offset="1" stop-color="#C79A4B"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="25" flood-color="#020718" flood-opacity=".42"/>
+    </filter>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#FFFFFF" stroke-opacity=".035"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" rx="36" fill="url(#background)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#glow)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#grid)"/>
+
+  <g transform="translate(76 66)">
+    <circle cx="7" cy="9" r="7" fill="url(#gold)"/>
+    <text x="28" y="17" fill="#F0D48A" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" letter-spacing="3.2">OPN CONSULTORÍA</text>
+
+    <text x="0" y="140" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="700" letter-spacing="-2.2">OPN Oracle</text>
+    <rect x="0" y="170" width="88" height="5" rx="2.5" fill="url(#gold)"/>
+
+    <text x="0" y="242" fill="#F7F4EA" font-family="Arial, Helvetica, sans-serif" font-size="35" font-weight="600">Inteligencia estratégica</text>
+    <text x="0" y="287" fill="#F7F4EA" font-family="Arial, Helvetica, sans-serif" font-size="35" font-weight="600">trazable</text>
+
+    <text x="0" y="352" fill="#B8C3E2" font-family="Arial, Helvetica, sans-serif" font-size="23">
+      Señales, evidencias y relaciones convertidas
+    </text>
+    <text x="0" y="385" fill="#B8C3E2" font-family="Arial, Helvetica, sans-serif" font-size="23">
+      en decisiones y siguientes movimientos.
+    </text>
+
+    <g transform="translate(0 452)">
+      <rect width="338" height="54" rx="27" fill="#FFFFFF" fill-opacity=".07" stroke="#FFFFFF" stroke-opacity=".13"/>
+      <circle cx="28" cy="27" r="6" fill="#D7B968"/>
+      <text x="49" y="35" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600">oracle.opnconsultoria.com</text>
+    </g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="786" y="72" width="342" height="486" rx="38" fill="#FFFFFF" fill-opacity=".055" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="2"/>
+    <circle cx="957" cy="279" r="137" fill="#FFFFFF" fill-opacity=".045" stroke="#D8BB70" stroke-opacity=".42" stroke-width="2"/>
+    <image href="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB2aWV3Qm94PSIwIDAgMjQ2IDI2NCIgd2lkdGg9IjQ5MiIgaGVpZ2h0PSI1MjgiPgo8ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImRnIiB4MT0iMzUiIHkxPSIwIiB4Mj0iMjIwIiB5Mj0iMTgwIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMUMyRjhGIj48L3N0b3A+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMEMxNDQwIj48L3N0b3A+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgaWQ9ImxnIiB4MT0iMzAiIHkxPSIyNjAiIHgyPSIyMzAiIHkyPSIxMDUiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNGMEQ0OEEiPjwvc3RvcD48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNDNzlBNEIiPjwvc3RvcD48L2xpbmVhckdyYWRpZW50PjwvZGVmcz4KICA8cGF0aCBkPSJNMjAzLjI1LDc3LjAyTDIwMi4wOCw3Ni44NEwyMDIuMzIsNzYuMzJMMjAxLjUwLDc1LjE5TDE4OC40OCw2Mi4yNUwxNzEuNTcsNTAuMDFMMTY0LjI1LDQ2LjEyTDE1Ni4zNSw0Mi44NEwxMzguMjUsMzguMDdMMTI3Ljc5LDM3LjIxTDExOC40OSwzNy4xMEwxMDcuOTMsMzguMTlMOTguODIsMzkuODZMODUuNTAsNDQuMTVMNzYuNDcsNDguODVMNjguNDIsNTQuNTBMNjguNDAsNTUuMTRMNzAuMDQsNTYuMDZMNjkuOTMsNTcuMTFMNjYuNTksNTUuMTFMNjUuMzYsNTYuNjlMNjQuNzYsNTUuNzVMNjcuNTYsNTMuNzVMNjcuMzEsNTMuMDFMNjcuODcsNTIuMDBMNzcuNTYsMzkuNTZMOTYuMDQsMjEuMzVMMTE2LjIyLDguNTVMMTIyLjg2LDUuMTdMMTI2Ljk4LDQuMzdMMTMzLjk3LDQuMTdMMTQxLjIzLDYuODFMMTQ2LjgxLDEwLjYyTDE2MS41MywyMy4wMUwxNzUuMzMsMzYuNjFMMTkxLjQ2LDU1LjY3TDE5MS44Myw1Ni4zM0wxOTEuMjIsNTYuNTBMMTk1Ljc4LDYyLjAwTDIwMy43NSw3NC40MkwyMDQuMzIsNzUuOTFMMjAzLjYxLDc2Ljc3WiIgZmlsbD0idXJsKCNkZykiPjwvcGF0aD4KICA8cGF0aCBkPSJNNTMuNzksMTAxLjYwTDUyLjk0LDEwMS4zMUw1Mi42MywxMDAuMDlMNTMuMzIsOTUuNjZMNTkuNTIsNzguMDZMNjUuMzgsNjcuNjFMNjkuODYsNjEuMDBMNzIuNDYsNTguMTBMNzUuODYsNTUuNDBMODEuODcsNTMuODBMOTMuNzYsNTMuMDdMMTA1LjMzLDUzLjYxTDEwNy4zMyw1My44OUwxMDguNTAsNTQuNjdMMTEyLjk0LDU0LjY3TDEyMi4wOSw1Ni4xOUwxNDIuMjQsNjIuMDBMMTU3LjI2LDY3LjIxTDE2OC4yMyw3Mi4wNkwxNzAuMjEsNzMuNTNMMTY3LjIxLDc0LjAwTDE1My4yNSw3NC4xMUwxMzMuMjUsNzguMTJMMTI1LjU2LDgwLjk5TDExNi41MCw4NS4yMEwxMDUuNTgsOTIuOTdMMTAxLjI1LDk1LjAyTDk2LjUzLDk0LjYzTDg1LjMyLDkxLjIyTDc5LjczLDkwLjM5TDcyLjkxLDkwLjEwTDY0LjUwLDkxLjA5TDYxLjYzLDkyLjMxTDU4LjU0LDk0LjcyTDU0LjAwLDEwMS42MloiIGZpbGw9InVybCgjbGcpIj48L3BhdGg+CiAgPHBhdGggZD0iTTIyLjk4LDEwMS4wMUwyMC4zNywxMDEuMDBMMTguNTAsMTAwLjM4TDE0LjAyLDk2Ljg5TDExLjg3LDk0LjUwTDEwLjk2LDkxLjA1TDEwLjczLDg2LjUxTDExLjQyLDg0LjE1TDEzLjE1LDgxLjczTDIxLjUyLDc0LjI4TDM0LjI2LDY3LjE5TDUzLjM1LDU5LjgxTDY0LjA1LDU2Ljk5TDY0LjY5LDU3LjU3TDY0LjA0LDU5LjM5TDYxLjI1LDYyLjQ2TDU1LjM0LDczLjkxTDUwLjk4LDg3LjU2TDQ4LjgxLDkxLjc1TDQ1LjQ0LDkzLjQzTDM1LjUwLDk1LjExTDIzLjI1LDEwMS4wMFoiIGZpbGw9InVybCgjbGcpIj48L3BhdGg+CiAgPHBhdGggZD0iTTE4MC4yNSwxOTAuNTZMMTc5LjU1LDE5MC41MUwxNzkuMDYsMTg5LjcyTDE3Ny41MiwxNzguMjhMMTc2LjU0LDE3Ny4zN0wxNzUuNjcsMTcyLjA3TDE3Mi42NiwxNjMuNDNMMTY0LjIxLDE0Ny4zNkwxNTYuOTUsMTM1LjM3TDE0OS42NywxMjcuMjZMMTM0LjEzLDExMi4wNEwxMzIuNzUsMTExLjQ4TDEzMi4zMywxMTIuNDNMMTMyLjc2LDExMS44N0wxMzIuNTAsMTExLjEzTDEyNy4yNywxMDcuMDZMMTIxLjM3LDEwMy41NEwxMjAuMDMsMTA0LjU2TDExOS4xNywxMDMuNTVMMTE5Ljg3LDEwMi44MkwxMTkuNTAsMTAyLjIwTDExMC4xOSw5Ny4zM0wxMTAuOTcsOTUuNjZMMTEzLjA1LDk0LjQ1TDEyNi4yNSw4Ny44NUwxMzMuNTEsODUuMDZMMTUyLjc1LDgwLjc0TDE1OS45MSw4MC40M0wxNjYuMDksODAuOTJMMTY4LjYwLDgyLjI5TDE3Mi44MCw4Ni40N0wxNzcuMjksOTUuMzdMMTgwLjg4LDEwNC43OEwxODQuMjEsMTE3LjM3TDE4Ni4wNiwxMjguMjVMMTg3LjEzLDEzOC45NEwxODcuMDcsMTU0LjE0TDE4Ni4yOCwxNjQuODJMMTgyLjE4LDE4Ny43MUwxODEuMzcsMTkwLjA1TDE4MC40NSwxOTAuNTBaIiBmaWxsPSJ1cmwoI2RnKSI+PC9wYXRoPgogIDxwYXRoIGQ9Ik0xOTIuNTEsMjA4LjQ4TDE5MS44OSwyMDcuODRMMTkyLjUyLDIwNS44MkwxOTUuNTQsMjAxLjUwTDIwMS42MywxODguMjVMMjA2Ljk1LDE2OC4xOEwyMDcuNjgsMTYwLjUwTDIwNy44MCwxNDkuNzNMMjA2LjAzLDEzNC4wOEwyMDMuMjksMTI0Ljc0TDE5OS41NywxMTQuNzVMMTkwLjQ5LDk5Ljc3TDE4My44MSw5MS41NUwxNzguOTcsODcuMDNMMTc1LjczLDg0Ljc3TDE2Ni4yMyw3OS45OEwxNzguMDAsNzkuNzFMMTc5LjUwLDgwLjYzTDE4OC4xNCw4MS45N0wxOTkuMDIsODUuNjFMMjA3LjkzLDg5LjU2TDIxNS44OCw5NC4xOUwyMjMuMjUsOTkuMzRMMjMyLjU3LDEwNy42N0wyMzYuNTcsMTEyLjAzTDIzOS43MywxMTguMDJMMjQxLjIzLDEyNC40OUwyNDAuODcsMTI5LjMzTDIzOC40NywxMzYuODRMMjMzLjk4LDE0Ny41MEwyMjcuMTgsMTYwLjcyTDIxMS44MywxODQuNzVMMTkyLjc1LDIwOC41NVoiIGZpbGw9InVybCgjZGcpIj48L3BhdGg+CiAgPHBhdGggZD0iTTY3LjUwLDIwMC4wMUw1Ni43NiwyMDAuMDZMNDUuNTgsMTk3LjkyTDM4LjQyLDE5NS4yMEwzMC42MSwxOTAuNDZMMjMuNDMsMTgyLjM3TDE2LjA3LDE3MS43OUw2LjM0LDE1Mi4xMkwzLjIxLDE0NC4yMUw0Ljk0LDE0NC43NEw2Ljc1LDE0Ni4yMkw5LjcwLDE1Mi4yNUwxOC41MywxNjMuOTNMMjcuNDMsMTcyLjUwTDI4LjQ1LDE3Mi44OEwyOS41MSwxNzIuMzJMMjkuMzgsMTczLjc1TDM1LjUwLDE3OC40OEw0NS43NSwxODQuNTNMNTYuOTksMTg5LjQ1TDcwLjIxLDE5My4zOEw4MS43NSwxOTUuNzVMODEuNjEsMTk2LjQxTDgwLjE4LDE5Ny4wNUw2Ny4yOCwyMDAuMDZaIiBmaWxsPSJ1cmwoI2xnKSI+PC9wYXRoPgogIDxwYXRoIGQ9Ik0xMDQuNzUsMjEzLjAwTDgyLjA0LDIxMS45NEw2OS4wMCwyMDkuMTBMNjMuNzUsMjA4Ljk0TDYwLjczLDIwNy42NEw2MC4zNywyMDYuODVMNjIuNzgsMjA1Ljg2TDczLjgxLDIwNC41MEw4OS4wMCwxOTkuNjNMOTYuMjUsMTk1LjgzTDk4LjI1LDE5NS42MEwxMDkuNzgsMTg3Ljk5TDEyMy41NCwxNzUuNTBMMTMyLjkyLDE2NC4xMEwxNDIuNzEsMTQ4LjA0TDE0NC40OCwxNDQuMjdMMTQ2LjQwLDEzNy41NkwxNDguMzcsMTM1LjQ2TDE1Mi4xNSwxMzguNzBMMTU1LjU1LDE0Mi43NUwxNjUuNTUsMTYwLjk5TDE2OC4wMCwxNjguMjJMMTcwLjk5LDE4MC4wMEwxNzEuNzAsMTg4LjY3TDE2Ni44OSwxOTIuODdMMTYxLjQwLDE5Ni42OEwxNTEuNTAsMjAxLjkwTDE0My4zMywyMDUuMzVMMTI0LjUwLDIxMC45NEwxMDUuMjEsMjEyLjk2WiIgZmlsbD0idXJsKCNsZykiPjwvcGF0aD4KICA8cGF0aCBkPSJNMTMyLjUwLDI2MC4wMUwxMjUuMjMsMjU5LjYzTDEyMC43OCwyNTguMzlMMTAwLjAxLDI0OC45NUw4OC4xNCwyNDIuNzJMNzEuODcsMjMyLjU5TDYxLjQ4LDIyNS4zOEw0NS45NiwyMTIuMTVMNDUuMDgsMjEwLjg1TDQ2LjE0LDIwOS42N0w0Ny40NiwyMTAuMDJMNTQuNTAsMjE1LjM2TDU1LjM5LDIxNS4zOUw1Ni42NiwyMTQuNDhMNTcuNTksMjE2LjAzTDYwLjg0LDIxNy4zMkw2MS45MCwyMTkuMDVMNjUuODMsMjIwLjQzTDY5Ljg5LDIyMy40M0w4My43MCwyMjguMThMOTYuNjUsMjMwLjIzTDExNS4yNSwyMjkuNjFMMTIzLjUzLDIyNy43NEwxMzQuMTUsMjI0LjUxTDE1MC4wOCwyMTYuOTJMMTY0LjcwLDIwMy43MEwxNjkuMzIsMTk4LjUwTDE3My4yMiwxOTIuMTZMMTc0LjU2LDE5MS4xMEwxNzQuODUsMTk5LjI1TDE3Mi4wOCwyMTAuMjlMMTY3Ljc4LDIyMS41MEwxNjEuNzEsMjMyLjc1TDE1NC4zNiwyNDMuNTBMMTQ1LjQxLDI1My40N0wxMzkuNzUsMjU3LjgxTDEzMi44OCwyNTkuOTBaIiBmaWxsPSJ1cmwoI2xnKSI+PC9wYXRoPgo8L3N2Zz4=" x="866" y="178" width="182" height="201" preserveAspectRatio="xMidYMid meet"/>
+    <text x="957" y="458" text-anchor="middle" fill="#F0D48A" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" letter-spacing="2.7">DECIDIR CON EVIDENCIA</text>
+    <path d="M887 488H1027" stroke="#FFFFFF" stroke-opacity=".15"/>
+    <text x="957" y="520" text-anchor="middle" fill="#B8C3E2" font-family="Arial, Helvetica, sans-serif" font-size="17">Command Center estratégico</text>
+  </g>
+</svg>
