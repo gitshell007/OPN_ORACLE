@@ -27,6 +27,21 @@ Interfaz canónica: `CANONICAL_UI=vector`
   cobertura 84,09 %. ESLint terminó sin errores y con el aviso conocido de TanStack Table,
   TypeScript correcto, Vitest 38 ficheros/190 tests, build Next de 19 páginas y cliente OpenAPI sin
   deriva. Playwright autenticado pasó 25 pruebas con 7 omisiones intencionadas de matriz.
+- El CI completo del SHA exacto `fbd3e7d` quedó verde en la ejecución `29994363725`: backend,
+  migraciones e integración, frontend y contrato, E2E autenticado, seguridad, imágenes, Trivy y
+  SBOM. La release inmutable `20260723T092045Z-quick-fbd3e7d` se activó tras el backup
+  `20260723T092057Z-20260723T083006Z-quick-c7af48f` y su restore aislado. Health, validate y smoke
+  público confirmaron punteros, imágenes, worker, beat, manifiesto, Nginx, auth gates, grafo y
+  exposición coherentes.
+- Verificación productiva en Chrome con sesión real: ITURRI abre con 300/300 nodos, 301/301
+  enlaces, recorte upstream declarado y Zoom 105 %. Las familias reales son Gobierno 46,
+  Representación 82, Auditoría 175, Propiedad 7 y Liquidación 4. El filtro Auditoría mostró
+  176/300 nodos y 175/301 enlaces sin mover la cámara ni variar el zoom; restaurar recuperó
+  300/301. ITURRIN abre con 7/7 y 6/6, Zoom 135 %, Gobierno 6 y Propiedad 4; filtrar Propiedad dejó
+  6/7 y 4/6 y restaurar repuso 7/6 con cámara estable. La leyenda visual, los nombres textuales y
+  la advertencia de recuentos no excluyentes estaban presentes y Chrome no registró errores de
+  consola. Ninguno de los dos corpus contenía hoy roles `other`; su aviso se verificó por test
+  mutado, no mediante un caso productivo real.
 
 ## CSRF idempotente para lecturas concurrentes
 
