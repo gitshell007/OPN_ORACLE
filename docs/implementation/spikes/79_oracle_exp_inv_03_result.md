@@ -250,3 +250,35 @@ Con `chunk/v1` restaurado, una expansión acotada sobre cuatro documentos produj
 Conclusión: `chunk/v1` permanece como mejor contrato local medido. La siguiente mejora debe
 centrarse en selección/normalización determinista de fragmentos y gold humano, no en enriquecer el
 schema del modelo.
+
+## 11. Seguimiento INV-06: ventanas literales y reuso offline
+
+Para no repetir descargas en pasadas locales, el runner admite `--reuse-quarantine`. Reconstruye
+solamente objetos cuyo sidecar, nombre de fichero, tamaño y SHA-256 vuelven a validar; después los
+reparsea localmente. Esta ejecución reutilizó 130 objetos (191.795.034 bytes), produjo 125 parses
+nativos y cinco casos OCR sin realizar tráfico de red.
+
+Se probó una selección alternativa de ventanas literales `participation_window/v1`: cada texto es
+un substring exacto, con página y hash propios, de hasta 1.400 caracteres alrededor de vocabulario
+de participación. El schema `chunk/v1`, el validador, el merge y la revisión humana se mantuvieron
+sin cambios.
+
+| Medida | Resultado |
+|---|---:|
+| Documentos seleccionados | 2 |
+| Ventanas disponibles | 51 |
+| Ventanas ejecutadas | 18 |
+| Llamadas físicas | 19 |
+| Schema por ventana | 17/18 |
+| Validación estructural por ventana | 8/18 |
+| Merge final válido | 2/2 |
+| Candidatos fusionados citables | 16 |
+| Agotamientos de salida | 0 |
+| Mediana de llamada física | 23,6 s |
+
+Los rechazos agregados fueron siete `name_not_in_quote`, tres `quote_missing`, uno
+`quote_not_unique` y un schema inválido. Esta comparación no es de cobertura —las 18 ventanas se
+concentraron en dos documentos—, pero no supera el baseline por fragmento (18/18 schemas y 11/18
+validaciones). Decisión: conservar ventanas solo como herramienta diagnóstica y mantener
+`chunk/v1` como extractor candidato activo. Precisión, recall y promoción siguen bloqueados hasta
+gold A/B.

@@ -562,6 +562,77 @@ class ParseResult:
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def load_reusable_quarantined_references(
+    quarantine_dir: Path,
+) -> list[AcquisitionResult]:
+    """Rebuild only hash-verified local acquisitions, without network access.
+
+    Repeated local model passes must not re-fetch official documents.  The sidecar
+    is treated as untrusted metadata until its object name, byte count and SHA-256
+    have all been checked again.
+    """
+
+    if not quarantine_dir.exists():
+        return []
+    if not quarantine_dir.is_dir() or quarantine_dir.is_symlink():
+        raise ValueError("quarantine directory is not a safe directory")
+    results: list[AcquisitionResult] = []
+    for sidecar in sorted(quarantine_dir.glob("*.json")):
+        try:
+            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError(
+                f"quarantine sidecar is unreadable: {sidecar.name}"
+            ) from error
+        if not isinstance(metadata, dict):
+            raise ValueError(f"quarantine sidecar is not an object: {sidecar.name}")
+        source_ref_id = _text(metadata.get("source_ref_id"))
+        object_name = _text(metadata.get("object_name"))
+        declared_sha256 = _text(metadata.get("sha256"))
+        media_kind = _text(metadata.get("media_kind"))
+        host = _text(metadata.get("host"))
+        declared_bytes = metadata.get("bytes")
+        if (
+            source_ref_id is None
+            or re.fullmatch(r"[0-9a-f]{64}", source_ref_id) is None
+            or source_ref_id != sidecar.stem
+            or media_kind not in {"pdf", "docx"}
+            or object_name != f"{source_ref_id}.{media_kind}"
+            or declared_sha256 is None
+            or re.fullmatch(r"[0-9a-f]{64}", declared_sha256) is None
+            or not isinstance(declared_bytes, int)
+            or isinstance(declared_bytes, bool)
+            or declared_bytes < 1
+            or host is None
+        ):
+            raise ValueError(f"quarantine sidecar is invalid: {sidecar.name}")
+        object_path = quarantine_dir / object_name
+        if not object_path.is_file() or object_path.is_symlink():
+            raise ValueError(f"quarantine object is missing: {object_name}")
+        payload = object_path.read_bytes()
+        if len(payload) != declared_bytes or sha256_bytes(payload) != declared_sha256:
+            raise ValueError(f"quarantine integrity mismatch: {object_name}")
+        http_status = metadata.get("http_status")
+        if http_status is not None and (
+            not isinstance(http_status, int) or isinstance(http_status, bool)
+        ):
+            raise ValueError(f"quarantine HTTP status is invalid: {sidecar.name}")
+        results.append(
+            AcquisitionResult(
+                source_ref_id,
+                host,
+                "reused_quarantined",
+                bytes=declared_bytes,
+                sha256=declared_sha256,
+                media_kind=media_kind,
+                http_status=http_status,
+                scan_status=_text(metadata.get("scan_status")) or "not_scanned",
+                object_path=str(object_path),
+            )
+        )
+    return results
+
+
 def acquire_reference(
     *,
     sample_id: str,
@@ -1149,6 +1220,11 @@ PARTICIPATION_PAGE_TERMS = (
     "cif",
 )
 
+_PARTICIPATION_WINDOW_PATTERN = re.compile(
+    "|".join(re.escape(term) for term in PARTICIPATION_PAGE_TERMS),
+    flags=re.IGNORECASE,
+)
+
 
 def select_candidate_pages(
     blocks: Iterable[Mapping[str, Any]],
@@ -1181,6 +1257,71 @@ def select_candidate_pages(
             selected[page] = bounded
             consumed += len(bounded)
     return dict(sorted(selected.items()))
+
+
+def select_participation_windows(
+    pages: Mapping[int, str],
+    *,
+    max_window_characters: int = 1_400,
+    context_before_characters: int = 400,
+    max_windows_per_page: int = 8,
+) -> list[JsonObject]:
+    """Select literal, bounded windows around participation vocabulary.
+
+    This is deliberately a retrieval transform, not an extractor: every returned
+    ``text`` is an exact substring of one physical page.  It gives the model a
+    compact view of a table header plus its nearby rows without manufacturing
+    separators, normalizing names or inferring a role.
+    """
+
+    if max_window_characters < 200:
+        raise ValueError("max_window_characters must be at least 200")
+    if not 0 <= context_before_characters < max_window_characters:
+        raise ValueError(
+            "context_before_characters must be non-negative and below window size"
+        )
+    if max_windows_per_page < 1:
+        raise ValueError("max_windows_per_page must be positive")
+
+    windows: list[JsonObject] = []
+    for page, text in sorted(pages.items()):
+        intervals: list[tuple[int, int]] = []
+        for match in _PARTICIPATION_WINDOW_PATTERN.finditer(text):
+            start = max(0, match.start() - context_before_characters)
+            end = min(len(text), start + max_window_characters)
+            if end - start < max_window_characters:
+                start = max(0, end - max_window_characters)
+            if intervals and start < intervals[-1][1]:
+                previous_start, previous_end = intervals[-1]
+                if end <= previous_end:
+                    continue
+                if end - previous_start <= max_window_characters:
+                    intervals[-1] = (previous_start, end)
+                    continue
+            intervals.append((start, end))
+            if len(intervals) >= max_windows_per_page:
+                break
+        if not intervals:
+            fallback_chunks = split_candidate_pages_into_chunks(
+                {page: text},
+                max_chunk_characters=max_window_characters,
+                max_chunks_per_page=max_windows_per_page,
+            )
+            for chunk in fallback_chunks:
+                windows.append(chunk | {"selection_strategy": "fallback_chunk/v1"})
+            continue
+        for index, (start, end) in enumerate(intervals, start=1):
+            window_text = text[start:end]
+            windows.append(
+                {
+                    "chunk_id": f"p{page:04d}-w{index:02d}",
+                    "page": page,
+                    "text": window_text,
+                    "sha256": hashlib.sha256(window_text.encode()).hexdigest(),
+                    "selection_strategy": "participation_window/v1",
+                }
+            )
+    return windows
 
 
 def acquisition_summary(

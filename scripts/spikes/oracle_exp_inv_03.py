@@ -29,10 +29,12 @@ from investigation_documents import (
     candidate_prompt_contract,
     chunk_candidate_fingerprint,
     chunk_candidate_prompt_contract,
+    load_reusable_quarantined_references,
     merge_chunk_candidates,
     parse_authorized_acquisition,
     parse_result_json,
     select_candidate_pages,
+    select_participation_windows,
     select_double_blind_units,
     source_reference_id,
     split_candidate_pages_into_chunks,
@@ -435,6 +437,9 @@ def run_real_document_chunked_ollama(
     max_chunks: int,
     chunk_characters: int,
     chunk_output_tokens: int,
+    fragment_strategy: str,
+    window_characters: int,
+    window_before_characters: int,
 ) -> JsonObject:
     model_manifest = inspect_ollama_model(
         base_url=base_url,
@@ -453,10 +458,19 @@ def run_real_document_chunked_ollama(
         if document.get("status") != "parsed_native":
             continue
         pages = select_candidate_pages(document.get("blocks", []))
-        chunks = split_candidate_pages_into_chunks(
-            pages,
-            max_chunk_characters=chunk_characters,
-        )
+        if fragment_strategy == "chunks":
+            chunks = split_candidate_pages_into_chunks(
+                pages,
+                max_chunk_characters=chunk_characters,
+            )
+        elif fragment_strategy == "participation-windows":
+            chunks = select_participation_windows(
+                pages,
+                max_window_characters=window_characters,
+                context_before_characters=window_before_characters,
+            )
+        else:
+            raise ValueError(f"Unsupported fragment strategy: {fragment_strategy}")
         if chunks:
             eligible.append((str(document["source_ref_id"]), document, pages, chunks))
     eligible.sort(key=lambda row: hashlib.sha256(row[0].encode()).hexdigest())
@@ -464,6 +478,9 @@ def run_real_document_chunked_ollama(
         "max_output_tokens": chunk_output_tokens,
         "num_ctx": num_ctx,
         "chunk_characters": chunk_characters,
+        "fragment_strategy": fragment_strategy,
+        "window_characters": window_characters,
+        "window_before_characters": window_before_characters,
     }
     results = []
     total_chunks_seen = 0
@@ -485,6 +502,7 @@ def run_real_document_chunked_ollama(
             cache_path = (
                 work_dir
                 / "ollama_real_chunk_candidates"
+                / fragment_strategy
                 / source_ref_id
                 / f"{chunk['chunk_id']}.json"
             )
@@ -597,6 +615,7 @@ def run_real_document_chunked_ollama(
             role_counts[role] = role_counts.get(role, 0) + 1
     return {
         "model": model_manifest,
+        "fragment_strategy": fragment_strategy,
         "eligible_documents": len(eligible),
         "selected_documents": len(results),
         "chunks_available_in_selected_documents": total_chunks_seen,
@@ -701,6 +720,16 @@ def execute(args: argparse.Namespace) -> JsonObject:
                         "result": acquisition_result_json(result),
                     }
                 )
+    elif args.reuse_quarantine:
+        results = load_reusable_quarantined_references(work_dir / "quarantine")
+        private_acquisition = [
+            {
+                "source_ref_id": result.source_ref_id,
+                "reused_offline": True,
+                "result": acquisition_result_json(result),
+            }
+            for result in results
+        ]
     _write_private_json(work_dir / "acquisition_ledger.json", private_acquisition)
     acquisition = acquisition_summary(core_rows, results)
 
@@ -765,6 +794,9 @@ def execute(args: argparse.Namespace) -> JsonObject:
             max_chunks=args.max_real_chunks,
             chunk_characters=args.chunk_characters,
             chunk_output_tokens=args.chunk_output_tokens,
+            fragment_strategy=args.fragment_strategy,
+            window_characters=args.window_characters,
+            window_before_characters=args.window_before_characters,
         )
         if args.real_ollama_chunked
         else {"status": "not_run"}
@@ -820,6 +852,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
     parser.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
     parser.add_argument("--acquire", action="store_true")
+    parser.add_argument(
+        "--reuse-quarantine",
+        action="store_true",
+        help="Reparse only verified local quarantine objects; never fetch documents.",
+    )
     parser.add_argument("--document-timeout", type=int, default=45)
     parser.add_argument("--max-document-bytes", type=int, default=MAX_DOCUMENT_BYTES)
     parser.add_argument("--allow-unscanned-internal", action="store_true")
@@ -830,6 +867,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-real-chunks", type=int, default=36)
     parser.add_argument("--chunk-characters", type=int, default=3_000)
     parser.add_argument("--chunk-output-tokens", type=int, default=900)
+    parser.add_argument(
+        "--fragment-strategy",
+        choices=("chunks", "participation-windows"),
+        default="chunks",
+    )
+    parser.add_argument("--window-characters", type=int, default=1_400)
+    parser.add_argument("--window-before-characters", type=int, default=400)
     parser.add_argument("--synthetic-ollama", action="store_true")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     parser.add_argument("--model", default="qwen3.5:9b")

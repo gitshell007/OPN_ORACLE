@@ -4,6 +4,27 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## ORACLE-EXP-INV-06 · ventanas literales y reuso offline
+
+- **[Solo spike privado]** La cuarentena documental se puede reutilizar sin red mediante
+  `--reuse-quarantine`: cada sidecar, nombre de objeto, tamaño y SHA-256 se revalidan antes de
+  reparsear. La pasada no consulta PLACSP ni Signal y conserva el modo interno ya autorizado.
+- Se midió `participation-windows`: ventanas de hasta 1.400 caracteres que son substrings exactos
+  de una página, con página/hash propios y vocabulario de participación como ancla. No cambia
+  schema, validador, merge ni `needs_human_review=true`; `chunks` sigue siendo el valor por defecto.
+- Smoke real local con `qwen3.5:9b`: 130 objetos reutilizados offline, 125 parseados nativos y
+  cinco OCR; 111 elegibles. Con 18 ventanas sobre dos documentos (51 disponibles) dio 17/18
+  schemas, 8/18 validaciones de chunk y 2/2 merges finales válidos; 16 candidatos citables,
+  cero agotamientos de salida y mediana de 23,6 s. Rechazos: siete `name_not_in_quote`, tres
+  `quote_missing`, uno `quote_not_unique` y un schema inválido.
+- Decisión: `NO-GO` para promover ventanas frente a `chunk/v1`: el baseline comparable por número
+  de fragmentos obtuvo 18/18 schemas y 11/18 validaciones. La muestra de ventanas concentró 18
+  llamadas en dos documentos, por lo que no se interpreta como precisión/recall ni como prueba de
+  cobertura. Queda disponible solo para diagnóstico; promoción automática continúa bloqueada.
+- Verificación: `tests/test_investigation_documents.py` 40/40 con `--no-cov`; Ruff check y
+  format-check correctos en los tres ficheros. Sin migraciones, variables, runtime productivo ni
+  Signal.
+
 ## Prompt 82 · feedback gobernado y replanificación explícita (completado)
 
 - **[Solo Oracle · API + UX]** El feedback de licitaciones queda persistido como memoria

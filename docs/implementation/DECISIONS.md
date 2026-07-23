@@ -1176,6 +1176,23 @@ deberá versionarse un flujo de copia/materialización separado.
   fragmentos, no aumentar complejidad del schema para `qwen3.5:9b`. La decisión no afecta a Signal,
   runtime productivo ni promoción de datos.
 
+## D-071 — Las ventanas literales no sustituyen al chunking medido
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** Tras descartar el schema multi-cita, quedaba por medir si una entrada menor y
+  literalmente trazable alrededor de vocabulario de participación reducía los rechazos de cita de
+  `chunk/v1`, sin ceder al modelo reconstrucción de tablas ni mezcla de páginas.
+- **Decisión:** Se incorporan solo como diagnóstico ventanas `participation_window/v1`, substrings
+  exactos de una página con SHA-256 propio. El smoke local sobre 18 ventanas produjo 17/18 schemas
+  y 8/18 validaciones estructurales, frente a 18/18 y 11/18 del baseline `chunk/v1`; el extractor
+  activo conserva `chunks`. La cuarentena puede revalidarse/reparsearse offline con sidecar,
+  tamaño y SHA-256, sin nuevas descargas.
+- **Consecuencias:** La variante no se promueve ni altera schema, merge, revisión humana, Signal o
+  runtime productivo. Sus 18 llamadas quedaron concentradas en dos documentos, por lo que no se
+  extrae una conclusión de precisión, recall o cobertura; gold A/B sigue siendo el siguiente gate
+  probatorio.
+
 ## D-070 — El feedback de licitaciones no despierta al modelo
 
 - **Estado:** accepted

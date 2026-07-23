@@ -30,10 +30,12 @@ from investigation_documents import (  # noqa: E402
     curl_command,
     curl_environment,
     load_product_parser_module,
+    load_reusable_quarantined_references,
     merge_chunk_candidates,
     parse_authorized_acquisition,
     select_candidate_pages,
     select_double_blind_units,
+    select_participation_windows,
     sniff_document,
     source_reference_id,
     split_candidate_pages_into_chunks,
@@ -329,6 +331,28 @@ def test_acquisition_reuses_only_hash_verified_sidecar(tmp_path: Path) -> None:
     assert called is False
 
 
+def test_offline_quarantine_reuse_rechecks_sidecar_and_object_hash(tmp_path: Path) -> None:
+    url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
+    acquired = acquire_reference(
+        sample_id="sample-1",
+        url=url,
+        quarantine_dir=tmp_path,
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=_fake_curl(
+            b"%PDF-1.7\nfixture",
+            b"HTTP/2 200\r\nContent-Type: application/pdf\r\n\r\n",
+        ),
+    )
+    reused = load_reusable_quarantined_references(tmp_path)
+    assert [(item.source_ref_id, item.status) for item in reused] == [
+        (acquired.source_ref_id, "reused_quarantined")
+    ]
+    assert reused[0].sha256 == acquired.sha256
+    Path(str(acquired.object_path)).write_bytes(b"%PDF-1.7\ntampered")
+    with pytest.raises(ValueError, match="integrity mismatch"):
+        load_reusable_quarantined_references(tmp_path)
+
+
 def test_acquisition_does_not_store_waf_html_as_document(tmp_path: Path) -> None:
     url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
     result = acquire_reference(
@@ -547,6 +571,42 @@ def test_candidate_chunks_are_bounded_per_physical_page() -> None:
     assert {chunk["page"] for chunk in chunks} == {2}
     assert all(len(chunk["text"]) <= 300 for chunk in chunks)
     assert all(len(str(chunk["sha256"])) == 64 for chunk in chunks)
+
+
+def test_participation_windows_are_literal_bounded_and_stable() -> None:
+    page = (
+        "Encabezado de la mesa de contratación.\n"
+        + ("Contexto previo. " * 40)
+        + "\nSe admite la oferta de ALFA SINTÉTICA, S.L.\n"
+        + ("Relleno. " * 80)
+        + "\nLa licitadora BETA SINTÉTICA, S.A. presenta oferta."
+    )
+    windows = select_participation_windows(
+        {3: page},
+        max_window_characters=300,
+        context_before_characters=80,
+    )
+    assert [window["chunk_id"] for window in windows] == [
+        "p0003-w01",
+        "p0003-w02",
+        "p0003-w03",
+    ]
+    assert all(window["selection_strategy"] == "participation_window/v1" for window in windows)
+    assert all(len(str(window["text"])) <= 300 for window in windows)
+    assert all(str(window["text"]) in page for window in windows)
+    assert "ALFA SINTÉTICA, S.L." in windows[1]["text"]
+
+
+def test_participation_windows_fall_back_without_matching_vocabulary() -> None:
+    page = "Condiciones generales del servicio.\n\nCalendario de ejecución."
+    windows = select_participation_windows(
+        {1: page},
+        max_window_characters=300,
+        context_before_characters=80,
+    )
+    assert [window["chunk_id"] for window in windows] == ["p0001-c01"]
+    assert windows[0]["selection_strategy"] == "fallback_chunk/v1"
+    assert windows[0]["text"] == page
 
 
 def _chunk_output(
