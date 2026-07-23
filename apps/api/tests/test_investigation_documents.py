@@ -47,6 +47,7 @@ from investigation_documents import (  # noqa: E402
     validate_reference_url,
 )
 from oracle_exp_inv_03 import load_local_ocr_documents  # noqa: E402
+from oracle_exp_inv_adjudicate import build_adjudication_queue  # noqa: E402
 from oracle_exp_inv_ocr import (  # noqa: E402
     build_ocr_document,
     normalize_vision_page,
@@ -609,6 +610,62 @@ def test_reviewer_workspace_rejects_blind_contamination_and_escaped_object() -> 
     escaped["references"][0]["object_name"] = "../outside.pdf"  # type: ignore[index]
     with pytest.raises(ValueError, match="unsafe"):
         validate_blind_workspace([annotation], [escaped])
+
+
+def test_adjudication_queue_uses_only_opaque_pairs_and_disagreements() -> None:
+    source_ref_id = "e" * 64
+    labels = {
+        "reference_published": True,
+        "download_valid": True,
+        "relevant_for_participation": True,
+        "nominal_content": True,
+        "role_by_lot": True,
+        "list_complete_or_reconcilable": False,
+    }
+    annotation_a = complete_annotation(
+        _reviewer_annotation("annotator-a-id"),
+        labels=labels,
+        participants=[],
+        ambiguities=[],
+        notes="",
+        now=datetime(2026, 7, 24, 8, 0, tzinfo=UTC),
+    )
+    annotation_b = complete_annotation(
+        _reviewer_annotation("annotator-b-id"),
+        labels=labels | {"role_by_lot": False},
+        participants=[],
+        ambiguities=[],
+        notes="",
+        now=datetime(2026, 7, 24, 8, 0, tzinfo=UTC),
+    )
+
+    result = build_adjudication_queue(
+        coordinator=[
+            {
+                "sample_id": "must-not-leave-coordinator",
+                "annotator_a_id": "annotator-a-id",
+                "annotator_b_id": "annotator-b-id",
+                "double_blind": True,
+            }
+        ],
+        annotations_a=[annotation_a],
+        materials_a=[_reviewer_material("annotator-a-id", source_ref_id)],
+        annotations_b=[annotation_b],
+        materials_b=[_reviewer_material("annotator-b-id", source_ref_id)],
+    )
+
+    assert result["summary"] == {
+        "double_blind_pairs": 1,
+        "completed_pairs": 1,
+        "awaiting_pairs": 0,
+        "agreed_pairs": 0,
+        "disagreement_pairs": 1,
+        "adjudicated_pairs": 0,
+    }
+    assert result["queue"][0]["disagreements"] == {
+        "role_by_lot": {"annotator_a": True, "annotator_b": False}
+    }
+    assert "must-not-leave-coordinator" not in json.dumps(result)
 
 
 def test_candidate_fingerprint_includes_inference_parameters() -> None:

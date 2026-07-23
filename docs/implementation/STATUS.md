@@ -3656,3 +3656,20 @@ Smoke sobre el pack privado: A mantiene 96 pendientes y B 24; no se han escrito 
 documenta el protocolo de uso en el prompt 87. Validación: 47/47 pruebas específicas, Ruff check,
 Ruff format-check y mypy del helper correctos. La mutación inyecta `sample_id` o una ruta de objeto
 escapada y el validador rechaza ambos. Gold y adjudicación continúan siendo trabajo humano.
+
+## 2026-07-24 · ORACLE-EXP-INV-10 · cola de adjudicación preparada
+
+Se añade `scripts/spikes/oracle_exp_inv_adjudicate.py`. El coordinador puede emparejar las 24
+unidades doble ciego mediante el mapa privado, pero el resultado solo conserva IDs opacos,
+referencias de cuarentena y campos discrepantes. Ni `sample_id`, ni ganador estructurado, ni URL,
+ni salida de Ollama salen a la cola.
+
+Una pareja solo es comparable cuando A/B marcan su hoja `completed`; los acuerdos no se promueven
+automáticamente y el contador de adjudicadas se mantiene a cero hasta cierre humano. El helper
+rechaza materiales no idénticos entre A/B y contaminación o rotura del paquete ciego. Smoke del
+pack real vacío: 24 parejas esperadas, 24 pendientes, 0 completas, 0 desacuerdos y 0 adjudicadas.
+
+El protocolo de uso queda en el prompt 88. Validación: 48/48 pruebas específicas, Ruff check,
+Ruff format-check y mypy del helper correctos. La mutación usa un `sample_id` en el mapa de entrada
+y confirma que nunca aparece en la cola resultante. No hay Signal, runtime, migración ni variable
+nueva; el gate restante sigue siendo completar y adjudicar el gold humano.
