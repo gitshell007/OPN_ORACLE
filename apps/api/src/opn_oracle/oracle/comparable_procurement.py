@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import re
 import time
-import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -32,7 +31,12 @@ from opn_oracle.oracle.competitive_procurement import (
     fetch_award_history,
     pinned_award_winners,
 )
-from opn_oracle.oracle.cpv_taxonomy import CPVTaxonomy, load_cpv_taxonomy, normalize_cpv_code
+from opn_oracle.oracle.cpv_taxonomy import (
+    CPVTaxonomy,
+    fold_search_text,
+    load_cpv_taxonomy,
+    normalize_cpv_code,
+)
 
 COMPARABLE_PROFILE_SCHEMA = "procurement-comparable-profile-v1"
 COMPARABLE_EVALUATION_SCHEMA = "procurement-comparable-evaluation-v1"
@@ -112,10 +116,7 @@ _TITLE_STOPWORDS = frozenset(
 
 
 def _fold_text(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", value)
-    return "".join(
-        character for character in decomposed if unicodedata.category(character) != "Mn"
-    ).casefold()
+    return fold_search_text(value)
 
 
 def title_terms(value: Any) -> frozenset[str]:
@@ -259,13 +260,18 @@ def profile_from_history(
     company_name: str,
     taxonomy: CPVTaxonomy | None = None,
     row_cap: int = COMPARABLE_PROFILE_MAX_ROWS,
+    measured_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Aggregate a comparable profile from a previously fetched award history."""
 
     resolved_taxonomy = taxonomy or load_cpv_taxonomy()
+    measurement_instant = measured_at or datetime.now(UTC)
+    if measurement_instant.tzinfo is None:
+        raise ValueError("measured_at debe incluir zona horaria.")
     contracts, ignored_rows = _group_contracts(history.rows)
     return {
         "schema": COMPARABLE_PROFILE_SCHEMA,
+        "measured_at": measurement_instant.astimezone(UTC).isoformat(),
         "company_requested": company_name,
         "company_normalized_by_signal": history.provider_company_norm,
         "identity_basis": {

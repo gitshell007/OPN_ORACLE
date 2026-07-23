@@ -14,6 +14,7 @@ interface ProcurementAutocompleteProps {
   loading?: boolean;
   loadingLabel?: string;
   describedBy?: string;
+  invalid?: boolean;
   onChange: (value: string) => void;
   onSelect: (value: string) => void;
   onConfirmFreeText?: (value: string) => void;
@@ -27,6 +28,7 @@ export function ProcurementAutocomplete({
   loading = false,
   loadingLabel = "Buscando sugerencias…",
   describedBy,
+  invalid = false,
   onChange,
   onSelect,
   onConfirmFreeText,
@@ -100,6 +102,7 @@ export function ProcurementAutocomplete({
           activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined
         }
         aria-describedby={describedBy}
+        aria-invalid={invalid}
         value={value}
         placeholder={placeholder}
         onFocus={() => setOpen(true)}

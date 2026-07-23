@@ -6848,6 +6848,10 @@ def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
     client = _client(oracle_stack)
     first_plan = _accepted_tender_plan()
     artifact_id = _tender_wizard_artifact(app, ids, first_plan)
+    latest_unaccepted = client.get("/api/v1/ai/tender-search-wizard/latest")
+    assert latest_unaccepted.status_code == 200, latest_unaccepted.get_json()
+    assert latest_unaccepted.get_json()["artifact"]["id"] == str(artifact_id)
+    assert latest_unaccepted.get_json()["acceptance"] is None
     with (
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
@@ -6894,6 +6898,15 @@ def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
     assert accepted_profile["accepted_plan_hash"] != original_hash
     assert accepted_profile["tender_search_id"] is None
 
+    latest_accepted = client.get("/api/v1/ai/tender-search-wizard/latest")
+    assert latest_accepted.status_code == 200, latest_accepted.get_json()
+    assert latest_accepted.get_json()["artifact"]["id"] == str(artifact_id)
+    assert latest_accepted.get_json()["acceptance"] == {
+        "profile_id": profile["id"],
+        "version": 2,
+        "accepted_at": accepted_profile["last_accepted_at"],
+    }
+
     stale = client.post(
         f"/api/v1/procurement-search-profiles/{profile['id']}/acceptances",
         json={
@@ -6919,6 +6932,11 @@ def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
     )
     assert rejected.status_code == 422
     assert "unknown_cpv" in rejected.get_json()["detail"]
+    assert rejected.get_json()["errors"] == {
+        "accepted_plan.candidate_cpv": [
+            rejected.get_json()["detail"],
+        ]
+    }
 
     from opn_oracle.oracle.procurement_search_preview import preview_search_plan
 
@@ -6980,6 +6998,28 @@ def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
     )
     assert historical_saved.status_code == 422
     assert "históricas" in historical_saved.get_json()["detail"]
+    assert historical_saved.get_json()["errors"] == {
+        "accepted_plan.scope": [
+            historical_saved.get_json()["detail"],
+        ]
+    }
+
+    unlinked = client.post(
+        "/api/v1/procurement-search-profiles",
+        json={
+            "original_description": "Buscamos equipos para servicios de emergencia.",
+            "comparables": [],
+            "accepted_plan": first_plan,
+            "ai_artifact_id": str(uuid.uuid4()),
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert unlinked.status_code == 422
+    assert unlinked.get_json()["errors"] == {
+        "ai_artifact_id": [
+            "No identifica un artefacto enlazable del wizard en este tenant.",
+        ]
+    }
 
 
 def _assert_procurement_search_profiles_hide_cross_tenant_rows(
@@ -7083,3 +7123,27 @@ def _assert_procurement_search_profiles_hide_cross_tenant_rows(
         headers={"X-CSRF-Token": _csrf(other_tenant)},
     )
     assert cross_accept.status_code == 404
+    cross_create = other_tenant.post(
+        "/api/v1/procurement-search-profiles",
+        json={
+            "original_description": "Buscamos equipos para servicios de emergencia.",
+            "comparables": [],
+            "accepted_plan": plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(other_tenant)},
+    )
+    assert cross_create.status_code == 422
+    assert cross_create.get_json()["errors"] == {
+        "ai_artifact_id": [
+            "No identifica un artefacto enlazable del wizard en este tenant.",
+        ]
+    }
+
+    from opn_oracle.oracle.procurement_search_profiles import get_artifact_acceptance
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_b"], actor_id=ids["user"])),
+    ):
+        assert get_artifact_acceptance(db.session(), artifact_id) is None

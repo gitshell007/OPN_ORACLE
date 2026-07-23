@@ -91,7 +91,9 @@ describe("transporte de contratación pública", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
-      .mockResolvedValueOnce(json({ cached: true, item: { folder_id: folderId } }))
+      .mockResolvedValueOnce(
+        json({ cached: true, item: { folder_id: folderId } }),
+      )
       .mockResolvedValueOnce(json({ id: "pin-1", folder_id: folderId }));
     vi.stubGlobal("fetch", fetchMock);
     const { api } = await import("@oracle/api-client");
@@ -105,7 +107,10 @@ describe("transporte de contratación pública", () => {
     expect(fetchMock.mock.calls[1][0]).toBe(
       "/api/v1/procurement/tenders/OBR%2FCNT%2F2026000031/summary",
     );
-    const [pinUrl, pinOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const [pinUrl, pinOptions] = fetchMock.mock.calls[2] as [
+      string,
+      RequestInit,
+    ];
     expect(pinUrl).toBe("/api/v1/dossiers/dossier%2Fseguro/procurement");
     expect(JSON.parse(String(pinOptions.body))).toEqual({
       kind: "tender",
@@ -137,11 +142,41 @@ describe("transporte de contratación pública", () => {
     });
   });
 
+  it("consulta la taxonomía CPV local con límite fijo y sin reintentos opacos", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      json({
+        query: "ropa de protección",
+        items: [{ code: "35113400", label: "Ropa de protección" }],
+        limit: 8,
+        cached_seconds: 0,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.procurement.suggestCpvs("  ropa de protección  ");
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const parsed = new URL(url, "https://oracle.example.test");
+    expect(parsed.pathname).toBe("/api/v1/procurement/cpv/suggest");
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({
+      q: "ropa de protección",
+      limit: "8",
+    });
+    expect(options.method).toBe("GET");
+    expect(options.credentials).toBe("include");
+  });
+
   it("envía Idempotency-Key al generar el informe documental", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(json({ csrf_token: "csrf-test" }))
-      .mockResolvedValueOnce(json({ job_id: "job-1", replayed: false, report: { id: "report-1" } }, 202));
+      .mockResolvedValueOnce(
+        json(
+          { job_id: "job-1", replayed: false, report: { id: "report-1" } },
+          202,
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const { api } = await import("@oracle/api-client");
 
@@ -285,10 +320,7 @@ describe("transporte de contratación pública", () => {
     );
     expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/auth/csrf");
 
-    const mutations = fetchMock.mock.calls.slice(3) as [
-      string,
-      RequestInit,
-    ][];
+    const mutations = fetchMock.mock.calls.slice(3) as [string, RequestInit][];
     expect(mutations.map(([url]) => url)).toEqual([
       "/api/v1/procurement-search-profiles",
       "/api/v1/procurement-search-profiles/perfil%2Fandaluc%C3%ADa/acceptances",
@@ -308,12 +340,8 @@ describe("transporte de contratación pública", () => {
     expect(JSON.parse(String(mutations[0][1].body))).toEqual(createBody);
     expect(JSON.parse(String(mutations[1][1].body))).toEqual(acceptBody);
     expect(JSON.parse(String(mutations[2][1].body))).toEqual(saveBody);
-    expect(
-      JSON.parse(String(mutations[1][1].body)).expected_version,
-    ).toBe(3);
-    expect(
-      JSON.parse(String(mutations[2][1].body)).expected_version,
-    ).toBe(4);
+    expect(JSON.parse(String(mutations[1][1].body)).expected_version).toBe(3);
+    expect(JSON.parse(String(mutations[2][1].body)).expected_version).toBe(4);
   });
 
   it("expone Retry-After cuando el wizard está limitado", async () => {

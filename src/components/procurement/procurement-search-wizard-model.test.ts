@@ -37,6 +37,7 @@ function plan(overrides: Partial<TenderSearchPlan> = {}): TenderSearchPlan {
 
 function profile(): ComparableProcurementProfile {
   return {
+    measured_at: "2026-07-23T10:00:00Z",
     amount_distribution: {
       buckets: [],
       contracts_with_amount: 0,

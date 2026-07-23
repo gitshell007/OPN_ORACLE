@@ -36,14 +36,20 @@ def save_profile_watch(
     clean_name = " ".join(name.split())
     if not 2 <= len(clean_name) <= 120:
         raise ProcurementSearchProfileValidationError(
-            "El nombre de la vigilancia debe tener entre 2 y 120 caracteres."
+            "El nombre de la vigilancia debe tener entre 2 y 120 caracteres.",
+            errors={"name": ["Debe contener entre 2 y 120 caracteres."]},
         )
     payload = saved_search_payload(name=clean_name, plan=profile.accepted_plan)
     created = create_search(payload=payload)
     external_id = created.get("id")
     if not isinstance(external_id, str) or not external_id.strip():
         raise ProcurementSearchProfileValidationError(
-            "Signal no devolvió el identificador de la vigilancia creada."
+            "Signal no devolvió el identificador de la vigilancia creada.",
+            errors={
+                "saved_search": [
+                    "Signal no devolvió el identificador de la vigilancia creada.",
+                ]
+            },
         )
     profile.tender_search_id = external_id.strip()[:120]
     append_audit_event(

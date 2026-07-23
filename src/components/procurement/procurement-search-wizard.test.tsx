@@ -13,11 +13,13 @@ const mocks = vi.hoisted(() => ({
   latest: vi.fn(),
   run: vi.fn(),
   suggest: vi.fn(),
+  suggestCpvs: vi.fn(),
   comparableProfile: vi.fn(),
   previewSearchPlan: vi.fn(),
   createProfile: vi.fn(),
   acceptProfile: vi.fn(),
   saveSearch: vi.fn(),
+  getProfile: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => {
@@ -38,6 +40,7 @@ vi.mock("@oracle/api-client", () => {
     api: {
       procurement: {
         suggest: mocks.suggest,
+        suggestCpvs: mocks.suggestCpvs,
         comparableProfile: mocks.comparableProfile,
         previewSearchPlan: mocks.previewSearchPlan,
       },
@@ -49,6 +52,7 @@ vi.mock("@oracle/api-client", () => {
         create: mocks.createProfile,
         accept: mocks.acceptProfile,
         saveSearch: mocks.saveSearch,
+        get: mocks.getProfile,
       },
     },
   };
@@ -80,10 +84,7 @@ const basePlan = {
   discarded_reasons: { invalid_cpv: 2 },
 };
 
-function artifact(
-  id = "artifact-1",
-  output: typeof basePlan = basePlan,
-) {
+function artifact(id = "artifact-1", output: typeof basePlan = basePlan) {
   return {
     id,
     dossier_id: null,
@@ -209,6 +210,7 @@ function comparable() {
     },
     cached_seconds: 0,
     cache_hit: false,
+    measured_at: "2026-07-23T10:00:00Z",
   };
 }
 
@@ -245,9 +247,7 @@ function problem(status: number, detail: string, errors?: unknown) {
 
 async function openWizard() {
   render(<ProcurementSearchWizard />);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Buscar con Oracle" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
   await screen.findByRole("heading", {
     name: "Describe qué quieres encontrar",
   });
@@ -260,9 +260,7 @@ async function generatePlan() {
     ),
     { target: { value: "Equipamiento integral para emergencias públicas" } },
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Generar propuesta" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Generar propuesta" }));
   await screen.findByRole("heading", {
     name: "Revisa el plan antes de usarlo",
   });
@@ -278,6 +276,12 @@ describe("ProcurementSearchWizard", () => {
       job: null,
     });
     mocks.suggest.mockResolvedValue({ suggestions: [] });
+    mocks.suggestCpvs.mockResolvedValue({
+      query: "",
+      limit: 8,
+      cached_seconds: 0,
+      items: [],
+    });
     mocks.run.mockResolvedValue({
       artifact: artifact(),
       job: { id: "job-1" },
@@ -293,9 +297,9 @@ describe("ProcurementSearchWizard", () => {
     expect(
       screen.getByRole("button", { name: "Generar propuesta" }),
     ).toHaveClass("vector-ai");
-    expect(
-      screen.getByRole("button", { name: "Cancelar" }),
-    ).not.toHaveClass("vector-ai");
+    expect(screen.getByRole("button", { name: "Cancelar" })).not.toHaveClass(
+      "vector-ai",
+    );
 
     await generatePlan();
     expect(mocks.run).toHaveBeenCalledTimes(1);
@@ -313,6 +317,7 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.change(comparableInput, { target: { value: "ITURRI" } });
     fireEvent.keyDown(comparableInput, { key: "Enter" });
     await screen.findByText("1251 adjudicaciones");
+    expect(screen.getByText(/^Perfil medido hace /)).toBeInTheDocument();
 
     await generatePlan();
     const measuredGap = screen.getByRole("region", {
@@ -321,9 +326,7 @@ describe("ProcurementSearchWizard", () => {
     expect(
       within(measuredGap).getByText(/1 términos y 1 CPV/),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Aceptar plan" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aceptar plan" })).toBeDisabled();
 
     fireEvent.click(
       within(measuredGap).getByRole("button", {
@@ -331,11 +334,11 @@ describe("ProcurementSearchWizard", () => {
       }),
     );
     expect(screen.getByText("vehículo autobomba")).toBeInTheDocument();
-    expect(screen.getByText("35113400 · Ropa de protección")).toBeInTheDocument();
-    expect(screen.getAllByText("Medido").length).toBeGreaterThanOrEqual(2);
     expect(
-      screen.getByRole("button", { name: "Aceptar plan" }),
-    ).toBeEnabled();
+      screen.getByText("35113400 · Ropa de protección"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Medido").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("button", { name: "Aceptar plan" })).toBeEnabled();
   });
 
   it("usa la copia de sesión del comparable ante 429 sin reintentar", async () => {
@@ -354,7 +357,7 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.change(comparableInput, { target: { value: "ITURRI" } });
     fireEvent.keyDown(comparableInput, { key: "Enter" });
 
-    await screen.findByText("copia conservada en esta sesión");
+    await screen.findByText(/copia conservada en esta sesión/);
     expect(mocks.comparableProfile).toHaveBeenCalledTimes(1);
     expect(screen.getByText("1251 adjudicaciones")).toBeInTheDocument();
   });
@@ -395,14 +398,42 @@ describe("ProcurementSearchWizard", () => {
     expect(screen.getByText("IA · confirmado")).toBeInTheDocument();
   });
 
+  it("autocompleta CPV, etiqueta códigos válidos y descarta los inválidos", async () => {
+    mocks.suggestCpvs.mockImplementation(async (query: string) => ({
+      query,
+      limit: 8,
+      cached_seconds: 0,
+      items:
+        query === "35113400" || query === "ropa"
+          ? [{ code: "35113400", label: "Ropa de protección" }]
+          : [],
+    }));
+    await openWizard();
+    await generatePlan();
+
+    const cpvInput = screen.getByRole("combobox", {
+      name: "Añadir CPV por código o descripción",
+    });
+    fireEvent.change(cpvInput, { target: { value: "ropa" } });
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: "35113400 · Ropa de protección",
+      }),
+    );
+    await screen.findByText("35113400 · Ropa de protección");
+    expect(screen.getByText("Usuario")).toBeInTheDocument();
+
+    fireEvent.change(cpvInput, { target: { value: "99999999" } });
+    fireEvent.keyDown(cpvInput, { key: "Enter" });
+    await screen.findByText(
+      "CPV 99999999 descartado: no existe en la taxonomía CPV vigente.",
+    );
+  });
+
   it("previsualiza solo bajo petición y respeta el 429 sin reintentos", async () => {
     const { ApiError } = await import("@oracle/api-client");
     mocks.previewSearchPlan.mockRejectedValue(
-      new ApiError(
-        429,
-        problem(429, "Demasiadas previsualizaciones"),
-        27,
-      ),
+      new ApiError(429, problem(429, "Demasiadas previsualizaciones"), 27),
     );
     await openWizard();
     await generatePlan();
@@ -428,23 +459,17 @@ describe("ProcurementSearchWizard", () => {
       saved_search: { id: "search-1" },
     });
     render(<ProcurementSearchWizard onWatchSaved={onWatchSaved} />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Buscar con Oracle" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
     await generatePlan();
 
     expect(mocks.createProfile).not.toHaveBeenCalled();
     expect(mocks.saveSearch).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Aceptar plan" }),
-    );
-    await screen.findByText("Plan aceptado · v1");
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar plan" }));
+    await screen.findByText(/Plan aceptado · v1 ·/);
     expect(mocks.createProfile).toHaveBeenCalledTimes(1);
     expect(mocks.saveSearch).not.toHaveBeenCalled();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Guardar vigilancia" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Guardar vigilancia" }));
     await screen.findByRole("button", { name: "Vigilancia guardada" });
     expect(mocks.saveSearch).toHaveBeenCalledTimes(1);
     expect(onWatchSaved).toHaveBeenCalledTimes(1);
@@ -464,10 +489,8 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.click(
       screen.getByRole("radio", { name: "Todo el índice disponible" }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Aceptar plan" }),
-    );
-    await screen.findByText("Plan aceptado · v1");
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar plan" }));
+    await screen.findByText(/Plan aceptado · v1 ·/);
     expect(
       screen.queryByRole("button", { name: "Guardar vigilancia" }),
     ).not.toBeInTheDocument();
@@ -481,9 +504,13 @@ describe("ProcurementSearchWizard", () => {
     mocks.createProfile.mockRejectedValue(
       new ApiError(
         422,
-        problem(422, "Plan no válido", {
-          accepted_plan: { include_terms: "Añade un término" },
-        }),
+        problem(422, "ESTE DETAIL NO DEBE MOSTRARSE", [
+          {
+            loc: ["accepted_plan", "candidate_cpv", 0, "code"],
+            msg: "El CPV no existe en la taxonomía vigente",
+            type: "value_error",
+          },
+        ]),
       ),
     );
     await openWizard();
@@ -494,13 +521,57 @@ describe("ProcurementSearchWizard", () => {
       { key: "Delete" },
     );
     expect(screen.queryByText("formación")).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Aceptar plan" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar plan" }));
     await screen.findByText("Revisa los campos indicados por el servidor");
     expect(
-      screen.getByText(/accepted_plan.include_terms:/),
+      screen.getByText(/accepted_plan.candidate_cpv.0.code:/),
     ).toBeInTheDocument();
-    expect(screen.getByText("Añade un término")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("El CPV no existe en la taxonomía vigente").length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.queryByText("ESTE DETAIL NO DEBE MOSTRARSE"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", {
+        name: "Añadir CPV por código o descripción",
+      }),
+    ).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("reabre la última aceptación con versión, fecha y elección explícita", async () => {
+    mocks.latest.mockResolvedValue({
+      artifact: artifact(),
+      input: {
+        description: "Equipamiento integral para emergencias públicas",
+        comparable: "ITURRI",
+      },
+      job: null,
+      acceptance: {
+        profile_id: "profile-1",
+        version: 2,
+        accepted_at: "2026-07-22T09:30:00Z",
+      },
+    });
+    mocks.getProfile.mockResolvedValue(profile(2));
+    await openWizard();
+
+    expect(
+      await screen.findByText("Aceptado como v2 el 22/07/2026"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Revisar plan aceptado" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Regenerar propuesta" }),
+    ).toHaveClass("vector-ai");
+    expect(mocks.run).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Revisar plan aceptado" }),
+    );
+    await screen.findByText(/Plan aceptado · v2 · 23\/07\/2026/);
+    expect(mocks.getProfile).toHaveBeenCalledWith("profile-1");
+    expect(mocks.run).not.toHaveBeenCalled();
   });
 });

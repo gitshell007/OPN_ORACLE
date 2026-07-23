@@ -6,20 +6,14 @@ import {
   api,
   type ComparableProcurementProfile,
   type CreateProcurementSearchProfile,
+  type ProcurementCpvSuggestion,
   type ProcurementSearchProfile,
   type TenderSearchPlan,
   type TenderSearchPlanPreviewResponse,
+  type TenderSearchWizardAcceptance,
   type TenderSearchWizardArtifact,
 } from "@oracle/api-client";
-import {
-  Check,
-  ChevronLeft,
-  Eye,
-  Plus,
-  Save,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { Check, ChevronLeft, Eye, Plus, Save, Sparkles, X } from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -122,6 +116,28 @@ function qualitativeConfidence(confidence: number) {
   return "Baja";
 }
 
+function relativeMeasurementAge(measuredAt: string, now = Date.now()) {
+  const measured = Date.parse(measuredAt);
+  if (!Number.isFinite(measured))
+    return "Perfil medido en un momento no publicado";
+  const elapsedMinutes = Math.max(0, Math.floor((now - measured) / 60_000));
+  if (elapsedMinutes < 1) return "Perfil medido hace menos de un minuto";
+  if (elapsedMinutes < 60)
+    return `Perfil medido hace ${elapsedMinutes} minuto${elapsedMinutes === 1 ? "" : "s"}`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  return `Perfil medido hace ${elapsedHours} hora${elapsedHours === 1 ? "" : "s"}`;
+}
+
+function acceptanceDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "fecha no publicada";
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 function problemMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError
     ? reason.problem.detail || fallback
@@ -131,13 +147,29 @@ function problemMessage(reason: unknown, fallback: string) {
 function structuredFieldErrors(reason: unknown): Record<string, string> {
   if (!(reason instanceof ApiError) || !reason.problem.errors) return {};
   const result: Record<string, string> = {};
+  const add = (path: string, message: string) => {
+    const key = path || "general";
+    result[key] = result[key] ? `${result[key]} ${message}` : message;
+  };
   const visit = (value: unknown, path = "") => {
     if (typeof value === "string") {
-      result[path || "general"] = value;
+      add(path, value);
       return;
     }
     if (Array.isArray(value)) {
-      value.forEach((item, index) => visit(item, path || String(index)));
+      value.forEach((item) => {
+        if (
+          item &&
+          typeof item === "object" &&
+          Array.isArray((item as { loc?: unknown }).loc) &&
+          typeof (item as { msg?: unknown }).msg === "string"
+        ) {
+          const loc = (item as { loc: unknown[] }).loc.map(String).join(".");
+          add(loc, (item as { msg: string }).msg);
+        } else {
+          visit(item, path);
+        }
+      });
       return;
     }
     if (value && typeof value === "object") {
@@ -148,6 +180,17 @@ function structuredFieldErrors(reason: unknown): Record<string, string> {
   };
   visit(reason.problem.errors);
   return result;
+}
+
+function errorsForPaths(
+  errors: Record<string, string>,
+  ...paths: string[]
+): string[] {
+  return Object.entries(errors)
+    .filter(([field]) =>
+      paths.some((path) => field === path || field.startsWith(`${path}.`)),
+    )
+    .map(([, message]) => message);
 }
 
 function applyDescribeOverrides(
@@ -262,6 +305,12 @@ export function ProcurementSearchWizard({
   const [maximum, setMaximum] = useState("");
   const [latestArtifact, setLatestArtifact] =
     useState<TenderSearchWizardArtifact | null>(null);
+  const [latestAcceptance, setLatestAcceptance] =
+    useState<TenderSearchWizardAcceptance | null>(null);
+  const [latestInput, setLatestInput] = useState<{
+    comparable: string | null;
+    description: string;
+  } | null>(null);
   const [artifact, setArtifact] = useState<TenderSearchWizardArtifact | null>(
     null,
   );
@@ -287,7 +336,14 @@ export function ProcurementSearchWizard({
   const [watchName, setWatchName] = useState("");
   const [savingWatch, setSavingWatch] = useState(false);
   const [watchSaved, setWatchSaved] = useState(false);
+  const [cpvQuery, setCpvQuery] = useState("");
+  const [cpvSuggestions, setCpvSuggestions] = useState<
+    ProcurementCpvSuggestion[]
+  >([]);
+  const [cpvSuggesting, setCpvSuggesting] = useState(false);
+  const [cpvDiscarded, setCpvDiscarded] = useState<string | null>(null);
   const suggestionSequence = useRef(0);
+  const cpvSuggestionSequence = useRef(0);
 
   const effectivePlan = useMemo(
     () => (plan ? applyChipsToTenderSearchPlan(plan, chips) : null),
@@ -324,6 +380,22 @@ export function ProcurementSearchWizard({
       const response = await api.tenderSearchWizard.latest();
       if (isWizardArtifact(response.artifact)) {
         setLatestArtifact(response.artifact);
+        setLatestAcceptance(response.acceptance ?? null);
+        const latestWizardInput =
+          response.input &&
+          typeof response.input.description === "string" &&
+          (typeof response.input.comparable === "string" ||
+            response.input.comparable === null)
+            ? {
+                description: response.input.description,
+                comparable: response.input.comparable,
+              }
+            : null;
+        setLatestInput(latestWizardInput);
+        if (!description.trim() && latestWizardInput?.description) {
+          setDescription(latestWizardInput.description);
+          setComparable(latestWizardInput.comparable ?? "");
+        }
       }
     } catch {
       // La ausencia del último artefacto no bloquea una generación nueva.
@@ -351,6 +423,37 @@ export function ProcurementSearchWizard({
     }, 260);
     return () => window.clearTimeout(timer);
   }, [comparable, open]);
+
+  useEffect(() => {
+    const query = cpvQuery.trim();
+    const sequence = ++cpvSuggestionSequence.current;
+    if (!open || step !== "review" || query.length < 2) {
+      setCpvSuggestions([]);
+      setCpvSuggesting(false);
+      return;
+    }
+    setCpvSuggesting(true);
+    const timer = window.setTimeout(() => {
+      void api.procurement
+        .suggestCpvs(query)
+        .then((response) => {
+          if (sequence === cpvSuggestionSequence.current) {
+            setCpvSuggestions(response.items);
+          }
+        })
+        .catch(() => {
+          if (sequence === cpvSuggestionSequence.current) {
+            setCpvSuggestions([]);
+          }
+        })
+        .finally(() => {
+          if (sequence === cpvSuggestionSequence.current) {
+            setCpvSuggesting(false);
+          }
+        });
+    }, 260);
+    return () => window.clearTimeout(timer);
+  }, [cpvQuery, open, step]);
 
   useEffect(() => {
     if (previewCooldown <= 0) return;
@@ -479,6 +582,30 @@ export function ProcurementSearchWizard({
     installArtifact(latestArtifact, false);
   }
 
+  async function reviewAcceptedLatest() {
+    if (!latestArtifact || !latestAcceptance) return;
+    setLatestLoading(true);
+    setAcceptError(null);
+    try {
+      const profile = await api.procurementSearchProfiles.get(
+        latestAcceptance.profile_id,
+      );
+      installArtifact(latestArtifact, false);
+      setPlan(profile.accepted_plan);
+      setChips(
+        tenderSearchPlanToChips(profile.accepted_plan, comparableProfile),
+      );
+      setAcceptedProfile(profile);
+      setWatchName(profile.accepted_plan.intent_summary.slice(0, 120));
+    } catch (reason) {
+      setAcceptError(
+        problemMessage(reason, "No se pudo recuperar el plan aceptado."),
+      );
+    } finally {
+      setLatestLoading(false);
+    }
+  }
+
   function removeChip(chip: TenderSearchChip) {
     setChips((current) => current.filter(({ key }) => key !== chip.key));
     setTombstones((current) => new Set([...current, chip.key]));
@@ -513,6 +640,53 @@ export function ProcurementSearchWizard({
     setAcceptedProfile(null);
   }
 
+  function addCpvSuggestion(suggestion: ProcurementCpvSuggestion) {
+    const chip = createUserTenderSearchChip(
+      "candidate_cpv",
+      suggestion.code,
+      suggestion.label,
+    );
+    setChips((current) =>
+      current.some(({ key }) => key === chip.key)
+        ? current
+        : [...current, chip],
+    );
+    setTombstones((current) => {
+      const next = new Set(current);
+      next.delete(chip.key);
+      return next;
+    });
+    setCpvQuery("");
+    setCpvSuggestions([]);
+    setCpvDiscarded(null);
+    setPreview(null);
+    setAcceptedProfile(null);
+  }
+
+  async function confirmManualCpv(value: string) {
+    const code = value.replace(/\D/g, "");
+    if (!code) return;
+    setCpvSuggesting(true);
+    setCpvDiscarded(null);
+    try {
+      const response = await api.procurement.suggestCpvs(code);
+      const exact = response.items.find((item) => item.code === code);
+      if (exact) {
+        addCpvSuggestion(exact);
+        return;
+      }
+      setCpvDiscarded(
+        `CPV ${code} descartado: no existe en la taxonomía CPV vigente.`,
+      );
+    } catch (reason) {
+      setCpvDiscarded(
+        problemMessage(reason, "No se pudo validar este código CPV."),
+      );
+    } finally {
+      setCpvSuggesting(false);
+    }
+  }
+
   function addMeasuredBaseline() {
     if (!effectivePlan) return;
     const merged = addMissingMeasuredCandidates(
@@ -536,17 +710,31 @@ export function ProcurementSearchWizard({
     if (!effectivePlan || effectivePlan.scope === "historical") return;
     setPreviewing(true);
     setPreviewError(null);
+    setFieldErrors({});
     try {
       setPreview(await api.procurement.previewSearchPlan(effectivePlan));
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 429) {
-        setPreviewCooldown(reason.retryAfter && reason.retryAfter > 0 ? reason.retryAfter : 60);
+        setPreviewCooldown(
+          reason.retryAfter && reason.retryAfter > 0 ? reason.retryAfter : 60,
+        );
         setPreviewError(
           "Límite de previsualización alcanzado. No se reintentará automáticamente.",
         );
       } else {
+        const errors = structuredFieldErrors(reason);
+        setFieldErrors(errors);
         setPreviewError(
-          problemMessage(reason, "No se pudo obtener la previsualización."),
+          reason instanceof ApiError &&
+            reason.status === 422 &&
+            Object.keys(errors).length > 0
+            ? null
+            : reason instanceof ApiError && reason.status === 422
+              ? "El servidor rechazó el plan sin indicar los campos afectados."
+              : problemMessage(
+                  reason,
+                  "No se pudo obtener la previsualización.",
+                ),
         );
       }
     } finally {
@@ -582,7 +770,12 @@ export function ProcurementSearchWizard({
       setFieldErrors(errors);
       if (!Object.keys(errors).length) {
         setAcceptError(
-          problemMessage(reason, "No se pudo aceptar esta versión del plan."),
+          reason instanceof ApiError && reason.status === 422
+            ? "El servidor rechazó el plan sin indicar los campos afectados."
+            : problemMessage(
+                reason,
+                "No se pudo aceptar esta versión del plan.",
+              ),
         );
       }
     } finally {
@@ -600,6 +793,7 @@ export function ProcurementSearchWizard({
       return;
     setSavingWatch(true);
     setAcceptError(null);
+    setFieldErrors({});
     try {
       const response = await api.procurementSearchProfiles.saveSearch(
         acceptedProfile.id,
@@ -612,8 +806,16 @@ export function ProcurementSearchWizard({
       setWatchSaved(true);
       await onWatchSaved?.();
     } catch (reason) {
+      const errors = structuredFieldErrors(reason);
+      setFieldErrors(errors);
       setAcceptError(
-        problemMessage(reason, "No se pudo guardar la vigilancia."),
+        reason instanceof ApiError &&
+          reason.status === 422 &&
+          Object.keys(errors).length > 0
+          ? null
+          : reason instanceof ApiError && reason.status === 422
+            ? "El servidor rechazó la vigilancia sin indicar los campos afectados."
+            : problemMessage(reason, "No se pudo guardar la vigilancia."),
       );
     } finally {
       setSavingWatch(false);
@@ -622,12 +824,21 @@ export function ProcurementSearchWizard({
 
   const comparableWindow = comparableProfile?.award_date_window;
   const comparableAge = comparableProfile
-    ? comparableFromCache
-      ? "copia conservada en esta sesión"
-      : comparableProfile.cache_hit
-        ? `caché del servidor · ${comparableProfile.cached_seconds}s`
-        : "medición recién calculada"
+    ? `${relativeMeasurementAge(comparableProfile.measured_at)}${
+        comparableFromCache
+          ? " · copia conservada en esta sesión"
+          : comparableProfile.cache_hit
+            ? ` · caché del servidor (${comparableProfile.cached_seconds}s)`
+            : ""
+      }`
     : null;
+  const intentErrors = errorsForPaths(
+    fieldErrors,
+    "accepted_plan.intent_summary",
+    "plan.intent_summary",
+    "intent_summary",
+  );
+  const watchNameErrors = errorsForPaths(fieldErrors, "name");
 
   return (
     <PermissionGate permission="ai.execute">
@@ -662,7 +873,10 @@ export function ProcurementSearchWizard({
                   vigilancia se ejecuta sin tu acción explícita.
                 </Dialog.Description>
               </div>
-              <Dialog.Close className="icon-button bordered" aria-label="Cerrar">
+              <Dialog.Close
+                className="icon-button bordered"
+                aria-label="Cerrar"
+              >
                 <X size={18} />
               </Dialog.Close>
             </header>
@@ -671,7 +885,9 @@ export function ProcurementSearchWizard({
               {step === "describe" ? (
                 <div className="procurement-wizard-describe">
                   <label htmlFor="procurement-wizard-description">
-                    <span>Qué vende tu empresa y qué contratos te interesan</span>
+                    <span>
+                      Qué vende tu empresa y qué contratos te interesan
+                    </span>
                     <textarea
                       id="procurement-wizard-description"
                       aria-describedby="procurement-wizard-description-help"
@@ -718,27 +934,37 @@ export function ProcurementSearchWizard({
                             <small>{comparableAge}</small>
                           </div>
                           <span>
-                            {comparableProfile.corpus.aggregated_contracts} adjudicaciones
+                            {comparableProfile.corpus.aggregated_contracts}{" "}
+                            adjudicaciones
                           </span>
                         </header>
                         <p>
                           Ventana observada:{" "}
-                          {comparableWindow?.raw_observed_start || "inicio no publicado"}{" "}
-                          — {comparableWindow?.raw_observed_end || "fin no publicado"}.
-                          El contrato todavía no expone la fecha exacta de medición.
+                          {comparableWindow?.raw_observed_start ||
+                            "inicio no publicado"}{" "}
+                          —{" "}
+                          {comparableWindow?.raw_observed_end ||
+                            "fin no publicado"}
+                          .
                         </p>
                         <dl>
                           <div>
                             <dt>CPV frecuentes</dt>
-                            <dd>{comparableProfile.frequent_cpvs.items.length}</dd>
+                            <dd>
+                              {comparableProfile.frequent_cpvs.items.length}
+                            </dd>
                           </div>
                           <div>
                             <dt>Términos frecuentes</dt>
-                            <dd>{comparableProfile.title_terms.items.length}</dd>
+                            <dd>
+                              {comparableProfile.title_terms.items.length}
+                            </dd>
                           </div>
                           <div>
                             <dt>Llamadas IA</dt>
-                            <dd>{comparableProfile.measurement_contract.llm_calls}</dd>
+                            <dd>
+                              {comparableProfile.measurement_contract.llm_calls}
+                            </dd>
                           </div>
                         </dl>
                       </article>
@@ -783,18 +1009,46 @@ export function ProcurementSearchWizard({
                   {latestArtifact && !artifact && (
                     <div className="procurement-wizard-latest">
                       <div>
-                        <strong>Hay un plan anterior disponible</strong>
+                        <strong>
+                          {latestAcceptance
+                            ? `Aceptado como v${latestAcceptance.version} el ${acceptanceDate(latestAcceptance.accepted_at)}`
+                            : "Hay una propuesta anterior disponible"}
+                        </strong>
                         <small>
-                          Oracle no lo abre ni ejecuta automáticamente.
+                          {latestAcceptance
+                            ? "Es memoria aceptada, no una propuesta nueva. Elige revisarla o pedir otra generación."
+                            : "Oracle no la abre ni ejecuta automáticamente."}
                         </small>
                       </div>
-                      <button
-                        className="vector-secondary"
-                        type="button"
-                        onClick={useLatest}
-                      >
-                        Continuar ese plan
-                      </button>
+                      <div>
+                        <button
+                          className="vector-secondary"
+                          type="button"
+                          onClick={() =>
+                            void (latestAcceptance
+                              ? reviewAcceptedLatest()
+                              : Promise.resolve(useLatest()))
+                          }
+                        >
+                          {latestAcceptance
+                            ? "Revisar plan aceptado"
+                            : "Revisar propuesta anterior"}
+                        </button>
+                        {latestAcceptance && (
+                          <AsyncActionButton
+                            className="vector-ai"
+                            loading={generating}
+                            disabled={
+                              (latestInput?.description ?? description).trim()
+                                .length < 10
+                            }
+                            onClick={() => void generate(false)}
+                          >
+                            <Sparkles size={14} />
+                            Regenerar propuesta
+                          </AsyncActionButton>
+                        )}
+                      </div>
                     </div>
                   )}
                   {latestLoading && (
@@ -824,6 +1078,12 @@ export function ProcurementSearchWizard({
                       </label>
                       <textarea
                         id="procurement-wizard-intent"
+                        aria-invalid={intentErrors.length > 0}
+                        aria-describedby={
+                          intentErrors.length > 0
+                            ? "procurement-wizard-intent-error"
+                            : undefined
+                        }
                         rows={3}
                         value={effectivePlan.intent_summary}
                         onChange={(event) => {
@@ -838,9 +1098,19 @@ export function ProcurementSearchWizard({
                           setAcceptedProfile(null);
                         }}
                       />
+                      {intentErrors.length > 0 && (
+                        <p
+                          id="procurement-wizard-intent-error"
+                          className="form-error"
+                          role="alert"
+                        >
+                          {intentErrors.join(" ")}
+                        </p>
+                      )}
                       <div>
                         <span className="procurement-confidence">
-                          Confianza {qualitativeConfidence(effectivePlan.confidence)}
+                          Confianza{" "}
+                          {qualitativeConfidence(effectivePlan.confidence)}
                         </span>
                         <small>
                           {effectivePlan.discarded_count} candidatos descartados
@@ -855,12 +1125,14 @@ export function ProcurementSearchWizard({
                       >
                         <div>
                           <strong>
-                            La propuesta omite candidatos medidos de la comparable
+                            La propuesta omite candidatos medidos de la
+                            comparable
                           </strong>
                           <p>
                             {missingMeasured.terms.length} términos y{" "}
-                            {missingMeasured.cpvs.length} CPV del top 20. Incorpóralos
-                            con un clic; después podrás eliminarlos expresamente.
+                            {missingMeasured.cpvs.length} CPV del top 20.
+                            Incorpóralos con un clic; después podrás eliminarlos
+                            expresamente.
                           </p>
                         </div>
                         <button
@@ -875,79 +1147,142 @@ export function ProcurementSearchWizard({
                     )}
 
                     <div className="procurement-wizard-groups">
-                      {Object.entries(CATEGORY_COPY).map(([rawCategory, copy]) => {
-                        const category =
-                          rawCategory as TenderSearchChipCategory;
-                        const categoryChips = chips.filter(
-                          (chip) => chip.category === category,
-                        );
-                        const editable = EDITABLE_CATEGORIES.includes(
-                          category as (typeof EDITABLE_CATEGORIES)[number],
-                        );
-                        return (
-                          <section className="procurement-wizard-chip-group" key={category}>
-                            <header>
-                              <h3>{copy.label}</h3>
-                              <small>{categoryChips.length}</small>
-                            </header>
-                            <div className="procurement-wizard-chip-list">
-                              {categoryChips.map((chip) => (
-                                <PlanChip
-                                  chip={chip}
-                                  key={chip.key}
-                                  onConfirm={() => confirmChip(chip)}
-                                  onRemove={() => removeChip(chip)}
-                                />
-                              ))}
-                              {!categoryChips.length && (
-                                <span className="procurement-muted">Sin candidatos</span>
-                              )}
-                            </div>
-                            {editable && (
-                              <form
-                                className="procurement-wizard-chip-add"
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  addChip(category);
-                                }}
-                              >
-                                <input
-                                  aria-label={copy.placeholder}
-                                  value={newChipValues[category] ?? ""}
-                                  placeholder={copy.placeholder}
-                                  onChange={(event) =>
-                                    setNewChipValues((current) => ({
-                                      ...current,
-                                      [category]: event.target.value,
-                                    }))
-                                  }
-                                />
-                                <button
-                                  type="submit"
-                                  className="icon-button bordered"
-                                  aria-label={`${copy.placeholder} al plan`}
+                      {Object.entries(CATEGORY_COPY).map(
+                        ([rawCategory, copy]) => {
+                          const category =
+                            rawCategory as TenderSearchChipCategory;
+                          const categoryChips = chips.filter(
+                            (chip) => chip.category === category,
+                          );
+                          const editable = EDITABLE_CATEGORIES.includes(
+                            category as (typeof EDITABLE_CATEGORIES)[number],
+                          );
+                          const categoryErrors = errorsForPaths(
+                            fieldErrors,
+                            `accepted_plan.${category}`,
+                            `plan.${category}`,
+                            category,
+                          );
+                          const headingId = `procurement-wizard-${category}-heading`;
+                          const errorId = `procurement-wizard-${category}-error`;
+                          return (
+                            <section
+                              className="procurement-wizard-chip-group"
+                              key={category}
+                              role="group"
+                              aria-labelledby={headingId}
+                            >
+                              <header>
+                                <h3 id={headingId}>{copy.label}</h3>
+                                <small>{categoryChips.length}</small>
+                              </header>
+                              <div className="procurement-wizard-chip-list">
+                                {categoryChips.map((chip) => (
+                                  <PlanChip
+                                    chip={chip}
+                                    key={chip.key}
+                                    onConfirm={() => confirmChip(chip)}
+                                    onRemove={() => removeChip(chip)}
+                                  />
+                                ))}
+                                {!categoryChips.length && (
+                                  <span className="procurement-muted">
+                                    Sin candidatos
+                                  </span>
+                                )}
+                              </div>
+                              {editable && (
+                                <form
+                                  className="procurement-wizard-chip-add"
+                                  onSubmit={(event) => {
+                                    event.preventDefault();
+                                    addChip(category);
+                                  }}
                                 >
-                                  <Plus size={14} />
-                                </button>
-                              </form>
-                            )}
-                            {category === "candidate_cpv" && (
-                              <small>
-                                Puedes eliminar o recuperar CPV medidos. Añadir
-                                códigos arbitrarios requiere el autocompletado de
-                                la taxonomía CPV, aún no expuesto por el contrato.
-                              </small>
-                            )}
-                          </section>
-                        );
-                      })}
+                                  <input
+                                    aria-label={copy.placeholder}
+                                    value={newChipValues[category] ?? ""}
+                                    placeholder={copy.placeholder}
+                                    onChange={(event) =>
+                                      setNewChipValues((current) => ({
+                                        ...current,
+                                        [category]: event.target.value,
+                                      }))
+                                    }
+                                  />
+                                  <button
+                                    type="submit"
+                                    className="icon-button bordered"
+                                    aria-label={`${copy.placeholder} al plan`}
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </form>
+                              )}
+                              {category === "candidate_cpv" && (
+                                <>
+                                  <ProcurementAutocomplete
+                                    label="Añadir CPV por código o descripción"
+                                    value={cpvQuery}
+                                    suggestions={cpvSuggestions.map(
+                                      (item) => `${item.code} · ${item.label}`,
+                                    )}
+                                    loading={cpvSuggesting}
+                                    loadingLabel="Consultando la taxonomía CPV…"
+                                    describedBy={
+                                      categoryErrors.length > 0
+                                        ? `procurement-wizard-cpv-help ${errorId}`
+                                        : "procurement-wizard-cpv-help"
+                                    }
+                                    invalid={categoryErrors.length > 0}
+                                    onChange={(value) => {
+                                      setCpvQuery(value);
+                                      setCpvDiscarded(null);
+                                    }}
+                                    onSelect={(value) => {
+                                      const selected = cpvSuggestions.find(
+                                        (item) =>
+                                          `${item.code} · ${item.label}` ===
+                                          value,
+                                      );
+                                      if (selected) addCpvSuggestion(selected);
+                                    }}
+                                    onConfirmFreeText={(value) =>
+                                      void confirmManualCpv(value)
+                                    }
+                                  />
+                                  <small id="procurement-wizard-cpv-help">
+                                    Busca en la taxonomía local o confirma un
+                                    código exacto con Intro.
+                                  </small>
+                                  {cpvDiscarded && (
+                                    <p className="form-error" role="alert">
+                                      {cpvDiscarded}
+                                    </p>
+                                  )}
+                                </>
+                              )}
+                              {categoryErrors.length > 0 && (
+                                <p
+                                  id={errorId}
+                                  className="form-error"
+                                  role="alert"
+                                >
+                                  {categoryErrors.join(" ")}
+                                </p>
+                              )}
+                            </section>
+                          );
+                        },
+                      )}
                     </div>
 
                     {missingBuyers.length > 0 && (
                       <section className="procurement-wizard-buyers">
                         <strong>Compradores frecuentes medidos</strong>
                         <p>
-                          No se añaden automáticamente porque estrecharían la búsqueda.
+                          No se añaden automáticamente porque estrecharían la
+                          búsqueda.
                         </p>
                         <div>
                           {missingBuyers.map((chip) => (
@@ -974,7 +1309,9 @@ export function ProcurementSearchWizard({
                             checked={effectivePlan.scope === "active"}
                             onChange={() =>
                               setPlan((current) =>
-                                current ? { ...current, scope: "active" } : current,
+                                current
+                                  ? { ...current, scope: "active" }
+                                  : current,
                               )
                             }
                           />
@@ -987,7 +1324,9 @@ export function ProcurementSearchWizard({
                             checked={effectivePlan.scope === "all"}
                             onChange={() =>
                               setPlan((current) =>
-                                current ? { ...current, scope: "all" } : current,
+                                current
+                                  ? { ...current, scope: "all" }
+                                  : current,
                               )
                             }
                           />
@@ -998,14 +1337,14 @@ export function ProcurementSearchWizard({
                             type="radio"
                             name="wizard-scope"
                             checked={effectivePlan.scope === "historical"}
-                          disabled
+                            disabled
                           />
                           Solo histórico (no disponible)
                         </label>
                       </fieldset>
                       <p>
-                        “Todo” no promete un archivo histórico completo. El histórico
-                        fiable sigue siendo adjudicación-céntrico.
+                        “Todo” no promete un archivo histórico completo. El
+                        histórico fiable sigue siendo adjudicación-céntrico.
                       </p>
                     </section>
 
@@ -1040,8 +1379,8 @@ export function ProcurementSearchWizard({
                         <div>
                           <h3>Previsualización por sonda</h3>
                           <p>
-                            Máximo cuatro términos y cuatro CPV. Los resultados se
-                            solapan: los totales no se suman.
+                            Máximo cuatro términos y cuatro CPV. Los resultados
+                            se solapan: los totales no se suman.
                           </p>
                         </div>
                         <AsyncActionButton
@@ -1061,8 +1400,8 @@ export function ProcurementSearchWizard({
                       </header>
                       {effectivePlan.scope === "historical" && (
                         <p className="form-error" role="alert">
-                          El histórico exclusivo no es ejecutable con el contrato
-                          actual. Elige activas o todo el índice.
+                          El histórico exclusivo no es ejecutable con el
+                          contrato actual. Elige activas o todo el índice.
                         </p>
                       )}
                       {previewError && (
@@ -1074,8 +1413,14 @@ export function ProcurementSearchWizard({
                         <>
                           <div className="procurement-preview-grid">
                             {preview.preview.probes.map((probe) => (
-                              <article key={`${probe.chip.kind}:${probe.chip.value}`}>
-                                <span>{probe.chip.kind === "cpv" ? "CPV" : "Término"}</span>
+                              <article
+                                key={`${probe.chip.kind}:${probe.chip.value}`}
+                              >
+                                <span>
+                                  {probe.chip.kind === "cpv"
+                                    ? "CPV"
+                                    : "Término"}
+                                </span>
                                 <strong>
                                   {probe.chip.label
                                     ? `${probe.chip.value} · ${probe.chip.label}`
@@ -1100,14 +1445,21 @@ export function ProcurementSearchWizard({
                     </section>
 
                     {Object.keys(fieldErrors).length > 0 && (
-                      <div className="procurement-wizard-field-errors" role="alert">
-                        <strong>Revisa los campos indicados por el servidor</strong>
+                      <div
+                        className="procurement-wizard-field-errors"
+                        role="alert"
+                      >
+                        <strong>
+                          Revisa los campos indicados por el servidor
+                        </strong>
                         <ul>
-                          {Object.entries(fieldErrors).map(([field, message]) => (
-                            <li key={field}>
-                              <b>{field}:</b> {message}
-                            </li>
-                          ))}
+                          {Object.entries(fieldErrors).map(
+                            ([field, message]) => (
+                              <li key={field}>
+                                <b>{field}:</b> {message}
+                              </li>
+                            ),
+                          )}
                         </ul>
                       </div>
                     )}
@@ -1122,37 +1474,62 @@ export function ProcurementSearchWizard({
                         <div>
                           <Check size={16} />
                           <div>
-                            <strong>Plan aceptado · v{acceptedProfile.version}</strong>
+                            <strong>
+                              Plan aceptado · v{acceptedProfile.version} ·{" "}
+                              {acceptanceDate(acceptedProfile.last_accepted_at)}
+                            </strong>
                             <small>
-                              La vigilancia sigue sin guardarse hasta la siguiente
-                              acción.
+                              La vigilancia sigue sin guardarse hasta la
+                              siguiente acción.
                             </small>
                           </div>
                         </div>
                         {effectivePlan.scope === "active" ? (
                           <form onSubmit={saveWatch}>
-                            <label>
+                            <label htmlFor="procurement-wizard-watch-name">
                               <span>Nombre de la vigilancia</span>
                               <input
+                                id="procurement-wizard-watch-name"
+                                aria-invalid={watchNameErrors.length > 0}
+                                aria-describedby={
+                                  watchNameErrors.length > 0
+                                    ? "procurement-wizard-watch-name-error"
+                                    : undefined
+                                }
                                 value={watchName}
                                 maxLength={120}
-                                onChange={(event) => setWatchName(event.target.value)}
+                                onChange={(event) =>
+                                  setWatchName(event.target.value)
+                                }
                               />
+                              {watchNameErrors.length > 0 && (
+                                <small
+                                  id="procurement-wizard-watch-name-error"
+                                  className="form-error"
+                                  role="alert"
+                                >
+                                  {watchNameErrors.join(" ")}
+                                </small>
+                              )}
                             </label>
                             <AsyncActionButton
                               className="vector-primary"
                               type="submit"
                               loading={savingWatch}
-                              disabled={watchSaved || watchName.trim().length < 2}
+                              disabled={
+                                watchSaved || watchName.trim().length < 2
+                              }
                             >
                               <Save size={14} />
-                              {watchSaved ? "Vigilancia guardada" : "Guardar vigilancia"}
+                              {watchSaved
+                                ? "Vigilancia guardada"
+                                : "Guardar vigilancia"}
                             </AsyncActionButton>
                           </form>
                         ) : (
                           <p>
-                            Una vigilancia solo puede guardarse para licitaciones
-                            activas con Signal v1.
+                            Una vigilancia solo puede guardarse para
+                            licitaciones activas con Signal v1.
                           </p>
                         )}
                       </section>

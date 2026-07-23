@@ -90,7 +90,16 @@ class ProcurementSearchProfile(TenantDomainMixin, Base):
 
 
 class ProcurementSearchProfileValidationError(ValueError):
-    pass
+    """A profile payload error with stable field paths for API consumers."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        errors: Mapping[str, list[str]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.errors = dict(errors or {"profile": [message]})
 
 
 class ProcurementSearchProfileNotFound(LookupError):
@@ -105,7 +114,12 @@ def _bounded_description(value: Any) -> str:
     description = " ".join(str(value or "").strip().split())
     if not 2 <= len(description) <= 5000:
         raise ProcurementSearchProfileValidationError(
-            "original_description debe contener entre 2 y 5000 caracteres."
+            "original_description debe contener entre 2 y 5000 caracteres.",
+            errors={
+                "original_description": [
+                    "Debe contener entre 2 y 5000 caracteres.",
+                ]
+            },
         )
     return description
 
@@ -114,7 +128,10 @@ def _comparables(value: Any) -> list[str]:
     if value in (None, ""):
         return []
     if not isinstance(value, list):
-        raise ProcurementSearchProfileValidationError("comparables debe ser una lista.")
+        raise ProcurementSearchProfileValidationError(
+            "comparables debe ser una lista.",
+            errors={"comparables": ["Debe ser una lista."]},
+        )
     cleaned: list[str] = []
     for item in value:
         name = " ".join(str(item).strip().split())
@@ -122,13 +139,48 @@ def _comparables(value: Any) -> list[str]:
             continue
         if len(name) > 250:
             raise ProcurementSearchProfileValidationError(
-                "Cada comparable admite como máximo 250 caracteres."
+                "Cada comparable admite como máximo 250 caracteres.",
+                errors={
+                    f"comparables.{len(cleaned)}": [
+                        "Admite como máximo 250 caracteres.",
+                    ]
+                },
             )
         if name.casefold() not in {existing.casefold() for existing in cleaned}:
             cleaned.append(name)
     if len(cleaned) > 10:
-        raise ProcurementSearchProfileValidationError("comparables admite como máximo 10 empresas.")
+        raise ProcurementSearchProfileValidationError(
+            "comparables admite como máximo 10 empresas.",
+            errors={"comparables": ["Admite como máximo 10 empresas."]},
+        )
     return cleaned
+
+
+def _plan_errors(error: Exception) -> dict[str, list[str]]:
+    """Preserve Pydantic locations and classify deterministic semantic failures."""
+
+    details = getattr(error, "errors", None)
+    if callable(details):
+        structured: dict[str, list[str]] = {}
+        for item in details():
+            raw_location = item.get("loc", ())
+            location = ".".join(str(part) for part in raw_location)
+            path = f"accepted_plan.{location}" if location else "accepted_plan"
+            structured.setdefault(path, []).append(str(item.get("msg") or error))
+        if structured:
+            return structured
+
+    message = str(error)
+    lowered = message.casefold()
+    if "cpv" in lowered:
+        path = "accepted_plan.candidate_cpv"
+    elif "importe mínimo" in lowered or "importe max" in lowered:
+        path = "accepted_plan.min_amount"
+    elif "término" in lowered or "term_" in lowered:
+        path = "accepted_plan.include_terms"
+    else:
+        path = "accepted_plan"
+    return {path: [message]}
 
 
 def _canonical_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -139,10 +191,14 @@ def _canonical_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     try:
         validated = postvalidate_tender_search_plan(dict(plan), reject_discards=True)
     except (TypeError, ValueError) as error:
-        raise ProcurementSearchProfileValidationError(str(error)) from error
+        raise ProcurementSearchProfileValidationError(
+            str(error),
+            errors=_plan_errors(error),
+        ) from error
     if not isinstance(validated, dict):
         raise ProcurementSearchProfileValidationError(
-            "El plan aceptado no cumple el contrato del wizard."
+            "El plan aceptado no cumple el contrato del wizard.",
+            errors={"accepted_plan": ["No cumple el contrato del wizard."]},
         )
     return validated
 
@@ -165,12 +221,16 @@ def _artifact_id(
 ) -> uuid.UUID:
     if value in (None, ""):
         raise ProcurementSearchProfileValidationError(
-            "ai_artifact_id es obligatorio para aceptar un plan."
+            "ai_artifact_id es obligatorio para aceptar un plan.",
+            errors={"ai_artifact_id": ["Es obligatorio para aceptar un plan."]},
         )
     try:
         artifact_id = uuid.UUID(str(value))
     except (TypeError, ValueError) as error:
-        raise ProcurementSearchProfileValidationError("ai_artifact_id debe ser UUID.") from error
+        raise ProcurementSearchProfileValidationError(
+            "ai_artifact_id debe ser UUID.",
+            errors={"ai_artifact_id": ["Debe ser un UUID."]},
+        ) from error
     artifact = session.scalar(
         select(AIArtifact).where(
             AIArtifact.id == artifact_id,
@@ -183,7 +243,12 @@ def _artifact_id(
     )
     if artifact is None:
         raise ProcurementSearchProfileValidationError(
-            "El artefacto del wizard no existe en este tenant."
+            "El artefacto del wizard no existe en este tenant.",
+            errors={
+                "ai_artifact_id": [
+                    "No identifica un artefacto enlazable del wizard en este tenant.",
+                ]
+            },
         )
     return artifact_id
 
@@ -198,7 +263,10 @@ def create_procurement_search_profile(
     tenant_id = require_tenant_id()
     raw_plan = payload.get("accepted_plan")
     if not isinstance(raw_plan, Mapping):
-        raise ProcurementSearchProfileValidationError("accepted_plan debe ser un objeto.")
+        raise ProcurementSearchProfileValidationError(
+            "accepted_plan debe ser un objeto.",
+            errors={"accepted_plan": ["Debe ser un objeto."]},
+        )
     plan = _canonical_plan(raw_plan)
     profile = ProcurementSearchProfile(
         tenant_id=tenant_id,
@@ -264,6 +332,27 @@ def list_procurement_search_profiles(session: Session) -> list[ProcurementSearch
     )
 
 
+def get_artifact_acceptance(
+    session: Session,
+    artifact_id: uuid.UUID,
+) -> ProcurementSearchProfile | None:
+    """Return the latest acceptance of an artifact within the active tenant."""
+
+    tenant_id = require_tenant_id()
+    return session.scalar(
+        select(ProcurementSearchProfile)
+        .where(
+            ProcurementSearchProfile.tenant_id == tenant_id,
+            ProcurementSearchProfile.ai_artifact_id == artifact_id,
+        )
+        .order_by(
+            ProcurementSearchProfile.last_accepted_at.desc(),
+            ProcurementSearchProfile.id.desc(),
+        )
+        .limit(1)
+    )
+
+
 def accept_procurement_search_profile(
     session: Session,
     profile_id: uuid.UUID,
@@ -276,14 +365,18 @@ def accept_procurement_search_profile(
     raw_expected_version = payload.get("expected_version")
     if not isinstance(raw_expected_version, int) or isinstance(raw_expected_version, bool):
         raise ProcurementSearchProfileValidationError(
-            "expected_version es obligatorio y debe ser entero."
+            "expected_version es obligatorio y debe ser entero.",
+            errors={"expected_version": ["Es obligatorio y debe ser entero."]},
         )
     expected_version = raw_expected_version
     if expected_version != profile.version:
         raise ProcurementSearchProfileVersionConflict("El perfil cambió desde la última lectura.")
     raw_plan = payload.get("accepted_plan")
     if not isinstance(raw_plan, Mapping):
-        raise ProcurementSearchProfileValidationError("accepted_plan debe ser un objeto.")
+        raise ProcurementSearchProfileValidationError(
+            "accepted_plan debe ser un objeto.",
+            errors={"accepted_plan": ["Debe ser un objeto."]},
+        )
     plan = _canonical_plan(raw_plan)
     tenant_id = require_tenant_id()
     profile.accepted_plan = plan

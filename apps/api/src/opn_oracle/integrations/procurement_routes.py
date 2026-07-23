@@ -37,6 +37,7 @@ from opn_oracle.integrations.procurement import (
     run_tender_search,
     uncached_tender_summary,
 )
+from opn_oracle.oracle.cpv_taxonomy import suggest_cpv_codes
 from opn_oracle.oracle.procurement_search_preview import (
     SearchPlanExecutionError,
     preview_search_plan,
@@ -98,6 +99,13 @@ class ProcurementSuggestQuerySchema(Schema):
 
 class ComparableProfileQuerySchema(Schema):
     company = String(required=True, validate=validate.Length(min=2, max=250))
+
+
+class CPVSuggestQuerySchema(Schema):
+    # Two characters make both code prefixes and label substrings useful while
+    # bounding accidental empty scans from autocomplete clients.
+    q = String(required=True, validate=validate.Length(min=2, max=120))
+    limit = Integer(load_default=8, validate=validate.Range(min=1, max=20))
 
 
 class TendersQuerySchema(PaginationQuerySchema):
@@ -243,6 +251,18 @@ class ProcurementSuggestResponseSchema(Schema):
     cache_hit = Boolean(required=True)
 
 
+class CPVSuggestionSchema(Schema):
+    code = String(required=True)
+    label = String(required=True)
+
+
+class CPVSuggestResponseSchema(Schema):
+    query = String(required=True)
+    items = List(Nested(CPVSuggestionSchema), required=True)
+    limit = Integer(required=True)
+    cached_seconds = Integer(required=True)
+
+
 class ComparableIdentitySchema(Schema):
     oracle_normalized_name = String(required=True)
     oracle_company_core = String(required=True)
@@ -383,6 +403,7 @@ class ComparableUTESchema(Schema):
 
 class ComparableProfileResponseSchema(Schema):
     schema = String(required=True)
+    measured_at = String(required=True)
     company_requested = String(required=True)
     company_normalized_by_signal = String(required=True)
     identity_basis = Nested(ComparableIdentitySchema, required=True)
@@ -511,6 +532,33 @@ def _resolve_tender_scope(query_data: dict[str, Any]) -> tuple[str, bool | None]
     return "active", None
 
 
+def _pydantic_plan_errors(error: PydanticValidationError) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    for item in error.errors(include_url=False, include_input=False):
+        loc = item.get("loc") or ()
+        path = ".".join(["plan", *(str(part) for part in loc)])
+        errors[path] = str(item.get("msg") or "Valor no válido.")
+    return errors or {"plan": "El plan de búsqueda no es válido."}
+
+
+def _postvalidation_plan_errors(error: TenderSearchPlanValidationError) -> dict[str, str]:
+    detail = str(error)
+    field = "plan.min_amount" if "importe mínimo" in detail.casefold() else "plan"
+    return {field: detail}
+
+
+def _execution_plan_errors(error: SearchPlanExecutionError) -> dict[str, str]:
+    detail = str(error)
+    folded = detail.casefold()
+    if "históric" in folded or "ámbito temporal" in folded:
+        field = "plan.scope"
+    elif "término" in folded or "cpv" in folded:
+        field = "plan.include_terms"
+    else:
+        field = "plan"
+    return {field: detail}
+
+
 @bp.get("/awards")
 @require_permission("actor.read")
 @bp.input(AwardsQuerySchema, location="query")
@@ -561,6 +609,34 @@ def comparable_profile(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     )
 
 
+@bp.get("/cpv/suggest")
+@require_permission("opportunity.read")
+@bp.input(CPVSuggestQuerySchema, location="query")
+@bp.output(CPVSuggestResponseSchema)
+@limiter.limit("60/minute")
+def cpv_suggest(
+    query_data: dict[str, Any],
+) -> tuple[dict[str, Any], int, dict[str, str]]:
+    """Search the immutable local taxonomy; this route never calls Signal."""
+
+    query = cast(str, query_data["q"]).strip()
+    limit = int(query_data["limit"])
+    items = [
+        {"code": code, "label": label} for code, label in suggest_cpv_codes(query, limit=limit)
+    ]
+    cache_seconds = 3_600
+    return (
+        {
+            "query": query,
+            "items": items,
+            "limit": limit,
+            "cached_seconds": cache_seconds,
+        },
+        200,
+        {"Cache-Control": f"private, max-age={cache_seconds}"},
+    )
+
+
 @bp.post("/search-plans/preview")
 @require_permission("opportunity.read")
 @bp.input(TenderSearchPlanPreviewPayloadSchema)
@@ -574,12 +650,21 @@ def tender_search_plan_preview(json_data: dict[str, Any]) -> dict[str, Any] | An
             plan=plan,
             tender_loader=cached_tenders,
         )
-    except (PydanticValidationError, TenderSearchPlanValidationError) as error:
+    except PydanticValidationError as error:
         return _problem_response_passthrough(
             422,
             title="Plan de búsqueda no válido",
-            detail=f"El plan de búsqueda no es válido: {error}",
+            detail="El plan de búsqueda contiene campos no válidos.",
             code="validation_error",
+            errors=_pydantic_plan_errors(error),
+        )
+    except TenderSearchPlanValidationError as error:
+        return _problem_response_passthrough(
+            422,
+            title="Plan de búsqueda no válido",
+            detail=str(error),
+            code="validation_error",
+            errors=_postvalidation_plan_errors(error),
         )
     except SearchPlanExecutionError as error:
         return _problem_response_passthrough(
@@ -587,6 +672,7 @@ def tender_search_plan_preview(json_data: dict[str, Any]) -> dict[str, Any] | An
             title="Plan de búsqueda no ejecutable",
             detail=str(error),
             code="validation_error",
+            errors=_execution_plan_errors(error),
         )
     except ProcurementConfigurationError as error:
         return _configuration_error_response(error)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -13,7 +14,12 @@ from opn_oracle.oracle.comparable_procurement import (
     profile_from_history,
 )
 from opn_oracle.oracle.competitive_procurement import AwardHistory
-from opn_oracle.oracle.cpv_taxonomy import load_cpv_taxonomy, normalize_cpv_code
+from opn_oracle.oracle.cpv_taxonomy import (
+    fold_search_text,
+    load_cpv_taxonomy,
+    normalize_cpv_code,
+    suggest_cpv_codes,
+)
 
 
 def _award_rows() -> list[dict[str, Any]]:
@@ -99,9 +105,28 @@ def test_cpv_taxonomy_loads_offline_and_normalizes_observed_signal_format() -> N
 
 
 @pytest.mark.unit
-def test_profile_aggregates_only_observed_award_fields_and_discloses_anomalies() -> None:
-    profile = profile_from_history(_history(), company_name="Acme Seguridad, S.A.")
+def test_cpv_suggestions_match_official_prefix_and_accent_folded_label() -> None:
+    by_code = suggest_cpv_codes("341442", limit=5)
+    by_label = suggest_cpv_codes("extincion de incendios", limit=5)
 
+    assert by_code
+    assert all(code.startswith("341442") for code, _label in by_code)
+    assert ("34144210", "Vehículos de extinción de incendios") in by_code
+    assert ("34144210", "Vehículos de extinción de incendios") in by_label
+    assert all("extincion de incendios" in fold_search_text(label) for _code, label in by_label)
+    assert len(suggest_cpv_codes("de", limit=20)) == 20
+
+
+@pytest.mark.unit
+def test_profile_aggregates_only_observed_award_fields_and_discloses_anomalies() -> None:
+    measured_at = datetime(2026, 7, 23, 17, 30, tzinfo=UTC)
+    profile = profile_from_history(
+        _history(),
+        company_name="Acme Seguridad, S.A.",
+        measured_at=measured_at,
+    )
+
+    assert profile["measured_at"] == "2026-07-23T17:30:00+00:00"
     assert profile["measurement_contract"]["llm_calls"] == 0
     assert profile["measurement_contract"]["regions_inferred"] is False
     assert profile["measurement_contract"]["dates_repaired"] is False

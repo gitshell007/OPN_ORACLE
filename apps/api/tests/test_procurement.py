@@ -814,6 +814,7 @@ def test_cached_comparable_profile_reuses_six_hour_aggregate_cache(
     assert second["cache_hit"] is True
     assert other_tenant["cache_hit"] is False
     assert first["cached_seconds"] == 21_600
+    assert first["measured_at"] == second["measured_at"]
     assert fake.awards_calls == 2
     assert fake.closed == 2
 
@@ -1060,7 +1061,55 @@ def test_procurement_search_plan_preview_rejects_historical_before_signal(
 
     assert response.status_code == 422
     assert "históricas" in response.get_json()["detail"]
+    assert response.get_json()["errors"] == {
+        "plan.scope": response.get_json()["detail"],
+    }
     assert called is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("changes", "field"),
+    [
+        ({"confidence": 101}, "plan.confidence"),
+        ({"min_amount": 200, "max_amount": 100}, "plan.min_amount"),
+    ],
+)
+def test_procurement_search_plan_preview_returns_field_keyed_validation_errors(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    changes: dict[str, Any],
+    field: str,
+) -> None:
+    plan = {
+        "intent_summary": "Vehículos de emergencia.",
+        "include_terms": ["vehiculos"],
+        "synonyms": [],
+        "exclude_terms": [],
+        "candidate_cpv": [],
+        "buyers": [],
+        "geographies": [],
+        "scope": "active",
+        "min_amount": None,
+        "max_amount": None,
+        "assumptions": [],
+        "questions": [],
+        "confidence": 80,
+        "discarded_count": 0,
+        "discarded_reasons": {},
+        **changes,
+    }
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        response = client.post(
+            "/api/v1/procurement/search-plans/preview",
+            json={"plan": plan},
+        )
+
+    assert response.status_code == 422
+    assert response.headers["Content-Type"] == "application/problem+json"
+    assert field in response.get_json()["errors"]
 
 
 @pytest.mark.unit
@@ -1308,8 +1357,67 @@ def test_comparable_profile_route_dispatches_with_actor_permission(
 
     assert response.status_code == 200, response.get_data(as_text=True)
     assert seen["company"] == "Acme"
+    assert response.get_json()["measured_at"] == measured["measured_at"]
     assert response.get_json()["frequent_cpvs"]["items"][0]["code"] == "34144210"
     assert response.get_json()["measurement_contract"]["llm_calls"] == 0
+
+
+@pytest.mark.unit
+def test_cpv_suggest_route_is_bounded_cacheable_and_never_calls_signal(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter.reset()
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        by_code = client.get(
+            "/api/v1/procurement/cpv/suggest",
+            query_string={"q": "341442", "limit": 8},
+        )
+        by_label = client.get(
+            "/api/v1/procurement/cpv/suggest",
+            query_string={"q": "extincion", "limit": 20},
+        )
+        too_short = client.get(
+            "/api/v1/procurement/cpv/suggest",
+            query_string={"q": "x"},
+        )
+
+    assert by_code.status_code == 200
+    assert by_code.headers["Cache-Control"] == "private, max-age=3600"
+    assert by_code.get_json()["items"][0] == {
+        "code": "34144200",
+        "label": "Vehículos para servicios de emergencia",
+    }
+    assert len(by_label.get_json()["items"]) <= 20
+    assert any(
+        item["code"] == "34144210" and "extinción" in item["label"]
+        for item in by_label.get_json()["items"]
+    )
+    assert too_short.status_code == 422
+    assert "q" in str(too_short.get_json()["errors"])
+
+
+@pytest.mark.unit
+def test_cpv_suggest_route_enforces_declared_rate_limit(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter.reset()
+    try:
+        with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+            responses = [
+                client.get(
+                    "/api/v1/procurement/cpv/suggest",
+                    query_string={"q": "341442", "limit": 1},
+                )
+                for _request in range(61)
+            ]
+        assert all(response.status_code == 200 for response in responses[:60])
+        assert responses[60].status_code == 429
+    finally:
+        limiter.reset()
 
 
 @pytest.mark.unit

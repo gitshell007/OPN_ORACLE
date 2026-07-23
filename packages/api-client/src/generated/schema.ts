@@ -18962,6 +18962,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procurement/cpv/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search the immutable local taxonomy; this route never calls Signal. */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CPVSuggestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/procurement/search-plans/preview": {
         parameters: {
             query?: never;
@@ -25863,6 +25938,16 @@ export interface components {
             content?: components["schemas"]["JsonObject"];
             version?: number;
         };
+        CPVSuggestResponse: {
+            cached_seconds: number;
+            items: components["schemas"]["CPVSuggestion"][];
+            limit: number;
+            query: string;
+        };
+        CPVSuggestion: {
+            code: string;
+            label: string;
+        };
         CandidateCPV: {
             code: string;
             label: string;
@@ -26016,6 +26101,7 @@ export interface components {
             corpus: components["schemas"]["ComparableCorpus"];
             frequent_cpvs: components["schemas"]["ComparableCPVDistribution"];
             identity_basis: components["schemas"]["ComparableIdentity"];
+            measured_at: string;
             measurement_contract: components["schemas"]["ComparableMeasurement"];
             schema: string;
             title_terms: components["schemas"]["ComparableTermDistribution"];
@@ -27701,6 +27787,11 @@ export interface components {
             };
             search: components["schemas"]["TenderSearchResource"];
         };
+        TenderSearchWizardAcceptance: {
+            accepted_at: string;
+            profile_id: string;
+            version: number;
+        };
         TenderSearchWizardArtifact: {
             agent: string;
             created_at: string;
@@ -27745,6 +27836,7 @@ export interface components {
             version: number;
         };
         TenderSearchWizardLatestResponse: {
+            acceptance?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardAcceptance"];
             artifact?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardArtifact"];
             input?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardInput"];
             job?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardJob"];

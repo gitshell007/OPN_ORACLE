@@ -150,7 +150,26 @@ def _error(error: Exception) -> Response:
         return _problem(404, detail=str(error), code="not_found")
     if isinstance(error, ProcurementSearchProfileVersionConflict):
         return _problem(409, detail=str(error), code="version_conflict")
-    return _problem(422, detail=str(error), code="validation_error")
+    if isinstance(error, ProcurementSearchProfileValidationError):
+        errors = error.errors
+    elif isinstance(error, SearchPlanExecutionError):
+        message = str(error)
+        path = (
+            "accepted_plan.scope"
+            if "históric" in message.casefold()
+            or "activas" in message.casefold()
+            or "ámbito temporal" in message.casefold()
+            else "accepted_plan.include_terms"
+        )
+        errors = {path: [message]}
+    else:
+        errors = {"profile": [str(error)]}
+    return _problem(
+        422,
+        detail=str(error),
+        code="validation_error",
+        errors=errors,
+    )
 
 
 @bp.get("")
@@ -271,7 +290,11 @@ def profiles_save_search(
             title="No se pudo guardar la vigilancia",
             detail=error.detail,
             code=error.code,
-            errors=error.errors,
+            errors=(
+                error.errors
+                if error.errors
+                else ({"saved_search": [error.detail]} if error.status_code == 422 else None)
+            ),
         )
     return {
         "profile": serialize_procurement_search_profile(profile),

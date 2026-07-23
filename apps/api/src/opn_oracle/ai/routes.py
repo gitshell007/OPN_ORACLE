@@ -31,6 +31,7 @@ from opn_oracle.jobs.service import enqueue_job, serialize_job
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.models import DossierSignal, Feedback, Insight, StrategicDossier
 from opn_oracle.oracle.policy import dossier_accessible
+from opn_oracle.oracle.procurement_search_profiles import get_artifact_acceptance
 
 bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
@@ -114,9 +115,16 @@ class TenderSearchWizardRunResponseSchema(Schema):
     artifact = Nested(TenderSearchWizardArtifactSchema, allow_none=True)
 
 
+class TenderSearchWizardAcceptanceSchema(Schema):
+    profile_id = String(required=True)
+    version = Integer(required=True)
+    accepted_at = String(required=True)
+
+
 class TenderSearchWizardLatestResponseSchema(TenderSearchWizardRunResponseSchema):
     job = Nested(TenderSearchWizardJobSchema, allow_none=True)
     input = Nested(TenderSearchWizardInputSchema, allow_none=True)
+    acceptance = Nested(TenderSearchWizardAcceptanceSchema, allow_none=True)
 
 
 def _tender_wizard_problem(status: int, *, detail: str, code: str) -> Response:
@@ -316,15 +324,28 @@ def enqueue_tender_search_wizard(json_data: dict[str, Any]) -> Any:
 @bp.output(TenderSearchWizardLatestResponseSchema)
 def latest_tender_search_wizard() -> Any:
     job = _latest_tender_search_job()
+    artifact = _latest_tender_search_artifact()
+    accepted_profile = (
+        get_artifact_acceptance(db.session(), artifact.id) if artifact is not None else None
+    )
     return {
         "job": serialize_job(job) if job else None,
-        "artifact": _serialize_wizard_artifact(_latest_tender_search_artifact()),
+        "artifact": _serialize_wizard_artifact(artifact),
         "input": (
             {
                 "description": job.input_payload.get("description"),
                 "comparable": job.input_payload.get("comparable"),
             }
             if job
+            else None
+        ),
+        "acceptance": (
+            {
+                "profile_id": str(accepted_profile.id),
+                "version": accepted_profile.version,
+                "accepted_at": accepted_profile.last_accepted_at.isoformat(),
+            }
+            if accepted_profile is not None
             else None
         ),
     }

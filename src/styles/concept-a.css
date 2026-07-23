@@ -515,6 +515,9 @@
 .procurement-wizard-latest { display: flex; justify-content: space-between; gap: 14px; align-items: center; border-left: 3px solid #718096; border-radius: 8px; background: #f5f7fa; padding: 11px 13px; }
 .procurement-wizard-latest strong,
 .procurement-wizard-latest small { display: block; }
+.procurement-wizard-latest > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.procurement-wizard-chip-group .procurement-filter-autocomplete { position: relative; }
+.procurement-wizard-chip-group .procurement-filter-suggestions { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; left: 0; }
 .procurement-wizard-intent { border: 1px solid #dce5ef; border-radius: 12px; background: #f8fafc; padding: 14px; }
 .procurement-wizard-intent > div { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .procurement-confidence { border: 1px solid #b8c7d9; border-radius: 999px; background: white; color: #34475e; padding: 4px 8px; font-size: 11px; }

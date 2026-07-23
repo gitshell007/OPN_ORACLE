@@ -1474,7 +1474,12 @@ export interface EntityIntelGraphEdge {
   roles?: string[] | string;
   role_keys?: string[];
   role_categories?: Array<
-    "governance" | "representation" | "audit" | "ownership" | "liquidation" | "other"
+    | "governance"
+    | "representation"
+    | "audit"
+    | "ownership"
+    | "liquidation"
+    | "other"
   >;
   source_roles?: string[];
   active?: boolean;
@@ -1523,7 +1528,8 @@ export interface DossierWizardPrefill {
   description?: string | null;
   next_action?: string | null;
   mitigation?: string | null;
-  actor_type?: "person" | "organization" | "institution" | "program" | "other" | null;
+  actor_type?:
+    "person" | "organization" | "institution" | "program" | "other" | null;
   tags?: string[];
   roles?: string[];
   note?: string | null;
@@ -1715,7 +1721,9 @@ export interface ProcurementAwardsResponse {
 
 export type ProcurementStatsResponse = components["schemas"]["StatsResponse"];
 export type ComparableProcurementProfile =
-  components["schemas"]["ComparableProfileResponse"];
+  components["schemas"]["ComparableProfileResponse"] & {
+    measured_at: string;
+  };
 export type TenderSearchPlan = components["schemas"]["TenderSearchWizardPlan"];
 export type TenderSearchWizardArtifact =
   components["schemas"]["TenderSearchWizardArtifact"];
@@ -1723,8 +1731,15 @@ export type TenderSearchWizardInput =
   components["schemas"]["TenderSearchWizardInput"];
 export type TenderSearchWizardJob =
   components["schemas"]["TenderSearchWizardJob"];
+export interface TenderSearchWizardAcceptance {
+  profile_id: string;
+  version: number;
+  accepted_at: string;
+}
 export type TenderSearchWizardLatestResponse =
-  components["schemas"]["TenderSearchWizardLatestResponse"];
+  components["schemas"]["TenderSearchWizardLatestResponse"] & {
+    acceptance?: TenderSearchWizardAcceptance | null;
+  };
 export type TenderSearchWizardRunResponse =
   components["schemas"]["TenderSearchWizardRunResponse"];
 export type ProcurementSearchProfile =
@@ -1778,6 +1793,18 @@ export interface TenderSearchPreview {
 export interface TenderSearchPlanPreviewResponse {
   plan: TenderSearchPlan;
   preview: TenderSearchPreview;
+}
+
+export interface ProcurementCpvSuggestion {
+  code: string;
+  label: string;
+}
+
+export interface ProcurementCpvSuggestionsResponse {
+  cached_seconds: number;
+  items: ProcurementCpvSuggestion[];
+  limit: number;
+  query: string;
 }
 
 export type TenderSearchResource =
@@ -1873,6 +1900,14 @@ const procurement = {
       `/api/v1/procurement/suggest?${query.toString()}`,
     );
   },
+  suggestCpvs: (queryValue: string) =>
+    request<ProcurementCpvSuggestionsResponse>(
+      `/api/v1/procurement/cpv/suggest?${new URLSearchParams({
+        q: queryValue.trim(),
+        limit: "8",
+      }).toString()}`,
+      { retry: false },
+    ),
   awards: (input: ProcurementAwardQuery = {}) => {
     const query = new URLSearchParams({
       limit: String(input.limit ?? 25),
@@ -1995,7 +2030,10 @@ const dossierProcurement = {
   promote: (dossierId: string, itemId: string) =>
     request<{ opportunity: OracleOpportunity; replayed: boolean }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}/promote`,
-      { method: "POST", idempotencyKey: `procurement-promote-${dossierId}-${itemId}` },
+      {
+        method: "POST",
+        idempotencyKey: `procurement-promote-${dossierId}-${itemId}`,
+      },
     ),
   createDocumentReport: (
     dossierId: string,
