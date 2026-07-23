@@ -14,15 +14,19 @@ from flask import g
 from flask_login import login_user
 
 from opn_oracle.auth import permissions
+from opn_oracle.extensions import limiter
 from opn_oracle.integrations import procurement, procurement_routes
 from opn_oracle.integrations.procurement import (
     ProcurementClient,
     ProcurementProviderError,
     cached_awards,
+    cached_comparable_profile,
     cached_suggest,
 )
 from opn_oracle.oracle import procurement_items
 from opn_oracle.oracle import routes as oracle_routes
+from opn_oracle.oracle.comparable_procurement import profile_from_history
+from opn_oracle.oracle.competitive_procurement import AwardHistory
 from opn_oracle.platform.models import User
 
 
@@ -789,6 +793,32 @@ def test_cached_awards_reuses_server_side_cache(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.unit
+def test_cached_comparable_profile_reuses_six_hour_aggregate_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = procurement.EntityIntelCache(
+        ttl_seconds=procurement.PROCUREMENT_COMPARABLE_PROFILE_CACHE_TTL_SECONDS
+    )
+    fake = _FakeProcurementClient()
+    monkeypatch.setattr(procurement, "_COMPARABLE_PROFILE_CACHE", cache)
+    monkeypatch.setattr(procurement, "procurement_client_from_config", lambda: fake)
+
+    first = cached_comparable_profile(tenant_id="tenant", company="Genesis Consulting")
+    second = cached_comparable_profile(tenant_id="tenant", company="  genesis   consulting ")
+    other_tenant = cached_comparable_profile(
+        tenant_id="other-tenant",
+        company="Genesis Consulting",
+    )
+
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+    assert other_tenant["cache_hit"] is False
+    assert first["cached_seconds"] == 21_600
+    assert fake.awards_calls == 2
+    assert fake.closed == 2
+
+
+@pytest.mark.unit
 def test_cached_suggest_reuses_short_server_side_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     cache = procurement.EntityIntelCache(ttl_seconds=300)
     fake = _FakeProcurementClient()
@@ -988,6 +1018,14 @@ def test_procurement_rejects_saved_search_scopes_signal_cannot_preserve(
 
 PROCUREMENT_AUTH_ORDER_CASES: tuple[dict[str, Any], ...] = (
     {
+        "method": "GET",
+        "invalid_path": "/api/v1/procurement/comparable-profile?company=x",
+        "valid_path": "/api/v1/procurement/comparable-profile?company=Acme",
+        "invalid_json": None,
+        "valid_json": None,
+        "field": "company",
+    },
+    {
         "method": "POST",
         "invalid_path": f"/api/v1/procurement/tenders/{'x' * 201}/summary",
         "valid_path": "/api/v1/procurement/tenders/P_6_26/summary",
@@ -1097,7 +1135,7 @@ def test_procurement_authenticated_invalid_requests_still_validate(
     with _authenticated_http_probe(
         app,
         monkeypatch,
-        frozenset({"opportunity.read", "opportunity.write"}),
+        frozenset({"actor.read", "opportunity.read", "opportunity.write"}),
     ):
         response = _open_procurement_case(client, case, valid=False)
     payload = response.get_json()
@@ -1113,6 +1151,7 @@ def test_procurement_authenticated_invalid_requests_still_validate(
     [
         "/api/v1/procurement/tenders",
         "/api/v1/procurement/awards?company=x",
+        "/api/v1/procurement/comparable-profile?company=x",
         "/api/v1/procurement/suggest?q=it&kind=winner",
     ],
 )
@@ -1123,6 +1162,53 @@ def test_procurement_routes_require_auth_before_schema_validation(app: Any, path
     assert response.headers["Content-Type"] == "application/problem+json"
     assert response.headers.get("Location") is None
     assert response.get_json()["code"] == "authentication_required"
+
+
+@pytest.mark.unit
+def test_comparable_profile_route_dispatches_with_actor_permission(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter.reset()
+    measured = profile_from_history(
+        AwardHistory(
+            rows=(
+                {
+                    "folder_id": "A",
+                    "award_amount": "125000",
+                    "award_date": "2026-01-10",
+                    "buyer": "Consorcio de Seguridad",
+                    "cpv": "34144210",
+                    "is_ute": False,
+                    "source_url": "https://example.test/A",
+                    "title": "Suministro de vehículo de extinción",
+                    "winner": "ACME SA",
+                },
+            ),
+            provider_total=1,
+            truncated=False,
+            provider_company_norm="ACME",
+        ),
+        company_name="Acme",
+    )
+    seen: dict[str, str] = {}
+
+    def fake_profile(*, tenant_id: str, company: str) -> dict[str, Any]:
+        seen.update(tenant_id=tenant_id, company=company)
+        return {**measured, "cached_seconds": 21_600, "cache_hit": False}
+
+    monkeypatch.setattr(procurement_routes, "cached_comparable_profile", fake_profile)
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.read"})):
+        response = client.get(
+            "/api/v1/procurement/comparable-profile",
+            query_string={"company": "  Acme  "},
+        )
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert seen["company"] == "Acme"
+    assert response.get_json()["frequent_cpvs"]["items"][0]["code"] == "34144210"
+    assert response.get_json()["measurement_contract"]["llm_calls"] == 0
 
 
 @pytest.mark.unit

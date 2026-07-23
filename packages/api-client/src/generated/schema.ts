@@ -18329,6 +18329,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procurement/comparable-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Comparable Profile */
+        get: {
+            parameters: {
+                query: {
+                    company: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ComparableProfileResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/procurement/stats": {
         parameters: {
             query?: never;
@@ -25162,6 +25236,144 @@ export interface components {
         CollaboratorWriteInput: {
             /** @enum {string} */
             role?: "owner" | "editor" | "collaborator" | "viewer";
+        };
+        ComparableAmountBucket: {
+            count: number;
+            denominator: number;
+            label: string;
+            share_percent: string | null;
+        };
+        ComparableAmountDistribution: {
+            buckets: components["schemas"]["ComparableAmountBucket"][];
+            contracts_with_amount: number;
+            contracts_without_amount: number;
+            denominator_contracts: number;
+            maximum_awarded_eur: string | null;
+            mean_awarded_eur: string | null;
+            median_awarded_eur: string | null;
+            minimum_awarded_eur: string | null;
+            total_awarded_eur: string | null;
+        };
+        ComparableBuyer: {
+            buyer: string;
+            contract_share_percent: string | null;
+            contracts: number;
+            contracts_with_amount: number;
+            denominator_contracts: number;
+            median_awarded_eur: string | null;
+            total_awarded_eur: string | null;
+        };
+        ComparableCPVDistribution: {
+            contracts_with_normalized_cpv: number;
+            contracts_with_taxonomy_label: number;
+            contracts_without_normalized_cpv: number;
+            denominator_contracts: number;
+            invalid_or_unrecognized: components["schemas"]["ComparableInvalidCPV"][];
+            items: components["schemas"]["ComparableCPVItem"][];
+            method: string;
+            signal_format_observed: string;
+            taxonomy: components["schemas"]["ComparableTaxonomy"];
+        };
+        ComparableCPVItem: {
+            code: string;
+            contracts: number;
+            denominator_contracts: number;
+            label: string | null;
+            raw_examples: string[];
+            share_percent: string | null;
+            taxonomy_match: boolean;
+        };
+        ComparableCorpus: {
+            aggregated_contracts: number;
+            analyzed_rows: number;
+            ignored_rows_without_folder_id: number;
+            provider_total_rows: number;
+            row_cap: number;
+            truncated: boolean;
+        };
+        ComparableDateWindow: {
+            invalid_date_examples: components["schemas"]["ComparableInvalidDate"][];
+            method: string;
+            raw_observed_end: string | null;
+            raw_observed_start: string | null;
+            rows_with_invalid_date: number;
+            rows_with_valid_date: number;
+            rows_without_date: number;
+        };
+        ComparableIdentity: {
+            legal_identity_verified: boolean;
+            oracle_company_core: string;
+            oracle_normalized_name: string;
+        };
+        ComparableInvalidCPV: {
+            contracts: number;
+            raw_value: string;
+        };
+        ComparableInvalidDate: {
+            raw_value: string;
+            rows: number;
+        };
+        ComparableMeasurement: {
+            dates_repaired: boolean;
+            fields_used: string[];
+            llm_calls: number;
+            regions_inferred: boolean;
+            source: string;
+            unit: string;
+        };
+        ComparableProfileResponse: {
+            amount_distribution: components["schemas"]["ComparableAmountDistribution"];
+            award_date_window: components["schemas"]["ComparableDateWindow"];
+            buyers: components["schemas"]["ComparableBuyer"][];
+            cache_hit: boolean;
+            cached_seconds: number;
+            company_normalized_by_signal: string;
+            company_requested: string;
+            corpus: components["schemas"]["ComparableCorpus"];
+            frequent_cpvs: components["schemas"]["ComparableCPVDistribution"];
+            identity_basis: components["schemas"]["ComparableIdentity"];
+            measurement_contract: components["schemas"]["ComparableMeasurement"];
+            schema: string;
+            title_terms: components["schemas"]["ComparableTermDistribution"];
+            ute_participation: components["schemas"]["ComparableUTE"];
+        };
+        ComparableTaxonomy: {
+            code_count: number;
+            downloaded_at: string;
+            language: string;
+            source_uri: string;
+            version: string;
+        };
+        ComparableTermDistribution: {
+            contracts_with_terms: number;
+            contracts_without_terms: number;
+            denominator_contracts: number;
+            items: components["schemas"]["ComparableTermItem"][];
+            method: string;
+            method_version: string;
+        };
+        ComparableTermItem: {
+            contracts: number;
+            denominator_contracts: number;
+            share_percent: string | null;
+            term: string;
+        };
+        ComparableUTE: {
+            confidence: string;
+            denominator_contracts: number;
+            method: string;
+            parsed_ute_contracts: number;
+            partners: components["schemas"]["ComparableUTEPartner"][];
+            unparsed_ute_contracts: number;
+            ute_contracts: number;
+            ute_share_percent: string | null;
+            verified: boolean;
+            warning: string;
+        };
+        ComparableUTEPartner: {
+            contracts: number;
+            denominator_ute_contracts: number;
+            name: string;
         };
         CompetitiveCompetitorInput: {
             aliases?: string[];

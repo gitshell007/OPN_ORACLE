@@ -82,10 +82,12 @@
   reproducible por años que mida adjudicación → expediente/pliego. Oracle no dispone de credencial
   local de servicio y su proxy web no expone ese lookup. Hasta cerrar el gate, el histórico es
   award-céntrico y `scope=historical` de licitaciones permanece deshabilitado.
-- **Siguiente fase, Solo Oracle:** perfil determinista de empresa comparable y taxonomía CPV
-  europea versionada. Deben desarrollarse sin bloquearse por v2; capacidades y exclusiones serán
-  propiedad del futuro perfil de búsqueda tenant-scoped y `StrategicDossier.profile_config` solo
-  guardará una referencia, no una copia divergente.
+- **Resuelto en Prompt 76, Solo Oracle:** perfil determinista de empresa comparable y taxonomía CPV
+  europea versionada, sin depender de v2, sin persistencia y sin LLM por adjudicación.
+- **Siguiente fase, Solo Oracle:** el wizard debe crear/revisar el perfil de búsqueda tenant-scoped
+  usando el perfil comparable medido como grounding. Capacidades y exclusiones serán propiedad de
+  ese perfil; `StrategicDossier.profile_config` solo guardará una referencia, no una copia
+  divergente. La replanificación con feedback será explícita, periódica y revisada por una persona.
 
 - Pendiente de Signal/compliance para inteligencia competitiva: decidir si se autoriza Gemini vía
   OpenRouter como secundario, con clasificación máxima, redacción, presupuesto y conjunto explícito

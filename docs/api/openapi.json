@@ -949,6 +949,600 @@
         },
         "type": "object"
       },
+      "ComparableAmountBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "denominator": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "share_percent": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "denominator",
+          "label",
+          "share_percent"
+        ],
+        "type": "object"
+      },
+      "ComparableAmountDistribution": {
+        "additionalProperties": false,
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableAmountBucket"
+            },
+            "type": "array"
+          },
+          "contracts_with_amount": {
+            "type": "integer"
+          },
+          "contracts_without_amount": {
+            "type": "integer"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "maximum_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          },
+          "mean_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          },
+          "median_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          },
+          "minimum_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          },
+          "total_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "buckets",
+          "contracts_with_amount",
+          "contracts_without_amount",
+          "denominator_contracts",
+          "maximum_awarded_eur",
+          "mean_awarded_eur",
+          "median_awarded_eur",
+          "minimum_awarded_eur",
+          "total_awarded_eur"
+        ],
+        "type": "object"
+      },
+      "ComparableBuyer": {
+        "additionalProperties": false,
+        "properties": {
+          "buyer": {
+            "type": "string"
+          },
+          "contract_share_percent": {
+            "nullable": true,
+            "type": "string"
+          },
+          "contracts": {
+            "type": "integer"
+          },
+          "contracts_with_amount": {
+            "type": "integer"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "median_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          },
+          "total_awarded_eur": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "buyer",
+          "contract_share_percent",
+          "contracts",
+          "contracts_with_amount",
+          "denominator_contracts",
+          "median_awarded_eur",
+          "total_awarded_eur"
+        ],
+        "type": "object"
+      },
+      "ComparableCPVDistribution": {
+        "additionalProperties": false,
+        "properties": {
+          "contracts_with_normalized_cpv": {
+            "type": "integer"
+          },
+          "contracts_with_taxonomy_label": {
+            "type": "integer"
+          },
+          "contracts_without_normalized_cpv": {
+            "type": "integer"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "invalid_or_unrecognized": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableInvalidCPV"
+            },
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableCPVItem"
+            },
+            "type": "array"
+          },
+          "method": {
+            "type": "string"
+          },
+          "signal_format_observed": {
+            "type": "string"
+          },
+          "taxonomy": {
+            "$ref": "#/components/schemas/ComparableTaxonomy"
+          }
+        },
+        "required": [
+          "contracts_with_normalized_cpv",
+          "contracts_with_taxonomy_label",
+          "contracts_without_normalized_cpv",
+          "denominator_contracts",
+          "invalid_or_unrecognized",
+          "items",
+          "method",
+          "signal_format_observed",
+          "taxonomy"
+        ],
+        "type": "object"
+      },
+      "ComparableCPVItem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "contracts": {
+            "type": "integer"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "raw_examples": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "share_percent": {
+            "nullable": true,
+            "type": "string"
+          },
+          "taxonomy_match": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "contracts",
+          "denominator_contracts",
+          "label",
+          "raw_examples",
+          "share_percent",
+          "taxonomy_match"
+        ],
+        "type": "object"
+      },
+      "ComparableCorpus": {
+        "additionalProperties": false,
+        "properties": {
+          "aggregated_contracts": {
+            "type": "integer"
+          },
+          "analyzed_rows": {
+            "type": "integer"
+          },
+          "ignored_rows_without_folder_id": {
+            "type": "integer"
+          },
+          "provider_total_rows": {
+            "type": "integer"
+          },
+          "row_cap": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "aggregated_contracts",
+          "analyzed_rows",
+          "ignored_rows_without_folder_id",
+          "provider_total_rows",
+          "row_cap",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "ComparableDateWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "invalid_date_examples": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableInvalidDate"
+            },
+            "type": "array"
+          },
+          "method": {
+            "type": "string"
+          },
+          "raw_observed_end": {
+            "nullable": true,
+            "type": "string"
+          },
+          "raw_observed_start": {
+            "nullable": true,
+            "type": "string"
+          },
+          "rows_with_invalid_date": {
+            "type": "integer"
+          },
+          "rows_with_valid_date": {
+            "type": "integer"
+          },
+          "rows_without_date": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "invalid_date_examples",
+          "method",
+          "raw_observed_end",
+          "raw_observed_start",
+          "rows_with_invalid_date",
+          "rows_with_valid_date",
+          "rows_without_date"
+        ],
+        "type": "object"
+      },
+      "ComparableIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "legal_identity_verified": {
+            "type": "boolean"
+          },
+          "oracle_company_core": {
+            "type": "string"
+          },
+          "oracle_normalized_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "legal_identity_verified",
+          "oracle_company_core",
+          "oracle_normalized_name"
+        ],
+        "type": "object"
+      },
+      "ComparableInvalidCPV": {
+        "additionalProperties": false,
+        "properties": {
+          "contracts": {
+            "type": "integer"
+          },
+          "raw_value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contracts",
+          "raw_value"
+        ],
+        "type": "object"
+      },
+      "ComparableInvalidDate": {
+        "additionalProperties": false,
+        "properties": {
+          "raw_value": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "raw_value",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "ComparableMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "dates_repaired": {
+            "type": "boolean"
+          },
+          "fields_used": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "llm_calls": {
+            "type": "integer"
+          },
+          "regions_inferred": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dates_repaired",
+          "fields_used",
+          "llm_calls",
+          "regions_inferred",
+          "source",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "ComparableProfileResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_distribution": {
+            "$ref": "#/components/schemas/ComparableAmountDistribution"
+          },
+          "award_date_window": {
+            "$ref": "#/components/schemas/ComparableDateWindow"
+          },
+          "buyers": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableBuyer"
+            },
+            "type": "array"
+          },
+          "cache_hit": {
+            "type": "boolean"
+          },
+          "cached_seconds": {
+            "type": "integer"
+          },
+          "company_normalized_by_signal": {
+            "type": "string"
+          },
+          "company_requested": {
+            "type": "string"
+          },
+          "corpus": {
+            "$ref": "#/components/schemas/ComparableCorpus"
+          },
+          "frequent_cpvs": {
+            "$ref": "#/components/schemas/ComparableCPVDistribution"
+          },
+          "identity_basis": {
+            "$ref": "#/components/schemas/ComparableIdentity"
+          },
+          "measurement_contract": {
+            "$ref": "#/components/schemas/ComparableMeasurement"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "title_terms": {
+            "$ref": "#/components/schemas/ComparableTermDistribution"
+          },
+          "ute_participation": {
+            "$ref": "#/components/schemas/ComparableUTE"
+          }
+        },
+        "required": [
+          "amount_distribution",
+          "award_date_window",
+          "buyers",
+          "cache_hit",
+          "cached_seconds",
+          "company_normalized_by_signal",
+          "company_requested",
+          "corpus",
+          "frequent_cpvs",
+          "identity_basis",
+          "measurement_contract",
+          "schema",
+          "title_terms",
+          "ute_participation"
+        ],
+        "type": "object"
+      },
+      "ComparableTaxonomy": {
+        "additionalProperties": false,
+        "properties": {
+          "code_count": {
+            "type": "integer"
+          },
+          "downloaded_at": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "source_uri": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code_count",
+          "downloaded_at",
+          "language",
+          "source_uri",
+          "version"
+        ],
+        "type": "object"
+      },
+      "ComparableTermDistribution": {
+        "additionalProperties": false,
+        "properties": {
+          "contracts_with_terms": {
+            "type": "integer"
+          },
+          "contracts_without_terms": {
+            "type": "integer"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableTermItem"
+            },
+            "type": "array"
+          },
+          "method": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contracts_with_terms",
+          "contracts_without_terms",
+          "denominator_contracts",
+          "items",
+          "method",
+          "method_version"
+        ],
+        "type": "object"
+      },
+      "ComparableTermItem": {
+        "additionalProperties": false,
+        "properties": {
+          "contracts": {
+            "type": "integer"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "share_percent": {
+            "nullable": true,
+            "type": "string"
+          },
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contracts",
+          "denominator_contracts",
+          "share_percent",
+          "term"
+        ],
+        "type": "object"
+      },
+      "ComparableUTE": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "type": "string"
+          },
+          "denominator_contracts": {
+            "type": "integer"
+          },
+          "method": {
+            "type": "string"
+          },
+          "parsed_ute_contracts": {
+            "type": "integer"
+          },
+          "partners": {
+            "items": {
+              "$ref": "#/components/schemas/ComparableUTEPartner"
+            },
+            "type": "array"
+          },
+          "unparsed_ute_contracts": {
+            "type": "integer"
+          },
+          "ute_contracts": {
+            "type": "integer"
+          },
+          "ute_share_percent": {
+            "nullable": true,
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "confidence",
+          "denominator_contracts",
+          "method",
+          "parsed_ute_contracts",
+          "partners",
+          "unparsed_ute_contracts",
+          "ute_contracts",
+          "ute_share_percent",
+          "verified",
+          "warning"
+        ],
+        "type": "object"
+      },
+      "ComparableUTEPartner": {
+        "additionalProperties": false,
+        "properties": {
+          "contracts": {
+            "type": "integer"
+          },
+          "denominator_ute_contracts": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contracts",
+          "denominator_ute_contracts",
+          "name"
+        ],
+        "type": "object"
+      },
       "CompetitiveCompetitorInput": {
         "additionalProperties": false,
         "properties": {
@@ -30990,6 +31584,83 @@
           }
         ],
         "summary": "Awards",
+        "tags": [
+          "Contrataci\u00f3n p\u00fablica"
+        ]
+      }
+    },
+    "/api/v1/procurement/comparable-profile": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "company",
+            "required": true,
+            "schema": {
+              "maxLength": 250,
+              "minLength": 2,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparableProfileResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Comparable Profile",
         "tags": [
           "Contrataci\u00f3n p\u00fablica"
         ]

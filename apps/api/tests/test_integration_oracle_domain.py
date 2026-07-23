@@ -3048,6 +3048,79 @@ def test_procurement_listing_creates_no_ai_usage(
     assert before == after
 
 
+def test_comparable_profile_search_creates_no_ai_usage(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    seen_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "company_norm": "ACME SEGURIDAD",
+                "total": 1,
+                "items": [
+                    {
+                        "folder_id": "P_0_76",
+                        "title": "Suministro de vehículo de extinción",
+                        "winner": "ACME SEGURIDAD SA",
+                        "buyer": "Consorcio de Seguridad",
+                        "cpv": "34144210",
+                        "award_amount": "125000",
+                        "award_date": "2026-01-10",
+                        "is_ute": False,
+                        "source_url": "https://example.test/P_0_76",
+                    }
+                ],
+            },
+        )
+
+    with app.app_context():
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            before = db.session.scalar(
+                select(func.count(AIUsageLedger.id)).where(
+                    AIUsageLedger.tenant_id == ids["tenant_a"]
+                )
+            )
+        db.session.remove()
+        monkeypatch.setattr(
+            procurement_integration,
+            "_COMPARABLE_PROFILE_CACHE",
+            procurement_integration.EntityIntelCache(ttl_seconds=21_600),
+        )
+        monkeypatch.setattr(
+            procurement_integration,
+            "procurement_client_from_config",
+            lambda: ProcurementClient(
+                base_url="https://signal.example",
+                api_key="configured-secret",
+                allowed_hosts=frozenset({"signal.example"}),
+                transport=httpx.MockTransport(handler),
+            ),
+        )
+        response = client.get(
+            "/api/v1/procurement/comparable-profile",
+            query_string={"company": "Acme Seguridad"},
+        )
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            after = db.session.scalar(
+                select(func.count(AIUsageLedger.id)).where(
+                    AIUsageLedger.tenant_id == ids["tenant_a"]
+                )
+            )
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert seen_requests[0].url.path == "/api/v1/registry/awards"
+    assert response.get_json()["measurement_contract"]["llm_calls"] == 0
+    assert response.get_json()["frequent_cpvs"]["items"][0]["code"] == "34144210"
+    assert before == after
+
+
 def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
     monkeypatch: pytest.MonkeyPatch,

@@ -20,6 +20,7 @@ from opn_oracle.integrations.procurement import (
     ProcurementConfigurationError,
     ProcurementProviderError,
     cached_awards,
+    cached_comparable_profile,
     cached_suggest,
     cached_tenders,
     create_tender_search,
@@ -84,6 +85,10 @@ class ProcurementSuggestQuerySchema(Schema):
         validate=validate.OneOf(["winner", "buyer"]),
     )
     limit = Integer(load_default=8, validate=validate.Range(min=1, max=20))
+
+
+class ComparableProfileQuerySchema(Schema):
+    company = String(required=True, validate=validate.Length(min=2, max=250))
 
 
 class TendersQuerySchema(PaginationQuerySchema):
@@ -216,6 +221,161 @@ class AwardsResponseSchema(Schema):
 class ProcurementSuggestResponseSchema(Schema):
     kind = String(required=True)
     suggestions = List(String(), required=True)
+    cached_seconds = Integer(required=True)
+    cache_hit = Boolean(required=True)
+
+
+class ComparableIdentitySchema(Schema):
+    oracle_normalized_name = String(required=True)
+    oracle_company_core = String(required=True)
+    legal_identity_verified = Boolean(required=True)
+
+
+class ComparableMeasurementSchema(Schema):
+    source = String(required=True)
+    unit = String(required=True)
+    fields_used = List(String(), required=True)
+    llm_calls = Integer(required=True)
+    regions_inferred = Boolean(required=True)
+    dates_repaired = Boolean(required=True)
+
+
+class ComparableCorpusSchema(Schema):
+    provider_total_rows = Integer(required=True)
+    analyzed_rows = Integer(required=True)
+    row_cap = Integer(required=True)
+    truncated = Boolean(required=True)
+    aggregated_contracts = Integer(required=True)
+    ignored_rows_without_folder_id = Integer(required=True)
+
+
+class ComparableInvalidDateSchema(Schema):
+    raw_value = String(required=True)
+    rows = Integer(required=True)
+
+
+class ComparableDateWindowSchema(Schema):
+    method = String(required=True)
+    raw_observed_start = String(required=True, allow_none=True)
+    raw_observed_end = String(required=True, allow_none=True)
+    rows_with_valid_date = Integer(required=True)
+    rows_without_date = Integer(required=True)
+    rows_with_invalid_date = Integer(required=True)
+    invalid_date_examples = List(Nested(ComparableInvalidDateSchema), required=True)
+
+
+class ComparableTaxonomySchema(Schema):
+    version = String(required=True)
+    language = String(required=True)
+    source_uri = String(required=True)
+    downloaded_at = String(required=True)
+    code_count = Integer(required=True)
+
+
+class ComparableInvalidCPVSchema(Schema):
+    raw_value = String(required=True)
+    contracts = Integer(required=True)
+
+
+class ComparableCPVItemSchema(Schema):
+    code = String(required=True)
+    label = String(required=True, allow_none=True)
+    taxonomy_match = Boolean(required=True)
+    contracts = Integer(required=True)
+    denominator_contracts = Integer(required=True)
+    share_percent = String(required=True, allow_none=True)
+    raw_examples = List(String(), required=True)
+
+
+class ComparableCPVDistributionSchema(Schema):
+    method = String(required=True)
+    signal_format_observed = String(required=True)
+    taxonomy = Nested(ComparableTaxonomySchema, required=True)
+    denominator_contracts = Integer(required=True)
+    contracts_with_normalized_cpv = Integer(required=True)
+    contracts_without_normalized_cpv = Integer(required=True)
+    contracts_with_taxonomy_label = Integer(required=True)
+    invalid_or_unrecognized = List(Nested(ComparableInvalidCPVSchema), required=True)
+    items = List(Nested(ComparableCPVItemSchema), required=True)
+
+
+class ComparableBuyerSchema(Schema):
+    buyer = String(required=True)
+    contracts = Integer(required=True)
+    denominator_contracts = Integer(required=True)
+    contract_share_percent = String(required=True, allow_none=True)
+    contracts_with_amount = Integer(required=True)
+    total_awarded_eur = String(required=True, allow_none=True)
+    median_awarded_eur = String(required=True, allow_none=True)
+
+
+class ComparableAmountBucketSchema(Schema):
+    label = String(required=True)
+    count = Integer(required=True)
+    denominator = Integer(required=True)
+    share_percent = String(required=True, allow_none=True)
+
+
+class ComparableAmountDistributionSchema(Schema):
+    contracts_with_amount = Integer(required=True)
+    contracts_without_amount = Integer(required=True)
+    denominator_contracts = Integer(required=True)
+    total_awarded_eur = String(required=True, allow_none=True)
+    mean_awarded_eur = String(required=True, allow_none=True)
+    median_awarded_eur = String(required=True, allow_none=True)
+    minimum_awarded_eur = String(required=True, allow_none=True)
+    maximum_awarded_eur = String(required=True, allow_none=True)
+    buckets = List(Nested(ComparableAmountBucketSchema), required=True)
+
+
+class ComparableTermItemSchema(Schema):
+    term = String(required=True)
+    contracts = Integer(required=True)
+    denominator_contracts = Integer(required=True)
+    share_percent = String(required=True, allow_none=True)
+
+
+class ComparableTermDistributionSchema(Schema):
+    method = String(required=True)
+    method_version = String(required=True)
+    denominator_contracts = Integer(required=True)
+    contracts_with_terms = Integer(required=True)
+    contracts_without_terms = Integer(required=True)
+    items = List(Nested(ComparableTermItemSchema), required=True)
+
+
+class ComparableUTEPartnerSchema(Schema):
+    name = String(required=True)
+    contracts = Integer(required=True)
+    denominator_ute_contracts = Integer(required=True)
+
+
+class ComparableUTESchema(Schema):
+    method = String(required=True)
+    verified = Boolean(required=True)
+    confidence = String(required=True)
+    warning = String(required=True)
+    ute_contracts = Integer(required=True)
+    denominator_contracts = Integer(required=True)
+    ute_share_percent = String(required=True, allow_none=True)
+    parsed_ute_contracts = Integer(required=True)
+    unparsed_ute_contracts = Integer(required=True)
+    partners = List(Nested(ComparableUTEPartnerSchema), required=True)
+
+
+class ComparableProfileResponseSchema(Schema):
+    schema = String(required=True)
+    company_requested = String(required=True)
+    company_normalized_by_signal = String(required=True)
+    identity_basis = Nested(ComparableIdentitySchema, required=True)
+    measurement_contract = Nested(ComparableMeasurementSchema, required=True)
+    corpus = Nested(ComparableCorpusSchema, required=True)
+    award_date_window = Nested(ComparableDateWindowSchema, required=True)
+    frequent_cpvs = Nested(ComparableCPVDistributionSchema, required=True)
+    buyers = List(Nested(ComparableBuyerSchema), required=True)
+    amount_distribution = Nested(ComparableAmountDistributionSchema, required=True)
+    title_terms = Nested(ComparableTermDistributionSchema, required=True)
+    ute_participation = Nested(ComparableUTESchema, required=True)
     cached_seconds = Integer(required=True)
     cache_hit = Boolean(required=True)
 
@@ -364,6 +524,21 @@ def suggest(query_data: dict[str, Any]) -> dict[str, Any] | Any:
             query=cast(str, query_data["q"]).strip(),
             kind=cast(str, query_data["kind"]),
             limit=int(query_data["limit"]),
+        )
+    )
+
+
+@bp.get("/comparable-profile")
+@require_permission("actor.read")
+@bp.input(ComparableProfileQuerySchema, location="query")
+@bp.output(ComparableProfileResponseSchema)
+@limiter.limit("6/hour")
+def comparable_profile(query_data: dict[str, Any]) -> dict[str, Any] | Any:
+    tenant_id = str(g.active_tenant_id)
+    return _handle_provider_call(
+        lambda: cached_comparable_profile(
+            tenant_id=tenant_id,
+            company=cast(str, query_data["company"]).strip(),
         )
     )
 

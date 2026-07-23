@@ -4,6 +4,42 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 76 · perfil determinista de empresa comparable (completado en Oracle)
+
+- **[Solo Oracle]** Añadido el perfil determinista sobre adjudicaciones en
+  `GET /api/v1/procurement/comparable-profile?company=...`: no exige expediente, usa
+  `actor.read`, limita a seis perfiles/hora y cachea el agregado por tenant+empresa durante seis
+  horas. Pagina hasta 2.000 filas y declara total del proveedor, filas analizadas, expedientes
+  agregados y truncado; no persiste filas ni crea un segundo perfil de empresa.
+- El cálculo reutiliza la paginación, agrupación, identidad, concentración, importes y heurística
+  UTE existentes. Solo usa campos observados de adjudicación, no inventa regiones, no repara fechas
+  y declara cero llamadas LLM. Los títulos producen términos por presencia de expediente con
+  stopwords españolas/de contratación versionadas.
+- Incorporada offline la taxonomía CPV 2008 en español: 9.454 códigos descargados el 23 de julio
+  desde el endpoint SPARQL oficial de Publications Office, SHA-256
+  `19868de65c3d4660382d83d2c79a9a53e292bde19741cf491d5faf0cd7893852`. El loader acepta el
+  formato Signal observado de ocho dígitos y la forma oficial con dígito de control; valores
+  desconocidos permanecen visibles y sin etiqueta.
+- El harness parametrizable hace split temporal 80/20 sobre expedientes fechados y publica recall
+  CPV, términos y combinado. Ejecución real contra `ITURRI, S.A`: 1.252/1.252 filas, 769
+  expedientes, 615 de entrenamiento y 154 holdout; recall 45,5 % (70/154) por top-20 CPV, 71,4 %
+  (110/154) por top-20 términos y 81,8 % (126/154) combinado. Las cinco filas fuente sin fecha no
+  dejaron expedientes sin fecha; hubo cero fechas inválidas. Los diez recuentos `scope=all` son
+  informativos, independientes y no se suman.
+- Informe reproducible:
+  `docs/implementation/evaluations/2026-07-23_ITURRI_comparable_profile.md`.
+- Sin migraciones, variables, UI, modelos persistentes ni cambios de Signal. El wizard y el perfil
+  tenant-scoped de capacidades/exclusiones quedan para Prompt 77.
+- Gates: Ruff y formato correctos sobre 175 ficheros, mypy correcto sobre 113 módulos, 591 pruebas
+  backend con PostgreSQL/Redis reales y 84,52 % de cobertura. OpenAPI y cliente TypeScript
+  regenerados sin deriva; ESLint sin errores (permanece el aviso conocido de TanStack Table),
+  TypeScript correcto, Vitest 38 ficheros/194 tests y build Next de 19 páginas correctos. El wheel
+  incluye el JSON CPV y su README; regenerar la fuente oficial produjo bytes idénticos.
+- Mutaciones verificadas y restauradas: anular la normalización CPV, cambiar el split 80/20 a
+  70/30, retirar `tenant_id` de la caché, exigir el permiso equivocado, saltarse la paginación,
+  eliminar una stopword, vaciar las comparables fijadas y simular una entrada nueva en
+  `AIUsageLedger` hicieron caer sus regresiones específicas.
+
 ## Prompt 74 · verdad temporal en licitaciones (completado en Oracle)
 
 - **[Solo Oracle]** El API acepta `scope=active|historical|all`, mantiene `active` como alias
@@ -23,9 +59,9 @@ Interfaz canónica: `CANONICAL_UI=vector`
   contract tests en ambos extremos, despliegue compatible y rollback. La línea base productiva del
   23 de julio registra 1.304.161 adjudicaciones, 2.247 licitaciones indexadas y 637 activas, además
   de fechas anómalas que impiden prometer cobertura completa.
-- **[Siguiente fase, Solo Oracle]** El perfil determinista de comparables y la taxonomía CPV
-  versionada pueden avanzar sin Signal, pero no se implementan en este prompt. El wizard los
-  consumirá después; no será su propietario.
+- **[Completado en Prompt 76, Solo Oracle]** El perfil determinista de comparables y la taxonomía
+  CPV versionada avanzaron sin depender de Signal v2. El wizard los consumirá después; no es su
+  propietario.
 - Gates: Ruff y formato correctos sobre los cuatro ficheros Python tocados, mypy correcto sobre
   111 módulos, 557 pruebas backend con PostgreSQL/Redis reales y 84,29 % de cobertura, TypeScript,
   cliente OpenAPI y ESLint correctos (permanece un aviso conocido de TanStack Table), Vitest 38

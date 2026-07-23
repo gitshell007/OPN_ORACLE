@@ -34,10 +34,14 @@ ProcurementConfigurationError = EntityIntelConfigurationError
 ProcurementProviderError = EntityIntelProviderError
 
 PROCUREMENT_AWARDS_CACHE_TTL_SECONDS = 600
+PROCUREMENT_COMPARABLE_PROFILE_CACHE_TTL_SECONDS = 21_600
 PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS = 300
 PROCUREMENT_TENDERS_CACHE_TTL_SECONDS = 90
 
 _AWARDS_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_AWARDS_CACHE_TTL_SECONDS)
+_COMPARABLE_PROFILE_CACHE = EntityIntelCache(
+    ttl_seconds=PROCUREMENT_COMPARABLE_PROFILE_CACHE_TTL_SECONDS
+)
 _SUGGEST_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS)
 _TENDERS_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_TENDERS_CACHE_TTL_SECONDS)
 
@@ -452,6 +456,40 @@ def cached_awards(
         client.close()
     value = {**value, "cached_seconds": PROCUREMENT_AWARDS_CACHE_TTL_SECONDS}
     _AWARDS_CACHE.set(key, value)
+    return {**value, "cache_hit": False}
+
+
+def cached_comparable_profile(*, tenant_id: str, company: str) -> dict[str, Any]:
+    """Cache the aggregate, not the provider rows, for a bounded six-hour TTL."""
+
+    from opn_oracle.oracle.comparable_procurement import (  # Avoid integration/domain cycle.
+        COMPARABLE_PROFILE_MAX_ROWS,
+        build_comparable_profile,
+    )
+
+    key = (
+        "comparable-profile-v1",
+        tenant_id,
+        " ".join(company.casefold().split()),
+        COMPARABLE_PROFILE_MAX_ROWS,
+    )
+    cached = _COMPARABLE_PROFILE_CACHE.get(key)
+    if cached is not None:
+        return {**cached, "cache_hit": True}
+    client = procurement_client_from_config()
+    try:
+        value = build_comparable_profile(
+            client,
+            company_name=company,
+            max_rows=COMPARABLE_PROFILE_MAX_ROWS,
+        )
+    finally:
+        client.close()
+    value = {
+        **value,
+        "cached_seconds": PROCUREMENT_COMPARABLE_PROFILE_CACHE_TTL_SECONDS,
+    }
+    _COMPARABLE_PROFILE_CACHE.set(key, value)
     return {**value, "cache_hit": False}
 
 

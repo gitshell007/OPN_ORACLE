@@ -1007,3 +1007,27 @@ deberá versionarse un flujo de copia/materialización separado.
   carril Oracle. El archivo, los rangos, el cursor/orden y la reconstrucción atómica del índice
   pertenecen a Signal y su activación es bilateral. El wizard, el perfil comparable y CPV avanzan
   después sin depender de esa reconstrucción.
+
+## D-061 — La comparable se mide sobre adjudicaciones y se cachea como agregado
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** una empresa comparable ya tiene un corpus determinista en Signal —adjudicaciones,
+  CPV, compradores, importes, títulos y UTE— y preguntarle al modelo por esas capacidades añadiría
+  coste, variabilidad y alucinaciones. El caso productivo de `ITURRI, S.A` devuelve hoy 1.252 filas,
+  suficientes para trece páginas; el endpoint no puede repetir ese coste en cada interacción.
+- **Decisión:** Oracle expone `GET /api/v1/procurement/comparable-profile?company=...`, sin
+  expediente, con permiso `actor.read`, límite `6/hour` y caché tenant-scoped del agregado durante
+  seis horas. El perfil pagina hasta 2.000 filas, agrupa por `folder_id`, declara
+  `provider_total/analyzed_rows/truncated`, conserva fechas crudas y calcula en Python CPV,
+  compradores, importes, términos versionados y UTE. No persiste modelos ni filas y ejecuta cero
+  llamadas LLM. El CPV 2008 español vive offline en Oracle con las 9.454 etiquetas oficiales y un
+  updater reproducible contra Publications Office; solo se aceptan los ocho dígitos observados en
+  Signal o la notación oficial con dígito de control.
+- **Consecuencias:** el wizard futuro consumirá un perfil medido, pero no será su propietario. La
+  recuperación se evalúa con el 80 % cronológicamente más antiguo y el 20 % más reciente, dejando
+  fechas ausentes/inválidas fuera del split y visibles. Sobre ITURRI, K=20 recuperó 70/154 por CPV
+  (45,5 %), 110/154 por términos (71,4 %) y 126/154 combinado (81,8 %). Los recuentos actuales de
+  licitaciones `scope=all` se publican por consulta y expresamente no se suman ni se llaman recall.
+  Capacidades y exclusiones tenant-scoped siguen reservadas al futuro perfil de búsqueda; no se
+  duplican en `StrategicDossier.profile_config`.
