@@ -4,6 +4,25 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## ORACLE-EXP-INV-07 · OCR local candidato
+
+- **[Solo spike privado]** Los cinco PDFs `ocr_required` se procesan ahora con Apple Vision local:
+  `pdftoppm` renderiza por página y el helper Swift usa reconocimiento `accurate` en español/inglés.
+  La fuente sigue siendo la cuarentena hash-verificada; no hay red, Signal, migraciones ni runtime
+  productivo.
+- Se recuperaron 32 páginas con texto y dos páginas vacías. Cada bloque conserva página, DPI y hash
+  de texto, y declara `ocr_text_may_misrecognize` + revisión humana obligatoria. La caché OCR queda
+  bajo `.work` y solo se carga si sigue ligada al SHA-256 de la cuarentena vigente.
+- Smoke local OCR-only con `qwen3.5:9b`: cinco documentos elegibles; 18 chunks sobre cuatro,
+  17/18 schemas, 13/18 validaciones de chunk, 4/4 merges finales válidos y 22 candidatos. Hubo tres
+  agotamientos de salida, mediana 22,4 s y rechazos de cita: tres `name_not_in_quote`, tres
+  `quote_missing` y un schema inválido.
+- Decisión: `GO` para disponer de texto OCR candidato; `NO-GO` para comparar/promover frente a
+  texto nativo, para roles o para calidad. Gold A/B debe contrastar la imagen de página antes de
+  medir precisión/recall o afirmar participación.
+- Verificación: `tests/test_investigation_documents.py` 43/43 con `--no-cov`, Ruff check y
+  format-check correctos. Sin Signal.
+
 ## ORACLE-EXP-INV-06 · ventanas literales y reuso offline
 
 - **[Solo spike privado]** La cuarentena documental se puede reutilizar sin red mediante
@@ -51,6 +70,15 @@ Interfaz canónica: `CANONICAL_UI=vector`
   correcto; Playwright extendido desktop+móvil 2/2 con flujo feedback → replanificar → aceptar v2.
 - Smoke con Signal real no verificado en local: la configuración de ejemplo mantiene
   `SIGNAL_AVANZA_MODE=mock` y `ORACLE_AI_MODE=disabled`; el E2E usa mocks contractuales.
+
+## Prompt 83 · vigilancia incremental y memoria de vistos (en curso)
+
+- **[Solo Oracle · API + UX]** En curso: memoria tenant-scoped por vigilancia y `folder_id`,
+  huella material que excluye `feed_updated_at`, barrido durable idempotente sobre la cola
+  `signals`, y notificación agrupada únicamente cuando existan novedades. No introduce IA.
+- La decisión de retención, la semántica explícita de revisión y la compatibilidad con las
+  preferencias de notificación existentes se cerrarán junto con la migración, los tests de RLS
+  y el recorrido responsive de la interfaz.
 
 ## Prompt 81 · deuda visible antes del feedback (completado)
 

@@ -43,6 +43,12 @@ from investigation_documents import (  # noqa: E402
     validate_chunk_candidate_against_chunk,
     validate_reference_url,
 )
+from oracle_exp_inv_03 import load_local_ocr_documents  # noqa: E402
+from oracle_exp_inv_ocr import (  # noqa: E402
+    build_ocr_document,
+    normalize_vision_page,
+    ocr_fingerprint,
+)
 
 
 def _unit(
@@ -607,6 +613,64 @@ def test_participation_windows_fall_back_without_matching_vocabulary() -> None:
     assert [window["chunk_id"] for window in windows] == ["p0001-c01"]
     assert windows[0]["selection_strategy"] == "fallback_chunk/v1"
     assert windows[0]["text"] == page
+
+
+def test_vision_ocr_normalization_rejects_inconsistent_page_output() -> None:
+    assert (
+        normalize_vision_page({"line_count": 2, "lines": [" ALFA S.L. ", "BETA S.A."]})
+        == "ALFA S.L.\nBETA S.A."
+    )
+    with pytest.raises(ValueError, match="line_count"):
+        normalize_vision_page({"line_count": 2, "lines": ["ALFA S.L."]})
+
+
+def test_ocr_document_keeps_page_and_marks_candidate_limitations() -> None:
+    fingerprint = ocr_fingerprint(
+        document_sha256="a" * 64,
+        vision_script_sha256="b" * 64,
+        dpi=120,
+        pages=2,
+    )
+    changed_dpi = ocr_fingerprint(
+        document_sha256="a" * 64,
+        vision_script_sha256="b" * 64,
+        dpi=180,
+        pages=2,
+    )
+    document = build_ocr_document(
+        source_ref_id="c" * 64,
+        document_sha256="a" * 64,
+        page_texts={2: "La oferta de ALFA S.L."},
+        dpi=120,
+        fingerprint=fingerprint,
+    )
+    assert fingerprint != changed_dpi
+    assert document["status"] == "parsed_ocr"
+    assert document["blocks"][0]["locator"]["page"] == 2
+    assert "candidate_only_human_review_required" in document["limitations"]
+
+
+def test_local_ocr_loader_requires_current_quarantine_hash(tmp_path: Path) -> None:
+    ocr_dir = tmp_path / "ocr_vision"
+    ocr_dir.mkdir()
+    document = build_ocr_document(
+        source_ref_id="c" * 64,
+        document_sha256="a" * 64,
+        page_texts={1: "La oferta de ALFA S.L."},
+        dpi=120,
+        fingerprint="d" * 64,
+    )
+    (ocr_dir / f"{'c' * 64}.json").write_text(json.dumps(document), encoding="utf-8")
+    loaded = load_local_ocr_documents(
+        work_dir=tmp_path,
+        document_sha256_by_source={"c" * 64: "a" * 64},
+    )
+    assert loaded == [document]
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        load_local_ocr_documents(
+            work_dir=tmp_path,
+            document_sha256_by_source={"c" * 64: "b" * 64},
+        )
 
 
 def _chunk_output(

@@ -1210,3 +1210,17 @@ deberá versionarse un flujo de copia/materialización separado.
   diff y aceptar v2 sin prometer aprendizaje automático continuo ni análisis por licitación. La
   siguiente fase queda acotada a vigilancia incremental con memoria de vistos y notificaciones sin
   repetir revisiones.
+
+## D-072 — OCR local amplía candidatos, no la fuerza de la evidencia
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-24
+- **Contexto:** Cinco PDFs del core documental no contenían texto nativo. Excluirlos deja un sesgo
+  de cobertura; promover una transcripción OCR como si fuera cita física introduciría otro riesgo.
+- **Decisión:** Apple Vision se usa solo localmente tras revalidar cuarentena; cada bloque OCR se
+  ata a SHA-256, página y DPI, y declara limitación de reconocimiento. Una página vacía se registra
+  sin invalidar el documento. Los registros se integran en el runner únicamente como `parsed_ocr`
+  cacheado y hash-verificado; siguen el mismo validador/merge y la revisión humana obligatoria.
+- **Consecuencias:** 32 páginas OCR permiten medir candidatos, pero no cambian `chunk/v1`, roles,
+  promoción ni precisión/recall. Gold humano debe contrastar imagen y transcripción antes de que
+  una aserción OCR pese igual que texto nativo. No afecta Signal ni producto runtime.

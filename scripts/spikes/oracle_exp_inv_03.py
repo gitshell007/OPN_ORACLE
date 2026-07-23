@@ -157,6 +157,32 @@ def _case_context(case: Mapping[str, Any]) -> tuple[JsonObject, str]:
     )
 
 
+def load_local_ocr_documents(
+    *,
+    work_dir: Path,
+    document_sha256_by_source: Mapping[str, str],
+) -> list[JsonObject]:
+    """Load only OCR records tied to the currently revalidated quarantine."""
+
+    documents = []
+    for path in sorted((work_dir / "ocr_vision").glob("*.json")):
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(f"OCR cache is not an object: {path.name}")
+        source_ref_id = value.get("source_ref_id")
+        if not isinstance(source_ref_id, str):
+            raise ValueError(f"OCR cache has no source_ref_id: {path.name}")
+        if value.get("status") != "parsed_ocr":
+            continue
+        if value.get("document_sha256") != document_sha256_by_source.get(source_ref_id):
+            raise ValueError(f"OCR cache SHA-256 mismatch: {path.name}")
+        blocks = value.get("blocks")
+        if not isinstance(blocks, list) or not blocks:
+            raise ValueError(f"OCR cache has no blocks: {path.name}")
+        documents.append(value)
+    return documents
+
+
 def run_synthetic_ollama(
     *,
     work_dir: Path,
@@ -299,7 +325,7 @@ def run_real_document_ollama(
     prompt = candidate_prompt_contract()
     eligible = []
     for document in parsed_documents:
-        if document.get("status") != "parsed_native":
+        if document.get("status") not in {"parsed_native", "parsed_ocr"}:
             continue
         pages = select_candidate_pages(document.get("blocks", []))
         if pages:
@@ -455,7 +481,7 @@ def run_real_document_chunked_ollama(
     prompt = chunk_candidate_prompt_contract()
     eligible = []
     for document in parsed_documents:
-        if document.get("status") != "parsed_native":
+        if document.get("status") not in {"parsed_native", "parsed_ocr"}:
             continue
         pages = select_candidate_pages(document.get("blocks", []))
         if fragment_strategy == "chunks":
@@ -733,27 +759,41 @@ def execute(args: argparse.Namespace) -> JsonObject:
     _write_private_json(work_dir / "acquisition_ledger.json", private_acquisition)
     acquisition = acquisition_summary(core_rows, results)
 
+    if args.only_local_ocr and not args.include_local_ocr:
+        raise ValueError("--only-local-ocr requires --include-local-ocr")
     parsed_documents = []
-    for acquisition_result in results:
-        if acquisition_result.status not in {
-            "downloaded_quarantined",
-            "reused_quarantined",
-        }:
-            continue
-        parsed = parse_authorized_acquisition(
-            acquisition_result,
-            allow_unscanned_internal=args.allow_unscanned_internal,
-        )
-        parsed_json = parse_result_json(parsed)
-        parsed_documents.append(parsed_json)
-        _write_private_json(
-            work_dir / "parsed" / f"{parsed.source_ref_id}.json",
-            parsed_json,
-        )
+    if not args.only_local_ocr:
+        for acquisition_result in results:
+            if acquisition_result.status not in {
+                "downloaded_quarantined",
+                "reused_quarantined",
+            }:
+                continue
+            parsed = parse_authorized_acquisition(
+                acquisition_result,
+                allow_unscanned_internal=args.allow_unscanned_internal,
+            )
+            parsed_json = parse_result_json(parsed)
+            parsed_documents.append(parsed_json)
+            _write_private_json(
+                work_dir / "parsed" / f"{parsed.source_ref_id}.json",
+                parsed_json,
+            )
     parse_status_counts: dict[str, int] = {}
     for document in parsed_documents:
         status = str(document["status"])
         parse_status_counts[status] = parse_status_counts.get(status, 0) + 1
+    if args.include_local_ocr:
+        ocr_documents = load_local_ocr_documents(
+            work_dir=work_dir,
+            document_sha256_by_source={
+                result.source_ref_id: str(result.sha256)
+                for result in results
+                if result.sha256 is not None
+            },
+        )
+        parsed_documents.extend(ocr_documents)
+        parse_status_counts["parsed_ocr"] = len(ocr_documents)
 
     synthetic_ollama = (
         run_synthetic_ollama(
@@ -802,6 +842,7 @@ def execute(args: argparse.Namespace) -> JsonObject:
         else {"status": "not_run"}
     )
     parsed_native = parse_status_counts.get("parsed_native", 0)
+    parsed_ocr = parse_status_counts.get("parsed_ocr", 0)
     ocr_required = parse_status_counts.get("ocr_required", 0)
     if args.allow_unscanned_internal and parsed_native:
         acquisition["ollama_real_document_status"] = (
@@ -818,7 +859,7 @@ def execute(args: argparse.Namespace) -> JsonObject:
                 else "blocked_unscanned"
             ),
             "antivirus": "not_configured",
-            "ocr": "unavailable",
+            "ocr": "local_vision_cached" if args.include_local_ocr else "unavailable",
             "authorization": (
                 "internal_unscanned_authorized"
                 if args.allow_unscanned_internal
@@ -827,6 +868,7 @@ def execute(args: argparse.Namespace) -> JsonObject:
             "documents_considered": len(parsed_documents),
             "status_counts": dict(sorted(parse_status_counts.items())),
             "parsed_native": parsed_native,
+            "parsed_ocr": parsed_ocr,
             "ocr_required": ocr_required,
         },
         "ollama_real_documents": real_ollama,
@@ -860,6 +902,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--document-timeout", type=int, default=45)
     parser.add_argument("--max-document-bytes", type=int, default=MAX_DOCUMENT_BYTES)
     parser.add_argument("--allow-unscanned-internal", action="store_true")
+    parser.add_argument(
+        "--include-local-ocr",
+        action="store_true",
+        help="Use only cached Apple Vision OCR records tied to revalidated quarantine.",
+    )
+    parser.add_argument(
+        "--only-local-ocr",
+        action="store_true",
+        help="Skip native parsing and run only cached OCR records.",
+    )
     parser.add_argument("--real-ollama", action="store_true")
     parser.add_argument("--real-ollama-chunked", action="store_true")
     parser.add_argument("--max-real-documents", type=int, default=10)

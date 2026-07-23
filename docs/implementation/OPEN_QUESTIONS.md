@@ -213,9 +213,12 @@
   aserciones challenge siguen en 0/72; ningún `counterpart_kind` puede promoverse por nombre o
   sufijo.
 - Pendiente documentos PLACSP: INV-03 congeló el core doble ciego de 24 unidades e intentó sus 145
-  referencias. La repetición autorizada recuperó 130 PDF/DOCX, parseó texto nativo en 125 y dejó
-  cinco para OCR; ClamAV ya no es bloqueo del benchmark interno por D-065. Quedan cuatro errores
-  HTTP, seis respuestas desconocidas y tres ZIP fuera del parser actual.
+  referencias. La repetición autorizada recuperó 130 PDF/DOCX; 125 dieron texto nativo y los cinco
+  restantes ya dan OCR local candidato en 32 páginas (dos vacías), con SHA-256, página y revisión
+  humana obligatoria. Su smoke alcanzó 17/18 schemas, 13/18 chunks estructurales y 4/4 merges, pero
+  ninguna cita OCR sustituye verificación contra imagen/gold. ClamAV ya no es bloqueo del benchmark
+  interno por D-065. Quedan cuatro errores HTTP, seis respuestas desconocidas y tres ZIP fuera del
+  parser actual.
 - Pendiente gold INV-03/04: las hojas A=96/B=24 existen vacías, pero siguen 0 completadas y 0
   adjudicadas. `qwen3.5:9b` por documento completo validó 6/10 schemas, 5/10 estructuras y cero
   aserciones. El chunking/merge ya tiene smoke real candidato con 12/12 schemas, 5/12 chunks
@@ -223,8 +226,9 @@
   a 18/18 schemas, 11/18 chunks estructurales y 4/4 merges finales válidos sobre cuatro documentos.
   El intento `chunk/v2` con múltiples citas y las ventanas literales de INV-06 empeoraron y se
   descartaron como extractor activo. La cuarentena ya puede revalidarse y reparsearse offline sin
-  red. Extractor candidato, reviewer bloqueante, promoción automática y métricas precision/recall
-  continúan en `NO-GO` hasta gold.
+  red; OCR local añade candidatos, no evidencia de igual fuerza que el texto nativo. Extractor
+  candidato, reviewer bloqueante, promoción automática y métricas precision/recall continúan en
+  `NO-GO` hasta gold.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y

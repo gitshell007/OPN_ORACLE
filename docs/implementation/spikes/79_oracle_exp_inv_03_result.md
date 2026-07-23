@@ -282,3 +282,38 @@ concentraron en dos documentos—, pero no supera el baseline por fragmento (18/
 validaciones). Decisión: conservar ventanas solo como herramienta diagnóstica y mantener
 `chunk/v1` como extractor candidato activo. Precisión, recall y promoción siguen bloqueados hasta
 gold A/B.
+
+## 12. Seguimiento INV-07: OCR local candidato
+
+Los cinco PDFs que no aportaban texto nativo se renderizaron localmente a 120 DPI con `pdftoppm` y
+se reconocieron con Apple Vision (`accurate`, `es-ES`, `en-US`). Antes de cada pasada se revalida la
+cuarentena por sidecar, nombre, tamaño y SHA-256. Los textos, hashes y cachés quedan privados bajo
+`.work`; no hubo red, Signal ni proveedor externo.
+
+| Medida OCR | Resultado |
+|---|---:|
+| PDFs OCR | 5 |
+| Páginas con texto | 32 |
+| Páginas vacías | 2 |
+| Documentos con páginas candidatas | 5/5 |
+| Páginas candidatas deterministas | 25 |
+
+El runner acepta estos objetos como `parsed_ocr` solo si el SHA-256 coincide con la cuarentena
+revalidada y añade las limitaciones de reconocimiento/revisión humana. Smoke `chunk/v1` OCR-only:
+
+| Medida extractor | Resultado |
+|---|---:|
+| Documentos ejecutados | 4 |
+| Chunks ejecutados | 18 |
+| Llamadas físicas | 20 |
+| Schema por chunk | 17/18 |
+| Validación estructural por chunk | 13/18 |
+| Merge final válido | 4/4 |
+| Candidatos fusionados | 22 |
+| Agotamientos de salida | 3 |
+| Mediana de llamada física | 22,4 s |
+
+Rechazos: tres `name_not_in_quote`, tres `quote_missing` y un schema inválido. El resultado es
+`GO` para recuperar corpus candidato y `NO-GO` para tratar OCR como evidencia de igual fuerza que
+texto nativo, inferir calidad o promoción. Gold A/B debe contrastar imagen y transcripción antes de
+calcular precision/recall.
