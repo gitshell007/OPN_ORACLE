@@ -26,6 +26,14 @@ from opn_oracle.platform.models import IntegrationConnection
 
 EntityKind = Literal["company", "person"]
 EntityRegistryView = Literal["current", "history"]
+GraphRoleCategory = Literal[
+    "governance",
+    "representation",
+    "audit",
+    "ownership",
+    "liquidation",
+    "other",
+]
 
 ENTITY_INTEL_CACHE_TTL_SECONDS = 600
 ENTITY_INTEL_MAX_BYTES = 2_000_000
@@ -52,6 +60,13 @@ class EntityIntelProviderError(RuntimeError):
 class CachedValue:
     expires_at: float
     value: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalGraphRole:
+    label: str
+    key: str
+    category: GraphRoleCategory
 
 
 class EntityIntelCache:
@@ -84,6 +99,181 @@ class EntityIntelCache:
 _CACHE = EntityIntelCache()
 
 _PERSON_PARTICLE_TOKENS = {"DE", "DEL", "LA", "LOS", "LAS", "SAN", "MC", "O'"}
+
+_GRAPH_ROLE_ALIASES: dict[str, CanonicalGraphRole] = {
+    "adm unico": CanonicalGraphRole(
+        label="Administrador único",
+        key="administrador_unico",
+        category="governance",
+    ),
+    "administrador unico": CanonicalGraphRole(
+        label="Administrador único",
+        key="administrador_unico",
+        category="governance",
+    ),
+    "adm solid": CanonicalGraphRole(
+        label="Administrador solidario",
+        key="administrador_solidario",
+        category="governance",
+    ),
+    "administrador solidario": CanonicalGraphRole(
+        label="Administrador solidario",
+        key="administrador_solidario",
+        category="governance",
+    ),
+    "adm mancom": CanonicalGraphRole(
+        label="Administrador mancomunado",
+        key="administrador_mancomunado",
+        category="governance",
+    ),
+    "administrador mancomunado": CanonicalGraphRole(
+        label="Administrador mancomunado",
+        key="administrador_mancomunado",
+        category="governance",
+    ),
+    "administrador": CanonicalGraphRole(
+        label="Administrador",
+        key="administrador",
+        category="governance",
+    ),
+    "consejero": CanonicalGraphRole(
+        label="Consejero",
+        key="consejero",
+        category="governance",
+    ),
+    "consejero delegado": CanonicalGraphRole(
+        label="Consejero delegado",
+        key="consejero_delegado",
+        category="governance",
+    ),
+    "presidente": CanonicalGraphRole(
+        label="Presidente",
+        key="presidente",
+        category="governance",
+    ),
+    "vicepresidente": CanonicalGraphRole(
+        label="Vicepresidente",
+        key="vicepresidente",
+        category="governance",
+    ),
+    "secretario": CanonicalGraphRole(
+        label="Secretario",
+        key="secretario",
+        category="governance",
+    ),
+    "vicesecretario": CanonicalGraphRole(
+        label="Vicesecretario",
+        key="vicesecretario",
+        category="governance",
+    ),
+    "apoderado": CanonicalGraphRole(
+        label="Apoderado",
+        key="apoderado",
+        category="representation",
+    ),
+    "apoderada": CanonicalGraphRole(
+        label="Apoderado",
+        key="apoderado",
+        category="representation",
+    ),
+    "auditor": CanonicalGraphRole(
+        label="Auditor",
+        key="auditor",
+        category="audit",
+    ),
+    "socio unico": CanonicalGraphRole(
+        label="Socio único",
+        key="socio_unico",
+        category="ownership",
+    ),
+    "socio": CanonicalGraphRole(
+        label="Socio",
+        key="socio",
+        category="ownership",
+    ),
+    "liquidador": CanonicalGraphRole(
+        label="Liquidador",
+        key="liquidador",
+        category="liquidation",
+    ),
+}
+
+
+def _clean_graph_role(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    clean = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value)).strip()
+    return clean or None
+
+
+def _graph_role_alias_key(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_marks = "".join(
+        character for character in decomposed if unicodedata.category(character) != "Mn"
+    )
+    return re.sub(r"[\W_]+", " ", without_marks.casefold()).strip()
+
+
+def _canonical_graph_role(value: str) -> CanonicalGraphRole:
+    structural_key = _graph_role_alias_key(value)
+    explicit = _GRAPH_ROLE_ALIASES.get(structural_key)
+    if explicit is not None:
+        return explicit
+    stable_key = structural_key.replace(" ", "_")
+    if not stable_key:
+        codepoints = "_".join(
+            f"u{ord(character):x}" for character in value if not character.isspace()
+        )
+        stable_key = f"other_{codepoints}" if codepoints else "other"
+    return CanonicalGraphRole(
+        label=value,
+        key=stable_key,
+        category="other",
+    )
+
+
+def _graph_source_roles(edge: dict[str, Any]) -> list[str]:
+    values: list[Any] = [edge.get("role")]
+    roles = edge.get("roles")
+    values.extend(roles if isinstance(roles, list) else [roles])
+    source_roles: list[str] = []
+    for value in values:
+        clean = _clean_graph_role(value)
+        if clean is not None and clean not in source_roles:
+            source_roles.append(clean)
+    return source_roles
+
+
+def _graph_edge_with_role_contract(edge: dict[str, Any]) -> dict[str, Any]:
+    source_roles = _graph_source_roles(edge)
+    normalized: list[CanonicalGraphRole] = []
+    seen_keys: set[str] = set()
+    for source_role in source_roles:
+        role = _canonical_graph_role(source_role)
+        if role.key in seen_keys:
+            continue
+        seen_keys.add(role.key)
+        normalized.append(role)
+    if not normalized:
+        normalized = [CanonicalGraphRole(label="Relación", key="relacion", category="other")]
+    return {
+        **edge,
+        "role": normalized[0].label,
+        "roles": [role.label for role in normalized],
+        "role_keys": [role.key for role in normalized],
+        "role_categories": [role.category for role in normalized],
+        "source_roles": source_roles,
+    }
+
+
+def _graph_payload_with_role_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    edges = payload.get("edges")
+    if not isinstance(edges, list):
+        return payload
+    return {
+        **payload,
+        "edges": [_graph_edge_with_role_contract(item) for item in edges if isinstance(item, dict)],
+    }
 
 
 def _normalize_person_query(value: str) -> str:
@@ -371,12 +561,13 @@ class EntityIntelClient:
                 code="entity_intel_invalid_graph",
                 detail="Signal devolvió un grafo con formato inesperado.",
             )
+        normalized = _graph_payload_with_role_contract(payload)
         return {
-            "center": payload.get("center"),
+            "center": normalized.get("center"),
             "nodes": [item for item in nodes if isinstance(item, dict)],
-            "edges": [item for item in edges if isinstance(item, dict)],
-            "truncated": bool(payload.get("truncated", False)),
-            "note": payload.get("note") if isinstance(payload.get("note"), str) else None,
+            "edges": normalized["edges"],
+            "truncated": bool(normalized.get("truncated", False)),
+            "note": (normalized.get("note") if isinstance(normalized.get("note"), str) else None),
             "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
         }
 
@@ -431,10 +622,19 @@ class EntityIntelClient:
                     code="entity_intel_invalid_dossier_section",
                     detail="Signal devolvió una sección de entidad con un formato inesperado.",
                 )
+        normalized_sections = dict(sections)
+        graph_section = normalized_sections.get("graph")
+        if isinstance(graph_section, dict) and graph_section.get("ok") is True:
+            graph_data = graph_section.get("data")
+            if isinstance(graph_data, dict):
+                normalized_sections["graph"] = {
+                    **graph_section,
+                    "data": _graph_payload_with_role_contract(graph_data),
+                }
         return {
             **payload,
             "entity": entity,
-            "sections": sections,
+            "sections": normalized_sections,
             "cached_seconds": ENTITY_INTEL_CACHE_TTL_SECONDS,
         }
 

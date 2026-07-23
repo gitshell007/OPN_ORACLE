@@ -901,6 +901,28 @@ deberá versionarse un flujo de copia/materialización separado.
   fuerza: el token sigue siendo un secreto de sesión servido bajo cookies same-origin y las
   mutaciones continúan exigiendo coincidencia exacta y origen permitido.
 
+## D-057 — Roles canónicos y exploración progresiva sin reducir cobertura
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** la medición productiva de ITURRI SA mostraba 300 nodos, 301 enlaces y once facetas,
+  con el mismo cargo partido entre `Adm. Unico` (21) y `ADM.UNICO` (2). ITURRIN SA mostraba 7 nodos,
+  6 enlaces y diez pertenencias a facetas porque un vínculo puede tener más de un rol. Además, la
+  profundidad podía ocultar todo el grafo si no se resolvía el centro y los nodos huérfanos no
+  respetaban la promesa de mostrar inicialmente todo lo recibido.
+- **Decisión:** normalizar en el límite Flask mediante un catálogo explícito de alias y claves
+  estructurales estables. Cada arista expone etiquetas y claves canónicas, categorías funcionales y
+  las etiquetas originales de Signal como procedencia. Los valores desconocidos se conservan y no
+  se agrupan por similitud semántica. La vista inicial muestra todos los nodos y enlaces recibidos,
+  incluidos desconectados; la progresividad afecta a etiquetas y controles, no a relaciones. Toda
+  reducción local es explícita, reversible, informa visible frente a recibido y no mueve la cámara.
+  «Solo vínculos activos» sigue siendo una recarga de corpus upstream, no un filtro local.
+- **Consecuencias:** las facetas declaran que son pertenencias no excluyentes y que su suma no mide
+  cobertura; la cabecera visible/recibido y el recorte declarado por Signal siguen siendo la fuente
+  autoritativa. Un rol nuevo aparece como `other` con su texto preservado en vez de desaparecer. Se
+  mantienen fCoSE determinista, `randomize: false`, la divulgación progresiva de D-042 y la cámara
+  estable de D-053. No hay migración, variable nueva ni cambio del contrato upstream de Signal.
+
 ## D-042 — Codex commitea siempre, y solo sus ficheros
 
 - **Estado:** accepted

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -277,6 +278,219 @@ def test_entity_intel_graph_sends_external_tenant_and_normalizes_payload() -> No
     assert payload["nodes"][0]["id"] == "iberdrola"
     assert payload["edges"][0]["role"] == "matriz"
     assert payload["truncated"] is False
+
+
+@pytest.mark.unit
+def test_entity_intel_graph_canonicalizes_role_aliases_with_exact_facet_coverage() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "nodes": [
+                    {"id": "company", "type": "company"},
+                    {"id": "person-a", "type": "person"},
+                    {"id": "person-b", "type": "person"},
+                ],
+                "edges": [
+                    {
+                        "id": "edge-a",
+                        "source": "person-a",
+                        "target": "company",
+                        "role": "Adm. Unico",
+                    },
+                    {
+                        "id": "edge-b",
+                        "source": "person-b",
+                        "target": "company",
+                        "role": "ADM.UNICO",
+                    },
+                ],
+                "truncated": False,
+            },
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.graph(
+            name="ITURRI SA",
+            kind="company",
+            depth=2,
+            active_only=False,
+            external_tenant_id="tenant-signal",
+        )
+    finally:
+        client.close()
+
+    first, second = payload["edges"]
+    assert first["role"] == second["role"] == "Administrador único"
+    assert first["roles"] == second["roles"] == ["Administrador único"]
+    assert first["role_keys"] == second["role_keys"] == ["administrador_unico"]
+    assert first["role_categories"] == second["role_categories"] == ["governance"]
+    assert first["source_roles"] == ["Adm. Unico"]
+    assert second["source_roles"] == ["ADM.UNICO"]
+    facets = Counter(role for edge in payload["edges"] for role in edge["roles"])
+    assert facets == Counter({"Administrador único": 2})
+    assert sum(facets.values()) == len(payload["edges"])
+
+
+@pytest.mark.unit
+def test_entity_intel_graph_preserves_unknown_role_without_semantic_guessing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "nodes": [],
+                "edges": [
+                    {
+                        "source": "person",
+                        "target": "company",
+                        "role": "Responsable de I+D",
+                    },
+                    {
+                        "source": "person-2",
+                        "target": "company",
+                        "role": "Director.",
+                        "roles": ["DIRECTOR"],
+                    },
+                ],
+                "truncated": False,
+            },
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        edges = client.graph(
+            name="EMPRESA SA",
+            kind="company",
+            depth=1,
+            active_only=False,
+            external_tenant_id="tenant-signal",
+        )["edges"]
+    finally:
+        client.close()
+
+    research_role, director_role = edges
+    assert research_role["role"] == "Responsable de I+D"
+    assert research_role["roles"] == ["Responsable de I+D"]
+    assert research_role["role_keys"] == ["responsable_de_i_d"]
+    assert research_role["role_categories"] == ["other"]
+    assert research_role["source_roles"] == ["Responsable de I+D"]
+    assert director_role["role"] == "Director."
+    assert director_role["roles"] == ["Director."]
+    assert director_role["role_keys"] == ["director"]
+    assert director_role["role_categories"] == ["other"]
+    assert director_role["source_roles"] == ["Director.", "DIRECTOR"]
+
+
+@pytest.mark.unit
+def test_entity_intel_graph_does_not_merge_materially_distinct_governance_roles() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "nodes": [],
+                "edges": [
+                    {"source": "p1", "target": "c", "role": "Adm. Unico"},
+                    {"source": "p2", "target": "c", "role": "Adm. Solid"},
+                    {"source": "p3", "target": "c", "role": "Consejero"},
+                    {"source": "p4", "target": "c", "role": "Consejero delegado"},
+                ],
+                "truncated": False,
+            },
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        edges = client.graph(
+            name="EMPRESA SA",
+            kind="company",
+            depth=1,
+            active_only=False,
+            external_tenant_id="tenant-signal",
+        )["edges"]
+    finally:
+        client.close()
+
+    assert [edge["role"] for edge in edges] == [
+        "Administrador único",
+        "Administrador solidario",
+        "Consejero",
+        "Consejero delegado",
+    ]
+    assert len({edge["role_keys"][0] for edge in edges}) == len(edges)
+    assert {edge["role_categories"][0] for edge in edges} == {"governance"}
+
+
+@pytest.mark.unit
+def test_entity_intel_dossier_applies_same_role_contract_to_embedded_graph() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "entity": {"name": "ITURRI SA", "type": "company"},
+                "sections": {
+                    "graph": {
+                        "ok": True,
+                        "data": {
+                            "nodes": [],
+                            "edges": [
+                                {
+                                    "source": "person",
+                                    "target": "company",
+                                    "roles": ["ADM.UNICO", "Auditor"],
+                                }
+                            ],
+                            "truncated": False,
+                        },
+                    }
+                },
+            },
+        )
+
+    client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.dossier(
+            name="ITURRI SA",
+            kind="company",
+            external_tenant_id="tenant-signal",
+        )
+    finally:
+        client.close()
+
+    edge = payload["sections"]["graph"]["data"]["edges"][0]
+    assert edge["role"] == "Administrador único"
+    assert edge["roles"] == ["Administrador único", "Auditor"]
+    assert edge["role_keys"] == ["administrador_unico", "auditor"]
+    assert edge["role_categories"] == ["governance", "audit"]
+    assert edge["source_roles"] == ["ADM.UNICO", "Auditor"]
 
 
 @pytest.mark.unit
@@ -644,6 +858,73 @@ def test_entity_intel_registry_http_dispatch_forwards_global_view_controls(
         "province": "SEVILLA",
         "sort": "role",
     }
+
+
+@pytest.mark.unit
+def test_entity_intel_graph_http_dispatch_exposes_canonical_and_source_roles(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "center": "ITURRI SA",
+                "nodes": [{"id": "iturri", "label": "ITURRI SA", "is_center": True}],
+                "edges": [
+                    {
+                        "source": "person-a",
+                        "target": "iturri",
+                        "role": "Adm. Unico",
+                    },
+                    {
+                        "source": "person-b",
+                        "target": "iturri",
+                        "role": "ADM.UNICO",
+                    },
+                ],
+                "truncated": False,
+            },
+        )
+
+    signal_client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    monkeypatch.setattr(entity_intel, "_CACHE", EntityIntelCache(ttl_seconds=60))
+    monkeypatch.setattr(
+        entity_intel,
+        "entity_intel_client_from_config",
+        lambda: signal_client,
+    )
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "resolve_signal_external_tenant_id",
+        lambda: "tenant-signal",
+    )
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.read"})):
+        response = client.get("/api/v1/entity-intel/graph?name=ITURRI%20SA&type=company&depth=2")
+
+    assert response.status_code == 200
+    edges = response.get_json()["edges"]
+    assert [edge["role"] for edge in edges] == [
+        "Administrador único",
+        "Administrador único",
+    ]
+    assert [edge["role_keys"] for edge in edges] == [
+        ["administrador_unico"],
+        ["administrador_unico"],
+    ]
+    assert [edge["source_roles"] for edge in edges] == [
+        ["Adm. Unico"],
+        ["ADM.UNICO"],
+    ]
 
 
 @pytest.mark.unit

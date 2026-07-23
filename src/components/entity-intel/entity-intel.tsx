@@ -44,6 +44,8 @@ const GRAPH_ALL_LABELS_MIN_ZOOM = 1.5;
 const GRAPH_FOCUS_PADDING = 72;
 const GRAPH_NODE_RADIUS = 15;
 const GRAPH_CENTER_NODE_RADIUS = 23;
+const SMALL_GRAPH_LABEL_NODE_LIMIT = 12;
+const SMALL_GRAPH_LABEL_EDGE_LIMIT = 16;
 const GRAPH_HIDDEN_CLASSES = [
   "is-time-filtered",
   "is-role-filtered",
@@ -73,6 +75,14 @@ interface RoleFilterOption {
 interface RoleFilterState {
   key: string;
   enabledKeys: string[];
+}
+
+type GraphLabelDensity = "essential" | "adaptive" | "all";
+type IsolationCameraIntent = "focus" | "restore";
+
+interface GraphRoleEntry {
+  key: string;
+  label: string;
 }
 
 function problemMessage(reason: unknown, fallback: string): string {
@@ -341,11 +351,6 @@ function seededInitialPosition(
   };
 }
 
-function edgeRole(edge: EntityIntelGraphEdge): string {
-  if (Array.isArray(edge.roles)) return edge.roles.join(", ");
-  return String(edge.role ?? edge.roles ?? "Relación");
-}
-
 function edgeRoleValues(edge: EntityIntelGraphEdge): string[] {
   const values = Array.isArray(edge.roles)
     ? edge.roles
@@ -356,6 +361,10 @@ function edgeRoleValues(edge: EntityIntelGraphEdge): string[] {
   return normalized.length > 0 ? normalized : ["Relación"];
 }
 
+function edgeRole(edge: EntityIntelGraphEdge): string {
+  return edgeRoleValues(edge).join(", ");
+}
+
 function normalizedRoleKey(role: string): string {
   return role.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("es-ES");
 }
@@ -363,6 +372,26 @@ function normalizedRoleKey(role: string): string {
 function displayRole(role: string): string {
   const clean = role.trim().replace(/\s+/g, " ");
   return clean ? `${clean[0].toLocaleUpperCase("es-ES")}${clean.slice(1)}` : "Relación";
+}
+
+function canonicalRoleKeys(edge: EntityIntelGraphEdge): string[] {
+  const keys = edge.role_keys;
+  if (!Array.isArray(keys)) return [];
+  return keys
+    .map((key) => (typeof key === "string" ? key.trim() : ""))
+    .filter(Boolean);
+}
+
+function edgeRoleEntries(edge: EntityIntelGraphEdge): GraphRoleEntry[] {
+  const labels = edgeRoleValues(edge);
+  const keys = canonicalRoleKeys(edge);
+  if (keys.length === 0) {
+    return labels.map((label) => ({ key: normalizedRoleKey(label), label }));
+  }
+  return keys.map((key, index) => ({
+    key,
+    label: labels[index] ?? labels[0] ?? "Relación",
+  }));
 }
 
 function normalizedEntityIdentity(value: unknown): string | null {
@@ -400,7 +429,7 @@ export function graphRoleOptions(graph: EntityIntelGraphResponse | null): RoleFi
   const roles = new Map<string, RoleFilterOption>();
   graph.edges.forEach((edge) => {
     const uniqueRoles = new Map<string, string>();
-    edgeRoleValues(edge).forEach((role) => uniqueRoles.set(normalizedRoleKey(role), role));
+    edgeRoleEntries(edge).forEach(({ key, label }) => uniqueRoles.set(key, label));
     uniqueRoles.forEach((role, key) => {
       const current = roles.get(key);
       roles.set(key, {
@@ -625,6 +654,32 @@ function nodeIsGraphHidden(node: cytoscape.NodeSingular): boolean {
   return elementIsGraphHidden(node) || node.hasClass("is-orphaned-after-filter");
 }
 
+function defaultGraphLabelDensity(graph: EntityIntelGraphResponse | null): GraphLabelDensity {
+  if (
+    graph
+    && graph.nodes.length <= SMALL_GRAPH_LABEL_NODE_LIMIT
+    && graph.edges.length <= SMALL_GRAPH_LABEL_EDGE_LIMIT
+  ) {
+    return "all";
+  }
+  return "adaptive";
+}
+
+function applyGraphLabelDensity(
+  instance: cytoscape.Core,
+  density: GraphLabelDensity,
+) {
+  const elements = instance.elements();
+  instance.batch(() => {
+    elements.removeClass("is-readable-zoom is-all-label");
+    if (density === "all") {
+      elements.addClass("is-all-label");
+    } else if (density === "adaptive" && instance.zoom() >= GRAPH_ALL_LABELS_MIN_ZOOM) {
+      elements.addClass("is-readable-zoom");
+    }
+  });
+}
+
 interface GraphVisibilityCounts {
   edges: number;
   nodes: number;
@@ -636,7 +691,7 @@ function applyGraphVisibility(
   range: [number, number] | null,
   enabledRoleKeys: ReadonlySet<string>,
   nodeDepths: ReadonlyMap<string, number>,
-  visibleDepth: number,
+  visibleDepthLimit: number | null,
   focusedNodeId: string | null,
 ): GraphVisibilityCounts {
   const start = bounds && range ? timelineDateFromOffset(bounds, range[0]) : null;
@@ -653,17 +708,20 @@ function applyGraphVisibility(
       } else if (start !== null && end !== null && (timestamp < start || timestamp > end)) {
         edge.addClass("is-time-filtered");
       }
-      const roleKeys = edgeRoleValues(edge.data() as EntityIntelGraphEdge).map(normalizedRoleKey);
+      const roleKeys = edgeRoleEntries(edge.data() as EntityIntelGraphEdge).map(({ key }) => key);
       if (!roleKeys.some((key) => enabledRoleKeys.has(key))) edge.addClass("is-role-filtered");
       const source = String(edge.data("source"));
       const target = String(edge.data("target"));
       const sourceDepth = nodeDepths.get(source);
       const targetDepth = nodeDepths.get(target);
       if (
-        sourceDepth === undefined
-        || targetDepth === undefined
-        || sourceDepth > visibleDepth
-        || targetDepth > visibleDepth
+        visibleDepthLimit !== null
+        && (
+          sourceDepth === undefined
+          || targetDepth === undefined
+          || sourceDepth > visibleDepthLimit
+          || targetDepth > visibleDepthLimit
+        )
       ) {
         edge.addClass("is-depth-filtered");
       }
@@ -680,16 +738,27 @@ function applyGraphVisibility(
       node.removeClass("is-orphaned-after-filter is-depth-filtered is-focus-filtered is-focus-label");
       const nodeId = String(node.id());
       const nodeDepth = nodeDepths.get(nodeId);
-      if (nodeDepth === undefined || nodeDepth > visibleDepth) node.addClass("is-depth-filtered");
+      if (
+        visibleDepthLimit !== null
+        && (nodeDepth === undefined || nodeDepth > visibleDepthLimit)
+      ) {
+        node.addClass("is-depth-filtered");
+      }
       if (focusedNodeId !== null && !focusedNodeIds.has(nodeId)) {
         node.addClass("is-focus-filtered");
       }
-      const visibleEdges = node
-        .connectedEdges()
+      const connectedEdges = node.connectedEdges();
+      const visibleEdges = connectedEdges
         .filter((edge: cytoscape.EdgeSingular) => !elementIsGraphHidden(edge));
       const anchorVisible = focusedNodeId === nodeId
         || (focusedNodeId === null && node.data("is_center") === true);
-      if (visibleEdges.length === 0 && !anchorVisible) node.addClass("is-orphaned-after-filter");
+      if (
+        connectedEdges.length > 0
+        && visibleEdges.length === 0
+        && !anchorVisible
+      ) {
+        node.addClass("is-orphaned-after-filter");
+      }
       if (focusedNodeId !== null && focusedNodeIds.has(nodeId) && !elementIsGraphHidden(node)) {
         node.addClass("is-focus-label");
       }
@@ -707,6 +776,13 @@ function focusGraphNode(instance: cytoscape.Core, nodeId: string) {
     .filter((element) => !elementIsGraphHidden(element));
   instance.fit(visibleNeighborhood, GRAPH_FOCUS_PADDING);
   if (instance.zoom() > 1.75) instance.zoom(1.75);
+}
+
+function fitVisibleGraph(instance: cytoscape.Core) {
+  const visibleElements = instance.elements().filter(
+    (element) => !elementIsGraphHidden(element) && !element.hasClass("is-orphaned-after-filter"),
+  );
+  if (visibleElements.length > 0) instance.fit(visibleElements, GRAPH_FOCUS_PADDING);
 }
 
 export function EntityGraphExplorer({
@@ -727,10 +803,12 @@ export function EntityGraphExplorer({
   const timeRangeRef = useRef<[number, number] | null>(null);
   const enabledRoleKeysRef = useRef<ReadonlySet<string>>(new Set());
   const nodeDepthsRef = useRef<ReadonlyMap<string, number>>(new Map());
-  const visibleDepthRef = useRef(1);
+  const visibleDepthLimitRef = useRef<number | null>(null);
   const selectedNodeIdRef = useRef<string | null>(null);
   const isolatedNodeIdRef = useRef<string | null>(null);
   const previousIsolatedNodeIdRef = useRef<string | null>(null);
+  const isolationCameraIntentRef = useRef<IsolationCameraIntent | null>(null);
+  const labelDensityRef = useRef<GraphLabelDensity>(defaultGraphLabelDensity(initialGraph));
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
@@ -747,6 +825,7 @@ export function EntityGraphExplorer({
   const [roleFilter, setRoleFilter] = useState<RoleFilterState | null>(null);
   const [requestedDepth, setRequestedDepth] = useState<number | null>(null);
   const [nodeQuery, setNodeQuery] = useState("");
+  const [labelDensityOverride, setLabelDensityOverride] = useState<GraphLabelDensity | null>(null);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -759,12 +838,17 @@ export function EntityGraphExplorer({
         activeOnly,
       });
       setGraph(result);
+      setVisibleNodeCount(result.nodes.length);
+      setVisibleEdgeCount(result.edges.length);
       setSelected(null);
       setIsolatedNodeId(null);
       setRequestedDepth(null);
+      setTimeFilter(null);
+      setRoleFilter(null);
       selectedNodeIdRef.current = null;
       isolatedNodeIdRef.current = null;
       previousIsolatedNodeIdRef.current = null;
+      isolationCameraIntentRef.current = null;
     } catch (reason) {
       setGraph(null);
       setError(problemMessage(reason, "No se pudo cargar el grafo de la entidad."));
@@ -777,12 +861,17 @@ export function EntityGraphExplorer({
     if (initialGraph && !activeOnly) {
       const handle = window.setTimeout(() => {
         setGraph(initialGraph);
+        setVisibleNodeCount(initialGraph.nodes.length);
+        setVisibleEdgeCount(initialGraph.edges.length);
         setSelected(null);
         setIsolatedNodeId(null);
         setRequestedDepth(null);
+        setTimeFilter(null);
+        setRoleFilter(null);
         selectedNodeIdRef.current = null;
         isolatedNodeIdRef.current = null;
         previousIsolatedNodeIdRef.current = null;
+        isolationCameraIntentRef.current = null;
         setLoading(false);
       }, 0);
       return () => window.clearTimeout(handle);
@@ -794,20 +883,27 @@ export function EntityGraphExplorer({
   const elements = useMemo(() => (graph ? graphElements(graph, name) : []), [graph, name]);
   const roleOptions = useMemo(() => graphRoleOptions(graph), [graph]);
   const nodeDepths = useMemo(() => graphDepthMap(graph, name), [graph, name]);
+  const hasResolvedCenter = nodeDepths.size > 0;
+  const graphNodeCount = graph?.nodes.length ?? 0;
   const availableDepth = Math.max(1, ...nodeDepths.values());
   const visibleDepth = requestedDepth === null
     ? availableDepth
     : Math.min(requestedDepth, availableDepth);
+  const visibleDepthLimit = hasResolvedCenter && visibleDepth < availableDepth
+    ? visibleDepth
+    : null;
   const depthOptions = useMemo(() => Array.from(
     { length: availableDepth },
     (_, index) => {
       const depth = index + 1;
       return {
         depth,
-        nodeCount: [...nodeDepths.values()].filter((nodeDepth) => nodeDepth <= depth).length,
+        nodeCount: depth === availableDepth
+          ? graphNodeCount
+          : [...nodeDepths.values()].filter((nodeDepth) => nodeDepth <= depth).length,
       };
     },
-  ), [availableDepth, nodeDepths]);
+  ), [availableDepth, graphNodeCount, nodeDepths]);
   const depthVisibleNodeCount = depthOptions[visibleDepth - 1]?.nodeCount ?? graph?.nodes.length ?? 0;
   const roleOptionsKey = roleOptions.map((role) => `${role.key}:${role.count}`).join("|");
   const enabledRoleKeys = useMemo(() => new Set(
@@ -824,10 +920,26 @@ export function EntityGraphExplorer({
       ? timeFilter.range
       : [0, temporalBounds.maxOffset] satisfies [number, number]
     : null;
+  const allRolesVisible = roleOptions.every((role) => enabledRoleKeys.has(role.key));
+  const fullTimeRange = !temporalBounds
+    || !timeRange
+    || (timeRange[0] === 0 && timeRange[1] === temporalBounds.maxOffset);
+  const hasLocalReduction = (
+    visibleDepthLimit !== null
+    || !allRolesVisible
+    || !fullTimeRange
+    || isolatedNodeId !== null
+  );
+  const allReceivedVisible = Boolean(
+    graph
+    && visibleNodeCount === graph.nodes.length
+    && visibleEdgeCount === graph.edges.length,
+  );
+  const labelDensity = labelDensityOverride ?? defaultGraphLabelDensity(graph);
   const selectedNodeId = useMemo(() => (
     graph && selected ? selectedNodeIdentity(graph, selected) : null
   ), [graph, selected]);
-  const matchingNodes = useMemo(() => {
+  const matchingNodeResults = useMemo(() => {
     const normalizedQuery = normalizedEntityIdentity(nodeQuery);
     if (!graph || !normalizedQuery) return [];
     return graph.nodes
@@ -836,18 +948,32 @@ export function EntityGraphExplorer({
         normalizedEntityIdentity(label)?.includes(normalizedQuery)
         || normalizedEntityIdentity(node.norm)?.includes(normalizedQuery)
       ))
-      .sort((left, right) => left.label.localeCompare(right.label, "es"))
-      .slice(0, 12);
+      .sort((left, right) => left.label.localeCompare(right.label, "es"));
   }, [graph, nodeQuery]);
+  const matchingNodes = matchingNodeResults.slice(0, 12);
+  const matchingNodeIds = useMemo(
+    () => new Set(matchingNodeResults.map(({ id }) => id)),
+    [matchingNodeResults],
+  );
   useEffect(() => {
     temporalBoundsRef.current = temporalBounds;
     timeRangeRef.current = timeRange;
     enabledRoleKeysRef.current = enabledRoleKeys;
     nodeDepthsRef.current = nodeDepths;
-    visibleDepthRef.current = visibleDepth;
+    visibleDepthLimitRef.current = visibleDepthLimit;
     selectedNodeIdRef.current = selectedNodeId;
     isolatedNodeIdRef.current = isolatedNodeId;
-  }, [enabledRoleKeys, isolatedNodeId, nodeDepths, selectedNodeId, temporalBounds, timeRange, visibleDepth]);
+    labelDensityRef.current = labelDensity;
+  }, [
+    enabledRoleKeys,
+    isolatedNodeId,
+    labelDensity,
+    nodeDepths,
+    selectedNodeId,
+    temporalBounds,
+    timeRange,
+    visibleDepthLimit,
+  ]);
 
   const zoomGraph = useCallback((factor: number) => {
     const instance = graphRef.current;
@@ -865,6 +991,20 @@ export function EntityGraphExplorer({
     const instance = graphRef.current;
     if (!instance) return;
     initialGraphFocus(instance);
+  }, []);
+
+  const fitCurrentGraph = useCallback(() => {
+    const instance = graphRef.current;
+    if (!instance) return;
+    fitVisibleGraph(instance);
+  }, []);
+
+  const restoreAllReceived = useCallback(() => {
+    isolationCameraIntentRef.current = null;
+    setRequestedDepth(null);
+    setRoleFilter(null);
+    setTimeFilter(null);
+    setIsolatedNodeId(null);
   }, []);
 
   useEffect(() => {
@@ -916,7 +1056,7 @@ export function EntityGraphExplorer({
               style: { "background-color": "#7c3aed" },
             },
             {
-              selector: "node.is-priority-label, node.is-hover-label, node.is-focus-label, node.is-readable-zoom",
+              selector: "node.is-priority-label, node.is-hover-label, node.is-focus-label, node.is-readable-zoom, node.is-all-label",
               style: { label: "data(label)" },
             },
             {
@@ -963,7 +1103,7 @@ export function EntityGraphExplorer({
               },
             },
             {
-              selector: "edge.is-hover-label, edge.is-focus-label, edge.is-readable-zoom",
+              selector: "edge.is-hover-label, edge.is-focus-label, edge.is-readable-zoom, edge.is-all-label",
               style: { label: "data(label)" },
             },
             {
@@ -991,6 +1131,15 @@ export function EntityGraphExplorer({
             {
               selector: "node.is-center-node.is-hovered",
               style: { height: 50, width: 50 },
+            },
+            {
+              selector: "node.is-search-match",
+              style: {
+                "border-color": "#f59e0b",
+                "border-width": 5,
+                "overlay-color": "#f59e0b",
+                "overlay-opacity": 0.1,
+              },
             },
             {
               selector: ".is-dimmed",
@@ -1031,14 +1180,7 @@ export function EntityGraphExplorer({
           instance.elements().not(neighborhood).addClass("is-dimmed");
           node.addClass("is-hovered is-hover-label");
         };
-        const syncZoomLabels = () => {
-          const allElements = instance.elements();
-          if (instance.zoom() >= GRAPH_ALL_LABELS_MIN_ZOOM) {
-            allElements.addClass("is-readable-zoom");
-          } else {
-            allElements.removeClass("is-readable-zoom");
-          }
-        };
+        const syncZoomLabels = () => applyGraphLabelDensity(instance, labelDensityRef.current);
         const onMouseOver = (event: cytoscape.EventObject) => applyHover(event.target as cytoscape.NodeSingular);
         const onMouseOut = () => clearHover();
         let lastTap: { id: string; at: number } | null = null;
@@ -1074,7 +1216,7 @@ export function EntityGraphExplorer({
             timeRangeRef.current,
             enabledRoleKeysRef.current,
             nodeDepthsRef.current,
-            visibleDepthRef.current,
+            visibleDepthLimitRef.current,
             isolatedNodeIdRef.current,
           );
           setVisibleEdgeCount(visibility.edges);
@@ -1127,23 +1269,48 @@ export function EntityGraphExplorer({
       timeRange,
       enabledRoleKeys,
       nodeDepths,
-      visibleDepth,
+      visibleDepthLimit,
       isolatedNodeId,
     );
     setVisibleEdgeCount(visibility.edges);
     setVisibleNodeCount(visibility.nodes);
-  }, [enabledRoleKeys, isolatedNodeId, nodeDepths, temporalBounds, timeRange, visibleDepth]);
+  }, [
+    enabledRoleKeys,
+    isolatedNodeId,
+    nodeDepths,
+    temporalBounds,
+    timeRange,
+    visibleDepthLimit,
+  ]);
 
   useEffect(() => {
     const instance = graphRef.current;
     if (!instance || previousIsolatedNodeIdRef.current === isolatedNodeId) return;
     previousIsolatedNodeIdRef.current = isolatedNodeId;
-    if (isolatedNodeId) {
+    const cameraIntent = isolationCameraIntentRef.current;
+    isolationCameraIntentRef.current = null;
+    if (cameraIntent === "focus" && isolatedNodeId) {
       focusGraphNode(instance, isolatedNodeId);
-    } else {
+    } else if (cameraIntent === "restore" && !isolatedNodeId) {
       initialGraphFocus(instance);
     }
   }, [isolatedNodeId]);
+
+  useEffect(() => {
+    if (!graphRef.current) return;
+    applyGraphLabelDensity(graphRef.current, labelDensity);
+  }, [labelDensity]);
+
+  useEffect(() => {
+    const instance = graphRef.current;
+    if (!instance) return;
+    instance.batch(() => {
+      instance.nodes().removeClass("is-search-match");
+      matchingNodeIds.forEach((id) => {
+        instance.getElementById(id).addClass("is-search-match");
+      });
+    });
+  }, [matchingNodeIds]);
 
   const detailTarget = detailOpen ? detailEntity ?? selected : selected;
   const relations = useMemo(() => directRelations(graph, detailTarget), [detailTarget, graph]);
@@ -1188,7 +1355,7 @@ export function EntityGraphExplorer({
                 checked={activeOnly}
                 onChange={(event) => setActiveOnly(event.target.checked)}
               />
-              Solo vínculos activos
+              Recargar corpus: solo activos
             </label>
             <span>{visibleNodeCount} de {graph?.nodes.length ?? 0} nodos visibles</span>
             <span>{visibleEdgeCount} de {graph?.edges.length ?? 0} enlaces visibles</span>
@@ -1217,6 +1384,13 @@ export function EntityGraphExplorer({
                 <button type="button" aria-label="Volver al encuadre inicial" onClick={resetGraphFocus}>
                   Reencuadrar
                 </button>
+                <button
+                  type="button"
+                  aria-label="Encajar todos los elementos visibles"
+                  onClick={fitCurrentGraph}
+                >
+                  Encajar visibles
+                </button>
                 <span aria-live="polite">Zoom {zoomPercent}%</span>
               </div>
               <div
@@ -1240,7 +1414,10 @@ export function EntityGraphExplorer({
                   {selectedNodeId !== isolatedNodeId && (
                     <button
                       type="button"
-                      onClick={() => setIsolatedNodeId(selectedNodeId)}
+                      onClick={() => {
+                        isolationCameraIntentRef.current = "focus";
+                        setIsolatedNodeId(selectedNodeId);
+                      }}
                     >
                       Aislar relaciones
                     </button>
@@ -1254,7 +1431,10 @@ export function EntityGraphExplorer({
                 <button
                   type="button"
                   className="vector-secondary small entity-graph-clear-focus"
-                  onClick={() => setIsolatedNodeId(null)}
+                  onClick={() => {
+                    isolationCameraIntentRef.current = "restore";
+                    setIsolatedNodeId(null);
+                  }}
                 >
                   Mostrar grafo completo
                 </button>
@@ -1273,6 +1453,10 @@ export function EntityGraphExplorer({
               </div>
               {nodeQuery.trim() && (
                 <div className="entity-relation-list" aria-label="Nodos encontrados">
+                  <p className="entity-graph-search-count" aria-live="polite">
+                    {matchingNodes.length} de {matchingNodeResults.length} coincidencias mostradas.
+                    La búsqueda resalta, pero no oculta ni mueve el grafo.
+                  </p>
                   {matchingNodes.length > 0 ? matchingNodes.map(({ id, label, node }) => (
                     <button
                       type="button"
@@ -1290,170 +1474,262 @@ export function EntityGraphExplorer({
                   )) : <p>No hay nodos que coincidan.</p>}
                 </div>
               )}
-              <label className="entity-depth-filter">
-                <span>
-                  <strong>Niveles visibles</strong>
-                  <small>{depthVisibleNodeCount} de {graph.nodes.length} nodos por nivel</small>
-                </span>
-                <select
-                  aria-label="Número de niveles visibles"
-                  value={visibleDepth}
-                  disabled={availableDepth === 1}
-                  onChange={(event) => {
-                    setRequestedDepth(Number(event.target.value));
-                  }}
-                >
-                  {depthOptions.map((option) => (
-                    <option key={option.depth} value={option.depth}>
-                      Hasta nivel {option.depth} · {option.nodeCount} nodos
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <dl>
-                <div>
-                  <dt>Tipo consultado</dt>
-                  <dd>{KIND_LABELS[type]}</dd>
-                </div>
-                <div>
-                  <dt>Profundidad</dt>
-                  <dd>
-                    Nivel {visibleDepth} de {availableDepth} disponible
-                    {availableDepth === 1 ? "" : "s"} · {activeOnly ? "solo vínculos activos" : "activos y cesados"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Encuadre inicial</dt>
-                  <dd>Centro y nodos clave etiquetados; más nombres al acercar</dd>
-                </div>
-                <div>
-                  <dt>Origen</dt>
-                  <dd>Signal vía Flask</dd>
-                </div>
-              </dl>
-              {roleOptions.length > 0 && (
-                <fieldset className="entity-role-filter">
-                  <legend>Tipos de vínculo</legend>
-                  <p>
-                    {enabledRoleKeys.size} de {roleOptions.length} tipos visibles. Desmarca el
-                    ruido para leer la estructura; el grafo no se recoloca.
-                  </p>
-                  <div className="entity-role-filter-actions">
-                    <button
-                      type="button"
-                      onClick={() => setRoleFilter({
-                        key: roleOptionsKey,
-                        enabledKeys: roleOptions.map((role) => role.key),
-                      })}
-                    >
-                      Marcar todos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRoleFilter({ key: roleOptionsKey, enabledKeys: [] })}
-                    >
-                      Desmarcar todos
-                    </button>
+              <section className="entity-graph-exploration" aria-label="Vista de trabajo del grafo">
+                <header>
+                  <div>
+                    <span>Vista de trabajo</span>
+                    <strong aria-live="polite">
+                      {hasLocalReduction
+                        ? "Vista reducida"
+                        : allReceivedVisible
+                          ? "100 % de lo recibido"
+                          : "Cobertura parcial en pantalla"}
+                    </strong>
                   </div>
-                  <div className="entity-role-filter-options">
-                    {roleOptions.map((role) => (
-                      <label key={role.key}>
+                  <small>
+                    {visibleNodeCount}/{graph.nodes.length} nodos ·{" "}
+                    {visibleEdgeCount}/{graph.edges.length} enlaces
+                  </small>
+                </header>
+                <p>
+                  Los filtros reducen esta vista sin recolocar el grafo. Puedes recuperar todos los
+                  datos recibidos y reencuadrar por separado.
+                </p>
+                <div className="entity-graph-exploration-actions">
+                  <button
+                    type="button"
+                    disabled={!hasResolvedCenter || availableDepth === 1 || visibleDepth === 1}
+                    onClick={() => setRequestedDepth(1)}
+                  >
+                    Ver entorno directo
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!hasLocalReduction}
+                    onClick={restoreAllReceived}
+                  >
+                    Restaurar todo lo recibido
+                  </button>
+                </div>
+                <label className="entity-label-density">
+                  <span>
+                    <strong>Densidad de etiquetas</strong>
+                    <small>Solo cambia los nombres mostrados; no la cobertura.</small>
+                  </span>
+                  <select
+                    aria-label="Densidad de etiquetas del grafo"
+                    value={labelDensity}
+                    onChange={(event) => (
+                      setLabelDensityOverride(event.target.value as GraphLabelDensity)
+                    )}
+                  >
+                    <option value="essential">Esenciales</option>
+                    <option value="adaptive">Adaptativas al zoom</option>
+                    <option value="all">Todas</option>
+                  </select>
+                </label>
+              </section>
+              <details className="entity-graph-disclosure">
+                <summary>
+                  <span>Estructura y niveles</span>
+                  <small>{depthVisibleNodeCount}/{graph.nodes.length} nodos por nivel</small>
+                </summary>
+                <div className="entity-graph-disclosure-body">
+                  <label className="entity-depth-filter">
+                    <span>
+                      <strong>Niveles visibles</strong>
+                      <small>{depthVisibleNodeCount} de {graph.nodes.length} nodos por nivel</small>
+                    </span>
+                    <select
+                      aria-label="Número de niveles visibles"
+                      value={visibleDepth}
+                      disabled={!hasResolvedCenter || availableDepth === 1}
+                      onChange={(event) => {
+                        setRequestedDepth(Number(event.target.value));
+                      }}
+                    >
+                      {depthOptions.map((option) => (
+                        <option key={option.depth} value={option.depth}>
+                          {option.depth === availableDepth
+                            ? `Todos los niveles · ${option.nodeCount} nodos`
+                            : `Hasta nivel ${option.depth} · ${option.nodeCount} nodos`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {!hasResolvedCenter && (
+                    <p className="entity-graph-note">
+                      No se pudo calcular la distancia a la entidad central. Se muestran todos los
+                      elementos recibidos y el filtro por nivel queda desactivado.
+                    </p>
+                  )}
+                  <dl>
+                    <div>
+                      <dt>Tipo consultado</dt>
+                      <dd>{KIND_LABELS[type]}</dd>
+                    </div>
+                    <div>
+                      <dt>Profundidad</dt>
+                      <dd>
+                        Nivel {visibleDepth} de {availableDepth} disponible
+                        {availableDepth === 1 ? "" : "s"} · {activeOnly ? "solo vínculos activos" : "activos y cesados"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Encuadre inicial</dt>
+                      <dd>Centro y nodos clave etiquetados; más nombres al acercar</dd>
+                    </div>
+                  </dl>
+                </div>
+              </details>
+              {roleOptions.length > 0 && (
+                <details className="entity-graph-disclosure">
+                  <summary>
+                    <span>Tipos de vínculo</span>
+                    <small>{enabledRoleKeys.size}/{roleOptions.length} tipos visibles</small>
+                  </summary>
+                  <div className="entity-graph-disclosure-body">
+                    <fieldset className="entity-role-filter">
+                      <legend>Tipos de vínculo</legend>
+                      <p>
+                        Desmarca ruido para leer la estructura; el grafo no se recoloca. Los
+                        recuentos son pertenencias no excluyentes: un mismo enlace puede figurar en
+                        varios tipos y su suma no representa la cobertura.
+                      </p>
+                      <div className="entity-role-filter-actions">
+                        <button
+                          type="button"
+                          onClick={() => setRoleFilter({
+                            key: roleOptionsKey,
+                            enabledKeys: roleOptions.map((role) => role.key),
+                          })}
+                        >
+                          Marcar todos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRoleFilter({ key: roleOptionsKey, enabledKeys: [] })}
+                        >
+                          Desmarcar todos
+                        </button>
+                      </div>
+                      <div className="entity-role-filter-options">
+                        {roleOptions.map((role) => (
+                          <label key={role.key}>
+                            <input
+                              type="checkbox"
+                              aria-label={`${role.label}, ${role.count} ${role.count === 1 ? "vínculo" : "vínculos"}`}
+                              checked={enabledRoleKeys.has(role.key)}
+                              onChange={(event) => {
+                                const next = new Set(enabledRoleKeys);
+                                if (event.target.checked) next.add(role.key);
+                                else next.delete(role.key);
+                                setRoleFilter({ key: roleOptionsKey, enabledKeys: [...next] });
+                              }}
+                            />
+                            <span>{role.label}</span>
+                            <small>{role.count} {role.count === 1 ? "vínculo" : "vínculos"}</small>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  </div>
+                </details>
+              )}
+              <details className="entity-graph-disclosure">
+                <summary>
+                  <span>Periodo</span>
+                  <small>{fullTimeRange ? "Periodo completo" : "Periodo acotado"}</small>
+                </summary>
+                <div className="entity-graph-disclosure-body">
+                  {temporalBounds && timeRange ? (
+                    <section className="entity-time-filter" aria-label="Cronograma del grafo">
+                      <h3>Cronograma</h3>
+                      <p>
+                        {visibleEdgeCount} de {graph.edges.length} vínculos visibles. Los vínculos sin
+                        fecha se mantienen visibles; los filtros de fecha, tipo y foco se componen y los
+                        nodos sin vínculos visibles se ocultan, sin relayout.
+                      </p>
+                      <label>
+                        <span>Desde {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[0]))}</span>
                         <input
-                          type="checkbox"
-                          aria-label={`${role.label}, ${role.count} ${role.count === 1 ? "vínculo" : "vínculos"}`}
-                          checked={enabledRoleKeys.has(role.key)}
+                          aria-label="Fecha inicial del cronograma"
+                          type="range"
+                          min={0}
+                          max={temporalBounds.maxOffset}
+                          value={timeRange[0]}
                           onChange={(event) => {
-                            const next = new Set(enabledRoleKeys);
-                            if (event.target.checked) next.add(role.key);
-                            else next.delete(role.key);
-                            setRoleFilter({ key: roleOptionsKey, enabledKeys: [...next] });
+                            const next = Number(event.target.value);
+                            const nextKey = temporalKey ?? "";
+                            setTimeFilter((current) => {
+                              const [, end] = current?.key === nextKey
+                                ? current.range
+                                : [0, temporalBounds.maxOffset];
+                              return {
+                                key: nextKey,
+                                range: [Math.min(next, end), end],
+                              };
+                            });
                           }}
                         />
-                        <span>{role.label}</span>
-                        <small>{role.count} {role.count === 1 ? "vínculo" : "vínculos"}</small>
                       </label>
-                    ))}
+                      <label>
+                        <span>Hasta {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[1]))}</span>
+                        <input
+                          aria-label="Fecha final del cronograma"
+                          type="range"
+                          min={0}
+                          max={temporalBounds.maxOffset}
+                          value={timeRange[1]}
+                          onChange={(event) => {
+                            const next = Number(event.target.value);
+                            const nextKey = temporalKey ?? "";
+                            setTimeFilter((current) => {
+                              const [start] = current?.key === nextKey
+                                ? current.range
+                                : [0, temporalBounds.maxOffset];
+                              return {
+                                key: nextKey,
+                                range: [start, Math.max(next, start)],
+                              };
+                            });
+                          }}
+                        />
+                      </label>
+                      <small>
+                        {temporalBounds.datedEdges} vínculos fechados · {temporalBounds.undatedEdges} sin fecha.
+                        {activeOnly ? " Aplicado sobre el corpus de vínculos activos recargado." : " Incluye vínculos activos y cesados."}
+                      </small>
+                    </section>
+                  ) : (
+                    <p className="entity-graph-note">
+                      Este grafo no trae fechas en sus vínculos; el cronograma no puede acotar el rango.
+                    </p>
+                  )}
+                </div>
+              </details>
+              <details className="entity-graph-disclosure">
+                <summary>
+                  <span>Leyenda y procedencia</span>
+                  <small>Signal vía Flask</small>
+                </summary>
+                <div className="entity-graph-disclosure-body">
+                  {graph.truncated && (
+                    <p className="entity-graph-warning">
+                      <Sparkles size={14} />
+                      Signal recortó el grafo para mantener la consulta manejable.
+                    </p>
+                  )}
+                  {graph.note && <p className="entity-graph-note">{graph.note}</p>}
+                  <div className="entity-graph-legend" aria-label="Leyenda">
+                    <span><i className="company" /> Empresa</span>
+                    <span><i className="person" /> Persona</span>
+                    <span><i className="center" /> Entidad central</span>
+                    <span><i className="inactive" /> Vínculo cesado</span>
+                    <span><i className="undated" /> Vínculo sin fecha</span>
                   </div>
-                </fieldset>
-              )}
-              {temporalBounds && timeRange ? (
-                <section className="entity-time-filter" aria-label="Cronograma del grafo">
-                  <h3>Cronograma</h3>
-                  <p>
-                    {visibleEdgeCount} de {graph.edges.length} vínculos visibles. Los vínculos sin
-                    fecha se mantienen visibles; los filtros de fecha, tipo y foco se componen y los
-                    nodos sin vínculos visibles se ocultan, sin relayout.
-                  </p>
-                  <label>
-                    <span>Desde {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[0]))}</span>
-                    <input
-                      aria-label="Fecha inicial del cronograma"
-                      type="range"
-                      min={0}
-                      max={temporalBounds.maxOffset}
-                      value={timeRange[0]}
-                      onChange={(event) => {
-                        const next = Number(event.target.value);
-                        const nextKey = temporalKey ?? "";
-                        setTimeFilter((current) => {
-                          const [, end] = current?.key === nextKey
-                            ? current.range
-                            : [0, temporalBounds.maxOffset];
-                          return {
-                            key: nextKey,
-                            range: [Math.min(next, end), end],
-                          };
-                        });
-                      }}
-                    />
-                  </label>
-                  <label>
-                    <span>Hasta {formatTimelineDate(timelineDateFromOffset(temporalBounds, timeRange[1]))}</span>
-                    <input
-                      aria-label="Fecha final del cronograma"
-                      type="range"
-                      min={0}
-                      max={temporalBounds.maxOffset}
-                      value={timeRange[1]}
-                      onChange={(event) => {
-                        const next = Number(event.target.value);
-                        const nextKey = temporalKey ?? "";
-                        setTimeFilter((current) => {
-                          const [start] = current?.key === nextKey
-                            ? current.range
-                            : [0, temporalBounds.maxOffset];
-                          return {
-                            key: nextKey,
-                            range: [start, Math.max(next, start)],
-                          };
-                        });
-                      }}
-                    />
-                  </label>
-                  <small>
-                    {temporalBounds.datedEdges} vínculos fechados · {temporalBounds.undatedEdges} sin fecha.
-                    {activeOnly ? " Combinado con «Solo vínculos activos»: el rango se aplica sobre vínculos activos ya cargados." : " Incluye vínculos activos y cesados."}
-                  </small>
-                </section>
-              ) : (
-                <p className="entity-graph-note">
-                  Este grafo no trae fechas en sus vínculos; el cronograma no puede acotar el rango.
-                </p>
-              )}
-              {graph.truncated && (
-                <p className="entity-graph-warning">
-                  <Sparkles size={14} />
-                  Signal recortó el grafo para mantener la consulta manejable.
-                </p>
-              )}
-              {graph.note && <p className="entity-graph-note">{graph.note}</p>}
-              <div className="entity-graph-legend" aria-label="Leyenda">
-                <span><i className="company" /> Empresa</span>
-                <span><i className="person" /> Persona</span>
-                <span><i className="center" /> Entidad central</span>
-                <span><i className="inactive" /> Vínculo cesado</span>
-                <span><i className="undated" /> Vínculo sin fecha</span>
-              </div>
+                </div>
+              </details>
             </aside>
           </div>
         ) : (

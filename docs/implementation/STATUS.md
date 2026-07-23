@@ -34,16 +34,43 @@ Interfaz canónica: `CANONICAL_UI=vector`
   restantes a `renew_csrf()` están en login, reautenticación, cambio de contraseña, cambio de tenant
   y creación perezosa cuando la sesión aún no tiene token.
 
-## Exploración progresiva y taxonomía de roles del grafo (en curso)
+## Exploración progresiva y taxonomía de roles del grafo
 
-- Objetivo de la fase: agrupar variantes equivalentes de cargo recibidas desde Signal mediante una
-  taxonomía autoritativa en Flask, conservando la etiqueta original de cada vínculo como
-  procedencia y sin fusionar cargos materialmente distintos.
-- El grafo debe seguir arrancando con todos los nodos y enlaces recibidos. La exploración progresiva
-  será explícita y reversible, y mostrará siempre elementos visibles frente al total recibido y el
-  eventual recorte declarado por Signal; mejorar la lectura no autoriza a falsear cobertura.
-- La verificación se realizará en los extremos ya medidos: ITURRI SA (grafo grande y recortado) e
-  ITURRIN SA (grafo pequeño), además de tests de contrato, filtros y mutaciones.
+- Prompt 73 normaliza en Flask los roles equivalentes de Signal sin borrar el valor de origen:
+  `Adm. Unico`, `ADM.UNICO` y `Administrador unico` comparten ahora la etiqueta
+  `Administrador único` y la clave `administrador_unico`. Cada arista conserva además
+  `source_roles`, publica `role_keys` y clasifica categorías funcionales. Los roles desconocidos
+  mantienen su texto y reciben una clave estructural estable; no hay agrupación difusa que pueda
+  fusionar cargos materialmente distintos.
+- La vista inicial cumple el contrato completo en ambos extremos: todos los nodos y enlaces
+  recibidos permanecen visibles, incluidos huérfanos, y la falta de un centro resoluble ya no vacía
+  el grafo. En grafos grandes las etiquetas se revelan progresivamente; en grafos pequeños se
+  muestran todas. La búsqueda resalta e informa coincidencias sin filtrar ni mover la cámara.
+- Una cabecera distingue `100 % de lo recibido` de `Vista reducida`. «Ver entorno directo» reduce
+  explícitamente y «Restaurar todo lo recibido» repone profundidad, roles, periodo y foco sin
+  recentrar. Roles, estructura, periodo y procedencia viven en secciones desplegables; el lateral
+  tiene scroll propio y se apila antes de comprimir el canvas. «Solo activos» se presenta como
+  recarga del corpus de Signal, no como filtro local.
+- Las facetas declaran que un vínculo puede pertenecer a varios roles y que su suma no representa
+  cobertura. La autoridad sigue siendo la cabecera visible/recibido y el aviso de recorte upstream.
+  En la línea base productiva, ITURRI SA tenía 300/300 nodos, 301/301 enlaces y once facetas,
+  incluidas `Adm. Unico` (21) y `ADM.UNICO` (2); ITURRIN SA tenía 7/7 nodos, 6/6 enlaces y diez
+  pertenencias a facetas no excluyentes.
+- Sin migraciones ni variables. El contrato upstream de Signal no cambia; la ampliación ocurre en
+  la respuesta Flask y en los tipos del cliente. Gates locales: unidad backend 394 tests, Ruff
+  check, Ruff format check y mypy correctos; ESLint sin errores con el aviso conocido de TanStack,
+  TypeScript correcto, Vitest 38 ficheros/187 tests y build Next correcto. Tras limpiar la base
+  Redis de test, la ejecución backend completa pasó 528/528 con PostgreSQL/Redis reales y 84,09 %
+  de cobertura; Playwright autenticado pasó 25 pruebas con 7 omisiones intencionadas. Las
+  intermitencias observadas en recorridos anteriores no reaparecieron y quedan registradas en
+  `OPEN_QUESTIONS.md`. El despliegue continúa condicionado al CI verde del SHA exacto y a
+  verificación Chrome autenticada sobre ITURRI e ITURRIN.
+- Mutaciones verificadas y restauradas: retirar el alias de administrador único, colapsar un rol
+  desconocido, reutilizar la clave de otro cargo, omitir la normalización del dossier y saltar la
+  normalización en el despacho HTTP hicieron caer sus cinco contratos backend. En frontend cayeron
+  las regresiones al arrancar en nivel 1, ocultar etiquetas del grafo pequeño, filtrar sin centro,
+  forzar densidad esencial, presentar `source_roles`, retirar el resaltado de búsqueda o mover la
+  cámara al restaurar.
 
 ## Ficha de entidad operable: cámara estable, jerarquía y fuentes honestas
 

@@ -1,5 +1,20 @@
 # Preguntas abiertas
 
+## Aislamiento de sesión en gates largos con Redis local
+
+- **Estado:** no reproducida tras limpiar Redis y repetir 528/528; mantener observación.
+- **Evidencia:** tres recorridos completos del backend llegaron respectivamente a fallos aislados
+  de autenticación tras más de 200 pruebas: doble lectura CSRF con 403, listado de sesiones con 401
+  y descarga de informe desde un segundo cliente con 401. Cada prueba pasó al ejecutarse sola; el
+  último recorrido completó 527 pruebas, una caída y 84,09 % de cobertura.
+- **E2E relacionado:** el recorrido WCAG de escritorio perdió la sesión durante una navegación
+  larga, mientras el mismo recorrido móvil pasó. Un reintento dirigido quedó en
+  `/login?next=/app`.
+- **Decisión de alcance:** no esconder la intermitencia ni cambiar autenticación dentro de la fase
+  del grafo. Un recorrido limpio posterior pasó 528/528 y alcanzó 84,09 %. El CI del SHA exacto
+  sigue siendo gate de publicación; si la reproduce, debe abrirse un prompt de aislamiento de
+  sesiones y datos de test antes de desplegar.
+
 ## Carrera CSRF al subir durante la carga inicial de documentos
 
 - **Estado:** resuelta en Prompt 72 el 2026-07-23.

@@ -1442,6 +1442,11 @@ export interface EntityIntelGraphEdge {
   target: string | number;
   role?: string;
   roles?: string[] | string;
+  role_keys?: string[];
+  role_categories?: Array<
+    "governance" | "representation" | "audit" | "ownership" | "liquidation" | "other"
+  >;
+  source_roles?: string[];
   active?: boolean;
   date?: string;
   metadata?: Record<string, unknown>;

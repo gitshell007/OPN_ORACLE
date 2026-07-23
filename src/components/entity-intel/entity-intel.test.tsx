@@ -252,6 +252,60 @@ const graphResponse = {
   cache_hit: false,
 };
 
+function progressiveGraph(nodeCount: number, edgeCount: number) {
+  const firstLevelCount = Math.min(Math.max(1, Math.floor((nodeCount - 1) / 2)), nodeCount - 1);
+  const nodes = [
+    {
+      id: "center",
+      label: "ENTIDAD CENTRAL",
+      type: "company",
+      is_center: true,
+      degree: firstLevelCount,
+    },
+    ...Array.from({ length: nodeCount - 1 }, (_, index) => ({
+      id: `progressive-${index + 1}`,
+      label: `NODO PROGRESIVO ${String(index + 1).padStart(3, "0")}`,
+      type: index % 2 === 0 ? "company" : "person",
+      degree: 1,
+    })),
+  ];
+  const treeEdges = Array.from({ length: nodeCount - 1 }, (_, index) => {
+    const ordinal = index + 1;
+    const source = ordinal <= firstLevelCount
+      ? "center"
+      : `progressive-${((ordinal - firstLevelCount - 1) % firstLevelCount) + 1}`;
+    return {
+      id: `progressive-edge-${ordinal}`,
+      source,
+      target: `progressive-${ordinal}`,
+      role: ordinal % 2 === 0 ? "Administrador" : "Apoderado",
+      role_keys: [ordinal % 2 === 0 ? "administrator" : "attorney"],
+      active: true,
+      date: "2026-07-01",
+    };
+  });
+  const extraEdges = Array.from(
+    { length: Math.max(0, edgeCount - treeEdges.length) },
+    (_, index) => ({
+      id: `progressive-extra-${index}`,
+      source: `progressive-${(index % firstLevelCount) + 1}`,
+      target: `progressive-${((index + 1) % firstLevelCount) + 1}`,
+      role: "Consejero",
+      role_keys: ["board_member"],
+      active: true,
+      date: "2026-07-01",
+    }),
+  );
+  return {
+    center: "ENTIDAD CENTRAL",
+    nodes,
+    edges: [...treeEdges, ...extraEdges],
+    truncated: false,
+    cached_seconds: 600,
+    cache_hit: false,
+  };
+}
+
 describe("EntitySearchPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -455,7 +509,7 @@ describe("EntityGraphExplorer", () => {
       activeOnly: false,
     }));
 
-    fireEvent.click(await screen.findByLabelText("Solo vínculos activos"));
+    fireEvent.click(await screen.findByLabelText("Recargar corpus: solo activos"));
 
     await waitFor(() => expect(mocks.graph).toHaveBeenLastCalledWith({
       name: "IBERDROLA",
@@ -507,7 +561,9 @@ describe("EntityGraphExplorer", () => {
           id: "edge-3",
           source: "ib",
           target: "miguel",
-          role: "socio único",
+          role: "Socio único",
+          role_keys: ["sole_shareholder"],
+          source_roles: ["ACCIONISTA UNICO"],
           active: true,
           date: "2025-02-01",
         },
@@ -516,6 +572,8 @@ describe("EntityGraphExplorer", () => {
           source: "ib",
           target: "ana",
           role: "Socio único",
+          role_keys: ["sole_shareholder"],
+          source_roles: ["SOCIO UNICO"],
           active: true,
           date: "2025-03-01",
         },
@@ -532,6 +590,8 @@ describe("EntityGraphExplorer", () => {
       within(roleGroup).getByRole("checkbox", { name: /Socio único, 2 vínculos/i }),
     ).toBeChecked();
     expect(within(roleGroup).queryAllByText(/socio único/i)).toHaveLength(1);
+    expect(within(roleGroup).queryByText("ACCIONISTA UNICO")).not.toBeInTheDocument();
+    expect(within(roleGroup).getByText(/pertenencias no excluyentes/i)).toBeInTheDocument();
   });
 
   it("compone el filtro por rol con el cronograma sin revivir aristas temporales", async () => {
@@ -600,7 +660,7 @@ describe("EntityGraphExplorer", () => {
     const options = within(depthSelect).getAllByRole("option");
     expect(options).toHaveLength(2);
     expect(options[0]).toHaveTextContent("Hasta nivel 1 · 3 nodos");
-    expect(options[1]).toHaveTextContent("Hasta nivel 2 · 4 nodos");
+    expect(options[1]).toHaveTextContent("Todos los niveles · 4 nodos");
     expect(depthSelect).toHaveValue("2");
 
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
@@ -696,6 +756,10 @@ describe("EntityGraphExplorer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Volver al encuadre inicial" }));
     expect(instance.center).toHaveBeenCalled();
+
+    const fitCalls = instance.fit.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Encajar todos los elementos visibles" }));
+    expect(instance.fit).toHaveBeenCalledTimes(fitCalls + 1);
   });
 
   it("finaliza el layout una sola vez y cancela el fallback tardío", async () => {
@@ -782,6 +846,127 @@ describe("EntityGraphExplorer", () => {
     }
   });
 
+  it("parte en 300/301 al cien por cien y restaura una reducción sin mover la cámara", async () => {
+    mocks.graph.mockResolvedValue(progressiveGraph(300, 301));
+    render(<EntityGraphExplorer name="ENTIDAD CENTRAL" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+
+    expect(await screen.findByText("300 de 300 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("301 de 301 enlaces visibles")).toBeInTheDocument();
+    expect(screen.getByText("100 % de lo recibido")).toBeInTheDocument();
+    expect(screen.getByLabelText("Densidad de etiquetas del grafo")).toHaveValue("adaptive");
+    expect(instance.nodesList.every((node) => !node.classes.has("is-depth-filtered"))).toBe(true);
+    expect(instance.edgesList.every((edge) => !edge.classes.has("is-depth-filtered"))).toBe(true);
+
+    const centerCalls = instance.center.mock.calls.length;
+    const fitCalls = instance.fit.mock.calls.length;
+    const zoomCalls = instance.zoom.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Ver entorno directo" }));
+
+    expect(await screen.findByText("150 de 300 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("151 de 301 enlaces visibles")).toBeInTheDocument();
+    expect(screen.getByText("Vista reducida")).toBeInTheDocument();
+    expect(instance.center).toHaveBeenCalledTimes(centerCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(fitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(zoomCalls);
+
+    act(() => instance.handlers.tap({ target: instance.nodesList[0] }));
+    fireEvent.click(await screen.findByRole("button", { name: "Aislar relaciones" }));
+    await waitFor(() => expect(instance.fit.mock.calls.length).toBe(fitCalls + 1));
+    const focusedCenterCalls = instance.center.mock.calls.length;
+    const focusedFitCalls = instance.fit.mock.calls.length;
+    const focusedZoomCalls = instance.zoom.mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar todo lo recibido" }));
+
+    expect(await screen.findByText("300 de 300 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("301 de 301 enlaces visibles")).toBeInTheDocument();
+    expect(screen.getByText("100 % de lo recibido")).toBeInTheDocument();
+    expect(instance.center).toHaveBeenCalledTimes(focusedCenterCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(focusedFitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(focusedZoomCalls);
+
+    fireEvent.change(screen.getByLabelText("Densidad de etiquetas del grafo"), {
+      target: { value: "all" },
+    });
+    await waitFor(() => expect(instance.nodesList[299].classes.has("is-all-label")).toBe(true));
+    expect(instance.center).toHaveBeenCalledTimes(focusedCenterCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(focusedFitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(focusedZoomCalls);
+  });
+
+  it("parte en 7/6 con todas las etiquetas y no suma facetas multirol como cobertura", async () => {
+    const smallGraph = progressiveGraph(7, 6);
+    mocks.graph.mockResolvedValue({
+      ...smallGraph,
+      edges: smallGraph.edges.map((edge, index) => ({
+        ...edge,
+        role: undefined,
+        roles: index < 4
+          ? ["Administrador único", "Socio único"]
+          : ["Administrador único"],
+        role_keys: index < 4
+          ? ["sole_administrator", "sole_shareholder"]
+          : ["sole_administrator"],
+        source_roles: index < 4
+          ? ["ADM. UNICO", "SOCIO UNICO"]
+          : ["ADM. UNICO"],
+      })),
+    });
+    render(<EntityGraphExplorer name="ENTIDAD CENTRAL" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+
+    expect(await screen.findByText("7 de 7 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("6 de 6 enlaces visibles")).toBeInTheDocument();
+    expect(screen.getByLabelText("Densidad de etiquetas del grafo")).toHaveValue("all");
+    expect(instance.nodesList.every((node) => node.classes.has("is-all-label"))).toBe(true);
+    expect(instance.edgesList.every((edge) => edge.classes.has("is-all-label"))).toBe(true);
+    expect(screen.getByRole("checkbox", { name: /Administrador único, 6 vínculos/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Socio único, 4 vínculos/i })).toBeChecked();
+    expect(screen.getByText(/su suma no representa la cobertura/i)).toBeInTheDocument();
+  });
+
+  it("mantiene visibles los datos recibidos si no resuelve centro o hay un nodo huérfano", async () => {
+    mocks.graph.mockResolvedValue({
+      center: "CENTRO AUSENTE",
+      nodes: [
+        { id: "a", label: "EMPRESA A", type: "company" },
+        { id: "b", label: "PERSONA B", type: "person" },
+        { id: "c", label: "NODO SIN ARISTA", type: "company" },
+      ],
+      edges: [{
+        id: "a-b",
+        source: "a",
+        target: "b",
+        role: "Administrador",
+        role_keys: ["administrator"],
+        active: true,
+      }],
+      truncated: false,
+      cached_seconds: 600,
+      cache_hit: false,
+    });
+    render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+
+    expect(await screen.findByText("3 de 3 nodos visibles")).toBeInTheDocument();
+    expect(screen.getByText("1 de 1 enlaces visibles")).toBeInTheDocument();
+    expect(screen.getByLabelText("Número de niveles visibles")).toBeDisabled();
+    expect(screen.getByText(/No se pudo calcular la distancia a la entidad central/i)).toBeInTheDocument();
+    expect(instance.nodesList.every((node) => !node.classes.has("is-depth-filtered"))).toBe(true);
+    expect(instance.nodesList[2].classes.has("is-orphaned-after-filter")).toBe(false);
+    expect(instance.edgesList[0].classes.has("is-depth-filtered")).toBe(false);
+  });
+
   it("al pasar por el nodo central no revela las etiquetas de toda su vecindad", async () => {
     render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
 
@@ -795,11 +980,13 @@ describe("EntityGraphExplorer", () => {
     expect(instance.edgesList[0].classes.has("is-hover-label")).toBe(false);
   });
 
-  it("solo activa todas las etiquetas al alcanzar un zoom de lectura", async () => {
+  it("mantiene D-042 y revela el resto de etiquetas al acercar un grafo grande", async () => {
+    mocks.graph.mockResolvedValue(progressiveGraph(20, 19));
     render(<EntityGraphExplorer name="ITURRI SA" type="company" />);
 
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
     const instance = mocks.cytoscapeInstances[0];
+    expect(screen.getByLabelText("Densidad de etiquetas del grafo")).toHaveValue("adaptive");
     expect(instance.nodesList[1].classes.has("is-readable-zoom")).toBe(false);
 
     instance.zoom({ level: 1.6 });
@@ -821,11 +1008,22 @@ describe("EntityGraphExplorer", () => {
     fireEvent.change(screen.getByLabelText("Buscar nodo del grafo"), {
       target: { value: "burgos" },
     });
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    const centerCalls = instance.center.mock.calls.length;
+    const fitCalls = instance.fit.mock.calls.length;
+    const zoomCalls = instance.zoom.mock.calls.length;
     const results = screen.getByLabelText("Nodos encontrados");
+    expect(within(results).getByText(/1 de 1 coincidencias mostradas/)).toBeInTheDocument();
+    await waitFor(() => expect(instance.nodesList[1].classes.has("is-search-match")).toBe(true));
+    expect(instance.nodesList[0].classes.has("is-search-match")).toBe(false);
     fireEvent.click(within(results).getByRole("button", { name: /BURGOS CANTO MIGUEL/i }));
 
     expect(screen.getByText(/BURGOS CANTO MIGUEL · 1 relaciones/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Aislar relaciones" })).toBeInTheDocument();
+    expect(instance.center).toHaveBeenCalledTimes(centerCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(fitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(zoomCalls);
 
     fireEvent.click(screen.getByRole("button", { name: "Desmarcar todos" }));
     expect(await screen.findByText("1 de 3 nodos visibles")).toBeInTheDocument();
