@@ -212,7 +212,7 @@ describe("UI de contratación pública", () => {
           cpv: "31400000",
           min_amount: 100000,
           buyer: "Gobierno de Aragón",
-          active: true,
+          scope: "active",
         }),
       ),
     );
@@ -220,6 +220,58 @@ describe("UI de contratación pública", () => {
     fireEvent.click(screen.getByRole("button", { name: /resumen/i }));
     expect(await screen.findByText("Resumen ya calculado.")).toBeInTheDocument();
     expect(mocks.summarizeTender).not.toHaveBeenCalled();
+  });
+
+  it("expone el alcance real de Signal y no promete histórico aislado", async () => {
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
+
+    const scope = screen.getByRole("combobox", { name: "Ámbito temporal" });
+    expect(within(scope).queryByRole("option", { name: "No activas" })).not.toBeInTheDocument();
+    expect(
+      within(scope).getByRole("option", { name: "Todo el índice disponible" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/no equivale a un archivo histórico completo/i),
+    ).toBeInTheDocument();
+
+    fireEvent.change(scope, { target: { value: "all" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Buscar$/ }));
+
+    await waitFor(() =>
+      expect(mocks.tenders).toHaveBeenLastCalledWith(
+        expect.objectContaining({ scope: "all" }),
+      ),
+    );
+    expect(screen.getByRole("button", { name: /guardar actual/i })).toBeDisabled();
+    expect(
+      screen.getByText(/solo conserva búsquedas guardadas de licitaciones activas/i),
+    ).toBeInTheDocument();
+  });
+
+  it("muestra estado canónico y hace visible el estado desconocido", async () => {
+    mocks.tenders.mockResolvedValue({
+      ...tendersResponse,
+      items: [
+        { ...tender, folder_id: "open", canonical_status: "open" },
+        {
+          ...tender,
+          folder_id: "unknown",
+          title: "Estado sin contrato",
+          canonical_status: "unknown",
+        },
+      ],
+      total: 2,
+    });
+
+    render(<ProcurementWorkspace />);
+
+    expect(await screen.findByText("Abierta")).toBeInTheDocument();
+    expect(
+      screen.getByText("Estado no confirmado por la fuente"),
+    ).toBeInTheDocument();
   });
 
   it("explica con lenguaje claro los dos modos de búsqueda", async () => {

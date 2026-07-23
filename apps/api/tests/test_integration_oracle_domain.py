@@ -55,6 +55,7 @@ from opn_oracle.documents.storage import (
 )
 from opn_oracle.extensions import db
 from opn_oracle.integrations import entity_intel_routes
+from opn_oracle.integrations import procurement as procurement_integration
 from opn_oracle.integrations.procurement import ProcurementClient, ProcurementProviderError
 from opn_oracle.jobs.service import enqueue_job, payload_digest, stage_job
 from opn_oracle.jobs.tasks import (
@@ -2977,6 +2978,74 @@ def test_procurement_folder_resolution_uses_signal_lookup_endpoints(
     assert "Importe total adjudicado: 5000.00" in procurement_items.procurement_evidence_extract(
         award
     )
+
+
+def test_procurement_listing_creates_no_ai_usage(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    seen_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "total": 1,
+                "limit": 25,
+                "offset": 0,
+                "items": [
+                    {
+                        "folder_id": "P_0_74",
+                        "title": "Suministro de prueba",
+                        "status": "Abierta",
+                    }
+                ],
+            },
+        )
+
+    with app.app_context():
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            before = db.session.scalar(
+                select(func.count(AIUsageLedger.id)).where(
+                    AIUsageLedger.tenant_id == ids["tenant_a"]
+                )
+            )
+        db.session.remove()
+        monkeypatch.setattr(
+            procurement_integration,
+            "_TENDERS_CACHE",
+            procurement_integration.EntityIntelCache(ttl_seconds=90),
+        )
+        monkeypatch.setattr(
+            procurement_integration,
+            "procurement_client_from_config",
+            lambda: ProcurementClient(
+                base_url="https://signal.example",
+                api_key="configured-secret",
+                allowed_hosts=frozenset({"signal.example"}),
+                transport=httpx.MockTransport(handler),
+            ),
+        )
+        response = client.get(
+            "/api/v1/procurement/tenders",
+            query_string={"scope": "active", "limit": 25, "offset": 0},
+        )
+        with tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])):
+            after = db.session.scalar(
+                select(func.count(AIUsageLedger.id)).where(
+                    AIUsageLedger.tenant_id == ids["tenant_a"]
+                )
+            )
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert seen_requests[0].url.path == "/api/v1/registry/tenders"
+    assert seen_requests[0].url.params["active"] == "true"
+    assert response.get_json()["items"][0]["canonical_status"] == "open"
+    assert before == after
 
 
 def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(

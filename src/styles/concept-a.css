@@ -392,6 +392,7 @@
 .procurement-search-form,
 .procurement-awards-search { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(220px, .7fr) auto; gap: 10px; align-items: end; }
 .procurement-search-form label,
+.procurement-filter-field,
 .procurement-filter-autocomplete,
 .procurement-awards-search label,
 .procurement-save-search label,
@@ -419,6 +420,8 @@
 .procurement-awards-search label > div input { min-height: auto; border: 0; outline: 0; padding: 0; width: 100%; }
 .procurement-search-form > .vector-primary { min-height: 40px; align-self: end; }
 .procurement-filters { grid-column: 1/-1; display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; padding: 12px; border: 1px solid #dbe5f1; border-radius: 10px; background: #f8fbff; }
+.procurement-filter-field > label { color: var(--va-muted); font-size: 11px; font-weight: 760; letter-spacing: .04em; text-transform: uppercase; }
+.procurement-filter-field > small { color: var(--va-muted); font-size: 11px; font-weight: 500; line-height: 1.45; letter-spacing: 0; text-transform: none; }
 .procurement-filter-suggestions { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding: 5px; border: 1px solid #cbd6e2; border-radius: 8px; background: white; box-shadow: 0 8px 24px #1020331f; }
 .procurement-filter-suggestions button { width: 100%; border: 0; border-radius: 6px; background: transparent; color: var(--va-text); padding: 8px 9px; text-align: left; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
 .procurement-filter-suggestions button:hover,
@@ -448,6 +451,7 @@
 .procurement-search-list small { display: block; color: var(--va-muted); margin-top: 4px; }
 .procurement-card p,
 .procurement-award-card p { color: #42536a; line-height: 1.45; margin: 10px 0; }
+.procurement-card .status.tender-unknown { border-color: #cbd5e1; background: #f1f5f9; color: #475569; }
 .procurement-card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 9px; margin: 12px 0; }
 .procurement-award-card dl { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 9px; margin: 12px 0; }
 .procurement-card dt,

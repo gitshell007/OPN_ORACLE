@@ -46,9 +46,14 @@ Con una sesión web válida en Oracle:
 
 ```http
 GET /api/v1/procurement/awards?company=Genesis%20Consulting%20SLP&limit=5
-GET /api/v1/procurement/tenders?keywords=energia&active=true&limit=5
+GET /api/v1/procurement/tenders?keywords=energia&scope=active&limit=5
+GET /api/v1/procurement/tenders?keywords=energia&scope=all&limit=5
 GET /api/v1/procurement/stats
 ```
+
+`scope=all` significa todo el índice disponible en Signal v1, no «solo inactivas» ni archivo
+histórico completo. `active` continúa temporalmente como alias deprecado; `scope=historical`
+responde `422` hasta que Signal demuestre y publique ese corpus.
 
 Para búsquedas guardadas, el tenant debe tener una conexión `signal-avanza` activa con
 `external_tenant_id` o equivalente en `connection_metadata`.

@@ -1617,8 +1617,14 @@ export interface ProcurementTenderFilters {
   min_amount?: number | null;
   max_amount?: number | null;
   deadline_before?: string | null;
+  published_from?: string | null;
+  published_to?: string | null;
+  deadline_from?: string | null;
+  deadline_to?: string | null;
   buyer?: string | null;
   region?: string | null;
+  scope?: "active" | "historical" | "all" | null;
+  /** @deprecated Use scope. Signal v1 interprets false as the whole available index. */
   active?: boolean;
 }
 
@@ -1634,6 +1640,7 @@ export interface ProcurementTenderItem {
   summary_feed?: string | null;
   buyer?: string | null;
   status?: string | null;
+  canonical_status?: "open" | "closed" | "awarded" | "cancelled" | "unknown";
   cpv?: string[];
   amount?: number | null;
   deadline?: string | null;
@@ -1661,6 +1668,8 @@ export interface ProcurementTendersResponse {
 export interface ProcurementAwardQuery {
   company?: string | null;
   buyer?: string | null;
+  awarded_from?: string | null;
+  awarded_to?: string | null;
   limit?: number;
   offset?: number;
 }
@@ -1771,8 +1780,13 @@ const procurement = {
     appendQuery(query, "min_amount", input.min_amount);
     appendQuery(query, "max_amount", input.max_amount);
     appendQuery(query, "deadline_before", input.deadline_before);
+    appendQuery(query, "published_from", input.published_from);
+    appendQuery(query, "published_to", input.published_to);
+    appendQuery(query, "deadline_from", input.deadline_from);
+    appendQuery(query, "deadline_to", input.deadline_to);
     appendQuery(query, "buyer", input.buyer?.trim());
     appendQuery(query, "region", input.region?.trim());
+    appendQuery(query, "scope", input.scope);
     appendQuery(query, "active", input.active);
     return request<ProcurementTendersResponse>(
       `/api/v1/procurement/tenders?${query.toString()}`,
@@ -1800,6 +1814,8 @@ const procurement = {
     });
     appendQuery(query, "company", input.company?.trim());
     appendQuery(query, "buyer", input.buyer?.trim());
+    appendQuery(query, "awarded_from", input.awarded_from);
+    appendQuery(query, "awarded_to", input.awarded_to);
     return request<ProcurementAwardsResponse>(
       `/api/v1/procurement/awards?${query.toString()}`,
     );

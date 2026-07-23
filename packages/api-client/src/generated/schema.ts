@@ -18265,6 +18265,8 @@ export interface paths {
                     offset?: number;
                     company?: string | null;
                     buyer?: string | null;
+                    awarded_from?: string | null;
+                    awarded_to?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -18945,9 +18947,14 @@ export interface paths {
                     min_amount?: number | null;
                     max_amount?: number | null;
                     deadline_before?: string | null;
+                    published_from?: string | null;
+                    published_to?: string | null;
+                    deadline_from?: string | null;
+                    deadline_to?: string | null;
                     buyer?: string | null;
                     region?: string | null;
-                    active?: boolean;
+                    scope?: "active" | "historical" | "all" | null;
+                    active?: boolean | null;
                 };
                 header?: never;
                 path?: never;

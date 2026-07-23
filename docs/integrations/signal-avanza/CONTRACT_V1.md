@@ -172,6 +172,11 @@ Oracle propaga un `X-Correlation-ID` seguro. Nombre de request ID, cuotas, códi
 
 ## 8. Proxy Oracle de contratación pública PLACSP
 
+> La semántica temporal medida y la evolución propuesta están en
+> [`CONTRACT_V2_PROPOSAL.md`](./CONTRACT_V2_PROPOSAL.md). Mientras v2 no esté aceptado, Oracle
+> presenta `active=false` como «todo el índice disponible», no como «solo inactivas», y no promete
+> un archivo histórico de pliegos.
+
 Oracle expone un namespace propio para consumo de Vector y otros clientes internos:
 
 ```http

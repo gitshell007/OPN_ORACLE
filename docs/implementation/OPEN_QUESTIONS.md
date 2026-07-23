@@ -73,6 +73,20 @@
 
 ## Signal Avanza
 
+- **Prompt 74 · contrato temporal v2:** Signal debe aceptar o ajustar
+  `docs/integrations/signal-avanza/CONTRACT_V2_PROPOSAL.md`: `scope=active|historical|all`,
+  publicación/plazo/adjudicación por rangos, orden estable, cursor/version del índice, estado
+  canónico, métricas de cobertura y persistencia sin pérdidas de búsquedas guardadas. En v1,
+  `active=false` significa todo el índice y no «solo inactivas».
+- **Prompt 74 · cobertura de pliegos:** falta repetir desde Signal una muestra estratificada y
+  reproducible por años que mida adjudicación → expediente/pliego. Oracle no dispone de credencial
+  local de servicio y su proxy web no expone ese lookup. Hasta cerrar el gate, el histórico es
+  award-céntrico y `scope=historical` de licitaciones permanece deshabilitado.
+- **Siguiente fase, Solo Oracle:** perfil determinista de empresa comparable y taxonomía CPV
+  europea versionada. Deben desarrollarse sin bloquearse por v2; capacidades y exclusiones serán
+  propiedad del futuro perfil de búsqueda tenant-scoped y `StrategicDossier.profile_config` solo
+  guardará una referencia, no una copia divergente.
+
 - Pendiente de Signal/compliance para inteligencia competitiva: decidir si se autoriza Gemini vía
   OpenRouter como secundario, con clasificación máxima, redacción, presupuesto y conjunto explícito
   de errores recuperables. Oracle no cableará proveedor ni modelo por D-015. También falta un

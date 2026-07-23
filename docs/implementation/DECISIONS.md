@@ -989,3 +989,21 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Colisión documental:** este trabajo reutiliza el número **Prompt 73**, ya usado por el cierre
   del grafo. Se conserva el número recibido para trazabilidad y se distingue como «Prompt 73
   (menciones web)»; no se renumera silenciosamente ninguno de los dos.
+
+## D-060 — El histórico de contratación es award-céntrico hasta demostrar pliegos
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** Signal v1 cuenta 1.304.161 adjudicaciones, pero solo 2.247 licitaciones en su índice
+  consultable. `active=false` elimina el filtro de activas, no selecciona inactivas; no hay
+  `published_at`, rangos, sort ni archivo aislable. La auditoría previa encontró 1.251
+  adjudicaciones de ITURRI y 0 de 30 referencias resolubles a la licitación original.
+- **Decisión:** hasta que Signal publique cobertura versionada y supere una muestra estratificada,
+  `historical` significa adjudicaciones. En licitaciones, Oracle ofrece `active` y `all`, donde
+  `all` es todo el índice disponible y no un archivo completo; `historical` se rechaza
+  explícitamente. Queda prohibido consultar activos e inactivos por separado y fusionarlos en
+  Oracle, porque produciría paginación y orden globales ficticios.
+- **Consecuencias:** la corrección de contrato, estado canónico, microcopy y tests pertenece al
+  carril Oracle. El archivo, los rangos, el cursor/orden y la reconstrucción atómica del índice
+  pertenecen a Signal y su activación es bilateral. El wizard, el perfil comparable y CPV avanzan
+  después sin depender de esa reconstrucción.

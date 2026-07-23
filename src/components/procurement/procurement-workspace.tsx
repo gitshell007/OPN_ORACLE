@@ -44,8 +44,8 @@ import {
   problemMessage,
 } from "./procurement-helpers";
 
-type ActiveFilter = "" | "true" | "false";
 type TenderSort = "signal" | "deadline_asc" | "deadline_desc" | "updated_desc";
+type TenderScope = "active" | "historical" | "all";
 
 interface TenderFiltersForm {
   cpv: string;
@@ -54,7 +54,7 @@ interface TenderFiltersForm {
   deadlineBefore: string;
   buyer: string;
   region: string;
-  active: ActiveFilter;
+  scope: TenderScope;
 }
 
 const emptyFilters: TenderFiltersForm = {
@@ -64,7 +64,7 @@ const emptyFilters: TenderFiltersForm = {
   deadlineBefore: "",
   buyer: "",
   region: "",
-  active: "true",
+  scope: "active",
 };
 
 interface SummaryState {
@@ -224,14 +224,14 @@ function filterRecord(filters: TenderFiltersForm): ProcurementTenderFilters {
     deadline_before: filters.deadlineBefore || undefined,
     buyer: filters.buyer.trim() || undefined,
     region: filters.region.trim() || undefined,
-    active:
-      filters.active === ""
-        ? undefined
-        : filters.active === "true",
+    scope: filters.scope,
   };
 }
 
 function filtersFromRecord(value?: Record<string, unknown>): TenderFiltersForm {
+  const legacyActive = typeof value?.active === "boolean" ? value.active : null;
+  const storedScope =
+    value?.scope === "active" || value?.scope === "all" ? value.scope : null;
   return {
     cpv: typeof value?.cpv === "string" ? value.cpv : "",
     minAmount:
@@ -250,13 +250,16 @@ function filtersFromRecord(value?: Record<string, unknown>): TenderFiltersForm {
       typeof value?.deadline_before === "string" ? value.deadline_before : "",
     buyer: typeof value?.buyer === "string" ? value.buyer : "",
     region: typeof value?.region === "string" ? value.region : "",
-    active:
-      typeof value?.active === "boolean"
-        ? value.active
-          ? "true"
-          : "false"
-        : "",
+    scope: storedScope ?? (legacyActive === false ? "all" : "active"),
   };
+}
+
+function canonicalStatusLabel(item: ProcurementTenderItem): string {
+  if (item.canonical_status === "open") return "Abierta";
+  if (item.canonical_status === "closed") return "Cerrada";
+  if (item.canonical_status === "awarded") return "Adjudicada";
+  if (item.canonical_status === "cancelled") return "Cancelada";
+  return "Estado no confirmado por la fuente";
 }
 
 function summaryFromTender(item: ProcurementTenderItem): SummaryState | null {
@@ -317,6 +320,7 @@ export function ProcurementWorkspace() {
   const initialKeywords = searchParams?.get("keywords") ?? "";
   const initialBuyer = searchParams?.get("buyer") ?? "";
   const initialRegion = searchParams?.get("region") ?? "";
+  const initialScope = searchParams?.get("scope");
   const initialActive = searchParams?.get("active");
   const [keywords, setKeywords] = useState(initialKeywords);
   const [semanticLabel, setSemanticLabel] = useState("");
@@ -325,7 +329,10 @@ export function ProcurementWorkspace() {
     ...emptyFilters,
     buyer: initialBuyer,
     region: initialRegion,
-    active: initialActive === "false" ? "false" : initialActive === "" ? "" : "true",
+    scope:
+      initialScope === "all" || initialActive === "false"
+        ? "all"
+        : "active",
   });
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<ProcurementTendersResponse | null>(null);
@@ -510,7 +517,8 @@ export function ProcurementWorkspace() {
         limit,
         offset: 0,
       });
-      const nextFilters = filtersFromRecord(search.filters);
+      // Signal v1 descarta scope al guardar y fuerza active=true al ejecutar.
+      const nextFilters = { ...filtersFromRecord(search.filters), scope: "active" as const };
       setKeywords((search.keywords ?? []).join(", "));
       setSemanticLabel("");
       setFilters(nextFilters);
@@ -591,7 +599,7 @@ export function ProcurementWorkspace() {
         <header>
           <div>
             <span className="section-kicker">Búsqueda</span>
-            <h2>Licitaciones activas y archivadas</h2>
+            <h2>Licitaciones del índice PLACSP</h2>
           </div>
           <button
             className="vector-secondary"
@@ -724,22 +732,28 @@ export function ProcurementWorkspace() {
                   setFilters((current) => ({ ...current, region: value }))
                 }
               />
-              <label>
-                <span>Estado</span>
+              <div className="procurement-filter-field">
+                <label htmlFor="procurement-scope">Ámbito temporal</label>
                 <select
-                  value={filters.active}
+                  id="procurement-scope"
+                  aria-describedby="procurement-scope-help"
+                  value={filters.scope}
                   onChange={(event) =>
                     setFilters((current) => ({
                       ...current,
-                      active: event.target.value as ActiveFilter,
+                      scope: event.target.value as TenderScope,
                     }))
                   }
                 >
-                  <option value="">Todas</option>
-                  <option value="true">Solo activas</option>
-                  <option value="false">No activas</option>
+                  <option value="active">Solo activas</option>
+                  <option value="all">Todo el índice disponible</option>
                 </select>
-              </label>
+                <small id="procurement-scope-help">
+                  Signal todavía no permite aislar licitaciones históricas. Todo el índice
+                  incluye activas y registros no activos, pero no equivale a un archivo
+                  histórico completo; el histórico fiable se consulta por adjudicaciones.
+                </small>
+              </div>
             </div>
           )}
         </form>
@@ -797,8 +811,8 @@ export function ProcurementWorkspace() {
                         <strong>{item.title || "Licitación sin título"}</strong>
                         <small>{item.buyer || "Órgano no publicado"}</small>
                       </div>
-                      <span className="status">
-                        {item.status || (item.is_active ? "Activa" : "Sin estado")}
+                      <span className={`status tender-${item.canonical_status ?? "unknown"}`}>
+                        {canonicalStatusLabel(item)}
                       </span>
                     </header>
                     <p>{item.summary_feed || "Sin resumen de feed disponible."}</p>
@@ -933,10 +947,20 @@ export function ProcurementWorkspace() {
                   placeholder="Vigilancia movilidad eléctrica"
                 />
               </label>
-              <AsyncActionButton className="vector-primary" type="submit">
+              <AsyncActionButton
+                className="vector-primary"
+                type="submit"
+                disabled={filters.scope !== "active"}
+              >
                 <Save size={14} />
                 Guardar actual
               </AsyncActionButton>
+              {filters.scope !== "active" && (
+                <small role="status">
+                  Signal v1 solo conserva búsquedas guardadas de licitaciones activas.
+                  Cambia el ámbito a «Solo activas» para guardarla.
+                </small>
+              )}
             </form>
           </PermissionGate>
           {searchesError && (
@@ -979,6 +1003,7 @@ export function ProcurementWorkspace() {
                         <AsyncActionButton
                           className="vector-secondary"
                           type="button"
+                          disabled={filters.scope !== "active"}
                           onClick={() => void patchSearch(search)}
                         >
                           Guardar edición

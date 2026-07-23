@@ -826,6 +826,166 @@ def test_procurement_route_denies_user_without_opportunity_read(
     assert response[2]["Content-Type"] == "application/problem+json"
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("query_string", "expected_scope", "expected_active"),
+    [
+        ({}, "active", None),
+        ({"scope": "active"}, "active", "true"),
+        ({"scope": "all"}, "all", "false"),
+        ({"active": "true"}, "active", "true"),
+        ({"active": "false"}, "all", "false"),
+    ],
+)
+def test_procurement_tender_scope_maps_to_signal_over_http(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    query_string: dict[str, str],
+    expected_scope: str,
+    expected_active: str | None,
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.url.params.multi_items()))
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "total": 2,
+                "limit": 20,
+                "offset": 0,
+                "items": [
+                    {"folder_id": "award", "status": "Adjudicada"},
+                    {"folder_id": "unknown"},
+                ],
+            },
+        )
+
+    monkeypatch.setattr(
+        procurement,
+        "_TENDERS_CACHE",
+        procurement.EntityIntelCache(ttl_seconds=90),
+    )
+    monkeypatch.setattr(
+        procurement,
+        "procurement_client_from_config",
+        lambda: ProcurementClient(
+            base_url="https://signal.example",
+            api_key="configured-secret",
+            allowed_hosts=frozenset({"signal.example"}),
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        response = client.get("/api/v1/procurement/tenders", query_string=query_string)
+
+    assert response.status_code == 200
+    assert seen[0].get("active") == expected_active
+    assert response.get_json()["semantics"]["oracle_scope"] == expected_scope
+    assert [item["canonical_status"] for item in response.get_json()["items"]] == [
+        "awarded",
+        "unknown",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("query_string", "field"),
+    [
+        ({"scope": "future"}, "scope"),
+        ({"scope": "historical"}, "scope"),
+        ({"scope": "active", "active": "true"}, "scope"),
+        ({"published_from": "2025-01-01"}, "published_from"),
+        ({"deadline_from": "2025-01-01"}, "deadline_from"),
+    ],
+)
+def test_procurement_rejects_unavailable_or_ambiguous_temporal_filters(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    query_string: dict[str, str],
+    field: str,
+) -> None:
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        response = client.get("/api/v1/procurement/tenders", query_string=query_string)
+
+    assert response.status_code == 422
+    assert field in str(response.get_json()["errors"])
+
+
+@pytest.mark.unit
+def test_procurement_rejects_unavailable_award_date_ranges(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.read"})):
+        response = client.get(
+            "/api/v1/procurement/awards",
+            query_string={"company": "ITURRI", "awarded_from": "2025-01-01"},
+        )
+
+    assert response.status_code == 422
+    assert "awarded_from" in str(response.get_json()["errors"])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        (
+            "POST",
+            "/api/v1/procurement/tender-searches",
+            {
+                "name": "Archivo completo",
+                "keywords": ["incendios"],
+                "filters": {"scope": "all"},
+            },
+        ),
+        (
+            "PATCH",
+            "/api/v1/procurement/tender-searches/search-1",
+            {"filters": {"active": False}},
+        ),
+    ],
+)
+def test_procurement_rejects_saved_search_scopes_signal_cannot_preserve(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    payload: dict[str, Any],
+) -> None:
+    provider_called = False
+
+    def unexpected_provider_call(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        nonlocal provider_called
+        provider_called = True
+
+    monkeypatch.setattr(
+        procurement_routes,
+        "create_tender_search",
+        unexpected_provider_call,
+    )
+    monkeypatch.setattr(
+        procurement_routes,
+        "patch_tender_search",
+        unexpected_provider_call,
+    )
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.write"})):
+        response = client.open(path, method=method, json=payload)
+
+    assert response.status_code == 422
+    assert "filters" in str(response.get_json()["errors"])
+    assert provider_called is False
+
+
 PROCUREMENT_AUTH_ORDER_CASES: tuple[dict[str, Any], ...] = (
     {
         "method": "POST",

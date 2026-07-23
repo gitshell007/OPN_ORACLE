@@ -4,6 +4,40 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 74 · verdad temporal en licitaciones (completado en Oracle)
+
+- **[Solo Oracle]** El API acepta `scope=active|historical|all`, mantiene `active` como alias
+  deprecado y omite `active` cuando el cliente no declara alcance. Contra Signal v1,
+  `scope=active` usa una petición con `active=true`, `scope=all` una con `active=false` y
+  `scope=historical` responde `422`: no se hacen dos consultas ni se finge un orden global.
+- **[Solo Oracle]** Vector sustituye «Todas/No activas» por «Solo activas/Todo el índice
+  disponible», avisa de que el archivo de pliegos no está demostrado y no permite guardar en v1
+  una búsqueda que Signal ejecutaría después como activa.
+- **[Solo Oracle]** Los estados se normalizan únicamente mediante un mapa explícito; códigos no
+  contratados como `PUB` y `EV` quedan visibles como `unknown`. El listado normal no invoca IA y
+  una prueba de integración compara `AIUsageLedger` antes y después.
+- **[Requiere Signal]** `historical` de licitaciones, `published_at`, rangos temporales, sort,
+  cursor estable, persistencia completa de búsquedas y reconstrucción/versionado del índice quedan
+  en la propuesta v2. Hasta demostrar esa cobertura, el histórico de producto es award-céntrico.
+- **[Bilateral]** La activación de v2 exige muestra estratificada, manifiesto de cobertura,
+  contract tests en ambos extremos, despliegue compatible y rollback. La línea base productiva del
+  23 de julio registra 1.304.161 adjudicaciones, 2.247 licitaciones indexadas y 637 activas, además
+  de fechas anómalas que impiden prometer cobertura completa.
+- **[Siguiente fase, Solo Oracle]** El perfil determinista de comparables y la taxonomía CPV
+  versionada pueden avanzar sin Signal, pero no se implementan en este prompt. El wizard los
+  consumirá después; no será su propietario.
+- Gates: Ruff y formato correctos sobre los cuatro ficheros Python tocados, mypy correcto sobre
+  111 módulos, 557 pruebas backend con PostgreSQL/Redis reales y 84,29 % de cobertura, TypeScript,
+  cliente OpenAPI y ESLint correctos (permanece un aviso conocido de TanStack Table), Vitest 38
+  ficheros/194 tests y build Next de 19 páginas correctos.
+- Mutaciones verificadas y restauradas: traducir `all` como `active=true`, mapear `Adjudicada`
+  como `closed`, aceptar el guardado `scope=all`, habilitar «Guardar actual» fuera de activas y
+  simular una nueva entrada en `AIUsageLedger` hicieron caer sus regresiones específicas.
+- Smoke visual local autenticado: las dos únicas opciones temporales y la advertencia se muestran
+  juntas; `all` deshabilita el guardado y explica la razón. Viewport 1152 px sin overflow
+  horizontal (`scrollWidth=clientWidth=1152`) y sin errores ni avisos de consola. El fixture E2E no
+  tiene conexión Signal, por lo que el empty/error state de resultados fue el esperado.
+
 ## Jerarquía visual y filtros por familia en el grafo
 
 - Fase 74 consume las categorías funcionales normalizadas en Prompt 73 para diferenciar

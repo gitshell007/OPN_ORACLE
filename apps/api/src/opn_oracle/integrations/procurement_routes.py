@@ -48,10 +48,26 @@ class PaginationQuerySchema(Schema):
 class AwardsQuerySchema(PaginationQuerySchema):
     company = String(load_default=None, allow_none=True, validate=validate.Length(max=250))
     buyer = String(load_default=None, allow_none=True, validate=validate.Length(max=250))
+    awarded_from = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
+    )
+    awarded_to = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
+    )
 
     @validates_schema
     def validate_lookup(self, data: dict[str, Any], **kwargs: Any) -> None:
         del kwargs
+        for field in ("awarded_from", "awarded_to"):
+            if data.get(field) is not None:
+                raise ValidationError(
+                    "Signal v1 no admite todavía rangos por fecha de adjudicación.",
+                    field_name=field,
+                )
         company = (data.get("company") or "").strip()
         buyer = (data.get("buyer") or "").strip()
         if len(company) < 2 and len(buyer) < 2:
@@ -80,9 +96,55 @@ class TendersQuerySchema(PaginationQuerySchema):
         allow_none=True,
         validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
     )
+    published_from = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
+    )
+    published_to = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
+    )
+    deadline_from = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
+    )
+    deadline_to = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"),
+    )
     buyer = String(load_default=None, allow_none=True, validate=validate.Length(max=250))
     region = String(load_default=None, allow_none=True, validate=validate.Length(max=120))
-    active = Boolean(load_default=True)
+    scope = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.OneOf(["active", "historical", "all"]),
+    )
+    active = Boolean(load_default=None, allow_none=True)
+
+    @validates_schema
+    def validate_temporal_contract(self, data: dict[str, Any], **kwargs: Any) -> None:
+        del kwargs
+        if data.get("scope") is not None and data.get("active") is not None:
+            raise ValidationError(
+                "Usa scope o el alias deprecado active, pero no ambos.",
+                field_name="scope",
+            )
+        if data.get("scope") == "historical":
+            raise ValidationError(
+                "Signal v1 no permite aislar licitaciones históricas. "
+                "El histórico disponible se consulta por adjudicaciones.",
+                field_name="scope",
+            )
+        for field in ("published_from", "published_to", "deadline_from", "deadline_to"):
+            if data.get(field) is not None:
+                raise ValidationError(
+                    "Signal v1 no admite todavía este rango temporal.",
+                    field_name=field,
+                )
 
 
 class TenderSummaryPathSchema(Schema):
@@ -97,6 +159,21 @@ class TenderSearchRunQuerySchema(PaginationQuerySchema):
     pass
 
 
+def _validate_saved_search_temporal_scope(filters: dict[str, Any]) -> None:
+    scope = filters.get("scope")
+    active_alias = filters.get("active")
+    if scope is not None and active_alias is not None:
+        raise ValidationError(
+            "Usa scope o el alias deprecado active, pero no ambos.",
+            field_name="filters",
+        )
+    if scope not in (None, "active") or active_alias is False:
+        raise ValidationError(
+            "Signal v1 solo conserva búsquedas guardadas de licitaciones activas.",
+            field_name="filters",
+        )
+
+
 class TenderSearchPayloadSchema(Schema):
     name = String(required=True, validate=validate.Length(min=2, max=120))
     keywords = List(String(validate=validate.Length(min=1, max=120)), required=True)
@@ -108,6 +185,7 @@ class TenderSearchPayloadSchema(Schema):
         keywords = data.get("keywords") or []
         if not 1 <= len(keywords) <= 20:
             raise ValidationError("Incluye entre 1 y 20 palabras clave.", field_name="keywords")
+        _validate_saved_search_temporal_scope(data.get("filters") or {})
 
 
 class TenderSearchPatchSchema(Schema):
@@ -122,6 +200,8 @@ class TenderSearchPatchSchema(Schema):
             raise ValidationError("Indica al menos un campo para actualizar.")
         if "keywords" in data and not 1 <= len(data["keywords"] or []) <= 20:
             raise ValidationError("Incluye entre 1 y 20 palabras clave.", field_name="keywords")
+        if "filters" in data:
+            _validate_saved_search_temporal_scope(data["filters"] or {})
 
 
 class AwardsResponseSchema(Schema):
@@ -235,6 +315,24 @@ def _handle_provider_call(function: Any) -> Any:
         return _provider_error_response(exc)
 
 
+def _resolve_tender_scope(query_data: dict[str, Any]) -> tuple[str, bool | None]:
+    """Translate Oracle's honest temporal scope to the current Signal registry contract."""
+
+    scope = cast(str | None, query_data.get("scope"))
+    active_alias = cast(bool | None, query_data.get("active"))
+    if scope == "active":
+        return "active", True
+    if scope == "all":
+        # Signal v1 uses false as "do not add the is_active predicate", not as
+        # "inactive only". This is one request over the provider's native order.
+        return "all", False
+    if active_alias is not None:
+        return ("active", True) if active_alias else ("all", False)
+    # Signal v1 defaults omission to active. Preserve that compatibility while
+    # omitting the parameter so Oracle no longer manufactures active=true.
+    return "active", None
+
+
 @bp.get("/awards")
 @require_permission("actor.read")
 @bp.input(AwardsQuerySchema, location="query")
@@ -277,6 +375,7 @@ def suggest(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 @limiter.limit("60/minute")
 def tenders(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
+    scope, active = _resolve_tender_scope(query_data)
     return _handle_provider_call(
         lambda: cached_tenders(
             tenant_id=tenant_id,
@@ -291,7 +390,8 @@ def tenders(query_data: dict[str, Any]) -> dict[str, Any] | Any:
             deadline_before=cast(str | None, query_data.get("deadline_before")),
             buyer=(cast(str | None, query_data.get("buyer")) or "").strip() or None,
             region=(cast(str | None, query_data.get("region")) or "").strip() or None,
-            active=bool(query_data["active"]),
+            active=active,
+            scope=scope,
             limit=int(query_data["limit"]),
             offset=int(query_data["offset"]),
         )

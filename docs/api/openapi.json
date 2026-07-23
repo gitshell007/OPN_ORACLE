@@ -30908,6 +30908,28 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "awarded_from",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "awarded_to",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -31767,6 +31789,50 @@
           },
           {
             "in": "query",
+            "name": "published_from",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "published_to",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deadline_from",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deadline_to",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "buyer",
             "required": false,
             "schema": {
@@ -31789,10 +31855,27 @@
           },
           {
             "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": null,
+              "enum": [
+                "active",
+                "historical",
+                "all",
+                null
+              ],
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "active",
             "required": false,
             "schema": {
-              "default": true,
+              "default": null,
+              "nullable": true,
               "type": "boolean"
             }
           }

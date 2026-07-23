@@ -36,7 +36,7 @@ describe("transporte de contratación pública", () => {
       deadline_before: "2026-08-01",
       buyer: "Gobierno de Aragón",
       region: "Aragón",
-      active: true,
+      scope: "all",
       limit: 50,
       offset: 25,
     });
@@ -54,7 +54,7 @@ describe("transporte de contratación pública", () => {
       deadline_before: "2026-08-01",
       buyer: "Gobierno de Aragón",
       region: "Aragón",
-      active: "true",
+      scope: "all",
     });
     expect(options.credentials).toBe("include");
   });

@@ -41,6 +41,26 @@ _AWARDS_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_AWARDS_CACHE_TTL_SECOND
 _SUGGEST_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS)
 _TENDERS_CACHE = EntityIntelCache(ttl_seconds=PROCUREMENT_TENDERS_CACHE_TTL_SECONDS)
 
+_CANONICAL_TENDER_STATUSES: dict[str, str] = {
+    "open": "open",
+    "abierta": "open",
+    "abierto": "open",
+    "activa": "open",
+    "activo": "open",
+    "closed": "closed",
+    "cerrada": "closed",
+    "cerrado": "closed",
+    "awarded": "awarded",
+    "adjudicada": "awarded",
+    "adjudicado": "awarded",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "cancelada": "cancelled",
+    "cancelado": "cancelled",
+    "anulada": "cancelled",
+    "anulado": "cancelled",
+}
+
 
 def _clean_params(params: Mapping[str, Any]) -> dict[str, str]:
     clean: dict[str, str] = {}
@@ -64,6 +84,27 @@ def _quote_path_part(value: str) -> str:
     # Signal usa converter :path: la barra del folder_id viaja como parte de la
     # ruta, codificada o no; uvicorn decodifica %2F a "/" antes del matching.
     return quote(value.strip(), safe="")
+
+
+def canonical_tender_status(value: Any) -> str:
+    """Map only explicitly understood provider values to Oracle's closed vocabulary."""
+
+    if not isinstance(value, str):
+        return "unknown"
+    return _CANONICAL_TENDER_STATUSES.get(value.strip().casefold(), "unknown")
+
+
+def _normalize_tender_item(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    return {**item, "canonical_status": canonical_tender_status(item.get("status"))}
+
+
+def _normalize_tender_collection(payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return payload
+    return {**payload, "items": [_normalize_tender_item(item) for item in items]}
 
 
 class ProcurementClient:
@@ -252,11 +293,11 @@ class ProcurementClient:
         deadline_before: str | None,
         buyer: str | None,
         region: str | None,
-        active: bool,
+        active: bool | None,
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
-        return self._get(
+        payload = self._get(
             "api/v1/registry/tenders",
             params={
                 "keywords": keywords,
@@ -271,15 +312,24 @@ class ProcurementClient:
                 "offset": offset,
             },
         )
+        return _normalize_tender_collection(payload)
 
     def tender_summary(self, *, folder_id: str) -> dict[str, Any]:
-        return self._post(f"api/v1/registry/tenders/{_quote_path_part(folder_id)}/summary")
+        payload = self._post(f"api/v1/registry/tenders/{_quote_path_part(folder_id)}/summary")
+        item = payload.get("item")
+        if isinstance(item, dict):
+            return {**payload, "item": _normalize_tender_item(item)}
+        return payload
 
     def tender_by_folder(self, *, folder_id: str) -> dict[str, Any]:
-        return self._get(
+        payload = self._get(
             f"api/v1/registry/tenders/{_quote_path_part(folder_id)}",
             params={},
         )
+        item = payload.get("item")
+        if isinstance(item, dict):
+            return {**payload, "item": _normalize_tender_item(item)}
+        return payload
 
     def awards_by_folder(self, *, folder_id: str) -> dict[str, Any]:
         return self._get(
@@ -343,11 +393,15 @@ class ProcurementClient:
         offset: int,
         external_tenant_id: str,
     ) -> dict[str, Any]:
-        return self._get(
+        payload = self._get(
             f"api/v1/oracle/tender-searches/{_quote_path_part(search_id)}/run",
             params={"limit": limit, "offset": offset},
             external_tenant_id=external_tenant_id,
         )
+        results = payload.get("results")
+        if isinstance(results, dict):
+            return {**payload, "results": _normalize_tender_collection(results)}
+        return payload
 
     def close(self) -> None:
         self._client.close()
@@ -425,7 +479,8 @@ def cached_tenders(
     deadline_before: str | None,
     buyer: str | None,
     region: str | None,
-    active: bool,
+    active: bool | None,
+    scope: str,
     limit: int,
     offset: int,
 ) -> dict[str, Any]:
@@ -440,6 +495,7 @@ def cached_tenders(
         (buyer or "").casefold(),
         (region or "").casefold(),
         active,
+        scope,
         limit,
         offset,
     )
@@ -464,7 +520,20 @@ def cached_tenders(
         client.close()
     # Open tenders change intraday; keep only a short local cache. Summary is
     # deliberately uncached here because Signal owns its LLM summary cache.
-    value = {**value, "cached_seconds": PROCUREMENT_TENDERS_CACHE_TTL_SECONDS}
+    upstream_semantics = value.get("semantics")
+    semantics = dict(upstream_semantics) if isinstance(upstream_semantics, dict) else {}
+    semantics.update(
+        {
+            "oracle_scope": scope,
+            "historical_scope_available": False,
+            "scope_contract": "signal-registry-v1",
+        }
+    )
+    value = {
+        **value,
+        "semantics": semantics,
+        "cached_seconds": PROCUREMENT_TENDERS_CACHE_TTL_SECONDS,
+    }
     _TENDERS_CACHE.set(key, value)
     return {**value, "cache_hit": False}
 
