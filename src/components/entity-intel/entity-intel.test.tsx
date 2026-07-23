@@ -201,6 +201,7 @@ vi.mock("cytoscape", () => {
 import {
   EntityGraphExplorer,
   EntitySearchPanel,
+  graphRoleCategoryOptions,
 } from "./entity-intel";
 import { separateGraphNodePositions } from "./entity-graph-layout";
 
@@ -235,6 +236,8 @@ const graphResponse = {
       source: "ib",
       target: "miguel",
       role: "Administrador",
+      role_keys: ["administrator"],
+      role_categories: ["governance"],
       active: true,
       date: "2026-07-01",
     },
@@ -243,6 +246,8 @@ const graphResponse = {
       source: "ib",
       target: "ana",
       role: "Apoderado",
+      role_keys: ["attorney"],
+      role_categories: ["representation"],
       active: false,
       date: "2024-01-01",
     },
@@ -280,6 +285,7 @@ function progressiveGraph(nodeCount: number, edgeCount: number) {
       target: `progressive-${ordinal}`,
       role: ordinal % 2 === 0 ? "Administrador" : "Apoderado",
       role_keys: [ordinal % 2 === 0 ? "administrator" : "attorney"],
+      role_categories: [ordinal % 2 === 0 ? "governance" : "representation"],
       active: true,
       date: "2026-07-01",
     };
@@ -292,6 +298,7 @@ function progressiveGraph(nodeCount: number, edgeCount: number) {
       target: `progressive-${((index + 1) % firstLevelCount) + 1}`,
       role: "Consejero",
       role_keys: ["board_member"],
+      role_categories: ["governance"],
       active: true,
       date: "2026-07-01",
     }),
@@ -563,6 +570,7 @@ describe("EntityGraphExplorer", () => {
           target: "miguel",
           role: "Socio único",
           role_keys: ["sole_shareholder"],
+          role_categories: ["ownership"],
           source_roles: ["ACCIONISTA UNICO"],
           active: true,
           date: "2025-02-01",
@@ -573,6 +581,7 @@ describe("EntityGraphExplorer", () => {
           target: "ana",
           role: "Socio único",
           role_keys: ["sole_shareholder"],
+          role_categories: ["ownership"],
           source_roles: ["SOCIO UNICO"],
           active: true,
           date: "2025-03-01",
@@ -592,6 +601,161 @@ describe("EntityGraphExplorer", () => {
     expect(within(roleGroup).queryAllByText(/socio único/i)).toHaveLength(1);
     expect(within(roleGroup).queryByText("ACCIONISTA UNICO")).not.toBeInTheDocument();
     expect(within(roleGroup).getByText(/pertenencias no excluyentes/i)).toBeInTheDocument();
+  });
+
+  it("agrupa familias sin convertir sus facetas no excluyentes en cobertura", () => {
+    const options = graphRoleCategoryOptions({
+      ...graphResponse,
+      edges: [
+        {
+          id: "multi-role",
+          source: "ib",
+          target: "miguel",
+          roles: ["Administrador único", "Socio único"],
+          role_keys: ["sole_administrator", "sole_shareholder"],
+          role_categories: ["governance", "ownership"],
+          active: true,
+        },
+        {
+          id: "audit",
+          source: "ib",
+          target: "ana",
+          role: "Auditor",
+          role_keys: ["auditor"],
+          role_categories: ["audit"],
+          active: true,
+        },
+        {
+          id: "unknown",
+          source: "ib",
+          target: "ana",
+          role: "Director de innovación",
+          role_keys: ["director_de_innovacion"],
+          role_categories: ["other"],
+          active: true,
+        },
+      ],
+    });
+
+    expect(options).toEqual([
+      {
+        key: "governance",
+        label: "Gobierno",
+        count: 1,
+        roleKeys: ["sole_administrator"],
+      },
+      {
+        key: "audit",
+        label: "Auditoría",
+        count: 1,
+        roleKeys: ["auditor"],
+      },
+      {
+        key: "ownership",
+        label: "Propiedad",
+        count: 1,
+        roleKeys: ["sole_shareholder"],
+      },
+      {
+        key: "other",
+        label: "Sin clasificar",
+        count: 1,
+        roleKeys: ["director_de_innovacion"],
+      },
+    ]);
+    expect(options.reduce((total, option) => total + option.count, 0)).toBe(4);
+  });
+
+  it("filtra por familia sin recolocar la cámara y conserva la jerarquía visual", async () => {
+    mocks.graph.mockResolvedValue({
+      ...graphResponse,
+      nodes: [
+        ...graphResponse.nodes,
+        { id: "auditora", label: "AUDITORA EXTERNA", type: "company", degree: 1 },
+      ],
+      edges: [
+        graphResponse.edges[0],
+        graphResponse.edges[1],
+        {
+          id: "edge-audit",
+          source: "ib",
+          target: "auditora",
+          role: "Auditor",
+          role_keys: ["auditor"],
+          role_categories: ["audit"],
+          active: true,
+          date: "2026-06-01",
+        },
+      ],
+    });
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
+    const instance = mocks.cytoscapeInstances[0];
+    act(() => instance.handlers.layoutstop({ target: instance.nodesList[0] }));
+    const centerCalls = instance.center.mock.calls.length;
+    const fitCalls = instance.fit.mock.calls.length;
+    const zoomCalls = instance.zoom.mock.calls.length;
+    const categoryGroup = screen.getByLabelText("Lecturas rápidas por familia de vínculo");
+    const auditButton = within(categoryGroup).getByRole("button", {
+      name: "Ver solo Auditoría, 1 vínculo",
+    });
+
+    expect(auditButton).toHaveAttribute("aria-pressed", "false");
+    expect(instance.edgesList.every((edge) => !edge.classes.has("is-role-filtered"))).toBe(true);
+    expect(instance.edgesList[2].classes.has("role-category-audit")).toBe(true);
+    expect(instance.options.style).toContainEqual(expect.objectContaining({
+      selector: "edge.role-category-audit",
+      style: expect.objectContaining({ "line-style": "dashed" }),
+    }));
+
+    fireEvent.click(auditButton);
+
+    await waitFor(() => expect(instance.edgesList[0].classes.has("is-role-filtered")).toBe(true));
+    expect(instance.edgesList[1].classes.has("is-role-filtered")).toBe(true);
+    expect(instance.edgesList[2].classes.has("is-role-filtered")).toBe(false);
+    expect(auditButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Vista reducida")).toBeInTheDocument();
+    expect(instance.center).toHaveBeenCalledTimes(centerCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(fitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(zoomCalls);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar todo lo recibido" }));
+
+    await waitFor(() => {
+      expect(instance.edgesList.every((edge) => !edge.classes.has("is-role-filtered"))).toBe(true);
+    });
+    expect(auditButton).toHaveAttribute("aria-pressed", "false");
+    expect(instance.center).toHaveBeenCalledTimes(centerCalls);
+    expect(instance.fit).toHaveBeenCalledTimes(fitCalls);
+    expect(instance.zoom).toHaveBeenCalledTimes(zoomCalls);
+  });
+
+  it("avisa de roles sin clasificar y conserva la etiqueta canónica de Signal", async () => {
+    mocks.graph.mockResolvedValue({
+      ...graphResponse,
+      edges: [{
+        id: "unknown",
+        source: "ib",
+        target: "miguel",
+        role: "Director de innovación",
+        role_keys: ["director_de_innovacion"],
+        role_categories: ["other"],
+        source_roles: ["DIR. INNOVACION"],
+        active: true,
+        date: "2026-07-01",
+      }],
+    });
+    render(<EntityGraphExplorer name="IBERDROLA" type="company" />);
+
+    const note = await screen.findByRole("note");
+    expect(note).toHaveTextContent("1 tipo sin clasificar");
+    expect(note).toHaveTextContent("Director de innovación");
+    expect(note).toHaveTextContent(/conserva estas etiquetas de Signal/i);
+    expect(note).not.toHaveTextContent("DIR. INNOVACION");
+    expect(screen.getByRole("button", {
+      name: "Ver solo Sin clasificar, 1 vínculo",
+    })).toBeInTheDocument();
   });
 
   it("compone el filtro por rol con el cronograma sin revivir aristas temporales", async () => {
@@ -911,6 +1075,9 @@ describe("EntityGraphExplorer", () => {
         role_keys: index < 4
           ? ["sole_administrator", "sole_shareholder"]
           : ["sole_administrator"],
+        role_categories: index < 4
+          ? ["governance", "ownership"]
+          : ["governance"],
         source_roles: index < 4
           ? ["ADM. UNICO", "SOCIO UNICO"]
           : ["ADM. UNICO"],

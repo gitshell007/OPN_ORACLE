@@ -8,7 +8,7 @@ import {
   type EntityIntelGraphResponse,
   type EntityIntelKind,
 } from "@oracle/api-client";
-import { Network, RefreshCw, Search, Sparkles } from "lucide-react";
+import { CircleHelp, Network, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -70,6 +70,14 @@ interface RoleFilterOption {
   key: string;
   label: string;
   count: number;
+  category: GraphRoleCategory | null;
+}
+
+interface RoleCategoryOption {
+  key: GraphRoleCategory;
+  label: string;
+  count: number;
+  roleKeys: string[];
 }
 
 interface RoleFilterState {
@@ -79,11 +87,34 @@ interface RoleFilterState {
 
 type GraphLabelDensity = "essential" | "adaptive" | "all";
 type IsolationCameraIntent = "focus" | "restore";
+type GraphRoleCategory = NonNullable<EntityIntelGraphEdge["role_categories"]>[number];
 
 interface GraphRoleEntry {
   key: string;
   label: string;
+  category: GraphRoleCategory | null;
 }
+
+const GRAPH_ROLE_CATEGORY_ORDER: GraphRoleCategory[] = [
+  "governance",
+  "representation",
+  "audit",
+  "ownership",
+  "liquidation",
+  "other",
+];
+const GRAPH_ROLE_CATEGORY_META: Record<
+  GraphRoleCategory,
+  { label: string; className: string }
+> = {
+  governance: { label: "Gobierno", className: "governance" },
+  representation: { label: "Representación", className: "representation" },
+  audit: { label: "Auditoría", className: "audit" },
+  ownership: { label: "Propiedad", className: "ownership" },
+  liquidation: { label: "Liquidación", className: "liquidation" },
+  other: { label: "Sin clasificar", className: "other" },
+};
+const GRAPH_ROLE_CATEGORY_SET = new Set<GraphRoleCategory>(GRAPH_ROLE_CATEGORY_ORDER);
 
 function problemMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
@@ -365,6 +396,10 @@ function edgeRole(edge: EntityIntelGraphEdge): string {
   return edgeRoleValues(edge).join(", ");
 }
 
+function primaryRoleCategory(edge: EntityIntelGraphEdge): GraphRoleCategory | null {
+  return canonicalRoleCategories(edge)[0] ?? null;
+}
+
 function normalizedRoleKey(role: string): string {
   return role.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("es-ES");
 }
@@ -382,15 +417,29 @@ function canonicalRoleKeys(edge: EntityIntelGraphEdge): string[] {
     .filter(Boolean);
 }
 
+function canonicalRoleCategories(edge: EntityIntelGraphEdge): GraphRoleCategory[] {
+  const categories = edge.role_categories;
+  if (!Array.isArray(categories)) return [];
+  return categories.filter(
+    (category): category is GraphRoleCategory => GRAPH_ROLE_CATEGORY_SET.has(category),
+  );
+}
+
 function edgeRoleEntries(edge: EntityIntelGraphEdge): GraphRoleEntry[] {
   const labels = edgeRoleValues(edge);
   const keys = canonicalRoleKeys(edge);
+  const categories = canonicalRoleCategories(edge);
   if (keys.length === 0) {
-    return labels.map((label) => ({ key: normalizedRoleKey(label), label }));
+    return labels.map((label) => ({
+      key: normalizedRoleKey(label),
+      label,
+      category: null,
+    }));
   }
   return keys.map((key, index) => ({
     key,
     label: labels[index] ?? labels[0] ?? "Relación",
+    category: categories[index] ?? null,
   }));
 }
 
@@ -428,20 +477,56 @@ export function graphRoleOptions(graph: EntityIntelGraphResponse | null): RoleFi
   if (!graph) return [];
   const roles = new Map<string, RoleFilterOption>();
   graph.edges.forEach((edge) => {
-    const uniqueRoles = new Map<string, string>();
-    edgeRoleEntries(edge).forEach(({ key, label }) => uniqueRoles.set(key, label));
+    const uniqueRoles = new Map<string, GraphRoleEntry>();
+    edgeRoleEntries(edge).forEach((entry) => uniqueRoles.set(entry.key, entry));
     uniqueRoles.forEach((role, key) => {
       const current = roles.get(key);
       roles.set(key, {
         key,
-        label: current?.label ?? displayRole(role),
+        label: current?.label ?? displayRole(role.label),
         count: (current?.count ?? 0) + 1,
+        category: current?.category ?? role.category,
       });
     });
   });
   return [...roles.values()].sort(
     (left, right) => right.count - left.count || left.label.localeCompare(right.label, "es"),
   );
+}
+
+export function graphRoleCategoryOptions(
+  graph: EntityIntelGraphResponse | null,
+): RoleCategoryOption[] {
+  if (!graph) return [];
+  const categories = new Map<
+    GraphRoleCategory,
+    { count: number; roleKeys: Set<string> }
+  >();
+  graph.edges.forEach((edge) => {
+    const edgeCategories = new Map<GraphRoleCategory, Set<string>>();
+    edgeRoleEntries(edge).forEach(({ key, category }) => {
+      if (category === null) return;
+      const roleKeys = edgeCategories.get(category) ?? new Set<string>();
+      roleKeys.add(key);
+      edgeCategories.set(category, roleKeys);
+    });
+    edgeCategories.forEach((roleKeys, category) => {
+      const current = categories.get(category) ?? { count: 0, roleKeys: new Set<string>() };
+      roleKeys.forEach((key) => current.roleKeys.add(key));
+      current.count += 1;
+      categories.set(category, current);
+    });
+  });
+  return GRAPH_ROLE_CATEGORY_ORDER.flatMap((category) => {
+    const current = categories.get(category);
+    if (!current) return [];
+    return [{
+      key: category,
+      label: GRAPH_ROLE_CATEGORY_META[category].label,
+      count: current.count,
+      roleKeys: [...current.roleKeys],
+    }];
+  });
 }
 
 function parseEdgeDate(value: unknown): number | null {
@@ -542,6 +627,13 @@ function graphElements(
     const source = String(edge.source);
     const target = String(edge.target);
     if (!known.has(source) || !known.has(target)) return [];
+    const roleCategory = primaryRoleCategory(edge);
+    const classes = [
+      edge.active === false ? "is-inactive-edge" : "",
+      roleCategory
+        ? `role-category-${GRAPH_ROLE_CATEGORY_META[roleCategory].className}`
+        : "",
+    ].filter(Boolean).join(" ");
     return [
       {
         data: {
@@ -551,7 +643,7 @@ function graphElements(
           target,
           label: edgeRole(edge),
         },
-        classes: edge.active === false ? "is-inactive-edge" : undefined,
+        classes: classes || undefined,
       },
     ];
   });
@@ -882,6 +974,7 @@ export function EntityGraphExplorer({
 
   const elements = useMemo(() => (graph ? graphElements(graph, name) : []), [graph, name]);
   const roleOptions = useMemo(() => graphRoleOptions(graph), [graph]);
+  const roleCategoryOptions = useMemo(() => graphRoleCategoryOptions(graph), [graph]);
   const nodeDepths = useMemo(() => graphDepthMap(graph, name), [graph, name]);
   const hasResolvedCenter = nodeDepths.size > 0;
   const graphNodeCount = graph?.nodes.length ?? 0;
@@ -905,12 +998,22 @@ export function EntityGraphExplorer({
     },
   ), [availableDepth, graphNodeCount, nodeDepths]);
   const depthVisibleNodeCount = depthOptions[visibleDepth - 1]?.nodeCount ?? graph?.nodes.length ?? 0;
-  const roleOptionsKey = roleOptions.map((role) => `${role.key}:${role.count}`).join("|");
+  const roleOptionsKey = roleOptions
+    .map((role) => `${role.key}:${role.count}:${role.category ?? "legacy"}`)
+    .join("|");
   const enabledRoleKeys = useMemo(() => new Set(
     roleFilter?.key === roleOptionsKey
       ? roleFilter.enabledKeys
       : roleOptions.map((role) => role.key),
   ), [roleFilter, roleOptions, roleOptionsKey]);
+  const allRolesVisible = roleOptions.every((role) => enabledRoleKeys.has(role.key));
+  const activeRoleCategory = allRolesVisible
+    ? null
+    : roleCategoryOptions.find((category) => (
+      category.roleKeys.length === enabledRoleKeys.size
+      && category.roleKeys.every((key) => enabledRoleKeys.has(key))
+    ))?.key ?? null;
+  const unclassifiedRoles = roleOptions.filter((role) => role.category === "other");
   const temporalBounds = useMemo(() => temporalBoundsFor(graph), [graph]);
   const temporalKey = temporalBounds
     ? `${temporalBounds.min}:${temporalBounds.max}:${temporalBounds.maxOffset}`
@@ -920,7 +1023,6 @@ export function EntityGraphExplorer({
       ? timeFilter.range
       : [0, temporalBounds.maxOffset] satisfies [number, number]
     : null;
-  const allRolesVisible = roleOptions.every((role) => enabledRoleKeys.has(role.key));
   const fullTimeRange = !temporalBounds
     || !timeRange
     || (timeRange[0] === 0 && timeRange[1] === temporalBounds.maxOffset);
@@ -1085,6 +1187,57 @@ export function EntityGraphExplorer({
                 "transition-duration": reducedMotion ? 0 : 140,
                 "transition-property": "line-color, opacity, width",
                 width: 1.2,
+              },
+            },
+            {
+              selector: "edge.role-category-governance",
+              style: {
+                "line-color": "#3157b7",
+                "target-arrow-color": "#3157b7",
+                width: 1.7,
+              },
+            },
+            {
+              selector: "edge.role-category-representation",
+              style: {
+                "line-color": "#8396ad",
+                "target-arrow-color": "#8396ad",
+                width: 1,
+              },
+            },
+            {
+              selector: "edge.role-category-audit",
+              style: {
+                "line-color": "#7c3aed",
+                "line-style": "dashed",
+                "target-arrow-color": "#7c3aed",
+                width: 1.35,
+              },
+            },
+            {
+              selector: "edge.role-category-ownership",
+              style: {
+                "line-color": "#0f8a76",
+                "target-arrow-color": "#0f8a76",
+                width: 2.1,
+              },
+            },
+            {
+              selector: "edge.role-category-liquidation",
+              style: {
+                "line-color": "#b45f06",
+                "line-style": "dashed",
+                "target-arrow-color": "#b45f06",
+                width: 1.9,
+              },
+            },
+            {
+              selector: "edge.role-category-other",
+              style: {
+                "line-color": "#64748b",
+                "line-style": "dotted",
+                "target-arrow-color": "#64748b",
+                width: 1.3,
               },
             },
             {
@@ -1596,6 +1749,56 @@ export function EntityGraphExplorer({
                         recuentos son pertenencias no excluyentes: un mismo enlace puede figurar en
                         varios tipos y su suma no representa la cobertura.
                       </p>
+                      {roleCategoryOptions.length > 0 && (
+                        <section
+                          className="entity-role-category-presets"
+                          aria-label="Lecturas rápidas por familia de vínculo"
+                        >
+                          <header>
+                            <strong>Lecturas rápidas por familia</strong>
+                            <small>
+                              Son filtros voluntarios; al entrar se muestran todas las relaciones.
+                            </small>
+                          </header>
+                          <div>
+                            {roleCategoryOptions.map((category) => (
+                              <button
+                                type="button"
+                                key={category.key}
+                                aria-pressed={activeRoleCategory === category.key}
+                                aria-label={`Ver solo ${category.label}, ${category.count} ${
+                                  category.count === 1 ? "vínculo" : "vínculos"
+                                }`}
+                                onClick={() => setRoleFilter({
+                                  key: roleOptionsKey,
+                                  enabledKeys: category.roleKeys,
+                                })}
+                              >
+                                <i className={GRAPH_ROLE_CATEGORY_META[category.key].className} />
+                                <span>{category.label}</span>
+                                <small>{category.count}</small>
+                              </button>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+                      {unclassifiedRoles.length > 0 && (
+                        <div className="entity-role-unclassified" role="note">
+                          <CircleHelp size={16} aria-hidden="true" />
+                          <div>
+                            <strong>
+                              {unclassifiedRoles.length} {unclassifiedRoles.length === 1
+                                ? "tipo sin clasificar"
+                                : "tipos sin clasificar"}
+                            </strong>
+                            <p>{unclassifiedRoles.map((role) => role.label).join(", ")}</p>
+                            <small>
+                              Oracle conserva estas etiquetas de Signal y las muestra bajo
+                              «Sin clasificar»; no las descarta ni adivina su significado.
+                            </small>
+                          </div>
+                        </div>
+                      )}
                       <div className="entity-role-filter-actions">
                         <button
                           type="button"
@@ -1728,6 +1931,26 @@ export function EntityGraphExplorer({
                     <span><i className="inactive" /> Vínculo cesado</span>
                     <span><i className="undated" /> Vínculo sin fecha</span>
                   </div>
+                  {roleCategoryOptions.length > 0 && (
+                    <div
+                      className="entity-role-category-legend"
+                      aria-label="Jerarquía visual de familias de vínculo"
+                    >
+                      <strong>Jerarquía visual de vínculos</strong>
+                      <p>
+                        El color y el grosor ayudan a leer el conjunto; los nombres y filtros siguen
+                        siendo la referencia accesible.
+                      </p>
+                      <div>
+                        {roleCategoryOptions.map((category) => (
+                          <span key={category.key}>
+                            <i className={GRAPH_ROLE_CATEGORY_META[category.key].className} />
+                            {category.label} · {category.count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </details>
             </aside>

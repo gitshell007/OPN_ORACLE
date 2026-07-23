@@ -4,6 +4,30 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Jerarquía visual y filtros por familia en el grafo
+
+- Fase 74 consume las categorías funcionales normalizadas en Prompt 73 para diferenciar
+  visualmente Gobierno, Representación, Auditoría, Propiedad, Liquidación y Sin clasificar. La
+  codificación usa color, grosor y patrón de línea, pero mantiene nombres y controles textuales
+  para que el significado no dependa del color.
+- La entrada sigue mostrando el 100 % de nodos y enlaces recibidos. Las familias aparecen como
+  lecturas rápidas voluntarias dentro de «Tipos de vínculo»; activarlas solo cambia visibilidad,
+  sin relayout, recentrado ni modificación del zoom. «Restaurar todo lo recibido» repone también
+  este filtro.
+- Los recuentos de familia son pertenencias no excluyentes: un enlace multirol puede contribuir a
+  más de una familia y la cabecera visible/recibido sigue siendo la única medida de cobertura.
+  Los roles clasificados como `other` se listan con su etiqueta canónica bajo un aviso explícito;
+  Oracle no los descarta ni intenta adivinar su significado.
+- No hay cambios de backend, OpenAPI, migraciones ni variables. La verificación local dirigida
+  cubre agregación no excluyente, filtro y restauración con cámara estable, estilos Cytoscape
+  observables y aviso de rol desconocido. Cada prueba nueva se hizo fallar por mutación antes de
+  restaurar la implementación.
+- Gates locales: Ruff check correcto, Ruff format check correcto, mypy correcto, 394 tests
+  unitarios backend sin omisiones; el recorrido completo pasó 528/528 con PostgreSQL/Redis reales y
+  cobertura 84,09 %. ESLint terminó sin errores y con el aviso conocido de TanStack Table,
+  TypeScript correcto, Vitest 38 ficheros/190 tests, build Next de 19 páginas y cliente OpenAPI sin
+  deriva. Playwright autenticado pasó 25 pruebas con 7 omisiones intencionadas de matriz.
+
 ## CSRF idempotente para lecturas concurrentes
 
 - Prompt 72 confirma que la carrera no estaba en el wizard ni en una pérdida de escritura Redis:

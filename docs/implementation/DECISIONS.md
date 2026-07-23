@@ -923,6 +923,26 @@ deberá versionarse un flujo de copia/materialización separado.
   mantienen fCoSE determinista, `randomize: false`, la divulgación progresiva de D-042 y la cámara
   estable de D-053. No hay migración, variable nueva ni cambio del contrato upstream de Signal.
 
+## D-058 — Las categorías son una ayuda de lectura, no una nueva cobertura
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** Prompt 73 expone categorías funcionales por cada rol canónico, pero el grafo grande
+  continúa presentando todas las aristas con el mismo peso visual. En ITURRI SA esto obliga a leer
+  301 enlaces y diez facetas antes de distinguir gobierno, representación, auditoría, propiedad o
+  liquidación. Un enlace puede contener varios roles y, por tanto, pertenecer a varias categorías.
+- **Decisión:** representar las categorías mediante patrones redundantes de color, grosor y trazo,
+  acompañados siempre por nombres y filtros textuales. La vista inicial conserva todo lo recibido;
+  elegir una familia es una reducción local, voluntaria y reversible que no ejecuta layout ni mueve
+  la cámara. El recuento de cada familia cuenta una arista una vez dentro de esa familia, pero las
+  familias no son excluyentes y su suma no mide cobertura. `other` se presenta como «Sin
+  clasificar», enumera las etiquetas canónicas recibidas y nunca se oculta ni se reclasifica por
+  similitud.
+- **Consecuencias:** el usuario puede obtener una lectura temática rápida sin confundirla con un
+  corpus distinto ni perder orientación espacial. La autoridad de cobertura sigue siendo
+  visible/recibido más el aviso de recorte upstream. Ampliar el catálogo exige observar roles
+  reales y actualizar la normalización explícita de Flask; la interfaz no inventa categorías.
+
 ## D-042 — Codex commitea siempre, y solo sus ficheros
 
 - **Estado:** accepted

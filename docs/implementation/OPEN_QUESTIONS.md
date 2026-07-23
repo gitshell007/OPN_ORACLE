@@ -111,6 +111,10 @@
   empresa: `person` contiene tanto personas físicas como firmas (por ejemplo, ERNST & YOUNG SL).
   Hasta que Signal lo clasifique, Oracle muestra esas contrapartes sin enlace y no deduce el tipo
   por el nombre.
+- Observación no bloqueante de roles: la UI ya hace visible cualquier categoría `other` y enumera
+  su etiqueta canónica, pero ITURRI SA e ITURRIN SA no aportaron roles sin clasificar en la línea
+  base productiva de Prompt 73. Antes de ampliar el catálogo debe medirse qué valores reales caen en
+  `other`; no se añadirán alias ni categorías por semejanza del texto.
 - Pendiente Signal para el informe competitivo ejecutivo: confirmar o actualizar en el
   administrador de Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer
   `opn-oracle`, con salida JSON estructurada y `max_output_tokens=16000` para `v2`. Oracle declara
