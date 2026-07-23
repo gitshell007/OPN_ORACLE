@@ -2989,3 +2989,50 @@ No se emprende. Ningún cliente lo ha pedido y 4-7 días es una iniciativa, no u
 autorizada en la OEPM y con ella verificar descarga real, rango histórico disponible, mecanismo de
 listado por fecha, límites y estabilidad de los XML. Hasta eso, cualquier presupuesto sigue siendo
 una estimación sobre supuestos.
+
+## 2026-07-23 · Auditoría de cierre: CSRF y grafo, con producción alineada
+
+Release `20260723T094553Z-quick-1adcd74`. `master`, `origin/master` y producción en el mismo
+commit. Árbol limpio salvo `docs/strategy/`, que es del usuario.
+
+### Prompt 72 · carrera CSRF
+
+El arreglo elige la vía servidor: `GET /csrf` devuelve el token vigente y solo crea uno de forma
+perezosa cuando falta, en vez de rotarlo en cada lectura. El cambio son **dos líneas** en
+`auth/routes.py` y `auth/runtime.py`, y conserva los cuatro puntos de rotación sensibles
+(creación de sesión, reautenticación, cambio de contraseña y cambio de tenant).
+
+Verificado por mí en producción, no solo con tests:
+
+| Comprobación | Resultado |
+|---|---|
+| Dos lecturas consecutivas de `/csrf` | **mismo token** (antes la segunda invalidaba la primera) |
+| POST sin token | 403 |
+| POST con token inventado | 403 |
+| `hmac.compare_digest` en la guarda | intacto |
+| Exenciones | solo el webhook de Signal, sin añadidos |
+
+**Nota de método sobre mi propia auditoría.** Mi primera mutación —retirar `renew_csrf()` de
+`_create_session`— **no hizo caer ningún test**, y la conclusión correcta no era «el test es
+flojo»: `session.clear()` se ejecuta justo antes, así que el token desaparece igualmente y se
+recrea de forma perezosa. El comportamiento observable no cambiaba. Al mutar la rotación en su
+raíz (`renew_csrf` reutilizando el token existente) cayó
+`test_csrf_rotates_on_login_and_password_change`, que es el invariante de verdad.
+
+Es la tercera vez esta semana que una mutación mal dirigida produce un falso negativo. La regla que
+ya anoté sigue siendo la correcta: localizar el punto exacto donde vive el comportamiento antes de
+mutar, no el primero que aparece al grepear.
+
+Efecto secundario positivo: el `renew_csrf()` explícito de `_create_session` es redundante dado el
+`session.clear()` previo. Se deja como defensa en profundidad, pero conviene saber que la rotación
+no depende de esa línea.
+
+### Grafo de entidades
+
+Dos commits de otra sesión, ya desplegados: normalización de roles con exploración que no oculta
+cobertura, y jerarquía de vínculos por familia. Gates en verde con el resto.
+
+### Estado de los gates
+
+528 tests backend con integración (cobertura 84,09 %), 190 frontend, ruff, formato, mypy sobre 110
+módulos y build de producción.
