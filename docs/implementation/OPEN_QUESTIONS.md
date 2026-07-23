@@ -168,18 +168,24 @@
 
 ## Investigaciones empresariales trazables
 
-- Pendiente de producto aceptar, ajustar o descartar
-  `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md`. Hasta esa decisión no se crean migraciones,
-  endpoints, task keys ni fuentes nuevas.
+- Producto autorizó iniciar la Fase 0 de
+  `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md`. ORACLE-EXP-INV-01 deja protocolo, arnés,
+  fixture sintético, medición PLACSP/Ollama y borradores ERD/OpenAPI; no autoriza todavía
+  migraciones, endpoints, task keys ni fuentes runtime nuevas.
 - Pendiente medir en un spike la cobertura real de participantes no adjudicatarios. PLACSP
   estructura adjudicatario y el recuento comunicado de licitadores participantes, pero no
   garantiza una lista nominal completa; la identidad de admitidos, excluidos o perdedores puede
-  residir solo en el perfil, actas, valoraciones y resoluciones. Oracle no prometerá exhaustividad
-  ni transformará «no localizado» en «no se presentó».
+  residir solo en el perfil, actas, valoraciones y resoluciones. El diagnóstico vivo del
+  2026-07-23 encontró 124/124 `TenderResult` con `ReceivedTenderQuantity` y cero nodos nominales de
+  no adjudicatarios en una página 643, pero no es una muestra aleatoria. Queda pendiente etiquetar
+  96 unidades estratificadas, incluida la familia agregada; Oracle no prometerá exhaustividad ni
+  transformará «no localizado» en «no se presentó».
 - Pendiente Signal: contrato incremental de participantes por expediente/lote, con documento,
   página/fragmento, rol y cobertura; `counterpart_kind` fiable para no inferir por el nombre si una
   contraparte BORME es persona física o jurídica; y disponibilidad/cobertura real de
-  `ReceivedTenderQuantity`.
+  `ReceivedTenderQuantity`. El spike confirmó que el campo existe en origen y que deduplicarlo por
+  expediente+lote+revisión evitó sumar 14 ofertas ficticias en 124 resultados, pero el snapshot
+  Oracle actual lo descarta. Falta repetir la concordancia con consumer Signal aislado.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y
@@ -197,6 +203,10 @@
   enviaría solo task keys gobernadas por Signal; si producto exige local, Signal fijaría Ollama y
   cloud desactivado para esas tareas. Debe medir también el reviewer con errores sembrados antes de
   elegir `reject_output`, reparación o bloqueo por sección; la validación determinista de citas no
-  se delega al modelo.
+  se delega al modelo. Primer microbenchmark resuelto: `qwen3.5:9b` con `think=false` logró 17/17
+  schemas, cero reparaciones y p95 21,9 s, pero extracción exacta 0/4 y reviewer con 50 % de recall
+  de categoría y un falso rechazo; `reject_output` y creación de participaciones quedan en no-go.
+  Sin `think=false`, 34/34 llamadas agotaron salida y 0/17 schemas validaron. Pendiente abrir un
+  cambio aislado del adapter local, ampliar corpus y medir el 27B, que no está instalado.
 - Pendiente fijar la ventana temporal por finalidad y evidencia. No se adopta automáticamente un
   corte de cuatro años como política de relevancia, expansión o retención.

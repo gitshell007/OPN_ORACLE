@@ -38,6 +38,33 @@ Interfaz canónica: `CANONICAL_UI=vector`
   horizontal (`scrollWidth=clientWidth=1152`) y sin errores ni avisos de consola. El fixture E2E no
   tiene conexión Signal, por lo que el empty/error state de resultados fue el esperado.
 
+## ORACLE-EXP-INV-01 · primer bloque de cobertura e identidad
+
+- La Fase 0 dispone ya de protocolo v1, fixture sintético, arnés read-only con DAG/checkpoints,
+  medición oficial PLACSP, benchmark local, resultado go/no-go y borradores ERD/OpenAPI. No se
+  crearon migraciones, rutas, task keys, jobs productivos ni datos canónicos; filas afectadas: cero.
+- La página viva 643, no aleatoria, contenía 179 entradas y 124 `TenderResult`. Los 124 comunicaban
+  `ReceivedTenderQuantity`; deduplicar por expediente+lote+revisión redujo 264 a 250 y evitó sumar
+  14 ofertas ficticias. Había 112 resultados con `WinningParty`, todos con al menos un identificador,
+  y cero nodos estructurados de no adjudicatarios. La muestra estratificada de 96 unidades y la
+  familia agregada siguen pendientes.
+- El snapshot Oracle actual descarta recuento, revisión e identificador de ganador; tampoco existe
+  contrato Signal de participantes ni `counterpart_kind` fiable. Signal no tiene consumer/credencial
+  local, por lo que la concordancia upstream queda como gate y no se fingió una medición viva.
+- `qwen3.5:9b` sin desactivar thinking agotó 34/34 salidas: 0/17 schemas válidos y 22 min 26 s de
+  wall acumulado. Con `think=false` logró 17/17 schemas, cero reparaciones, p95 21,9 s y 27,14
+  tokens/s medianos. La calidad no superó el gate: extracción exacta 0/4; reviewer con veredicto
+  10/11, precisión de categoría 36,36 %, recall 50 % y un falso rechazo. Participaciones y
+  `reject_output` quedan en no-go.
+- La repetición reutilizó 17/17 fingerprints por caso, ejecutó cero inferencias, consumió 0/40
+  llamadas y resolvió la etapa Ollama en menos de 100 ms. Los artefactos están en `.work/75`,
+  ignorado por Git; lo versionado contiene únicamente fixtures sintéticos, agregados, hashes y
+  decisiones.
+- Decisión: continuar Fase 0 y mantener un MVP futuro limitado a adjudicaciones como go
+  condicionado. Son no-go actuales el recuento dentro del contrato, no adjudicatarios nominales,
+  auto-merge, expansión por tipo, reviewer bloqueante y la promesa «todos los participantes».
+  Siguiente gate: 96 unidades PLACSP, 72 aserciones BORME y consumer Signal aislado.
+
 ## Jerarquía visual y filtros por familia en el grafo
 
 - Fase 74 consume las categorías funcionales normalizadas en Prompt 73 para diferenciar

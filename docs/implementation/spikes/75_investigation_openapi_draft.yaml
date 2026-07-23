@@ -1,0 +1,1051 @@
+openapi: 3.1.0
+info:
+  title: OPN Oracle Investigation Workbench
+  version: 0.0.0-spike
+  description: >-
+    Borrador de contrato producido por ORACLE-EXP-INV-01. No está registrado
+    en Flask, no forma parte del OpenAPI productivo y no autoriza migraciones.
+x-status: design-only
+servers:
+  - url: /
+security:
+  - cookieSession: []
+paths:
+  /api/v1/dossiers/{dossier_id}/investigations:
+    parameters:
+      - $ref: "#/components/parameters/DossierId"
+    post:
+      operationId: createInvestigation
+      summary: Congelar el encargo y crear una investigación
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvestigationCreate"
+      responses:
+        "202":
+          description: Investigación creada; la semilla aún puede requerir revisión
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvestigationRun"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /api/v1/investigations/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    get:
+      operationId: getInvestigation
+      summary: Leer estado, cobertura, presupuestos y parada
+      responses:
+        "200":
+          description: Estado tenant-scoped
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvestigationRun"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /api/v1/investigations/{run_id}/{control}:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - name: control
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+            - pause
+            - resume
+            - cancel
+      - $ref: "#/components/parameters/IdempotencyKey"
+      - $ref: "#/components/parameters/CsrfToken"
+      - $ref: "#/components/parameters/IfMatch"
+    post:
+      operationId: controlInvestigation
+      summary: Pausar, reanudar o cancelar sin cambiar el corpus congelado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        "202":
+          description: Control aceptado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvestigationRun"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "412":
+          $ref: "#/components/responses/Problem"
+  /api/v1/investigations/{run_id}/entities:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      operationId: listResearchEntities
+      summary: Listar candidatos sin promoverlos al grafo canónico
+      responses:
+        "200":
+          description: Página de candidatos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchEntityPage"
+  /api/v1/investigations/{run_id}/relations:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      operationId: listResearchRelations
+      responses:
+        "200":
+          description: Relaciones tipadas, temporales y evidenciadas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchRelationPage"
+  /api/v1/investigations/{run_id}/participations:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      operationId: listProcurementParticipations
+      responses:
+        "200":
+          description: Participaciones confirmadas o ambiguas por lote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementParticipationPage"
+  /api/v1/investigations/{run_id}/procurement-lots:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      operationId: listProcurementLotObservations
+      responses:
+        "200":
+          description: Recuento y cobertura observados una vez por expediente, lote y revisión
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementLotObservationPage"
+  /api/v1/investigations/{run_id}/claims:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      operationId: listResearchClaims
+      responses:
+        "200":
+          description: Ledger de claims y contradicciones
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchClaimPage"
+  /api/v1/investigations/{run_id}/reviews:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      - $ref: "#/components/parameters/CsrfToken"
+      - $ref: "#/components/parameters/IfMatch"
+    post:
+      operationId: decideResearchCandidate
+      summary: Registrar una decisión humana sobre un candidato o claim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResearchReviewCreate"
+      responses:
+        "201":
+          description: Revisión registrada y auditada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchReview"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "412":
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: oracle_session
+  parameters:
+    DossierId:
+      name: dossier_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 255
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type:
+          - string
+          - "null"
+  responses:
+    Problem:
+      description: Error RFC 9457 tenant-safe
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    InvestigationCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - question
+        - seed
+        - as_of
+        - period
+        - source_families
+        - budgets
+      properties:
+        question:
+          type: string
+          minLength: 20
+          maxLength: 4000
+        seed:
+          $ref: "#/components/schemas/ResearchSeedCreate"
+        as_of:
+          type: string
+          format: date-time
+        period:
+          $ref: "#/components/schemas/DateRange"
+        source_families:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - borme
+              - mercantile_registry
+              - placsp_hosted
+              - placsp_aggregated
+              - ted
+        relationship_families:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - governance
+              - representation
+              - ownership
+              - professional
+              - operational
+              - procurement
+        max_depth:
+          type: integer
+          minimum: 1
+          maximum: 2
+          default: 2
+        budgets:
+          $ref: "#/components/schemas/InvestigationBudgets"
+    ResearchSeedCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - literal_name
+      properties:
+        kind:
+          type: string
+          enum:
+            - company
+            - person
+        literal_name:
+          type: string
+          minLength: 1
+          maxLength: 500
+        official_identifiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalIdentifierCreate"
+    ExternalIdentifierCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - scheme
+        - authority
+        - jurisdiction
+        - value
+      properties:
+        scheme:
+          type: string
+          enum:
+            - nif
+            - lei
+            - registry
+            - provider
+        authority:
+          type: string
+          minLength: 1
+          maxLength: 255
+        jurisdiction:
+          type: string
+          minLength: 2
+          maxLength: 32
+        value:
+          type: string
+          minLength: 1
+          maxLength: 255
+          writeOnly: true
+    ResearchSeedView:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - literal_name
+        - identifier_summaries
+      properties:
+        kind:
+          type: string
+          enum:
+            - company
+            - person
+        literal_name:
+          type: string
+        identifier_summaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchIdentifierSummary"
+    DateRange:
+      type: object
+      additionalProperties: false
+      required:
+        - start
+        - end
+      properties:
+        start:
+          type: string
+          format: date
+        end:
+          type: string
+          format: date
+    InvestigationBudgets:
+      type: object
+      additionalProperties: false
+      required:
+        - wall_seconds
+        - entities
+        - documents
+        - document_bytes
+        - ai_calls
+      properties:
+        wall_seconds:
+          type: integer
+          minimum: 60
+        entities:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        documents:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        document_bytes:
+          type: integer
+          minimum: 0
+        ai_calls:
+          type: integer
+          minimum: 0
+          maximum: 10000
+    InvestigationUsage:
+      type: object
+      additionalProperties: false
+      required:
+        - wall_seconds
+        - entities
+        - documents
+        - document_bytes
+        - ai_calls
+      properties:
+        wall_seconds:
+          type: integer
+          minimum: 0
+        entities:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        documents:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        document_bytes:
+          type: integer
+          minimum: 0
+        ai_calls:
+          type: integer
+          minimum: 0
+          maximum: 10000
+    InvestigationRun:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - dossier_id
+        - status
+        - stage
+        - question
+        - seed
+        - protocol_version
+        - source_policy_version
+        - as_of
+        - budgets
+        - usage
+        - coverage
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        dossier_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - draft
+            - awaiting_seed_review
+            - queued
+            - running
+            - paused
+            - awaiting_review
+            - completed
+            - cancelled
+            - failed
+        stage:
+          type: string
+          enum:
+            - seed
+            - core
+            - expansion
+            - procurement
+            - consolidation
+            - report
+        question:
+          type: string
+        seed:
+          $ref: "#/components/schemas/ResearchSeedView"
+        protocol_version:
+          type: string
+        source_policy_version:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        budgets:
+          $ref: "#/components/schemas/InvestigationBudgets"
+        usage:
+          $ref: "#/components/schemas/InvestigationUsage"
+        coverage:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceCoverage"
+        stop_reason:
+          type:
+            - string
+            - "null"
+        corpus_hash:
+          type:
+            - string
+            - "null"
+          pattern: "^[0-9a-f]{64}$"
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SourceCoverage:
+      type: object
+      additionalProperties: false
+      required:
+        - source_family
+        - status
+        - numerator
+        - denominator
+        - truncation
+        - measured_at
+      properties:
+        source_family:
+          type: string
+        status:
+          type: string
+          enum:
+            - complete_for_scope
+            - partial
+            - unavailable
+            - unknown
+        numerator:
+          type: integer
+          minimum: 0
+        denominator:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        truncation:
+          type: boolean
+        limitation_codes:
+          type: array
+          items:
+            type: string
+            enum:
+              - source_missing
+              - document_missing
+              - parser_miss
+              - identity_ambiguous
+              - contract_field_missing
+        measured_at:
+          type: string
+          format: date-time
+    ResearchEntityPage:
+      type: object
+      additionalProperties: false
+      required:
+        - next_cursor
+        - has_more
+        - items
+      properties:
+        next_cursor:
+          type:
+            - string
+            - "null"
+        has_more:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchEntity"
+    ResearchEntity:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - literal_name
+        - entity_kind
+        - resolution_status
+        - depth
+        - identity_confidence
+        - identifier_summaries
+        - evidence_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        literal_name:
+          type: string
+        entity_kind:
+          type: string
+          enum:
+            - person
+            - company
+            - unknown
+        resolution_status:
+          type: string
+          enum:
+            - candidate
+            - verified
+            - disputed
+            - rejected
+            - pruned
+        depth:
+          type: integer
+          minimum: 0
+          maximum: 2
+        identity_confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        ai_audit_log_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        gate_reason:
+          type:
+            - string
+            - "null"
+        identifier_summaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchIdentifierSummary"
+        evidence_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    ResearchIdentifierSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - scheme
+        - authority
+        - jurisdiction
+        - masked_value
+        - verification_status
+        - evidence_id
+      properties:
+        scheme:
+          type: string
+        authority:
+          type: string
+        jurisdiction:
+          type: string
+        masked_value:
+          type: string
+        verification_status:
+          type: string
+          enum:
+            - candidate
+            - verified
+            - disputed
+            - rejected
+        evidence_id:
+          type: string
+          format: uuid
+    ResearchRelationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - next_cursor
+        - has_more
+        - items
+      properties:
+        next_cursor:
+          type:
+            - string
+            - "null"
+        has_more:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchRelation"
+    ResearchRelation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - subject_id
+        - object_id
+        - relation_type
+        - status
+        - evidence_ids
+        - relation_confidence
+      properties:
+        id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        object_id:
+          type: string
+          format: uuid
+        relation_type:
+          type: string
+        source_label:
+          type: string
+        valid_from:
+          type:
+            - string
+            - "null"
+          format: date
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date
+        contemporaneous:
+          type:
+            - boolean
+            - "null"
+        status:
+          type: string
+          enum:
+            - candidate
+            - verified
+            - disputed
+            - rejected
+        evidence_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        relation_confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        ai_audit_log_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    ProcurementParticipationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - next_cursor
+        - has_more
+        - items
+      properties:
+        next_cursor:
+          type:
+            - string
+            - "null"
+        has_more:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementParticipation"
+    ProcurementLotObservationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - next_cursor
+        - has_more
+        - items
+      properties:
+        next_cursor:
+          type:
+            - string
+            - "null"
+        has_more:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementLotObservation"
+    ProcurementLotObservation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - folder_id
+        - lot_id
+        - source_revision
+        - received_tender_quantity
+        - coverage_status
+        - evidence_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        folder_id:
+          type: string
+        lot_id:
+          type:
+            - string
+            - "null"
+        source_revision:
+          type: string
+        received_tender_quantity:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        coverage_status:
+          type: string
+          enum:
+            - structured
+            - documented
+            - ambiguous
+            - unknown
+        evidence_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        ai_audit_log_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    ProcurementParticipation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - research_entity_id
+        - lot_observation_id
+        - role
+        - coverage_status
+        - evidence_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        research_entity_id:
+          type: string
+          format: uuid
+        lot_observation_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum:
+            - awardee
+            - bidder_confirmed
+            - lost
+            - excluded
+            - withdrawn
+            - mentioned_unknown
+            - unknown
+        coverage_status:
+          type: string
+          enum:
+            - structured
+            - documented
+            - ambiguous
+            - unknown
+        evidence_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        ai_audit_log_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    ResearchClaimPage:
+      type: object
+      additionalProperties: false
+      required:
+        - next_cursor
+        - has_more
+        - items
+      properties:
+        next_cursor:
+          type:
+            - string
+            - "null"
+        has_more:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchClaim"
+    ResearchClaim:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - subject
+        - predicate
+        - object
+        - status
+        - evidence_ids
+        - confidence
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - fact
+            - inference
+            - opinion
+            - recommendation
+            - limitation
+        subject:
+          type: string
+        predicate:
+          type: string
+        object:
+          type: string
+        period:
+          $ref: "#/components/schemas/DateRange"
+        status:
+          type: string
+          enum:
+            - candidate
+            - verified
+            - disputed
+            - rejected
+            - superseded
+        evidence_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        ai_audit_log_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    ResearchReviewCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - target_type
+        - target_id
+        - decision
+        - reason
+      properties:
+        target_type:
+          type: string
+          enum:
+            - entity
+            - relation
+            - participation
+            - claim
+            - contradiction
+        target_id:
+          type: string
+          format: uuid
+        decision:
+          type: string
+          enum:
+            - verify
+            - dispute
+            - reject
+            - prune
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 4000
+    ResearchReview:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - reviewer_id
+        - target_type
+        - target_id
+        - decision
+        - reason
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        reviewer_id:
+          type: string
+          format: uuid
+        target_type:
+          type: string
+          enum:
+            - entity
+            - relation
+            - participation
+            - claim
+            - contradiction
+        target_id:
+          type: string
+          format: uuid
+        decision:
+          type: string
+          enum:
+            - verify
+            - dispute
+            - reject
+            - prune
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        created_at:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+        request_id:
+          type: string
