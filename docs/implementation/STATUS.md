@@ -3139,3 +3139,51 @@ propuesta no contiene Huawei ni otra entidad del caso inicial. El barrido de par
 `counterpart_kind` confirmó que el runtime solo modela participantes de reuniones y conserva una
 clasificación parcial de contrapartes BORME; no existe todavía el índice nominal de licitadores que
 la propuesta asigna a Signal.
+
+## 2026-07-23 · Menciones web: la contaminación resuelta, con un coste medible
+
+Release `20260723T121236Z-quick-0aed05a`, ya desplegado por la sesión que lo implementó, con
+backup y restore aislado. `master` y producción alineados. Gates reproducidos por mí: 535 tests
+backend con integración (84,17 %), ruff, mypy sobre 111 módulos.
+
+**El objetivo del prompt 73 se cumple.** Verificado con cuatro entidades reales:
+
+| Entidad | Resultados crudos | Atribuibles | Lectura |
+|---|---:|---:|---|
+| ITURRI SA | 8 | **0** | correcto: 4 eran otras empresas, 2 su propia web |
+| TELEFONICA SA | 8 | **0** | correcto: los 8 son dominios propios |
+| ACCIONA SA | 8 | **3** | correcto: pasa lo legítimo |
+| INDRA SISTEMAS SA | 8 | **0** | **falsos negativos** |
+
+Mutación propia: hacer que todo sea atribuible tumba 3 tests. El filtro muerde.
+
+### El coste, medido: se pierden noticias reales
+
+INDRA es el caso que lo destapa. Entre sus 8 resultados crudos hay periodismo genuino sobre la
+empresa correcta —«Indra gana uno de los mayores contratos de radares de defensa» (computing.es),
+«Indra y NAVANTIA se unen para desarrollar y comercializar…» (sepi.es), «Valencia confía a Indra el
+despliegue de un sistema integrado»— y **el filtro descarta los tres**.
+
+La causa está en `_is_attributable` (`common/web_mentions.py`):
+
+```python
+required = [*identity_tokens, legal_suffix] if legal_suffix else identity_tokens
+```
+
+Exige que el **nombre legal completo, incluida la forma societaria**, aparezca como secuencia
+contigua: para «INDRA SISTEMAS SA» hace falta literalmente «indra sistemas sa». Pero la prensa
+nunca usa la razón social: escribe «Indra», «Telefónica», «Acciona». ACCIONA pasa por casualidad,
+porque el resumen de Wikipedia incluye «Acciona, S.A.».
+
+Es decir: el filtro acierta con la contaminación y falla con **las empresas cuyo nombre comercial
+difiere del legal**, que son casi todas las grandes. Para un analista, «Indra gana un contrato de
+radares de defensa» es justo la señal que busca.
+
+**No se revierte.** El estado anterior era peor: el informe de IA citaba una marca vasca de moda
+como evidencia sobre un fabricante de equipos contra incendios. Perder señal es preferible a
+afirmar falsedades con trazabilidad formal correcta. Pero la sección queda hoy casi vacía para
+empresas grandes, y eso hay que corregirlo, no asumirlo.
+
+**Siguiente paso propuesto:** aceptar el nombre comercial —los tokens de identidad sin exigir la
+forma societaria— cuando otras señales respalden la atribución, en lugar de exigir la razón social
+literal. Queda anotado, no se improvisa ahora.
