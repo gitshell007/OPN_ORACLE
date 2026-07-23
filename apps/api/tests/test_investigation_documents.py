@@ -1,0 +1,425 @@
+from __future__ import annotations
+
+import io
+import json
+import stat
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+SPIKE_DIR = Path(__file__).resolve().parents[3] / "scripts" / "spikes"
+if str(SPIKE_DIR) not in sys.path:
+    sys.path.insert(0, str(SPIKE_DIR))
+
+from investigation_documents import (  # noqa: E402
+    CANDIDATE_SCHEMA_VERSION,
+    ParticipationCandidateOutput,
+    acquire_reference,
+    build_blinded_annotation_packs,
+    candidate_fingerprint,
+    candidate_page_hashes,
+    curl_command,
+    curl_environment,
+    load_product_parser_module,
+    select_double_blind_units,
+    sniff_document,
+    source_reference_id,
+    validate_candidate_against_pages,
+    validate_reference_url,
+)
+
+
+def _unit(
+    family: str,
+    period: str,
+    complexity: str,
+    index: int,
+    *,
+    documents: list[dict[str, str]] | None = None,
+) -> dict[str, object]:
+    return {
+        "sample_id": f"{family}-{period}-{complexity}-{index:02d}",
+        "source_family": family,
+        "period": period,
+        "complexity": complexity,
+        "documents": documents or [],
+        "winner_names": ["SHOULD NOT ENTER BLIND PACK"],
+    }
+
+
+def _frame() -> list[dict[str, object]]:
+    return [
+        _unit(family, period, complexity, index)
+        for family in ("hosted", "aggregated")
+        for period in ("recent", "historical")
+        for complexity in ("simple", "complex")
+        for index in range(12)
+    ]
+
+
+def _candidate(
+    *,
+    document_id: str = "doc-1",
+    document_sha256: str = "a" * 64,
+    page: int = 1,
+    quote: str = "Se admite la oferta de ALFA SINTÉTICA, S.L.",
+    literal_name: str = "ALFA SINTÉTICA, S.L.",
+    role: str = "admitted_bidder",
+) -> ParticipationCandidateOutput:
+    return ParticipationCandidateOutput.model_validate(
+        {
+            "schema_version": CANDIDATE_SCHEMA_VERSION,
+            "document_id": document_id,
+            "document_sha256": document_sha256,
+            "pages_seen": [page],
+            "assessment": {
+                "participant_content": "present",
+                "list_completeness": "partial",
+            },
+            "assertions": [
+                {
+                    "candidate_ordinal": 1,
+                    "literal_name": literal_name,
+                    "identifier_literal": None,
+                    "lot_literal": None,
+                    "role": role,
+                    "ute_status": "unknown",
+                    "ute_members": [],
+                    "citations": [
+                        {
+                            "page": page,
+                            "quote": quote,
+                            "supports": ["name", "role"],
+                        }
+                    ],
+                    "ambiguity_reasons": [],
+                    "needs_human_review": True,
+                }
+            ],
+            "limitations": [],
+        }
+    )
+
+
+def test_double_blind_selection_is_three_per_cell_and_ignores_documents() -> None:
+    original = _frame()
+    changed = [dict(row) | {"documents": [{"url": "https://example.invalid"}]} for row in original]
+    selected = select_double_blind_units(original)
+    changed_selected = select_double_blind_units(changed)
+    assert len(selected) == 24
+    assert [row["sample_id"] for row in selected] == [row["sample_id"] for row in changed_selected]
+    counts: dict[tuple[object, object, object], int] = {}
+    for row in selected:
+        key = (row["source_family"], row["period"], row["complexity"])
+        counts[key] = counts.get(key, 0) + 1
+    assert set(counts.values()) == {3}
+
+
+def test_double_blind_selection_fails_instead_of_refilling_cell() -> None:
+    frame = _frame()
+    frame = [
+        row
+        for row in frame
+        if not (
+            row["source_family"] == "hosted"
+            and row["period"] == "recent"
+            and row["complexity"] == "simple"
+            and int(str(row["sample_id"]).rsplit("-", 1)[-1]) > 1
+        )
+    ]
+    with pytest.raises(ValueError, match="infeasible"):
+        select_double_blind_units(frame)
+
+
+def test_blinded_packs_hide_sample_mapping_and_winner() -> None:
+    frame = _frame()
+    double = select_double_blind_units(frame)
+    packs = build_blinded_annotation_packs(frame, double)
+    assert len(packs["annotator_a"]) == 96
+    assert len(packs["annotator_b"]) == 24
+    assert len(packs["coordinator"]) == 96
+    serialized = json.dumps(packs["annotator_a"] + packs["annotator_b"])
+    assert "sample_id" not in serialized
+    assert "SHOULD NOT ENTER" not in serialized
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        (
+            "https://contrataciondelestado.es/FileSystem/servlet/"
+            "GetDocumentByIdServlet?DocumentIdParam=abc&cifrado=def"
+        ),
+        (
+            "https://contrataciondelestado.es/wps/wcm/connect/PLACE_es/Site/area/"
+            "docAccCmpnt?srv=cmpnt&cmpntname=GetDocumentsById&source=library"
+            "&DocumentIdParam=2025-abc"
+        ),
+        "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC123",
+        (
+            "https://www.contratacion.euskadi.eus/ac70cPublicidadWar/"
+            "downloadDokusiREST/descargaFicheroPorOid?R01HNoPortal=true&oiddokusi=abc"
+        ),
+        ("https://contratos-publicos.comunidad.madrid/sites/default/files/PCON/2024-08/pcap.pdf"),
+    ],
+)
+def test_reference_allowlist_accepts_observed_endpoint_shapes(url: str) -> None:
+    assert validate_reference_url(url).host
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://www.bilbao.eus/cs/Satellite?blob=1",
+        "http://contractaciopublica.cat/portal-api/descarrega-document/123/ABC123",
+        "https://user:pass@contrataciondelestado.es/FileSystem/x",
+        "https://contrataciondelestado.es:444/FileSystem/x",
+        "https://contrataciondelestado.es/FileSystem/../private",
+        "https://contrataciondelestado.es/FileSystem/%2fprivate",
+        "https://contrataciondelestado.es/FileSystem/x#fragment",
+        'https://contractaciopublica.cat/portal-api/descarrega-document/123/"ABC"',
+        "https://evil.example/portal-api/descarrega-document/123/ABC",
+    ],
+)
+def test_reference_allowlist_rejects_unsafe_urls(url: str) -> None:
+    with pytest.raises(ValueError):
+        validate_reference_url(url)
+
+
+def test_source_reference_identity_does_not_trust_document_id() -> None:
+    left = source_reference_id("sample-1", "https://example.test/a")
+    right = source_reference_id("sample-1", "https://example.test/b")
+    other_sample = source_reference_id("sample-2", "https://example.test/a")
+    assert len({left, right, other_sample}) == 3
+
+
+def test_curl_command_pins_peer_and_never_follows_redirects(tmp_path: Path) -> None:
+    url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
+    command = curl_command(
+        url,
+        address="203.0.113.10",
+        output_path=tmp_path / "body",
+        header_path=tmp_path / "headers",
+        timeout_seconds=45,
+        max_bytes=1_000,
+    )
+    assert "--resolve" in command
+    assert "contractaciopublica.cat:443:203.0.113.10" in command
+    assert command[command.index("--max-redirs") + 1] == "0"
+    assert "-L" not in command and "--location" not in command
+    assert command[command.index("--noproxy") + 1] == "*"
+    assert "--config" in command
+    assert url not in command
+
+
+def test_curl_environment_drops_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9999")
+    monkeypatch.setenv("INV03_SAFE_VALUE", "yes")
+    environment = curl_environment()
+    assert "HTTPS_PROXY" not in environment
+    assert "http_proxy" not in environment
+    assert environment["INV03_SAFE_VALUE"] == "yes"
+
+
+def test_sniff_document_uses_magic_not_extension_or_mime() -> None:
+    assert sniff_document(b"%PDF-1.7\nbody", "text/html") == "pdf"
+    assert (
+        sniff_document(
+            b"<html>Web Application Firewall has denied your transaction</html>",
+            "application/pdf",
+        )
+        == "blocked_waf"
+    )
+    assert sniff_document(b"<html>ordinary portal</html>", "text/html") == "unsupported_html"
+
+
+def test_sniff_document_recognizes_real_docx() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "<document/>")
+    assert (
+        sniff_document(
+            buffer.getvalue(),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        == "docx"
+    )
+
+
+def _fake_curl(
+    payload: bytes,
+    headers: bytes,
+    *,
+    returncode: int = 0,
+) -> object:
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        output = Path(command[command.index("--output") + 1])
+        header = Path(command[command.index("--dump-header") + 1])
+        output.write_bytes(payload)
+        header.write_bytes(headers)
+        return subprocess.CompletedProcess(command, returncode, "", "")
+
+    return run
+
+
+def test_acquisition_quarantines_pdf_with_private_sidecar(tmp_path: Path) -> None:
+    url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
+    result = acquire_reference(
+        sample_id="sample-1",
+        url=url,
+        quarantine_dir=tmp_path,
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=_fake_curl(
+            b"%PDF-1.7\nfixture",
+            b"HTTP/2 200\r\nContent-Type: application/pdf\r\n\r\n",
+        ),
+    )
+    assert result.status == "downloaded_quarantined"
+    assert result.scan_status == "not_scanned"
+    assert result.object_path is not None
+    assert stat.S_IMODE(Path(result.object_path).stat().st_mode) == 0o600
+    sidecar = tmp_path / f"{result.source_ref_id}.json"
+    assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
+
+
+def test_acquisition_reuses_only_hash_verified_sidecar(tmp_path: Path) -> None:
+    url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
+    first = acquire_reference(
+        sample_id="sample-1",
+        url=url,
+        quarantine_dir=tmp_path,
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=_fake_curl(
+            b"%PDF-1.7\nfixture",
+            b"HTTP/2 200\r\nContent-Type: application/pdf\r\n\r\n",
+        ),
+    )
+    called = False
+
+    def should_not_run(*_: object, **__: object) -> subprocess.CompletedProcess[str]:
+        nonlocal called
+        called = True
+        raise AssertionError("verified object should be reused")
+
+    second = acquire_reference(
+        sample_id="sample-1",
+        url=url,
+        quarantine_dir=tmp_path,
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=should_not_run,
+    )
+    assert first.sha256 == second.sha256
+    assert second.status == "reused_quarantined"
+    assert called is False
+
+
+def test_acquisition_does_not_store_waf_html_as_document(tmp_path: Path) -> None:
+    url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
+    result = acquire_reference(
+        sample_id="sample-1",
+        url=url,
+        quarantine_dir=tmp_path,
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=_fake_curl(
+            b"<html>Web Application Firewall has denied your transaction</html>",
+            b"HTTP/2 200\r\nContent-Type: text/html\r\n\r\n",
+        ),
+    )
+    assert result.status == "blocked_waf"
+    assert not list(tmp_path.glob("*.pdf"))
+    assert not list(tmp_path.glob("*.docx"))
+
+
+def test_acquisition_rejects_redirect_and_content_encoding(tmp_path: Path) -> None:
+    url = "https://contractaciopublica.cat/portal-api/descarrega-document/123/ABC"
+    redirected = acquire_reference(
+        sample_id="sample-1",
+        url=url,
+        quarantine_dir=tmp_path / "redirect",
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=_fake_curl(
+            b"",
+            b"HTTP/2 302\r\nLocation: https://example.test/file\r\n\r\n",
+        ),
+    )
+    encoded = acquire_reference(
+        sample_id="sample-2",
+        url=url,
+        quarantine_dir=tmp_path / "encoded",
+        resolve=lambda _: ("203.0.113.10",),
+        run_command=_fake_curl(
+            b"%PDF-1.7",
+            (b"HTTP/2 200\r\nContent-Type: application/pdf\r\nContent-Encoding: gzip\r\n\r\n"),
+        ),
+    )
+    assert redirected.status == "redirect_rejected"
+    assert encoded.status == "content_encoding_rejected"
+
+
+def test_candidate_schema_forces_human_review_and_cited_material_fields() -> None:
+    candidate = _candidate()
+    assert candidate.assertions[0].needs_human_review is True
+    invalid = candidate.model_dump()
+    invalid["assertions"][0]["needs_human_review"] = False
+    with pytest.raises(ValidationError):
+        ParticipationCandidateOutput.model_validate(invalid)
+    invalid = candidate.model_dump()
+    invalid["assertions"][0]["identifier_literal"] = "B00000001"
+    with pytest.raises(ValidationError, match="identifier citation"):
+        ParticipationCandidateOutput.model_validate(invalid)
+
+
+def test_candidate_validator_binds_quote_and_name_to_exact_page() -> None:
+    page = "Se admite la oferta de ALFA SINTÉTICA, S.L."
+    valid = validate_candidate_against_pages(
+        _candidate(quote=page),
+        expected_document_id="doc-1",
+        expected_document_sha256="a" * 64,
+        pages={1: page},
+    )
+    assert valid["valid"] is True
+    wrong_page = validate_candidate_against_pages(
+        _candidate(page=2, quote=page),
+        expected_document_id="doc-1",
+        expected_document_sha256="a" * 64,
+        pages={1: page},
+    )
+    assert "pages_seen_outside_context" in wrong_page["errors"]
+    assert "citation_page_missing" in wrong_page["errors"]
+    invented_quote = validate_candidate_against_pages(
+        _candidate(quote="ALFA SINTÉTICA, S.L. ganó el contrato"),
+        expected_document_id="doc-1",
+        expected_document_sha256="a" * 64,
+        pages={1: page},
+    )
+    assert "citation_quote_missing" in invented_quote["errors"]
+
+
+def test_candidate_fingerprint_cannot_depend_on_gold() -> None:
+    page_hashes = candidate_page_hashes({1: "fixture"})
+    first = candidate_fingerprint(
+        document_sha256="a" * 64,
+        page_hashes=page_hashes,
+        model_manifest={"model": "fixture", "digest": "one"},
+    )
+    expected_labels = {"gold": "changed"}
+    del expected_labels
+    second = candidate_fingerprint(
+        document_sha256="a" * 64,
+        page_hashes=page_hashes,
+        model_manifest={"model": "fixture", "digest": "one"},
+    )
+    assert first == second
+
+
+def test_product_parser_load_does_not_cross_runtime_boundary() -> None:
+    module, provenance = load_product_parser_module()
+    assert module.PARSER_VERSION == "documents-parser-v1"
+    assert provenance["runtime_modules_loaded"] == []
+    assert len(provenance["source_sha256"]) == 64

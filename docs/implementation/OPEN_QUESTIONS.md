@@ -207,6 +207,13 @@
   preparó 192 candidatos. La segmentación exhaustiva doble ciego y la adjudicación de 72
   aserciones challenge siguen en 0/72; ningún `counterpart_kind` puede promoverse por nombre o
   sufijo.
+- Pendiente documentos PLACSP: INV-03 congeló el core doble ciego de 24 unidades e intentó sus 145
+  referencias. Diez PDF regionales quedaron en cuarentena, 133 referencias alojadas devolvieron
+  WAF y dos enlaces HTTP se rechazaron. Falta ClamAV para autorizar parser/Ollama, OCR para los
+  escaneados y un acceso permitido que no sortee los controles de PLACSP.
+- Pendiente gold INV-03: las hojas A=96/B=24 existen vacías, pero siguen 0 completadas y 0
+  adjudicadas. `qwen3.5:9b` solo validó 2/4 schemas sintéticos y acertó 1/4 casos; extractor,
+  reviewer bloqueante y promoción automática continúan en `NO-GO`.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y

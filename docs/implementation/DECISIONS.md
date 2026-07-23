@@ -1077,3 +1077,19 @@ deberá versionarse un flujo de copia/materialización separado.
   el dueño explícito. `StrategicDossier.profile_config` no duplica capacidades ni exclusiones. La
   calidad del modelo se mide contra el holdout de adjudicaciones, y una brecha frente a la línea
   base determinista permanece visible en vez de maquillarse como mejora IA.
+
+## D-064 — Los documentos reales pasan por cuarentena limpia antes de parser u Ollama
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** INV-03 pudo recuperar documentos regionales, mientras la PLACSP alojada respondió
+  con su WAF. El host local no dispone de ClamAV ni OCR. La excepción D-031 permite bajo
+  configuración explícita informes productivos sobre un único host oficial sin antivirus, pero no
+  constituye un gold seguro ni cubre fuentes autonómicas.
+- **Decisión:** el benchmark de investigación no aplica D-031. La cadena se separa físicamente en
+  adquisición/cuarentena, antivirus, parser offline, inferencia candidata, gold y scoring. Solo
+  `scan_status=clean` pasa al parser y Ollama; `not_scanned`, `infected` y `error` permanecen en el
+  denominador. El core doble ciego se sortea antes de observar disponibilidad documental.
+- **Consecuencias:** los diez PDF adquiridos por INV-03 no se interpretan todavía. Se evita que un
+  parser o modelo procese bytes no confiables y que la disponibilidad de fuente sesgue la muestra.
+  Precision/recall permanecen no disponibles hasta candidate y gold adjudicado congelados.

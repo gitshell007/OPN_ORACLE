@@ -4,6 +4,25 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## ORACLE-EXP-INV-03 · documentos, doble ciego y contrato candidato
+
+- Congelado antes de mirar documentos un core de 24/96, tres unidades por cada celda
+  familia×periodo×complejidad. Hash:
+  `56efc30ad89edea7384149fdaa22d7ece8b7f15dc6adf5fb93c436fad4246d80`.
+- Generadas hojas privadas vacías A=96 y B=24 con mapa coordinador separado; cero etiquetas y
+  adjudicaciones. Los anotadores no reciben `sample_id`, ganador ni propuestas Ollama.
+- Intentadas las 145 referencias del core: diez PDF regionales válidos en cuarentena (17,7 MB),
+  133 bloqueos WAF de `contrataciondelestado.es` y dos URL HTTP rechazadas. La repetición reutilizó
+  los diez PDF solo después de verificar sidecar, tamaño y hash.
+- Sin ClamAV: cero documentos limpios, cero parsing real y cero llamadas Ollama sobre datos reales.
+  OCR también está ausente. D-064 mantiene la excepción D-031 fuera del benchmark.
+- Añadido schema candidato v2 con citas exactas, hash/página, UTE triestado y revisión humana
+  obligatoria. Smoke `qwen3.5:9b`: 2/4 schemas, 1/4 match exacto, cero falsos positivos y tres
+  omisiones; 6 llamadas físicas, dos reparaciones y tres agotamientos de salida. `NO-GO`.
+- Gates: 30/30 pruebas específicas, Ruff check y format-check correctos, mypy correcto sobre 118
+  módulos y suite completa con PostgreSQL/Redis reales: 658 pruebas, 84,70 % de cobertura.
+- Resultado: `docs/implementation/spikes/79_oracle_exp_inv_03_result.md`.
+
 ## Prompt 78 · wizard de búsqueda de licitaciones (completado en Oracle)
 
 - **[Solo Oracle · backend]** Registrado `tender_search_wizard/v1`: una generación gobernada,
