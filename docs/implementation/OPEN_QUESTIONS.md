@@ -179,15 +179,23 @@
   garantiza una lista nominal completa; la identidad de admitidos, excluidos o perdedores puede
   residir solo en el perfil, actas, valoraciones y resoluciones. El diagnóstico vivo del
   2026-07-23 encontró 124/124 `TenderResult` con `ReceivedTenderQuantity` y cero nodos nominales de
-  no adjudicatarios en una página 643, pero no es una muestra aleatoria. Queda pendiente etiquetar
-  96 unidades estratificadas, incluida la familia agregada; Oracle no prometerá exhaustividad ni
-  transformará «no localizado» en «no se presentó».
+  no adjudicatarios en una página 643, pero no es una muestra aleatoria. INV-02 ya congeló y sorteó
+  96 unidades de 643/1044; queda etiquetar descarga, relevancia, contenido nominal, rol y lista
+  reconciliable. Oracle no prometerá exhaustividad ni transformará «no localizado» en «no se
+  presentó».
 - Pendiente Signal: contrato incremental de participantes por expediente/lote, con documento,
   página/fragmento, rol y cobertura; `counterpart_kind` fiable para no inferir por el nombre si una
   contraparte BORME es persona física o jurídica; y disponibilidad/cobertura real de
   `ReceivedTenderQuantity`. El spike confirmó que el campo existe en origen y que deduplicarlo por
   expediente+lote+revisión evitó sumar 14 ofertas ficticias en 124 resultados, pero el snapshot
-  Oracle actual lo descarta. Falta repetir la concordancia con consumer Signal aislado.
+  Oracle actual lo descarta. INV-02 no ejecutó la concordancia por falta de consumer efímero y
+  detectó que Signal v1 no tiene scopes read-only aplicados a `/registry`, no transporta revisión
+  e indexa solo 643. Queda abrir `registry:read`, crear/revocar un consumer temporal y comparar las
+  48 unidades alojadas sin mezclar las 48 agregadas.
+- Pendiente etiquetado BORME: INV-02 enumeró 95.711 artículos, sorteó 72 antes del detector y
+  preparó 192 candidatos. La segmentación exhaustiva doble ciego y la adjudicación de 72
+  aserciones challenge siguen en 0/72; ningún `counterpart_kind` puede promoverse por nombre o
+  sufijo.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y

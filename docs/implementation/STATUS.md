@@ -4,6 +4,32 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## ORACLE-EXP-INV-02 · marcos oficiales y concordancia
+
+- Publicado el protocolo v1.1: las 96 PLACSP y 72 BORME se tratan como marcos/challenge sets, no
+  como recall nacional. Se separan 643/1044, se conserva una revisión por entrada, se limita a un
+  lote por expediente y BORME se sortea por artículo antes del detector.
+- Congelados cuatro ZIP oficiales de enero de 2022/2025, 208,7 MB comprimidos y 101.594 revisiones.
+  Tras elegir la última revisión y aplicar elegibilidad/tope quedaron 39.873 unidades; las ocho
+  celdas tenían entre 1.116 y 13.515 candidatos y se seleccionaron 96/96 reproducibles.
+- En el challenge PLACSP, 643 comunicó ganador 47/48, recuento 48/48 y documentos 46/48; 1044,
+  45/48, 47/48 y 25/48. Son resultados del challenge equilibrado, no prevalencia. Descarga,
+  relevancia, contenido nominal, rol y lista reconciliable siguen pendientes de gold humano.
+- Enumerados BORME enero 2022/2025: 41 días publicados, 1.257 XML provinciales y 95.711 artículos.
+  Se sortearon 72 artículos antes del detector y se preparó una cola de 192 candidatos; estado gold
+  de las 72 aserciones dirigidas: 0/72, explícitamente pendiente.
+- Signal no se ejecutó: no hay consumer efímero local. El arnés falla cerrado, separa 643/1044,
+  agrupa por expediente y solo permite dos GET. Signal v1 carece de revisión y no indexa 1044; sus
+  consumers tampoco tienen scope read-only aplicado a `/registry`.
+- Repetición desde bytes locales: idénticos hashes de las 96 unidades, 72 artículos y 192
+  candidatos. Un 503 BORME se reintentó sin contarlo como ausencia. Brutos/ledgers: 272 MB bajo
+  `.work/77`, ignorados y con permisos privados.
+- Sin runtime, migraciones, OpenAPI, variables, task keys o filas de dominio. Pruebas dirigidas:
+  28/28 correctas. Ruff check y format-check correctos en los tres ficheros Python; mypy correcto
+  en 113 módulos; suite completa con PostgreSQL/Redis reales: 603 tests y 84,52 % de cobertura.
+  Resultado:
+  `docs/implementation/spikes/77_oracle_exp_inv_02_result.md`.
+
 ## Prompt 76 · perfil determinista de empresa comparable (completado en Oracle)
 
 - **[Solo Oracle]** Añadido el perfil determinista sobre adjudicaciones en

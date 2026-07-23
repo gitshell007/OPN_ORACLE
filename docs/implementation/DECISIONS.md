@@ -1031,3 +1031,23 @@ deberá versionarse un flujo de copia/materialización separado.
   licitaciones `scope=all` se publican por consulta y expresamente no se suman ni se llaman recall.
   Capacidades y exclusiones tenant-scoped siguen reservadas al futuro perfil de búsqueda; no se
   duplican en `StrategicDossier.profile_config`.
+
+## D-062 — Los 96/72 son marcos de etiquetado, no recall nacional
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** el protocolo inicial de investigación proponía 96 unidades PLACSP y 72 aserciones
+  BORME como siguiente medición. PLACSP publica revisiones y lotes correlacionados en dos canales
+  distintos; BORME publica documentos/artículos de texto y no relaciones tipadas. Elegir positivos
+  con el mismo extractor que se evalúa elimina sus falsos negativos y produce recall artificial.
+- **Decisión:** INV-02 conserva una última revisión por colección+entrada, limita el core a un lote
+  por expediente, separa 643/1044 y mantiene casos raros como challenge sets. En BORME se sortea
+  primero una muestra de artículos independiente del detector y se etiqueta exhaustivamente;
+  las 72 aserciones dirigidas solo diagnostican casos difíciles. Un literal o sufijo nunca promueve
+  `counterpart_kind`. Signal se compara después del sorteo y sus campos ausentes se declaran como
+  huecos de contrato, no como errores de fuente.
+- **Consecuencias:** se pueden congelar y revisar muestras reproducibles sin afirmar cobertura
+  nacional. Precision y recall quedan cerrados hasta doble etiquetado/adjudicación. La familia
+  agregada, no indexada por Signal v1, usa `source_not_indexed_v1` y no contamina el denominador
+  643. El consumer de comparación será GET-only, pero la garantía read-only real exige scopes
+  aplicados server-side en Signal.
