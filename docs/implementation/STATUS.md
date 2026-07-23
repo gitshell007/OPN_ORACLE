@@ -3638,3 +3638,21 @@ un cambio de contraseña. Tras la activación se inspeccionaron exclusivamente l
 membership ni el rate limit general. Un nuevo intento debe hacerse una sola vez, evitando reintentos
 consecutivos; si vuelve a aparecer un `429`, debe conservarse la referencia de la respuesta para
 correlacionar el evento sin exponer credenciales.
+
+## 2026-07-24 · ORACLE-EXP-INV-09 · revisión humana operativa
+
+Se añade `scripts/spikes/oracle_exp_inv_reviewer.py`, una utilidad privada para que A/B consulten
+su progreso, abran exclusivamente el siguiente objeto ya cuarentenado y guarden de forma atómica
+la revisión humana. No descarga fuentes, no llama a Signal ni Ollama y no forma parte del runtime
+de Oracle.
+
+El helper comprueba que hoja e índice tienen el mismo conjunto de identificadores opacos, rechaza
+`sample_id`, URLs, adjudicatarios y salidas de modelo en el índice, y verifica que cada objeto
+abierto permanece dentro de la cuarentena con el nombre hash esperado. Introduce
+`review_status="completed"` y timestamp en la hoja al terminar: permite distinguir «revisado pero
+no determinable» (`null`) de una hoja pendiente, sin convertir esos `null` en hechos negativos.
+
+Smoke sobre el pack privado: A mantiene 96 pendientes y B 24; no se han escrito etiquetas. Se
+documenta el protocolo de uso en el prompt 87. Validación: 47/47 pruebas específicas, Ruff check,
+Ruff format-check y mypy del helper correctos. La mutación inyecta `sample_id` o una ruta de objeto
+escapada y el validador rechaza ambos. Gold y adjudicación continúan siendo trabajo humano.

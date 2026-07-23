@@ -7,6 +7,8 @@ import stat
 import subprocess
 import sys
 import zipfile
+from argparse import Namespace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -49,6 +51,14 @@ from oracle_exp_inv_ocr import (  # noqa: E402
     build_ocr_document,
     normalize_vision_page,
     ocr_fingerprint,
+)
+from oracle_exp_inv_reviewer import (  # noqa: E402
+    complete_annotation,
+    reviewer_progress,
+    validate_blind_workspace,
+)
+from oracle_exp_inv_reviewer import (  # noqa: E402
+    execute as execute_reviewer,
 )
 
 
@@ -490,6 +500,115 @@ def test_candidate_fingerprint_cannot_depend_on_gold() -> None:
         model_manifest={"model": "fixture", "digest": "one"},
     )
     assert first == second
+
+
+def _reviewer_annotation(annotation_id: str) -> dict[str, object]:
+    return {
+        "annotation_id": annotation_id,
+        "source_family": "hosted",
+        "period": "recent",
+        "complexity": "simple",
+        "document_reference_count": 1,
+        "labels": {
+            "reference_published": None,
+            "download_valid": None,
+            "relevant_for_participation": None,
+            "nominal_content": None,
+            "role_by_lot": None,
+            "list_complete_or_reconcilable": None,
+            "participants": [],
+            "ambiguities": [],
+            "notes": None,
+        },
+    }
+
+
+def _reviewer_material(annotation_id: str, source_ref_id: str) -> dict[str, object]:
+    return {
+        "annotation_id": annotation_id,
+        "document_reference_count": 1,
+        "references": [
+            {
+                "source_ref_id": source_ref_id,
+                "availability": "available",
+                "object_name": f"{source_ref_id}.pdf",
+            }
+        ],
+    }
+
+
+def test_reviewer_workspace_opens_only_assigned_quarantine_object(tmp_path: Path) -> None:
+    annotation_id = "opaque-reviewer-id"
+    source_ref_id = "c" * 64
+    annotations_path = tmp_path / "blank.json"
+    materials_path = tmp_path / "materials.json"
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    (quarantine / f"{source_ref_id}.pdf").write_bytes(b"%PDF-1.7")
+    annotations_path.write_text(json.dumps([_reviewer_annotation(annotation_id)]), encoding="utf-8")
+    materials_path.write_text(
+        json.dumps([_reviewer_material(annotation_id, source_ref_id)]), encoding="utf-8"
+    )
+
+    result = execute_reviewer(
+        Namespace(
+            annotations=annotations_path,
+            materials=materials_path,
+            quarantine_dir=quarantine,
+            status=False,
+            annotation_id=None,
+            open=False,
+            review=False,
+            reopen_completed=False,
+        )
+    )
+
+    assert result == {
+        "progress": {"total": 1, "completed": 0, "pending": 1},
+        "annotation_id": annotation_id,
+        "available_objects": 1,
+        "status": "pending",
+    }
+
+
+def test_reviewer_completion_marks_unknown_separately_from_pending() -> None:
+    annotation = _reviewer_annotation("opaque-reviewer-id")
+    labels = {
+        "reference_published": True,
+        "download_valid": True,
+        "relevant_for_participation": None,
+        "nominal_content": None,
+        "role_by_lot": None,
+        "list_complete_or_reconcilable": None,
+    }
+
+    completed = complete_annotation(
+        annotation,
+        labels=labels,
+        participants=[],
+        ambiguities=[{"reason": "not_acquired"}],
+        notes="",
+        now=datetime(2026, 7, 24, 8, 0, tzinfo=UTC),
+    )
+
+    assert completed["review_status"] == "completed"
+    assert completed["review_completed_at_utc"] == "2026-07-24T08:00:00Z"
+    assert completed["labels"]["relevant_for_participation"] is None
+    assert reviewer_progress([completed]) == {"total": 1, "completed": 1, "pending": 0}
+
+
+def test_reviewer_workspace_rejects_blind_contamination_and_escaped_object() -> None:
+    annotation = _reviewer_annotation("opaque-reviewer-id")
+    source_ref_id = "d" * 64
+    contaminated = _reviewer_material("opaque-reviewer-id", source_ref_id)
+    contaminated["sample_id"] = "must-not-be-visible"
+    with pytest.raises(ValueError, match="forbidden blind keys"):
+        validate_blind_workspace([annotation], [contaminated])
+
+    escaped = _reviewer_material("opaque-reviewer-id", source_ref_id)
+    escaped["references"][0]["object_name"] = "../outside.pdf"  # type: ignore[index]
+    with pytest.raises(ValueError, match="unsafe"):
+        validate_blind_workspace([annotation], [escaped])
 
 
 def test_candidate_fingerprint_includes_inference_parameters() -> None:
