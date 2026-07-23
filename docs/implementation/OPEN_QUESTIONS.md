@@ -85,6 +85,17 @@
   `ProcurementSearchProfile`. Preview y guardado no ejecutan IA; las vigilancias siguen siendo
   active-only. Capacidades y exclusiones son propiedad de este perfil; `profile_config` no las
   duplica. La replanificación con feedback sigue reservada a una revisión futura explícita.
+- **Prompt 80 · deuda de contrato visible en UI:** `ComparableProfileResponse` no expone
+  `measured_at`; hasta que lo haga, Oracle solo muestra la ventana observada y edad de caché.
+  Los 422 de aceptación no garantizan errores estructurados por ruta; Oracle los pinta junto al
+  campo solo cuando `Problem.errors` lo permite y usa un banner accesible en otro caso.
+- **Prompt 80 · taxonomía CPV:** la taxonomía local valida códigos en backend, pero falta un
+  endpoint de autocomplete para que la UI añada de forma segura un CPV arbitrario con etiqueta
+  oficial. El wizard permite retirar/recuperar CPV medidos y no inventa etiquetas.
+- **Prompt 80 · continuidad entre sesiones:** el último artefacto no identifica de forma inequívoca
+  qué `ProcurementSearchProfile` anterior debe versionar cuando existen varios perfiles. La sesión
+  actual versiona el perfil que acaba de aceptar; reabrir propone continuar el artefacto, pero no
+  selecciona silenciosamente un perfil persistido.
 - **Pendiente Signal:** registrar/autorizar `tender_search_wizard` para el consumer productivo si
   Oracle usa `AI_MODE=signal`. El código funciona también en disabled/mock/ollama, pero Oracle no
   modifica unilateralmente el catálogo ni la allowlist gobernada de Signal.

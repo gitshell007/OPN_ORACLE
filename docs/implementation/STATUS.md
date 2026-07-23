@@ -4,17 +4,27 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
-## Prompt 80 · UI del wizard de búsqueda (en curso)
+## Prompt 80 · UI del wizard de búsqueda (completado)
 
-- **[Solo frontend]** En construcción el flujo de dos pasos sobre los endpoints de Prompt 78:
-  generación IA explícita, procedencia determinista de chips, unión con candidatos medidos,
-  preview 4+4 bajo acción humana, aceptación versionada y vigilancia active-only.
-- La búsqueda manual de `/app/procurement` permanece intacta. `vector-ai` y Sparkles se reservan
-  exclusivamente para generar o regenerar; perfil comparable, recuentos, aceptación y guardado
-  usan estilo neutro.
-- Sin cambios previstos en Flask, migraciones, OpenAPI ni Signal. Gates pendientes: Vitest con
-  mutaciones, TypeScript, ESLint, build, decisión Playwright y smoke visual autenticado en
-  escritorio/móvil.
+- **[Solo Oracle · frontend]** `/app/procurement` incorpora el wizard gobernado de dos pasos sobre
+  Prompt 78. Abrirlo no genera ni previsualiza: la IA solo propone o regenera tras acción explícita;
+  revisar, medir comparable, previsualizar, aceptar una versión y guardar vigilancia son fronteras
+  separadas. La búsqueda manual previa permanece intacta.
+- Cada chip muestra procedencia `Medido`, `IA` o `Usuario`; una propuesta IA puede confirmarse y la
+  regeneración conserva lo confirmado o añadido por la persona. Si el modelo omite términos o CPV
+  del top 20 medido, la brecha queda visible y bloquea la aceptación hasta incorporar la unión o
+  descartar después cada candidato de forma explícita. Los compradores medidos no se unen porque
+  estrecharían silenciosamente la búsqueda.
+- El preview sigue el contrato 4 términos + 4 CPV, presenta sondas independientes, no suma totales,
+  muestra chips no sondeados y, ante 429, respeta `Retry-After` sin reintentar. Histórico continúa
+  deshabilitado y Signal v1 solo permite vigilancia con `scope=active`.
+- El perfil comparable se solicita solo al confirmar empresa, con copia de sesión como fallback de
+  un 429. La UI no inventa `measured_at`, etiquetas para CPV arbitrarios ni rutas de error 422 que
+  el contrato no entregue. El aside correlaciona `tender_search_id` y muestra la versión aceptada.
+- Sin cambios en Flask, migraciones, OpenAPI ni Signal. Gates: ESLint sin errores (un aviso conocido
+  de TanStack), TypeScript correcto, 41 ficheros/212 Vitest, build Next de 19 páginas, cliente
+  OpenAPI sin deriva, Playwright autenticado desktop 1440×900 y móvil 390×844 2/2 sin overflow, y
+  suite PostgreSQL/Redis/Celery real 661 pruebas con 84,70 % de cobertura.
 
 ## ORACLE-EXP-INV-03 · documentos, doble ciego y contrato candidato
 

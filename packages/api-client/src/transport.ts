@@ -1714,6 +1714,72 @@ export interface ProcurementAwardsResponse {
 }
 
 export type ProcurementStatsResponse = components["schemas"]["StatsResponse"];
+export type ComparableProcurementProfile =
+  components["schemas"]["ComparableProfileResponse"];
+export type TenderSearchPlan = components["schemas"]["TenderSearchWizardPlan"];
+export type TenderSearchWizardArtifact =
+  components["schemas"]["TenderSearchWizardArtifact"];
+export type TenderSearchWizardInput =
+  components["schemas"]["TenderSearchWizardInput"];
+export type TenderSearchWizardJob =
+  components["schemas"]["TenderSearchWizardJob"];
+export type TenderSearchWizardLatestResponse =
+  components["schemas"]["TenderSearchWizardLatestResponse"];
+export type TenderSearchWizardRunResponse =
+  components["schemas"]["TenderSearchWizardRunResponse"];
+export type ProcurementSearchProfile =
+  components["schemas"]["ProcurementSearchProfileResponse"];
+export type ProcurementSearchProfileList =
+  components["schemas"]["ProcurementSearchProfileList"];
+export type CreateProcurementSearchProfile =
+  components["schemas"]["CreateProcurementSearchProfile"];
+export type AcceptProcurementSearchProfile =
+  components["schemas"]["AcceptProcurementSearchProfile"];
+export type SavedProcurementSearchProfile =
+  components["schemas"]["SavedProcurementSearchResponse"];
+
+export interface TenderSearchPreviewChip {
+  kind: "term" | "cpv";
+  value: string;
+  label: string | null;
+}
+
+export interface TenderSearchPreviewProbe {
+  chip: TenderSearchPreviewChip;
+  query: Record<string, unknown>;
+  total: number;
+  result: ProcurementTendersResponse;
+}
+
+export interface TenderSearchPreview {
+  translation_version: string;
+  scope: "active" | "all";
+  provider_requests: number;
+  probe_budget: {
+    total: number;
+    term_limit: number;
+    cpv_limit: number;
+    selected: number;
+    skipped: number;
+  };
+  probes: TenderSearchPreviewProbe[];
+  unprobed_chips: TenderSearchPreviewChip[];
+  semantics: {
+    global_order: false;
+    merged_results: false;
+    keyword_blocks: string;
+    exclude_terms_applied: false;
+    additional_buyers_applied: false;
+    additional_geographies_applied: false;
+    limitations: string[];
+  };
+}
+
+export interface TenderSearchPlanPreviewResponse {
+  plan: TenderSearchPlan;
+  preview: TenderSearchPreview;
+}
+
 export type TenderSearchResource =
   components["schemas"]["TenderSearchResource"];
 export type TenderSearchPayload = components["schemas"]["TenderSearchPayload"];
@@ -1821,6 +1887,18 @@ const procurement = {
     );
   },
   stats: () => request<ProcurementStatsResponse>("/api/v1/procurement/stats"),
+  comparableProfile: (company: string) =>
+    request<ComparableProcurementProfile>(
+      `/api/v1/procurement/comparable-profile?${new URLSearchParams({
+        company: company.trim(),
+      }).toString()}`,
+      { retry: false },
+    ),
+  previewSearchPlan: (plan: TenderSearchPlan) =>
+    request<TenderSearchPlanPreviewResponse>(
+      "/api/v1/procurement/search-plans/preview",
+      { method: "POST", body: { plan } },
+    ),
   searches: () =>
     request<TenderSearchListResponse>("/api/v1/procurement/tender-searches"),
   createSearch: (input: TenderSearchPayload) =>
@@ -1850,6 +1928,50 @@ const procurement = {
       `/api/v1/procurement/tender-searches/${encodeURIComponent(searchId)}/run?${query.toString()}`,
     );
   },
+};
+
+const tenderSearchWizard = {
+  latest: () =>
+    request<TenderSearchWizardLatestResponse>(
+      "/api/v1/ai/tender-search-wizard/latest",
+      { retry: false },
+    ),
+  run: (input: TenderSearchWizardInput, idempotencyKey: string) =>
+    request<TenderSearchWizardRunResponse>(
+      "/api/v1/ai/tender-search-wizard/runs",
+      { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
+const procurementSearchProfiles = {
+  list: () =>
+    request<ProcurementSearchProfileList>(
+      "/api/v1/procurement-search-profiles",
+      { retry: false },
+    ),
+  get: (profileId: string) =>
+    request<ProcurementSearchProfile>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}`,
+      { retry: false },
+    ),
+  create: (input: CreateProcurementSearchProfile) =>
+    request<ProcurementSearchProfile>("/api/v1/procurement-search-profiles", {
+      method: "POST",
+      body: input,
+    }),
+  accept: (profileId: string, input: AcceptProcurementSearchProfile) =>
+    request<ProcurementSearchProfile>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/acceptances`,
+      { method: "POST", body: input },
+    ),
+  saveSearch: (
+    profileId: string,
+    input: components["schemas"]["SaveProcurementSearchProfile"],
+  ) =>
+    request<SavedProcurementSearchProfile>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/saved-search`,
+      { method: "POST", body: input },
+    ),
 };
 
 const dossierProcurement = {
@@ -2075,6 +2197,8 @@ export const api = {
   actors,
   entityIntel,
   procurement,
+  tenderSearchWizard,
+  procurementSearchProfiles,
   dossierProcurement,
   decisions,
   documents,

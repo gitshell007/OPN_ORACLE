@@ -3,6 +3,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import {
   api,
+  type ProcurementSearchProfile,
   type ProcurementTenderFilters,
   type ProcurementTenderItem,
   type ProcurementTendersResponse,
@@ -24,11 +25,9 @@ import {
 import { useSearchParams } from "next/navigation";
 import {
   type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -36,6 +35,8 @@ import {
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { PinToDossierControl } from "./pin-to-dossier-control";
+import { ProcurementAutocomplete } from "./procurement-autocomplete";
+import { ProcurementSearchWizard } from "./procurement-search-wizard";
 import {
   cpvLabel,
   formatDate,
@@ -98,115 +99,6 @@ function FieldHelp({ label, children }: { label: string; children: ReactNode }) 
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-  );
-}
-
-interface FreeTextAutocompleteProps {
-  label: string;
-  value: string;
-  placeholder?: string;
-  suggestions: string[];
-  loading?: boolean;
-  loadingLabel?: string;
-  onChange: (value: string) => void;
-  onSelect: (value: string) => void;
-}
-
-function FreeTextAutocomplete({
-  label,
-  value,
-  placeholder,
-  suggestions,
-  loading = false,
-  loadingLabel = "Buscando sugerencias…",
-  onChange,
-  onSelect,
-}: FreeTextAutocompleteProps) {
-  const inputId = useId();
-  const listboxId = useId();
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const showSuggestions = open && (loading || suggestions.length > 0);
-
-  function chooseSuggestion(index: number) {
-    const suggestion = suggestions[index];
-    if (!suggestion) return;
-    onSelect(suggestion);
-    setActiveIndex(-1);
-    setOpen(false);
-  }
-
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Escape") {
-      setOpen(false);
-      setActiveIndex(-1);
-      return;
-    }
-    if (event.key === "ArrowDown" && suggestions.length > 0) {
-      event.preventDefault();
-      setOpen(true);
-      setActiveIndex((current) => current >= suggestions.length - 1 ? 0 : current + 1);
-      return;
-    }
-    if (event.key === "ArrowUp" && suggestions.length > 0) {
-      event.preventDefault();
-      setOpen(true);
-      setActiveIndex((current) => current <= 0 ? suggestions.length - 1 : current - 1);
-      return;
-    }
-    if (event.key === "Enter" && open && activeIndex >= 0) {
-      event.preventDefault();
-      chooseSuggestion(activeIndex);
-    }
-  }
-
-  return (
-    <div
-      className="procurement-filter-autocomplete"
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setOpen(false);
-          setActiveIndex(-1);
-        }
-      }}
-    >
-      <label htmlFor={inputId}>{label}</label>
-      <input
-        id={inputId}
-        role="combobox"
-        aria-autocomplete="list"
-        aria-controls={listboxId}
-        aria-expanded={showSuggestions}
-        aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
-        value={value}
-        placeholder={placeholder}
-        onFocus={() => setOpen(true)}
-        onChange={(event) => {
-          onChange(event.target.value);
-          setActiveIndex(-1);
-          setOpen(true);
-        }}
-        onKeyDown={handleKeyDown}
-      />
-      {showSuggestions && (
-        <div id={listboxId} className="procurement-filter-suggestions" role="listbox">
-          {loading && <small role="status">{loadingLabel}</small>}
-          {suggestions.map((suggestion, index) => (
-            <button
-              id={`${listboxId}-${index}`}
-              key={suggestion}
-              type="button"
-              role="option"
-              aria-selected={index === activeIndex}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => chooseSuggestion(index)}
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -340,6 +232,9 @@ export function ProcurementWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SummaryState>>({});
   const [searches, setSearches] = useState<TenderSearchResource[]>([]);
+  const [searchProfiles, setSearchProfiles] = useState<
+    ProcurementSearchProfile[]
+  >([]);
   const [searchName, setSearchName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -377,8 +272,15 @@ export function ProcurementWorkspace() {
   const loadSearches = useCallback(async () => {
     setSearchesError(null);
     try {
-      const response = await api.procurement.searches();
-      setSearches(response.items);
+      const searchResponse = await api.procurement.searches();
+      setSearches(searchResponse.items);
+      try {
+        const profileResponse = await api.procurementSearchProfiles.list();
+        setSearchProfiles(profileResponse.items);
+      } catch {
+        // Las versiones enriquecen el aside, pero no bloquean la búsqueda manual.
+        setSearchProfiles([]);
+      }
     } catch (reason) {
       setSearchesError(
         problemMessage(reason, "No se pudieron cargar las búsquedas guardadas."),
@@ -572,6 +474,18 @@ export function ProcurementWorkspace() {
   );
   const page = Math.floor(offset / limit) + 1;
   const pages = Math.max(1, Math.ceil(total / limit));
+  const searchProfileVersions = useMemo(
+    () =>
+      new Map(
+        searchProfiles
+          .filter((profile) => profile.tender_search_id)
+          .map((profile) => [
+            profile.tender_search_id as string,
+            profile.version,
+          ]),
+      ),
+    [searchProfiles],
+  );
 
   return (
     <div className="procurement-page">
@@ -584,15 +498,18 @@ export function ProcurementWorkspace() {
             citables a expedientes estratégicos.
           </p>
         </div>
-        <button
-          className="vector-secondary"
-          type="button"
-          onClick={() => void loadTenders(offset)}
-          disabled={loading}
-        >
-          <RefreshCw size={15} />
-          Actualizar
-        </button>
+        <div className="procurement-heading-actions">
+          <ProcurementSearchWizard onWatchSaved={loadSearches} />
+          <button
+            className="vector-secondary"
+            type="button"
+            onClick={() => void loadTenders(offset)}
+            disabled={loading}
+          >
+            <RefreshCw size={15} />
+            Actualizar
+          </button>
+        </div>
       </section>
 
       <section className="vector-panel procurement-search-panel">
@@ -704,7 +621,7 @@ export function ProcurementWorkspace() {
                   }
                 />
               </label>
-              <FreeTextAutocomplete
+              <ProcurementAutocomplete
                 label="Órgano comprador"
                 value={filters.buyer}
                 suggestions={buyerSuggestions}
@@ -721,7 +638,7 @@ export function ProcurementWorkspace() {
                   setFilters((current) => ({ ...current, buyer: value }));
                 }}
               />
-              <FreeTextAutocomplete
+              <ProcurementAutocomplete
                 label="Región"
                 value={filters.region}
                 suggestions={regionSuggestions}
@@ -982,7 +899,14 @@ export function ProcurementWorkspace() {
                     </label>
                   ) : (
                     <div>
-                      <strong>{search.name || "Búsqueda sin nombre"}</strong>
+                      <strong>
+                        {search.name || "Búsqueda sin nombre"}
+                        {search.id && searchProfileVersions.has(search.id) && (
+                          <span className="procurement-search-version">
+                            v{searchProfileVersions.get(search.id)}
+                          </span>
+                        )}
+                      </strong>
                       <small>
                         {(search.keywords ?? []).join(", ") ||
                           "Sin keywords guardadas"}

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   suggest: vi.fn(),
   awards: vi.fn(),
   searches: vi.fn(),
+  listSearchProfiles: vi.fn(),
   createSearch: vi.fn(),
   patchSearch: vi.fn(),
   deleteSearch: vi.fn(),
@@ -49,6 +50,9 @@ vi.mock("@oracle/api-client", () => {
         patchSearch: mocks.patchSearch,
         deleteSearch: mocks.deleteSearch,
         runSearch: mocks.runSearch,
+      },
+      procurementSearchProfiles: {
+        list: mocks.listSearchProfiles,
       },
       dossiers: { list: mocks.dossiersList },
       dossierProcurement: {
@@ -118,6 +122,7 @@ describe("UI de contratación pública", () => {
     vi.clearAllMocks();
     mocks.tenders.mockResolvedValue(tendersResponse);
     mocks.searches.mockResolvedValue({ items: [] });
+    mocks.listSearchProfiles.mockResolvedValue({ items: [] });
     mocks.dossiersList.mockResolvedValue({ data: [dossier], meta: { total: 1 } });
     mocks.pin.mockResolvedValue({ id: "pin-1", folder_id: tender.folder_id });
     mocks.suggest.mockResolvedValue({
@@ -452,6 +457,35 @@ describe("UI de contratación pública", () => {
       limit: 25,
       offset: 0,
     }));
+  });
+
+  it("correlaciona la búsqueda guardada por el wizard con su versión aceptada", async () => {
+    mocks.searches.mockResolvedValue({
+      items: [
+        {
+          id: "search-wizard-1",
+          name: "Emergencias activas",
+          keywords: ["extinción"],
+          filters: { scope: "active" },
+        },
+      ],
+    });
+    mocks.listSearchProfiles.mockResolvedValue({
+      items: [
+        {
+          id: "profile-1",
+          tender_search_id: "search-wizard-1",
+          version: 4,
+        },
+      ],
+    });
+
+    render(<ProcurementWorkspace />);
+
+    const searchName = await screen.findByText("Emergencias activas");
+    const card = searchName.closest("article");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getByText("v4")).toBeInTheDocument();
   });
 
   it("permite buscar adjudicaciones de actor y fijarlas a expediente", async () => {

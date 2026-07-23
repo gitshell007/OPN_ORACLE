@@ -1111,3 +1111,21 @@ deberá versionarse un flujo de copia/materialización separado.
   pendiente de INV-03. La autorización no convierte el documento en «limpio», no elimina OCR ni
   gold humano y no permite promoción automática. D-031 y la política productiva de ingestión no se
   modifican.
+
+## D-066 — La IA solo destaca en las acciones que proponen el plan
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** el contrato de Prompt 78 separa generación, preview, aceptación y vigilancia, pero
+  una UI con el mismo énfasis visual o acciones encadenadas convertiría esas fronteras técnicas en
+  automatismos percibidos. El modelo también puede omitir candidatos que la comparable demuestra
+  de forma determinista.
+- **Decisión:** `vector-ai` y Sparkles se reservan al CTA, generar y regenerar. Perfil comparable,
+  edición, preview, aceptación versionada y guardado usan controles neutrales y requieren acciones
+  explícitas separadas. Cada chip conserva procedencia medida/IA/usuario; los términos y CPV del
+  top 20 medido que falten se presentan como una brecha bloqueante con unión de un clic, seguida de
+  descarte individual posible. La regeneración conserva chips de usuario y propuestas confirmadas.
+- **Consecuencias:** abrir el wizard o recuperar el último artefacto no consume IA ni ejecuta
+  búsquedas. El preview nunca suma sondas solapadas ni reintenta un 429. La UI falla de forma
+  honesta ante carencias del contrato: no inventa fecha de medición, label de CPV arbitrario,
+  campo de un 422 no estructurado, histórico exclusivo ni vigilancia fuera de `active`.
