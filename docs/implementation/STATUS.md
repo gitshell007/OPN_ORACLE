@@ -71,6 +71,18 @@ Interfaz canónica: `CANONICAL_UI=vector`
   las regresiones al arrancar en nivel 1, ocultar etiquetas del grafo pequeño, filtrar sin centro,
   forzar densidad esencial, presentar `source_roles`, retirar el resaltado de búsqueda o mover la
   cámara al restaurar.
+- El CI completo del SHA `c7af48f` quedó verde en la ejecución `29991046332`: backend,
+  migraciones, integración, frontend, contrato OpenAPI, E2E autenticado, seguridad, imágenes y
+  SBOM. La release `20260723T083006Z-quick-c7af48f` se activó después del backup
+  `20260723T083035Z-20260722T213922Z-quick-39a2551` y su restore aislado; health, validate y smoke
+  público confirmaron punteros, imágenes, worker, beat, manifiesto, Nginx y exposición coherentes.
+- Verificación productiva en Chrome con sesión real: ITURRI conserva 300/301 y declara el recorte,
+  agrupa 21+2 variantes en `Administrador único · 23 vínculos` y reduce las facetas de once a diez.
+  «Ver entorno directo» mostró 66/300 nodos y 65/301 enlaces con Zoom 105 % estable; restaurar
+  recuperó 300/301 con el mismo zoom. Quitar Auditor dejó 125/300 y 126/301 sin mover cámara; la
+  búsqueda `iturri` mostró 4/4 coincidencias sin reducir cobertura. ITURRIN conserva 7/7 y 6/6,
+  etiquetas completas, `Administrador único · 6` y `Socio único · 4`, con la advertencia de
+  pertenencias no excluyentes.
 
 ## Ficha de entidad operable: cámara estable, jerarquía y fuentes honestas
 
