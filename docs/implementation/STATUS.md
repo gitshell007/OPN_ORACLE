@@ -3036,3 +3036,50 @@ cobertura, y jerarquía de vínculos por familia. Gates en verde con el resto.
 
 528 tests backend con integración (cobertura 84,09 %), 190 frontend, ruff, formato, mypy sobre 110
 módulos y build de producción.
+
+## 2026-07-23 · OEPM ya ingesta, pero la pantalla espera; y las «noticias» no son noticias
+
+### OEPM: el índice existe y crece, pero aún no es buscable
+
+Signal ha desplegado la ingesta del BOPI y expone `/api/v1/registry/ip-rights`, con **patentes y
+marcas en el mismo índice** y filtros por `q`, `holder`, `source` (`epo_ops` | `oepm_bopi`) y
+`right_type` (`patent` | `trademark`), más el detalle en
+`/ip-rights/{source}/{right_type}/{external_id}`.
+
+Medido hoy sobre 200 registros de marcas:
+
+| Campo | Presente |
+|---|---|
+| titular | 142 de 200 |
+| **`mark_text`** | **31 de 200 (15 %)** |
+| clases de Niza | 18 de 200 |
+| `status` | 0 de 200 |
+
+El índice pasó de 4.950 a 6.488 registros en dos minutos: la ingesta sigue corriendo. Todas las
+fechas de publicación son de hoy, así que aún no hay histórico.
+
+**Decisión: no se construye todavía la pantalla de búsqueda.** Una búsqueda de marcas donde el 85 %
+de los resultados no tiene nombre de marca no le sirve a un analista. Se consulta a Signal si el
+hueco es del XML o del parser antes de invertir en interfaz. Cuando se haga, irá en pantalla propia
+—no recargando la de BORME/PLACSP— y previsiblemente cubrirá patentes y marcas juntas, porque el
+índice de Signal ya las unifica.
+
+### Noticias: la pestaña no trae noticias, y su ruido llega al informe
+
+`/api/v1/oracle/entity/news` en Signal hace una **búsqueda web** de `"<nombre> noticias"`. No hay
+fuente de noticias detrás, y los campos que llegan lo confirman: `title`, `url`, `snippet`,
+`source`, `provider`, **sin fecha**.
+
+Los 8 resultados de ITURRI SA, íntegros: 2 son su propia web (`iturri.com`, `shop.iturri.com`), 1 es
+un agregador de licitaciones que duplica datos que ya tenemos de mejor fuente, 1 es una ficha
+académica, y **4 son empresas distintas**: Iturria SA (Argentina), Iturri Enea (moda vasca),
+Conservas Iturri (Navarra) e ITURRI LTD. **Cero son noticias.**
+
+Y no es cosmético: `build_pending_entity_evidence_sources` convierte estos resultados en evidencia
+citable con `source_kind="news"`, y el último informe verificado pasó **8 fuentes de noticias** al
+modelo. Es decir, el informe puede citar una marca vasca de moda como evidencia sobre un fabricante
+de equipos contra incendios, con la trazabilidad formal intacta porque el ID está en la lista de
+permitidos.
+
+Esto invalida en parte el trabajo de los prompts 54 y 56: el informe cita evidencia, pero parte de
+esa evidencia no es de la entidad. Prompt 73 redactado.
