@@ -4,6 +4,18 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 80 · UI del wizard de búsqueda (en curso)
+
+- **[Solo frontend]** En construcción el flujo de dos pasos sobre los endpoints de Prompt 78:
+  generación IA explícita, procedencia determinista de chips, unión con candidatos medidos,
+  preview 4+4 bajo acción humana, aceptación versionada y vigilancia active-only.
+- La búsqueda manual de `/app/procurement` permanece intacta. `vector-ai` y Sparkles se reservan
+  exclusivamente para generar o regenerar; perfil comparable, recuentos, aceptación y guardado
+  usan estilo neutro.
+- Sin cambios previstos en Flask, migraciones, OpenAPI ni Signal. Gates pendientes: Vitest con
+  mutaciones, TypeScript, ESLint, build, decisión Playwright y smoke visual autenticado en
+  escritorio/móvil.
+
 ## ORACLE-EXP-INV-03 · documentos, doble ciego y contrato candidato
 
 - Congelado antes de mirar documentos un core de 24/96, tres unidades por cada celda
@@ -11,16 +23,24 @@ Interfaz canónica: `CANONICAL_UI=vector`
   `56efc30ad89edea7384149fdaa22d7ece8b7f15dc6adf5fb93c436fad4246d80`.
 - Generadas hojas privadas vacías A=96 y B=24 con mapa coordinador separado; cero etiquetas y
   adjudicaciones. Los anotadores no reciben `sample_id`, ganador ni propuestas Ollama.
-- Intentadas las 145 referencias del core: diez PDF regionales válidos en cuarentena (17,7 MB),
-  133 bloqueos WAF de `contrataciondelestado.es` y dos URL HTTP rechazadas. La repetición reutilizó
-  los diez PDF solo después de verificar sidecar, tamaño y hash.
-- Sin ClamAV: cero documentos limpios, cero parsing real y cero llamadas Ollama sobre datos reales.
-  OCR también está ausente. D-064 mantiene la excepción D-031 fuera del benchmark.
+- Intentadas las 145 referencias del core: el primer intento obtuvo diez PDF y 133 bloqueos WAF;
+  una repetición posterior recuperó 120 PLACSP. Estado final: 130 PDF/DOCX en cuarentena
+  (191.795.034 bytes), cuatro errores HTTP, seis respuestas desconocidas, tres ZIP no admitidos y
+  dos URL HTTP rechazadas. Los 130 objetos se reutilizan solo tras verificar sidecar, tamaño y hash.
+- Por autorización explícita del propietario, D-065 permite el modo interno
+  `--allow-unscanned-internal`: ClamAV no bloquea INV-03. Se revalidaron tamaño y SHA-256; 125/130
+  documentos dieron 3.631 bloques de texto nativo y cinco requieren OCR. La política productiva no
+  cambió.
+- Pasada real `qwen3.5:9b` sobre diez de 111 documentos elegibles: 17 llamadas, siete reparaciones,
+  6/10 schemas y 5/10 validaciones estructurales; ocho intentos agotaron 1.600 tokens y hubo cero
+  aserciones validadas. Un diagnóstico fuera de gold encontró listas nominales en al menos dos
+  documentos truncados: `NO-GO` hasta chunking/merge determinista y gold.
 - Añadido schema candidato v2 con citas exactas, hash/página, UTE triestado y revisión humana
   obligatoria. Smoke `qwen3.5:9b`: 2/4 schemas, 1/4 match exacto, cero falsos positivos y tres
   omisiones; 6 llamadas físicas, dos reparaciones y tres agotamientos de salida. `NO-GO`.
-- Gates: 30/30 pruebas específicas, Ruff check y format-check correctos, mypy correcto sobre 118
-  módulos y suite completa con PostgreSQL/Redis reales: 658 pruebas, 84,70 % de cobertura.
+- Gates: 33/33 pruebas específicas, Ruff check y format-check correctos, mypy correcto sobre 118
+  módulos y suite completa con PostgreSQL/Redis/Celery reales: 661 pruebas, 84,70 % de cobertura.
+  Las tres mutaciones de autorización, SHA-256 y prioridad de página hicieron caer su prueba.
 - Resultado: `docs/implementation/spikes/79_oracle_exp_inv_03_result.md`.
 
 ## Prompt 78 · wizard de búsqueda de licitaciones (completado en Oracle)

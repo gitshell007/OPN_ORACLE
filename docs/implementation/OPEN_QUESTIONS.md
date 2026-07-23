@@ -50,10 +50,6 @@
   migración automática para no reescribir evidencia histórica; si aparecen muchos expedientes
   afectados, decidir entre refijado manual, reparación administrativa por `folder_id` o backfill
   auditable desde Signal.
-- ClamAV sigue pospuesto por decisión operativa. Mientras `DOCUMENT_ALLOW_OFFICIAL_UNSCANNED=true`
-  esté activo, solo documentos oficiales PLACSP ya auditados pueden citarse sin antivirus. Retirar el
-  flag y volver a exigir `DOCUMENT_SCANNER_MODE=clamav` en cuanto se despliegue el servicio.
-
 ## Credenciales e infraestructura
 
 - Hostname, fingerprint SSH y DNS A ya fueron confirmados en la auditoría del 11 de julio de 2026; no existe AAAA.
@@ -208,12 +204,13 @@
   aserciones challenge siguen en 0/72; ningún `counterpart_kind` puede promoverse por nombre o
   sufijo.
 - Pendiente documentos PLACSP: INV-03 congeló el core doble ciego de 24 unidades e intentó sus 145
-  referencias. Diez PDF regionales quedaron en cuarentena, 133 referencias alojadas devolvieron
-  WAF y dos enlaces HTTP se rechazaron. Falta ClamAV para autorizar parser/Ollama, OCR para los
-  escaneados y un acceso permitido que no sortee los controles de PLACSP.
+  referencias. La repetición autorizada recuperó 130 PDF/DOCX, parseó texto nativo en 125 y dejó
+  cinco para OCR; ClamAV ya no es bloqueo del benchmark interno por D-065. Quedan cuatro errores
+  HTTP, seis respuestas desconocidas y tres ZIP fuera del parser actual.
 - Pendiente gold INV-03: las hojas A=96/B=24 existen vacías, pero siguen 0 completadas y 0
-  adjudicadas. `qwen3.5:9b` solo validó 2/4 schemas sintéticos y acertó 1/4 casos; extractor,
-  reviewer bloqueante y promoción automática continúan en `NO-GO`.
+  adjudicadas. `qwen3.5:9b` solo validó 2/4 schemas sintéticos; sobre diez documentos reales validó
+  6/10 schemas, 5/10 estructuras y cero aserciones. El chunking/merge, extractor, reviewer
+  bloqueante y promoción automática continúan en `NO-GO`.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y

@@ -20,8 +20,10 @@ Continuar INV-02 sin convertir la salida de Ollama en verdad. La fase debe:
 - Solo HTTPS, host+ruta+query allowlisted, DNS público, peer fijado, proxy desactivado y cero
   redirects.
 - HTML con estado 200, WAF, MIME, extensión o nombre remoto nunca bastan para admitir bytes.
-- Todo fichero queda en cuarentena hasta `scan_status=clean`.
-- Sin ClamAV no hay parser ni Ollama sobre documentos reales.
+- Todo fichero queda en cuarentena; el modo interno autorizado registra
+  `internal_unscanned_authorized` y revalida tamaño+SHA-256 antes de abrirlo.
+- ClamAV no bloquea este benchmark interno por decisión explícita del propietario. La excepción no
+  declara el documento limpio ni cambia la política productiva.
 - OCR ausente se declara `ocr_unavailable`; Ollama Vision no sustituye gold de OCR.
 - Inferencia no puede leer `gold`, `expected` ni la salida del segundo anotador.
 - Toda aserción del modelo conserva `needs_human_review=true`.
@@ -45,7 +47,7 @@ Continuar INV-02 sin convertir la salida de Ollama en verdad. La fase debe:
 
 El extractor real permanece `NO-GO` hasta disponer de:
 
-- documentos limpios por antivirus;
+- documentos íntegros y autorizados para el contexto de ejecución;
 - doble etiquetado y adjudicación;
 - cero citas/hash/páginas inválidas;
 - cero invenciones críticas;

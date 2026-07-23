@@ -1080,7 +1080,7 @@ deberá versionarse un flujo de copia/materialización separado.
 
 ## D-064 — Los documentos reales pasan por cuarentena limpia antes de parser u Ollama
 
-- **Estado:** accepted
+- **Estado:** superseded por D-065 para el benchmark interno
 - **Fecha:** 2026-07-23
 - **Contexto:** INV-03 pudo recuperar documentos regionales, mientras la PLACSP alojada respondió
   con su WAF. El host local no dispone de ClamAV ni OCR. La excepción D-031 permite bajo
@@ -1093,3 +1093,21 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** los diez PDF adquiridos por INV-03 no se interpretan todavía. Se evita que un
   parser o modelo procese bytes no confiables y que la disponibilidad de fuente sesgue la muestra.
   Precision/recall permanecen no disponibles hasta candidate y gold adjudicado congelados.
+
+## D-065 — La investigación interna puede procesar cuarentena sin antivirus
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** el propietario del producto confirma que ORACLE-EXP es una herramienta interna,
+  que el corpus queda bajo control del equipo y que la ausencia de ClamAV no debe bloquear la
+  investigación. D-064 impedía medir el parser y Ollama aun cuando los bytes ya estaban
+  identificados, acotados y aislados.
+- **Decisión:** INV-03 admite `--allow-unscanned-internal` como autorización explícita y auditable.
+  Bajo ese modo, PDF/DOCX en cuarentena pueden pasar al parser offline y a Ollama aunque
+  `scan_status=not_scanned`. Antes de abrirlos se vuelven a comprobar objeto regular no symlink,
+  tamaño y SHA-256 contra el ledger; se conservan límites de descarga, parser, páginas, texto,
+  contexto y llamadas. La procedencia queda marcada como `internal_unscanned_authorized`.
+- **Consecuencias:** ClamAV deja de ser gate del benchmark interno y no se presenta como trabajo
+  pendiente de INV-03. La autorización no convierte el documento en «limpio», no elimina OCR ni
+  gold humano y no permite promoción automática. D-031 y la política productiva de ingestión no se
+  modifican.

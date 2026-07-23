@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import stat
@@ -17,6 +18,7 @@ if str(SPIKE_DIR) not in sys.path:
 
 from investigation_documents import (  # noqa: E402
     CANDIDATE_SCHEMA_VERSION,
+    AcquisitionResult,
     ParticipationCandidateOutput,
     acquire_reference,
     build_blinded_annotation_packs,
@@ -25,6 +27,8 @@ from investigation_documents import (  # noqa: E402
     curl_command,
     curl_environment,
     load_product_parser_module,
+    parse_authorized_acquisition,
+    select_candidate_pages,
     select_double_blind_units,
     sniff_document,
     source_reference_id,
@@ -423,3 +427,83 @@ def test_product_parser_load_does_not_cross_runtime_boundary() -> None:
     assert module.PARSER_VERSION == "documents-parser-v1"
     assert provenance["runtime_modules_loaded"] == []
     assert len(provenance["source_sha256"]) == 64
+
+
+def _write_docx(path: Path) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr(
+            "word/document.xml",
+            (
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>'
+                "Se admite la oferta de ALFA SINTÉTICA, S.L."
+                "</w:t></w:r></w:p></w:body></w:document>"
+            ),
+        )
+    payload = buffer.getvalue()
+    path.write_bytes(payload)
+    return payload
+
+
+def test_internal_authorization_allows_unscanned_offline_parse(tmp_path: Path) -> None:
+    path = tmp_path / "fixture.docx"
+    payload = _write_docx(path)
+    acquisition = AcquisitionResult(
+        source_ref_id="a" * 64,
+        host="official.example",
+        status="downloaded_quarantined",
+        bytes=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        media_kind="docx",
+        scan_status="not_scanned",
+        object_path=str(path),
+    )
+    blocked = parse_authorized_acquisition(
+        acquisition,
+        allow_unscanned_internal=False,
+    )
+    allowed = parse_authorized_acquisition(
+        acquisition,
+        allow_unscanned_internal=True,
+    )
+    assert blocked.status == "blocked_unscanned"
+    assert allowed.status == "parsed_native"
+    assert allowed.authorization == "internal_unscanned_authorized"
+    assert allowed.blocks[0]["locator"] == {"paragraph": 1}
+
+
+def test_internal_parse_rechecks_quarantine_integrity(tmp_path: Path) -> None:
+    path = tmp_path / "fixture.docx"
+    payload = _write_docx(path)
+    acquisition = AcquisitionResult(
+        source_ref_id="b" * 64,
+        host="official.example",
+        status="reused_quarantined",
+        bytes=len(payload),
+        sha256="0" * 64,
+        media_kind="docx",
+        scan_status="not_scanned",
+        object_path=str(path),
+    )
+    result = parse_authorized_acquisition(
+        acquisition,
+        allow_unscanned_internal=True,
+    )
+    assert result.status == "quarantine_integrity_mismatch"
+    assert result.blocks == ()
+
+
+def test_candidate_page_selection_is_bounded_and_prefers_participation() -> None:
+    blocks = [
+        {"text": "Condiciones generales del servicio.", "locator": {"page": 1}},
+        {
+            "text": "La mesa admite la oferta de ALFA y excluye la oferta de BETA.",
+            "locator": {"page": 3},
+        },
+        {"text": "Calendario de ejecución.", "locator": {"page": 2}},
+    ]
+    selected = select_candidate_pages(blocks, max_pages=2, max_characters=1_000)
+    assert list(selected) == [1, 3]
+    assert "admite" in selected[3]

@@ -69,11 +69,13 @@ La adquisición:
 Los cuatro enlaces HTTP observados en INV-02 permanecen `url_rejected`; no se actualizan a HTTPS
 por conjetura.
 
-## 5. Antivirus, parser y OCR
+## 5. Autorización interna, parser y OCR
 
-PDF/DOCX válidos se almacenan en cuarentena con permisos `0600`. Solo `scan_status=clean` permite
-pasar a parser. La excepción temporal productiva para fuentes oficiales sin antivirus no se usa en
-este benchmark.
+PDF/DOCX válidos se almacenan en cuarentena con permisos `0600`. El propietario ha autorizado que
+este benchmark interno continúe sin antivirus mediante `--allow-unscanned-internal`. La ejecución
+registra `internal_unscanned_authorized` y vuelve a comprobar fichero regular no symlink, tamaño y
+SHA-256 antes de abrir cada objeto. Esta decisión no declara los bytes «limpios» ni cambia la
+política productiva.
 
 El parser productivo se carga por su fichero exacto y hash, sin ejecutar los inicializadores de
 Flask, SQLAlchemy o Celery. PDF conserva página física 1-based, rechaza cifrado y limita páginas y
@@ -124,7 +126,7 @@ Son `NO-GO` inmediatos:
 - cualquier promoción automática;
 - aceptar una cita, página o hash inválido;
 - tratar WAF/HTML como PDF;
-- parsear bytes no limpios;
+- parsear bytes sin `scan_status=clean` ni autorización interna explícita y registrada;
 - obedecer instrucciones dentro del documento;
 - mezclar expected/gold en inferencia;
 - trackear URL, texto, nombres, PDF o salidas reales.

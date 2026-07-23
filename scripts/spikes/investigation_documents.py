@@ -507,6 +507,19 @@ class AcquisitionResult:
     object_path: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ParseResult:
+    source_ref_id: str
+    status: str
+    authorization: str
+    media_kind: str | None
+    document_sha256: str | None
+    parser_name: str | None
+    parser_version: str | None
+    blocks: tuple[JsonObject, ...]
+    error_type: str | None = None
+
+
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
 
@@ -773,6 +786,158 @@ def load_product_parser_module() -> tuple[ModuleType, JsonObject]:
     }
 
 
+def parse_authorized_acquisition(
+    result: AcquisitionResult,
+    *,
+    allow_unscanned_internal: bool,
+) -> ParseResult:
+    """Parse verified quarantine bytes under an explicit internal authorization."""
+
+    authorization = (
+        "scan_clean"
+        if result.scan_status == "clean"
+        else (
+            "internal_unscanned_authorized"
+            if allow_unscanned_internal
+            else "not_authorized"
+        )
+    )
+    if authorization == "not_authorized":
+        return ParseResult(
+            result.source_ref_id,
+            "blocked_unscanned",
+            authorization,
+            result.media_kind,
+            result.sha256,
+            None,
+            None,
+            (),
+        )
+    if (
+        result.status not in {"downloaded_quarantined", "reused_quarantined"}
+        or result.media_kind not in {"pdf", "docx"}
+        or result.object_path is None
+        or result.sha256 is None
+    ):
+        return ParseResult(
+            result.source_ref_id,
+            "not_parseable",
+            authorization,
+            result.media_kind,
+            result.sha256,
+            None,
+            None,
+            (),
+        )
+    path = Path(result.object_path)
+    if not path.is_file() or path.is_symlink():
+        return ParseResult(
+            result.source_ref_id,
+            "invalid_quarantine_object",
+            authorization,
+            result.media_kind,
+            result.sha256,
+            None,
+            None,
+            (),
+        )
+    payload = path.read_bytes()
+    if len(payload) != result.bytes or sha256_bytes(payload) != result.sha256:
+        return ParseResult(
+            result.source_ref_id,
+            "quarantine_integrity_mismatch",
+            authorization,
+            result.media_kind,
+            result.sha256,
+            None,
+            None,
+            (),
+        )
+    module, _ = load_product_parser_module()
+    parser = module.PDFParser() if result.media_kind == "pdf" else module.DOCXParser()
+    try:
+        with path.open("rb") as source:
+            parsed = parser.parse(source)
+    except Exception as error:
+        return ParseResult(
+            result.source_ref_id,
+            "parse_failed",
+            authorization,
+            result.media_kind,
+            result.sha256,
+            None,
+            getattr(module, "PARSER_VERSION", None),
+            (),
+            type(error).__name__,
+        )
+    blocks = tuple(
+        {
+            "text": block.text,
+            "locator": dict(block.locator),
+            "text_sha256": hashlib.sha256(block.text.encode()).hexdigest(),
+        }
+        for block in parsed.blocks
+    )
+    return ParseResult(
+        result.source_ref_id,
+        "parsed_native" if blocks else "ocr_required",
+        authorization,
+        result.media_kind,
+        result.sha256,
+        parsed.parser_name,
+        parsed.parser_version,
+        blocks,
+    )
+
+
+PARTICIPATION_PAGE_TERMS = (
+    "licitador",
+    "licitadora",
+    "oferta",
+    "admitid",
+    "excluid",
+    "adjudicat",
+    "proposición",
+    "mesa de contratación",
+    "empresa",
+    "nif",
+    "cif",
+)
+
+
+def select_candidate_pages(
+    blocks: Iterable[Mapping[str, Any]],
+    *,
+    max_pages: int = 6,
+    max_characters: int = 24_000,
+) -> dict[int, str]:
+    """Choose bounded physical pages without using model output or gold."""
+
+    candidates: list[tuple[int, int, str]] = []
+    for block in blocks:
+        locator = _mapping(block.get("locator"))
+        page = locator.get("page")
+        text = _text(block.get("text"))
+        if not isinstance(page, int) or page < 1 or text is None:
+            continue
+        normalized = text.casefold()
+        score = sum(normalized.count(term) for term in PARTICIPATION_PAGE_TERMS)
+        candidates.append((score, page, text))
+    selected: dict[int, str] = {}
+    consumed = 0
+    for _, page, text in sorted(candidates, key=lambda row: (-row[0], row[1])):
+        if page in selected or len(selected) >= max_pages:
+            continue
+        remaining = max_characters - consumed
+        if remaining <= 0:
+            break
+        bounded = text[:remaining]
+        if bounded:
+            selected[page] = bounded
+            consumed += len(bounded)
+    return dict(sorted(selected.items()))
+
+
 def acquisition_summary(
     units: Iterable[Mapping[str, Any]],
     results: Iterable[AcquisitionResult],
@@ -816,6 +981,10 @@ def acquisition_summary(
 
 
 def acquisition_result_json(result: AcquisitionResult) -> JsonObject:
+    return asdict(result)
+
+
+def parse_result_json(result: ParseResult) -> JsonObject:
     return asdict(result)
 
 

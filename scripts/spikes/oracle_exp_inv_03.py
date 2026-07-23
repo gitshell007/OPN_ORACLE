@@ -26,6 +26,9 @@ from investigation_documents import (
     candidate_fingerprint,
     candidate_page_hashes,
     candidate_prompt_contract,
+    parse_authorized_acquisition,
+    parse_result_json,
+    select_candidate_pages,
     select_double_blind_units,
     source_reference_id,
     validate_candidate_against_pages,
@@ -262,6 +265,155 @@ def run_synthetic_ollama(
     }
 
 
+def run_real_document_ollama(
+    *,
+    parsed_documents: list[JsonObject],
+    work_dir: Path,
+    base_url: str,
+    model: str,
+    timeout_seconds: float,
+    max_calls: int,
+    num_ctx: int,
+    max_documents: int,
+) -> JsonObject:
+    model_manifest = inspect_ollama_model(
+        base_url=base_url,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+    budget = CallBudget(maximum=max_calls)
+    client = OllamaClient(
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        budget=budget,
+    )
+    prompt = candidate_prompt_contract()
+    eligible = []
+    for document in parsed_documents:
+        if document.get("status") != "parsed_native":
+            continue
+        pages = select_candidate_pages(document.get("blocks", []))
+        if pages:
+            eligible.append((str(document["source_ref_id"]), document, pages))
+    eligible.sort(key=lambda row: hashlib.sha256(row[0].encode()).hexdigest())
+    results = []
+    for source_ref_id, document, pages in eligible[:max_documents]:
+        document_sha = str(document["document_sha256"])
+        page_hashes = candidate_page_hashes(pages)
+        fingerprint = candidate_fingerprint(
+            document_sha256=document_sha,
+            page_hashes=page_hashes,
+            model_manifest=model_manifest,
+        )
+        cache_path = work_dir / "ollama_real_candidates" / f"{source_ref_id}.json"
+        cached: JsonObject | None = None
+        if cache_path.exists():
+            candidate = json.loads(cache_path.read_text(encoding="utf-8"))
+            if candidate.get("fingerprint") == fingerprint:
+                cached = candidate
+        reused = cached is not None
+        if cached is None:
+            context = {
+                "document_id": source_ref_id,
+                "document_sha256": document_sha,
+                "authorization": document.get("authorization"),
+                "pages": [
+                    {
+                        "page": page,
+                        "text": text,
+                        "sha256": hashlib.sha256(text.encode()).hexdigest(),
+                    }
+                    for page, text in pages.items()
+                ],
+            }
+            call = ollama_structured_call(
+                client=client,
+                model=model,
+                schema=ParticipationCandidateOutput,
+                system_prompt=str(prompt["system"]),
+                task_prompt=str(prompt["task"]),
+                context=context,
+                max_output_tokens=1_600,
+                num_ctx=num_ctx,
+            )
+            cached = {"fingerprint": fingerprint, "call": call}
+            _write_private_json(cache_path, cached)
+        call = cached["call"]
+        raw_output = call.get("output")
+        output = (
+            ParticipationCandidateOutput.model_validate(raw_output)
+            if isinstance(raw_output, dict)
+            else None
+        )
+        structural = (
+            validate_candidate_against_pages(
+                output,
+                expected_document_id=source_ref_id,
+                expected_document_sha256=document_sha,
+                pages=pages,
+            )
+            if output is not None
+            else {"valid": False, "errors": ["schema_invalid"]}
+        )
+        roles = (
+            [assertion.role for assertion in output.assertions]
+            if output is not None
+            else []
+        )
+        results.append(
+            {
+                "source_ref_id": source_ref_id,
+                "reused": reused,
+                "pages_seen": len(pages),
+                "schema_pass": output is not None,
+                "structural": structural,
+                "assertions": len(output.assertions) if output is not None else 0,
+                "roles": roles,
+                "repair_used": bool(call.get("repair_used")),
+                "attempts": len(call.get("attempts", [])),
+                "attempt_metrics": [
+                    attempt.get("metrics", {})
+                    for attempt in call.get("attempts", [])
+                    if isinstance(attempt, dict)
+                ],
+            }
+        )
+    physical_calls = [
+        metrics
+        for result in results
+        if not result["reused"]
+        for metrics in result["attempt_metrics"]
+    ]
+    wall_values = [int(metrics.get("wall_ms") or 0) for metrics in physical_calls]
+    role_counts: dict[str, int] = {}
+    for result in results:
+        for role in result["roles"]:
+            role_counts[role] = role_counts.get(role, 0) + 1
+    return {
+        "model": model_manifest,
+        "eligible_documents": len(eligible),
+        "selected_documents": len(results),
+        "call_budget": {"maximum": max_calls, "used": budget.used},
+        "executed": sum(not result["reused"] for result in results),
+        "reused": sum(result["reused"] for result in results),
+        "schema_pass": sum(result["schema_pass"] for result in results),
+        "structural_pass": sum(result["structural"]["valid"] for result in results),
+        "assertions": sum(result["assertions"] for result in results),
+        "role_counts": dict(sorted(role_counts.items())),
+        "repairs": sum(result["repair_used"] for result in results),
+        "physical_calls": len(physical_calls),
+        "wall_ms": {
+            "total": sum(wall_values),
+            "median": round(statistics.median(wall_values)) if wall_values else 0,
+            "max": max(wall_values, default=0),
+        },
+        "precision": "not_available_pending_gold",
+        "recall": "not_available_pending_gold",
+        "release_status": "candidate_only_human_review_required",
+        "results": results,
+    }
+
+
 def execute(args: argparse.Namespace) -> JsonObject:
     work_dir = args.work_dir.resolve()
     work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -329,7 +481,29 @@ def execute(args: argparse.Namespace) -> JsonObject:
     _write_private_json(work_dir / "acquisition_ledger.json", private_acquisition)
     acquisition = acquisition_summary(core_rows, results)
 
-    ollama = (
+    parsed_documents = []
+    for acquisition_result in results:
+        if acquisition_result.status not in {
+            "downloaded_quarantined",
+            "reused_quarantined",
+        }:
+            continue
+        parsed = parse_authorized_acquisition(
+            acquisition_result,
+            allow_unscanned_internal=args.allow_unscanned_internal,
+        )
+        parsed_json = parse_result_json(parsed)
+        parsed_documents.append(parsed_json)
+        _write_private_json(
+            work_dir / "parsed" / f"{parsed.source_ref_id}.json",
+            parsed_json,
+        )
+    parse_status_counts: dict[str, int] = {}
+    for document in parsed_documents:
+        status = str(document["status"])
+        parse_status_counts[status] = parse_status_counts.get(status, 0) + 1
+
+    synthetic_ollama = (
         run_synthetic_ollama(
             work_dir=work_dir,
             base_url=args.ollama_url,
@@ -341,28 +515,57 @@ def execute(args: argparse.Namespace) -> JsonObject:
         if args.synthetic_ollama
         else {"status": "not_run"}
     )
+    real_ollama = (
+        run_real_document_ollama(
+            parsed_documents=parsed_documents,
+            work_dir=work_dir,
+            base_url=args.ollama_url,
+            model=args.model,
+            timeout_seconds=args.ollama_timeout,
+            max_calls=args.max_real_calls,
+            num_ctx=args.num_ctx,
+            max_documents=args.max_real_documents,
+        )
+        if args.real_ollama
+        else {"status": "not_run"}
+    )
+    parsed_native = parse_status_counts.get("parsed_native", 0)
+    ocr_required = parse_status_counts.get("ocr_required", 0)
+    if args.allow_unscanned_internal and parsed_native:
+        acquisition["ollama_real_document_status"] = (
+            "eligible_internal_unscanned_authorization"
+        )
     result = {
         "protocol_version": PROTOCOL_VERSION,
         "selection": selection_manifest,
         "acquisition": acquisition,
         "real_document_parsing": {
             "status": (
-                "not_run_scan_required"
-                if acquisition["clean_documents"] == 0
-                else "ready_for_offline_parser"
+                "completed_internal_unscanned"
+                if args.allow_unscanned_internal
+                else "blocked_unscanned"
             ),
             "antivirus": "not_configured",
             "ocr": "unavailable",
+            "authorization": (
+                "internal_unscanned_authorized"
+                if args.allow_unscanned_internal
+                else "not_authorized"
+            ),
+            "documents_considered": len(parsed_documents),
+            "status_counts": dict(sorted(parse_status_counts.items())),
+            "parsed_native": parsed_native,
+            "ocr_required": ocr_required,
         },
-        "ollama_real_documents": acquisition["ollama_real_document_status"],
-        "ollama_synthetic_contract": ollama,
+        "ollama_real_documents": real_ollama,
+        "ollama_synthetic_contract": synthetic_ollama,
         "gold": {
             "annotator_a_completed": 0,
             "annotator_b_completed": 0,
             "adjudicated": 0,
         },
         "decisions": {
-            "document_participation_extraction": "no_go_pending_clean_gold",
+            "document_participation_extraction": "candidate_only_pending_gold",
             "automatic_promotion": "forbidden",
             "precision_recall": "not_available_pending_gold",
         },
@@ -378,6 +581,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--acquire", action="store_true")
     parser.add_argument("--document-timeout", type=int, default=45)
     parser.add_argument("--max-document-bytes", type=int, default=MAX_DOCUMENT_BYTES)
+    parser.add_argument("--allow-unscanned-internal", action="store_true")
+    parser.add_argument("--real-ollama", action="store_true")
+    parser.add_argument("--max-real-documents", type=int, default=10)
+    parser.add_argument("--max-real-calls", type=int, default=24)
     parser.add_argument("--synthetic-ollama", action="store_true")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     parser.add_argument("--model", default="qwen3.5:9b")

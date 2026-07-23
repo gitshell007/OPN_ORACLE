@@ -2,8 +2,8 @@
 
 **Fecha:** 2026-07-23
 
-**Veredicto:** `GO` para organizar el doble etiquetado; `NO-GO` para parsing/Ollama real,
-participantes nominales, precision/recall y promoción al dominio.
+**Veredicto:** `GO` para parsing interno y organización del doble etiquetado; `NO-GO` para usar
+`qwen3.5:9b` como extractor autónomo, medir precision/recall o promover datos al dominio.
 
 ## 1. Core congelado antes de mirar documentos
 
@@ -54,20 +54,39 @@ redirects, exige `Accept-Encoding: identity`, limita bytes/tiempo y comprueba ma
 bloqueó la navegación controlada después de entrar en el portal, por lo que no se atribuye el
 resultado a una peculiaridad de `curl`.
 
-## 3. Gate antivirus y OCR
+Una repetición posterior ya autorizada recuperó 120 de las referencias PLACSP antes bloqueadas. El
+estado final reproducido sobre las mismas 145 referencias fue:
 
-El host no dispone de ClamAV. Los diez PDF permanecen:
+| Resultado final | Referencias |
+|---|---:|
+| PDF/DOCX válido en cuarentena | 130 |
+| Error HTTP | 4 |
+| Respuesta no clasificable | 6 |
+| ZIP no admitido en esta fase | 3 |
+| URL HTTP rechazada | 2 |
+| Total | 145 |
 
-```text
-downloaded → quarantined → not_scanned
-```
+Los 130 objetos suman 191.795.034 bytes. El cambio de 10 a 130 demuestra que el WAF observado no
+era una característica estable del corpus: cada corrida conserva su resultado y no convierte el
+fallo temporal inicial en ausencia documental.
 
-No llegaron al parser ni a Ollama. INV-03 no usa la excepción productiva
-`official_source_without_clamav_v1`, y esa excepción tampoco cubriría los hosts autonómicos.
+## 3. Autorización interna, parser y OCR
 
-El parser productivo puede cargarse por fichero y hash sin inicializar Flask, SQLAlchemy o Celery,
-pero no se ejecutó sobre bytes reales. Hay Poppler, pero no Tesseract/OCRmyPDF; OCR queda
-`unavailable`, no `parser_miss`.
+Por instrucción explícita del propietario, ClamAV no bloquea esta investigación interna. La corrida
+usó `--allow-unscanned-internal`; cada objeto conservó `scan_status=not_scanned`, registró
+`internal_unscanned_authorized` y fue revalidado por tipo de fichero, no-symlink, tamaño y SHA-256
+antes de abrirse. La política productiva no cambió.
+
+El parser productivo se cargó por fichero y hash sin inicializar Flask, SQLAlchemy o Celery:
+
+| Estado parser | Documentos |
+|---|---:|
+| Texto nativo | 125 |
+| OCR requerido | 5 |
+| Total considerado | 130 |
+
+Los 125 documentos nativos produjeron 3.631 bloques. Hay Poppler, pero no Tesseract/OCRmyPDF; esos
+cinco casos quedan como `ocr_required`, sin frenar los demás.
 
 ## 4. Contrato candidato Ollama v2
 
@@ -106,16 +125,44 @@ caso de inyección no validaron ni después de reparación. La ausencia de falso
 casos no compensa las omisiones ni el 50 % de schema.
 
 Una segunda ejecución reutilizó 4/4 fingerprints, hizo cero llamadas y mantuvo resultados. El
-extractor real permanece `NO-GO`.
+extractor sintético permanece `NO-GO`.
 
-## 5. Qué puede y qué no puede afirmarse
+## 5. Pasada real sobre documentos
+
+De los 125 documentos con texto, 111 contenían al menos una página seleccionable por señales
+deterministas. Se eligieron diez por ranking opaco reproducible, sin mirar nombres ni gold.
+
+| Medida | Resultado |
+|---|---:|
+| Documentos seleccionados | 10 |
+| Llamadas físicas | 17/24 |
+| Reparaciones | 7 |
+| Schema final válido | 6/10 |
+| Validación determinista final | 5/10 |
+| Intentos agotados por longitud | 8/17 |
+| Aserciones validadas | 0 |
+| Mediana de llamada física | 55,1 s |
+| Máximo | 102,6 s |
+
+La abstención agregada no equivale a ausencia de participantes. Un diagnóstico manual posterior,
+fuera del gold, encontró al menos dos documentos seleccionados con listas o tablas nominales de
+licitadores. En ambos la salida agotó 1.600 tokens y quedó inválida. Es una señal material de falso
+negativo, pero no se publica como recall porque A/B y adjudicación siguen vacíos.
+
+Conclusión técnica: el parser y la selección de páginas ya permiten iterar con datos reales;
+`qwen3.5:9b` necesita extracción por página/chunk, salida más compacta y merge determinista antes
+de ampliar la corrida. Toda salida continúa siendo candidata y de revisión humana obligatoria.
+
+## 6. Qué puede y qué no puede afirmarse
 
 Sí puede afirmarse:
 
 - que la muestra doble ciego quedó congelada sin sesgo documental posterior;
-- que 10/145 referencias del core produjeron PDF descargable por el canal automatizado fijado;
-- que PLACSP devolvió WAF para 133/145;
+- que 130/145 referencias del core produjeron un PDF/DOCX válido en la corrida final;
+- que el primer intento sufrió 133 bloqueos WAF y una repetición recuperó después 120;
 - que los bytes recuperados están en cuarentena;
+- que 125/130 documentos tienen texto nativo y cinco requieren OCR;
+- que la pasada real validó estructuralmente 5/10 salidas y ninguna aserción;
 - que el schema v2 rechaza promociones, citas y referencias inválidas.
 
 No puede afirmarse:
@@ -123,26 +170,28 @@ No puede afirmarse:
 - cobertura nacional de documentos;
 - presencia o ausencia de licitadores;
 - precisión, recall, F1 o completitud;
-- que los PDF estén limpios;
+- que los documentos estén limpios por antivirus;
 - que Ollama extraiga participantes con calidad suficiente;
 - que un no localizado no se presentase.
 
-## 6. Verificación
+## 7. Verificación
 
-- 30 pruebas específicas correctas;
+- 33 pruebas específicas correctas;
 - mutaciones restauradas hicieron fallar selección condicionada por documentos, HTTPS, redirects,
-  confianza en MIME, revisión humana constante, cita literal y cegado del pack;
-- repetición de adquisición: diez objetos reutilizados por sidecar+tamaño+hash;
+  confianza en MIME, revisión humana constante, cita literal, cegado del pack, autorización
+  interna, integridad SHA-256 y prioridad de páginas;
+- repetición de adquisición: 130 objetos reutilizados por sidecar+tamaño+hash;
 - repetición Ollama: 4/4 caches, cero llamadas;
+- repetición Ollama real: 10/10 caches, cero llamadas y métricas idénticas;
 - cero ficheros `.work` trackeados.
 - Ruff check y format-check correctos en los tres ficheros Python de INV-03;
 - mypy correcto sobre 118 módulos productivos;
-- suite completa con PostgreSQL/Redis reales: 658 pruebas y 84,70 % de cobertura.
+- suite completa con PostgreSQL/Redis/Celery reales: 661 pruebas y 84,70 % de cobertura.
 
-## 7. Siguiente gate
+## 8. Siguiente gate
 
-1. Desplegar ClamAV local o un scanner autorizado y repetir scan sobre los diez PDF.
-2. Ejecutar parser aislado solo sobre `clean`; clasificar texto nativo frente a OCR requerido.
-3. Resolver acceso documental PLACSP sin sortear WAF, CAPTCHA ni controles de fuente.
+1. Dividir inferencia por página/chunk, compactar el contrato y fusionar candidatos en Python.
+2. Repetir primero sobre los documentos con listas nominales diagnósticas y comprobar citas.
+3. Añadir OCR local para los cinco documentos sin texto.
 4. Completar A/B y adjudicación humana.
 5. Solo después congelar candidate+gold y calcular precisión/recall por celda.
