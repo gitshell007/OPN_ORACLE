@@ -20,6 +20,7 @@ from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
 from opn_oracle.ai.schemas import ReportOutput
 from opn_oracle.ai.service import AIPolicyDenied, _enforce_quota, _policy
+from opn_oracle.common.web_mentions import filter_entity_web_mentions
 from opn_oracle.extensions import db
 from opn_oracle.integrations.entity_intel import (
     entity_intel_client_from_config,
@@ -99,9 +100,15 @@ def _section_data(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
 
 
 def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_entity = payload.get("entity")
+    entity: dict[str, Any] = dict(raw_entity) if isinstance(raw_entity, dict) else {}
     registry = _section_data(payload, "registry") or {}
     graph = _section_data(payload, "graph") or {}
-    news = _section_data(payload, "news") or {}
+    news = filter_entity_web_mentions(
+        _section_data(payload, "news") or {},
+        entity_name=_text(entity.get("name")),
+        entity_kind=_text(entity.get("type")) or "company",
+    )
     patents = _section_data(payload, "patents") or {}
     disclosures = _section_data(payload, "disclosures") or {}
     disclosure_errors = disclosures.get("errors")
@@ -142,7 +149,11 @@ def build_entity_dossier_metrics(payload: dict[str, Any]) -> dict[str, Any]:
             "undated_edges": max(0, len(graph_edges) - len(dated_edges)),
             "truncated": bool(graph.get("truncated")),
         },
-        "news": {"items": len(_items(news))},
+        "news": {
+            "items": len(_items(news)),
+            "source_total": news.get("source_total", len(_items(news))),
+            "discarded_count": news.get("discarded_count", 0),
+        },
         "patents": {
             "items": len(_items(patents)),
             "total": _source_total(patents, len(_items(patents))),
@@ -168,7 +179,7 @@ PATENT_ITEM_LIMIT = 20
 DISCLOSURE_ITEM_LIMIT = 20
 AWARD_SOURCE_LIMIT = 15
 # Techo GLOBAL de fuentes citables, entre todos los tipos. Los topes por tipo suman
-# hasta 110 (25 actos + 30 noticias + 20 patentes + 20 CNMV + 15 adjudicaciones), muy
+# hasta 110 (25 actos + 30 menciones web + 20 patentes + 20 CNMV + 15 adjudicaciones), muy
 # por encima del punto de truncado medido en producción: 33 fuentes generaban informe
 # completo y 65 lo rompían con "Invalid JSON: EOF". 45 deja margen sobre el caso bueno
 # sin renunciar a que cada tipo de fuente esté representado.
@@ -255,10 +266,15 @@ def compact_entity_dossier(
     fuentes y moría con "Invalid JSON: EOF" antes de cerrar el JSON.
     """
 
-    entity = payload.get("entity") if isinstance(payload.get("entity"), dict) else {}
+    raw_entity = payload.get("entity")
+    entity: dict[str, Any] = dict(raw_entity) if isinstance(raw_entity, dict) else {}
     registry = _section_data(payload, "registry") or {}
     graph = _section_data(payload, "graph") or {}
-    news = _section_data(payload, "news") or {}
+    news = filter_entity_web_mentions(
+        _section_data(payload, "news") or {},
+        entity_name=_text(entity.get("name")),
+        entity_kind=_text(entity.get("type")) or "company",
+    )
     patents = _section_data(payload, "patents") or {}
     disclosures = _section_data(payload, "disclosures") or {}
     registry_items = _items(registry)
@@ -289,7 +305,15 @@ def compact_entity_dossier(
             else [],
             "truncated_by_signal": bool(graph.get("truncated")),
         },
-        "news": {"items": _items(news)[:30], "truncated_by_oracle": len(_items(news)) > 30},
+        "news": {
+            "items": _items(news)[:30],
+            "source_total": news.get("source_total", len(_items(news))),
+            "received_items": news.get("received_items", len(_items(news))),
+            "discarded_count": news.get("discarded_count", 0),
+            "discarded_reasons": news.get("discarded_reasons", {}),
+            "attribution_filter_version": news.get("attribution_filter_version"),
+            "truncated_by_oracle": len(_items(news)) > 30,
+        },
         "patents": {
             "available": patents.get("available"),
             "reason": patents.get("reason"),
@@ -355,13 +379,10 @@ def _registry_extract(item: dict[str, Any]) -> str:
 
 
 def _news_extract(item: dict[str, Any]) -> str:
-    title = _first_text(item, "title", "headline", "name") or "Noticia sin título"
-    date = _first_text(item, "published_at", "publication_date", "date")
+    title = _first_text(item, "title", "headline", "name") or "Mención web sin título"
     source = _first_text(item, "source", "source_name", "publisher")
     summary = _first_text(item, "summary", "description", "snippet", "text")
-    parts = [f"Noticia/mención externa: {title}."]
-    if date:
-        parts.append(f"Fecha indicada: {date}.")
+    parts = [f"Mención web externa con coincidencia exacta de la entidad: {title}."]
     if source:
         parts.append(f"Fuente indicada: {source}.")
     if summary:
@@ -550,23 +571,29 @@ def build_pending_entity_evidence_sources(
             },
         )
 
-    news = entity_dossier.get("news") if isinstance(entity_dossier.get("news"), dict) else {}
+    raw_news_value = entity_dossier.get("news")
+    raw_news: dict[str, Any] = dict(raw_news_value) if isinstance(raw_news_value, dict) else {}
+    raw_entity = entity_dossier.get("entity")
+    entity: dict[str, Any] = dict(raw_entity) if isinstance(raw_entity, dict) else {}
+    news = filter_entity_web_mentions(
+        raw_news,
+        entity_name=_text(entity.get("name")),
+        entity_kind=_text(entity.get("type")) or "company",
+    )
     for index, item in enumerate(_items(news), start=1):
         source_url = _first_text(item, "source_url", "url", "link", "href")
         if not source_url:
             continue
-        title = _first_text(item, "title", "headline", "name") or "noticia"
-        date = _first_text(item, "published_at", "publication_date", "date") or "sin fecha"
+        title = _first_text(item, "title", "headline", "name") or "mención web"
         add_source(
-            source_kind="news",
+            source_kind="web_mention",
             index=index,
             item=item,
-            label=f"Noticia · {date} · {title}",
+            label=f"Mención web atribuible · {title}",
             extract=_news_extract(item),
             source_url=source_url,
             locator={
-                "kind": "signal_entity_news",
-                "publication_date": date,
+                "kind": "signal_entity_web_mention",
                 "title": title,
                 "source_url": source_url,
                 "ordinal": index,
@@ -668,6 +695,7 @@ def source_limits(
     """
 
     registry = (entity_dossier or {}).get("registry")
+    news = (entity_dossier or {}).get("news")
     patents = (entity_dossier or {}).get("patents")
     disclosures = (entity_dossier or {}).get("disclosures")
     procurement = (entity_dossier or {}).get("procurement")
@@ -699,6 +727,17 @@ def source_limits(
             "las conclusiones cubren ese subconjunto y no puede inferirse ausencia de "
             f"hechos a partir de los actos no analizados.{criterion}"
         )
+    if isinstance(news, dict):
+        discarded = int(news.get("discarded_count") or 0)
+        source_total = int(news.get("source_total") or len(_items(news)))
+        if discarded:
+            kept = len(_items(news))
+            limits.append(
+                f"Oracle descartó {discarded} de {source_total} resultados de búsqueda web "
+                "porque no pudo atribuirlos con suficiente seguridad a la entidad o procedían "
+                f"de sus dominios propios. Solo {kept} menciones externas superaron el filtro "
+                "determinista; los descartes no se ofrecieron como evidencia citable."
+            )
     if isinstance(patent_status, dict) and patent_status.get("ok") is False:
         error = _text(patent_status.get("error")) or "error no especificado"
         if "epo_search_404" in error.casefold():

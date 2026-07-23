@@ -3083,3 +3083,22 @@ permitidos.
 
 Esto invalida en parte el trabajo de los prompts 54 y 56: el informe cita evidencia, pero parte de
 esa evidencia no es de la entidad. Prompt 73 redactado.
+
+## 2026-07-23 · Prompt 73 (menciones web) implementado
+
+Se cierra la contaminación de la antigua pestaña «Noticias» sin tocar Signal. La frontera Flask
+normaliza la sección `news` una vez para ficha e informe y el constructor de evidencias vuelve a
+validarla en modo cerrado. Solo sobrevive una URL HTTP(S) externa con coincidencia exacta de la
+identidad completa; las formas jurídicas se normalizan únicamente para empresas.
+
+Con el corpus productivo documentado de ITURRI SA el resultado esperado pasa de 8 supuestas
+noticias citables a **0/8 menciones atribuibles**: 2 dominios propios, 1 duplicado de contratación y
+5 sin atribución suficiente. Los títulos descartados no cruzan al frontend ni al modelo. La ficha
+mantiene la pestaña visible como «Menciones web», muestra el recuento y explica que no es una
+hemeroteca ni aporta fechas. El informe emite `source_kind="web_mention"`, declara el descarte en
+`source_limits` y usa el prompt `entity_dossier_intelligence/v3`; v1 y v2 permanecen congelados.
+
+No hay migración ni variable nueva. El techo global `EVIDENCE_SOURCE_TOTAL_LIMIT=45` y su reparto
+se conservan después del filtrado. Se registra en D-059 la decisión y también la colisión del número
+73 con el prompt del grafo. La dependencia de una fuente informativa real, fechada y desambiguada
+queda abierta para Signal.

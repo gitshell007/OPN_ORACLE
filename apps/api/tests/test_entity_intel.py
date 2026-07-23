@@ -928,6 +928,68 @@ def test_entity_intel_graph_http_dispatch_exposes_canonical_and_source_roles(
 
 
 @pytest.mark.unit
+def test_entity_intel_dossier_http_dispatch_filters_unattributed_web_results(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "entity": {"name": "ITURRI SA", "type": "company"},
+                "sections": {
+                    "news": {
+                        "ok": True,
+                        "data": {
+                            "items": [
+                                {
+                                    "title": "ITURRI | Your safety matters",
+                                    "url": "https://iturri.com/",
+                                },
+                                {
+                                    "title": "Conservas Iturri - Productos Navarra",
+                                    "url": "https://conservasiturri.es/",
+                                },
+                            ]
+                        },
+                    }
+                },
+            },
+        )
+
+    signal_client = EntityIntelClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    monkeypatch.setattr(entity_intel, "_CACHE", EntityIntelCache(ttl_seconds=60))
+    monkeypatch.setattr(entity_intel, "entity_intel_client_from_config", lambda: signal_client)
+    monkeypatch.setattr(
+        entity_intel_routes,
+        "resolve_signal_external_tenant_id",
+        lambda: "tenant-signal",
+    )
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.read"})):
+        response = client.get("/api/v1/entity-intel/dossier?name=ITURRI%20SA&type=company")
+
+    assert response.status_code == 200
+    news = response.get_json()["sections"]["news"]["data"]
+    assert news["items"] == []
+    assert news["source_total"] == 2
+    assert news["discarded_reasons"] == {
+        "duplicate_procurement_directory": 0,
+        "first_party_domain": 1,
+        "insufficient_attribution": 1,
+        "invalid_url": 0,
+    }
+
+
+@pytest.mark.unit
 def test_entity_intel_requires_https_and_allowlisted_host() -> None:
     with pytest.raises(EntityIntelConfigurationError, match="HTTPS"):
         EntityIntelClient(

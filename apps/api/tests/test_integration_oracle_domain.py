@@ -1140,8 +1140,7 @@ def _entity_signal_payload() -> dict[str, Any]:
                 "data": {
                     "items": [
                         {
-                            "title": f"Noticia verificable {index}",
-                            "published_at": f"2026-03-{10 + index:02d}",
+                            "title": f"Entidad Cobertura SA: mención verificable {index}",
                             "source_name": "Medio oficial",
                             "url": f"https://example.test/noticias/{index}",
                         }
@@ -1373,7 +1372,7 @@ def _completed_entity_job(
 
 
 def _pending_entity_sources() -> list[dict[str, Any]]:
-    kinds = ("registry_act", "news", "patent", "disclosure", "procurement_award")
+    kinds = ("registry_act", "web_mention", "patent", "disclosure", "procurement_award")
     sources = []
     for index, source_kind in enumerate(kinds):
         evidence_id = uuid.uuid4()
@@ -1501,7 +1500,7 @@ def test_entity_dossier_job_persists_bounded_sources_and_stable_corpus(
     assert len(results[0]["pending_evidence_sources"]) == 5
     assert {item["source_kind"] for item in results[0]["pending_evidence_sources"]} == {
         "registry_act",
-        "news",
+        "web_mention",
         "patent",
         "disclosure",
         "procurement_award",
@@ -1885,7 +1884,7 @@ def test_entity_report_incorporation_materializes_evidence_and_is_idempotent(
         assert {item.source_kind for item in evidence} == {"entity_intel"}
         assert {item.provenance["entity_intel_source_kind"] for item in evidence} == {
             "registry_act",
-            "news",
+            "web_mention",
             "patent",
             "disclosure",
             "procurement_award",

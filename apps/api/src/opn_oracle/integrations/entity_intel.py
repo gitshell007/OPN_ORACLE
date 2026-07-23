@@ -21,6 +21,7 @@ import httpx
 from flask import current_app, g
 from sqlalchemy import select
 
+from opn_oracle.common.web_mentions import filter_entity_web_mentions
 from opn_oracle.extensions import db
 from opn_oracle.platform.models import IntegrationConnection
 
@@ -630,6 +631,18 @@ class EntityIntelClient:
                 normalized_sections["graph"] = {
                     **graph_section,
                     "data": _graph_payload_with_role_contract(graph_data),
+                }
+        news_section = normalized_sections.get("news")
+        if isinstance(news_section, dict) and news_section.get("ok") is True:
+            news_data = news_section.get("data")
+            if isinstance(news_data, dict):
+                normalized_sections["news"] = {
+                    **news_section,
+                    "data": filter_entity_web_mentions(
+                        news_data,
+                        entity_name=str(entity.get("name") or name),
+                        entity_kind=kind,
+                    ),
                 }
         return {
             **payload,

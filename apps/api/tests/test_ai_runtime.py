@@ -167,7 +167,7 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("weekly_change").version == "v2"
     assert registry.get("weekly_change").max_output_tokens == 4200
     assert registry.get("dossier_completion_wizard").max_output_tokens == 4500
-    assert registry.get("entity_dossier_intelligence").version == "v2"
+    assert registry.get("entity_dossier_intelligence").version == "v3"
     assert registry.get("entity_dossier_intelligence").max_output_tokens == 16000
     assert registry.get("competitive_procurement_intelligence").version == "v2"
     assert registry.get("competitive_procurement_intelligence").max_output_tokens == 16000

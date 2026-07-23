@@ -965,3 +965,27 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Lo que NO resuelve:** dos sesiones editando el mismo fichero a la vez seguirán chocando. La
   solución completa sería aislar cada sesión en su propio worktree, descartado por ahora porque el
   responsable no quiere ramas que queden atrás y diverjan.
+
+## D-059 — «Noticias» se trata como búsqueda web con atribución cerrada
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** Signal no entrega una hemeroteca: busca `"<nombre> noticias"` en la web y devuelve
+  ocho resultados sin fecha. En ITURRI SA, dos eran dominios propios, uno duplicaba contratación y
+  cinco no contenían la razón social exacta; cuatro de estos últimos eran otras entidades. Todos
+  llegaban al informe como evidencia `news`.
+- **Decisión:** conservar `news` solo como clave upstream, pero presentar la sección como
+  **Menciones web**. Flask aplica un filtro determinista común a ficha e informe: URL HTTP(S),
+  dominio externo y coincidencia exacta de la identidad completa; para empresas normaliza formas
+  jurídicas y para personas conserva todos los apellidos. Los dominios propios, directorios que
+  duplican contratación, URLs inválidas y coincidencias insuficientes se eliminan del contenido y
+  solo cruzan el API como recuentos agregados. La evidencia nueva se denomina `web_mention`, sin
+  fecha, y el prompt de informe avanza a v3 sin alterar snapshots v1/v2.
+- **Consecuencias:** ITURRI queda correctamente en 0 de 8 resultados atribuibles y ninguno de los
+  ocho entra en `pending_evidence_sources`. Un caso limpio conserva resultados y orden sin aviso.
+  `source_limits` declara N de M descartados y el hueco del techo global de 45 fuentes queda libre
+  para otras clases. La coincidencia determinista reduce contaminación, pero no sustituye una
+  desambiguación humana ni convierte la búsqueda en cobertura periodística.
+- **Colisión documental:** este trabajo reutiliza el número **Prompt 73**, ya usado por el cierre
+  del grafo. Se conserva el número recibido para trazabilidad y se distingue como «Prompt 73
+  (menciones web)»; no se renumera silenciosamente ninguno de los dos.

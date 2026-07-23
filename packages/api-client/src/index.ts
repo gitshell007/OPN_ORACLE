@@ -66,6 +66,8 @@ export type {
   EntityIntelRegistryView,
   EntityIntelSection,
   EntityIntelSuggestResponse,
+  EntityIntelWebMention,
+  EntityIntelWebMentionsData,
   DossierProcurementItem,
   DossierProcurementKind,
   DossierProcurementListResponse,

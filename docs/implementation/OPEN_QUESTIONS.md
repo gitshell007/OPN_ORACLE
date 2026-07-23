@@ -115,6 +115,11 @@
   su etiqueta canónica, pero ITURRI SA e ITURRIN SA no aportaron roles sin clasificar en la línea
   base productiva de Prompt 73. Antes de ampliar el catálogo debe medirse qué valores reales caen en
   `other`; no se añadirán alias ni categorías por semejanza del texto.
+- Pendiente Signal para cobertura informativa real: `/api/v1/oracle/entity/news` continúa siendo
+  una búsqueda web por nombre, sin fecha de publicación ni desambiguación de entidad. Oracle filtra
+  de forma conservadora y no cita los descartes, pero una pestaña de noticias propiamente dicha
+  requiere que Signal integre una fuente periodística con URL canónica, fecha, medio y contrato de
+  identidad verificable. No se simularán fechas ni se usará IA para suplir ese contrato.
 - Pendiente Signal para el informe competitivo ejecutivo: confirmar o actualizar en el
   administrador de Signal la `task_key` **`competitive_procurement_intelligence`** para el consumer
   `opn-oracle`, con salida JSON estructurada y `max_output_tokens=16000` para `v2`. Oracle declara

@@ -170,13 +170,14 @@ PROMPT_VERSIONS = {
         if name == "dossier_situation_summary"
         else ("v1", "v2", "v3", "v4", "v5")
         if name == "report_writer"
+        else ("v1", "v2", "v3")
+        if name == "entity_dossier_intelligence"
         else ("v1", "v2")
         if name
         in {
             "meeting_briefing",
             "weekly_change",
             "competitive_procurement_intelligence",
-            "entity_dossier_intelligence",
         }
         else ("v1",)
     )
@@ -226,6 +227,10 @@ class PromptRegistry:
                     changelog = {
                         "v1": "v1: contrato inicial derivado del runtime canónico de Fase 09.",
                         "v2": ("v2: informe ejecutivo redactado con contratación pública."),
+                        "v3": (
+                            "v3: menciones web atribuibles sustituyen la falsa cobertura "
+                            "de noticias."
+                        ),
                     }[version]
                 elif name == "competitive_procurement_intelligence":
                     changelog = {

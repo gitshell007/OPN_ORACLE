@@ -38,7 +38,7 @@ HOT_OPERATION_LEVERS = frozenset(
 KNOWN_ENTITY_EVIDENCE_SOURCE_KINDS = frozenset(
     {
         "registry_act",
-        "news",
+        "web_mention",
         "patent",
         "disclosure",
         "procurement_award",
@@ -194,6 +194,7 @@ def test_entity_evidence_source_kinds_are_all_counted_by_the_global_cap() -> Non
         item["source_kind"]
         for item in entity_dossier_report.build_pending_entity_evidence_sources(
             entity_dossier={
+                "entity": {"name": "ENTIDAD SA", "type": "company"},
                 "registry": {
                     "items": [
                         {
@@ -206,8 +207,7 @@ def test_entity_evidence_source_kinds_are_all_counted_by_the_global_cap() -> Non
                 "news": {
                     "items": [
                         {
-                            "title": "Noticia",
-                            "published_at": "2026-07-02",
+                            "title": "ENTIDAD SA: mención externa",
                             "url": "https://example.test/news",
                         }
                     ]

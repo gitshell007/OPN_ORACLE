@@ -24,6 +24,7 @@ import {
   type EntityIntelRegistryResponse,
   type EntityIntelRegistrySort,
   type EntityIntelRegistryView,
+  type EntityIntelWebMentionsData,
 } from "@oracle/api-client";
 import { Bot, Building2, ExternalLink, FileText, Link2, RefreshCw, Search, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -78,6 +79,7 @@ interface EntitySourceStatusProps {
   title: string;
   detail: string;
   technicalDetail?: string | null;
+  partialLabel?: string;
 }
 
 function problemMessage(reason: unknown, fallback: string): string {
@@ -181,11 +183,12 @@ function EntitySourceStatus({
   title,
   detail,
   technicalDetail,
+  partialLabel,
 }: EntitySourceStatusProps) {
   const labels: Record<EntitySourceState, string> = {
     results: "Disponible",
     empty: "Sin resultados",
-    partial: "Cobertura parcial",
+    partial: partialLabel ?? "Cobertura parcial",
     error: "No disponible",
   };
   return (
@@ -441,15 +444,35 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     error: patentError,
     partial: patentsTruncated,
   });
-  const newsData = sectionData<Record<string, unknown>>(dossier, "news");
+  const newsData = sectionData<EntityIntelWebMentionsData>(dossier, "news");
   const news = listItems(newsData);
   const newsErrors = sourceErrors(newsData);
+  const newsRecord = asRecord(newsData);
+  const newsSourceTotal = typeof newsRecord.source_total === "number"
+    ? newsRecord.source_total
+    : news.length;
+  const newsDiscardedCount = typeof newsRecord.discarded_count === "number"
+    ? newsRecord.discarded_count
+    : Math.max(0, newsSourceTotal - news.length);
+  const newsDiscardReasons = asRecord(newsRecord.discarded_reasons);
+  const newsOwnDomainCount = typeof newsDiscardReasons.first_party_domain === "number"
+    ? newsDiscardReasons.first_party_domain
+    : 0;
+  const newsUnattributedCount = typeof newsDiscardReasons.insufficient_attribution === "number"
+    ? newsDiscardReasons.insufficient_attribution
+    : 0;
+  const newsDuplicateCount = typeof newsDiscardReasons.duplicate_procurement_directory === "number"
+    ? newsDiscardReasons.duplicate_procurement_directory
+    : 0;
+  const newsInvalidUrlCount = typeof newsDiscardReasons.invalid_url === "number"
+    ? newsDiscardReasons.invalid_url
+    : 0;
   const newsError = sectionError(dossier, "news")
     ?? sourceEmbeddedError(newsData)
     ?? (news.length === 0 && newsErrors.length > 0 ? "news_sources_failed" : null);
   const newsState = sourceState(news.length, {
     error: newsError,
-    partial: newsErrors.length > 0,
+    partial: newsErrors.length > 0 || newsDiscardedCount > 0,
   });
 
   const constitution = profile?.constitution_date
@@ -476,11 +499,15 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
         : `${patents.length} publicaciones de patente localizadas para esta denominación.`;
   const newsStatusDetail = newsState === "error"
     ? "No se pudo completar la búsqueda web. Este estado no equivale a ausencia de menciones."
-    : newsState === "partial"
-      ? `Se recibieron ${news.length} menciones, pero el proveedor comunicó una cobertura parcial.`
+    : newsDiscardedCount > 0
+      ? news.length === 0
+        ? `La búsqueda encontró ${newsSourceTotal} resultados, pero ninguno pudo atribuirse con suficiente seguridad. Oracle descartó ${newsOwnDomainCount} de dominios propios, ${newsDuplicateCount} duplicados de contratación, ${newsUnattributedCount} sin atribución suficiente y ${newsInvalidUrlCount} con URL no válida. No se ofrecen al informe como evidencia.`
+        : `Se muestran ${news.length} de ${newsSourceTotal} resultados. Oracle descartó ${newsDiscardedCount} por dominio propio, duplicidad de contratación, URL no válida o atribución insuficiente; no se ofrecen al informe como evidencia.`
+      : newsState === "partial"
+        ? `Se recibieron ${news.length} menciones atribuibles, pero el proveedor comunicó una cobertura parcial.`
       : newsState === "empty"
         ? "La búsqueda web terminó sin menciones. No permite inferir que la entidad no tenga cobertura pública."
-        : `${news.length} menciones web disponibles en el orden de relevancia del proveedor.`;
+        : `${news.length} resultados externos superan el filtro automático de atribución, en el orden de relevancia del proveedor.`;
 
   function applyRegistryQuery(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -583,10 +610,14 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
             </Tabs.Trigger>
             <Tabs.Trigger
               value="news"
-              aria-label={sourceTabAria("Noticias", news.length, newsState)}
+              aria-label={newsDiscardedCount > 0
+                ? `Menciones web, ${news.length} atribuibles de ${newsSourceTotal} resultados; ${newsDiscardedCount} descartados`
+                : sourceTabAria("Menciones web", news.length, newsState)}
             >
-              Noticias
-              <b aria-hidden="true">{sourceTabBadge(news.length, newsState)}</b>
+              Menciones web
+              <b aria-hidden="true">
+                {sourceTabBadge(news.length, newsState, newsSourceTotal)}
+              </b>
             </Tabs.Trigger>
           </Tabs.List>
 
@@ -790,21 +821,22 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
           <Tabs.Content value="news" className="entity-tab-panel">
             <EntitySourceStatus
               state={newsState}
-              title="Menciones en búsqueda web"
+              title="Búsqueda web externa"
               detail={newsStatusDetail}
               technicalDetail={newsError}
+              partialLabel={newsDiscardedCount > 0 ? "Resultados filtrados" : undefined}
             />
             {news.length > 0 && (
               <SimpleItemsTable
                 items={news}
                 columns={[
-                  ["title", "Título"],
+                  ["title", "Resultado"],
                   ["source", "Fuente"],
-                  ["snippet", "Resumen"],
+                  ["snippet", "Extracto"],
                 ]}
                 linkKey="url"
                 defaultSort={null}
-                note="Orden de relevancia recibido del proveedor. Las menciones no están desambiguadas automáticamente: verifica entidad y fuente antes de utilizarlas."
+                note="Resultados de una búsqueda web por nombre, ordenados por el proveedor. No es una hemeroteca y no aporta fechas de publicación. El filtro exige coincidencia exacta de identidad y dominio externo; abre la fuente antes de decidir."
               />
             )}
           </Tabs.Content>
@@ -1297,7 +1329,8 @@ function EntityReportControl({
           <span className="section-kicker">Informe IA</span>
           <h2>Informe de la entidad</h2>
           <p>
-            Genera en segundo plano un análisis de perfil registral, BORME, grafo y noticias.
+            Genera en segundo plano un análisis de perfil registral, BORME, grafo y menciones web
+            atribuibles.
             Puede tardar varios minutos; el resultado queda guardado para incorporarlo después.
           </p>
         </div>
@@ -1510,7 +1543,11 @@ function EntityReportWaitingPreview({
                   <div>
                     <span>[{index + 1}]</span>
                     <strong>{source.label}</strong>
-                    <small>{source.sourceKind}</small>
+                    <small>
+                      {source.sourceKind === "web_mention"
+                        ? "Mención web atribuible"
+                        : source.sourceKind}
+                    </small>
                     {source.extract && <small>{source.extract}</small>}
                   </div>
                   {source.sourceUrl && (

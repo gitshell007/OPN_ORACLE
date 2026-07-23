@@ -1406,6 +1406,36 @@ export interface EntityIntelSection<T = Record<string, unknown>> {
   [key: string]: unknown;
 }
 
+export interface EntityIntelWebMention {
+  title?: string;
+  url?: string;
+  snippet?: string;
+  source?: string;
+  provider?: string;
+  oracle_attribution?: "exact_entity_name";
+  [key: string]: unknown;
+}
+
+export interface EntityIntelWebMentionsData {
+  items: EntityIntelWebMention[];
+  source_total: number;
+  received_items: number;
+  attributed_items: number;
+  discarded_count: number;
+  discarded_reasons: {
+    first_party_domain?: number;
+    duplicate_procurement_directory?: number;
+    insufficient_attribution?: number;
+    invalid_url?: number;
+    [key: string]: number | undefined;
+  };
+  attribution_filter_version: string;
+  has_publication_dates: false;
+  errors?: string[];
+  error?: string | null;
+  [key: string]: unknown;
+}
+
 export interface EntityIntelDossierResponse {
   entity: {
     name?: string | null;
@@ -1417,7 +1447,7 @@ export interface EntityIntelDossierResponse {
     graph?: EntityIntelSection<EntityIntelGraphResponse>;
     patents?: EntityIntelSection<Record<string, unknown>>;
     disclosures?: EntityIntelSection<Record<string, unknown>>;
-    news?: EntityIntelSection<Record<string, unknown>>;
+    news?: EntityIntelSection<EntityIntelWebMentionsData>;
     [key: string]: EntityIntelSection<unknown> | undefined;
   };
   cached_seconds: number;

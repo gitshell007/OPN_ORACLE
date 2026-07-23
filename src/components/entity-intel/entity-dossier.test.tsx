@@ -122,7 +122,7 @@ const dossierResponse = {
     news: {
       ok: true,
       data: {
-        items: [{ title: "Noticia relevante", source: "Medio", url: "https://news.test" }],
+        items: [{ title: "Mención atribuible", source: "Medio", url: "https://news.test" }],
       },
     },
   },
@@ -246,7 +246,7 @@ describe("EntityDossier", () => {
     expect(screen.getByText("Actos societarios publicados")).toBeInTheDocument();
     expect(screen.getByText("Eventos de cargos y órganos")).toBeInTheDocument();
     expect(screen.getByText(/Las fechas son de publicación en BORME/i)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /Noticias/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Menciones web/i })).toBeInTheDocument();
   });
 
   it("prioriza identidad y navegación antes de diferir las acciones secundarias", async () => {
@@ -292,7 +292,7 @@ describe("EntityDossier", () => {
 
     const disclosureTab = await screen.findByRole("tab", { name: /Hechos relevantes/i });
     const patentTab = screen.getByRole("tab", { name: /Patentes/i });
-    const newsTab = screen.getByRole("tab", { name: /Noticias/i });
+    const newsTab = screen.getByRole("tab", { name: /Menciones web/i });
 
     fireEvent.mouseDown(disclosureTab);
     expect(screen.getByRole("status")).toHaveTextContent(/Cobertura parcial/i);
@@ -308,7 +308,7 @@ describe("EntityDossier", () => {
     expect(screen.getByText(/search_provider_unavailable/i)).toBeInTheDocument();
   });
 
-  it("conserva el orden de relevancia que entrega el proveedor de noticias", async () => {
+  it("conserva el orden de relevancia de las menciones web atribuibles", async () => {
     mocks.dossier.mockResolvedValue({
       ...dossierResponse,
       sections: {
@@ -326,20 +326,91 @@ describe("EntityDossier", () => {
     });
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Noticias/i }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Menciones web/i }));
     const first = screen.getByText("Zeta, primera por relevancia");
     const second = screen.getByText("Alfa, segunda por relevancia");
     expect(
       first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByText(/Orden de relevancia recibido del proveedor/i)).toBeInTheDocument();
+    expect(screen.getByText(/ordenados por el proveedor/i)).toBeInTheDocument();
+  });
+
+  it("explica cuando todos los resultados web quedan fuera por atribución", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      entity: { name: "ITURRI SA", type: "company" },
+      sections: {
+        ...dossierResponse.sections,
+        news: {
+          ok: true,
+          data: {
+            items: [],
+            source_total: 8,
+            received_items: 8,
+            attributed_items: 0,
+            discarded_count: 8,
+            discarded_reasons: {
+              first_party_domain: 2,
+              duplicate_procurement_directory: 1,
+              insufficient_attribution: 5,
+              invalid_url: 0,
+            },
+            attribution_filter_version: "exact_identity_external_v1",
+            has_publication_dates: false,
+          },
+        },
+      },
+    });
+    render(<EntityDossier name="ITURRI SA" type="company" />);
+
+    const tab = await screen.findByRole("tab", {
+      name: /0 atribuibles de 8 resultados; 8 descartados/i,
+    });
+    fireEvent.mouseDown(tab);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Resultados filtrados");
+    expect(screen.getByRole("status")).toHaveTextContent(/ninguno pudo atribuirse/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/2 de dominios propios/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/no se ofrecen al informe como evidencia/i);
+  });
+
+  it("no muestra avisos de descarte cuando todas las menciones son atribuibles", async () => {
+    mocks.dossier.mockResolvedValue({
+      ...dossierResponse,
+      sections: {
+        ...dossierResponse.sections,
+        news: {
+          ok: true,
+          data: {
+            items: [
+              { title: "IBERDROLA SA: resultado uno", url: "https://medio-a.test/uno" },
+              { title: "IBERDROLA SA: resultado dos", url: "https://medio-b.test/dos" },
+            ],
+            source_total: 2,
+            received_items: 2,
+            attributed_items: 2,
+            discarded_count: 0,
+            discarded_reasons: {},
+            attribution_filter_version: "exact_identity_external_v1",
+            has_publication_dates: false,
+          },
+        },
+      },
+    });
+    render(<EntityDossier name="IBERDROLA" type="company" />);
+
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Menciones web, 2 resultados/i }));
+    expect(screen.getByRole("status")).toHaveTextContent("Disponible");
+    expect(screen.queryByText(/descartad/i)).not.toBeInTheDocument();
+    expect(screen.getByText("IBERDROLA SA: resultado uno")).toBeInTheDocument();
+    expect(screen.getByText("IBERDROLA SA: resultado dos")).toBeInTheDocument();
   });
 
   it("restaura una pestaña válida desde la URL y normaliza valores retirados", async () => {
     window.history.replaceState(null, "", "/app/actors/entity/company/IBERDROLA?tab=news");
     const { rerender } = render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    const newsTab = await screen.findByRole("tab", { name: /Noticias/i });
+    const newsTab = await screen.findByRole("tab", { name: /Menciones web/i });
     await waitFor(() => expect(newsTab).toHaveAttribute("aria-selected", "true"));
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Órganos y cargos" }));
@@ -362,19 +433,19 @@ describe("EntityDossier", () => {
       }));
     render(<EntityDossier name="IBERDROLA" type="company" />);
 
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Noticias/i }));
-    expect(await screen.findByText("Noticia relevante")).toBeInTheDocument();
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: /Menciones web/i }));
+    expect(await screen.findByText("Mención atribuible")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Recargar vista" }));
     expect(screen.getByRole("button", { name: "Recargando vista…" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: /Noticias/i })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Noticia relevante")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Menciones web/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Mención atribuible")).toBeInTheDocument();
 
     await act(async () => {
       rejectRefresh?.(new Error("fallo temporal"));
     });
     expect(await screen.findByRole("alert")).toHaveTextContent(/No se pudo cargar la ficha/i);
-    expect(screen.getByText("Noticia relevante")).toBeInTheDocument();
+    expect(screen.getByText("Mención atribuible")).toBeInTheDocument();
   });
 
   it("muestra degradación de grafo sin tumbar el resto", async () => {
