@@ -1159,6 +1159,163 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/tender-search-wizard/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Tender Search Wizard */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenderSearchWizardLatestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/tender-search-wizard/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue Tender Search Wizard */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TenderSearchWizardInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Successful response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenderSearchWizardRunResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alert-policy": {
         parameters: {
             query?: never;
@@ -18250,6 +18407,408 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procurement-search-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Profiles List */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementSearchProfileList"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Profiles Create */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateProcurementSearchProfile"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Successful response */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementSearchProfileResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement-search-profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Profiles Get */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementSearchProfileResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement-search-profiles/{profile_id}/acceptances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Profiles Accept */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AcceptProcurementSearchProfile"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementSearchProfileResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement-search-profiles/{profile_id}/saved-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Profiles Save Search */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SaveProcurementSearchProfile"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavedProcurementSearchResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/procurement/awards": {
         parameters: {
             query?: never;
@@ -18397,6 +18956,102 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement/search-plans/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Tender Search Plan Preview */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -25011,6 +25666,31 @@ export interface components {
             routing_authority: string;
         };
         AIRetriageInput: Record<string, never>;
+        AcceptProcurementSearchProfile: {
+            accepted_plan: components["schemas"]["AcceptedTenderSearchPlan"];
+            ai_artifact_id: string;
+            expected_version: number;
+        };
+        AcceptedTenderSearchPlan: {
+            assumptions: string[];
+            buyers: string[];
+            candidate_cpv: components["schemas"]["CandidateCPV"][];
+            confidence: number;
+            discarded_count: number;
+            discarded_reasons: {
+                [key: string]: number;
+            };
+            exclude_terms: string[];
+            geographies: string[];
+            include_terms: string[];
+            intent_summary: string;
+            max_amount: number | null;
+            min_amount: number | null;
+            questions: string[];
+            /** @enum {string} */
+            scope: "active" | "historical" | "all";
+            synonyms: string[];
+        };
         ActorCandidate: {
             canonical_key: string;
             /** Format: uuid */
@@ -25182,6 +25862,10 @@ export interface components {
         BriefingWriteInput: {
             content?: components["schemas"]["JsonObject"];
             version?: number;
+        };
+        CandidateCPV: {
+            code: string;
+            label: string;
         };
         ChangeItem: {
             /** Format: uuid */
@@ -25407,6 +26091,12 @@ export interface components {
                 ready: boolean;
             }[];
             ready: boolean;
+        };
+        CreateProcurementSearchProfile: {
+            accepted_plan: components["schemas"]["AcceptedTenderSearchPlan"];
+            ai_artifact_id: string;
+            comparables?: string[];
+            original_description: string;
         };
         CsrfResponse: {
             csrf_token: string;
@@ -26391,6 +27081,24 @@ export interface components {
             opportunity: components["schemas"]["OpportunityResource"];
             replayed: boolean;
         };
+        ProcurementSearchProfileList: {
+            items: components["schemas"]["ProcurementSearchProfileResponse"][];
+        };
+        ProcurementSearchProfileResponse: {
+            accepted_by_user_id: string;
+            accepted_plan: components["schemas"]["AcceptedTenderSearchPlan"];
+            accepted_plan_hash: string;
+            ai_artifact_id: string;
+            comparables: string[];
+            created_at: string;
+            id: string;
+            last_accepted_at: string;
+            original_description: string;
+            schema: string;
+            tender_search_id?: string | null;
+            updated_at: string;
+            version: number;
+        };
         ProcurementSuggestResponse: {
             cache_hit: boolean;
             cached_seconds: number;
@@ -26655,6 +27363,16 @@ export interface components {
         };
         RolesResponse: {
             roles: string[];
+        };
+        SaveProcurementSearchProfile: {
+            expected_version: number;
+            name: string;
+        };
+        SavedProcurementSearchResponse: {
+            profile: components["schemas"]["ProcurementSearchProfileResponse"];
+            saved_search: {
+                [key: string]: unknown;
+            };
         };
         SessionListResponse: {
             items: components["schemas"]["SessionResponse"][];
@@ -26933,6 +27651,10 @@ export interface components {
                 memberships: components["schemas"]["TenantChoiceResponse"][];
             };
         };
+        TenderSearchCandidateCPV: {
+            code: string;
+            label: string;
+        };
         TenderSearchList: {
             items: components["schemas"]["TenderSearchResource"][];
         };
@@ -26950,6 +27672,19 @@ export interface components {
             keywords: string[];
             name: string;
         };
+        TenderSearchPlanPreviewPayload: {
+            plan: {
+                [key: string]: unknown;
+            };
+        };
+        TenderSearchPlanPreviewResponse: {
+            plan: {
+                [key: string]: unknown;
+            };
+            preview: {
+                [key: string]: unknown;
+            };
+        };
         TenderSearchResource: {
             created_at?: string | null;
             filters?: {
@@ -26965,6 +27700,78 @@ export interface components {
                 [key: string]: unknown;
             };
             search: components["schemas"]["TenderSearchResource"];
+        };
+        TenderSearchWizardArtifact: {
+            agent: string;
+            created_at: string;
+            dossier_id?: string | null;
+            id: string;
+            output: components["schemas"]["TenderSearchWizardPlan"];
+            schema_name: string;
+            schema_version: string;
+            status: string;
+            updated_at: string;
+            version: number;
+        };
+        TenderSearchWizardInput: {
+            /** @default null */
+            comparable: string | null;
+            description: string;
+        };
+        TenderSearchWizardJob: {
+            attempts: number;
+            cancel_requested: boolean;
+            created_at: string;
+            error_code?: string | null;
+            error_message?: string | null;
+            finished_at?: string | null;
+            heartbeat_at?: string | null;
+            id: string;
+            job_type: string;
+            max_attempts: number;
+            progress: number;
+            queue: string;
+            resource_id?: string | null;
+            resource_type?: string | null;
+            result: {
+                [key: string]: unknown;
+            };
+            retryable: boolean;
+            stage: string;
+            started_at?: string | null;
+            status: string;
+            tenant_id: string;
+            updated_at: string;
+            version: number;
+        };
+        TenderSearchWizardLatestResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardArtifact"];
+            input?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardInput"];
+            job?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardJob"];
+        };
+        TenderSearchWizardPlan: {
+            assumptions: string[];
+            buyers: string[];
+            candidate_cpv: components["schemas"]["TenderSearchCandidateCPV"][];
+            confidence: number;
+            discarded_count: number;
+            discarded_reasons: {
+                [key: string]: number;
+            };
+            exclude_terms: string[];
+            geographies: string[];
+            include_terms: string[];
+            intent_summary: string;
+            max_amount?: number | null;
+            min_amount?: number | null;
+            questions: string[];
+            /** @enum {string} */
+            scope: "active" | "historical" | "all";
+            synonyms: string[];
+        };
+        TenderSearchWizardRunResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardArtifact"];
+            job: components["schemas"]["TenderSearchWizardJob"];
         };
         TenderSummaryResponse: {
             cached: boolean;

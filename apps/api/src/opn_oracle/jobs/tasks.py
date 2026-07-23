@@ -17,7 +17,10 @@ from celery import Task, shared_task
 from flask import current_app
 from sqlalchemy import delete, or_, select, update
 
-from opn_oracle.ai.context import build_dossier_completion_context
+from opn_oracle.ai.context import (
+    build_dossier_completion_context,
+    build_tender_search_wizard_context,
+)
 from opn_oracle.ai.models import AITenantPolicy
 from opn_oracle.ai.provider import AIUnavailable
 from opn_oracle.ai.service import (
@@ -397,6 +400,7 @@ HANDLERS: dict[str, Handler] = {
             "weekly_change",
             "dossier_situation_summary",
             "dossier_completion_wizard",
+            "tender_search_wizard",
         )
     },
 }
@@ -515,6 +519,23 @@ def _process_document(payload: dict[str, Any], job: BackgroundJob) -> dict[str, 
 
 def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
+        if agent == "tender_search_wizard":
+            description = str(payload["description"])
+            comparable = (
+                str(payload["comparable"]) if payload.get("comparable") is not None else None
+            )
+            return execute_agent(
+                agent=agent,
+                dossier_id=None,
+                job=job,
+                context_factory=lambda max_tokens: build_tender_search_wizard_context(
+                    description=description,
+                    comparable=comparable,
+                    max_tokens=max_tokens,
+                ),
+                target_type="tenant_search_profile",
+                target_id=job.tenant_id,
+            )
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
         if agent == "dossier_completion_wizard":
             supplemental_context = {
@@ -933,6 +954,7 @@ AI_DURABLE_TASKS = {
         "weekly_change",
         "dossier_situation_summary",
         "dossier_completion_wizard",
+        "tender_search_wizard",
     )
 }
 

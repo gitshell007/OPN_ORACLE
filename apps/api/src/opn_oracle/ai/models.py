@@ -96,7 +96,7 @@ class AIContextSnapshot(TenantDomainMixin, Base):
         CheckConstraint("estimated_tokens >= 0", name="ai_context_estimated_tokens"),
     )
     audit_log_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    dossier_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     context_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     source_manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     classification: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -160,7 +160,7 @@ class AIArtifact(TenantDomainMixin, Base):
         Index("ix_ai_artifact_target", "tenant_id", "target_type", "target_id", "created_at"),
     )
     audit_log_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    dossier_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     target_type: Mapped[str] = mapped_column(String(80), nullable=False)
     target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     agent: Mapped[str] = mapped_column(String(100), nullable=False)

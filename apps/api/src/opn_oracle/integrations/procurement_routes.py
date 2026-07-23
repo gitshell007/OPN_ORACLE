@@ -12,7 +12,12 @@ from apiflask import APIBlueprint, Schema
 from apiflask.fields import Boolean, Dict, Float, Integer, List, Nested, Raw, String
 from flask import Response, g
 from marshmallow import ValidationError, validate, validates_schema
+from pydantic import ValidationError as PydanticValidationError
 
+from opn_oracle.ai.tender_search_wizard import (
+    TenderSearchPlanValidationError,
+    postvalidate_tender_search_plan,
+)
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import limiter
@@ -31,6 +36,10 @@ from opn_oracle.integrations.procurement import (
     procurement_stats,
     run_tender_search,
     uncached_tender_summary,
+)
+from opn_oracle.oracle.procurement_search_preview import (
+    SearchPlanExecutionError,
+    preview_search_plan,
 )
 
 bp = APIBlueprint(
@@ -162,6 +171,15 @@ class TenderSearchPathSchema(Schema):
 
 class TenderSearchRunQuerySchema(PaginationQuerySchema):
     pass
+
+
+class TenderSearchPlanPreviewPayloadSchema(Schema):
+    plan = Dict(keys=String(), values=Raw(allow_none=True), required=True)
+
+
+class TenderSearchPlanPreviewResponseSchema(Schema):
+    plan = Dict(keys=String(), values=Raw(), required=True)
+    preview = Dict(keys=String(), values=Raw(), required=True)
 
 
 def _validate_saved_search_temporal_scope(filters: dict[str, Any]) -> None:
@@ -541,6 +559,40 @@ def comparable_profile(query_data: dict[str, Any]) -> dict[str, Any] | Any:
             company=cast(str, query_data["company"]).strip(),
         )
     )
+
+
+@bp.post("/search-plans/preview")
+@require_permission("opportunity.read")
+@bp.input(TenderSearchPlanPreviewPayloadSchema)
+@bp.output(TenderSearchPlanPreviewResponseSchema)
+@limiter.limit("6/minute")
+def tender_search_plan_preview(json_data: dict[str, Any]) -> dict[str, Any] | Any:
+    try:
+        plan = postvalidate_tender_search_plan(cast(dict[str, Any], json_data["plan"]))
+        preview = preview_search_plan(
+            tenant_id=str(g.active_tenant_id),
+            plan=plan,
+            tender_loader=cached_tenders,
+        )
+    except (PydanticValidationError, TenderSearchPlanValidationError) as error:
+        return _problem_response_passthrough(
+            422,
+            title="Plan de búsqueda no válido",
+            detail=f"El plan de búsqueda no es válido: {error}",
+            code="validation_error",
+        )
+    except SearchPlanExecutionError as error:
+        return _problem_response_passthrough(
+            422,
+            title="Plan de búsqueda no ejecutable",
+            detail=str(error),
+            code="validation_error",
+        )
+    except ProcurementConfigurationError as error:
+        return _configuration_error_response(error)
+    except ProcurementProviderError as error:
+        return _provider_error_response(error)
+    return {"plan": plan, "preview": preview}
 
 
 @bp.get("/tenders")

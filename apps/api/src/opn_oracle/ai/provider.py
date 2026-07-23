@@ -163,6 +163,69 @@ class MockLLMProvider:
                 provider="mock",
                 model=self.model,
             )
+        if request.agent == "tender_search_wizard":
+            from opn_oracle.oracle.comparable_procurement import title_terms
+
+            description = str(request.context.get("description") or "").strip()
+            comparable_profile = request.context.get("comparable_profile")
+            grounding = comparable_profile if isinstance(comparable_profile, dict) else {}
+            top_cpvs = grounding.get("top_cpvs")
+            top_terms = grounding.get("top_terms")
+            top_buyers = grounding.get("top_buyers")
+            measured_terms = [
+                str(item.get("term"))
+                for item in (top_terms if isinstance(top_terms, list) else [])
+                if isinstance(item, dict) and item.get("term")
+            ]
+            terms = measured_terms[:20] or sorted(title_terms(description))[:20]
+            output = schema.model_validate(
+                {
+                    "intent_summary": (
+                        f"Buscar contratación pública relacionada con: {description[:500]}"
+                        if description
+                        else "Definir una búsqueda de contratación pública revisable."
+                    ),
+                    "include_terms": terms,
+                    "synonyms": [],
+                    "exclude_terms": [],
+                    "candidate_cpv": [
+                        {"code": str(item.get("code")), "label": None}
+                        for item in (top_cpvs if isinstance(top_cpvs, list) else [])[:20]
+                        if isinstance(item, dict) and item.get("code")
+                    ],
+                    "buyers": [
+                        str(item.get("buyer"))
+                        for item in (top_buyers if isinstance(top_buyers, list) else [])[:10]
+                        if isinstance(item, dict) and item.get("buyer")
+                    ],
+                    "geographies": [],
+                    "scope": "active",
+                    "min_amount": None,
+                    "max_amount": None,
+                    "assumptions": (
+                        [
+                            "El perfil de la comparable orienta candidatos, pero no demuestra "
+                            "las capacidades de la empresa usuaria."
+                        ]
+                        if grounding
+                        else ["No se aportó una comparable medida."]
+                    ),
+                    "questions": ["¿Qué geografías y organismos compradores deben priorizarse?"],
+                    "confidence": 70 if grounding else 45,
+                    "discarded_count": 0,
+                    "discarded_reasons": {},
+                }
+            )
+            fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
+            return LLMResult(
+                output,
+                100 + fingerprint[0],
+                50 + fingerprint[1],
+                0,
+                1,
+                provider="mock",
+                model=self.model,
+            )
         if request.agent == "dossier_completion_wizard":
             snapshot = request.context.get("completion_snapshot", {})
             counts = snapshot.get("counts", {}) if isinstance(snapshot, dict) else {}
@@ -579,6 +642,12 @@ class OllamaLLMProvider:
                 },
             ],
         }
+        if request.agent == "tender_search_wizard":
+            # Ollama/qwen3.5:9b rejects this schema grammar before inference, while
+            # JSON mode plus thinking disabled returns JSON that still passes the
+            # mandatory Pydantic validation below. Keep both overrides task-local.
+            payload["format"] = "json"
+            payload["think"] = False
         started = time.monotonic()
         try:
             response = httpx.post(

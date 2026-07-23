@@ -1051,3 +1051,29 @@ deberá versionarse un flujo de copia/materialización separado.
   agregada, no indexada por Signal v1, usa `source_not_indexed_v1` y no contamina el denominador
   643. El consumer de comparación será GET-only, pero la garantía read-only real exige scopes
   aplicados server-side en Signal.
+
+## D-063 — El wizard propone un plan; aceptar, ejecutar y vigilar son fronteras humanas
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** describir una empresa en lenguaje natural puede ayudar a arrancar una búsqueda,
+  pero delegar al modelo una llamada por licitación, la aceptación del perfil o el alta automática
+  de una vigilancia rompería coste, trazabilidad y control humano. Signal v1 tampoco ofrece una
+  semántica booleana ni un orden global sobre varias consultas.
+- **Decisión:** `tender_search_wizard/v1` ejecuta una única generación gobernada y dossierless,
+  cacheada por `input_hash`, con grounding exclusivo de la descripción y el agregado medido de una
+  comparable. No pasa por `evidence_reviewer`: propone filtros, no afirma hechos; su control es el
+  schema estricto y la postvalidación local de CPV y términos. El plan solo se convierte en fuente
+  de verdad mediante una aceptación explícita en `ProcurementSearchProfile`, tenant-scoped,
+  versionada, hasheada y referida al `AIArtifact`. Preview y guardado ejecutan cero LLM. El guardado
+  llama a Signal únicamente por una acción humana y solo para `scope=active`.
+- **Contrato medido:** `keywords` en Signal v1 es una subcadena literal contigua, sensible a
+  tildes; no es AND, OR ni sintaxis de frase. Oracle no concatena chips: devuelve bloques
+  independientes, conserva su orden nativo y nunca los fusiona. Cada preview consume como máximo
+  ocho sondas, cuatro términos y cuatro CPV; lo no sondeado queda visible. Exclusiones, compradores
+  o geografías adicionales no se presentan como aplicados cuando Signal no ofrece esa traducción.
+- **Consecuencias:** `ai_artifacts.dossier_id` y `ai_context_snapshots.dossier_id` admiten NULL
+  exclusivamente para targets tenant-scoped como este wizard; `target_type` y `target_id` mantienen
+  el dueño explícito. `StrategicDossier.profile_config` no duplica capacidades ni exclusiones. La
+  calidad del modelo se mide contra el holdout de adjudicaciones, y una brecha frente a la línea
+  base determinista permanece visible en vez de maquillarse como mejora IA.

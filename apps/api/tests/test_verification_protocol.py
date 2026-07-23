@@ -7,6 +7,7 @@ import types
 import uuid
 from dataclasses import fields
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
 
@@ -274,7 +275,7 @@ def _sample_value(annotation: Any, field_name: str) -> Any:
         length = 2 if field_name == "evidence_ids" else 1
         return [_sample_value(args[0], field_name) for _ in range(length)]
     if origin is dict:
-        return {"kind": "test"}
+        return {"kind": _sample_value(args[1], field_name)}
     if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
         return _sample_payload(annotation)
     if annotation is uuid.UUID:
@@ -289,6 +290,8 @@ def _sample_value(annotation: Any, field_name: str) -> Any:
         return 50
     if annotation is float:
         return 1.0
+    if annotation is Decimal:
+        return Decimal("1.00")
     if annotation is bool:
         return True
     if annotation is Any:

@@ -6,9 +6,20 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from apiflask import APIBlueprint
-from flask import g, request
+from apiflask import APIBlueprint, Schema
+from apiflask.fields import (
+    Boolean,
+    Dict,
+    Float,
+    Integer,
+    List,
+    Nested,
+    Raw,
+    String,
+)
+from flask import Response, g, request
 from flask_login import current_user
+from marshmallow import validate
 from sqlalchemy import select
 
 from opn_oracle.ai.models import AIArtifact, AIHumanReview
@@ -24,6 +35,99 @@ from opn_oracle.oracle.policy import dossier_accessible
 bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
 DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
+TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
+TENDER_SEARCH_WIZARD_TARGET = "tenant_search_profile"
+
+
+class TenderSearchWizardInputSchema(Schema):
+    description = String(required=True, validate=validate.Length(min=10, max=4_000))
+    comparable = String(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=250),
+    )
+
+
+class TenderSearchCandidateCPVSchema(Schema):
+    code = String(required=True)
+    label = String(required=True)
+
+
+class TenderSearchWizardPlanSchema(Schema):
+    intent_summary = String(required=True)
+    include_terms = List(String(), required=True)
+    synonyms = List(String(), required=True)
+    exclude_terms = List(String(), required=True)
+    candidate_cpv = List(Nested(TenderSearchCandidateCPVSchema), required=True)
+    buyers = List(String(), required=True)
+    geographies = List(String(), required=True)
+    scope = String(required=True, validate=validate.OneOf(["active", "historical", "all"]))
+    min_amount = Float(allow_none=True)
+    max_amount = Float(allow_none=True)
+    assumptions = List(String(), required=True)
+    questions = List(String(), required=True)
+    confidence = Integer(required=True)
+    discarded_count = Integer(required=True)
+    discarded_reasons = Dict(keys=String(), values=Integer(), required=True)
+
+
+class TenderSearchWizardArtifactSchema(Schema):
+    id = String(required=True)
+    dossier_id = String(allow_none=True)
+    agent = String(required=True)
+    schema_name = String(required=True)
+    schema_version = String(required=True)
+    status = String(required=True)
+    output = Nested(TenderSearchWizardPlanSchema, required=True)
+    created_at = String(required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class TenderSearchWizardJobSchema(Schema):
+    id = String(required=True)
+    tenant_id = String(required=True)
+    job_type = String(required=True)
+    queue = String(required=True)
+    status = String(required=True)
+    progress = Integer(required=True)
+    stage = String(required=True)
+    resource_type = String(allow_none=True)
+    resource_id = String(allow_none=True)
+    attempts = Integer(required=True)
+    max_attempts = Integer(required=True)
+    retryable = Boolean(required=True)
+    created_at = String(required=True)
+    started_at = String(allow_none=True)
+    finished_at = String(allow_none=True)
+    heartbeat_at = String(allow_none=True)
+    error_code = String(allow_none=True)
+    error_message = String(allow_none=True)
+    cancel_requested = Boolean(required=True)
+    result = Dict(keys=String(), values=Raw(), required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class TenderSearchWizardRunResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, required=True)
+    artifact = Nested(TenderSearchWizardArtifactSchema, allow_none=True)
+
+
+class TenderSearchWizardLatestResponseSchema(TenderSearchWizardRunResponseSchema):
+    job = Nested(TenderSearchWizardJobSchema, allow_none=True)
+    input = Nested(TenderSearchWizardInputSchema, allow_none=True)
+
+
+def _tender_wizard_problem(status: int, *, detail: str, code: str) -> Response:
+    response, response_status, headers = problem_response(
+        status,
+        detail=detail,
+        code=code,
+    )
+    response.status_code = response_status
+    response.headers.update(headers)
+    return response
 
 
 def _dossier(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier | None:
@@ -112,7 +216,7 @@ def _serialize_wizard_artifact(artifact: AIArtifact | None) -> dict[str, Any] | 
         return None
     return {
         "id": str(artifact.id),
-        "dossier_id": str(artifact.dossier_id),
+        "dossier_id": str(artifact.dossier_id) if artifact.dossier_id else None,
         "agent": artifact.agent,
         "schema_name": artifact.schema_name,
         "schema_version": artifact.schema_version,
@@ -121,6 +225,108 @@ def _serialize_wizard_artifact(artifact: AIArtifact | None) -> dict[str, Any] | 
         "created_at": artifact.created_at.isoformat(),
         "updated_at": artifact.updated_at.isoformat(),
         "version": artifact.version,
+    }
+
+
+def _latest_tender_search_artifact() -> AIArtifact | None:
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id.is_(None),
+            AIArtifact.agent == TENDER_SEARCH_WIZARD_AGENT,
+            AIArtifact.target_type == TENDER_SEARCH_WIZARD_TARGET,
+            AIArtifact.target_id == g.active_tenant_id,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_tender_search_job() -> BackgroundJob | None:
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id.is_(None),
+            BackgroundJob.job_type == f"oracle.ai.{TENDER_SEARCH_WIZARD_AGENT}",
+            BackgroundJob.resource_type == TENDER_SEARCH_WIZARD_TARGET,
+            BackgroundJob.resource_id == g.active_tenant_id,
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _tender_search_input(value: Any) -> tuple[str, str | None]:
+    if not isinstance(value, dict):
+        raise ValueError("Payload no válido.")
+    description = " ".join(str(value.get("description") or "").split())
+    comparable = " ".join(str(value.get("comparable") or "").split()) or None
+    if len(description) < 10 or len(description) > 4_000:
+        raise ValueError("La descripción debe tener entre 10 y 4000 caracteres.")
+    if comparable is not None and len(comparable) > 250:
+        raise ValueError("La empresa comparable no puede superar 250 caracteres.")
+    return description, comparable
+
+
+@bp.post("/tender-search-wizard/runs")
+@require_permission("ai.execute")
+@bp.input(TenderSearchWizardInputSchema)
+@bp.output(TenderSearchWizardRunResponseSchema, status_code=202)
+def enqueue_tender_search_wizard(json_data: dict[str, Any]) -> Any:
+    try:
+        description, comparable = _tender_search_input(json_data)
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return _tender_wizard_problem(
+            428,
+            detail="Idempotency-Key es obligatorio para generar un plan.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{TENDER_SEARCH_WIZARD_AGENT}",
+            payload={"description": description, "comparable": comparable},
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            resource_type=TENDER_SEARCH_WIZARD_TARGET,
+            resource_id=g.active_tenant_id,
+        )
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_wizard_artifact(_latest_tender_search_artifact()),
+    }, 202
+
+
+@bp.get("/tender-search-wizard/latest")
+@require_permission("ai.execute")
+@bp.output(TenderSearchWizardLatestResponseSchema)
+def latest_tender_search_wizard() -> Any:
+    job = _latest_tender_search_job()
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_wizard_artifact(_latest_tender_search_artifact()),
+        "input": (
+            {
+                "description": job.input_payload.get("description"),
+                "comparable": job.input_payload.get("comparable"),
+            }
+            if job
+            else None
+        ),
     }
 
 
@@ -186,7 +392,9 @@ def get_audit(audit_id: uuid.UUID) -> Any:
             AIAuditLog.id == audit_id, AIAuditLog.tenant_id == g.active_tenant_id
         )
     )
-    if audit is None or audit.dossier_id is None or _dossier(audit.dossier_id, write=False) is None:
+    if audit is None or (
+        audit.dossier_id is not None and _dossier(audit.dossier_id, write=False) is None
+    ):
         return problem_response(404, detail="Auditoría no disponible.", code="not_found")
     return {
         "id": str(audit.id),
@@ -218,7 +426,11 @@ def review_artifact(artifact_id: uuid.UUID) -> Any:
         .where(AIArtifact.id == artifact_id, AIArtifact.tenant_id == g.active_tenant_id)
         .with_for_update()
     )
-    if artifact is None or _dossier(artifact.dossier_id, write=True) is None:
+    if (
+        artifact is None
+        or artifact.dossier_id is None
+        or _dossier(artifact.dossier_id, write=True) is None
+    ):
         return problem_response(404, detail="Artefacto no disponible.", code="not_found")
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or payload.get("decision") not in {

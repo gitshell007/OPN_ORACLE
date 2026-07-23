@@ -248,6 +248,18 @@ def oracle_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
     engine.dispose()
     yield app, ids, password
     Redis.from_url(redis_url).flushdb()
+    cleanup_engine = create_engine(migration_url)
+    with cleanup_engine.begin() as connection:
+        connection.execute(text("DELETE FROM procurement_search_profiles"))
+        connection.execute(
+            text(
+                "DELETE FROM ai_human_reviews WHERE artifact_id IN "
+                "(SELECT id FROM ai_artifacts WHERE dossier_id IS NULL)"
+            )
+        )
+        connection.execute(text("DELETE FROM ai_artifacts WHERE dossier_id IS NULL"))
+        connection.execute(text("DELETE FROM ai_context_snapshots WHERE dossier_id IS NULL"))
+    cleanup_engine.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
 
@@ -6656,3 +6668,418 @@ def test_upgrade_from_0004_backfills_multidossier_evidence_mapping(
             == 2
         )
     engine.dispose()
+
+
+def _accepted_tender_plan(*, terms: list[str] | None = None) -> dict[str, Any]:
+    from opn_oracle.oracle.cpv_taxonomy import load_cpv_taxonomy
+
+    taxonomy = load_cpv_taxonomy()
+    return {
+        "intent_summary": "Equipamiento de protección y vehículos contraincendios",
+        "include_terms": terms or ["proteccion"],
+        "synonyms": ["epis"],
+        "exclude_terms": ["juguete"],
+        "candidate_cpv": [{"code": "18100000", "label": taxonomy.codes["18100000"]}],
+        "buyers": ["Servicios de emergencias"],
+        "geographies": ["España"],
+        "scope": "active",
+        "min_amount": None,
+        "max_amount": 2_000_000,
+        "assumptions": ["Se prioriza contratación pública española"],
+        "questions": [],
+        "confidence": 88,
+        "discarded_count": 0,
+        "discarded_reasons": {},
+    }
+
+
+def _tender_wizard_artifact(
+    app: Any,
+    ids: dict[str, uuid.UUID],
+    plan: dict[str, Any],
+) -> uuid.UUID:
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        output_hash = hashlib.sha256(
+            json.dumps(plan, sort_keys=True, ensure_ascii=False).encode()
+        ).digest()
+        audit = AIAuditLog(
+            tenant_id=ids["tenant_a"],
+            requested_by_user_id=ids["user"],
+            use_case="tender_search_wizard",
+            agent="tender_search_wizard",
+            action="generate",
+            provider="mock",
+            model="mock-deterministic",
+            prompt_name="tender_search_wizard",
+            prompt_version="v1",
+            prompt_hash=b"p" * 32,
+            schema_name="TenderSearchWizardOutput",
+            schema_version="v1",
+            input_hash=b"i" * 32,
+            output_hash=output_hash,
+            source_ids=[],
+            status="succeeded",
+            data_classification="internal",
+            redaction_applied=False,
+            redaction_summary={},
+            input_tokens=0,
+            output_tokens=0,
+            actual_cost_micros=0,
+            attempt_count=1,
+            human_review_state="not_required",
+        )
+        db.session.add(audit)
+        db.session.flush()
+        artifact = AIArtifact(
+            tenant_id=ids["tenant_a"],
+            audit_log_id=audit.id,
+            dossier_id=None,
+            target_type="tenant_search_profile",
+            target_id=ids["tenant_a"],
+            agent="tender_search_wizard",
+            schema_name="TenderSearchWizardOutput",
+            schema_version="v1",
+            output=plan,
+            output_hash=output_hash,
+            status="valid",
+            version=1,
+        )
+        db.session.add(artifact)
+        db.session.commit()
+        return artifact.id
+
+
+def _assert_tender_search_wizard_http_reuses_same_input_artifact(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    _enable_mock_ai(app, ids)
+    client = _client(oracle_stack)
+    endpoint = "/api/v1/ai/tender-search-wizard/runs"
+    payload = {
+        "description": (
+            "Fabricamos equipos de protección y vehículos contraincendios para bomberos."
+        )
+    }
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        ledger_before = db.session.scalar(
+            select(func.count(AIUsageLedger.id))
+            .join(AIAuditLog, AIAuditLog.id == AIUsageLedger.audit_log_id)
+            .where(
+                AIUsageLedger.tenant_id == ids["tenant_a"],
+                AIAuditLog.agent == "tender_search_wizard",
+            )
+        )
+        artifact_before = db.session.scalar(
+            select(func.count(AIArtifact.id)).where(
+                AIArtifact.tenant_id == ids["tenant_a"],
+                AIArtifact.agent == "tender_search_wizard",
+            )
+        )
+
+    first = client.post(
+        endpoint,
+        json=payload,
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": f"tender-wizard-first-{uuid.uuid4()}",
+        },
+    )
+    second = client.post(
+        endpoint,
+        json=payload,
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": f"tender-wizard-second-{uuid.uuid4()}",
+        },
+    )
+    assert first.status_code == 202, first.get_json()
+    assert second.status_code == 202, second.get_json()
+    assert first.get_json()["artifact"]["id"] == second.get_json()["artifact"]["id"]
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        ledger_after = db.session.scalar(
+            select(func.count(AIUsageLedger.id))
+            .join(AIAuditLog, AIAuditLog.id == AIUsageLedger.audit_log_id)
+            .where(
+                AIUsageLedger.tenant_id == ids["tenant_a"],
+                AIAuditLog.agent == "tender_search_wizard",
+            )
+        )
+        artifact_after = db.session.scalar(
+            select(func.count(AIArtifact.id)).where(
+                AIArtifact.tenant_id == ids["tenant_a"],
+                AIArtifact.agent == "tender_search_wizard",
+            )
+        )
+        second_job = db.session.get(
+            BackgroundJob,
+            uuid.UUID(second.get_json()["job"]["id"]),
+        )
+        artifact = db.session.get(
+            AIArtifact,
+            uuid.UUID(second.get_json()["artifact"]["id"]),
+        )
+        assert ledger_after == (ledger_before or 0) + 1
+        assert artifact_after == (artifact_before or 0) + 1
+        assert second_job is not None and second_job.result_ref["cache_hit"] is True
+        assert artifact is not None
+        assert artifact.dossier_id is None
+        assert artifact.target_type == "tenant_search_profile"
+        assert artifact.target_id == ids["tenant_a"]
+
+
+def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.oracle import procurement_search_profile_routes
+
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    first_plan = _accepted_tender_plan()
+    artifact_id = _tender_wizard_artifact(app, ids, first_plan)
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        ledger_before = db.session.scalar(
+            select(func.count(AIUsageLedger.id)).where(AIUsageLedger.tenant_id == ids["tenant_a"])
+        )
+    created = client.post(
+        "/api/v1/procurement-search-profiles",
+        json={
+            "original_description": (
+                "Fabricamos equipos de protección y vehículos contraincendios."
+            ),
+            "comparables": ["ITURRI, S.A."],
+            "accepted_plan": first_plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert created.status_code == 201, created.get_json()
+    profile = created.get_json()
+    assert profile["version"] == 1
+    assert profile["ai_artifact_id"] == str(artifact_id)
+    assert len(profile["accepted_plan_hash"]) == 64
+    original_hash = profile["accepted_plan_hash"]
+
+    edited_plan = _accepted_tender_plan(terms=["proteccion", "incendios"])
+    accepted = client.post(
+        f"/api/v1/procurement-search-profiles/{profile['id']}/acceptances",
+        json={
+            "expected_version": 1,
+            "accepted_plan": edited_plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert accepted.status_code == 200, accepted.get_json()
+    accepted_profile = accepted.get_json()
+    assert accepted_profile["version"] == 2
+    assert accepted_profile["accepted_plan"]["include_terms"] == [
+        "proteccion",
+        "incendios",
+    ]
+    assert accepted_profile["accepted_plan_hash"] != original_hash
+    assert accepted_profile["tender_search_id"] is None
+
+    stale = client.post(
+        f"/api/v1/procurement-search-profiles/{profile['id']}/acceptances",
+        json={
+            "expected_version": 1,
+            "accepted_plan": edited_plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert stale.status_code == 409
+    assert stale.get_json()["code"] == "version_conflict"
+
+    invented_cpv = _accepted_tender_plan()
+    invented_cpv["candidate_cpv"] = [{"code": "99999999", "label": "Inventado"}]
+    rejected = client.post(
+        f"/api/v1/procurement-search-profiles/{profile['id']}/acceptances",
+        json={
+            "expected_version": 2,
+            "accepted_plan": invented_cpv,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert rejected.status_code == 422
+    assert "unknown_cpv" in rejected.get_json()["detail"]
+
+    from opn_oracle.oracle.procurement_search_preview import preview_search_plan
+
+    preview = preview_search_plan(
+        tenant_id=str(ids["tenant_a"]),
+        plan=accepted_profile["accepted_plan"],
+        tender_loader=lambda **kwargs: {"items": [], "total": 0, "query": kwargs},
+    )
+    assert preview["provider_requests"] == 4
+
+    monkeypatch.setattr(
+        procurement_search_profile_routes,
+        "create_tender_search",
+        lambda *, payload: {"id": "signal-active-search-1", **payload},
+    )
+    saved = client.post(
+        f"/api/v1/procurement-search-profiles/{profile['id']}/saved-search",
+        json={"expected_version": 2, "name": "Emergencias activas"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert saved.status_code == 200, saved.get_json()
+    assert saved.get_json()["profile"]["tender_search_id"] == "signal-active-search-1"
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        ledger_after = db.session.scalar(
+            select(func.count(AIUsageLedger.id)).where(AIUsageLedger.tenant_id == ids["tenant_a"])
+        )
+        assert ledger_after == ledger_before
+
+    historical_plan = _accepted_tender_plan()
+    historical_plan["scope"] = "historical"
+    historical = client.post(
+        "/api/v1/procurement-search-profiles",
+        json={
+            "original_description": "Analizamos adjudicaciones históricas de emergencias.",
+            "comparables": [],
+            "accepted_plan": historical_plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert historical.status_code == 201, historical.get_json()
+
+    def unexpected_provider_call(**kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        raise AssertionError("Un plan histórico no debe contactar con Signal.")
+
+    monkeypatch.setattr(
+        procurement_search_profile_routes,
+        "create_tender_search",
+        unexpected_provider_call,
+    )
+    historical_saved = client.post(
+        f"/api/v1/procurement-search-profiles/{historical.get_json()['id']}/saved-search",
+        json={"expected_version": 1, "name": "Histórico no representable"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert historical_saved.status_code == 422
+    assert "históricas" in historical_saved.get_json()["detail"]
+
+
+def _assert_procurement_search_profiles_hide_cross_tenant_rows(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = oracle_stack
+    owner = _client(oracle_stack)
+    plan = _accepted_tender_plan()
+    artifact_id = _tender_wizard_artifact(app, ids, plan)
+    created = owner.post(
+        "/api/v1/procurement-search-profiles",
+        json={
+            "original_description": "Buscamos equipos para servicios de emergencia.",
+            "comparables": [],
+            "accepted_plan": plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert created.status_code == 201, created.get_json()
+    profile_id = created.get_json()["id"]
+
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        membership_id = connection.execute(
+            text("SELECT id FROM tenant_memberships WHERE tenant_id=:tenant AND user_id=:user"),
+            {"tenant": ids["tenant_b"], "user": ids["user"]},
+        ).scalar_one_or_none()
+        if membership_id is None:
+            membership_id = uuid.uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO tenant_memberships"
+                    "(id,tenant_id,user_id,status,accepted_at,settings,created_at,updated_at) "
+                    "VALUES (:id,:tenant,:user,'active',now(),'{}',now(),now())"
+                ),
+                {
+                    "id": membership_id,
+                    "tenant": ids["tenant_b"],
+                    "user": ids["user"],
+                },
+            )
+        role_id = connection.execute(
+            text("SELECT id FROM roles WHERE tenant_id=:tenant AND key='profile_owner'"),
+            {"tenant": ids["tenant_b"]},
+        ).scalar_one_or_none()
+        if role_id is None:
+            role_id = uuid.uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO roles"
+                    "(id,tenant_id,key,name,description,is_system,created_at,updated_at) "
+                    "VALUES "
+                    "(:id,:tenant,'profile_owner','Profile Owner','Test',false,now(),now())"
+                ),
+                {"id": role_id, "tenant": ids["tenant_b"]},
+            )
+        connection.execute(
+            text(
+                "INSERT INTO membership_roles(tenant_id,membership_id,role_id) "
+                "VALUES (:tenant,:membership,:role) ON CONFLICT DO NOTHING"
+            ),
+            {
+                "tenant": ids["tenant_b"],
+                "membership": membership_id,
+                "role": role_id,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO role_permissions(tenant_id,role_id,permission_key) "
+                "SELECT :tenant,:role,key FROM permissions "
+                "WHERE key IN ('opportunity.read','opportunity.write')"
+            ),
+            {"tenant": ids["tenant_b"], "role": role_id},
+        )
+    engine.dispose()
+
+    other_tenant = app.test_client()
+    login = other_tenant.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "domain-owner@example.test",
+            "password": password,
+            "tenant_id": str(ids["tenant_b"]),
+        },
+        headers={"X-CSRF-Token": _csrf(other_tenant)},
+    )
+    assert login.status_code == 200
+    assert other_tenant.get(f"/api/v1/procurement-search-profiles/{profile_id}").status_code == 404
+    listed = other_tenant.get("/api/v1/procurement-search-profiles")
+    assert listed.status_code == 200
+    assert all(item["id"] != profile_id for item in listed.get_json()["items"])
+    cross_accept = other_tenant.post(
+        f"/api/v1/procurement-search-profiles/{profile_id}/acceptances",
+        json={
+            "expected_version": 1,
+            "accepted_plan": plan,
+            "ai_artifact_id": str(artifact_id),
+        },
+        headers={"X-CSRF-Token": _csrf(other_tenant)},
+    )
+    assert cross_accept.status_code == 404

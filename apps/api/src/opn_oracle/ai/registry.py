@@ -56,6 +56,9 @@ PURPOSES = {
     "dossier_completion_wizard": (
         "Diagnosticar la completitud de un expediente y proponer preguntas y acciones ejecutables."
     ),
+    "tender_search_wizard": (
+        "Proponer un plan de búsqueda de licitaciones revisable sin ejecutar ni aceptar búsquedas."
+    ),
 }
 
 INPUT_CONTRACTS = {
@@ -110,13 +113,20 @@ INPUT_CONTRACTS = {
         "answers",
         "allowed_evidence_ids",
     ),
+    "tender_search_wizard": (
+        "tenant_id",
+        "description",
+        "comparable",
+        "comparable_profile",
+        "allowed_evidence_ids",
+    ),
 }
 
 # Qué agentes pasan por `evidence_reviewer` tras generar. Se indexa DIRECTAMENTE (sin
 # `.get`) a propósito: un agente nuevo que olvide declararse revienta al construir el
 # registro en vez de saltarse el control en silencio.
 #
-# Las dos excepciones están razonadas y no son un descuido:
+# Las tres excepciones están razonadas y no son un descuido:
 #   - `dossier_completion_wizard` (D-039): afirma AUSENCIAS ("faltan actores"), y no se
 #     puede citar evidencia de lo que no existe. Su control es determinista, contra los
 #     recuentos reales del expediente.
@@ -125,6 +135,9 @@ INPUT_CONTRACTS = {
 #     (grafo, noticias, patentes, CNMV, contratación). Juzgaba con menos contexto que el
 #     escritor y rechazaba sistemáticamente afirmaciones que SÍ están respaldadas por el
 #     corpus. Su control es `validate_evidence` sobre la allowlist de citas.
+#   - `tender_search_wizard`: propone filtros candidatos, no afirmaciones sobre hechos.
+#     Oracle valida de forma determinista CPV y términos y ninguna propuesta se acepta,
+#     ejecuta o guarda sin una acción humana posterior.
 EVIDENCE_REVIEW_REQUIRED = {
     "intake": True,
     "signal_triage": True,
@@ -141,6 +154,7 @@ EVIDENCE_REVIEW_REQUIRED = {
     "weekly_change": True,
     "dossier_situation_summary": True,
     "dossier_completion_wizard": False,
+    "tender_search_wizard": False,
 }
 
 # Respuesta al veredicto `fail`, declarada por agente y consultada directamente. Los informes
@@ -162,6 +176,7 @@ EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "weekly_change": "reject_output",
     "dossier_situation_summary": "strip_claims",
     "dossier_completion_wizard": "not_required",
+    "tender_search_wizard": "not_required",
 }
 
 PROMPT_VERSIONS = {
@@ -203,6 +218,8 @@ def _max_output_tokens(name: str, version: str) -> int:
         return 16000
     if name == "dossier_completion_wizard":
         return 4500
+    if name == "tender_search_wizard":
+        return 3000
     if name != "dossier_situation_summary":
         return 2000
     return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900, "v5": 2600}[version]

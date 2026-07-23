@@ -54,6 +54,7 @@ TASK_QUEUES = {
             "weekly_change",
             "dossier_situation_summary",
             "dossier_completion_wizard",
+            "tender_search_wizard",
         )
     },
 }

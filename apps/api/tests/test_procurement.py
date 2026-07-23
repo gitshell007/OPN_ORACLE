@@ -963,6 +963,107 @@ def test_procurement_rejects_unavailable_award_date_ranges(
 
 
 @pytest.mark.unit
+def test_procurement_search_plan_preview_dispatches_bounded_independent_probes(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter.reset()
+    calls: list[dict[str, Any]] = []
+
+    def fake_tenders(**query: Any) -> dict[str, Any]:
+        calls.append(query)
+        return {
+            "total": 3,
+            "limit": query["limit"],
+            "offset": query["offset"],
+            "items": [{"title": query.get("keywords") or query.get("cpv")}],
+            "cached_seconds": 90,
+            "cache_hit": False,
+        }
+
+    monkeypatch.setattr(procurement_routes, "cached_tenders", fake_tenders)
+    plan = {
+        "intent_summary": "Equipos de protección y vehículos de emergencia.",
+        "include_terms": ["protección", "bomberos"],
+        "synonyms": [],
+        "exclude_terms": [],
+        "candidate_cpv": [{"code": "18100000", "label": None}],
+        "buyers": [],
+        "geographies": [],
+        "scope": "active",
+        "min_amount": None,
+        "max_amount": None,
+        "assumptions": [],
+        "questions": [],
+        "confidence": 80,
+        "discarded_count": 0,
+        "discarded_reasons": {},
+    }
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        response = client.post(
+            "/api/v1/procurement/search-plans/preview",
+            json={"plan": plan},
+        )
+
+    assert response.status_code == 200, response.get_data(as_text=True)
+    payload = response.get_json()
+    assert payload["plan"]["include_terms"] == ["proteccion", "bomberos"]
+    assert payload["plan"]["candidate_cpv"] == [
+        {"code": "18100000", "label": "Ropa de trabajo, ropa de trabajo especial y accesorios"}
+    ]
+    assert payload["preview"]["provider_requests"] == 3
+    assert payload["preview"]["semantics"]["merged_results"] is False
+    assert [call["keywords"] for call in calls] == ["proteccion", "bomberos", None]
+    assert [call["cpv"] for call in calls] == [None, None, "18100000"]
+
+
+@pytest.mark.unit
+def test_procurement_search_plan_preview_rejects_historical_before_signal(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def unexpected_tenders(**query: Any) -> dict[str, Any]:
+        del query
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(procurement_routes, "cached_tenders", unexpected_tenders)
+    plan = {
+        "intent_summary": "Vehículos de emergencia.",
+        "include_terms": ["vehiculos"],
+        "synonyms": [],
+        "exclude_terms": [],
+        "candidate_cpv": [],
+        "buyers": [],
+        "geographies": [],
+        "scope": "historical",
+        "min_amount": None,
+        "max_amount": None,
+        "assumptions": [],
+        "questions": [],
+        "confidence": 80,
+        "discarded_count": 0,
+        "discarded_reasons": {},
+    }
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        response = client.post(
+            "/api/v1/procurement/search-plans/preview",
+            json={"plan": plan},
+        )
+
+    assert response.status_code == 422
+    assert "históricas" in response.get_json()["detail"]
+    assert called is False
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("method", "path", "payload"),
     [

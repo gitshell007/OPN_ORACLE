@@ -24,6 +24,7 @@ from opn_oracle.ai.models import (
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
 from opn_oracle.ai.schemas import AgentOutput, EvidenceReviewerOutput, SignalTriageOutput
+from opn_oracle.ai.tender_search_wizard import postvalidate_tender_search_plan
 from opn_oracle.extensions import db
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.links import EvidenceDossier
@@ -500,7 +501,7 @@ def validate_dossier_completion_output(output: dict[str, Any], context: BuiltCon
 def execute_agent(
     *,
     agent: str,
-    dossier_id: uuid.UUID,
+    dossier_id: uuid.UUID | None,
     job: BackgroundJob,
     supplemental_context: dict[str, Any] | None = None,
     context_override: BuiltContext | None = None,
@@ -509,6 +510,10 @@ def execute_agent(
     target_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     tenant_id = require_tenant_id()
+    if dossier_id is None and agent != "tender_search_wizard":
+        raise AIPolicyDenied("Solo el wizard de licitaciones admite ejecución sin expediente.")
+    if dossier_id is None and context_override is None and context_factory is None:
+        raise AIPolicyDenied("La ejecución sin expediente requiere contexto tenant-scoped.")
     # Serialize the idempotency slot before policy/quota reservation. The lock is
     # transaction-scoped and never held across a provider call.
     slot = f"{tenant_id}:{job.id}:{agent}"
@@ -552,7 +557,11 @@ def execute_agent(
         raise AIPolicyDenied("La ejecución IA de este job ya está en curso.")
     policy = _policy(tenant_id)
     reservation_micros = 2 * (policy.max_context_tokens + policy.max_output_tokens)
-    soft_budget_warning = _enforce_quota(policy, tenant_id, reservation_micros)
+    soft_budget_warning = (
+        False
+        if agent == "tender_search_wizard"
+        else _enforce_quota(policy, tenant_id, reservation_micros)
+    )
     prompt = PromptRegistry(current_app.config["AI_DEFAULT_MODEL"]).get(agent)
     if policy.allowed_models and prompt.model not in policy.allowed_models:
         raise AIPolicyDenied("Modelo no autorizado por la política del tenant.")
@@ -561,10 +570,18 @@ def execute_agent(
     context = (
         context_override
         or (context_factory(policy.max_context_tokens) if context_factory else None)
-        or build_context(dossier_id, max_tokens=policy.max_context_tokens)
+        or (
+            build_context(dossier_id, max_tokens=policy.max_context_tokens)
+            if dossier_id is not None
+            else None
+        )
     )
-    if str(context.manifest.get("dossier_id")) != str(dossier_id):
+    if context is None:
+        raise AIPolicyDenied("No se pudo construir el contexto de la ejecución.")
+    if context.manifest.get("dossier_id") != (str(dossier_id) if dossier_id is not None else None):
         raise AIPolicyDenied("El contexto preconstruido no pertenece al expediente.")
+    if dossier_id is None and context.evidence:
+        raise AIPolicyDenied("El contexto tenant-scoped no admite evidencia de expediente.")
     if context.classification == "internal" and policy.max_classification == "public":
         raise AIPolicyDenied("La clasificación del contexto excede la política.")
     effective_payload = dict(context.payload)
@@ -579,6 +596,34 @@ def execute_agent(
         )
     ).digest()
     input_hash = hashlib.sha256(_canonical(effective_payload)).digest()
+    if agent == "tender_search_wizard":
+        cached_artifact = db.session.scalar(
+            select(AIArtifact)
+            .join(AIAuditLog, AIAuditLog.id == AIArtifact.audit_log_id)
+            .where(
+                AIArtifact.tenant_id == tenant_id,
+                AIArtifact.agent == agent,
+                AIArtifact.target_type == target_type,
+                AIArtifact.target_id == target_id,
+                AIAuditLog.tenant_id == tenant_id,
+                AIAuditLog.agent == agent,
+                AIAuditLog.status == "succeeded",
+                AIAuditLog.input_hash == input_hash,
+                AIAuditLog.prompt_hash == prompt.sha256,
+            )
+            .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+            .limit(1)
+        )
+        if cached_artifact is not None:
+            audit_id = cached_artifact.audit_log_id
+            db.session.rollback()
+            return {
+                "artifact_id": str(cached_artifact.id),
+                "audit_log_id": str(audit_id),
+                "status": cached_artifact.status,
+                "cache_hit": True,
+            }
+        soft_budget_warning = _enforce_quota(policy, tenant_id, reservation_micros)
     now = datetime.now(UTC)
     execution_token = uuid.uuid4()
     lease_seconds = max(30, min(int(current_app.config["CELERY_TASK_TIME_LIMIT"]), 600))
@@ -823,6 +868,8 @@ def execute_agent(
     try:
         if agent == "dossier_completion_wizard":
             validate_dossier_completion_output(output, context)
+        elif agent == "tender_search_wizard":
+            output = postvalidate_tender_search_plan(output)
     except Exception as error:
         fail(error, active_attempt_id=attempt_id)
         raise

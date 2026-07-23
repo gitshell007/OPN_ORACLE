@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date as CalendarDate
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -537,6 +538,31 @@ class DossierCompletionWizardOutput(StrictModel):
     recommended_actions: list[DossierWizardRecommendedAction] = Field(default_factory=list)
 
 
+class TenderSearchCandidateCPV(StrictModel):
+    code: str = Field(min_length=1, max_length=32)
+    label: str | None = Field(default=None, max_length=1000)
+
+
+class TenderSearchWizardOutput(StrictModel):
+    """Candidate search plan; Oracle post-validates its CPVs and search tokens."""
+
+    intent_summary: str = Field(min_length=1, max_length=4000)
+    include_terms: list[str] = Field(default_factory=list, max_length=50)
+    synonyms: list[str] = Field(default_factory=list, max_length=50)
+    exclude_terms: list[str] = Field(default_factory=list, max_length=50)
+    candidate_cpv: list[TenderSearchCandidateCPV] = Field(default_factory=list, max_length=50)
+    buyers: list[str] = Field(default_factory=list, max_length=30)
+    geographies: list[str] = Field(default_factory=list, max_length=30)
+    scope: Literal["active", "historical", "all"]
+    min_amount: Decimal | None = Field(default=None, ge=0)
+    max_amount: Decimal | None = Field(default=None, ge=0)
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+    questions: list[str] = Field(default_factory=list, max_length=20)
+    confidence: int = Field(ge=0, le=100)
+    discarded_count: int = Field(default=0, ge=0)
+    discarded_reasons: dict[str, int] = Field(default_factory=dict)
+
+
 AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
@@ -553,4 +579,5 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "weekly_change": WeeklyChangeOutput,
     "dossier_situation_summary": DossierSituationSummaryOutput,
     "dossier_completion_wizard": DossierCompletionWizardOutput,
+    "tender_search_wizard": TenderSearchWizardOutput,
 }

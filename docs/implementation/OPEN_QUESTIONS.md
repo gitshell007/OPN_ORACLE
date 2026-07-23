@@ -84,10 +84,21 @@
   award-céntrico y `scope=historical` de licitaciones permanece deshabilitado.
 - **Resuelto en Prompt 76, Solo Oracle:** perfil determinista de empresa comparable y taxonomía CPV
   europea versionada, sin depender de v2, sin persistencia y sin LLM por adjudicación.
-- **Siguiente fase, Solo Oracle:** el wizard debe crear/revisar el perfil de búsqueda tenant-scoped
-  usando el perfil comparable medido como grounding. Capacidades y exclusiones serán propiedad de
-  ese perfil; `StrategicDossier.profile_config` solo guardará una referencia, no una copia
-  divergente. La replanificación con feedback será explícita, periódica y revisada por una persona.
+- **Resuelto en Prompt 78, Solo Oracle:** el wizard propone un plan dossierless, lo postvalida
+  contra CPV/términos locales y solo una aceptación humana crea o versiona
+  `ProcurementSearchProfile`. Preview y guardado no ejecutan IA; las vigilancias siguen siendo
+  active-only. Capacidades y exclusiones son propiedad de este perfil; `profile_config` no las
+  duplica. La replanificación con feedback sigue reservada a una revisión futura explícita.
+- **Pendiente Signal:** registrar/autorizar `tender_search_wizard` para el consumer productivo si
+  Oracle usa `AI_MODE=signal`. El código funciona también en disabled/mock/ollama, pero Oracle no
+  modifica unilateralmente el catálogo ni la allowlist gobernada de Signal.
+- **Pendiente contrato v2:** declarar formalmente que `keywords` es hoy una subcadena literal
+  contigua y sensible a tildes, o sustituirlo por una sintaxis booleana versionada. Oracle v1 usa
+  sondas independientes y no concatena chips.
+- **Pendiente calidad:** el modelo local real no igualó el recall combinado determinista de ITURRI;
+  la UI del Prompt 79 debe presentar la propuesta como candidata y conservar los agregados medidos,
+  no vender el LLM como mejora demostrada. Una futura replanificación gobernada podrá comparar
+  versiones con feedback, siempre mediante revisión explícita.
 
 - Pendiente de Signal/compliance para inteligencia competitiva: decidir si se autoriza Gemini vía
   OpenRouter como secundario, con clasificación máxima, redacción, presupuesto y conjunto explícito

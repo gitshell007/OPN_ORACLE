@@ -4,6 +4,38 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 78 · wizard de búsqueda de licitaciones (completado en Oracle)
+
+- **[Solo Oracle · backend]** Registrado `tender_search_wizard/v1`: una generación gobernada,
+  dossierless y tenant-scoped propone un plan estricto; CPV y términos se postvalidan localmente y
+  cualquier descarte queda visible. La misma descripción, comparable y prompt reutilizan artefacto
+  antes de reservar uso, por lo que no duplican `AIUsageLedger`.
+- `ProcurementSearchProfile` es la fuente de verdad tenant-scoped del plan aceptado. La aceptación
+  es humana, explícita, versionada, hasheada y ligada obligatoriamente al `AIArtifact`; aceptar,
+  previsualizar o guardar no llama al LLM. La migración `0022` añade tabla, RLS y permite artefactos
+  y snapshots IA sin expediente solo cuando el target tenant permanece explícito. Filas existentes
+  transformadas: cero.
+- El preview ejecuta bloques independientes y visibles: máximo ocho peticiones a Signal, cuatro
+  términos y cuatro CPV, sin fusionar resultados ni fingir orden global. Histórico falla antes de
+  contactar al proveedor y el guardado solo se permite para `scope=active` mediante acción humana.
+- Medición read-only de Signal: `keywords` es subcadena literal contigua y sensible a tildes, no
+  AND/OR. La evaluación ITURRI usa 1.252 adjudicaciones, 769 expedientes y holdout temporal de 154:
+  línea base y control train-only 81,8 %; mock top-20 82,5 % con fuga temporal; Ollama
+  `qwen3.5:9b`, ya compatible mediante `format=json`, `think=false` y Pydantic obligatorio, queda
+  en 65,6 %. Compatibilidad verde; calidad del modelo real abierta.
+- No se modifica `/app/procurement`, no hay embeddings, feedback ni análisis por licitación. El
+  informe reproducible queda en
+  `docs/implementation/evaluations/2026-07-23_ITURRI_tender_search_wizard.md`.
+- Gates: Ruff y formato correctos sobre 163 ficheros, mypy correcto sobre 118 módulos, migración
+  upgrade→downgrade→upgrade correcta, OpenAPI/cliente sin deriva y suite versionada con
+  PostgreSQL/Redis reales: 628 pruebas, 84,70 % de cobertura. La ejecución sin exclusiones añadió
+  29 pruebas no versionadas de Prompt 79: 656 pasaron y falló una allowlist ajena a esta fase.
+  Frontend, aunque no cambió: ESLint sin errores (aviso conocido de TanStack Table), TypeScript
+  correcto, Vitest 39 ficheros/195 tests y build Next de 19 páginas correcto.
+- Mutaciones restauradas: `think`, CPV desconocido, reutilización por hash, incremento de versión,
+  ocultación cross-tenant, cuatro límites del preview y tres ramas del arnés de recall hicieron
+  caer sus pruebas específicas.
+
 ## Tarjeta social de Oracle
 
 - La raíz declara metadata Open Graph y Twitter explícita con una imagen horizontal de 1200×630,
@@ -63,8 +95,8 @@ Interfaz canónica: `CANONICAL_UI=vector`
   informativos, independientes y no se suman.
 - Informe reproducible:
   `docs/implementation/evaluations/2026-07-23_ITURRI_comparable_profile.md`.
-- Sin migraciones, variables, UI, modelos persistentes ni cambios de Signal. El wizard y el perfil
-  tenant-scoped de capacidades/exclusiones quedan para Prompt 77.
+- En Prompt 76 no hubo migraciones, variables, UI, modelos persistentes ni cambios de Signal. El
+  wizard y el perfil tenant-scoped de capacidades/exclusiones se completaron después en Prompt 78.
 - Gates: Ruff y formato correctos sobre 175 ficheros, mypy correcto sobre 113 módulos, 591 pruebas
   backend con PostgreSQL/Redis reales y 84,52 % de cobertura. OpenAPI y cliente TypeScript
   regenerados sin deriva; ESLint sin errores (permanece el aviso conocido de TanStack Table),
