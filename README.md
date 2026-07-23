@@ -77,6 +77,7 @@ Las preferencias visuales productivas son locales al navegador y pueden restable
 - [Navegación](docs/product/NAVIGATION_SPEC.md)
 - [Matriz ruta/permiso](docs/product/ROUTE_PERMISSION_MATRIX.md)
 - [Arquitectura técnica](docs/architecture/REPOSITORY_MAP.md)
+- [Propuesta de investigaciones empresariales](docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md)
 - [Estrategia y matriz de pruebas](docs/quality/TEST_STRATEGY.md)
 - [Readiness de seguridad](docs/security/READINESS_REPORT.md)
 

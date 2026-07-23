@@ -151,3 +151,27 @@
 - Política de redacción/PII, retención de prompts y respuestas, presupuesto y kill switch.
 - Confirmar si la IA arranca deshabilitada en producción hasta aprobación formal.
 - Confirmar requisitos ENS y retención/auditoría aplicables al primer release.
+
+## Investigaciones empresariales trazables
+
+- Pendiente de producto aceptar, ajustar o descartar
+  `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md`. Hasta esa decisión no se crean migraciones,
+  endpoints, task keys ni fuentes nuevas.
+- Pendiente medir en un spike la cobertura real de participantes no adjudicatarios. PLACSP
+  estructura adjudicatario y número de ofertas, pero no garantiza una lista nominal completa; la
+  identidad de admitidos, excluidos o perdedores puede residir solo en actas, valoraciones y
+  resoluciones. Oracle no prometerá exhaustividad ni transformará «no localizado» en «no se
+  presentó».
+- Pendiente Signal: contrato incremental de participantes por expediente/lote, con documento,
+  página/fragmento, rol y cobertura; y `counterpart_kind` fiable para no inferir por el nombre si
+  una contraparte BORME es persona física o jurídica.
+- Pendiente decidir acceso autorizado, coste y condiciones de uso de notas/certificaciones del
+  Registro Mercantil. No se automatizará vaciado masivo ni se sortearán autenticación, CAPTCHA o
+  límites de fuente.
+- Pendiente compliance/DPO: finalidad, base jurídica, ponderación, información del artículo 14,
+  derechos, retención y necesidad de EIPD para enlazar trayectorias profesionales de personas
+  físicas entre fuentes. El workflow propuesto excluye vida privada, categorías especiales y
+  decisiones adversas automatizadas.
+- Pendiente benchmark local antes de elegir bandas de modelo, contexto y presupuesto. Oracle
+  enviaría solo task keys gobernadas por Signal; si producto exige local, Signal fijaría Ollama y
+  cloud desactivado para esas tareas.

@@ -3102,3 +3102,40 @@ No hay migración ni variable nueva. El techo global `EVIDENCE_SOURCE_TOTAL_LIMI
 se conservan después del filtrado. Se registra en D-059 la decisión y también la colisión del número
 73 con el prompt del grafo. La dependencia de una fuente informativa real, fechada y desambiguada
 queda abierta para Signal.
+
+## 2026-07-23 · Propuesta ORACLE-EXP-INVESTIGACIONES
+
+Se documenta en `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md` una metodología genérica para
+investigaciones empresariales trazables. No investiga una entidad concreta ni implementa todavía
+el workflow. La recomendación mantiene `StrategicDossier` como unidad central y añade, si producto
+la acepta, una ejecución por rondas con candidatos aislados, frontera, fuentes congeladas, claims,
+contradicciones y revisión humana antes de promover `Actor`, `Relationship`, `Evidence` o `Report`.
+
+La auditoría del producto actual confirma que ya existen grafo BORME, ficha e informe de entidad,
+adjudicaciones PLACSP, descarga documental, evidencias, jobs durables y gobernanza IA. El hueco
+material no es otro informe: es consultar contratación para cada sociedad verificada, resolver
+identidad sin contaminar el grafo canónico y obtener participantes no adjudicatarios desde
+documentos oficiales.
+
+La propuesta corrige dos expectativas:
+
+- Ollama extrae, contrasta y redacta detrás de task keys de Signal; no navega ni es fuente de
+  verdad. Una investigación de horas se divide en un DAG durable de jobs cortos porque producción
+  limita Celery a 690/720 segundos y las leases IA a 600.
+- PLACSP ofrece adjudicatario y número de ofertas de forma estructurada, pero no garantiza los
+  nombres de todos los licitadores. «Perdió» solo se publica cuando un documento identifica al
+  licitador y otro adjudicatario en el mismo lote; ausencia de resultado permanece `unknown`.
+
+Se proponen una Fase 0 de 1–2 semanas para medir identidad, cobertura documental y Ollama, seguida
+de MVP determinista, participación documental, informe multipasada y monitorización. El total
+orientativo es 9–15 semanas de ingeniería, condicionado por Signal, acceso registral y compliance.
+Las decisiones pendientes quedan en `OPEN_QUESTIONS.md`; no se registra una decisión aceptada ni se
+modifica `DECISIONS.md` hasta recibir validación de producto.
+
+No hay migración, variable, API ni código runtime nuevos. Por ser documentación de diseño no se
+ejecutaron suites de aplicación. La validación documental cerró con `git diff --check` limpio,
+10 enlaces Markdown locales resueltos y 0 ausentes. El barrido de ejemplos confirmó que la
+propuesta no contiene Huawei ni otra entidad del caso inicial. El barrido de participantes y
+`counterpart_kind` confirmó que el runtime solo modela participantes de reuniones y conserva una
+clasificación parcial de contrapartes BORME; no existe todavía el índice nominal de licitadores que
+la propuesta asigna a Signal.
