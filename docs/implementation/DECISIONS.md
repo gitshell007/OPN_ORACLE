@@ -1161,3 +1161,17 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** Oracle puede medir el extractor candidato sin ceder al modelo deduplicación,
   completitud, identidad ni promoción. Los resultados reales siguen privados, candidatos y sujetos
   a revisión humana; precisión/recall permanecen cerrados hasta adjudicar gold A/B.
+
+## D-069 — No complicar el schema de chunk sin mejora medida
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** Los fallos de `chunk/v1` se concentran en citas que no contienen literalmente el
+  nombre o no aparecen de forma exacta. Una hipótesis razonable era permitir varias citas por
+  candidato para separar encabezado de tabla y fila nominal.
+- **Decisión:** Se probó `chunk/v2` privado con múltiples citas y se descartó: sobre 8 chunks bajó
+  a 6/8 schemas y 1/8 chunks estructurales, frente a `chunk/v1`, que en la expansión acotada logró
+  18/18 schemas y 11/18 chunks estructurales. El extractor activo permanece en `chunk/v1`.
+- **Consecuencias:** La siguiente mejora debe ser determinista o de selección/normalización de
+  fragmentos, no aumentar complejidad del schema para `qwen3.5:9b`. La decisión no afecta a Signal,
+  runtime productivo ni promoción de datos.

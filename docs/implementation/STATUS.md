@@ -49,6 +49,25 @@ Interfaz canónica: `CANONICAL_UI=vector`
   duplicado conserva una sola aserción citable; el validador de chunk rechaza una cita fuera del
   trozo o sin nombre literal.
 
+## ORACLE-EXP-INV-05 · no complicar schema sin medir
+
+- Probado un contrato experimental `chunk/v2` con múltiples citas por aserción para cubrir tablas
+  donde el encabezado aporta el rol y la fila aporta el nombre. Resultado sobre 8 chunks reales:
+  6/8 schemas, 1/8 validación estructural, 2/2 merges finales válidos, 2 candidatos fusionados y
+  10 llamadas físicas. Errores agregados: cinco `name_not_in_quote`, tres `quote_missing` y dos
+  `schema_invalid`. Se descarta como extractor activo.
+- Restaurado `chunk/v1` como contrato vigente y ampliado el smoke real: 4 documentos, 18 chunks,
+  15 llamadas físicas y 4 reutilizadas, 18/18 schemas, 11/18 validaciones estructurales, 4/4 merges
+  finales válidos y 15 candidatos citables. Roles: 13 `unknown` y 2 `non_awarded_bidder`; un
+  agotamiento de salida; mediana 18,0 s por llamada.
+- Conclusión: `chunk/v1` sigue siendo la mejor ruta local medida para candidatos; el siguiente
+  trabajo no es enriquecer el schema, sino reducir errores de cita/tabla de forma determinista y
+  completar gold A/B. No hay cambio en Signal ni en runtime productivo.
+- Verificación: `tests/test_investigation_documents.py` 37/37 con `--no-cov`, mypy correcto sobre
+  118 módulos productivos y `git diff --check` correcto en los documentos tocados. La suite completa
+  sobre el árbol compartido con cambios concurrentes ajenos ejecutó 670/670 pruebas correctas, pero
+  falló el umbral global de cobertura con 83,43 % frente al 84 % requerido.
+
 ## Prompt 80 · UI del wizard de búsqueda (completado)
 
 - **[Solo Oracle · frontend]** `/app/procurement` incorpora el wizard gobernado de dos pasos sobre

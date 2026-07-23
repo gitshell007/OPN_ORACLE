@@ -224,3 +224,29 @@ Smoke real acotado con qwen3.5:9b:
 El cambio es un `GO` metodológico para continuar con extracción candidata por chunks. Sigue siendo
 `NO-GO` para promoción, precisión/recall o afirmaciones sobre participantes hasta completar gold
 A/B y adjudicación humana.
+
+## 10. Seguimiento INV-05: comparación de schema y expansión acotada
+
+Se probó un `chunk/v2` privado con varias citas por aserción para separar encabezados de tabla y
+filas nominales. No mejoró: en 8 chunks reales obtuvo 6/8 schemas, 1/8 chunks estructurales y dos
+candidatos fusionados. Errores agregados: cinco `name_not_in_quote`, tres `quote_missing` y dos
+`schema_invalid`. Se descarta como extractor activo.
+
+Con `chunk/v1` restaurado, una expansión acotada sobre cuatro documentos produjo:
+
+| Medida | Resultado |
+|---|---:|
+| Documentos ejecutados | 4 |
+| Chunks ejecutados | 18 |
+| Llamadas físicas | 15 |
+| Chunks reutilizados | 4 |
+| Schema por chunk | 18/18 |
+| Validación estructural por chunk | 11/18 |
+| Merge final válido | 4/4 |
+| Candidatos fusionados citables | 15 |
+| Agotamientos de salida | 1 |
+| Mediana de llamada física | 18,0 s |
+
+Conclusión: `chunk/v1` permanece como mejor contrato local medido. La siguiente mejora debe
+centrarse en selección/normalización determinista de fragmentos y gold humano, no en enriquecer el
+schema del modelo.

@@ -214,7 +214,9 @@
 - Pendiente gold INV-03/04: las hojas A=96/B=24 existen vacías, pero siguen 0 completadas y 0
   adjudicadas. `qwen3.5:9b` por documento completo validó 6/10 schemas, 5/10 estructuras y cero
   aserciones. El chunking/merge ya tiene smoke real candidato con 12/12 schemas, 5/12 chunks
-  estructurales y 2/2 merges finales válidos sobre dos documentos, pero extractor, reviewer
+  estructurales y 2/2 merges finales válidos sobre dos documentos; ampliado después con `chunk/v1`
+  a 18/18 schemas, 11/18 chunks estructurales y 4/4 merges finales válidos sobre cuatro documentos.
+  El intento `chunk/v2` con múltiples citas empeoró y se descartó. Extractor promovible, reviewer
   bloqueante, promoción automática y métricas precision/recall continúan en `NO-GO` hasta gold.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
