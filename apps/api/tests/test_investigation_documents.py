@@ -24,6 +24,7 @@ from investigation_documents import (  # noqa: E402
     ParticipationChunkOutput,
     acquire_reference,
     build_blinded_annotation_packs,
+    build_blinded_reviewer_materials,
     candidate_fingerprint,
     candidate_page_hashes,
     chunk_candidate_fingerprint,
@@ -163,6 +164,39 @@ def test_blinded_packs_hide_sample_mapping_and_winner() -> None:
     serialized = json.dumps(packs["annotator_a"] + packs["annotator_b"])
     assert "sample_id" not in serialized
     assert "SHOULD NOT ENTER" not in serialized
+
+
+def test_reviewer_materials_hide_sample_url_winner_and_model_output() -> None:
+    row = _unit(
+        "hosted",
+        "recent",
+        "simple",
+        1,
+        documents=[{"url": "https://example.test/private-document"}],
+    )
+    source_ref_id = source_reference_id(
+        str(row["sample_id"]),
+        "https://example.test/private-document",
+    )
+    materials = build_blinded_reviewer_materials(
+        [row],
+        annotator="A",
+        acquisition_by_source={
+            source_ref_id: {
+                "status": "reused_quarantined",
+                "media_kind": "pdf",
+            }
+        },
+    )
+    serialized = json.dumps(materials)
+    assert "sample_id" not in serialized
+    assert "private-document" not in serialized
+    assert "SHOULD NOT ENTER" not in serialized
+    assert materials[0]["references"][0] == {
+        "source_ref_id": source_ref_id,
+        "availability": "available",
+        "object_name": f"{source_ref_id}.pdf",
+    }
 
 
 @pytest.mark.parametrize(

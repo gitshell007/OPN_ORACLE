@@ -4,6 +4,21 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## ORACLE-EXP-INV-08 · paquete de revisión doble ciego
+
+- **[Solo spike privado]** `--reviewer-pack-only` genera índices de material para anotadores sin
+  parsing ni inferencia. A conserva 96 hojas y B las 24 del core; ambos reciben `annotation_id` y
+  hashes opacos de objeto, nunca `sample_id`, URL, ganador ni candidatos Ollama.
+- La cuarentena actual aporta 130 referencias descargadas en 16 expedientes. El índice marca las
+  demás como `not_acquired` en vez de sustituirlas: A tiene 130 disponibles y 514 no adquiridas;
+  B, 130 y 15 respectivamente. Los PDF/DOCX no se copian ni salen de `.work`.
+- Resultado: el cuello de botella restante es explícitamente humano. A/B deben completar sus hojas
+  y un adjudicador resolver desacuerdos; hasta entonces gold, precisión, recall y promoción siguen
+  bloqueados. Sin Signal, migraciones, variables ni runtime productivo.
+- Verificación: `tests/test_investigation_documents.py` 44/44 con `--no-cov`; Ruff check y
+  format-check correctos. La mutación cubre que URL, `sample_id` y ganador no aparezcan en el
+  índice del revisor.
+
 ## ORACLE-EXP-INV-07 · OCR local candidato
 
 - **[Solo spike privado]** Los cinco PDFs `ocr_required` se procesan ahora con Apple Vision local:
@@ -73,12 +88,18 @@ Interfaz canónica: `CANONICAL_UI=vector`
 
 ## Prompt 83 · vigilancia incremental y memoria de vistos (en curso)
 
-- **[Solo Oracle · API + UX]** En curso: memoria tenant-scoped por vigilancia y `folder_id`,
-  huella material que excluye `feed_updated_at`, barrido durable idempotente sobre la cola
-  `signals`, y notificación agrupada únicamente cuando existan novedades. No introduce IA.
-- La decisión de retención, la semántica explícita de revisión y la compatibilidad con las
-  preferencias de notificación existentes se cerrarán junto con la migración, los tests de RLS
-  y el recorrido responsive de la interfaz.
+- **[Solo Oracle · API + UX]** Implementada la memoria RLS por vigilancia guardada y `folder_id`:
+  `first_seen_at`, revisión humana, snapshot y hash SHA-256 material. La huella ignora
+  explícitamente `feed_updated_at` y compara título, objeto, comprador, importe, plazo, estado y
+  CPV; la primera aparición o un cambio material reabre el ítem.
+- Cada vigilancia se crea inactiva, se activa con aviso explícito y reutiliza `JobSchedule`/beat y
+  la cola `signals` cada 15 minutos (cuatro páginas de 200, sin cursor ni orden fingidos). Un ciclo
+  idéntico no notifica; un error preserva el último éxito y se propaga como retryable o permanente.
+  Las notificaciones siguen preferencias existentes y se agrupan por vigilancia/ciclo.
+- Vector muestra el contador, último éxito/error, badges `Nuevo`/`Cambió` y revisión individual o
+  masiva con deshacer. El feedback marca el ítem como visto; borrar la búsqueda pausa la vigilancia
+  y la memoria se retiene 90 días antes de purgarse. Pendientes de ejecutar los gates completos y
+  el smoke real de Signal antes de marcar el prompt cerrado.
 
 ## Prompt 81 · deuda visible antes del feedback (completado)
 

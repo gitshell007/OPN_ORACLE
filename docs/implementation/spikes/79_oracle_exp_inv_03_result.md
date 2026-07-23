@@ -317,3 +317,20 @@ Rechazos: tres `name_not_in_quote`, tres `quote_missing` y un schema inválido. 
 `GO` para recuperar corpus candidato y `NO-GO` para tratar OCR como evidencia de igual fuerza que
 texto nativo, inferir calidad o promoción. Gold A/B debe contrastar imagen y transcripción antes de
 calcular precision/recall.
+
+## 13. Seguimiento INV-08: paquete de revisión doble ciego
+
+El runner ya puede materializar índices privados para revisión sin ejecutar parser/Ollama:
+`--reuse-quarantine --reviewer-pack-only`. Cada fila enlaza una hoja por `annotation_id` con
+referencias opacas de cuarentena; no contiene `sample_id`, URL, ganador ni salida del modelo. Los
+originales siguen en cuarentena y no se duplican.
+
+| Paquete | Filas | Referencias disponibles | No adquiridas | Expedientes con material |
+|---|---:|---:|---:|---:|
+| Anotador A | 96 | 130 | 514 | 16 |
+| Anotador B | 24 | 130 | 15 | 16 |
+
+Los estados `not_acquired` son parte del denominador: no significan que una entidad no participara
+ni se sustituyen por un caso más fácil. El paquete deja el gold preparado, pero no lo crea. Quedan
+las etiquetas A/B y la adjudicación humana antes de calcular precision/recall o promover cualquier
+candidato.

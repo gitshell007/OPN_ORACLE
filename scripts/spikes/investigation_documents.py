@@ -359,6 +359,52 @@ def build_blinded_annotation_packs(
     }
 
 
+def build_blinded_reviewer_materials(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    annotator: Literal["A", "B"],
+    acquisition_by_source: Mapping[str, Mapping[str, Any]],
+) -> list[JsonObject]:
+    """Expose only opaque, available material identifiers to one annotator.
+
+    The reviewer index is deliberately separate from the coordinator map. It has
+    no sample identifier, URL, structured winner or model output, while still
+    pointing a reviewer to an already quarantined local object by opaque hash.
+    """
+
+    materials = []
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        references = []
+        for document in _list_of_mappings(row.get("documents")):
+            url = _text(document.get("url"))
+            if url is None:
+                continue
+            source_ref_id = source_reference_id(sample_id, url)
+            acquisition = acquisition_by_source.get(source_ref_id, {})
+            status = acquisition.get("status")
+            media_kind = _text(acquisition.get("media_kind"))
+            available = status in {
+                "downloaded_quarantined",
+                "reused_quarantined",
+            } and media_kind in {"pdf", "docx"}
+            reference: JsonObject = {
+                "source_ref_id": source_ref_id,
+                "availability": "available" if available else "not_acquired",
+            }
+            if available and media_kind is not None:
+                reference["object_name"] = f"{source_ref_id}.{media_kind}"
+            references.append(reference)
+        materials.append(
+            {
+                "annotation_id": _annotation_id(annotator, sample_id),
+                "document_reference_count": len(references),
+                "references": references,
+            }
+        )
+    return materials
+
+
 def validate_reference_url(url: str) -> EndpointRule:
     if (
         len(url) > MAX_URL_LENGTH

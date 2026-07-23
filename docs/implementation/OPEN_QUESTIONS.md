@@ -92,11 +92,17 @@
 - **Resuelto en Prompt 82, Solo Oracle:** el feedback de resultados, su digest y la retirada son
   deterministas y no llaman a IA; solo una replanificación explícita consume
   `tender_search_wizard`, revalida versión/digest y acepta v2 únicamente sobre el perfil objetivo.
-- **Siguiente fase Oracle:** vigilancia incremental con memoria de vistos, cursor/huella de ítems
-  ya revisados y notificaciones sin repetir lo que el usuario ya clasificó.
+- **Resuelto en Prompt 83, Solo Oracle:** vigilancia incremental de búsquedas `active` con memoria
+  RLS por `folder_id`, huella material sin `feed_updated_at`, revisión/feedback explícitos,
+  retención de 90 días y avisos agrupados sobre el scheduler durable existente. No introduce cursor
+  ficticio, histórico ni llamadas LLM.
 - **Pendiente Signal:** registrar/autorizar `tender_search_wizard` para el consumer productivo si
   Oracle usa `AI_MODE=signal`. El código funciona también en disabled/mock/ollama, pero Oracle no
   modifica unilateralmente el catálogo ni la allowlist gobernada de Signal.
+- **Pendiente smoke Signal real:** ejecutar una búsqueda guardada y un barrido de vigilancia desde
+  un entorno con `SIGNAL_AVANZA_MODE=http` y credencial del consumer. El entorno local mantiene
+  `SIGNAL_AVANZA_MODE=mock` y `ORACLE_AI_MODE=disabled`, por lo que ningún resultado mock se
+  presentará como verificación productiva.
 - **Pendiente contrato v2:** declarar formalmente que `keywords` es hoy una subcadena literal
   contigua y sensible a tildes, o sustituirlo por una sintaxis booleana versionada. Oracle v1 usa
   sondas independientes y no concatena chips.
@@ -228,7 +234,9 @@
   descartaron como extractor activo. La cuarentena ya puede revalidarse y reparsearse offline sin
   red; OCR local añade candidatos, no evidencia de igual fuerza que el texto nativo. Extractor
   candidato, reviewer bloqueante, promoción automática y métricas precision/recall continúan en
-  `NO-GO` hasta gold.
+  `NO-GO` hasta gold. El pack A/B ya está preparado con índices opacos: 130 documentos disponibles
+  en 16 expedientes, y estados `not_acquired` visibles sin sustitución. La acción pendiente no es
+  técnica: etiquetado humano y adjudicación.
 - Pendiente frontera D-028: decidir si Signal entrega un corpus exploratorio congelado y Oracle
   conserva solo manifest, hashes, extractos y fuentes promovidas, o si la investigación justifica
   una excepción explícita para retener payloads/PDFs completos con licencia, volumen, retención y

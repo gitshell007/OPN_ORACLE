@@ -1224,3 +1224,40 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** 32 páginas OCR permiten medir candidatos, pero no cambian `chunk/v1`, roles,
   promoción ni precisión/recall. Gold humano debe contrastar imagen y transcripción antes de que
   una aserción OCR pese igual que texto nativo. No afecta Signal ni producto runtime.
+
+## D-073 — El paquete de revisión conserva el denominador y el doble ciego
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-24
+- **Contexto:** Las hojas A=96/B=24 estaban vacías, pero el material disponible vivía en cuarentena
+  y no era entregable a un anotador sin revelar el mapa coordinador o contaminarlos con resultados
+  estructurados/modelo.
+- **Decisión:** El runner produce índices privados por anotador con `annotation_id` y referencias
+  opacas disponibles. Los objetos ausentes se marcan `not_acquired`; no se rellenan con otros
+  expedientes. No se copian PDFs, URLs, `sample_id`, ganadores ni candidatos a los packs.
+- **Consecuencias:** A/B pueden empezar por los 16 expedientes con 130 referencias disponibles y
+  registrar el resto como estado de material. El gate de gold no se relaja: solo anotación humana y
+  adjudicación pueden crear labels utilizables para precisión/recall.
+
+## D-073 — La novedad de una licitación es local, material y revisable
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-24
+- **Contexto:** Signal v1 no publica cursor estable, orden global ni un feed de cambios. La línea
+  base autenticada del 2026-07-23 mide 637 licitaciones activas dentro de 2.247 indexadas, por lo
+  que una vigilancia activa puede releerse sin fingir incrementalidad remota. Tratar cada
+  `feed_updated_at` como novedad repetiría avisos sin aportar información al analista.
+- **Decisión:** Oracle guarda por tenant, vigilancia guardada y `folder_id` el primer/último visto,
+  estado de revisión y SHA-256 de una instantánea canónica: título, objeto, comprador, importe,
+  plazo, estado canónico y CPV. `feed_updated_at` queda fuera. Una vigilancia se activa de forma
+  explícita, se barre como `JobSchedule` durable cada 15 minutos en la cola `signals`, hasta cuatro
+  páginas de 200 resultados; no hay cursor ni unión/orden inventados. La primera aparición o un
+  hash material distinto reabre el ítem y puede producir una sola notificación agrupada por ciclo;
+  un barrido idéntico queda en silencio. Marcar revisado es explícito y el feedback implica que la
+  persona ya lo revisó. Al borrar la búsqueda de Signal se pausa la vigilancia y conserva la
+  memoria 90 días antes de purgarla.
+- **Consecuencias:** no hay llamadas LLM en listado, barrido, huella, feedback implícito ni aviso.
+  El lector ve `Nuevo`/`Cambió` y el último éxito o error, sin que un error de proveedor se presente
+  como «sin novedades». Se reutilizan preferencias y canal de notificaciones existentes; no se
+  crea otro scheduler ni se amplía el alcance fuera de `active`. Una búsqueda que supere 800
+  resultados por ciclo falla de forma visible y no simula una cobertura completa.

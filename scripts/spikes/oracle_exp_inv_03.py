@@ -24,6 +24,7 @@ from investigation_documents import (
     acquisition_summary,
     acquire_reference,
     build_blinded_annotation_packs,
+    build_blinded_reviewer_materials,
     candidate_fingerprint,
     candidate_page_hashes,
     candidate_prompt_contract,
@@ -758,11 +759,32 @@ def execute(args: argparse.Namespace) -> JsonObject:
         ]
     _write_private_json(work_dir / "acquisition_ledger.json", private_acquisition)
     acquisition = acquisition_summary(core_rows, results)
+    acquisition_by_source = {
+        result.source_ref_id: acquisition_result_json(result) for result in results
+    }
+    reviewer_materials_a = build_blinded_reviewer_materials(
+        all_rows,
+        annotator="A",
+        acquisition_by_source=acquisition_by_source,
+    )
+    reviewer_materials_b = build_blinded_reviewer_materials(
+        core_rows,
+        annotator="B",
+        acquisition_by_source=acquisition_by_source,
+    )
+    _write_private_json(
+        work_dir / "gold" / "annotator_a" / "materials.json",
+        reviewer_materials_a,
+    )
+    _write_private_json(
+        work_dir / "gold" / "annotator_b" / "materials.json",
+        reviewer_materials_b,
+    )
 
     if args.only_local_ocr and not args.include_local_ocr:
         raise ValueError("--only-local-ocr requires --include-local-ocr")
     parsed_documents = []
-    if not args.only_local_ocr:
+    if not args.only_local_ocr and not args.reviewer_pack_only:
         for acquisition_result in results:
             if acquisition_result.status not in {
                 "downloaded_quarantined",
@@ -879,6 +901,20 @@ def execute(args: argparse.Namespace) -> JsonObject:
             "annotator_b_completed": 0,
             "adjudicated": 0,
         },
+        "reviewer_materials": {
+            "annotator_a_rows": len(reviewer_materials_a),
+            "annotator_b_rows": len(reviewer_materials_b),
+            "annotator_a_available": sum(
+                reference["availability"] == "available"
+                for item in reviewer_materials_a
+                for reference in item["references"]
+            ),
+            "annotator_b_available": sum(
+                reference["availability"] == "available"
+                for item in reviewer_materials_b
+                for reference in item["references"]
+            ),
+        },
         "decisions": {
             "document_participation_extraction": "candidate_only_pending_gold",
             "automatic_promotion": "forbidden",
@@ -902,6 +938,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--document-timeout", type=int, default=45)
     parser.add_argument("--max-document-bytes", type=int, default=MAX_DOCUMENT_BYTES)
     parser.add_argument("--allow-unscanned-internal", action="store_true")
+    parser.add_argument(
+        "--reviewer-pack-only",
+        action="store_true",
+        help="Write blinded reviewer material indexes without parsing or inference.",
+    )
     parser.add_argument(
         "--include-local-ocr",
         action="store_true",
