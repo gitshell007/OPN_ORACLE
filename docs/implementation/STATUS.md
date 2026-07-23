@@ -1,8 +1,19 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-22
+Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Exploración progresiva y taxonomía de roles del grafo (en curso)
+
+- Objetivo de la fase: agrupar variantes equivalentes de cargo recibidas desde Signal mediante una
+  taxonomía autoritativa en Flask, conservando la etiqueta original de cada vínculo como
+  procedencia y sin fusionar cargos materialmente distintos.
+- El grafo debe seguir arrancando con todos los nodos y enlaces recibidos. La exploración progresiva
+  será explícita y reversible, y mostrará siempre elementos visibles frente al total recibido y el
+  eventual recorte declarado por Signal; mejorar la lectura no autoriza a falsear cobertura.
+- La verificación se realizará en los extremos ya medidos: ITURRI SA (grafo grande y recortado) e
+  ITURRIN SA (grafo pequeño), además de tests de contrato, filtros y mutaciones.
 
 ## Ficha de entidad operable: cámara estable, jerarquía y fuentes honestas
 
@@ -2822,3 +2833,51 @@ El árbol quedó limpio y apareció commiteado también `4d2eee7` («filtrar niv
 de entidades»), de otra sesión. Antes ese trabajo habría quedado sin commitear y lo habría
 recogido otro atribuyéndoselo. El commit del prompt 71 llega además con prefijo convencional,
 cuerpo amplio y trailer `Prompt: 71`.
+
+## 2026-07-23 · Marcas: el BOPI sí es tratable, pero el coste no baja lo suficiente
+
+Signal respondió a la repregunta sobre si el BOPI se puede ingerir como el BORME. Resumen para no
+volver a investigarlo:
+
+**El BOPI no es solo PDF.** La OEPM publica el Tomo I de marcas y otros signos distintivos en
+**XML y HTML con XSD oficial**. Mi hipótesis de partida («quizá solo hay PDF y por eso son 4-7
+días») era falsa: no haría falta OCR ni empezar de cero.
+
+**Pero no tiene la ergonomía del BORME.** El XML/HTML es *dato protegido*: exige registro de
+entidad o persona y aceptación de condiciones. **No hay endpoint público anónimo** equivalente al
+sumario del BOE que alimenta el BORME. Y el parser tendría que tolerar evolución del XSD, con
+cambios documentados en 2019, 2023 y 2024.
+
+**EUIPO** es más tratable como API REST estructurada, pero también con cuenta, `client_id`/secret y
+suscripción aprobada. Y no sustituye a la OEPM: cubre EUTM y registros internacionales que designan
+la UE. TMview agrega oficinas nacionales, pero Signal **no ha verificado** especificación pública
+que permita asumir ingesta masiva o incremental de OEPM por esa vía, y lo dice expresamente en vez
+de suponerlo.
+
+**Estimación revisada:** 4-7 días se mantiene, y el motivo cambia: no es el formato, son las
+credenciales de fuente, el modelo de dominio, las versiones de XML, el histórico y el contrato de
+API. Bajaría a 3-5 días si el alcance fuese solo ingesta incremental mínima. La maquinaria
+existente ahorra 1-2 días de infraestructura, no más.
+
+**Lo nuevo sería el modelo de marca**, que no se parece al societario: expediente, denominación o
+representación, titular normalizado, clases de Niza, tipo de signo, estado, y actuaciones
+(solicitud, oposición, concesión, renovación, transmisión, nulidad, caducidad). Necesitaría sus
+propias tablas de progreso y deduplicación; las del BORME son específicas y no se reutilizan tal
+cual.
+
+### Corrección a lo que yo afirmé
+
+En la repregunta escribí que Signal «lo había hecho dos veces», citando `BormeConfig` y
+`GazetteConfig` como segundo caso del mismo patrón. **Es inexacto y Signal lo corrige bien**: esos
+son conectores de *vigilancia* que emiten señales, no índices históricos consultables. El índice
+histórico existe **una sola vez**, en `borme_registry.py`. Mi argumento de que la máquina ya está
+construida seguía siendo válido, pero yo lo reforcé con un ejemplo que no lo era.
+
+### Decisión: aparcado, con el bloqueo identificado
+
+No se emprende. Ningún cliente lo ha pedido y 4-7 días es una iniciativa, no un arreglo.
+
+**Si algún día se emprende, el primer paso no es técnico:** hay que dar de alta una cuenta
+autorizada en la OEPM y con ella verificar descarga real, rango histórico disponible, mecanismo de
+listado por fecha, límites y estabilidad de los XML. Hasta eso, cualquier presupuesto sigue siendo
+una estimación sobre supuestos.
