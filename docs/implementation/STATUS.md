@@ -3605,3 +3605,28 @@ de BORME, sindicación PLACSP, LCSP y el criterio AEPD citado. El barrido de
 confirma que las cifras/modelos quedan como hipótesis, el recuento no se suma por adjudicatario, el
 merge personal probabilístico está prohibido y no se duplican autoridad de jobs ni corpus bruto.
 No se ejecutan suites de aplicación al no cambiar comportamiento.
+
+## 2026-07-24 · Release ORACLE-EXP y verificación de acceso
+
+Se prepara y activa en producción el release inmutable
+`20260723T230148Z-oracle-26ec4e4`, construido mediante `git archive` del commit publicado
+`26ec4e4` (`feat(investigation): preparar revision doble ciega`). El artefacto no incluye los
+cambios locales de contratación que permanecían sin terminar en el árbol compartido.
+
+Antes de la activación, el artefacto aislado supera Ruff, comprobación de formato, mypy y la suite
+backend de integración. El host ejecuta backup lógico y restore aislado; el controlador valida la
+evidencia antes de aplicar la migración/arranque. Durante la construcción se observa de forma
+transitoria el puntero ya activado con los contenedores aún en las imágenes previas; el proceso de
+despliegue seguía vivo y completó el forward-fix previsto, sin rollback manual ni manipulación de
+datos.
+
+Verificación final: `current`, `CURRENT_RELEASE`, `ORACLE_RELEASE`, API, web, worker y beat
+coinciden con el nuevo release; liveness, readiness, login HTTPS, Celery/beat y el smoke público
+son correctos. No hay migración ni variable nueva de este release.
+
+La respuesta «Demasiados intentos» corresponde al bloqueo temporal por identidad del login, no a
+un cambio de contraseña. Tras la activación se inspeccionaron exclusivamente las claves temporales
+`opn-oracle:login:*`: no quedaba ninguna activa, por lo que no se cambió contraseña, sesión,
+membership ni el rate limit general. Un nuevo intento debe hacerse una sola vez, evitando reintentos
+consecutivos; si vuelve a aparecer un `429`, debe conservarse la referencia de la respuesta para
+correlacionar el evento sin exponer credenciales.
