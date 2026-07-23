@@ -3,6 +3,9 @@
 import * as Popover from "@radix-ui/react-popover";
 import {
   api,
+  type ProcurementSearchFeedback,
+  type ProcurementSearchFeedbackDigest,
+  type ProcurementSearchFeedbackReason,
   type ProcurementSearchProfile,
   type ProcurementTenderFilters,
   type ProcurementTenderItem,
@@ -20,6 +23,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -36,6 +40,10 @@ import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { PinToDossierControl } from "./pin-to-dossier-control";
 import { ProcurementAutocomplete } from "./procurement-autocomplete";
+import {
+  ProcurementFeedbackControl,
+  type ProcurementFeedbackValue,
+} from "./procurement-feedback-control";
 import { ProcurementSearchWizard } from "./procurement-search-wizard";
 import {
   cpvLabel,
@@ -76,7 +84,13 @@ interface SummaryState {
   error?: string | null;
 }
 
-function FieldHelp({ label, children }: { label: string; children: ReactNode }) {
+function FieldHelp({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -168,11 +182,23 @@ function tenderText(item: ProcurementTenderItem, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function tenderTimestamp(item: ProcurementTenderItem, key: string): number | null {
+function tenderTimestamp(
+  item: ProcurementTenderItem,
+  key: string,
+): number | null {
   const value = tenderText(item, key);
   if (!value) return null;
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function tenderCpvs(item: ProcurementTenderItem): string[] {
+  if (Array.isArray(item.cpv)) {
+    return item.cpv.filter(
+      (value): value is string => typeof value === "string",
+    );
+  }
+  return typeof item.cpv === "string" ? [item.cpv] : [];
 }
 
 function compareTenderDate(
@@ -197,11 +223,12 @@ function sortLoadedTenders(
   return items
     .map((item, index) => ({ item, index }))
     .sort((left, right) => {
-      const compared = sort === "deadline_asc"
-        ? compareTenderDate(left.item, right.item, "deadline", 1)
-        : sort === "deadline_desc"
-          ? compareTenderDate(left.item, right.item, "deadline", -1)
-          : compareTenderDate(left.item, right.item, "feed_updated_at", -1);
+      const compared =
+        sort === "deadline_asc"
+          ? compareTenderDate(left.item, right.item, "deadline", 1)
+          : sort === "deadline_desc"
+            ? compareTenderDate(left.item, right.item, "deadline", -1)
+            : compareTenderDate(left.item, right.item, "feed_updated_at", -1);
       return compared || left.index - right.index;
     })
     .map(({ item }) => item);
@@ -222,9 +249,7 @@ export function ProcurementWorkspace() {
     buyer: initialBuyer,
     region: initialRegion,
     scope:
-      initialScope === "all" || initialActive === "false"
-        ? "all"
-        : "active",
+      initialScope === "all" || initialActive === "false" ? "all" : "active",
   });
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<ProcurementTendersResponse | null>(null);
@@ -235,6 +260,20 @@ export function ProcurementWorkspace() {
   const [searchProfiles, setSearchProfiles] = useState<
     ProcurementSearchProfile[]
   >([]);
+  const [activeSearchProfile, setActiveSearchProfile] =
+    useState<ProcurementSearchProfile | null>(null);
+  const [feedbackByFolder, setFeedbackByFolder] = useState<
+    Record<string, ProcurementSearchFeedback>
+  >({});
+  const [feedbackDigest, setFeedbackDigest] =
+    useState<ProcurementSearchFeedbackDigest | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState<Set<string>>(new Set());
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [replanRequest, setReplanRequest] = useState<{
+    digestHash: string;
+    profileId: string;
+    requestKey: number;
+  } | null>(null);
   const [searchName, setSearchName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -265,7 +304,9 @@ export function ProcurementWorkspace() {
   const regionSuggestions = useMemo(() => {
     const query = filters.region.trim().toLocaleLowerCase("es");
     return knownRegions
-      .filter((region) => !query || region.toLocaleLowerCase("es").includes(query))
+      .filter(
+        (region) => !query || region.toLocaleLowerCase("es").includes(query),
+      )
       .slice(0, 8);
   }, [filters.region, knownRegions]);
 
@@ -283,10 +324,38 @@ export function ProcurementWorkspace() {
       }
     } catch (reason) {
       setSearchesError(
-        problemMessage(reason, "No se pudieron cargar las búsquedas guardadas."),
+        problemMessage(
+          reason,
+          "No se pudieron cargar las búsquedas guardadas.",
+        ),
       );
     }
   }, []);
+
+  const loadFeedback = useCallback(
+    async (profile: ProcurementSearchProfile) => {
+      setFeedbackError(null);
+      try {
+        const [feedback, digest] = await Promise.all([
+          api.procurementSearchProfiles.listFeedback(profile.id),
+          api.procurementSearchProfiles.feedbackDigest(profile.id),
+        ]);
+        setFeedbackByFolder(
+          Object.fromEntries(
+            feedback.items.map((item) => [item.folder_id, item]),
+          ),
+        );
+        setFeedbackDigest(digest);
+      } catch (reason) {
+        setFeedbackByFolder({});
+        setFeedbackDigest(null);
+        setFeedbackError(
+          problemMessage(reason, "No se pudo cargar el feedback de este plan."),
+        );
+      }
+    },
+    [],
+  );
 
   const loadTenders = useCallback(
     async (nextOffset = offset) => {
@@ -358,6 +427,10 @@ export function ProcurementWorkspace() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    setActiveSearchProfile(null);
+    setFeedbackByFolder({});
+    setFeedbackDigest(null);
+    setFeedbackError(null);
     void loadTenders(0);
   }
 
@@ -420,19 +493,112 @@ export function ProcurementWorkspace() {
         offset: 0,
       });
       // Signal v1 descarta scope al guardar y fuerza active=true al ejecutar.
-      const nextFilters = { ...filtersFromRecord(search.filters), scope: "active" as const };
+      const nextFilters = {
+        ...filtersFromRecord(search.filters),
+        scope: "active" as const,
+      };
       setKeywords((search.keywords ?? []).join(", "));
       setSemanticLabel("");
       setFilters(nextFilters);
       setResult(response.results);
       rememberRegions(response.results.items);
       setOffset(response.results.offset ?? 0);
+      const profile =
+        searchProfiles.find(
+          (candidate) => candidate.tender_search_id === search.id,
+        ) ?? null;
+      setActiveSearchProfile(profile);
+      if (profile) {
+        await loadFeedback(profile);
+      } else {
+        setFeedbackByFolder({});
+        setFeedbackDigest(null);
+      }
     } catch (reason) {
       setError(
         problemMessage(reason, "No se pudo ejecutar la búsqueda guardada."),
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function recordFeedback(
+    item: ProcurementTenderItem,
+    verdict: "relevant" | "not_relevant",
+    reason: ProcurementSearchFeedbackReason,
+  ) {
+    if (!activeSearchProfile) return;
+    setFeedbackBusy((current) => new Set(current).add(item.folder_id));
+    setFeedbackError(null);
+    try {
+      const feedback = await api.procurementSearchProfiles.createFeedback(
+        activeSearchProfile.id,
+        {
+          plan_version: activeSearchProfile.version,
+          folder_id: item.folder_id,
+          verdict,
+          reason,
+          note: null,
+          tender: {
+            title: item.title || "Licitación sin título",
+            cpvs: tenderCpvs(item),
+          },
+        },
+      );
+      setFeedbackByFolder((current) => ({
+        ...current,
+        [item.folder_id]: feedback,
+      }));
+      setFeedbackDigest(
+        await api.procurementSearchProfiles.feedbackDigest(
+          activeSearchProfile.id,
+        ),
+      );
+    } catch (reasonValue) {
+      setFeedbackError(
+        problemMessage(reasonValue, "No se pudo registrar el feedback."),
+      );
+    } finally {
+      setFeedbackBusy((current) => {
+        const next = new Set(current);
+        next.delete(item.folder_id);
+        return next;
+      });
+    }
+  }
+
+  async function undoFeedback(item: ProcurementTenderItem) {
+    if (!activeSearchProfile) return;
+    const feedback = feedbackByFolder[item.folder_id];
+    if (!feedback) return;
+    setFeedbackBusy((current) => new Set(current).add(item.folder_id));
+    setFeedbackError(null);
+    try {
+      await api.procurementSearchProfiles.removeFeedback(
+        activeSearchProfile.id,
+        feedback.id,
+      );
+      setFeedbackByFolder((current) => {
+        const next = { ...current };
+        delete next[item.folder_id];
+        return next;
+      });
+      setFeedbackDigest(
+        await api.procurementSearchProfiles.feedbackDigest(
+          activeSearchProfile.id,
+        ),
+      );
+    } catch (reason) {
+      setFeedbackError(
+        problemMessage(reason, "No se pudo deshacer el feedback."),
+      );
+    } finally {
+      setFeedbackBusy((current) => {
+        const next = new Set(current);
+        next.delete(item.folder_id);
+        return next;
+      });
     }
   }
 
@@ -499,7 +665,10 @@ export function ProcurementWorkspace() {
           </p>
         </div>
         <div className="procurement-heading-actions">
-          <ProcurementSearchWizard onWatchSaved={loadSearches} />
+          <ProcurementSearchWizard
+            onWatchSaved={loadSearches}
+            replanRequest={replanRequest}
+          />
           <button
             className="vector-secondary"
             type="button"
@@ -531,8 +700,9 @@ export function ProcurementWorkspace() {
             <div className="procurement-search-field-label">
               <label htmlFor="procurement-keywords">Términos de búsqueda</label>
               <FieldHelp label="términos de búsqueda">
-                Escribe una o varias palabras que esperas encontrar en la licitación. Si usas
-                varias, sepáralas con comas: por ejemplo, baterías, hidrógeno, mantenimiento.
+                Escribe una o varias palabras que esperas encontrar en la
+                licitación. Si usas varias, sepáralas con comas: por ejemplo,
+                baterías, hidrógeno, mantenimiento.
               </FieldHelp>
             </div>
             <div className="procurement-search-control">
@@ -549,9 +719,10 @@ export function ProcurementWorkspace() {
             <div className="procurement-search-field-label">
               <label htmlFor="procurement-topic">Descripción del tema</label>
               <FieldHelp label="descripción del tema">
-                Alternativa a los términos: describe la necesidad con una frase breve, por
-                ejemplo, movilidad eléctrica municipal. Si escribes términos, este campo se
-                desactiva para no mezclar los dos modos de búsqueda.
+                Alternativa a los términos: describe la necesidad con una frase
+                breve, por ejemplo, movilidad eléctrica municipal. Si escribes
+                términos, este campo se desactiva para no mezclar los dos modos
+                de búsqueda.
               </FieldHelp>
             </div>
             <div className="procurement-search-control">
@@ -666,9 +837,10 @@ export function ProcurementWorkspace() {
                   <option value="all">Todo el índice disponible</option>
                 </select>
                 <small id="procurement-scope-help">
-                  Signal todavía no permite aislar licitaciones históricas. Todo el índice
-                  incluye activas y registros no activos, pero no equivale a un archivo
-                  histórico completo; el histórico fiable se consulta por adjudicaciones.
+                  Signal todavía no permite aislar licitaciones históricas. Todo
+                  el índice incluye activas y registros no activos, pero no
+                  equivale a un archivo histórico completo; el histórico fiable
+                  se consulta por adjudicaciones.
                 </small>
               </div>
             </div>
@@ -689,21 +861,89 @@ export function ProcurementWorkspace() {
                 <span>Orden de los resultados cargados</span>
                 <select
                   value={sort}
-                  onChange={(event) => setSort(event.target.value as TenderSort)}
+                  onChange={(event) =>
+                    setSort(event.target.value as TenderSort)
+                  }
                 >
                   <option value="signal">Orden recibido de Signal</option>
                   <option value="deadline_asc">Plazo: vence antes</option>
                   <option value="deadline_desc">Plazo: vence después</option>
-                  <option value="updated_desc">Actualización: más reciente</option>
+                  <option value="updated_desc">
+                    Actualización: más reciente
+                  </option>
                 </select>
               </label>
             </div>
           </header>
           {sort !== "signal" && (
             <p className="procurement-local-sort-note" role="status">
-              Orden local sobre los {items.length} resultados cargados en esta página;
-              no reordena los {total} resultados del corpus.
+              Orden local sobre los {items.length} resultados cargados en esta
+              página; no reordena los {total} resultados del corpus.
             </p>
+          )}
+          {activeSearchProfile && feedbackDigest && (
+            <section
+              className="procurement-feedback-digest"
+              aria-labelledby="procurement-feedback-digest-heading"
+            >
+              <header>
+                <div>
+                  <span className="section-kicker">Aprendizaje explícito</span>
+                  <h3 id="procurement-feedback-digest-heading">
+                    Feedback sobre el plan v{feedbackDigest.plan_version}
+                  </h3>
+                  <p>
+                    {feedbackDigest.new_feedback_count} feedback nuevos ·{" "}
+                    {feedbackDigest.counts.not_relevant} no relevantes ·{" "}
+                    {feedbackDigest.counts.relevant} relevantes
+                  </p>
+                </div>
+                <AsyncActionButton
+                  className="vector-ai"
+                  disabled={feedbackDigest.new_feedback_count < 1}
+                  onClick={() =>
+                    setReplanRequest({
+                      profileId: activeSearchProfile.id,
+                      digestHash: feedbackDigest.digest_hash,
+                      requestKey: Date.now(),
+                    })
+                  }
+                >
+                  <Sparkles size={14} />
+                  Revisar el plan con este feedback
+                </AsyncActionButton>
+              </header>
+              <div>
+                <p>
+                  <strong>Rechazos por motivo:</strong>{" "}
+                  {Object.entries(feedbackDigest.reasons)
+                    .filter(([, count]) => count > 0)
+                    .map(([reason, count]) => `${reason}: ${count}`)
+                    .join(" · ") || "sin rechazos"}
+                </p>
+                <p>
+                  <strong>Candidatos a exclusión:</strong>{" "}
+                  {feedbackDigest.exclusion_candidates.terms
+                    .map((item) => `${item.value} (${item.count})`)
+                    .join(", ") || "ninguno"}
+                </p>
+                <p>
+                  <strong>Candidatos a refuerzo:</strong>{" "}
+                  {feedbackDigest.reinforcement_candidates.terms
+                    .map((item) => `${item.value} (${item.count})`)
+                    .join(", ") || "ninguno"}
+                </p>
+              </div>
+              <small>
+                Este resumen se calcula con conteos deterministas. La IA solo se
+                ejecutará si pulsas revisar.
+              </small>
+            </section>
+          )}
+          {feedbackError && (
+            <div className="inline-error" role="alert">
+              {feedbackError}
+            </div>
           )}
           {error && (
             <div className="inline-error" role="alert">
@@ -721,18 +961,26 @@ export function ProcurementWorkspace() {
             <div className="procurement-card-list">
               {items.map((item) => {
                 const summary = summaries[item.folder_id];
+                const feedback = feedbackByFolder[item.folder_id];
                 return (
-                  <article className="procurement-card" key={item.folder_id}>
+                  <article
+                    className={`procurement-card${feedback ? " has-feedback" : ""}`}
+                    key={item.folder_id}
+                  >
                     <header>
                       <div>
                         <strong>{item.title || "Licitación sin título"}</strong>
                         <small>{item.buyer || "Órgano no publicado"}</small>
                       </div>
-                      <span className={`status tender-${item.canonical_status ?? "unknown"}`}>
+                      <span
+                        className={`status tender-${item.canonical_status ?? "unknown"}`}
+                      >
                         {canonicalStatusLabel(item)}
                       </span>
                     </header>
-                    <p>{item.summary_feed || "Sin resumen de feed disponible."}</p>
+                    <p>
+                      {item.summary_feed || "Sin resumen de feed disponible."}
+                    </p>
                     <dl>
                       <div>
                         <dt>Plazo</dt>
@@ -752,7 +1000,9 @@ export function ProcurementWorkspace() {
                       </div>
                       <div>
                         <dt>Actualizada</dt>
-                        <dd>{formatDate(tenderText(item, "feed_updated_at"))}</dd>
+                        <dd>
+                          {formatDate(tenderText(item, "feed_updated_at"))}
+                        </dd>
                       </div>
                     </dl>
                     {summary?.text && (
@@ -760,7 +1010,9 @@ export function ProcurementWorkspace() {
                         <strong>Resumen Oracle</strong>
                         <p>{summary.text}</p>
                         <small>
-                          {summary.cached ? "Resumen en caché" : "Resumen nuevo"}
+                          {summary.cached
+                            ? "Resumen en caché"
+                            : "Resumen nuevo"}
                           {summary.model ? ` · ${summary.model}` : ""}
                         </small>
                       </aside>
@@ -802,6 +1054,30 @@ export function ProcurementWorkspace() {
                           folderId={item.folder_id}
                         />
                       </div>
+                      {activeSearchProfile && (
+                        <PermissionGate permission="opportunity.write">
+                          <ProcurementFeedbackControl
+                            label={item.title || "licitación sin título"}
+                            busy={feedbackBusy.has(item.folder_id)}
+                            feedback={
+                              feedback
+                                ? ({
+                                    id: feedback.id,
+                                    reason: feedback.reason,
+                                    verdict: feedback.verdict,
+                                  } satisfies ProcurementFeedbackValue)
+                                : null
+                            }
+                            onRelevant={() =>
+                              void recordFeedback(item, "relevant", "other")
+                            }
+                            onNotRelevant={(reason) =>
+                              void recordFeedback(item, "not_relevant", reason)
+                            }
+                            onUndo={() => void undoFeedback(item)}
+                          />
+                        </PermissionGate>
+                      )}
                     </footer>
                   </article>
                 );
@@ -813,7 +1089,10 @@ export function ProcurementWorkspace() {
               <p>Prueba con otras palabras clave, CPV u órgano comprador.</p>
             </div>
           )}
-          <nav className="inventory-pagination" aria-label="Páginas de licitaciones">
+          <nav
+            className="inventory-pagination"
+            aria-label="Páginas de licitaciones"
+          >
             <button
               type="button"
               disabled={page <= 1 || loading}
@@ -853,7 +1132,9 @@ export function ProcurementWorkspace() {
           </header>
           <PermissionGate
             permission="opportunity.write"
-            fallback={<p>Necesitas permiso de escritura para guardar búsquedas.</p>}
+            fallback={
+              <p>Necesitas permiso de escritura para guardar búsquedas.</p>
+            }
           >
             <form className="procurement-save-search" onSubmit={saveSearch}>
               <label>
@@ -874,8 +1155,8 @@ export function ProcurementWorkspace() {
               </AsyncActionButton>
               {filters.scope !== "active" && (
                 <small role="status">
-                  Signal v1 solo conserva búsquedas guardadas de licitaciones activas.
-                  Cambia el ámbito a «Solo activas» para guardarla.
+                  Signal v1 solo conserva búsquedas guardadas de licitaciones
+                  activas. Cambia el ámbito a «Solo activas» para guardarla.
                 </small>
               )}
             </form>
@@ -958,7 +1239,9 @@ export function ProcurementWorkspace() {
                 </article>
               ))
             ) : (
-              <p className="procurement-muted">Aún no hay búsquedas guardadas.</p>
+              <p className="procurement-muted">
+                Aún no hay búsquedas guardadas.
+              </p>
             )}
           </div>
         </aside>

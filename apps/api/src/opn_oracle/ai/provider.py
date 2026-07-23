@@ -8,6 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol, TypeVar
 from urllib.parse import urljoin, urlparse
 
@@ -15,6 +16,15 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 class AIUnavailable(RuntimeError):
@@ -167,6 +177,101 @@ class MockLLMProvider:
             from opn_oracle.oracle.comparable_procurement import title_terms
 
             description = str(request.context.get("description") or "").strip()
+            accepted = request.context.get("accepted_plan")
+            feedback = request.context.get("feedback_digest")
+            if (
+                request.context.get("mode") == "replan"
+                and isinstance(accepted, dict)
+                and isinstance(feedback, dict)
+            ):
+                accepted_terms = [
+                    str(item) for item in accepted.get("include_terms", []) if isinstance(item, str)
+                ]
+                accepted_exclusions = [
+                    str(item) for item in accepted.get("exclude_terms", []) if isinstance(item, str)
+                ]
+                rejected_digest = feedback.get("exclusion_candidates")
+                rejected_candidates = rejected_digest if isinstance(rejected_digest, dict) else {}
+                reinforced_digest = feedback.get("reinforcement_candidates")
+                reinforced_candidates = (
+                    reinforced_digest if isinstance(reinforced_digest, dict) else {}
+                )
+                rejected = [
+                    str(item.get("value"))
+                    for item in rejected_candidates.get("terms", [])
+                    if isinstance(item, dict) and item.get("value")
+                ]
+                reinforced = [
+                    str(item.get("value"))
+                    for item in reinforced_candidates.get("terms", [])
+                    if isinstance(item, dict) and item.get("value")
+                ]
+                rejected_keys = {item.casefold() for item in rejected}
+                include_terms = [
+                    item for item in accepted_terms if item.casefold() not in rejected_keys
+                ]
+                include_terms = list(dict.fromkeys([*include_terms, *reinforced]))[:50]
+                exclude_terms = list(dict.fromkeys([*accepted_exclusions, *rejected]))[:50]
+
+                rejected_cpvs = {
+                    str(item.get("code"))
+                    for item in rejected_candidates.get("cpvs", [])
+                    if isinstance(item, dict) and item.get("code")
+                }
+                accepted_cpvs = [
+                    item
+                    for item in accepted.get("candidate_cpv", [])
+                    if isinstance(item, dict)
+                    and item.get("code")
+                    and str(item.get("code")) not in rejected_cpvs
+                ]
+                reinforced_cpvs = [
+                    {"code": str(item.get("code")), "label": None}
+                    for item in reinforced_candidates.get("cpvs", [])
+                    if isinstance(item, dict) and item.get("code")
+                ]
+                candidate_cpv = list(
+                    {
+                        str(item["code"]): {
+                            "code": str(item["code"]),
+                            "label": item.get("label"),
+                        }
+                        for item in [*accepted_cpvs, *reinforced_cpvs]
+                    }.values()
+                )[:50]
+                output = schema.model_validate(
+                    {
+                        **accepted,
+                        "include_terms": include_terms,
+                        "exclude_terms": exclude_terms,
+                        "candidate_cpv": candidate_cpv,
+                        "min_amount": _decimal_or_none(accepted.get("min_amount")),
+                        "max_amount": _decimal_or_none(accepted.get("max_amount")),
+                        "assumptions": [
+                            *[
+                                str(item)
+                                for item in accepted.get("assumptions", [])
+                                if isinstance(item, str)
+                            ],
+                            (
+                                "Revisión explícita basada en el digest determinista "
+                                "del feedback acumulado."
+                            ),
+                        ][:20],
+                        "discarded_count": 0,
+                        "discarded_reasons": {},
+                    }
+                )
+                fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
+                return LLMResult(
+                    output,
+                    100 + fingerprint[0],
+                    50 + fingerprint[1],
+                    0,
+                    1,
+                    provider="mock",
+                    model=self.model,
+                )
             comparable_profile = request.context.get("comparable_profile")
             grounding = comparable_profile if isinstance(comparable_profile, dict) else {}
             top_cpvs = grounding.get("top_cpvs")

@@ -40,6 +40,11 @@ export interface RegeneratedTenderSearchPlan {
   plan: TenderSearchPlan;
 }
 
+export interface TenderSearchChipDiff {
+  change: "added" | "removed" | "retained";
+  chip: TenderSearchChip;
+}
+
 const TERM_CATEGORIES: ReadonlySet<TenderSearchChipCategory> = new Set([
   "include_terms",
   "synonyms",
@@ -137,10 +142,7 @@ function uniqueChips(chips: readonly TenderSearchChip[]): TenderSearchChip[] {
       unique.set(identity, chip);
       continue;
     }
-    if (
-      chip.provenance === "user" ||
-      (chip.confirmed && !existing.confirmed)
-    ) {
+    if (chip.provenance === "user" || (chip.confirmed && !existing.confirmed)) {
       unique.set(identity, chip);
     }
   }
@@ -150,7 +152,9 @@ function uniqueChips(chips: readonly TenderSearchChip[]): TenderSearchChip[] {
 function measuredSets(profile?: ComparableProcurementProfile | null) {
   return {
     buyers: new Set(
-      (profile?.buyers ?? []).slice(0, 20).map(({ buyer }) => normalizeText(buyer)),
+      (profile?.buyers ?? [])
+        .slice(0, 20)
+        .map(({ buyer }) => normalizeText(buyer)),
     ),
     cpvs: new Set(
       (profile?.frequent_cpvs.items ?? [])
@@ -353,4 +357,25 @@ export function mergeRegeneratedTenderSearchPlan(
     chips,
     plan: applyChipsToTenderSearchPlan(regeneratedPlan, chips),
   };
+}
+
+export function diffTenderSearchChips(
+  accepted: readonly TenderSearchChip[],
+  proposed: readonly TenderSearchChip[],
+): TenderSearchChipDiff[] {
+  const acceptedByKey = new Map(accepted.map((chip) => [chip.key, chip]));
+  const proposedByKey = new Map(proposed.map((chip) => [chip.key, chip]));
+  const retained = proposed
+    .filter((chip) => acceptedByKey.has(chip.key))
+    .map((chip) => ({
+      change: "retained" as const,
+      chip: acceptedByKey.get(chip.key) ?? chip,
+    }));
+  const added = proposed
+    .filter((chip) => !acceptedByKey.has(chip.key))
+    .map((chip) => ({ change: "added" as const, chip }));
+  const removed = accepted
+    .filter((chip) => !proposedByKey.has(chip.key))
+    .map((chip) => ({ change: "removed" as const, chip }));
+  return [...added, ...removed, ...retained];
 }

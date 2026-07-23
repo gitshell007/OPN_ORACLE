@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   addMissingMeasuredCandidates,
   createUserTenderSearchChip,
+  diffTenderSearchChips,
   findMissingMeasuredBuyers,
   findMissingMeasuredCandidates,
   mergeRegeneratedTenderSearchPlan,
@@ -284,5 +285,35 @@ describe("modelo del wizard de contratación", () => {
       provenance: "user",
     });
     expect(merged.chips.some(({ value }) => value === "sirenas")).toBe(false);
+  });
+
+  it("clasifica el diff normalizado como añadido, retirado y conservado", () => {
+    const accepted = [
+      createUserTenderSearchChip("include_terms", "Rescate aéreo"),
+      createUserTenderSearchChip(
+        "candidate_cpv",
+        "35113400",
+        "Ropa de protección",
+      ),
+      createUserTenderSearchChip("buyers", "UME"),
+    ];
+    const proposed = [
+      createUserTenderSearchChip("include_terms", "rescate aéreo"),
+      createUserTenderSearchChip("exclude_terms", "limpieza"),
+      createUserTenderSearchChip("buyers", "Ayuntamiento de Sevilla"),
+    ];
+
+    const diff = diffTenderSearchChips(accepted, proposed);
+
+    expect(diff.map(({ change, chip }) => `${change}:${chip.key}`)).toEqual([
+      "added:exclude_terms:limpieza",
+      "added:buyers:ayuntamiento de sevilla",
+      "removed:candidate_cpv:35113400",
+      "removed:buyers:ume",
+      "retained:include_terms:rescate aereo",
+    ]);
+    expect(
+      diff.find(({ change }) => change === "retained")?.chip.provenance,
+    ).toBe("user");
   });
 });

@@ -7,10 +7,12 @@ from typing import Any
 
 from apiflask import APIBlueprint, Schema
 from apiflask.fields import Dict, Float, Integer, List, Nested, Raw, String
-from flask import Response, g
+from flask import Response, g, request
 from flask_login import current_user
 from marshmallow import validate
+from sqlalchemy import select
 
+from opn_oracle.ai.models import AIArtifact
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db, limiter
@@ -19,6 +21,7 @@ from opn_oracle.integrations.procurement import (
     ProcurementProviderError,
     create_tender_search,
 )
+from opn_oracle.jobs.service import enqueue_job, serialize_job
 from opn_oracle.oracle.procurement_search_preview import SearchPlanExecutionError
 from opn_oracle.oracle.procurement_search_profiles import (
     ProcurementSearchProfileNotFound,
@@ -116,6 +119,19 @@ class ProcurementSearchProfileListSchema(Schema):
 class SavedProcurementSearchResponseSchema(Schema):
     profile = Nested(ProcurementSearchProfileResponseSchema, required=True)
     saved_search = Dict(keys=String(), values=Raw(), required=True)
+
+
+class ReplanProcurementSearchProfileSchema(Schema):
+    expected_version = Integer(required=True, validate=validate.Range(min=1))
+    digest_hash = String(
+        required=True,
+        validate=validate.Regexp(r"^[0-9a-f]{64}$"),
+    )
+
+
+class ReplanProcurementSearchProfileResponseSchema(Schema):
+    job = Dict(keys=String(), values=Raw(), required=True)
+    artifact = Dict(keys=String(), values=Raw(), allow_none=True)
 
 
 def _uuid(value: Any) -> uuid.UUID:
@@ -241,6 +257,101 @@ def profiles_accept(
         db.session.rollback()
         return _error(error)
     return serialize_procurement_search_profile(profile)
+
+
+def _latest_replan_artifact(profile_id: uuid.UUID) -> dict[str, Any] | None:
+    artifact = db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id.is_(None),
+            AIArtifact.agent == "tender_search_wizard",
+            AIArtifact.target_type == "procurement_search_profile",
+            AIArtifact.target_id == profile_id,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+    if artifact is None:
+        return None
+    return {
+        "id": str(artifact.id),
+        "dossier_id": None,
+        "agent": artifact.agent,
+        "schema_name": artifact.schema_name,
+        "schema_version": artifact.schema_version,
+        "status": artifact.status,
+        "output": artifact.output,
+        "created_at": artifact.created_at.isoformat(),
+        "updated_at": artifact.updated_at.isoformat(),
+        "version": artifact.version,
+    }
+
+
+@bp.post("/<profile_id>/replans")
+@require_permission("ai.execute")
+@bp.input(ReplanProcurementSearchProfileSchema)
+@bp.output(ReplanProcurementSearchProfileResponseSchema, status_code=202)
+@limiter.limit("6/minute")
+def profiles_replan(
+    json_data: dict[str, Any],
+    profile_id: str,
+) -> dict[str, Any] | Any:
+    from opn_oracle.oracle.procurement_search_feedback import (
+        build_procurement_search_feedback_digest,
+    )
+
+    try:
+        parsed_profile_id = _uuid(profile_id)
+        profile = get_procurement_search_profile(db.session(), parsed_profile_id)
+    except ProcurementSearchProfileNotFound as error:
+        return _error(error)
+    if profile.version != int(json_data["expected_version"]):
+        return _problem(
+            409,
+            detail="El perfil cambió desde la última lectura.",
+            code="version_conflict",
+        )
+    digest = build_procurement_search_feedback_digest(db.session(), parsed_profile_id)
+    expected_digest_hash = str(json_data["digest_hash"])
+    if digest.get("digest_hash") != expected_digest_hash:
+        return _problem(
+            409,
+            detail="El feedback cambió desde la última lectura.",
+            code="feedback_digest_conflict",
+        )
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return _problem(
+            428,
+            detail="Idempotency-Key es obligatorio para revisar el plan.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            "oracle.ai.tender_search_wizard",
+            payload={
+                "mode": "replan",
+                "profile_id": str(profile.id),
+                "expected_profile_version": profile.version,
+                "expected_plan_hash": profile.accepted_plan_hash.hex(),
+                "expected_digest_hash": expected_digest_hash,
+            },
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            resource_type="procurement_search_profile",
+            resource_id=profile.id,
+        )
+    except ValueError as error:
+        return _problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    return {
+        "job": serialize_job(job),
+        "artifact": _latest_replan_artifact(profile.id),
+    }, 202
 
 
 @bp.post("/<profile_id>/saved-search")

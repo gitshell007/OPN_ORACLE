@@ -84,11 +84,16 @@
   contra CPV/términos locales y solo una aceptación humana crea o versiona
   `ProcurementSearchProfile`. Preview y guardado no ejecutan IA; las vigilancias siguen siendo
   active-only. Capacidades y exclusiones son propiedad de este perfil; `profile_config` no las
-  duplica. La replanificación con feedback sigue reservada a una revisión futura explícita.
+  duplica.
 - **Resuelto en Prompt 81, Solo Oracle:** el agregado comparable expone `measured_at` estable bajo
   caché; la taxonomía CPV se consulta mediante un autocomplete local acotado; los 422 de plan,
   aceptación, preview y guardado siempre incluyen rutas de campo; y el último artefacto devuelve
   su aceptación exacta (perfil, versión y fecha) sin inferencia de cliente.
+- **Resuelto en Prompt 82, Solo Oracle:** el feedback de resultados, su digest y la retirada son
+  deterministas y no llaman a IA; solo una replanificación explícita consume
+  `tender_search_wizard`, revalida versión/digest y acepta v2 únicamente sobre el perfil objetivo.
+- **Siguiente fase Oracle:** vigilancia incremental con memoria de vistos, cursor/huella de ítems
+  ya revisados y notificaciones sin repetir lo que el usuario ya clasificó.
 - **Pendiente Signal:** registrar/autorizar `tender_search_wizard` para el consumer productivo si
   Oracle usa `AI_MODE=signal`. El código funciona también en disabled/mock/ollama, pero Oracle no
   modifica unilateralmente el catálogo ni la allowlist gobernada de Signal.
@@ -96,9 +101,9 @@
   contigua y sensible a tildes, o sustituirlo por una sintaxis booleana versionada. Oracle v1 usa
   sondas independientes y no concatena chips.
 - **Pendiente calidad:** el modelo local real no igualó el recall combinado determinista de ITURRI;
-  la UI del Prompt 79 debe presentar la propuesta como candidata y conservar los agregados medidos,
-  no vender el LLM como mejora demostrada. Una futura replanificación gobernada podrá comparar
-  versiones con feedback, siempre mediante revisión explícita.
+  la UI debe presentar la propuesta como candidata y conservar los agregados medidos, no vender el
+  LLM como mejora demostrada. La replanificación gobernada ya compara versiones con feedback, pero
+  siempre mediante revisión explícita.
 
 - Pendiente de Signal/compliance para inteligencia competitiva: decidir si se autoriza Gemini vía
   OpenRouter como secundario, con clasificación máxima, redacción, presupuesto y conjunto explícito

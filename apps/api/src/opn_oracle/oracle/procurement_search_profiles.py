@@ -19,10 +19,12 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    or_,
     select,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.sql.elements import ColumnElement
 
 from opn_oracle.ai.models import AIArtifact
 from opn_oracle.extensions import Base
@@ -218,6 +220,7 @@ def _artifact_id(
     *,
     tenant_id: uuid.UUID,
     value: Any,
+    profile_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     if value in (None, ""):
         raise ProcurementSearchProfileValidationError(
@@ -231,14 +234,22 @@ def _artifact_id(
             "ai_artifact_id debe ser UUID.",
             errors={"ai_artifact_id": ["Debe ser un UUID."]},
         ) from error
+    allowed_target: ColumnElement[bool] = (AIArtifact.target_type == "tenant_search_profile") & (
+        AIArtifact.target_id == tenant_id
+    )
+    if profile_id is not None:
+        allowed_target = or_(
+            allowed_target,
+            (AIArtifact.target_type == "procurement_search_profile")
+            & (AIArtifact.target_id == profile_id),
+        )
     artifact = session.scalar(
         select(AIArtifact).where(
             AIArtifact.id == artifact_id,
             AIArtifact.tenant_id == tenant_id,
             AIArtifact.agent == TENDER_SEARCH_WIZARD_AGENT,
             AIArtifact.dossier_id.is_(None),
-            AIArtifact.target_type == "tenant_search_profile",
-            AIArtifact.target_id == tenant_id,
+            allowed_target,
         )
     )
     if artifact is None:
@@ -385,6 +396,7 @@ def accept_procurement_search_profile(
         session,
         tenant_id=tenant_id,
         value=payload.get("ai_artifact_id"),
+        profile_id=profile.id,
     )
     profile.accepted_by_user_id = actor_id
     profile.version += 1

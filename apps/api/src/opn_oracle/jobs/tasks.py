@@ -19,6 +19,7 @@ from sqlalchemy import delete, or_, select, update
 
 from opn_oracle.ai.context import (
     build_dossier_completion_context,
+    build_tender_search_replan_context,
     build_tender_search_wizard_context,
 )
 from opn_oracle.ai.models import AITenantPolicy
@@ -57,6 +58,7 @@ from opn_oracle.oracle.procurement_report import (
     ProcurementDocumentReportError,
     process_procurement_document_report,
 )
+from opn_oracle.oracle.procurement_search_profiles import get_procurement_search_profile
 from opn_oracle.oracle.summary import enqueue_summary_refresh, process_summary_refresh
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import (
@@ -520,6 +522,44 @@ def _process_document(payload: dict[str, Any], job: BackgroundJob) -> dict[str, 
 def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
         if agent == "tender_search_wizard":
+            if payload.get("mode") == "replan":
+                from opn_oracle.oracle.procurement_search_feedback import (
+                    build_procurement_search_feedback_digest,
+                )
+
+                profile_id = uuid.UUID(str(payload["profile_id"]))
+                profile = get_procurement_search_profile(db.session(), profile_id)
+                expected_version = int(payload["expected_profile_version"])
+                expected_plan_hash = str(payload["expected_plan_hash"])
+                expected_digest_hash = str(payload["expected_digest_hash"])
+                if (
+                    profile.version != expected_version
+                    or profile.accepted_plan_hash.hex() != expected_plan_hash
+                ):
+                    raise ValueError("El perfil cambió después de solicitar la replanificación.")
+                digest = build_procurement_search_feedback_digest(
+                    db.session(),
+                    profile_id,
+                )
+                if str(digest.get("digest_hash")) != expected_digest_hash:
+                    raise ValueError("El feedback cambió después de solicitar la replanificación.")
+                return execute_agent(
+                    agent=agent,
+                    dossier_id=None,
+                    job=job,
+                    context_factory=lambda max_tokens: build_tender_search_replan_context(
+                        description=profile.original_description,
+                        accepted_plan=dict(profile.accepted_plan),
+                        feedback_digest=digest,
+                        profile_id=profile.id,
+                        profile_version=profile.version,
+                        accepted_plan_hash=expected_plan_hash,
+                        digest_hash=expected_digest_hash,
+                        max_tokens=max_tokens,
+                    ),
+                    target_type="procurement_search_profile",
+                    target_id=profile.id,
+                )
             description = str(payload["description"])
             comparable = (
                 str(payload["comparable"]) if payload.get("comparable") is not None else None

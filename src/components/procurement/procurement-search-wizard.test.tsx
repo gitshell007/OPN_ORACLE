@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   acceptProfile: vi.fn(),
   saveSearch: vi.fn(),
   getProfile: vi.fn(),
+  replan: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => {
@@ -53,6 +54,7 @@ vi.mock("@oracle/api-client", () => {
         accept: mocks.acceptProfile,
         saveSearch: mocks.saveSearch,
         get: mocks.getProfile,
+        replan: mocks.replan,
       },
     },
   };
@@ -285,6 +287,13 @@ describe("ProcurementSearchWizard", () => {
     mocks.run.mockResolvedValue({
       artifact: artifact(),
       job: { id: "job-1" },
+    });
+    mocks.replan.mockResolvedValue({
+      artifact: artifact("artifact-replan", {
+        ...basePlan,
+        exclude_terms: ["limpieza"],
+      }),
+      job: { id: "job-replan" },
     });
   });
 
@@ -573,5 +582,49 @@ describe("ProcurementSearchWizard", () => {
     await screen.findByText(/Plan aceptado · v2 · 23\/07\/2026/);
     expect(mocks.getProfile).toHaveBeenCalledWith("profile-1");
     expect(mocks.run).not.toHaveBeenCalled();
+  });
+
+  it("replanifica una vez, muestra el diff triple y acepta sobre el perfil exacto", async () => {
+    mocks.getProfile.mockResolvedValue(profile(2));
+    mocks.acceptProfile.mockResolvedValue(profile(3));
+    render(
+      <ProcurementSearchWizard
+        replanRequest={{
+          profileId: "profile-1",
+          digestHash: "digest-1",
+          requestKey: 1,
+        }}
+      />,
+    );
+
+    await screen.findByRole("heading", {
+      name: "Revisa el plan antes de usarlo",
+    });
+    expect(mocks.replan).toHaveBeenCalledTimes(1);
+    expect(mocks.replan).toHaveBeenCalledWith(
+      "profile-1",
+      {
+        expected_version: 2,
+        digest_hash: "digest-1",
+      },
+      "procurement-replan:profile-1:2:digest-1",
+    );
+    expect(mocks.run).not.toHaveBeenCalled();
+    const diff = screen.getByRole("region", {
+      name: "Cambios respecto a v2",
+    });
+    expect(within(diff).getByText("Añadido · 1")).toBeInTheDocument();
+    expect(within(diff).getByText("Retirado · 1")).toBeInTheDocument();
+    expect(within(diff).getByText(/Conservado ·/)).toBeInTheDocument();
+    expect(within(diff).getByText("limpieza")).toBeInTheDocument();
+    expect(within(diff).getByText("formación")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar como v3" }));
+    await waitFor(() =>
+      expect(mocks.acceptProfile).toHaveBeenCalledWith(
+        "profile-1",
+        expect.objectContaining({ expected_version: 2 }),
+      ),
+    );
   });
 });

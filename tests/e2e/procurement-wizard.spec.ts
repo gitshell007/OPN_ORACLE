@@ -31,6 +31,24 @@ const artifact = {
   version: 1,
 };
 
+const replan = {
+  ...plan,
+  include_terms: ["equipos de extinción", "bomberos"],
+  exclude_terms: ["limpieza"],
+  assumptions: [
+    ...plan.assumptions,
+    "El feedback descartó resultados de limpieza operativa.",
+  ],
+};
+
+const replanArtifact = {
+  ...artifact,
+  id: "00000000-0000-4000-8000-000000000082",
+  output: replan,
+  created_at: "2026-07-23T10:05:00Z",
+  updated_at: "2026-07-23T10:05:00Z",
+};
+
 const profile = {
   id: "00000000-0000-4000-8000-000000000081",
   schema: "procurement-search-profile/v1",
@@ -45,6 +63,21 @@ const profile = {
   created_at: "2026-07-23T10:00:00Z",
   updated_at: "2026-07-23T10:00:00Z",
   last_accepted_at: "2026-07-23T10:00:00Z",
+};
+
+const tender = {
+  folder_id: "EXP-E2E-FEEDBACK",
+  title: "Servicio de limpieza de dependencias municipales",
+  summary_feed: "Limpieza ordinaria de edificios públicos.",
+  buyer: "Ayuntamiento de Sevilla",
+  status: "Open",
+  canonical_status: "open",
+  cpv: ["90910000"],
+  amount: 45000,
+  deadline: "2026-08-20",
+  region: "Andalucía",
+  source_url: "https://contrataciondelestado.es/wps/portal/licitacion-e2e",
+  is_active: true,
 };
 
 async function loginOwner(page: Page, testInfo: TestInfo) {
@@ -67,6 +100,19 @@ async function loginOwner(page: Page, testInfo: TestInfo) {
 
 async function installProcurementContract(page: Page) {
   let saved = false;
+  let feedbackSaved = false;
+  let profileVersion = 1;
+  const currentProfile = () => ({
+    ...profile,
+    version: profileVersion,
+    accepted_plan: profileVersion === 1 ? plan : replan,
+    ai_artifact_id: profileVersion === 1 ? artifact.id : replanArtifact.id,
+    tender_search_id: saved ? "search-wizard-1" : null,
+    last_accepted_at:
+      profileVersion === 1
+        ? "2026-07-23T10:00:00Z"
+        : "2026-07-23T10:06:00Z",
+  });
   await page.route("**/api/v1/procurement/tenders?**", async (route) => {
     await route.fulfill({
       json: {
@@ -104,19 +150,167 @@ async function installProcurementContract(page: Page) {
     },
   );
   await page.route(
+    "**/api/v1/procurement/tender-searches/search-wizard-1/run?**",
+    async (route) => {
+      await route.fulfill({
+        json: {
+          search: {
+            id: "search-wizard-1",
+            name: "Equipamiento y mantenimiento para emergencias públicas",
+            keywords: ["equipos de extinción"],
+            filters: { scope: "active" },
+          },
+          results: {
+            cache_hit: false,
+            cached_seconds: 0,
+            filters: { scope: "active" },
+            items: [tender],
+            total: 1,
+            limit: 25,
+            offset: 0,
+          },
+        },
+      });
+    },
+  );
+  await page.route(
     "**/api/v1/procurement-search-profiles",
     async (route) => {
       if (route.request().method() === "GET") {
         await route.fulfill({
           json: {
             items: saved
-              ? [{ ...profile, tender_search_id: "search-wizard-1" }]
+              ? [currentProfile()]
               : [],
           },
         });
         return;
       }
-      await route.fulfill({ status: 201, json: profile });
+      await route.fulfill({ status: 201, json: currentProfile() });
+    },
+  );
+  await page.route(
+    `**/api/v1/procurement-search-profiles/${profile.id}`,
+    async (route) => {
+      await route.fulfill({ json: currentProfile() });
+    },
+  );
+  await page.route(
+    `**/api/v1/procurement-search-profiles/${profile.id}/feedback`,
+    async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          json: {
+            items: feedbackSaved
+              ? [
+                  {
+                    id: "feedback-e2e-1",
+                    profile_id: profile.id,
+                    plan_version: 1,
+                    folder_id: tender.folder_id,
+                    verdict: "not_relevant",
+                    reason: "wrong_sector",
+                    note: null,
+                    tender: {
+                      title: tender.title,
+                      cpvs: tender.cpv,
+                    },
+                    state: "current",
+                    user_id: "owner-e2e",
+                    created_at: "2026-07-23T10:03:00Z",
+                    updated_at: "2026-07-23T10:03:00Z",
+                  },
+                ]
+              : [],
+            total: feedbackSaved ? 1 : 0,
+            limit: 50,
+            offset: 0,
+          },
+        });
+        return;
+      }
+      feedbackSaved = true;
+      await route.fulfill({
+        status: 201,
+        json: {
+          id: "feedback-e2e-1",
+          profile_id: profile.id,
+          plan_version: 1,
+          folder_id: tender.folder_id,
+          verdict: "not_relevant",
+          reason: "wrong_sector",
+          note: null,
+          tender: {
+            title: tender.title,
+            cpvs: tender.cpv,
+          },
+          state: "current",
+          user_id: "owner-e2e",
+          created_at: "2026-07-23T10:03:00Z",
+          updated_at: "2026-07-23T10:03:00Z",
+        },
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/procurement-search-profiles/${profile.id}/feedback-digest`,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          schema: "procurement-search-feedback-digest-v1",
+          profile_id: profile.id,
+          plan_version: profileVersion,
+          digest_hash:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          feedback_state_hash:
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+          new_feedback_count: feedbackSaved ? 1 : 0,
+          counts: {
+            total: feedbackSaved ? 1 : 0,
+            distinct_folders: feedbackSaved ? 1 : 0,
+            relevant: 0,
+            not_relevant: feedbackSaved ? 1 : 0,
+          },
+          reasons: {
+            wrong_sector: feedbackSaved ? 1 : 0,
+            amount: 0,
+            region: 0,
+            buyer: 0,
+            other: 0,
+          },
+          exclusion_candidates: {
+            terms: feedbackSaved
+              ? [{ value: "limpieza", count: 1, relevant_count: 0, rejected_count: 1, delta: 1 }]
+              : [],
+            cpvs: [],
+          },
+          reinforcement_candidates: { terms: [], cpvs: [] },
+          tokenizer_version: "spanish-procurement-stopwords-v1",
+          taxonomy_version: "2008",
+        },
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/procurement-search-profiles/${profile.id}/replans`,
+    async (route) => {
+      await route.fulfill({
+        status: 202,
+        json: {
+          artifact: replanArtifact,
+          job: {
+            id: "job-replan-1",
+            status: "succeeded",
+          },
+        },
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/procurement-search-profiles/${profile.id}/acceptances`,
+    async (route) => {
+      profileVersion = 2;
+      await route.fulfill({ json: currentProfile() });
     },
   );
   await page.route(
@@ -273,4 +467,34 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
       exact: true,
     }),
   ).toBeVisible();
+  await page
+    .locator(".procurement-saved-searches")
+    .getByRole("button", { name: "Ejecutar" })
+    .click();
+  await expect(page.getByText(tender.title)).toBeVisible();
+  await page
+    .getByRole("group", { name: `Valoración para ${tender.title}` })
+    .getByRole("button", { name: "No relevante" })
+    .click();
+  await page.getByRole("button", { name: "Sector incorrecto" }).click();
+  await expect(
+    page.getByText("Lo tendremos en cuenta cuando pidas revisar el plan."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("1 feedback nuevos · 1 no relevantes · 0 relevantes"),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Revisar el plan con este feedback" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Revisa el plan antes de usarlo" }),
+  ).toBeVisible();
+  const diff = page.getByRole("region", { name: "Cambios respecto a v1" });
+  await expect(diff).toBeVisible();
+  await expect(page.getByText("Añadido · 2")).toBeVisible();
+  await expect(diff.getByText("bomberos")).toBeVisible();
+  await expect(diff.getByText("limpieza")).toBeVisible();
+  await expect(page.getByText("Retirado · 1")).toBeVisible();
+  await page.getByRole("button", { name: "Aceptar como v2" }).click();
+  await expect(page.getByText("Plan aceptado · v2")).toBeVisible();
 });

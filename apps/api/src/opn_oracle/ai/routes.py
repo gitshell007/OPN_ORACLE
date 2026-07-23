@@ -49,6 +49,13 @@ class TenderSearchWizardInputSchema(Schema):
     )
 
 
+class TenderSearchWizardLatestInputSchema(Schema):
+    mode = String(required=True, validate=validate.OneOf(["initial", "replan"]))
+    description = String(allow_none=True)
+    comparable = String(allow_none=True)
+    profile_id = String(allow_none=True)
+
+
 class TenderSearchCandidateCPVSchema(Schema):
     code = String(required=True)
     label = String(required=True)
@@ -123,7 +130,7 @@ class TenderSearchWizardAcceptanceSchema(Schema):
 
 class TenderSearchWizardLatestResponseSchema(TenderSearchWizardRunResponseSchema):
     job = Nested(TenderSearchWizardJobSchema, allow_none=True)
-    input = Nested(TenderSearchWizardInputSchema, allow_none=True)
+    input = Nested(TenderSearchWizardLatestInputSchema, allow_none=True)
     acceptance = Nested(TenderSearchWizardAcceptanceSchema, allow_none=True)
 
 
@@ -243,8 +250,6 @@ def _latest_tender_search_artifact() -> AIArtifact | None:
             AIArtifact.tenant_id == g.active_tenant_id,
             AIArtifact.dossier_id.is_(None),
             AIArtifact.agent == TENDER_SEARCH_WIZARD_AGENT,
-            AIArtifact.target_type == TENDER_SEARCH_WIZARD_TARGET,
-            AIArtifact.target_id == g.active_tenant_id,
         )
         .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
         .limit(1)
@@ -258,8 +263,6 @@ def _latest_tender_search_job() -> BackgroundJob | None:
             BackgroundJob.tenant_id == g.active_tenant_id,
             BackgroundJob.dossier_id.is_(None),
             BackgroundJob.job_type == f"oracle.ai.{TENDER_SEARCH_WIZARD_AGENT}",
-            BackgroundJob.resource_type == TENDER_SEARCH_WIZARD_TARGET,
-            BackgroundJob.resource_id == g.active_tenant_id,
         )
         .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
         .limit(1)
@@ -301,7 +304,11 @@ def enqueue_tender_search_wizard(json_data: dict[str, Any]) -> Any:
     try:
         job = enqueue_job(
             f"oracle.ai.{TENDER_SEARCH_WIZARD_AGENT}",
-            payload={"description": description, "comparable": comparable},
+            payload={
+                "mode": "initial",
+                "description": description,
+                "comparable": comparable,
+            },
             idempotency_key=key,
             requested_by_user_id=current_user.id,
             resource_type=TENDER_SEARCH_WIZARD_TARGET,
@@ -333,8 +340,10 @@ def latest_tender_search_wizard() -> Any:
         "artifact": _serialize_wizard_artifact(artifact),
         "input": (
             {
+                "mode": job.input_payload.get("mode", "initial"),
                 "description": job.input_payload.get("description"),
                 "comparable": job.input_payload.get("comparable"),
+                "profile_id": job.input_payload.get("profile_id"),
             }
             if job
             else None

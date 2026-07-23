@@ -467,6 +467,24 @@
 .procurement-save-search { display: grid; gap: 8px; margin-bottom: 12px; }
 .procurement-search-list article { display: grid; gap: 10px; }
 .procurement-search-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.procurement-card.has-feedback { border-color: #b8c4d1; background: #f6f8fa; opacity: .78; }
+.procurement-feedback-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.procurement-feedback-recorded { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; border-left: 3px solid #718096; border-radius: 7px; background: #eef2f6; padding: 8px 10px; color: #40536a; }
+.procurement-feedback-recorded > div { display: flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 720; }
+.procurement-feedback-recorded small { grid-column: 1; margin: 0; }
+.procurement-feedback-recorded button { grid-column: 2; grid-row: 1 / span 2; }
+.procurement-feedback-reasons { z-index: 20; width: min(280px, calc(100vw - 28px)); border: 1px solid var(--va-border); border-radius: 9px; background: white; box-shadow: 0 12px 28px #1d2b3a24; padding: 10px; }
+.procurement-feedback-reasons > strong { display: block; margin-bottom: 7px; color: var(--va-text); font-size: 12px; }
+.procurement-feedback-reasons > div { display: grid; gap: 4px; }
+.procurement-feedback-reasons button { border: 0; border-radius: 6px; background: transparent; color: #3d5168; padding: 7px 8px; text-align: left; }
+.procurement-feedback-reasons button:hover,
+.procurement-feedback-reasons button:focus-visible { background: #edf2f7; outline: 2px solid #9db2ca; }
+.procurement-feedback-digest { display: grid; gap: 10px; margin: 0 14px 14px; border: 1px solid #cdd9e6; border-radius: 11px; background: #f7f9fc; padding: 13px; }
+.procurement-feedback-digest > header { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
+.procurement-feedback-digest h3 { margin: 2px 0 4px; color: var(--va-text); font-size: 14px; }
+.procurement-feedback-digest p { margin: 0; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
+.procurement-feedback-digest > div { display: grid; gap: 4px; }
+.procurement-feedback-digest > small { color: var(--va-muted); }
 .procurement-pin { display: flex; flex-wrap: wrap; gap: 7px; align-items: end; }
 .procurement-pin.compact { padding: 0; }
 .procurement-pin select { max-width: 230px; }
@@ -523,6 +541,21 @@
 .procurement-confidence { border: 1px solid #b8c7d9; border-radius: 999px; background: white; color: #34475e; padding: 4px 8px; font-size: 11px; }
 .procurement-wizard-measured-gap { display: flex; justify-content: space-between; gap: 16px; align-items: center; border-left: 4px solid #a66a00; border-radius: 9px; background: #fff8e8; padding: 13px 14px; }
 .procurement-wizard-measured-gap p { margin: 4px 0 0; color: #6f531d; font-size: 12px; line-height: 1.45; }
+.procurement-plan-diff { display: grid; gap: 11px; border: 1px solid #cdd9e6; border-radius: 11px; background: #f7f9fc; padding: 14px; }
+.procurement-plan-diff h3 { margin: 0 0 4px; color: var(--va-text); font-size: 14px; }
+.procurement-plan-diff p { margin: 0; color: var(--va-muted); font-size: 12px; }
+.procurement-plan-diff-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.procurement-plan-diff-groups > div { display: grid; align-content: start; gap: 7px; border: 1px solid #dce5ef; border-radius: 8px; background: white; padding: 9px; }
+.procurement-plan-diff-groups > div > strong { color: #40536a; font-size: 11px; text-transform: uppercase; }
+.procurement-plan-diff-groups > div > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.procurement-diff-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 5px; border: 1px solid #c6d2df; border-radius: 999px; background: #f7f9fb; padding: 4px 7px; color: #32465c; font-size: 10px; }
+.procurement-diff-chip > b { font-size: 8px; letter-spacing: .04em; text-transform: uppercase; }
+.procurement-diff-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.procurement-diff-chip > small { color: inherit; font-size: 8px; }
+.procurement-diff-chip.change-added { border-color: #78ae91; background: #f0faf4; color: #17623a; }
+.procurement-diff-chip.change-removed { border-color: #d3a29e; background: #fff4f3; color: #8d2d25; }
+.procurement-diff-chip.change-removed > span { text-decoration: line-through; }
+.procurement-diff-chip.change-retained { border-color: #9dacc0; background: #f3f6fa; color: #40536a; }
 .procurement-wizard-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .procurement-wizard-chip-group { display: grid; align-content: start; gap: 9px; min-width: 0; border: 1px solid #dce5ef; border-radius: 11px; background: white; padding: 13px; }
 .procurement-wizard-chip-group > header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
@@ -636,6 +669,8 @@
   .procurement-wizard-measured-gap,
   .procurement-wizard-preview > header,
   .procurement-wizard-latest { align-items: stretch; flex-direction: column; }
+  .procurement-feedback-digest > header { flex-direction: column; }
+  .procurement-plan-diff-groups { grid-template-columns: 1fr; }
   .procurement-wizard-accepted form { grid-template-columns: 1fr; }
   .procurement-wizard-footer { align-items: stretch; }
   .procurement-wizard-footer > div { display: grid; flex: 1; }

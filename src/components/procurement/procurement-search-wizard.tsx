@@ -26,10 +26,12 @@ import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { ProcurementAutocomplete } from "./procurement-autocomplete";
+import { ProcurementPlanDiff } from "./procurement-plan-diff";
 import {
   addMissingMeasuredCandidates,
   applyChipsToTenderSearchPlan,
   createUserTenderSearchChip,
+  diffTenderSearchChips,
   findMissingMeasuredBuyers,
   findMissingMeasuredCandidates,
   mergeRegeneratedTenderSearchPlan,
@@ -69,6 +71,11 @@ type Step = "describe" | "review";
 
 interface ProcurementSearchWizardProps {
   onWatchSaved?: () => void | Promise<void>;
+  replanRequest?: {
+    digestHash: string;
+    profileId: string;
+    requestKey: number;
+  } | null;
 }
 
 interface ComparableCacheValue {
@@ -289,6 +296,7 @@ function PlanChip({
 
 export function ProcurementSearchWizard({
   onWatchSaved,
+  replanRequest,
 }: ProcurementSearchWizardProps) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("describe");
@@ -330,6 +338,11 @@ export function ProcurementSearchWizard({
   const [previewCooldown, setPreviewCooldown] = useState(0);
   const [acceptedProfile, setAcceptedProfile] =
     useState<ProcurementSearchProfile | null>(null);
+  const [targetProfile, setTargetProfile] =
+    useState<ProcurementSearchProfile | null>(null);
+  const [acceptedBaselineChips, setAcceptedBaselineChips] = useState<
+    TenderSearchChip[]
+  >([]);
   const [accepting, setAccepting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [acceptError, setAcceptError] = useState<string | null>(null);
@@ -344,6 +357,7 @@ export function ProcurementSearchWizard({
   const [cpvDiscarded, setCpvDiscarded] = useState<string | null>(null);
   const suggestionSequence = useRef(0);
   const cpvSuggestionSequence = useRef(0);
+  const lastReplanRequestKey = useRef<number | null>(null);
 
   const effectivePlan = useMemo(
     () => (plan ? applyChipsToTenderSearchPlan(plan, chips) : null),
@@ -373,6 +387,13 @@ export function ProcurementSearchWizard({
   );
   const hasMissingBaseline =
     missingMeasured.terms.length > 0 || missingMeasured.cpvs.length > 0;
+  const planDiff = useMemo(
+    () =>
+      acceptedBaselineChips.length
+        ? diffTenderSearchChips(acceptedBaselineChips, chips)
+        : [],
+    [acceptedBaselineChips, chips],
+  );
 
   async function loadLatest() {
     setLatestLoading(true);
@@ -428,11 +449,8 @@ export function ProcurementSearchWizard({
     const query = cpvQuery.trim();
     const sequence = ++cpvSuggestionSequence.current;
     if (!open || step !== "review" || query.length < 2) {
-      setCpvSuggestions([]);
-      setCpvSuggesting(false);
       return;
     }
-    setCpvSuggesting(true);
     const timer = window.setTimeout(() => {
       void api.procurement
         .suggestCpvs(query)
@@ -530,6 +548,82 @@ export function ProcurementSearchWizard({
     setStep("review");
   }
 
+  async function startReplan(profileId: string, digestHash: string) {
+    setOpen(true);
+    setGenerating(true);
+    setAcceptError(null);
+    setFieldErrors({});
+    try {
+      const profile = await api.procurementSearchProfiles.get(profileId);
+      const sameProfileChips =
+        (targetProfile?.id === profile.id ||
+          acceptedProfile?.id === profile.id) &&
+        chips.length > 0
+          ? chips
+          : tenderSearchPlanToChips(profile.accepted_plan, comparableProfile);
+      setDescription(profile.original_description);
+      setComparable(profile.comparables[0] ?? "");
+      setTargetProfile(profile);
+      setAcceptedProfile(null);
+      setAcceptedBaselineChips(sameProfileChips);
+      setPlan(profile.accepted_plan);
+      setChips(sameProfileChips);
+      const response = await api.procurementSearchProfiles.replan(
+        profile.id,
+        {
+          expected_version: profile.version,
+          digest_hash: digestHash,
+        },
+        `procurement-replan:${profile.id}:${profile.version}:${digestHash}`,
+      );
+      if (isWizardArtifact(response.artifact)) {
+        const merged = mergeRegeneratedTenderSearchPlan(
+          response.artifact.output,
+          sameProfileChips,
+          comparableProfile,
+          tombstones,
+        );
+        setPlan(merged.plan);
+        setChips(merged.chips);
+        setArtifact(response.artifact);
+        setPreview(null);
+        setWatchSaved(false);
+        setStep("review");
+      } else {
+        setJobId(response.job.id);
+      }
+    } catch (reason) {
+      const errors = structuredFieldErrors(reason);
+      setFieldErrors(errors);
+      setAcceptError(
+        reason instanceof ApiError &&
+          reason.status === 422 &&
+          Object.keys(errors).length > 0
+          ? null
+          : reason instanceof ApiError && reason.status === 422
+            ? "El servidor rechazó la revisión sin indicar los campos afectados."
+            : problemMessage(
+                reason,
+                "No se pudo revisar el plan con el feedback.",
+              ),
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !replanRequest ||
+      lastReplanRequestKey.current === replanRequest.requestKey
+    )
+      return;
+    lastReplanRequestKey.current = replanRequest.requestKey;
+    void startReplan(replanRequest.profileId, replanRequest.digestHash);
+    // La clave explícita representa una única acción humana de replanificación.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replanRequest]);
+
   async function generate(regenerating = false) {
     if (description.trim().length < 10) return;
     setGenerating(true);
@@ -574,7 +668,7 @@ export function ProcurementSearchWizard({
     }
   }
 
-  function useLatest() {
+  function applyLatest() {
     if (!latestArtifact) return;
     if (!description.trim()) {
       setDescription("Continuación del último plan de búsqueda disponible");
@@ -596,6 +690,10 @@ export function ProcurementSearchWizard({
         tenderSearchPlanToChips(profile.accepted_plan, comparableProfile),
       );
       setAcceptedProfile(profile);
+      setTargetProfile(profile);
+      setAcceptedBaselineChips(
+        tenderSearchPlanToChips(profile.accepted_plan, comparableProfile),
+      );
       setWatchName(profile.accepted_plan.intent_summary.slice(0, 120));
     } catch (reason) {
       setAcceptError(
@@ -748,9 +846,10 @@ export function ProcurementSearchWizard({
     setAcceptError(null);
     setFieldErrors({});
     try {
-      const response = acceptedProfile
-        ? await api.procurementSearchProfiles.accept(acceptedProfile.id, {
-            expected_version: acceptedProfile.version,
+      const profileToUpdate = targetProfile ?? acceptedProfile;
+      const response = profileToUpdate
+        ? await api.procurementSearchProfiles.accept(profileToUpdate.id, {
+            expected_version: profileToUpdate.version,
             accepted_plan: acceptedPlan(effectivePlan),
             ai_artifact_id: artifact.id,
           })
@@ -761,6 +860,8 @@ export function ProcurementSearchWizard({
             ai_artifact_id: artifact.id,
           });
       setAcceptedProfile(response);
+      setTargetProfile(response);
+      setAcceptedBaselineChips(chips);
       setWatchName(
         (current) =>
           current || effectivePlan.intent_summary.slice(0, 120).trim(),
@@ -1027,7 +1128,7 @@ export function ProcurementSearchWizard({
                           onClick={() =>
                             void (latestAcceptance
                               ? reviewAcceptedLatest()
-                              : Promise.resolve(useLatest()))
+                              : Promise.resolve(applyLatest()))
                           }
                         >
                           {latestAcceptance
@@ -1146,6 +1247,13 @@ export function ProcurementSearchWizard({
                       </section>
                     )}
 
+                    {targetProfile && planDiff.length > 0 && (
+                      <ProcurementPlanDiff
+                        changes={planDiff}
+                        version={targetProfile.version}
+                      />
+                    )}
+
                     <div className="procurement-wizard-groups">
                       {Object.entries(CATEGORY_COPY).map(
                         ([rawCategory, copy]) => {
@@ -1237,6 +1345,12 @@ export function ProcurementSearchWizard({
                                     invalid={categoryErrors.length > 0}
                                     onChange={(value) => {
                                       setCpvQuery(value);
+                                      if (value.trim().length < 2) {
+                                        setCpvSuggestions([]);
+                                        setCpvSuggesting(false);
+                                      } else {
+                                        setCpvSuggesting(true);
+                                      }
                                       setCpvDiscarded(null);
                                     }}
                                     onSelect={(value) => {
@@ -1588,7 +1702,9 @@ export function ProcurementSearchWizard({
                       <Check size={14} />
                       {acceptedProfile
                         ? `Aceptar como v${acceptedProfile.version + 1}`
-                        : "Aceptar plan"}
+                        : targetProfile
+                          ? `Aceptar como v${targetProfile.version + 1}`
+                          : "Aceptar plan"}
                     </AsyncActionButton>
                   </div>
                 </>

@@ -14,6 +14,9 @@ from opn_oracle.integrations.models import INTEGRATION_MODELS
 from opn_oracle.oracle.jobs import JOB_MODELS
 from opn_oracle.oracle.links import LINK_MODELS
 from opn_oracle.oracle.models import ORACLE_MODELS
+from opn_oracle.oracle.procurement_search_feedback import (
+    PROCUREMENT_SEARCH_FEEDBACK_MODELS,
+)
 from opn_oracle.oracle.procurement_search_profiles import PROCUREMENT_SEARCH_PROFILE_MODELS
 from opn_oracle.platform.backups import BACKUP_MODELS
 from opn_oracle.platform.models import (
@@ -76,6 +79,7 @@ MODEL_REGISTRY = (
     *INTEGRATION_MODELS,
     *ORACLE_MODELS,
     *PROCUREMENT_SEARCH_PROFILE_MODELS,
+    *PROCUREMENT_SEARCH_FEEDBACK_MODELS,
     *LINK_MODELS,
     *JOB_MODELS,
     *AI_MODELS,

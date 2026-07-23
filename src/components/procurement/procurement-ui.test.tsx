@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   patchSearch: vi.fn(),
   deleteSearch: vi.fn(),
   runSearch: vi.fn(),
+  listFeedback: vi.fn(),
+  createFeedback: vi.fn(),
+  removeFeedback: vi.fn(),
+  feedbackDigest: vi.fn(),
   dossiersList: vi.fn(),
   pin: vi.fn(),
   listPinned: vi.fn(),
@@ -53,6 +57,10 @@ vi.mock("@oracle/api-client", () => {
       },
       procurementSearchProfiles: {
         list: mocks.listSearchProfiles,
+        listFeedback: mocks.listFeedback,
+        createFeedback: mocks.createFeedback,
+        removeFeedback: mocks.removeFeedback,
+        feedbackDigest: mocks.feedbackDigest,
       },
       dossiers: { list: mocks.dossiersList },
       dossierProcurement: {
@@ -123,7 +131,27 @@ describe("UI de contratación pública", () => {
     mocks.tenders.mockResolvedValue(tendersResponse);
     mocks.searches.mockResolvedValue({ items: [] });
     mocks.listSearchProfiles.mockResolvedValue({ items: [] });
-    mocks.dossiersList.mockResolvedValue({ data: [dossier], meta: { total: 1 } });
+    mocks.listFeedback.mockResolvedValue({ items: [] });
+    mocks.feedbackDigest.mockResolvedValue({
+      profile_id: "profile-1",
+      plan_version: 4,
+      digest_hash: "digest-empty",
+      new_feedback_count: 0,
+      counts: { relevant: 0, not_relevant: 0 },
+      reasons: {
+        wrong_sector: 0,
+        amount: 0,
+        region: 0,
+        buyer: 0,
+        other: 0,
+      },
+      exclusion_candidates: { terms: [], cpvs: [] },
+      reinforcement_candidates: { terms: [], cpvs: [] },
+    });
+    mocks.dossiersList.mockResolvedValue({
+      data: [dossier],
+      meta: { total: 1 },
+    });
     mocks.pin.mockResolvedValue({ id: "pin-1", folder_id: tender.folder_id });
     mocks.suggest.mockResolvedValue({
       kind: "winner",
@@ -194,7 +222,9 @@ describe("UI de contratación pública", () => {
   it("muestra resultados de licitaciones, filtros y resumen LLM cacheado sin POST", async () => {
     render(<ProcurementWorkspace />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
     fireEvent.change(screen.getByLabelText("Términos de búsqueda"), {
       target: { value: "baterías, movilidad" },
@@ -223,18 +253,24 @@ describe("UI de contratación pública", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /resumen/i }));
-    expect(await screen.findByText("Resumen ya calculado.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Resumen ya calculado."),
+    ).toBeInTheDocument();
     expect(mocks.summarizeTender).not.toHaveBeenCalled();
   });
 
   it("expone el alcance real de Signal y no promete histórico aislado", async () => {
     render(<ProcurementWorkspace />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
 
     const scope = screen.getByRole("combobox", { name: "Ámbito temporal" });
-    expect(within(scope).queryByRole("option", { name: "No activas" })).not.toBeInTheDocument();
+    expect(
+      within(scope).queryByRole("option", { name: "No activas" }),
+    ).not.toBeInTheDocument();
     expect(
       within(scope).getByRole("option", { name: "Todo el índice disponible" }),
     ).toBeInTheDocument();
@@ -250,9 +286,13 @@ describe("UI de contratación pública", () => {
         expect.objectContaining({ scope: "all" }),
       ),
     );
-    expect(screen.getByRole("button", { name: /guardar actual/i })).toBeDisabled();
     expect(
-      screen.getByText(/solo conserva búsquedas guardadas de licitaciones activas/i),
+      screen.getByRole("button", { name: /guardar actual/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(
+        /solo conserva búsquedas guardadas de licitaciones activas/i,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -290,7 +330,9 @@ describe("UI de contratación pública", () => {
     );
     render(<ProcurementWorkspace />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("textbox", { name: "Términos de búsqueda" }),
     ).toBeInTheDocument();
@@ -309,8 +351,12 @@ describe("UI de contratación pública", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Ayuda sobre descripción del tema" }),
     );
-    expect(await screen.findByText(/alternativa a los términos/i)).toBeInTheDocument();
-    expect(screen.getByText(/se desactiva para no mezclar/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/alternativa a los términos/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/se desactiva para no mezclar/i),
+    ).toBeInTheDocument();
   });
 
   it("sugiere órganos compradores con debounce y conserva la escritura libre", async () => {
@@ -323,7 +369,9 @@ describe("UI de contratación pública", () => {
 
     render(<ProcurementWorkspace />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
     const buyer = screen.getByRole("combobox", { name: "Órgano comprador" });
     fireEvent.change(buyer, { target: { value: "ayu" } });
@@ -361,7 +409,9 @@ describe("UI de contratación pública", () => {
 
     render(<ProcurementWorkspace />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /mostrar filtros/i }));
     const region = screen.getByRole("combobox", { name: "Región" });
     fireEvent.focus(region);
@@ -380,9 +430,19 @@ describe("UI de contratación pública", () => {
       total: 80,
       offset: 25,
       items: [
-        { ...tender, folder_id: "late", title: "Vence tarde", deadline: "2026-09-20" },
+        {
+          ...tender,
+          folder_id: "late",
+          title: "Vence tarde",
+          deadline: "2026-09-20",
+        },
         { ...tender, folder_id: "unknown", title: "Sin plazo", deadline: null },
-        { ...tender, folder_id: "early", title: "Vence pronto", deadline: "2026-07-25" },
+        {
+          ...tender,
+          folder_id: "early",
+          title: "Vence pronto",
+          deadline: "2026-07-25",
+        },
       ],
     });
 
@@ -390,12 +450,16 @@ describe("UI de contratación pública", () => {
 
     expect(await screen.findByText("Vence tarde")).toBeInTheDocument();
     fireEvent.change(
-      screen.getByRole("combobox", { name: "Orden de los resultados cargados" }),
+      screen.getByRole("combobox", {
+        name: "Orden de los resultados cargados",
+      }),
       { target: { value: "deadline_asc" } },
     );
 
     const titles = Array.from(
-      document.querySelectorAll<HTMLElement>(".procurement-card > header strong"),
+      document.querySelectorAll<HTMLElement>(
+        ".procurement-card > header strong",
+      ),
     ).map((node) => node.textContent);
     expect(titles).toEqual(["Vence pronto", "Vence tarde", "Sin plazo"]);
     expect(
@@ -408,15 +472,21 @@ describe("UI de contratación pública", () => {
   it("agrupa todas las acciones de una licitación en un único control", async () => {
     render(<ProcurementWorkspace />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     const actions = screen.getByRole("group", {
       name: "Acciones para Suministro de baterías",
     });
-    expect(within(actions).getByRole("button", { name: "Resumen" })).toBeInTheDocument();
+    expect(
+      within(actions).getByRole("button", { name: "Resumen" }),
+    ).toBeInTheDocument();
     expect(
       within(actions).getByRole("link", { name: "Ver fuente oficial" }),
     ).toBeInTheDocument();
-    expect(within(actions).getByRole("button", { name: "Fijar" })).toBeInTheDocument();
+    expect(
+      within(actions).getByRole("button", { name: "Fijar" }),
+    ).toBeInTheDocument();
   });
 
   it("gestiona estados vacíos y búsquedas guardadas", async () => {
@@ -453,10 +523,12 @@ describe("UI de contratación pública", () => {
     await waitFor(() => expect(mocks.createSearch).toHaveBeenCalled());
 
     fireEvent.click(await screen.findByRole("button", { name: /ejecutar/i }));
-    await waitFor(() => expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
-      limit: 25,
-      offset: 0,
-    }));
+    await waitFor(() =>
+      expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
+        limit: 25,
+        offset: 0,
+      }),
+    );
   });
 
   it("correlaciona la búsqueda guardada por el wizard con su versión aceptada", async () => {
@@ -488,16 +560,144 @@ describe("UI de contratación pública", () => {
     expect(within(card as HTMLElement).getByText("v4")).toBeInTheDocument();
   });
 
+  it("registra feedback neutro sobre resultados correlacionados y permite deshacerlo", async () => {
+    const search = {
+      id: "search-wizard-1",
+      name: "Emergencias activas",
+      keywords: ["extinción"],
+      filters: { scope: "active" },
+    };
+    const searchProfile = {
+      id: "profile-1",
+      tender_search_id: search.id,
+      version: 4,
+    };
+    const feedback = {
+      id: "feedback-1",
+      profile_id: searchProfile.id,
+      plan_version: 4,
+      folder_id: tender.folder_id,
+      verdict: "not_relevant",
+      reason: "wrong_sector",
+      note: null,
+      tender: {
+        title: tender.title,
+        cpvs: tender.cpv,
+      },
+      created_at: "2026-07-23T20:00:00Z",
+      updated_at: "2026-07-23T20:00:00Z",
+    };
+    mocks.searches.mockResolvedValue({ items: [search] });
+    mocks.listSearchProfiles.mockResolvedValue({ items: [searchProfile] });
+    mocks.runSearch.mockResolvedValue({
+      search,
+      results: tendersResponse,
+    });
+    mocks.createFeedback.mockResolvedValue(feedback);
+    mocks.removeFeedback.mockResolvedValue({
+      deleted: true,
+      id: feedback.id,
+    });
+    mocks.feedbackDigest
+      .mockResolvedValueOnce({
+        profile_id: "profile-1",
+        plan_version: 4,
+        digest_hash: "digest-empty",
+        new_feedback_count: 0,
+        counts: { relevant: 0, not_relevant: 0 },
+        reasons: {
+          wrong_sector: 0,
+          amount: 0,
+          region: 0,
+          buyer: 0,
+          other: 0,
+        },
+        exclusion_candidates: { terms: [], cpvs: [] },
+        reinforcement_candidates: { terms: [], cpvs: [] },
+      })
+      .mockResolvedValue({
+        profile_id: "profile-1",
+        plan_version: 4,
+        digest_hash: "digest-feedback",
+        new_feedback_count: 1,
+        counts: { relevant: 0, not_relevant: 1 },
+        reasons: {
+          wrong_sector: 1,
+          amount: 0,
+          region: 0,
+          buyer: 0,
+          other: 0,
+        },
+        exclusion_candidates: {
+          terms: [{ value: "baterías", count: 1 }],
+          cpvs: [],
+        },
+        reinforcement_candidates: { terms: [], cpvs: [] },
+      });
+
+    render(<ProcurementWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ejecutar" }));
+    const feedbackGroup = await screen.findByRole("group", {
+      name: "Valoración para Suministro de baterías",
+    });
+    fireEvent.click(
+      within(feedbackGroup).getByRole("button", { name: "No relevante" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sector incorrecto" }),
+    );
+
+    await screen.findByText(
+      "Lo tendremos en cuenta cuando pidas revisar el plan.",
+    );
+    expect(mocks.createFeedback).toHaveBeenCalledWith("profile-1", {
+      plan_version: 4,
+      folder_id: tender.folder_id,
+      verdict: "not_relevant",
+      reason: "wrong_sector",
+      note: null,
+      tender: {
+        title: tender.title,
+        cpvs: tender.cpv,
+      },
+    });
+    expect(
+      screen.getByText("1 feedback nuevos · 1 no relevantes · 0 relevantes"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Suministro de baterías").closest("article"),
+    ).toHaveClass("has-feedback");
+
+    fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
+    await waitFor(() =>
+      expect(mocks.removeFeedback).toHaveBeenCalledWith(
+        "profile-1",
+        "feedback-1",
+      ),
+    );
+    expect(
+      await screen.findByRole("group", {
+        name: "Valoración para Suministro de baterías",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("permite buscar adjudicaciones de actor y fijarlas a expediente", async () => {
     render(<ProcurementAwardsPanel />);
 
     fireEvent.change(screen.getByLabelText("Adjudicatario registral"), {
       target: { value: "Iturri" },
     });
-    fireEvent.click(await screen.findByRole("option", { name: "ITURRI, S.A." }));
-    fireEvent.click(screen.getByRole("button", { name: /buscar adjudicaciones/i }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "ITURRI, S.A." }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /buscar adjudicaciones/i }),
+    );
 
-    expect(await screen.findByText("Servicio de emergencias")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Servicio de emergencias"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Organismo licitador")).toBeInTheDocument();
     expect(screen.getByText("Ayuntamiento de Zaragoza")).toBeInTheDocument();
     expect(screen.getByText("Sin lote")).toBeInTheDocument();
@@ -509,7 +709,11 @@ describe("UI de contratación pública", () => {
       limit: 8,
     });
     expect(mocks.awards).toHaveBeenCalledWith(
-      expect.objectContaining({ company: "ITURRI, S.A.", limit: 25, offset: 0 }),
+      expect.objectContaining({
+        company: "ITURRI, S.A.",
+        limit: 25,
+        offset: 0,
+      }),
     );
 
     expect(await screen.findByText("Expediente CATL")).toBeInTheDocument();
@@ -525,7 +729,9 @@ describe("UI de contratación pública", () => {
   it("lista y desfija referencias PLACSP desde el expediente", async () => {
     render(<DossierProcurementSection dossierId="dossier-1" />);
 
-    expect(await screen.findByText("Suministro de baterías")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Suministro de baterías"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /desfijar/i }));
 
     await waitFor(() =>
@@ -561,9 +767,13 @@ describe("UI de contratación pública", () => {
 
     render(<DossierProcurementSection dossierId="dossier-1" />);
 
-    expect(await screen.findByText("Servicio de prevención")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Servicio de prevención"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Organismo licitador")).toBeInTheDocument();
-    expect(screen.getAllByText("Autoridad Portuaria de Barcelona")).not.toHaveLength(0);
+    expect(
+      screen.getAllByText("Autoridad Portuaria de Barcelona"),
+    ).not.toHaveLength(0);
     expect(screen.getByText("UTE · En consorcio")).toBeInTheDocument();
   });
 
@@ -625,7 +835,9 @@ describe("UI de contratación pública", () => {
     render(<DossierProcurementSection dossierId="dossier-1" />);
 
     expect(
-      await screen.findByRole("combobox", { name: /adjudicatario a analizar/i }),
+      await screen.findByRole("combobox", {
+        name: /adjudicatario a analizar/i,
+      }),
     ).toHaveValue("ITURRI, S.A");
     fireEvent.click(
       screen.getByRole("button", { name: /inteligencia competitiva/i }),

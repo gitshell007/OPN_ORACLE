@@ -46,6 +46,9 @@ from opn_oracle.integrations.signal_avanza import MockSignalAvanzaAdapter
 from opn_oracle.integrations.webhooks import bp as signal_webhooks_bp
 from opn_oracle.jobs.routes import bp as jobs_bp
 from opn_oracle.notifications.email import CaptureEmailSender, GraphEmailSender, SMTPEmailSender
+from opn_oracle.oracle.procurement_search_feedback_routes import (
+    bp as procurement_search_feedback_bp,
+)
 from opn_oracle.oracle.procurement_search_profile_routes import (
     bp as procurement_search_profiles_bp,
 )
@@ -182,6 +185,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> APIFlask:
     app.register_blueprint(entity_intel_bp)
     app.register_blueprint(procurement_bp)
     app.register_blueprint(procurement_search_profiles_bp)
+    app.register_blueprint(procurement_search_feedback_bp)
     app.register_blueprint(signal_webhooks_bp)
     app.register_blueprint(metrics_bp)
     app.spec_processor(declare_problem_responses)

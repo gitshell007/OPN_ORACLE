@@ -3096,6 +3096,60 @@
         ],
         "type": "object"
       },
+      "FeedbackCPVCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "delta": {
+            "type": "integer"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "rejected_count": {
+            "type": "integer"
+          },
+          "relevant_count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "count",
+          "delta",
+          "rejected_count",
+          "relevant_count"
+        ],
+        "type": "object"
+      },
+      "FeedbackCandidates": {
+        "additionalProperties": false,
+        "properties": {
+          "cpvs": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackCPVCandidate"
+            },
+            "type": "array"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackTermCandidate"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cpvs",
+          "terms"
+        ],
+        "type": "object"
+      },
       "FeedbackResource": {
         "additionalProperties": false,
         "properties": {
@@ -3145,6 +3199,34 @@
         "required": [
           "id",
           "tenant_id"
+        ],
+        "type": "object"
+      },
+      "FeedbackTermCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "delta": {
+            "type": "integer"
+          },
+          "rejected_count": {
+            "type": "integer"
+          },
+          "relevant_count": {
+            "type": "integer"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "delta",
+          "rejected_count",
+          "relevant_count",
+          "value"
         ],
         "type": "object"
       },
@@ -5425,6 +5507,151 @@
         ],
         "type": "object"
       },
+      "ProcurementSearchFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "note": {
+            "nullable": true,
+            "type": "string"
+          },
+          "plan_version": {
+            "type": "integer"
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "tender": {
+            "$ref": "#/components/schemas/TenderFeedbackSnapshot"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "folder_id",
+          "id",
+          "plan_version",
+          "profile_id",
+          "state",
+          "tender",
+          "updated_at",
+          "user_id",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "ProcurementSearchFeedbackDigest": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "digest_hash": {
+            "type": "string"
+          },
+          "exclusion_candidates": {
+            "$ref": "#/components/schemas/FeedbackCandidates"
+          },
+          "feedback_state_hash": {
+            "type": "string"
+          },
+          "new_feedback_count": {
+            "type": "integer"
+          },
+          "plan_version": {
+            "type": "integer"
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "reinforcement_candidates": {
+            "$ref": "#/components/schemas/FeedbackCandidates"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "taxonomy_version": {
+            "type": "string"
+          },
+          "tokenizer_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "counts",
+          "digest_hash",
+          "exclusion_candidates",
+          "feedback_state_hash",
+          "new_feedback_count",
+          "plan_version",
+          "profile_id",
+          "reasons",
+          "reinforcement_candidates",
+          "schema",
+          "taxonomy_version",
+          "tokenizer_version"
+        ],
+        "type": "object"
+      },
+      "ProcurementSearchFeedbackList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcurementSearchFeedback"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "total"
+        ],
+        "type": "object"
+      },
       "ProcurementSearchProfileList": {
         "additionalProperties": false,
         "properties": {
@@ -5557,6 +5784,55 @@
         ],
         "type": "object"
       },
+      "RegisterProcurementSearchFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "folder_id": {
+            "maxLength": 240,
+            "minLength": 1,
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "plan_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "reason": {
+            "default": null,
+            "enum": [
+              "wrong_sector",
+              "amount",
+              "region",
+              "buyer",
+              "other",
+              null
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "tender": {
+            "$ref": "#/components/schemas/TenderFeedbackSnapshot"
+          },
+          "verdict": {
+            "enum": [
+              "relevant",
+              "not_relevant"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id",
+          "plan_version",
+          "tender",
+          "verdict"
+        ],
+        "type": "object"
+      },
       "RelationshipResource": {
         "additionalProperties": false,
         "properties": {
@@ -5656,6 +5932,42 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "ReplanProcurementSearchProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "digest_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "digest_hash",
+          "expected_version"
+        ],
+        "type": "object"
+      },
+      "ReplanProcurementSearchProfileResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "job": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "job"
+        ],
         "type": "object"
       },
       "ReportEnqueueResponse": {
@@ -7485,6 +7797,26 @@
           }
         ]
       },
+      "TenderFeedbackSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "cpvs": {
+            "items": {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 2000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "TenderSearchCandidateCPV": {
         "additionalProperties": false,
         "properties": {
@@ -7833,6 +8165,34 @@
         ],
         "type": "object"
       },
+      "TenderSearchWizardLatestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "comparable": {
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "initial",
+              "replan"
+            ],
+            "type": "string"
+          },
+          "profile_id": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
       "TenderSearchWizardLatestResponse": {
         "additionalProperties": false,
         "properties": {
@@ -7865,7 +8225,7 @@
                 "type": "object"
               },
               {
-                "$ref": "#/components/schemas/TenderSearchWizardInput"
+                "$ref": "#/components/schemas/TenderSearchWizardLatestInput"
               }
             ]
           },
@@ -32692,6 +33052,661 @@
         ]
       }
     },
+    "/api/v1/procurement-search-profiles/{profile_id}/feedback": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_history",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page[number]",
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page[size]",
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[status]",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[search]",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[selected_ids]",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[type]",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[owner]",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[date_from]",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[date_to]",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[score_min]",
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter[score_max]",
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/FeedbackResource"
+                      },
+                      "type": "array"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/PageMeta"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Feedback List",
+        "tags": [
+          "Feedback de b\u00fasquedas de licitaciones"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Feedback Register",
+        "tags": [
+          "Feedback de b\u00fasquedas de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement-search-profiles/{profile_id}/feedback-digest": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Feedback Digest",
+        "tags": [
+          "Feedback de b\u00fasquedas de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement-search-profiles/{profile_id}/feedback/{feedback_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feedback_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Recurso eliminado"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Feedback Withdraw",
+        "tags": [
+          "Feedback de b\u00fasquedas de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement-search-profiles/{profile_id}/replans": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplanProcurementSearchProfile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operaci\u00f3n completada"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplanProcurementSearchProfileResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Profiles Replan",
+        "tags": [
+          "Perfiles de b\u00fasqueda de licitaciones"
+        ]
+      }
+    },
     "/api/v1/procurement-search-profiles/{profile_id}/saved-search": {
       "post": {
         "parameters": [
@@ -41941,6 +42956,9 @@
     },
     {
       "name": "Perfiles de b\u00fasqueda de licitaciones"
+    },
+    {
+      "name": "Feedback de b\u00fasquedas de licitaciones"
     },
     {
       "name": "Signal_Webhooks"

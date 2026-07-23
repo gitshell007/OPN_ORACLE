@@ -115,9 +115,12 @@ INPUT_CONTRACTS = {
     ),
     "tender_search_wizard": (
         "tenant_id",
+        "mode",
         "description",
         "comparable",
         "comparable_profile",
+        "accepted_plan",
+        "feedback_digest",
         "allowed_evidence_ids",
     ),
 }
@@ -193,6 +196,7 @@ PROMPT_VERSIONS = {
             "meeting_briefing",
             "weekly_change",
             "competitive_procurement_intelligence",
+            "tender_search_wizard",
         }
         else ("v1",)
     )
@@ -254,6 +258,14 @@ class PromptRegistry:
                         "v1": "v1: contrato inicial de inteligencia competitiva PLACSP.",
                         "v2": (
                             "v2: informe ejecutivo analítico con materialidad y límites al final."
+                        ),
+                    }[version]
+                elif name == "tender_search_wizard":
+                    changelog = {
+                        "v1": "v1: propuesta inicial revisable con grounding comparable medido.",
+                        "v2": (
+                            "v2: añade replanificación explícita desde plan aceptado y "
+                            "digest determinista de feedback."
                         ),
                     }[version]
                 else:

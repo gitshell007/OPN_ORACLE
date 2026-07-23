@@ -1753,6 +1753,62 @@ export type AcceptProcurementSearchProfile =
 export type SavedProcurementSearchProfile =
   components["schemas"]["SavedProcurementSearchResponse"];
 
+export type ProcurementSearchFeedbackReason =
+  "wrong_sector" | "amount" | "region" | "buyer" | "other";
+export type ProcurementSearchFeedbackVerdict = "relevant" | "not_relevant";
+
+export interface ProcurementSearchFeedback {
+  id: string;
+  profile_id: string;
+  plan_version: number;
+  folder_id: string;
+  verdict: ProcurementSearchFeedbackVerdict;
+  reason: ProcurementSearchFeedbackReason;
+  note: string | null;
+  tender: {
+    title: string;
+    cpvs: string[];
+  };
+  user_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProcurementSearchFeedbackList {
+  items: ProcurementSearchFeedback[];
+}
+
+export interface ProcurementFeedbackCandidateTerm {
+  count: number;
+  value: string;
+}
+
+export interface ProcurementFeedbackCandidateCpv {
+  code: string;
+  count: number;
+  label?: string | null;
+}
+
+export interface ProcurementSearchFeedbackDigest {
+  profile_id: string;
+  plan_version: number;
+  digest_hash: string;
+  new_feedback_count: number;
+  counts: {
+    relevant: number;
+    not_relevant: number;
+  };
+  reasons: Record<ProcurementSearchFeedbackReason, number>;
+  exclusion_candidates: {
+    terms: ProcurementFeedbackCandidateTerm[];
+    cpvs: ProcurementFeedbackCandidateCpv[];
+  };
+  reinforcement_candidates: {
+    terms: ProcurementFeedbackCandidateTerm[];
+    cpvs: ProcurementFeedbackCandidateCpv[];
+  };
+}
+
 export interface TenderSearchPreviewChip {
   kind: "term" | "cpv";
   value: string;
@@ -2006,6 +2062,52 @@ const procurementSearchProfiles = {
     request<SavedProcurementSearchProfile>(
       `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/saved-search`,
       { method: "POST", body: input },
+    ),
+  listFeedback: (profileId: string) =>
+    request<ProcurementSearchFeedbackList>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/feedback`,
+      { retry: false },
+    ),
+  createFeedback: (
+    profileId: string,
+    input: {
+      plan_version: number;
+      folder_id: string;
+      verdict: ProcurementSearchFeedbackVerdict;
+      reason: ProcurementSearchFeedbackReason;
+      note?: string | null;
+      tender: {
+        title: string;
+        cpvs: string[];
+      };
+    },
+  ) =>
+    request<ProcurementSearchFeedback>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/feedback`,
+      { method: "POST", body: input },
+    ),
+  removeFeedback: (profileId: string, feedbackId: string) =>
+    request<{ deleted: boolean; id: string }>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/feedback/${encodeURIComponent(feedbackId)}`,
+      { method: "DELETE" },
+    ),
+  feedbackDigest: (profileId: string) =>
+    request<ProcurementSearchFeedbackDigest>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/feedback-digest`,
+      { retry: false },
+    ),
+  replan: (
+    profileId: string,
+    input: { expected_version: number; digest_hash: string },
+    idempotencyKey: string,
+  ) =>
+    request<TenderSearchWizardRunResponse>(
+      `/api/v1/procurement-search-profiles/${encodeURIComponent(profileId)}/replans`,
+      {
+        method: "POST",
+        body: input,
+        idempotencyKey,
+      },
     ),
 };
 

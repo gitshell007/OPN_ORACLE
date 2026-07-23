@@ -1175,3 +1175,21 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** La siguiente mejora debe ser determinista o de selección/normalización de
   fragmentos, no aumentar complejidad del schema para `qwen3.5:9b`. La decisión no afecta a Signal,
   runtime productivo ni promoción de datos.
+
+## D-070 — El feedback de licitaciones no despierta al modelo
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** Prompt 82 introduce feedback humano sobre resultados de búsquedas guardadas. El
+  riesgo principal era convertir cada clic, digest o listado en una llamada LLM encubierta, o
+  permitir que una replanificación aceptase un artefacto calculado para otro perfil/versionado.
+- **Decisión:** feedback, retirada, listado y digest son operaciones deterministas Solo Oracle y
+  tenant-scoped. La única frontera IA es una replanificación explícita y gobernada, con
+  `expected_version`, `digest_hash` e `Idempotency-Key`; el worker revalida el perfil antes de
+  consumir IA. El input hash excluye identificadores volátiles y contiene descripción, plan
+  aceptado y digest semántico. Plan+digest idénticos reutilizan artefacto y no duplican ledger.
+- **Consecuencias:** los contadores de `AIUsageLedger` son criterio ejecutable: N feedbacks/digests
+  equivalen a cero llamadas y una replanificación válida equivale a una llamada. La UI puede mostrar
+  diff y aceptar v2 sin prometer aprendizaje automático continuo ni análisis por licitación. La
+  siguiente fase queda acotada a vigilancia incremental con memoria de vistos y notificaciones sin
+  repetir revisiones.

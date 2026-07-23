@@ -4,6 +4,33 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 82 · feedback gobernado y replanificación explícita (completado)
+
+- **[Solo Oracle · API + UX]** El feedback de licitaciones queda persistido como memoria
+  tenant-scoped sobre `ProcurementSearchProfile`: marcar relevante/no relevante, motivos, nota,
+  snapshot mínimo del ítem, reemplazo semántico de feedback repetido y retirada explícita. La lista
+  y el digest ignoran feedback supersedido o retirado, sin llamar a Signal ni a IA.
+- El digest es determinista y versionado por hash semántico: N feedbacks y lecturas de digest
+  generan cero entradas nuevas en `AIUsageLedger`; una replanificación explícita con
+  `digest_hash` válido genera exactamente una llamada a `tender_search_wizard`, y el mismo
+  plan+digest reutiliza el mismo artefacto sin segunda llamada.
+- La replanificación exige perfil exacto, versión esperada, digest vigente e `Idempotency-Key`.
+  El worker revalida versión/hash/digest antes de consumir IA, y la aceptación de v2 solo puede
+  actualizar el perfil objetivo del artefacto. El diff conserva chips de usuario/confirmados y
+  muestra añadido, retirado y mantenido.
+- Añadida migración `0023` con RLS forzada para `procurement_search_feedback`; validada en limpio
+  con ciclo `upgrade 0022→0023`, aislamiento tenant A/B, `downgrade 0023→0022` y reaplicación
+  `0022→0023`.
+- La suite integrada completa usa un bloqueo advisory de sesión PostgreSQL en `pytest_sessionstart`
+  cuando `ORACLE_RUN_INTEGRATION=1`. El bloqueo serializa resets/migraciones del esquema local
+  compartido y elimina la carrera entre procesos sobre la base `oracle_test`.
+- Gates: Ruff check/format-check y mypy correctos; suite backend integrada completa limpia
+  685/685 con PostgreSQL/Redis/Celery reales y 84,79 % de cobertura; ESLint correcto con un aviso
+  conocido de TanStack; TypeScript correcto; Vitest completo 41 ficheros/218 tests; build Next
+  correcto; Playwright extendido desktop+móvil 2/2 con flujo feedback → replanificar → aceptar v2.
+- Smoke con Signal real no verificado en local: la configuración de ejemplo mantiene
+  `SIGNAL_AVANZA_MODE=mock` y `ORACLE_AI_MODE=disabled`; el E2E usa mocks contractuales.
+
 ## Prompt 81 · deuda visible antes del feedback (completado)
 
 - **[Solo Oracle · contrato + UX]** El perfil comparable declara `measured_at`, fijado al
