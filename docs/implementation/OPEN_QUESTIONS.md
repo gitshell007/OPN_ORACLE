@@ -2,15 +2,15 @@
 
 ## Carrera CSRF al subir durante la carga inicial de documentos
 
-- **Estado:** observada localmente; fuera del alcance del prompt 71.
+- **Estado:** resuelta en Prompt 72 el 2026-07-23.
 - **Evidencia:** Playwright obtuvo un token nuevo desde `/api/v1/auth/csrf` y lo envió sin cambios
   en el POST multipart, pero el servidor respondió `403 csrf_failed` cuando varias lecturas de la
   página de documentos seguían en vuelo. La misma subida pasa al esperar el estado cargado.
-- **Hipótesis a verificar en cambio propio:** una respuesta concurrente iniciada antes de renovar
-  CSRF puede persistir una copia anterior de la sesión Redis y sobrescribir el token nuevo.
-- **Siguiente paso:** reproducir con dos requests controladas contra Flask-Session, confirmar el
-  orden de escritura y diseñar la corrección sin relajar CSRF. El E2E funcional espera ahora el
-  empty state antes de subir; no se presenta esa espera como arreglo de la carrera productiva.
+- **Causa confirmada:** la raíz no era una pérdida de escritura Redis. `GET /csrf` renovaba el token
+  en cada lectura; dos lecturas seguidas invalidaban el primer token antes de la mutación.
+- **Corrección aplicada:** la lectura de `/csrf` devuelve el secreto vigente de sesión y solo lo
+  crea si falta. Login, reautenticación, cambio de contraseña y cambio de tenant siguen rotándolo.
+  El E2E funcional ya no espera el empty state antes de subir documentos.
 
 ## Bloqueantes de fase
 

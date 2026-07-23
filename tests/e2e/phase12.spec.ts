@@ -98,7 +98,6 @@ test("F12 sube documentos desde el expediente autenticado", async ({ page }, tes
   const dossierUrl = page.url();
 
   await page.goto(`${dossierUrl}/documents`);
-  await expect(page.getByRole("heading", { name: "Aún no hay documentos" })).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles({
     name: "fuente-e2e.txt",
     mimeType: "text/plain",

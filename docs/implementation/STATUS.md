@@ -4,6 +4,36 @@ Actualizado: 2026-07-23
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## CSRF idempotente para lecturas concurrentes
+
+- Prompt 72 confirma que la carrera no estaba en el wizard ni en una pérdida de escritura Redis:
+  `GET /api/v1/auth/csrf` era destructivo porque renovaba el secreto en cada lectura. Dos lecturas
+  concurrentes podían dejar obsoleto el primer token antes de una mutación legítima, provocando
+  `403 csrf_failed` al subir documentos nada más entrar en la pantalla.
+- `GET /csrf` devuelve ahora el token vigente de la sesión y solo crea uno si falta. La rotación se
+  conserva en login, reautenticación, cambio de contraseña y cambio de tenant; la validación sigue
+  usando `hmac.compare_digest`, `Origin` continúa protegido y la única exención sigue siendo el
+  webhook firmado de Signal.
+- La regresión de subida documental en Playwright ya no espera el empty state antes de adjuntar el
+  archivo, de modo que vuelve a ejercitar la interacción temprana que disparaba la carrera.
+- Sin migraciones, OpenAPI, cliente TypeScript ni variables nuevas. Se añadió cobertura backend
+  para doble lectura CSRF + mutación con el primer token, rotación en login/password y token ausente
+  o inventado.
+- Mutaciones verificadas y restauradas: cambiar `GET /csrf` a `renew_csrf()` hizo caer la doble
+  lectura en `test_integration_auth.py:229` con 403; conservar el token anónimo en login hizo caer
+  la rotación en `test_integration_auth.py:241`; retirar `renew_csrf()` de cambio de contraseña hizo
+  caer `test_integration_auth.py:250`; sustituir `hmac.compare_digest` por aceptación constante
+  hizo caer el token inventado en `test_auth_security.py:55`.
+- Gates ejecutados: Ruff check correcto, Ruff format check correcto, mypy correcto, 528 tests
+  backend con PostgreSQL/Redis reales correctos y cobertura 84,09 %, TypeScript correcto, ESLint
+  sin errores con el aviso conocido de TanStack Table, Vitest 38 ficheros/187 tests correctos,
+  build Next correcto y Playwright autenticado por TCP con 25 tests correctos y 7 omisiones
+  intencionadas. La subida documental temprana pasó y el job `oracle.document.process` terminó
+  `succeeded`.
+- Barrido del patrón: solo existe un `@bp.get("/csrf")`, que devuelve `current_csrf()`; las llamadas
+  restantes a `renew_csrf()` están en login, reautenticación, cambio de contraseña, cambio de tenant
+  y creación perezosa cuando la sesión aún no tiene token.
+
 ## Exploración progresiva y taxonomía de roles del grafo (en curso)
 
 - Objetivo de la fase: agrupar variantes equivalentes de cargo recibidas desde Signal mediante una
@@ -104,8 +134,8 @@ Interfaz canónica: `CANONICAL_UI=vector`
   preparación de reunión, enlace principal de Señales y redirección del superadmin. La subida
   documental tenía primero una ruta capturada antes de terminar la navegación; tras corregirla, la
   ejecución completa descubrió además una carrera CSRF real al actuar antes de acabar las lecturas.
-  El test funcional espera el estado cargado y la carrera queda abierta, no corregida, en
-  `OPEN_QUESTIONS.md`.
+  Prompt 72 la resuelve haciendo idempotente la lectura de `/csrf`, por lo que el test funcional ya
+  no espera el estado cargado antes de subir.
 - El recorrido Axe ya no se salta entero. Continúa comprobando todas las rutas y solo descuenta una
   lista exacta de deudas preexistentes: contraste de `.auth-eyebrow`, pestañas y `summary`; filas
   interactivas anidadas; tamaño de checkboxes, `.text-button` y `.back-link`. Cualquier combinación

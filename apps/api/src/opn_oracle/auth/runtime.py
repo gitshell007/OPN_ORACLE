@@ -44,6 +44,13 @@ def renew_csrf() -> str:
     return token
 
 
+def current_csrf() -> str:
+    token = session.get("csrf_token")
+    if isinstance(token, str) and token:
+        return token
+    return renew_csrf()
+
+
 def revoke_current_session() -> None:
     record_id = session.get("user_session_id")
     if record_id:

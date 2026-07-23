@@ -45,6 +45,7 @@ def test_opaque_tokens_are_random_hashed_and_constant_time_checked() -> None:
 def test_csrf_missing_invalid_valid_and_runtime_json_validation(client: Any) -> None:
     missing = client.post("/api/v1/auth/login", json={"email": "a@example.test", "password": "x"})
     assert missing.status_code == 403
+    assert missing.get_json()["code"] == "csrf_failed"
     token = client.get("/api/v1/auth/csrf").get_json()["csrf_token"]
     invalid = client.post(
         "/api/v1/auth/login",
@@ -52,6 +53,7 @@ def test_csrf_missing_invalid_valid_and_runtime_json_validation(client: Any) -> 
         headers={"X-CSRF-Token": "incorrecto"},
     )
     assert invalid.status_code == 403
+    assert invalid.get_json()["code"] == "csrf_failed"
     malformed = client.post(
         "/api/v1/auth/login",
         json={"email": "no-es-email"},

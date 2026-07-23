@@ -22,6 +22,7 @@ from sqlalchemy import select, text, update
 from opn_oracle.auth.passwords import PasswordHasher, PasswordPolicy, PasswordPolicyError
 from opn_oracle.auth.permissions import current_permissions, recent_auth_required
 from opn_oracle.auth.runtime import (
+    current_csrf,
     renew_csrf,
     revoke_current_session,
     rotate_session_id,
@@ -186,7 +187,7 @@ def _create_session(
 
 @bp.get("/csrf")
 def csrf() -> dict[str, str]:
-    return {"csrf_token": renew_csrf()}
+    return {"csrf_token": current_csrf()}
 
 
 @bp.post("/login")

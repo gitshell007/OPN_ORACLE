@@ -208,6 +208,48 @@ def test_login_session_rotation_me_and_durable_hash(
     assert stored == hashlib.sha256(raw_sid.encode()).digest()
 
 
+def test_repeated_csrf_reads_do_not_invalidate_first_token_for_mutation(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = auth_stack
+    client = app.test_client()
+    first_token = _csrf(client)
+    second_token = _csrf(client)
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "owner@example.test",
+            "password": password,
+            "tenant_id": str(ids["tenant"]),
+        },
+        headers={"X-CSRF-Token": first_token},
+    )
+
+    assert response.status_code == 200
+    assert second_token == first_token
+
+
+def test_csrf_rotates_on_login_and_password_change(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = auth_stack
+    client = app.test_client()
+    anonymous_token = _csrf(client)
+    assert _login(client, "owner@example.test", password, ids["tenant"]).status_code == 200
+    login_token = _csrf(client)
+    assert login_token != anonymous_token
+
+    changed = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": password, "new_password": "contraseña rotada segura 2026"},
+        headers={"X-CSRF-Token": login_token},
+    )
+
+    assert changed.status_code == 204
+    assert _csrf(client) != login_token
+
+
 def test_login_with_multiple_memberships_returns_safe_choices(
     auth_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

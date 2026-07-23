@@ -883,6 +883,24 @@ deberá versionarse un flujo de copia/materialización separado.
   ni silenciar advisories. El override de sharp debe retirarse cuando Next amplíe oficialmente su
   rango a 0.35; hasta entonces es deuda explícita y verificada por los gates de cada release.
 
+## D-056 — La lectura de CSRF no rota el secreto de sesión
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-23
+- **Contexto:** la pantalla de documentos podía disparar varias lecturas concurrentes de
+  `/api/v1/auth/csrf` antes de una subida multipart. Como esa ruta llamaba a `renew_csrf()` en cada
+  GET, la segunda lectura invalidaba el token que la primera petición de subida ya había capturado,
+  generando un `403 csrf_failed` legítimo técnicamente pero incomprensible para el usuario.
+- **Decisión:** `GET /csrf` pasa a ser idempotente dentro de la sesión: devuelve el token vigente y
+  solo crea uno si falta. Las rotaciones sensibles permanecen en login, reautenticación, cambio de
+  contraseña y cambio de tenant. No se relaja CSRF, no se añaden exenciones, se mantiene
+  `hmac.compare_digest`, se conserva la comprobación de `Origin` y el webhook firmado de Signal
+  sigue siendo la única ruta exenta.
+- **Consecuencias:** una lectura de ayuda para el cliente deja de tener efectos destructivos y las
+  pantallas pueden pedir token varias veces sin bloquear mutaciones válidas. La protección no pierde
+  fuerza: el token sigue siendo un secreto de sesión servido bajo cookies same-origin y las
+  mutaciones continúan exigiendo coincidencia exacta y origen permitido.
+
 ## D-042 — Codex commitea siempre, y solo sus ficheros
 
 - **Estado:** accepted
