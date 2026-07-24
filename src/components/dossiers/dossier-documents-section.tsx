@@ -83,14 +83,21 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
   const [source, setSource] = useState<DocumentSearchResult | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OracleDocument | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  // Sin esto la pantalla decía a la vez que el módulo está apagado y que subas
+  // una fuente «para habilitar la búsqueda»: dos mensajes que se contradicen.
+  const [moduleDisabled, setModuleDisabled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       setDocuments((await api.documents.list(dossierId)).items);
+      setModuleDisabled(false);
     } catch (reason) {
       setDocuments([]);
+      setModuleDisabled(
+        reason instanceof ApiError && reason.problem.code === "documents_disabled",
+      );
       setError(errorMessage(reason, "No se pudieron cargar los documentos."));
     } finally {
       setLoading(false);
@@ -171,9 +178,9 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
     <div className="document-toolbar"><PermissionGate permission="documents.manage" fallback={<div />}><label>Clasificación<select value={classification} onChange={(event) => setClassification(event.target.value as "public" | "internal")}><option value="internal">Interno</option><option value="public">Público</option></select></label></PermissionGate>
       <form role="search" onSubmit={search}><label htmlFor="document-search">Buscar dentro de las fuentes</label><div><FileSearch size={16}/><input id="document-search" value={query} minLength={2} maxLength={200} onChange={(event) => setQuery(event.target.value)} placeholder="Término o frase"/><button className="vector-secondary" disabled={busy || query.trim().length < 2}>Buscar</button></div></form>
     </div>
-    {error && <p className="auth-inline-error" role="alert">{error}</p>}
+    {error && !moduleDisabled && <p className="auth-inline-error" role="alert">{error}</p>}
     {activeJobId && <div className="document-active-job"><JobProgress jobId={activeJobId} label="Procesando documento" allowActions onTerminal={() => { setActiveJobId(null); void load(); }} /></div>}
-    {loading ? <div className="work-loading" role="status"><span className="auth-spinner" /> Cargando documentos…</div> : documents.length === 0 ? <div className="work-empty"><FileText size={24}/><h2>Aún no hay documentos</h2><p>Sube una fuente para habilitar búsqueda, procesamiento y evidencia trazable.</p></div> : <>
+    {loading ? <div className="work-loading" role="status"><span className="auth-spinner" /> Cargando documentos…</div> : moduleDisabled ? <div className="work-empty" role="status"><FileText size={24}/><h2>El módulo documental está deshabilitado en este entorno</h2><p>No se pueden subir ni consultar fuentes hasta que administración configure almacenamiento y antivirus.</p></div> : documents.length === 0 ? <div className="work-empty"><FileText size={24}/><h2>Aún no hay documentos</h2><p>Sube una fuente para habilitar búsqueda, procesamiento y evidencia trazable.</p></div> : <>
       <div className="document-table-wrap"><table className="document-table"><thead><tr><th>Documento</th><th>Estado</th><th>Clasificación</th><th>Tamaño</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{documents.map((document) => <tr key={document.id} className="interactive-row" role="button" tabIndex={0} aria-label={`Abrir detalle de ${document.filename}`} onClick={() => openDocument(document.id)} onKeyDown={(event) => { if (isActivationKey(event)) openDocument(document.id); }}><td><strong>{document.filename}</strong><small>{document.media_type}</small></td><td><span className={`document-status ${document.status}`}>{LABELS[document.status]}</span>{documentSecurityBadge(document)}</td><td>{document.classification === "internal" ? "Interno" : "Público"}</td><td>{new Intl.NumberFormat("es-ES", { style: "unit", unit: "kilobyte", maximumFractionDigits: 0 }).format(document.byte_size / 1024)}</td><td><div className="document-actions"><Link className="icon-button bordered" href={`${pathname}?selected=${encodeURIComponent(document.id)}`} scroll={false} aria-label={`Abrir ${document.filename}`} onClick={(event) => event.stopPropagation()}><FileSearch size={15}/></Link>{documentDownloadable(document) && <a className="icon-button bordered" href={`/api/v1/documents/${encodeURIComponent(document.id)}/download`} aria-label={`Descargar ${document.filename}`} onClick={(event) => event.stopPropagation()}><Download size={15}/></a>}<PermissionGate permission="documents.manage">{document.status === "failed" && <AsyncActionButton className="icon-button bordered" loading={busy} aria-label={`Reprocesar ${document.filename}`} onClick={(event) => { event.stopPropagation(); void reprocess(document); }}><RefreshCw size={15}/></AsyncActionButton>}<button className="icon-button bordered" disabled={busy} aria-label={`Eliminar ${document.filename}`} onClick={(event) => { event.stopPropagation(); setDeleteTarget(document); }}><Trash2 size={15}/></button></PermissionGate></div></td></tr>)}</tbody></table></div>
       <div className="document-mobile-list">{documents.map((document) => <article key={document.id}><header><strong>{document.filename}</strong><span className={`document-status ${document.status}`}>{LABELS[document.status]}</span></header><p>{document.media_type} · {document.classification === "internal" ? "Interno" : "Público"}</p>{documentSecurityBadge(document)}<Link className="vector-secondary" href={`${pathname}?selected=${encodeURIComponent(document.id)}`} scroll={false}>Abrir detalle</Link></article>)}</div>
     </>}

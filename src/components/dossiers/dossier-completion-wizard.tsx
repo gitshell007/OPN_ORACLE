@@ -182,7 +182,12 @@ export function DossierCompletionWizard({ dossierId }: { dossierId: string }) {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <HydratedActionButton className="vector-ai">
+        {/* El rótulo por sí solo no dice qué va a pasar al pulsarlo; el título
+            adelanta que abre un diagnóstico y que nada se ejecuta sin decidirlo. */}
+        <HydratedActionButton
+          className="vector-ai"
+          title="Abre un diagnóstico del expediente: Oracle señala lo que falta y propone preguntas y acciones; tú decides qué ejecutar."
+        >
           <Sparkles size={15} aria-hidden="true" />
           Mejorar con Oracle
         </HydratedActionButton>

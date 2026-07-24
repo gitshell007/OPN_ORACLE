@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   exportCreate: vi.fn(),
   exportGet: vi.fn(),
   pendingEntityReports: vi.fn(),
+  actorsList: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -46,6 +47,7 @@ vi.mock("@oracle/api-client", () => {
       jobs: { get: mocks.job },
       exports: { create: mocks.exportCreate, get: mocks.exportGet },
       entityIntel: { pendingReports: mocks.pendingEntityReports },
+      actors: { list: mocks.actorsList },
     },
   };
 });
@@ -188,6 +190,12 @@ describe("reports Vector", () => {
     });
     mocks.publish.mockResolvedValue({ ...baseReport, status: "published", version: 4 });
     mocks.downloadLink.mockResolvedValue({ url: "/api/v1/download?signed=1", expires_at: "2026-07-11T02:00:00Z" });
+    mocks.actorsList.mockResolvedValue({
+      data: [
+        { id: "actor-1", canonical_name: "CATL" },
+        { id: "actor-2", canonical_name: "Iberdrola SA" },
+      ],
+    });
   });
   afterEach(cleanup);
 
@@ -200,7 +208,10 @@ describe("reports Vector", () => {
     fireEvent.change(screen.getByLabelText("Expediente"), {
       target: { value: baseReport.dossier_id },
     });
-    fireEvent.change(screen.getByLabelText("Audiencia"), {
+    // Los campos que el contrato no exige se marcan como opcionales, así que el
+    // nombre accesible es «Audiencia · opcional».
+    expect(screen.getByLabelText(/^Audiencia · opcional$/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText(/^Audiencia/), {
       target: { value: "Comité de dirección" },
     });
     fireEvent.change(screen.getByLabelText("Clasificación"), {
@@ -221,6 +232,35 @@ describe("reports Vector", () => {
             confidentiality_label: "Público",
             formats: ["html", "json"],
           }),
+        }),
+        expect.stringContaining("report-"),
+      ),
+    );
+  });
+
+  it("ofrece los actores como catálogo elegible en vez de pedir UUIDs a mano", async () => {
+    mocks.templates.mockResolvedValue({
+      items: [
+        {
+          ...template,
+          input_contract: { required: ["dossier_id"], properties: { actor_ids: "uuid[]?" } },
+        },
+      ],
+      capabilities: { pdf: false },
+    });
+    render(<ReportLibrary routeBase="/app" />);
+    expect(await screen.findByText("Aún no hay informes")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Generar primer informe" }));
+    fireEvent.change(screen.getByLabelText("Expediente"), {
+      target: { value: baseReport.dossier_id },
+    });
+    fireEvent.click(await screen.findByRole("checkbox", { name: "CATL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Generar informe" }));
+    await waitFor(() =>
+      expect(mocks.generate).toHaveBeenCalledWith(
+        baseReport.dossier_id,
+        expect.objectContaining({
+          options: expect.objectContaining({ actor_ids: ["actor-1"] }),
         }),
         expect.stringContaining("report-"),
       ),

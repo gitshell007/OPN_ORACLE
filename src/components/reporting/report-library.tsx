@@ -6,6 +6,7 @@ import {
   api,
   type BackendDossier,
   type EntityIntelReportJob,
+  type OracleActor,
   type OracleReport,
 } from "@oracle/api-client";
 import type { components } from "@oracle/api-client";
@@ -115,6 +116,21 @@ function fieldLabel(key: string): string {
   );
 }
 
+function splitIds(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toggleId(value: string | undefined, id: string): string {
+  const current = splitIds(value);
+  const next = current.includes(id)
+    ? current.filter((item) => item !== id)
+    : [...current, id];
+  return next.join(",");
+}
+
 function normalizeOption(
   type: string,
   value: string,
@@ -154,6 +170,25 @@ function ReportGenerateWizard({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Los contratos de plantilla piden `actor_ids` como UUIDs: nadie se los sabe
+  // de memoria, así que el campo se sirve como catálogo elegible.
+  const [actors, setActors] = useState<OracleActor[]>([]);
+
+  useEffect(() => {
+    if (!open || actors.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const page = await api.actors.list({ page: 1, size: 100, sort: "canonical_name" });
+        if (!cancelled) setActors(page.data);
+      } catch {
+        // El catálogo es una ayuda: si falla, el campo sigue aceptando IDs.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, actors.length]);
 
   const selected = templates.find((item) => item.key === templateKey) ?? templates[0];
   const contract = record(selected?.input_contract);
@@ -280,18 +315,57 @@ function ReportGenerateWizard({
               {Object.entries(properties).map(([key, rawType]) => {
                 const type = String(rawType);
                 const dateField = type.startsWith("date");
+                const isRequired = required.includes(key);
+                if (key === "actor_ids" && actors.length) {
+                  const chosen = splitIds(values[key]);
+                  return (
+                    <fieldset className="report-wizard-picker" key={key}>
+                      <legend>
+                        {fieldLabel(key)}
+                        {!isRequired && <span> · opcional</span>}
+                      </legend>
+                      <div>
+                        {actors.map((actor) => (
+                          <label key={actor.id}>
+                            <input
+                              type="checkbox"
+                              checked={chosen.includes(actor.id)}
+                              onChange={() =>
+                                setValues((current) => ({
+                                  ...current,
+                                  [key]: toggleId(current[key], actor.id),
+                                }))
+                              }
+                            />
+                            <span>{actor.canonical_name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  );
+                }
                 return (
                   <label key={key}>
                     {fieldLabel(key)}
-                    {type.includes("[]") && <small>Separa varios IDs con comas.</small>}
+                    {!isRequired && <span className="field-optional"> · opcional</span>}
                     <input
                       type={dateField ? "date" : "text"}
-                      required={required.includes(key)}
+                      required={isRequired}
                       value={values[key] ?? ""}
                       onChange={(event) =>
                         setValues((current) => ({ ...current, [key]: event.target.value }))
                       }
                     />
+                    {/* La pista va bajo el campo: encima descolocaba la rejilla,
+                        porque los campos sin pista subían una fila. */}
+                    {key === "owner_user_ids" ? (
+                      <small>
+                        Identificadores de personas usuarias. Puedes dejarlo vacío: la
+                        plantilla propone responsables y se confirman al revisar.
+                      </small>
+                    ) : (
+                      type.includes("[]") && <small>Separa varios IDs con comas.</small>
+                    )}
                   </label>
                 );
               })}

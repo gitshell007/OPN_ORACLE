@@ -54,7 +54,12 @@
 .monitor-source-types small { color: var(--va-muted); font-size: 9px; }
 .monitor-create-notice { margin: 0; padding: 9px 10px; border-left: 3px solid #c27a00; color: #6d5100; background: #fff8e8; font-size: 10px; }
 .destructive-zone { border-color: #efc4c4; background: #fffafa; }
-.destructive-zone .field { max-width: 520px; margin-bottom: 10px; }
+/* El sangrado lo traia solo la cabecera de la tarjeta, asi que el campo de
+   confirmacion y el boton quedaban pegados al borde. */
+.destructive-zone .field,
+.destructive-zone > button { margin-left: 18px; margin-right: 18px; }
+.destructive-zone .field { max-width: 520px; margin-top: 14px; margin-bottom: 12px; }
+.destructive-zone > button { margin-bottom: 16px; }
 .document-active-job { margin: 10px 0; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-soft); padding: 10px 12px; }
 .dossier-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .dossier-summary-list { padding: 15px; }
@@ -2788,9 +2793,13 @@
 }
 .dossier-tabs {
   display: flex;
+  /* Con doce pestañas el scroll horizontal escondia las ultimas
+     («Configuración») sin ningun indicio de que estaban ahi. Envolver deja
+     todas visibles y no obliga a descubrir un scroll lateral. */
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--va-border);
   margin-bottom: 16px;
-  overflow: auto;
+  overflow: visible;
 }
 .dossier-tabs button {
   height: 40px;
@@ -3976,7 +3985,16 @@
 .report-review select,
 .report-review textarea { min-height: 38px; width: 100%; border: 1px solid #c6d2df; border-radius: 7px; padding: 7px 10px; color: var(--va-text); background: white; }
 .report-wizard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.report-wizard-grid label small { color: var(--va-muted); font-weight: 400; }
+.report-wizard-grid label small { color: var(--va-muted); font-weight: 400; line-height: 1.45; }
+.report-wizard-grid .field-optional { color: var(--va-muted); font-weight: 400; }
+/* Catálogo elegible para los contratos que piden UUIDs: nadie se sabe un
+   identificador de memoria. */
+.report-wizard-picker { grid-column: 1 / -1; border: 1px solid #c6d2df; border-radius: 7px; padding: 4px 10px 10px; }
+.report-wizard-picker legend { padding: 0 4px; color: #41556c; font-size: 11px; font-weight: 700; }
+.report-wizard-picker legend span { color: var(--va-muted); font-weight: 400; }
+.report-wizard-picker > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px 12px; }
+.report-wizard-picker label { display: flex; align-items: center; gap: 8px; color: var(--va-text); font-size: 12px; font-weight: 400; }
+.report-wizard-picker input[type="checkbox"] { width: auto; min-height: 0; flex: 0 0 auto; padding: 0; border: 0; }
 .report-template-summary { display: flex; align-items: flex-start; gap: 10px; padding: 11px; border: 1px solid #cddced; border-radius: 8px; background: #f5f9ff; }
 .report-template-summary div { display: grid; gap: 4px; }
 .report-template-summary strong { font-size: 11px; line-height: 1.4; }
@@ -5156,6 +5174,16 @@
   font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
+/* La puntuacion y su matiz son dos elementos seguidos sin separador: sin esto
+   se leian pegados («69Provisional»). */
+.intelligence-score + small {
+  display: block;
+  margin-top: 2px;
+  color: var(--va-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .intelligence-mobile-list {
   display: none;
 }
@@ -5579,6 +5607,17 @@
   color: var(--va-text);
   padding: 9px 10px;
   font: inherit;
+}
+/* La regla anterior estiraba tambien las casillas: un checkbox al 100% del
+   ancho de su celda empujaba la etiqueta al extremo contrario, que es lo que
+   descuadraba la lista de participantes de una reunion. */
+.work-dialog input[type="checkbox"],
+.work-dialog input[type="radio"] {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
 }
 .work-dialog textarea {
   min-height: 100px;
