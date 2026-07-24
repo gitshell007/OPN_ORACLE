@@ -1297,3 +1297,25 @@ deberá versionarse un flujo de copia/materialización separado.
   entidad sin evidencia vinculada sigue siendo dato operativo no corroborado. No se exponen
   aliases, identificadores personales, metadata libre ni notas de actor, y no se necesita migración
   ni cambio de contrato HTTP.
+
+## D-077 — WeasyPrint sube a 69 en vez de aceptar el riesgo o abrir el gate
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-25
+- **Contexto:** `pip-audit` dejó el CI en rojo con `weasyprint 66.0`, y `release.yml` falla cerrado
+  sin una ejecución `success` para el SHA exacto: había trabajo verificado en `master` que no podía
+  llegar a producción. `PYSEC-2026-2034` (SSRF vía redirect HTTP) declara arreglo en 68.0;
+  `PYSEC-2026-3412` (CSS injection por presentational hints) llegaba con la columna de arreglo
+  vacía, lo que planteaba si alguna versión pasaba el gate. Consultado OSV, no es «sin arreglo»:
+  declara `last_affected: 68.1`, luego 69.0 queda fuera de ambos rangos.
+- **Decisión:** subir el pin de `>=63,<67` a `>=69,<70` y regenerar `uv.lock`. Se descarta aceptar
+  el riesgo —había versión limpia disponible, así que la exención no tenía justificación— y se
+  descarta tocar el escaneo, que no admite exenciones por diseño y no debe relajarse para
+  desbloquear una release.
+- **Consecuencias:** `pip-audit` sobre el lock exportado devuelve «No known vulnerabilities found»
+  con el mismo comando del CI. El renderer sigue encerrado (`url_fetcher` que rechaza toda petición
+  y HTML saneado por `render_report_html`), por lo que la exposición práctica a ambos vectores era
+  baja, pero eso no era motivo para quedarse en una serie vulnerable. El runtime ya trae las libs
+  nativas suficientes (bookworm: Pango 1.50 ≥ 1.44 requerida, `libharfbuzz-subset0` presente) y
+  WeasyPrint 69 exige Python ≥ 3.10 sobre el 3.11 de la imagen. Queda pendiente el smoke de PDF en
+  el host tras desplegar.
