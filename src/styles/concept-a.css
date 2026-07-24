@@ -16,11 +16,18 @@
   --va-shadow: none;
   --va-radius: 6px;
 }
-.dossier-settings-product { display: grid; gap: 14px; }
-.dossier-settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+/* Configuración se lee como una columna, no como un tablero: a pantalla
+   completa los textarea alcanzaban ~180 caracteres por línea. */
+.dossier-settings-product { display: grid; gap: 14px; max-width: 900px; }
+/* El cuerpo comparte el sangrado de la cabecera de la tarjeta; antes los
+   campos quedaban pegados al borde y la cabecera sí iba indentada. */
+.dossier-settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 18px; padding: 0 18px 18px; }
+.dossier-settings-form > header { margin: 0 -18px 3px; }
 .dossier-settings-form header, .dossier-settings-form .full { grid-column: 1 / -1; }
 .dossier-settings-form textarea { min-height: 82px; resize: vertical; }
-.dossier-settings-form button { justify-self: start; }
+/* La acción guarda el formulario entero. Como celda del grid caía junto a
+   «Estado» y se leía como la acción de ese campo. */
+.settings-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 3px; padding-top: 14px; border-top: 1px solid var(--va-border); }
 .monitor-settings-list { display: grid; gap: 8px; margin-bottom: 12px; }
 .monitor-settings-list article { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--va-border); border-radius: 7px; padding: 12px; }
 .monitor-settings-list strong { margin-right: 8px; }
@@ -5818,6 +5825,10 @@
 }
 .dossier-nav-row .dossier-tabs {
   flex: 1 1 auto;
+  /* Sin esto el min-width automático es el del contenido: con doce pestañas la
+     fila no puede encoger, así que «Mejorar con Oracle» se envolvía debajo y
+     quedaba encima del título de la página. Las pestañas ya hacen scroll. */
+  min-width: 0;
 }
 .dossier-wizard-dialog {
   width: min(960px, calc(100vw - 28px));
