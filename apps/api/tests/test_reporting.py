@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, time
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import inspect
 
 from opn_oracle import create_app
-from opn_oracle.ai.context import build_frozen_context
+from opn_oracle.ai.context import FrozenEvidence, build_frozen_context
 from opn_oracle.ai.schemas import ReportOutput
 from opn_oracle.config import ConfigError, Settings
 from opn_oracle.reporting.artifacts import (
@@ -215,6 +216,45 @@ def test_frozen_context_carries_the_dossier_portfolio_and_declares_its_trim() ->
     )
     assert empty.payload["opportunities"] == []
     assert empty.payload["decisions"] == []
+
+
+def test_evidence_keeps_budget_priority_over_the_frozen_portfolio() -> None:
+    """`_fit_budget` reparte el presupuesto en orden de inserción.
+
+    Si la cartera se declara antes que `evidence`, se come los caracteres de los
+    extractos citables y ningún párrafo `fact` puede sostenerse. La evidencia va
+    primero a propósito.
+    """
+
+    evidence_id = uuid.uuid4()
+    frozen = FrozenEvidence(
+        row=SimpleNamespace(id=evidence_id),  # type: ignore[arg-type]
+        extract="Extracto citable que sostiene los hechos del informe.",
+        classification="internal",
+        locator={"source": "documento"},
+        checksum=b"\x00" * 32,
+    )
+
+    built = build_frozen_context(
+        dossier_id=uuid.uuid4(),
+        dossier={"id": "d", "title": "Expediente"},
+        objectives=[],
+        hypotheses=[],
+        living_summary={},
+        evidence=(frozen,),
+        max_tokens=1000,
+        opportunities=[
+            {"id": f"o{index}", "title": "Oportunidad " + "larga " * 40} for index in range(25)
+        ],
+        risks=[{"id": f"r{index}", "title": "Riesgo " + "largo " * 40} for index in range(25)],
+    )
+
+    extracts = [item["extract"] for item in built.payload["evidence"]]
+    assert extracts == ["Extracto citable que sostiene los hechos del informe."]
+    assert built.payload["allowed_evidence_ids"] == [str(evidence_id)]
+    # La cartera se recorta a su porción en vez de desplazar a la evidencia.
+    assert 0 < len(built.payload["opportunities"]) < 25
+    assert 0 < len(built.payload["risks"]) < 25
 
 
 def test_empty_sections_name_the_template_and_reach_the_user_as_a_contract_failure() -> None:
