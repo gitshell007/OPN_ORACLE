@@ -186,7 +186,7 @@ PROMPT_VERSIONS = {
     name: (
         ("v1", "v2", "v3", "v4", "v5")
         if name == "dossier_situation_summary"
-        else ("v1", "v2", "v3", "v4", "v5")
+        else ("v1", "v2", "v3", "v4", "v5", "v6")
         if name == "report_writer"
         else ("v1", "v2", "v3")
         if name == "entity_dossier_intelligence"
@@ -205,7 +205,7 @@ PROMPT_VERSIONS = {
 
 
 def _max_output_tokens(name: str, version: str) -> int:
-    if name == "report_writer" and version in {"v2", "v3", "v4", "v5"}:
+    if name == "report_writer" and version in {"v2", "v3", "v4", "v5", "v6"}:
         return 6500
     if name == "meeting_briefing" and version == "v2":
         return 3500
@@ -299,6 +299,10 @@ class PromptRegistry:
                                 ),
                                 "v5": (
                                     "v5: informe ejecutivo con materialidad y campos de cierre."
+                                ),
+                                "v6": (
+                                    "v6: exige una sección por heading requerido y prohíbe "
+                                    "devolver sections vacío."
                                 ),
                             }[version]
                         )

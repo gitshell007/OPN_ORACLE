@@ -158,10 +158,11 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("dossier_situation_summary", "v3").max_output_tokens == 1600
     assert registry.get("dossier_situation_summary", "v4").max_output_tokens == 1900
     assert registry.get("dossier_situation_summary").max_output_tokens == 2600
-    assert registry.get("report_writer").version == "v5"
+    assert registry.get("report_writer").version == "v6"
     assert registry.get("report_writer").max_output_tokens == 6500
     assert registry.get("report_writer", "v2").max_output_tokens == 6500
     assert registry.get("report_writer", "v5").max_output_tokens == 6500
+    assert registry.get("report_writer", "v6").max_output_tokens == 6500
     assert registry.get("meeting_briefing").version == "v2"
     assert registry.get("meeting_briefing").max_output_tokens == 3500
     assert registry.get("weekly_change").version == "v2"
@@ -184,6 +185,27 @@ def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viab
     assert "Los tres campos ejecutivos de cierre" in prompt.text
     assert "no pueden estar" in prompt.text
     assert "vacíos" in prompt.text
+
+
+def test_report_writer_v6_prompt_forbids_empty_sections_and_pins_required_headings() -> None:
+    """Regresión de la auditoría de producción de 2026-07-24.
+
+    `executive_dossier` y `action_plan` fallaron sobre expedientes con datos porque el
+    modelo devolvió `sections: []`: el prompt describía las secciones como «fijadas por
+    la plantilla» pero nunca ordenaba emitir una por cada heading requerido, que solo
+    viajaba dentro del JSON de contexto.
+    """
+
+    prompt = PromptRegistry().get("report_writer")
+
+    assert prompt.version == "v6"
+    assert "`requested_scope.required_sections`" in prompt.text
+    assert "exactamente una sección por cada heading" in prompt.text
+    assert "nunca** puede ir vacío" in prompt.text
+    assert "emite igualmente la sección" in prompt.text
+    # El contrato ejecutivo de v5 no se pierde en la versión nueva.
+    assert "Cada párrafo debe tener entre 60 y 150 palabras" in prompt.text
+    assert "Rellena SIEMPRE `top_opportunities`, `top_risks` y `recommended_actions`" in prompt.text
 
 
 def test_completion_wizard_route_enqueues_round_answers_via_http(

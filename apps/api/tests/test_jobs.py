@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -19,6 +20,7 @@ from opn_oracle.jobs.tasks import (
 )
 from opn_oracle.notifications.email import SMTPEmailSender
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
+from opn_oracle.reporting.service import ReportOutputContractError, ReportWorkflowError
 
 
 @pytest.mark.unit
@@ -194,6 +196,34 @@ def test_summary_provider_outage_is_retryable(monkeypatch: pytest.MonkeyPatch) -
             {"dossier_id": str(__import__("uuid").uuid4())},
             BackgroundJob(),
         )
+
+
+@pytest.mark.unit
+def test_report_output_contract_failure_is_retryable_but_snapshot_tampering_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auditoría de producción 2026-07-24: `sections: []` mataba el informe al intento 1.
+
+    El muestreo del modelo es recuperable —otro intento o el respaldo gobernado en Signal
+    pueden cumplir el contrato—, mientras que un snapshot alterado no mejora reintentando.
+    """
+
+    report_id = str(uuid.uuid4())
+
+    def fail_with(error: Exception) -> None:
+        monkeypatch.setattr(
+            tasks,
+            "process_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+        )
+
+    fail_with(ReportOutputContractError("El modelo devolvió un informe sin ninguna sección."))
+    with pytest.raises(RetriableJobError, match="sin ninguna sección"):
+        tasks._generate_report({"report_id": report_id}, BackgroundJob())
+
+    fail_with(ReportWorkflowError("El snapshot del informe no supera la verificación."))
+    with pytest.raises(PermanentJobError):
+        tasks._generate_report({"report_id": report_id}, BackgroundJob())
 
 
 @pytest.mark.unit

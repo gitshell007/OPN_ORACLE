@@ -31,7 +31,12 @@ from opn_oracle.reporting.rendering import (
     WeasyPrintPDFRenderer,
     render_report_html,
 )
-from opn_oracle.reporting.service import ReportWorkflowError, _validate_report_output
+from opn_oracle.reporting.service import (
+    ReportOutputContractError,
+    ReportWorkflowError,
+    _report_failure_message,
+    _validate_report_output,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -166,6 +171,31 @@ def test_paraphrased_headings_are_accepted_and_rewritten_to_the_template_canon()
     )
     with pytest.raises(ReportWorkflowError, match="secciones requeridas"):
         _validate_report_output(truncated, template=template, snapshot_ids=set())
+
+
+def test_empty_sections_name_the_template_and_reach_the_user_as_a_contract_failure() -> None:
+    """Auditoría de producción 2026-07-24 (`executive_dossier` y `action_plan`).
+
+    El modelo devolvió `sections: []` y el usuario solo vio «Código seguro:
+    ReportWorkflowError». El fallo debe declararse como incumplimiento de contrato
+    —recuperable reintentando— y decir qué secciones faltaban.
+    """
+
+    template = ReportTemplateRegistry().get("executive_dossier")
+    empty = ReportOutput.model_validate({**_output(), "sections": []})
+
+    with pytest.raises(ReportOutputContractError) as failure:
+        _validate_report_output(empty, template=template, snapshot_ids=set())
+
+    message = str(failure.value)
+    assert "sin ninguna sección" in message
+    assert str(len(template.sections)) in message
+    for heading in template.sections:
+        assert heading in message
+    # El contrato sigue siendo un ReportWorkflowError para las rutas que ya lo capturan.
+    assert isinstance(failure.value, ReportWorkflowError)
+    # Y llega al informe en vez del mensaje genérico.
+    assert _report_failure_message(failure.value) == message
 
 
 def test_report_output_closure_fields_are_required_only_when_enabled() -> None:

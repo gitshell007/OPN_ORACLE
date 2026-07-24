@@ -82,7 +82,11 @@ from opn_oracle.reporting.notifications import (
     send_digest,
     send_notification_email,
 )
-from opn_oracle.reporting.service import ReportWorkflowError, process_report
+from opn_oracle.reporting.service import (
+    ReportOutputContractError,
+    ReportWorkflowError,
+    process_report,
+)
 from opn_oracle.tenants.context import TenantContext, tenant_context
 
 
@@ -417,6 +421,10 @@ HANDLERS: dict[str, Handler] = {
 def _generate_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
     try:
         return process_report(uuid.UUID(str(payload["report_id"])), job)
+    except ReportOutputContractError as error:
+        # El snapshot está intacto: falló el muestreo del modelo. Reintentar da paso al
+        # respaldo gobernado en Signal en vez de dejar el informe muerto al primer intento.
+        raise RetriableJobError(str(error)) from error
     except (KeyError, ValueError, ReportWorkflowError, EvidenceReviewError) as error:
         raise PermanentJobError(str(error)) from error
     except Exception as error:
@@ -428,6 +436,8 @@ def _generate_procurement_document_report(
 ) -> dict[str, Any]:
     try:
         return process_procurement_document_report(uuid.UUID(str(payload["report_id"])), job)
+    except ReportOutputContractError as error:
+        raise RetriableJobError(str(error)) from error
     except (
         KeyError,
         ValueError,
@@ -451,6 +461,8 @@ def _generate_competitive_procurement_report(
             uuid.UUID(str(payload["report_id"])),
             job,
         )
+    except ReportOutputContractError as error:
+        raise RetriableJobError(str(error)) from error
     except (
         KeyError,
         ValueError,

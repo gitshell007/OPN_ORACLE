@@ -80,12 +80,28 @@ class ReportConflictError(ReportWorkflowError):
     """The idempotency key or optimistic state belongs to another intent."""
 
 
+class ReportOutputContractError(ReportWorkflowError):
+    """The model returned an output that does not satisfy the report contract.
+
+    Se separa de `ReportWorkflowError` porque la causa es el muestreo del modelo,
+    no el estado del expediente: el snapshot está intacto y el mismo contexto puede
+    producir un output válido en otro intento o en el modelo de respaldo. Tratarlo
+    como fallo permanente quemaba la generación en el primer intento (auditoría de
+    2026-07-24: `sections: []` de ollama/qwen3.5:9b tiraba el informe entero).
+    """
+
+
 class ReportLeaseLost(RuntimeError):
     """The worker no longer owns the durable BackgroundJob lease."""
 
 
 REPORT_SNAPSHOT_ACTOR_LIMIT = 100
 REPORT_SNAPSHOT_RELATIONSHIP_LIMIT = 200
+
+# Plantillas cuyas secciones hablan de actores y necesitan la capa congelada, no solo la
+# evidencia suelta. `executive_dossier` declara «Actores clave»: hasta la auditoría de
+# 2026-07-24 recibía `actors: []` y devolvía el informe entero vacío.
+TEMPLATES_WITH_ACTOR_SECTIONS = frozenset({"actors", "executive_dossier"})
 
 
 def _report_failure_message(error: BaseException) -> str:
@@ -94,6 +110,10 @@ def _report_failure_message(error: BaseException) -> str:
             "El informe se generó, pero falló la revisión obligatoria de evidencias. "
             "Revisa el job para ver la causa."
         )
+    if isinstance(error, ReportOutputContractError):
+        # El texto lo redacta Oracle a partir de la plantilla congelada, no el modelo:
+        # es seguro mostrarlo y evita que el usuario vea solo el nombre de la excepción.
+        return str(error)
     return "No se pudo generar el informe. Revisa el job para más detalle."
 
 
@@ -152,7 +172,12 @@ def _validate_report_output(
         else:
             matched.heading = heading
     if missing:
-        raise ReportWorkflowError(
+        if not output.sections:
+            raise ReportOutputContractError(
+                "El modelo devolvió un informe sin ninguna sección. La plantilla exige "
+                f"{len(template.sections)}: {', '.join(template.sections)}."
+            )
+        raise ReportOutputContractError(
             f"El informe no contiene las secciones requeridas: {', '.join(missing)}."
         )
     if require_closure_fields:
@@ -166,20 +191,20 @@ def _validate_report_output(
             if not value
         ]
         if missing_closure:
-            raise ReportWorkflowError(
+            raise ReportOutputContractError(
                 "El informe no contiene los campos ejecutivos de cierre: "
                 f"{', '.join(missing_closure)}."
             )
     for section in output.sections:
         for paragraph in section.paragraphs:
             if paragraph.kind == "fact" and not paragraph.evidence_ids:
-                raise ReportWorkflowError("Cada párrafo factual debe citar evidencia.")
+                raise ReportOutputContractError("Cada párrafo factual debe citar evidencia.")
     cited = _claim_evidence_ids(output)
     source_index_ids = {item.evidence_id for item in output.source_index}
     if not cited.issubset(snapshot_ids) or not source_index_ids.issubset(snapshot_ids):
-        raise ReportWorkflowError("El informe cita evidencia fuera de su snapshot.")
+        raise ReportOutputContractError("El informe cita evidencia fuera de su snapshot.")
     if source_index_ids != cited:
-        raise ReportWorkflowError(
+        raise ReportOutputContractError(
             "El índice de fuentes debe coincidir exactamente con las evidencias citadas."
         )
 
@@ -769,7 +794,7 @@ def _snapshot(
         select(LivingSummary).where(LivingSummary.dossier_id == dossier.id)
     )
     allowed_evidence_ids = {item.id for item in evidence}
-    if template.key == "actors":
+    if template.key in TEMPLATES_WITH_ACTOR_SECTIONS:
         actors, relationships, actor_context_meta = _actor_snapshot(
             dossier,
             options,
