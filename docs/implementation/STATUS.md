@@ -15,9 +15,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   actores asociados y la evidencia permitida. La generación usa exclusivamente esta proyección
   inmutable.
 - Los informes históricos no se modifican. Reintentar crea un informe hijo y congela un snapshot
-  nuevo, por lo que el expediente real debe probarse después del despliegue. Sus cinco actores
-  siguen teniendo cero evidencias directas vinculadas: la corrección permite describir el mapa
-  registrado, pero no convierte sus métricas en hechos corroborados.
+  nuevo. El release `20260724T205136Z-quick-d74cad9` ya está activo en producción; falta el smoke
+  funcional del expediente real. Sus cinco actores siguen teniendo cero evidencias directas
+  vinculadas: la corrección permite describir el mapa registrado, pero no convierte sus métricas
+  en hechos corroborados.
 - Sin migración, variable nueva, frontend ni Signal. Gates: Ruff check/format-check, mypy sobre
   121 módulos y suite integrada completa correctos; 709 pruebas, cobertura 84,85 %. La mutación
   que omitía los actores hizo caer la nueva prueba HTTP.
