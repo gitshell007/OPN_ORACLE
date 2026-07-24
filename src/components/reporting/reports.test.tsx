@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   job: vi.fn(),
   exportCreate: vi.fn(),
   exportGet: vi.fn(),
+  pendingEntityReports: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -44,6 +45,7 @@ vi.mock("@oracle/api-client", () => {
       dossiers: { list: mocks.dossiers },
       jobs: { get: mocks.job },
       exports: { create: mocks.exportCreate, get: mocks.exportGet },
+      entityIntel: { pendingReports: mocks.pendingEntityReports },
     },
   };
 });
@@ -155,6 +157,7 @@ describe("reports Vector", () => {
     vi.clearAllMocks();
     mocks.list.mockResolvedValue({ data: [], meta: { page: 1, size: 100, total: 0 } });
     mocks.listDossier.mockResolvedValue({ data: [], meta: { page: 1, size: 100, total: 0 } });
+    mocks.pendingEntityReports.mockResolvedValue({ data: [] });
     mocks.templates.mockResolvedValue({ items: [template], capabilities: { pdf: false } });
     mocks.dossiers.mockResolvedValue({
       data: [
@@ -235,6 +238,67 @@ describe("reports Vector", () => {
     fireEvent.keyDown(row, { key: "Enter" });
 
     expect(await screen.findByText("El expediente conserva impulso.")).toBeVisible();
+  });
+
+  it("ordena la tabla por título al pulsar la cabecera", async () => {
+    const second = {
+      ...baseReport,
+      id: "report-2",
+      title: "Análisis competitivo",
+      updated_at: "2026-07-20T01:00:00Z",
+    };
+    mocks.list.mockResolvedValue({
+      data: [baseReport, second],
+      meta: { page: 1, size: 100, total: 2 },
+    });
+    render(<ReportLibrary routeBase="/app" />);
+
+    await screen.findByRole("button", { name: "Abrir detalle de Informe ejecutivo" });
+    const rowTitles = () =>
+      screen
+        .getAllByRole("button", { name: /^Abrir detalle de/ })
+        .map((row) => row.querySelector("strong")?.textContent);
+
+    // Por defecto: actualizado descendente → el más reciente primero.
+    expect(rowTitles()).toEqual(["Análisis competitivo", "Informe ejecutivo"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ordenar por informe" }));
+    expect(rowTitles()).toEqual(["Análisis competitivo", "Informe ejecutivo"]);
+    fireEvent.click(screen.getByRole("button", { name: "Ordenar por informe" }));
+    expect(rowTitles()).toEqual(["Informe ejecutivo", "Análisis competitivo"]);
+  });
+
+  it("muestra los informes de entidad en espera con enlace a la ficha", async () => {
+    mocks.pendingEntityReports.mockResolvedValue({
+      data: [
+        {
+          id: "job-1",
+          job_type: "oracle.entity_dossier_report.generate",
+          status: "succeeded",
+          stage: "entity_dossier_ready",
+          progress: 100,
+          queue: "ai",
+          tenant_id: "tenant-1",
+          created_at: "2026-07-24T08:10:00Z",
+          entity: "ITURRI FRANCO JUAN FRANCISCO",
+          entity_key: "person:iturri-franco-juan-francisco",
+          entity_type: "person" as const,
+          incorporated_dossier_id: null,
+        },
+      ],
+    });
+    render(<ReportLibrary routeBase="/app" />);
+
+    expect(
+      await screen.findByText("Informes de entidad pendientes de incorporar"),
+    ).toBeVisible();
+    expect(screen.getByText("ITURRI FRANCO JUAN FRANCISCO")).toBeVisible();
+    expect(screen.getByText("Listo para incorporar")).toBeVisible();
+    const link = screen.getByRole("link", { name: "Abrir ficha e incorporar" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/app/actors/entity/person/ITURRI%20FRANCO%20JUAN%20FRANCISCO?tool=report",
+    );
   });
 
   it("abre citas, registra revisión, publica y solicita descarga firmada", async () => {

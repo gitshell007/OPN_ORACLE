@@ -42,6 +42,19 @@ function statusLabel(status: DossierWizardOutput["section_diagnostics"][number][
   return "Vacío";
 }
 
+function sectionLabel(section: DossierWizardOutput["section_diagnostics"][number]["section"]) {
+  return {
+    goal: "Objetivo",
+    signals: "Señales",
+    procurement: "Contratación pública",
+    opportunities: "Oportunidades",
+    risks: "Riesgos",
+    actors: "Actores",
+    hypotheses: "Hipótesis",
+    other: "Otros",
+  }[section];
+}
+
 function actionLabel(kind: DossierWizardRecommendedAction["kind"]) {
   return {
     create_signal_monitor: "Crear vigilancia",
@@ -249,7 +262,7 @@ export function DossierCompletionWizard({ dossierId }: { dossierId: string }) {
                           )}
                           {statusLabel(item.status)}
                         </span>
-                        <strong>{item.section}</strong>
+                        <strong>{sectionLabel(item.section)}</strong>
                         <p>{item.explanation}</p>
                       </article>
                     ))}

@@ -5,20 +5,26 @@ import {
   ApiError,
   api,
   type BackendDossier,
+  type EntityIntelReportJob,
   type OracleReport,
 } from "@oracle/api-client";
 import type { components } from "@oracle/api-client";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   CalendarDays,
   ChevronRight,
   FileChartColumn,
   FilePlus2,
   Filter,
+  Hourglass,
   RefreshCw,
   Search,
   ShieldCheck,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   FormEvent,
@@ -40,8 +46,44 @@ import {
   idempotencyKey,
   reportStatusLabel,
 } from "./reporting-utils";
+import { productStatusLabel } from "@/lib/product-copy";
 
 type ReportTemplate = components["schemas"]["ReportTemplate"];
+
+type ReportSortKey = "title" | "dossier" | "status" | "version" | "updated";
+
+function SortableHeader({
+  label,
+  sortKey,
+  current,
+  dir,
+  onSort,
+}: {
+  label: string;
+  sortKey: ReportSortKey;
+  current: ReportSortKey;
+  dir: "asc" | "desc";
+  onSort: (key: ReportSortKey) => void;
+}) {
+  const active = current === sortKey;
+  return (
+    <th aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        className={active ? "report-sort-button is-active" : "report-sort-button"}
+        onClick={() => onSort(sortKey)}
+        aria-label={`Ordenar por ${label.toLocaleLowerCase("es")}`}
+      >
+        {label}
+        {active ? (
+          dir === "asc" ? <ArrowUp size={12} aria-hidden="true" /> : <ArrowDown size={12} aria-hidden="true" />
+        ) : (
+          <ArrowUpDown size={12} aria-hidden="true" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 function isActivationKey(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "Enter" && event.key !== " ") return false;
@@ -330,6 +372,7 @@ export function ReportLibrary({
   const requestedNew = searchParams.get("new") === "1";
   const openedFromQuery = useRef(false);
   const [reports, setReports] = useState<OracleReport[]>([]);
+  const [pendingEntityJobs, setPendingEntityJobs] = useState<EntityIntelReportJob[]>([]);
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [dossiers, setDossiers] = useState<BackendDossier[]>([]);
   const [pdfEnabled, setPdfEnabled] = useState(false);
@@ -337,6 +380,8 @@ export function ReportLibrary({
   const [status, setStatus] = useState("");
   const [template, setTemplate] = useState("");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(initialReportId);
+  const [sortKey, setSortKey] = useState<ReportSortKey>("updated");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -344,7 +389,7 @@ export function ReportLibrary({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [reportResult, templateResult, dossierResult] = await Promise.all([
+      const [reportResult, templateResult, dossierResult, pendingResult] = await Promise.all([
         dossierId
           ? api.reports.listDossier(dossierId, 1, 100)
           : api.reports.list(1, 100),
@@ -352,11 +397,19 @@ export function ReportLibrary({
         dossierId
           ? Promise.resolve({ data: [] as BackendDossier[] })
           : api.dossiers.list(),
+        // La zona de espera es informativa: si el usuario no puede generar
+        // informes de entidad (403) la biblioteca debe cargar igualmente.
+        dossierId
+          ? Promise.resolve({ data: [] as EntityIntelReportJob[] })
+          : api.entityIntel
+              .pendingReports({ limit: 20 })
+              .catch(() => ({ data: [] as EntityIntelReportJob[] })),
       ]);
       setReports(reportResult.data);
       setTemplates(templateResult.items);
       setPdfEnabled(templateResult.capabilities.pdf);
       setDossiers(dossierResult.data);
+      setPendingEntityJobs(pendingResult.data);
     } catch (reason) {
       setError(
         reason instanceof ApiError && reason.status === 403
@@ -397,6 +450,31 @@ export function ReportLibrary({
     );
   }, [query, reports, status, template]);
 
+  const sorted = useMemo(() => {
+    const factor = sortDir === "asc" ? 1 : -1;
+    const textOf = (report: OracleReport): string => {
+      if (sortKey === "title") return report.title;
+      if (sortKey === "dossier") return dossierName.get(report.dossier_id) ?? "";
+      return reportStatusLabel[report.status] ?? report.status;
+    };
+    const numberOf = (report: OracleReport): number =>
+      sortKey === "version"
+        ? report.generation_version * 100000 + report.version
+        : Date.parse(report.updated_at ?? report.created_at ?? "") || 0;
+    return [...filtered].sort((a, b) =>
+      sortKey === "version" || sortKey === "updated"
+        ? factor * (numberOf(a) - numberOf(b))
+        : factor * textOf(a).localeCompare(textOf(b), "es", { sensitivity: "base" }),
+    );
+  }, [filtered, sortKey, sortDir, dossierName]);
+
+  const toggleSort = useCallback((key: ReportSortKey) => {
+    setSortDir((currentDir) =>
+      key === sortKey ? (currentDir === "asc" ? "desc" : "asc") : key === "updated" ? "desc" : "asc",
+    );
+    setSortKey(key);
+  }, [sortKey]);
+
   const addReport = (report: OracleReport) => {
     setReports((current) => [report, ...current.filter((item) => item.id !== report.id)]);
     setSelectedReportId(report.id);
@@ -426,6 +504,62 @@ export function ReportLibrary({
           </PermissionGate>
         </div>
       </header>
+
+      {pendingEntityJobs.length > 0 && (
+        <section className="vector-panel entity-pending-panel" aria-labelledby="entity-pending-title">
+          <header>
+            <div>
+              <span className="section-kicker">Zona de espera</span>
+              <h2 id="entity-pending-title">
+                <Hourglass size={16} aria-hidden="true" /> Informes de entidad pendientes de incorporar
+              </h2>
+              <p>
+                Generados desde fichas de entidad. Permanecen aquí hasta que los
+                incorpores a un expediente; entonces aparecen en la biblioteca.
+              </p>
+            </div>
+          </header>
+          <ul className="entity-pending-list">
+            {pendingEntityJobs.map((job) => {
+              const kind = job.entity_type === "person" ? "person" : "company";
+              const entityName = job.entity ?? "Entidad";
+              return (
+                <li key={job.id}>
+                  <div className="entity-pending-main">
+                    <strong>{entityName}</strong>
+                    <small>
+                      {kind === "person" ? "Persona" : "Empresa"} · solicitado el{" "}
+                      {formatDateTime(job.created_at)}
+                    </small>
+                    {job.status === "failed" && job.error_message && (
+                      <small className="entity-pending-error">{job.error_message}</small>
+                    )}
+                  </div>
+                  <span className={`report-status ${job.status}`}>
+                    {job.status === "succeeded"
+                      ? "Listo para incorporar"
+                      : productStatusLabel(job.status)}
+                  </span>
+                  {["queued", "running", "retrying"].includes(job.status) ? (
+                    <JobProgress
+                      jobId={job.id}
+                      label="Generando informe de entidad"
+                      onTerminal={() => void load()}
+                    />
+                  ) : (
+                    <Link
+                      className="vector-secondary"
+                      href={`/app/actors/entity/${kind}/${encodeURIComponent(entityName)}?tool=report`}
+                    >
+                      Abrir ficha e incorporar
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <section className="vector-panel report-library-panel" aria-labelledby="report-library-title">
         <header>
@@ -512,16 +646,18 @@ export function ReportLibrary({
             <table className="report-table">
               <thead>
                 <tr>
-                  <th>Informe</th>
-                  {!dossierId && <th>Expediente</th>}
-                  <th>Estado</th>
-                  <th>Versión</th>
-                  <th>Actualizado</th>
+                  <SortableHeader label="Informe" sortKey="title" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  {!dossierId && (
+                    <SortableHeader label="Expediente" sortKey="dossier" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  )}
+                  <SortableHeader label="Estado" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Versión" sortKey="version" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Actualizado" sortKey="updated" current={sortKey} dir={sortDir} onSort={toggleSort} />
                   <th><span className="sr-only">Abrir</span></th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((report) => (
+                {sorted.map((report) => (
                   <tr
                     key={report.id}
                     className="interactive-row"

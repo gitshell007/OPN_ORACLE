@@ -3894,6 +3894,21 @@
 .report-filters .search-field { min-width: min(360px, 100%); flex: 1; }
 .report-filters select,
 .notification-center-panel > header select { min-height: 36px; min-width: 170px; border: 1px solid #cbd6e2; border-radius: 7px; padding: 0 10px; color: var(--va-text); background: white; }
+.report-sort-button { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.report-sort-button svg { color: #9fb0c2; }
+.report-sort-button.is-active,
+.report-sort-button.is-active svg { color: var(--va-primary); }
+.report-sort-button:hover svg,
+.report-sort-button:focus-visible svg { color: var(--va-primary); }
+.entity-pending-panel > header { padding: 16px 18px 0; }
+.entity-pending-panel h2 { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.entity-pending-panel header p { margin: 0; color: var(--va-muted); font-size: 12px; max-width: 640px; }
+.entity-pending-list { display: grid; gap: 0; margin: 12px 0 0; padding: 0; list-style: none; }
+.entity-pending-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 18px; border-top: 1px solid #e5ebf2; }
+.entity-pending-main { display: grid; gap: 2px; min-width: 220px; flex: 1; }
+.entity-pending-main small { color: var(--va-muted); }
+.entity-pending-error { color: #9c312d; }
+.entity-pending-list .job-progress { max-width: 240px; }
 .report-table-wrap { width: 100%; overflow-x: auto; }
 .report-table { width: 100%; min-width: 820px; border-collapse: collapse; }
 .report-table th,
@@ -3911,7 +3926,10 @@
 .report-status { display: inline-flex; align-items: center; gap: 5px; width: max-content; padding: 3px 8px; border: 1px solid #b9c7d7; border-radius: 99px; color: #41556d; background: #f7f9fb; font-size: 10px; font-weight: 750; }
 .report-status.generating,
 .report-status.queued,
+.report-status.running,
+.report-status.retrying,
 .report-status.draft { border-color: #94b3e8; color: #2458a4; background: #edf4ff; }
+.report-status.succeeded { border-color: #72b195; color: #136346; background: #eaf8f1; }
 .report-status.ready { border-color: #d4aa62; color: #825300; background: #fff7e5; }
 .report-status.reviewed { border-color: #68a2ad; color: #14606c; background: #eaf7f9; }
 .report-status.published { border-color: #72b195; color: #136346; background: #eaf8f1; }

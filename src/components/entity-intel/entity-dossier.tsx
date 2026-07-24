@@ -351,6 +351,10 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
         : "profile";
       setActiveTab(nextTab);
       setGraphVisited(nextTab === "graph");
+      const requestedTool = url.searchParams.get("tool");
+      if (requestedTool === "search" || requestedTool === "link" || requestedTool === "report") {
+        setActiveTool(requestedTool);
+      }
       if (requestedTab && requestedTab !== nextTab) {
         url.searchParams.delete("tab");
         window.history.replaceState(window.history.state, "", url);
