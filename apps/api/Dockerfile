@@ -14,10 +14,14 @@ RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.11-slim-bookworm AS runtime
 
+# XDG_CACHE_HOME en /tmp: el rootfs es read-only en producción y fontconfig
+# necesita un directorio de caché escribible (el de sistema se precalienta
+# con fc-cache en build).
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    APP_ENV=production
+    APP_ENV=production \
+    XDG_CACHE_HOME=/tmp/.cache
 
 # pango/harfbuzz/fontconfig + fuentes: runtime nativo de WeasyPrint (PDF de informes).
 RUN apt-get update \
@@ -29,6 +33,7 @@ RUN apt-get update \
         libfontconfig1 \
         fonts-dejavu-core \
         fonts-liberation \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 oracle \
     && useradd --system --uid 10001 --gid oracle --home-dir /app oracle \

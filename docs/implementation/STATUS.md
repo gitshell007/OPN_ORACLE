@@ -1,8 +1,35 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-23
+Actualizado: 2026-07-24
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Biblioteca de informes: zona de espera, ordenación, español y PDF (directo, sesión Claude)
+
+- **Zona de espera visible** (`d067bcc`, `af439cc`): los informes de entidad generados desde una
+  ficha (caso real: persona alcanzada vía grafo de ITURRI SA) quedaban solo en
+  `background_jobs.result_ref`, inaccesibles desde la biblioteca. Nuevo
+  `GET /entity-intel/reports/pending` (jobs del solicitante sin incorporar) y sección en
+  `/app/reports` con estado, error si falló y enlace `?tool=report` a la ficha para incorporarlo.
+- **Ordenación del datatable** de la biblioteca (carencia repetida del proyecto): cabeceras con
+  `aria-sort` para título/expediente/estado/versión/actualizado.
+- **Español**: stages reales de jobs añadidos a `STATUS_LABELS` (antes se veía
+  `fetching entity dossier`) y secciones del wizard «Mejorar con Oracle» traducidas
+  (`goal`→Objetivo, …).
+- **PDF habilitado** (`c418d70`): `WeasyPrintPDFRenderer` aislado (sin red: `url_fetcher` rechaza
+  todo; el HTML llega saneado), diseño A4 con numeración de páginas, índice con `target-counter`,
+  claims por color y kinds traducidos. `REPORT_PDF_MODE=weasyprint` en producción; Dockerfile del
+  API añade pango/harfbuzz/fuentes; CI instala las mismas libs para no saltarse el test.
+- **g1-r3 diagnosticado**: «Informe de actores · Coches de Bomberos» falló porque
+  `ollama/qwen3.5:9b` devolvió `sections: []` (audit `895119db`). La validación exacta de headings
+  se relajó a equivalencia normalizada con canonización (regresión cubierta), pero el fallo raíz es
+  capacidad del modelo: consulta preparada para Signal
+  (`PROMPT_ORACLE_report_writer_proveedor.md`) proponiendo mover `report_writer` a
+  `openrouter/gemini-2.5-flash`.
+- Verificación: backend 708 tests (cobertura 84,74 %), mypy limpio, vitest 220, build Next OK,
+  OpenAPI/cliente regenerados (`api:client:check` OK). Mutaciones cazadas: filtro de incorporación
+  invertido, comparación exacta restaurada, omisión de canonización, factor de orden fijo y pérdida
+  del deep-link.
 
 ## ORACLE-EXP-INV-08 · paquete de revisión doble ciego
 
