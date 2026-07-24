@@ -1082,6 +1082,11 @@ def build_frozen_context(
     meeting: dict[str, Any] | None = None,
     entity_context_meta: dict[str, Any] | None = None,
     procurement_items: list[dict[str, Any]] | None = None,
+    opportunities: list[dict[str, Any]] | None = None,
+    risks: list[dict[str, Any]] | None = None,
+    tasks: list[dict[str, Any]] | None = None,
+    decisions: list[dict[str, Any]] | None = None,
+    portfolio_context_meta: dict[str, Any] | None = None,
 ) -> BuiltContext:
     """Build an AI context exclusively from immutable report snapshot material."""
 
@@ -1121,6 +1126,14 @@ def build_frozen_context(
         "meeting": meeting,
         "entity_context_meta": entity_context_meta or {},
         "procurement_items": procurement_items or [],
+        # Carteras congeladas: las plantillas ejecutivas y de plan de acción escriben
+        # sobre ellas. Sin esto se pedía «Oportunidades principales» o «Acciones» con
+        # el contexto vacío y el modelo devolvía el informe entero sin secciones.
+        "opportunities": opportunities or [],
+        "risks": risks or [],
+        "tasks": tasks or [],
+        "decisions": decisions or [],
+        "portfolio_context_meta": portfolio_context_meta or {},
         "evidence": evidence_payload,
         "allowed_evidence_ids": [str(item.row.id) for item in selected],
         "security_instruction": (

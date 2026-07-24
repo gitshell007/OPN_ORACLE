@@ -203,6 +203,9 @@ def test_report_writer_v6_prompt_forbids_empty_sections_and_pins_required_headin
     assert "exactamente una sección por cada heading" in prompt.text
     assert "nunca** puede ir vacío" in prompt.text
     assert "emite igualmente la sección" in prompt.text
+    # La cartera congelada solo sirve si el prompt la declara.
+    assert "`opportunities`, `risks`, `tasks` o `decisions`" in prompt.text
+    assert "portfolio_context_meta" in prompt.text
     # El contrato ejecutivo de v5 no se pierde en la versión nueva.
     assert "Cada párrafo debe tener entre 60 y 150 palabras" in prompt.text
     assert "Rellena SIEMPRE `top_opportunities`, `top_risks` y `recommended_actions`" in prompt.text

@@ -41,6 +41,7 @@ from opn_oracle.oracle.links import (
 )
 from opn_oracle.oracle.models import (
     Actor,
+    Decision,
     DossierActor,
     DossierObjective,
     DossierProcurementItem,
@@ -53,6 +54,7 @@ from opn_oracle.oracle.models import (
     Report,
     RiskItem,
     StrategicDossier,
+    Task,
 )
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import TenantMembership
@@ -102,6 +104,13 @@ REPORT_SNAPSHOT_RELATIONSHIP_LIMIT = 200
 # evidencia suelta. `executive_dossier` declara «Actores clave»: hasta la auditoría de
 # 2026-07-24 recibía `actors: []` y devolvía el informe entero vacío.
 TEMPLATES_WITH_ACTOR_SECTIONS = frozenset({"actors", "executive_dossier"})
+
+REPORT_SNAPSHOT_PORTFOLIO_LIMIT = 25
+
+# Plantillas que escriben sobre la cartera del expediente y no sobre un recurso puntual:
+# `executive_dossier` declara «Oportunidades principales» y «Riesgos principales»;
+# `action_plan` pide acciones, dependencias, hitos y decisiones.
+TEMPLATES_WITH_PORTFOLIO_SECTIONS = frozenset({"executive_dossier", "action_plan"})
 
 
 def _report_failure_message(error: BaseException) -> str:
@@ -413,6 +422,124 @@ def _validate_options(
 
 def _permitted_evidence_ids(linked_ids: list[uuid.UUID], allowed_ids: set[uuid.UUID]) -> list[str]:
     return [str(item) for item in sorted(set(linked_ids) & allowed_ids, key=str)]
+
+
+def _portfolio_snapshot(
+    dossier: StrategicDossier,
+    *,
+    allowed_evidence_ids: set[uuid.UUID],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Freeze the dossier portfolio the executive and action-plan templates write about.
+
+    Se congelan listas, no una selección puntual: `executive_dossier` declara
+    «Oportunidades principales» y «Riesgos principales», y `action_plan` pide acciones,
+    dependencias, hitos y decisiones. Antes solo viajaba el recurso único elegido por
+    `options`, así que esas secciones se pedían sobre un contexto vacío.
+    """
+
+    opportunities = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "status": item.status,
+            "opportunity_type": item.opportunity_type,
+            "overall_score": item.overall_score,
+            "confidence": item.confidence,
+            "deadline": item.deadline.isoformat() if item.deadline else None,
+            "next_action": item.next_action,
+            "version": item.version,
+            "evidence_ids": _permitted_evidence_ids(
+                list(
+                    db.session.scalars(
+                        select(OpportunityEvidence.evidence_id).where(
+                            OpportunityEvidence.tenant_id == dossier.tenant_id,
+                            OpportunityEvidence.opportunity_id == item.id,
+                        )
+                    )
+                ),
+                allowed_evidence_ids,
+            ),
+        }
+        for item in db.session.scalars(
+            select(Opportunity)
+            .where(
+                Opportunity.tenant_id == dossier.tenant_id,
+                Opportunity.dossier_id == dossier.id,
+            )
+            .order_by(Opportunity.overall_score.desc(), Opportunity.id)
+            .limit(REPORT_SNAPSHOT_PORTFOLIO_LIMIT)
+        )
+    ]
+    risks = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "status": item.status,
+            "category": item.category,
+            "overall_score": item.overall_score,
+            "likelihood": item.likelihood,
+            "impact": item.impact,
+            "mitigation": item.mitigation,
+            "due_date": item.due_date.isoformat() if item.due_date else None,
+            "version": item.version,
+            "evidence_ids": _permitted_evidence_ids(
+                list(
+                    db.session.scalars(
+                        select(RiskEvidence.evidence_id).where(
+                            RiskEvidence.tenant_id == dossier.tenant_id,
+                            RiskEvidence.risk_id == item.id,
+                        )
+                    )
+                ),
+                allowed_evidence_ids,
+            ),
+        }
+        for item in db.session.scalars(
+            select(RiskItem)
+            .where(RiskItem.tenant_id == dossier.tenant_id, RiskItem.dossier_id == dossier.id)
+            .order_by(RiskItem.overall_score.desc(), RiskItem.id)
+            .limit(REPORT_SNAPSHOT_PORTFOLIO_LIMIT)
+        )
+    ]
+    tasks = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "status": item.status,
+            "priority": item.priority,
+            "due_date": item.due_date.isoformat() if item.due_date else None,
+            "origin": item.origin,
+            "linked_resource_type": item.linked_resource_type,
+            "linked_resource_id": (
+                str(item.linked_resource_id) if item.linked_resource_id else None
+            ),
+            "has_owner": item.owner_user_id is not None,
+            "version": item.version,
+        }
+        for item in db.session.scalars(
+            select(Task)
+            .where(Task.tenant_id == dossier.tenant_id, Task.dossier_id == dossier.id)
+            .order_by(Task.due_date.is_(None), Task.due_date, Task.id)
+            .limit(REPORT_SNAPSHOT_PORTFOLIO_LIMIT)
+        )
+    ]
+    decisions = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "status": item.status,
+            "rationale": item.rationale,
+            "decided_at": item.decided_at.isoformat() if item.decided_at else None,
+            "version": item.version,
+        }
+        for item in db.session.scalars(
+            select(Decision)
+            .where(Decision.tenant_id == dossier.tenant_id, Decision.dossier_id == dossier.id)
+            .order_by(Decision.decided_at.is_(None), Decision.decided_at.desc(), Decision.id)
+            .limit(REPORT_SNAPSHOT_PORTFOLIO_LIMIT)
+        )
+    ]
+    return opportunities, risks, tasks, decisions
 
 
 def _actor_snapshot(
@@ -818,6 +945,29 @@ def _snapshot(
         options,
         allowed_evidence_ids=allowed_evidence_ids,
     )
+    if template.key in TEMPLATES_WITH_PORTFOLIO_SECTIONS:
+        opportunities, risks, tasks, decisions = _portfolio_snapshot(
+            dossier,
+            allowed_evidence_ids=allowed_evidence_ids,
+        )
+    else:
+        opportunities, risks, tasks, decisions = [], [], [], []
+    portfolio_context_meta = {
+        "portfolio_limit": REPORT_SNAPSHOT_PORTFOLIO_LIMIT,
+        "opportunity_count_included": len(opportunities),
+        "opportunities_truncated": len(opportunities) == REPORT_SNAPSHOT_PORTFOLIO_LIMIT,
+        "risk_count_included": len(risks),
+        "risks_truncated": len(risks) == REPORT_SNAPSHOT_PORTFOLIO_LIMIT,
+        "task_count_included": len(tasks),
+        "tasks_truncated": len(tasks) == REPORT_SNAPSHOT_PORTFOLIO_LIMIT,
+        "decision_count_included": len(decisions),
+        "decisions_truncated": len(decisions) == REPORT_SNAPSHOT_PORTFOLIO_LIMIT,
+        "portfolio_selection": (
+            "dossier_portfolio"
+            if template.key in TEMPLATES_WITH_PORTFOLIO_SECTIONS
+            else "not_applicable"
+        ),
+    }
     payload = {
         "schema": "oracle-report-snapshot-v1",
         "captured_at": datetime.now(UTC).isoformat(),
@@ -856,7 +1006,12 @@ def _snapshot(
         "opportunity": opportunity,
         "risk": risk,
         "meeting": meeting,
+        "opportunities": opportunities,
+        "risks": risks,
+        "tasks": tasks,
+        "decisions": decisions,
         "entity_context_meta": actor_context_meta,
+        "portfolio_context_meta": portfolio_context_meta,
         "procurement_items": [
             {
                 "id": str(item.id),
@@ -976,7 +1131,12 @@ def _frozen_report_context(report: Report, max_tokens: int) -> BuiltContext:
         risk=source.get("risk"),
         meeting=source.get("meeting"),
         entity_context_meta=dict(source.get("entity_context_meta", {})),
+        portfolio_context_meta=dict(source.get("portfolio_context_meta", {})),
         procurement_items=list(source.get("procurement_items", [])),
+        opportunities=list(source.get("opportunities", [])),
+        risks=list(source.get("risks", [])),
+        tasks=list(source.get("tasks", [])),
+        decisions=list(source.get("decisions", [])),
     )
 
 

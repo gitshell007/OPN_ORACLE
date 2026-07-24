@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import inspect
 
 from opn_oracle import create_app
+from opn_oracle.ai.context import build_frozen_context
 from opn_oracle.ai.schemas import ReportOutput
 from opn_oracle.config import ConfigError, Settings
 from opn_oracle.reporting.artifacts import (
@@ -171,6 +172,49 @@ def test_paraphrased_headings_are_accepted_and_rewritten_to_the_template_canon()
     )
     with pytest.raises(ReportWorkflowError, match="secciones requeridas"):
         _validate_report_output(truncated, template=template, snapshot_ids=set())
+
+
+def test_frozen_context_carries_the_dossier_portfolio_and_declares_its_trim() -> None:
+    """La cartera congelada tiene que llegar al modelo, no solo al snapshot.
+
+    `executive_dossier` pide «Oportunidades principales» y «Riesgos principales» y
+    `action_plan` pide acciones y decisiones: si el contexto no las transporta, esas
+    secciones se redactan sobre el vacío.
+    """
+
+    built = build_frozen_context(
+        dossier_id=uuid.uuid4(),
+        dossier={"id": "d", "title": "Expediente"},
+        objectives=[],
+        hypotheses=[],
+        living_summary={},
+        evidence=(),
+        max_tokens=4000,
+        opportunities=[{"id": "o1", "title": "Oportunidad congelada", "overall_score": 80}],
+        risks=[{"id": "r1", "title": "Riesgo congelado", "overall_score": 70}],
+        tasks=[{"id": "t1", "title": "Acción pendiente", "status": "open"}],
+        decisions=[{"id": "dec1", "title": "Decisión propuesta", "status": "proposed"}],
+        portfolio_context_meta={"portfolio_limit": 25, "opportunities_truncated": False},
+    )
+
+    assert [item["title"] for item in built.payload["opportunities"]] == ["Oportunidad congelada"]
+    assert [item["title"] for item in built.payload["risks"]] == ["Riesgo congelado"]
+    assert [item["title"] for item in built.payload["tasks"]] == ["Acción pendiente"]
+    assert [item["title"] for item in built.payload["decisions"]] == ["Decisión propuesta"]
+    assert built.payload["portfolio_context_meta"]["portfolio_limit"] == 25
+
+    # Sin cartera, las claves existen vacías: el modelo distingue «no hay» de «no se envió».
+    empty = build_frozen_context(
+        dossier_id=uuid.uuid4(),
+        dossier={"id": "d", "title": "Expediente"},
+        objectives=[],
+        hypotheses=[],
+        living_summary={},
+        evidence=(),
+        max_tokens=4000,
+    )
+    assert empty.payload["opportunities"] == []
+    assert empty.payload["decisions"] == []
 
 
 def test_empty_sections_name_the_template_and_reach_the_user_as_a_contract_failure() -> None:
