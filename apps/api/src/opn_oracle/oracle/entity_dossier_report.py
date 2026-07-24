@@ -1806,4 +1806,6 @@ def serialize_entity_report_job(job: BackgroundJob) -> dict[str, Any]:
     payload = serialize_job(job)
     payload["entity"] = job.input_payload.get("name")
     payload["entity_key"] = job.input_payload.get("entity_key")
+    payload["entity_type"] = job.input_payload.get("kind")
+    payload["incorporated_dossier_id"] = job.result_ref.get("incorporated_dossier_id")
     return payload

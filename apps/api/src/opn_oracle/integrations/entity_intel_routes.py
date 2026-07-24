@@ -145,6 +145,10 @@ class EntityReportListQuerySchema(EntityReportRequestSchema):
     limit = Integer(load_default=10, validate=validate.Range(min=1, max=50))
 
 
+class EntityReportPendingQuerySchema(Schema):
+    limit = Integer(load_default=20, validate=validate.Range(min=1, max=50))
+
+
 class EntityReportIncorporateSchema(Schema):
     dossier_id = String(required=True, validate=validate.Length(min=32, max=40))
 
@@ -337,6 +341,31 @@ def list_entity_reports(query_data: dict[str, Any]) -> dict[str, Any]:
         )
     ]
     return {"data": [serialize_entity_report_job(row) for row in visible[:limit]]}
+
+
+@bp.get("/reports/pending")
+@require_permission("report.generate")
+@bp.input(EntityReportPendingQuerySchema, location="query")
+def list_pending_entity_reports(query_data: dict[str, Any]) -> dict[str, Any]:
+    """Waiting-area view: the requester's entity reports not yet incorporated.
+
+    Without this listing, a report generated from an entity ficha is only
+    reachable by re-opening that exact ficha; the reports library needs a
+    global view of what is still waiting to be incorporated.
+    """
+    limit = int(query_data["limit"])
+    rows = db.session.scalars(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.job_type == ENTITY_DOSSIER_REPORT_JOB,
+            BackgroundJob.requested_by_user_id == current_user.id,
+        )
+        .order_by(BackgroundJob.created_at.desc())
+        .limit(200)
+    ).all()
+    pending = [row for row in rows if not row.result_ref.get("incorporated_dossier_id")]
+    return {"data": [serialize_entity_report_job(row) for row in pending[:limit]]}
 
 
 @bp.post("/reports/<uuid:job_id>/incorporate")

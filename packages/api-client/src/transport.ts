@@ -1264,6 +1264,12 @@ const entityIntel = {
       `/api/v1/entity-intel/reports?${query.toString()}`,
     );
   },
+  pendingReports: (input: { limit?: number } = {}) => {
+    const query = new URLSearchParams({ limit: String(input.limit ?? 20) });
+    return request<EntityIntelReportListResponse>(
+      `/api/v1/entity-intel/reports/pending?${query.toString()}`,
+    );
+  },
   startReport: (
     input: { name: string; type?: EntityIntelKind },
     idempotencyKey: string,
@@ -1602,6 +1608,8 @@ const dossierCompletionWizard = {
 export interface EntityIntelReportJob extends JobResponse {
   entity?: string | null;
   entity_key?: string | null;
+  entity_type?: "company" | "person" | null;
+  incorporated_dossier_id?: string | null;
 }
 
 export interface EntityIntelReportListResponse {

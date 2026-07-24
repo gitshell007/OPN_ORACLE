@@ -2566,6 +2566,16 @@ def test_entity_report_runs_from_http_and_incorporates_through_http(
     assert listed.status_code == 200
     assert listed.get_json()["data"][0]["id"] == str(job_id)
 
+    # Zona de espera global: antes de incorporarlo, el informe debe ser
+    # localizable sin conocer la entidad (biblioteca de informes).
+    waiting = client.get("/api/v1/entity-intel/reports/pending")
+    assert waiting.status_code == 200
+    waiting_rows = {row["id"]: row for row in waiting.get_json()["data"]}
+    assert str(job_id) in waiting_rows
+    assert waiting_rows[str(job_id)]["entity"] == "Entidad Cobertura SA"
+    assert waiting_rows[str(job_id)]["entity_type"] == "company"
+    assert waiting_rows[str(job_id)]["incorporated_dossier_id"] is None
+
     incorporated = client.post(
         f"/api/v1/entity-intel/reports/{job_id}/incorporate",
         json={"dossier_id": dossier["id"]},
@@ -2588,6 +2598,12 @@ def test_entity_report_runs_from_http_and_incorporates_through_http(
         stored = db.session.get(BackgroundJob, job_id)
         assert stored is not None
         assert stored.result_ref["incorporated_dossier_id"] == dossier["id"]
+
+    # Una vez incorporado deja la zona de espera: ya vive como informe del
+    # expediente y mantenerlo aquí duplicaría la biblioteca.
+    settled = client.get("/api/v1/entity-intel/reports/pending")
+    assert settled.status_code == 200
+    assert str(job_id) not in {row["id"] for row in settled.get_json()["data"]}
 
 
 def test_entity_report_person_flow_declares_procurement_not_applicable(
