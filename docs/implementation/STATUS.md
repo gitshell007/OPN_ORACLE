@@ -4,6 +4,24 @@ Actualizado: 2026-07-24
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Informes con contexto de entidades congelado
+
+- Corregida la causa raíz de «Informe de actores · Coches de Bomberos»: el snapshot validaba
+  `actor_ids`, pero descartaba actores y relaciones antes de llamar al modelo. Los informes nuevos
+  congelan hasta 100 actores y 200 relaciones, con identidad, roles, puntuaciones, versiones,
+  evidencia vinculada, alcance solicitado y recortes explícitos.
+- El mismo patrón se cierra para `opportunity_id`, `risk_id` y `meeting_id`; las plantillas
+  `opportunity`, `risk`, `meeting_briefing` y `tender` reciben ahora la entidad seleccionada, sus
+  actores asociados y la evidencia permitida. La generación usa exclusivamente esta proyección
+  inmutable.
+- Los informes históricos no se modifican. Reintentar crea un informe hijo y congela un snapshot
+  nuevo, por lo que el expediente real debe probarse después del despliegue. Sus cinco actores
+  siguen teniendo cero evidencias directas vinculadas: la corrección permite describir el mapa
+  registrado, pero no convierte sus métricas en hechos corroborados.
+- Sin migración, variable nueva, frontend ni Signal. Gates: Ruff check/format-check, mypy sobre
+  121 módulos y suite integrada completa correctos; 709 pruebas, cobertura 84,85 %. La mutación
+  que omitía los actores hizo caer la nueva prueba HTTP.
+
 ## Biblioteca de informes: zona de espera, ordenación, español y PDF (directo, sesión Claude)
 
 - **Zona de espera visible** (`d067bcc`, `af439cc`): los informes de entidad generados desde una
@@ -20,12 +38,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   todo; el HTML llega saneado), diseño A4 con numeración de páginas, índice con `target-counter`,
   claims por color y kinds traducidos. `REPORT_PDF_MODE=weasyprint` en producción; Dockerfile del
   API añade pango/harfbuzz/fuentes; CI instala las mismas libs para no saltarse el test.
-- **g1-r3 diagnosticado**: «Informe de actores · Coches de Bomberos» falló porque
-  `ollama/qwen3.5:9b` devolvió `sections: []` (audit `895119db`). La validación exacta de headings
-  se relajó a equivalencia normalizada con canonización (regresión cubierta), pero el fallo raíz es
-  capacidad del modelo: consulta preparada para Signal
-  (`PROMPT_ORACLE_report_writer_proveedor.md`) proponiendo mover `report_writer` a
-  `openrouter/gemini-2.5-flash`.
+- **g1-r3 diagnosticado**: `ollama/qwen3.5:9b` devolvió `sections: []` (audit `895119db`). La
+  validación de headings se relajó legítimamente, pero la causa raíz posterior fue el contexto:
+  el snapshot no contenía actores ni relaciones. Cambiar de modelo no resolvía ese vacío. La
+  corrección se registra en la sección anterior.
 - Verificación: backend 708 tests (cobertura 84,74 %), mypy limpio, vitest 220, build Next OK,
   OpenAPI/cliente regenerados (`api:client:check` OK). Mutaciones cazadas: filtro de incorporación
   invertido, comparación exacta restaurada, omisión de canonización, factor de orden fijo y pérdida

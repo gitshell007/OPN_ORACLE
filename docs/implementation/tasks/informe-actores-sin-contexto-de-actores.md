@@ -1,7 +1,7 @@
 # El informe de actores no recibe actores
 
 **Fecha:** 2026-07-24
-**Estado:** diagnosticado, sin corregir
+**Estado:** corregido en `master`, pendiente de despliegue y smoke con el expediente real
 **Evidencia:** expediente «Coches de Bomberos», plantilla `actors` v1
 
 ## Síntoma
@@ -107,3 +107,36 @@ Aunque se arregle el snapshot, un informe de actores sobre este expediente
 concreto seguirá siendo pobre hasta que se vincule evidencia a los actores
 —trabajo de usuario, no de código—. El arreglo del snapshot es condición
 necesaria; la vinculación de evidencia es la que da calidad.
+
+## Resolución aplicada
+
+El snapshot inmutable incorpora ahora:
+
+- `actors`: identidad canónica, tipo, roles, puntuaciones registradas, versiones y
+  `evidence_ids` permitidos;
+- `relationships`: extremos nominales, tipo, dirección, fuerza, confianza,
+  vigencia, versión y `evidence_ids`;
+- `opportunity`, `risk` y `meeting` cuando sus IDs forman parte del contrato de
+  entrada, incluidos actores y evidencias directamente vinculados;
+- `entity_context_meta`, con topes de 100 actores y 200 relaciones, indicadores
+  de recorte y el `relationship_scope` pedido.
+
+Las relaciones quedan acotadas a aquellas cuyos dos extremos están entre los
+actores incluidos. Los enlaces de evidencia declaran tanto los IDs que forman
+parte del snapshot como el recuento total vinculado; una diferencia hace visible
+que hubo evidencia fuera del tope general, en lugar de simular ausencia.
+
+No se congelan aliases, identificadores personales, metadata libre ni notas del
+actor. El contexto del modelo se construye exclusivamente desde esta proyección
+y las evidencias inmutables, sin volver a consultar el estado vivo al generar.
+
+Los informes anteriores no se reescriben. La acción de reintento crea un informe
+hijo con un snapshot nuevo, por lo que puede utilizarse después de desplegar la
+corrección sin alterar `g1-r3` ni `g2-r1`.
+
+Verificación: una prueba de integración crea por HTTP dos actores, sus roles,
+una relación, oportunidad, riesgo y reunión; enlaza una evidencia; solicita las
+cinco plantillas afectadas y comprueba el snapshot persistido y el contexto
+congelado. La suite completa pasa con 709 pruebas y 84,85 % de cobertura. Una
+mutación que omitía la carga de actores hizo caer la regresión en el primer
+assert de `actors`.

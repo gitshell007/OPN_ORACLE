@@ -27,8 +27,20 @@ from opn_oracle.oracle.competitive_procurement import (
     pinned_award_winners,
 )
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
-from opn_oracle.oracle.links import EvidenceDossier, ReportEvidence
+from opn_oracle.oracle.links import (
+    DossierActorEvidence,
+    EvidenceDossier,
+    MeetingActor,
+    MeetingEvidence,
+    OpportunityActor,
+    OpportunityEvidence,
+    RelationshipEvidence,
+    ReportEvidence,
+    RiskActor,
+    RiskEvidence,
+)
 from opn_oracle.oracle.models import (
+    Actor,
     DossierActor,
     DossierObjective,
     DossierProcurementItem,
@@ -37,6 +49,7 @@ from opn_oracle.oracle.models import (
     LivingSummary,
     Meeting,
     Opportunity,
+    Relationship,
     Report,
     RiskItem,
     StrategicDossier,
@@ -69,6 +82,10 @@ class ReportConflictError(ReportWorkflowError):
 
 class ReportLeaseLost(RuntimeError):
     """The worker no longer owns the durable BackgroundJob lease."""
+
+
+REPORT_SNAPSHOT_ACTOR_LIMIT = 100
+REPORT_SNAPSHOT_RELATIONSHIP_LIMIT = 200
 
 
 def _report_failure_message(error: BaseException) -> str:
@@ -369,6 +386,338 @@ def _validate_options(
     return options
 
 
+def _permitted_evidence_ids(linked_ids: list[uuid.UUID], allowed_ids: set[uuid.UUID]) -> list[str]:
+    return [str(item) for item in sorted(set(linked_ids) & allowed_ids, key=str)]
+
+
+def _actor_snapshot(
+    dossier: StrategicDossier,
+    options: dict[str, Any],
+    *,
+    allowed_evidence_ids: set[uuid.UUID],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    selected_ids = {uuid.UUID(value) for value in options.get("actor_ids", [])}
+    statement = (
+        select(DossierActor, Actor)
+        .join(
+            Actor,
+            (Actor.id == DossierActor.actor_id) & (Actor.tenant_id == DossierActor.tenant_id),
+        )
+        .where(
+            DossierActor.tenant_id == dossier.tenant_id,
+            DossierActor.dossier_id == dossier.id,
+        )
+        .order_by(
+            DossierActor.priority.desc(),
+            Actor.canonical_name,
+            DossierActor.id,
+        )
+    )
+    if selected_ids:
+        statement = statement.where(DossierActor.actor_id.in_(selected_ids))
+    rows = list(db.session.execute(statement.limit(REPORT_SNAPSHOT_ACTOR_LIMIT + 1)).all())
+    actors_truncated = len(rows) > REPORT_SNAPSHOT_ACTOR_LIMIT
+    rows = rows[:REPORT_SNAPSHOT_ACTOR_LIMIT]
+    dossier_actor_ids = [link.id for link, _ in rows]
+    actor_ids = {link.actor_id for link, _ in rows}
+
+    actor_links: dict[uuid.UUID, list[uuid.UUID]] = {}
+    if dossier_actor_ids:
+        for dossier_actor_id, evidence_id in db.session.execute(
+            select(
+                DossierActorEvidence.dossier_actor_id,
+                DossierActorEvidence.evidence_id,
+            )
+            .where(
+                DossierActorEvidence.tenant_id == dossier.tenant_id,
+                DossierActorEvidence.dossier_actor_id.in_(dossier_actor_ids),
+            )
+            .order_by(
+                DossierActorEvidence.dossier_actor_id,
+                DossierActorEvidence.evidence_id,
+            )
+        ):
+            actor_links.setdefault(dossier_actor_id, []).append(evidence_id)
+
+    actors = []
+    actor_names: dict[uuid.UUID, str] = {}
+    for link, actor in rows:
+        actor_names[actor.id] = actor.canonical_name
+        linked_ids = actor_links.get(link.id, [])
+        actors.append(
+            {
+                "id": str(actor.id),
+                "dossier_actor_id": str(link.id),
+                "canonical_name": actor.canonical_name,
+                "actor_type": actor.actor_type,
+                "roles": link.roles,
+                "influence": link.influence,
+                "relevance_to_dossier": link.relevance_to_dossier,
+                "relationship_strength": link.relationship_strength,
+                "accessibility": link.accessibility,
+                "strategic_alignment": link.strategic_alignment,
+                "recent_activity": link.recent_activity,
+                "priority": link.priority,
+                "actor_version": actor.version,
+                "dossier_actor_version": link.version,
+                "evidence_ids": _permitted_evidence_ids(linked_ids, allowed_evidence_ids),
+                "linked_evidence_count": len(set(linked_ids)),
+            }
+        )
+
+    relationship_rows: list[Relationship] = []
+    relationships_truncated = False
+    if actor_ids:
+        relationship_rows = list(
+            db.session.scalars(
+                select(Relationship)
+                .where(
+                    Relationship.tenant_id == dossier.tenant_id,
+                    Relationship.dossier_id == dossier.id,
+                    Relationship.from_actor_id.in_(actor_ids),
+                    Relationship.to_actor_id.in_(actor_ids),
+                )
+                .order_by(Relationship.id)
+                .limit(REPORT_SNAPSHOT_RELATIONSHIP_LIMIT + 1)
+            )
+        )
+        relationships_truncated = len(relationship_rows) > REPORT_SNAPSHOT_RELATIONSHIP_LIMIT
+        relationship_rows = relationship_rows[:REPORT_SNAPSHOT_RELATIONSHIP_LIMIT]
+
+    relationship_links: dict[uuid.UUID, list[uuid.UUID]] = {}
+    relationship_ids = [item.id for item in relationship_rows]
+    if relationship_ids:
+        for relationship_id, evidence_id in db.session.execute(
+            select(
+                RelationshipEvidence.relationship_id,
+                RelationshipEvidence.evidence_id,
+            )
+            .where(
+                RelationshipEvidence.tenant_id == dossier.tenant_id,
+                RelationshipEvidence.relationship_id.in_(relationship_ids),
+            )
+            .order_by(
+                RelationshipEvidence.relationship_id,
+                RelationshipEvidence.evidence_id,
+            )
+        ):
+            relationship_links.setdefault(relationship_id, []).append(evidence_id)
+
+    relationships = []
+    for item in relationship_rows:
+        linked_ids = relationship_links.get(item.id, [])
+        relationships.append(
+            {
+                "id": str(item.id),
+                "from_actor_id": str(item.from_actor_id),
+                "from_actor_name": actor_names[item.from_actor_id],
+                "to_actor_id": str(item.to_actor_id),
+                "to_actor_name": actor_names[item.to_actor_id],
+                "relationship_type": item.relationship_type,
+                "strength": item.strength,
+                "direction": item.direction,
+                "confidence": item.confidence,
+                "valid_from": item.valid_from.isoformat() if item.valid_from else None,
+                "valid_to": item.valid_to.isoformat() if item.valid_to else None,
+                "version": item.version,
+                "evidence_ids": _permitted_evidence_ids(linked_ids, allowed_evidence_ids),
+                "linked_evidence_count": len(set(linked_ids)),
+            }
+        )
+
+    metadata = {
+        "actor_limit": REPORT_SNAPSHOT_ACTOR_LIMIT,
+        "actor_count_included": len(actors),
+        "actors_truncated": actors_truncated,
+        "relationship_limit": REPORT_SNAPSHOT_RELATIONSHIP_LIMIT,
+        "relationship_count_included": len(relationships),
+        "relationships_truncated": relationships_truncated,
+        "requested_actor_ids": sorted(str(item) for item in selected_ids),
+        "requested_relationship_scope": options.get("relationship_scope"),
+        "relationship_selection": "both_endpoints_in_included_actors",
+    }
+    return actors, relationships, metadata
+
+
+def _linked_actor_payload(
+    *,
+    tenant_id: uuid.UUID,
+    actor_ids: list[uuid.UUID],
+) -> list[dict[str, Any]]:
+    if not actor_ids:
+        return []
+    actors = list(
+        db.session.scalars(
+            select(Actor)
+            .where(
+                Actor.tenant_id == tenant_id,
+                Actor.id.in_(set(actor_ids)),
+            )
+            .order_by(Actor.canonical_name, Actor.id)
+        )
+    )
+    return [
+        {
+            "id": str(item.id),
+            "canonical_name": item.canonical_name,
+            "actor_type": item.actor_type,
+            "version": item.version,
+        }
+        for item in actors
+    ]
+
+
+def _selected_resource_snapshot(
+    dossier: StrategicDossier,
+    options: dict[str, Any],
+    *,
+    allowed_evidence_ids: set[uuid.UUID],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    opportunity_payload: dict[str, Any] | None = None
+    risk_payload: dict[str, Any] | None = None
+    meeting_payload: dict[str, Any] | None = None
+
+    if opportunity_id := options.get("opportunity_id"):
+        opportunity = db.session.scalar(
+            select(Opportunity).where(
+                Opportunity.id == uuid.UUID(str(opportunity_id)),
+                Opportunity.tenant_id == dossier.tenant_id,
+                Opportunity.dossier_id == dossier.id,
+            )
+        )
+        if opportunity is None:
+            raise ReportWorkflowError("La oportunidad seleccionada dejó de estar disponible.")
+        evidence_ids = list(
+            db.session.scalars(
+                select(OpportunityEvidence.evidence_id).where(
+                    OpportunityEvidence.tenant_id == dossier.tenant_id,
+                    OpportunityEvidence.opportunity_id == opportunity.id,
+                )
+            )
+        )
+        actor_ids = list(
+            db.session.scalars(
+                select(OpportunityActor.actor_id).where(
+                    OpportunityActor.tenant_id == dossier.tenant_id,
+                    OpportunityActor.opportunity_id == opportunity.id,
+                )
+            )
+        )
+        opportunity_payload = {
+            "id": str(opportunity.id),
+            "title": opportunity.title,
+            "description": opportunity.description,
+            "opportunity_type": opportunity.opportunity_type,
+            "status": opportunity.status,
+            "strategic_fit": opportunity.strategic_fit,
+            "urgency": opportunity.urgency,
+            "expected_value": opportunity.expected_value,
+            "actionability": opportunity.actionability,
+            "relationship_leverage": opportunity.relationship_leverage,
+            "timing": opportunity.timing,
+            "effort": opportunity.effort,
+            "blocking_risk": opportunity.blocking_risk,
+            "confidence": opportunity.confidence,
+            "overall_score": opportunity.overall_score,
+            "deadline": opportunity.deadline.isoformat() if opportunity.deadline else None,
+            "next_action": opportunity.next_action,
+            "version": opportunity.version,
+            "actors": _linked_actor_payload(tenant_id=dossier.tenant_id, actor_ids=actor_ids),
+            "evidence_ids": _permitted_evidence_ids(evidence_ids, allowed_evidence_ids),
+            "linked_evidence_count": len(set(evidence_ids)),
+        }
+
+    if risk_id := options.get("risk_id"):
+        risk = db.session.scalar(
+            select(RiskItem).where(
+                RiskItem.id == uuid.UUID(str(risk_id)),
+                RiskItem.tenant_id == dossier.tenant_id,
+                RiskItem.dossier_id == dossier.id,
+            )
+        )
+        if risk is None:
+            raise ReportWorkflowError("El riesgo seleccionado dejó de estar disponible.")
+        evidence_ids = list(
+            db.session.scalars(
+                select(RiskEvidence.evidence_id).where(
+                    RiskEvidence.tenant_id == dossier.tenant_id,
+                    RiskEvidence.risk_id == risk.id,
+                )
+            )
+        )
+        actor_ids = list(
+            db.session.scalars(
+                select(RiskActor.actor_id).where(
+                    RiskActor.tenant_id == dossier.tenant_id,
+                    RiskActor.risk_id == risk.id,
+                )
+            )
+        )
+        risk_payload = {
+            "id": str(risk.id),
+            "title": risk.title,
+            "description": risk.description,
+            "category": risk.category,
+            "status": risk.status,
+            "likelihood": risk.likelihood,
+            "impact": risk.impact,
+            "velocity": risk.velocity,
+            "exposure": risk.exposure,
+            "uncertainty": risk.uncertainty,
+            "controllability": risk.controllability,
+            "confidence": risk.confidence,
+            "overall_score": risk.overall_score,
+            "mitigation": risk.mitigation,
+            "due_date": risk.due_date.isoformat() if risk.due_date else None,
+            "version": risk.version,
+            "actors": _linked_actor_payload(tenant_id=dossier.tenant_id, actor_ids=actor_ids),
+            "evidence_ids": _permitted_evidence_ids(evidence_ids, allowed_evidence_ids),
+            "linked_evidence_count": len(set(evidence_ids)),
+        }
+
+    if meeting_id := options.get("meeting_id"):
+        meeting = db.session.scalar(
+            select(Meeting).where(
+                Meeting.id == uuid.UUID(str(meeting_id)),
+                Meeting.tenant_id == dossier.tenant_id,
+                Meeting.dossier_id == dossier.id,
+            )
+        )
+        if meeting is None:
+            raise ReportWorkflowError("La reunión seleccionada dejó de estar disponible.")
+        evidence_ids = list(
+            db.session.scalars(
+                select(MeetingEvidence.evidence_id).where(
+                    MeetingEvidence.tenant_id == dossier.tenant_id,
+                    MeetingEvidence.meeting_id == meeting.id,
+                )
+            )
+        )
+        actor_ids = list(
+            db.session.scalars(
+                select(MeetingActor.actor_id).where(
+                    MeetingActor.tenant_id == dossier.tenant_id,
+                    MeetingActor.meeting_id == meeting.id,
+                )
+            )
+        )
+        meeting_payload = {
+            "id": str(meeting.id),
+            "title": meeting.title,
+            "status": meeting.status,
+            "scheduled_at": (meeting.scheduled_at.isoformat() if meeting.scheduled_at else None),
+            "objective": meeting.objective,
+            "notes": meeting.notes,
+            "content": meeting.content,
+            "version": meeting.version,
+            "actors": _linked_actor_payload(tenant_id=dossier.tenant_id, actor_ids=actor_ids),
+            "evidence_ids": _permitted_evidence_ids(evidence_ids, allowed_evidence_ids),
+            "linked_evidence_count": len(set(evidence_ids)),
+        }
+
+    return opportunity_payload, risk_payload, meeting_payload
+
+
 def _snapshot(
     dossier: StrategicDossier, template: ReportTemplate, options: dict[str, Any]
 ) -> tuple[dict[str, Any], list[Evidence]]:
@@ -419,6 +768,31 @@ def _snapshot(
     living_summary = db.session.scalar(
         select(LivingSummary).where(LivingSummary.dossier_id == dossier.id)
     )
+    allowed_evidence_ids = {item.id for item in evidence}
+    if template.key == "actors":
+        actors, relationships, actor_context_meta = _actor_snapshot(
+            dossier,
+            options,
+            allowed_evidence_ids=allowed_evidence_ids,
+        )
+    else:
+        actors, relationships = [], []
+        actor_context_meta = {
+            "actor_limit": REPORT_SNAPSHOT_ACTOR_LIMIT,
+            "actor_count_included": 0,
+            "actors_truncated": False,
+            "relationship_limit": REPORT_SNAPSHOT_RELATIONSHIP_LIMIT,
+            "relationship_count_included": 0,
+            "relationships_truncated": False,
+            "requested_actor_ids": [],
+            "requested_relationship_scope": None,
+            "relationship_selection": "not_applicable",
+        }
+    opportunity, risk, meeting = _selected_resource_snapshot(
+        dossier,
+        options,
+        allowed_evidence_ids=allowed_evidence_ids,
+    )
     payload = {
         "schema": "oracle-report-snapshot-v1",
         "captured_at": datetime.now(UTC).isoformat(),
@@ -452,6 +826,12 @@ def _snapshot(
             for item in hypotheses
         ],
         "living_summary": living_summary.summary if living_summary else {},
+        "actors": actors,
+        "relationships": relationships,
+        "opportunity": opportunity,
+        "risk": risk,
+        "meeting": meeting,
+        "entity_context_meta": actor_context_meta,
         "procurement_items": [
             {
                 "id": str(item.id),
@@ -565,6 +945,12 @@ def _frozen_report_context(report: Report, max_tokens: int) -> BuiltContext:
         living_summary=dict(source.get("living_summary", {})),
         evidence=tuple(frozen),
         max_tokens=max_tokens,
+        actors=list(source.get("actors", [])),
+        relationships=list(source.get("relationships", [])),
+        opportunity=source.get("opportunity"),
+        risk=source.get("risk"),
+        meeting=source.get("meeting"),
+        entity_context_meta=dict(source.get("entity_context_meta", {})),
         procurement_items=list(source.get("procurement_items", [])),
     )
 

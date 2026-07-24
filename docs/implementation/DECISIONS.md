@@ -1278,3 +1278,22 @@ deberá versionarse un flujo de copia/materialización separado.
   contaminar importes, ganadores ni listas nominales. No hay migración, backfill, endpoint inverso
   ni reparseo histórico; los registros ya guardados permanecen inalterados y el campo no sustenta
   precisión/recall ni promoción automática.
+
+## D-076 — Los IDs de plantilla se resuelven dentro del snapshot inmutable
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-24
+- **Contexto:** `actor_ids`, `opportunity_id`, `risk_id` y `meeting_id` se validaban contra el
+  expediente, pero el snapshot descartaba las entidades antes de generar. El modelo recibía
+  evidencia suelta y contratos que exigían mapas, roles o recursos específicos inexistentes en su
+  contexto.
+- **Decisión:** cada plantilla congela una proyección mínima del recurso declarado y sus enlaces
+  de evidencia permitidos. `actors` incluye hasta 100 actores y 200 relaciones cuyos extremos
+  estén incluidos; declara límites, recortes y el alcance solicitado. Oportunidad, riesgo y reunión
+  conservan sus campos de negocio, actores asociados y evidencia. El contexto IA solo consume esa
+  proyección congelada y nunca relee entidades vivas durante la generación.
+- **Consecuencias:** el hash del snapshot protege también actores y recursos seleccionados; los
+  informes históricos permanecen inmutables y un reintento crea un hijo con snapshot nuevo. Una
+  entidad sin evidencia vinculada sigue siendo dato operativo no corroborado. No se exponen
+  aliases, identificadores personales, metadata libre ni notas de actor, y no se necesita migración
+  ni cambio de contrato HTTP.

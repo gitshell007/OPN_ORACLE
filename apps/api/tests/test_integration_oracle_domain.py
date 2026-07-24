@@ -74,9 +74,11 @@ from opn_oracle.oracle.entity_dossier_report import (
 )
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.links import (
+    DossierActorEvidence,
     DossierCollaborator,
     EvidenceDossier,
     OpportunityEvidence,
+    RelationshipEvidence,
     ReportEvidence,
 )
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Report, StrategicDossier
@@ -3364,6 +3366,241 @@ def test_tender_report_context_cites_pinned_procurement_evidence(
         built = _frozen_report_context(report, max_tokens=4000)
         assert str(pinned.evidence_id) in built.manifest["evidence_ids"]
         assert built.payload["procurement_items"][0]["evidence_id"] == str(pinned.evidence_id)
+
+
+def test_report_snapshots_resolve_declared_entities_from_http(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Snapshots de entidades")
+    dossier_id = dossier["id"]
+    csrf = _csrf(client)
+
+    def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        response = client.post(
+            path,
+            json=payload,
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 201, response.get_json()
+        return response.get_json()
+
+    source = post(
+        "/api/v1/actors",
+        {"canonical_name": "Actor origen trazable", "actor_type": "organization"},
+    )
+    target = post(
+        "/api/v1/actors",
+        {"canonical_name": "Actor destino trazable", "actor_type": "person"},
+    )
+    source_link = post(
+        f"/api/v1/dossiers/{dossier_id}/actors",
+        {
+            "actor_id": source["id"],
+            "roles": ["promotor"],
+            "influence": 80,
+            "relevance_to_dossier": 90,
+        },
+    )
+    post(
+        f"/api/v1/dossiers/{dossier_id}/actors",
+        {
+            "actor_id": target["id"],
+            "roles": ["decisor"],
+            "influence": 70,
+            "relevance_to_dossier": 85,
+        },
+    )
+    relationship = post(
+        "/api/v1/relationships",
+        {
+            "from_actor_id": source["id"],
+            "to_actor_id": target["id"],
+            "dossier_id": dossier_id,
+            "relationship_type": "alliance",
+            "strength": 65,
+            "confidence": 75,
+        },
+    )
+    opportunity = post(
+        f"/api/v1/dossiers/{dossier_id}/opportunities",
+        {
+            "title": "Oportunidad congelada",
+            "description": "Entrada específica para el informe.",
+            "strategic_fit": 82,
+            "deadline": "2026-10-01",
+        },
+    )
+    risk = post(
+        f"/api/v1/dossiers/{dossier_id}/risks",
+        {
+            "title": "Riesgo congelado",
+            "description": "Riesgo específico para el informe.",
+            "likelihood": 55,
+            "impact": 77,
+        },
+    )
+    meeting = post(
+        f"/api/v1/dossiers/{dossier_id}/meetings",
+        {
+            "title": "Reunión congelada",
+            "objective": "Preparar una decisión trazable.",
+            "scheduled_at": "2026-08-01T09:30:00+00:00",
+            "actor_ids": [source["id"], target["id"]],
+        },
+    )
+
+    evidence_id = uuid.uuid4()
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        evidence = Evidence(
+            id=evidence_id,
+            tenant_id=ids["tenant_a"],
+            source_kind="entity_intel",
+            extract="La relación entre los actores consta en el expediente.",
+            locator={"section": "actor-map"},
+            checksum=hashlib.sha256(b"actor-map-evidence").digest(),
+            classification="internal",
+            provenance={"source_kind": "entity_intel"},
+        )
+        db.session.add(evidence)
+        db.session.flush()
+        db.session.add(
+            EvidenceDossier(
+                tenant_id=ids["tenant_a"],
+                evidence_id=evidence_id,
+                dossier_id=uuid.UUID(dossier_id),
+            )
+        )
+        db.session.add(
+            DossierActorEvidence(
+                tenant_id=ids["tenant_a"],
+                dossier_actor_id=uuid.UUID(source_link["id"]),
+                evidence_id=evidence_id,
+            )
+        )
+        db.session.add(
+            RelationshipEvidence(
+                tenant_id=ids["tenant_a"],
+                relationship_id=uuid.UUID(relationship["id"]),
+                evidence_id=evidence_id,
+            )
+        )
+        db.session.commit()
+
+    for resource, resource_id in (
+        ("opportunities", opportunity["id"]),
+        ("risks", risk["id"]),
+        ("meetings", meeting["id"]),
+    ):
+        linked = client.put(
+            f"/api/v1/{resource}/{resource_id}/evidence/{evidence_id}",
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert linked.status_code == 200, linked.get_json()
+
+    monkeypatch.setattr("opn_oracle.reporting.service.publish_job", lambda job: None)
+
+    def generate(template_key: str, options: dict[str, Any]) -> Report:
+        response = client.post(
+            f"/api/v1/dossiers/{dossier_id}/reports",
+            json={
+                "template_key": template_key,
+                "options": {
+                    "formats": ["json"],
+                    "classification": "internal",
+                    **options,
+                },
+            },
+            headers={
+                "X-CSRF-Token": csrf,
+                "Idempotency-Key": f"entity-snapshot-{template_key}-{uuid.uuid4()}",
+            },
+        )
+        assert response.status_code == 202, response.get_json()
+        report_id = uuid.UUID(response.get_json()["report"]["id"])
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+        ):
+            report = db.session.get(Report, report_id)
+            assert report is not None
+            db.session.expunge(report)
+            return report
+
+    actors_report = generate(
+        "actors",
+        {
+            "actor_ids": [source["id"], target["id"]],
+            "relationship_scope": "relaciones relevantes para la decisión",
+        },
+    )
+    opportunity_report = generate("opportunity", {"opportunity_id": opportunity["id"]})
+    risk_report = generate("risk", {"risk_id": risk["id"]})
+    meeting_report = generate("meeting_briefing", {"meeting_id": meeting["id"]})
+    tender_report = generate("tender", {"opportunity_id": opportunity["id"]})
+
+    actor_snapshot = actors_report.source_snapshot
+    assert [item["canonical_name"] for item in actor_snapshot["actors"]] == [
+        "Actor origen trazable",
+        "Actor destino trazable",
+    ]
+    assert actor_snapshot["actors"][0]["dossier_actor_id"] == source_link["id"]
+    assert actor_snapshot["actors"][0]["roles"] == ["promotor"]
+    assert actor_snapshot["actors"][0]["evidence_ids"] == [str(evidence_id)]
+    assert actor_snapshot["actors"][0]["linked_evidence_count"] == 1
+    assert actor_snapshot["relationships"] == [
+        {
+            "id": relationship["id"],
+            "from_actor_id": source["id"],
+            "from_actor_name": "Actor origen trazable",
+            "to_actor_id": target["id"],
+            "to_actor_name": "Actor destino trazable",
+            "relationship_type": "alliance",
+            "strength": 65,
+            "direction": "directed",
+            "confidence": 75,
+            "valid_from": None,
+            "valid_to": None,
+            "version": 1,
+            "evidence_ids": [str(evidence_id)],
+            "linked_evidence_count": 1,
+        }
+    ]
+    assert (
+        actor_snapshot["entity_context_meta"]["requested_relationship_scope"]
+        == "relaciones relevantes para la decisión"
+    )
+    assert actor_snapshot["entity_context_meta"]["actors_truncated"] is False
+
+    assert opportunity_report.source_snapshot["opportunity"]["id"] == opportunity["id"]
+    assert opportunity_report.source_snapshot["opportunity"]["title"] == "Oportunidad congelada"
+    assert opportunity_report.source_snapshot["opportunity"]["evidence_ids"] == [str(evidence_id)]
+    assert tender_report.source_snapshot["opportunity"]["id"] == opportunity["id"]
+    assert risk_report.source_snapshot["risk"]["id"] == risk["id"]
+    assert risk_report.source_snapshot["risk"]["impact"] == 77
+    assert risk_report.source_snapshot["risk"]["evidence_ids"] == [str(evidence_id)]
+    assert meeting_report.source_snapshot["meeting"]["id"] == meeting["id"]
+    assert meeting_report.source_snapshot["meeting"]["evidence_ids"] == [str(evidence_id)]
+    assert {
+        item["canonical_name"] for item in meeting_report.source_snapshot["meeting"]["actors"]
+    } == {"Actor origen trazable", "Actor destino trazable"}
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        persisted = db.session.get(Report, actors_report.id)
+        assert persisted is not None
+        built = _frozen_report_context(persisted, max_tokens=8000)
+        assert built.payload["actors"] == actor_snapshot["actors"]
+        assert built.payload["relationships"] == actor_snapshot["relationships"]
+        assert built.payload["entity_context_meta"] == actor_snapshot["entity_context_meta"]
+        assert str(evidence_id) in built.payload["allowed_evidence_ids"]
 
 
 def test_meeting_completion_creates_linked_decisions_and_tasks_idempotently(
