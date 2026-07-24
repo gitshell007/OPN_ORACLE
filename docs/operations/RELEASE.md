@@ -8,6 +8,10 @@ Promover un commit validado a imágenes inmutables y activar producción con apr
 
 - CI verde del workflow `CI` para el SHA exacto que se va a publicar; `release.yml` falla cerrado
   si no existe esa ejecución `success`. Los checks locales no sustituyen este gate.
+- El gate npm bloquea vulnerabilidades altas o críticas en dependencias enviadas a producción
+  (`npm audit --omit=dev`). El mismo job imprime además la auditoría completa del árbol de
+  desarrollo como diagnóstico no bloqueante; un aviso allí debe revisarse aunque no impida por sí
+  solo la release.
 - Backup pre-release local y restore aislado válidos.
 - Preparar `/opt/opn-oracle/releases/<release>` desde el commit validado, con
   `RELEASE_SHA256SUMS`, y ejecutar `sudo oracle-control update <release>`.

@@ -1319,3 +1319,30 @@ deberá versionarse un flujo de copia/materialización separado.
   nativas suficientes (bookworm: Pango 1.50 ≥ 1.44 requerida, `libharfbuzz-subset0` presente) y
   WeasyPrint 69 exige Python ≥ 3.10 sobre el 3.11 de la imagen. Queda pendiente el smoke de PDF en
   el host tras desplegar.
+
+## D-078 — El gate npm bloquea el árbol enviado y mantiene visible el toolchain
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-25
+- **Contexto:** [`GHSA-mh99-v99m-4gvg`](https://github.com/advisories/GHSA-mh99-v99m-4gvg)
+  declara un DoS por consumo de memoria en `brace-expansion <=5.0.7`, corregido únicamente en
+  `5.0.8`. Las 11 vulnerabilidades altas del lock son una sola cadena transitiva de `eslint`,
+  `eslint-config-next` y `openapi-typescript`; `npm audit --audit-level=high --omit=dev` devuelve
+  cero vulnerabilidades. Un override global a `5.0.8` rompe ESLint porque sus consumidores
+  requieren mayores anteriores, y ni ESLint 10 ni los plugins más recientes forman hoy un árbol
+  completamente corregido.
+- **Decisión:** el paso npm imprime primero la auditoría completa como diagnóstico informativo y
+  después falla cerrado con nivel alto sobre las dependencias de runtime (`--omit=dev`). El
+  workflow usa ese único punto de política y elimina la invocación completa duplicada que fallaba
+  antes de alcanzarlo. Se fijan `next=16.2.11` y `eslint-config-next=16.2.10`, las versiones ya
+  resueltas en el lock, para que un manifiesto flotante no cambie el árbol al regenerarlo.
+- **Alternativas:** se descarta una exención por advisory y caducidad porque obligaría a inventar
+  un mecanismo de excepciones para una cadena no enviada; se descarta separar todo el toolchain
+  porque amplía mucho el cambio sin reducir la exposición productiva medida. También se descartan
+  bajar el umbral, ocultar el aviso, el override incompatible y `npm audit fix --force`.
+- **Consecuencias:** una vulnerabilidad alta o crítica incluida en la aplicación continúa
+  bloqueando CI y release. Las vulnerabilidades de tooling permanecen completas y visibles en el
+  log para seguimiento, pero no impiden publicar un artefacto cuyo árbol productivo está limpio.
+  La siguiente revisión debe intentar volver a un único gate de árbol completo cuando todos los
+  consumidores publiquen rangos compatibles con `brace-expansion >=5.0.8`; no existe una exención
+  silenciosa ni una fecha cuya expiración pueda dejar el CI indeterminadamente roto.

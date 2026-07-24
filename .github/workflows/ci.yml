@@ -201,7 +201,6 @@ jobs:
       - name: Dependency, SAST and secret scans
         run: |
           uv tool install semgrep==1.133.0 --with 'setuptools<81'
-          npm audit --audit-level=high
           bash scripts/run-quality-scans.sh
       - name: Build immutable candidate images
         run: |

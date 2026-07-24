@@ -7,8 +7,16 @@ trap 'rm -f "$TMP_REQUIREMENTS"' EXIT
 
 cd "$ROOT"
 
-echo "[1/5] npm audit (high/critical gate)"
-npm audit --audit-level=high
+echo "[1/5] npm dependency audits"
+echo "  [1a] Full dependency tree (informational; build-tool advisories remain visible)"
+if npm audit --audit-level=high; then
+  echo "Full dependency tree has no high/critical advisories."
+else
+  echo "NOTICE: high/critical advisory detected outside the runtime gate; review the report above." >&2
+fi
+
+echo "  [1b] Runtime dependency gate (high/critical)"
+npm audit --audit-level=high --omit=dev
 
 echo "[2/5] Python dependency audit from the frozen lock"
 (

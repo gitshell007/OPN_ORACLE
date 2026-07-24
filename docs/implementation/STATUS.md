@@ -1,8 +1,28 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-24
+Actualizado: 2026-07-25
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Prompt 90 · gate npm alineado con el artefacto enviado
+
+- `GHSA-mh99-v99m-4gvg` afecta a `brace-expansion <=5.0.7` y solo dispone de corrección en
+  `5.0.8`. Las 11 vulnerabilidades altas del lock llegan por `eslint`, `eslint-config-next` y
+  `openapi-typescript`, todas dependencias de desarrollo; `npm audit --audit-level=high
+  --omit=dev` devuelve cero vulnerabilidades.
+- El paso `[1/5]` conserva la auditoría completa y su salida como diagnóstico visible, pero el
+  bloqueo alto/crítico se aplica al árbol de runtime. El workflow deja de ejecutar antes una
+  auditoría completa duplicada que impedía alcanzar esa política.
+- `next` queda fijado a `16.2.11` y `eslint-config-next` a `16.2.10`, exactamente las versiones ya
+  resueltas por el lock al tomar la decisión. No se introduce override de `brace-expansion`, no se
+  baja el umbral y no se oculta ni exonera el aviso.
+- Verificación local: `npm ci`, ESLint (cero errores y el aviso conocido de TanStack), TypeScript,
+  41 ficheros/220 pruebas Vitest, cliente OpenAPI y build Next correctos. El script completo termina
+  en verde: runtime npm y `pip-audit` limpios, Semgrep 318 ficheros/0 hallazgos, patrones de secretos
+  sin coincidencias y Trivy omitido localmente por no estar instalado; CI conserva el escaneo
+  obligatorio de ambas imágenes.
+- Sin cambios de runtime Python, API, esquema, variables ni Signal. D-078 documenta el criterio y
+  las alternativas descartadas.
 
 ## Informes con contexto de entidades congelado
 
