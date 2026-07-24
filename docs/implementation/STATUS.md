@@ -3690,4 +3690,16 @@ inverso, el versionado, la cobertura de participantes y un backfill explícitame
 Validación: 80 pruebas de contratación, Ruff check, Ruff format-check y mypy de 121 módulos
 correctos. La mutación cubre entero fraccional, negativo, booleano y texto inválido: todos quedan
 `null`; dos entradas del mismo lote con valor 4 conservan `[4, 4]` y no crean suma de colección.
-No hay migración, variable, Signal adicional ni despliegue Oracle todavía.
+No hay migración ni variable nueva para este campo. Se desplegó después en el release
+`20260724T105201Z-oracle-2955afa`, sin backfill de adjudicaciones.
+
+## 2026-07-24 · Release de integración Signal/Oracle
+
+El release inmutable `20260724T105201Z-oracle-2955afa` se activó desde `master` tras backup lógico
+y restore aislado válidos. El controlador ejecutó la migración de release una vez y recreó API, web,
+worker y beat; no se ejecutó ninguna tarea de backfill PLACSP ni llamada `force=True`.
+
+Verificación posterior: punteros, `ORACLE_RELEASE` e imágenes de los seis servicios coherentes;
+liveness, readiness, login HTTPS, Celery ping, beat único y smoke público correctos. La evidencia
+del backup y restore queda bajo el backup local de producción; el recibo off-host sigue siendo
+recomendado, no gate estricto activo.
