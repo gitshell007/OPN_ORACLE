@@ -3673,3 +3673,21 @@ El protocolo de uso queda en el prompt 88. Validación: 48/48 pruebas específic
 Ruff format-check y mypy del helper correctos. La mutación usa un `sample_id` en el mapa de entrada
 y confirma que nunca aparece en la cola resultante. No hay Signal, runtime, migración ni variable
 nueva; el gate restante sigue siendo completar y adjudicar el gold humano.
+
+## 2026-07-24 · Contrato Signal de `ReceivedTenderQuantity` consumido sin agregación
+
+Signal desplegó en main el campo `received_tender_quantity` desde
+`TenderResult/ReceivedTenderQuantity` como entero nullable por adjudicación. El informe de Signal
+declara que puede repetirse por ganador del mismo lote, que no se suma, que no hay endpoint inverso
+ni reparseo histórico y que el backfill cache-only con `force=True` permanece detenido.
+
+Oracle añade el campo al snapshot de cada entrada de adjudicación PLACSP, acepta solo enteros no
+negativos o `null` y conserva la colección sin un total de ofertas. No lo muestra como lista de
+participantes ni lo introduce en el extracto narrativo/evidencia; los snapshots ya existentes no
+cambian. D-075 registra el invariante y `OPEN_QUESTIONS.md` conserva como pendientes el endpoint
+inverso, el versionado, la cobertura de participantes y un backfill explícitamente planificado.
+
+Validación: 80 pruebas de contratación, Ruff check, Ruff format-check y mypy de 121 módulos
+correctos. La mutación cubre entero fraccional, negativo, booleano y texto inválido: todos quedan
+`null`; dos entradas del mismo lote con valor 4 conservan `[4, 4]` y no crean suma de colección.
+No hay migración, variable, Signal adicional ni despliegue Oracle todavía.

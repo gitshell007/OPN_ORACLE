@@ -58,6 +58,7 @@ AWARD_SNAPSHOT_KEYS: tuple[str, ...] = (
     "cpv",
     "status",
     "award_date",
+    "received_tender_quantity",
     "region",
     "source_url",
     "documents",
@@ -134,6 +135,25 @@ def _numeric_or_none(value: Any) -> int | float | None:
     if parsed == parsed.to_integral_value():
         return int(parsed)
     return float(parsed)
+
+
+def _nonnegative_integer_or_none(value: Any) -> int | None:
+    """Keep Signal's per-lot offer count without coercing fractional values.
+
+    The field is contextual metadata, never a nominal participant list and never an
+    aggregate across award entries: Signal may repeat it for each winner in a lot.
+    """
+
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value >= 0 and value.is_integer() else None
+    text = str(value).strip()
+    if not text or not text.isdigit():
+        return None
+    return int(text)
 
 
 def _first_text(item: dict[str, Any], keys: tuple[str, ...]) -> str | None:
@@ -289,6 +309,10 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         )
         if amount is not None:
             snapshot["award_amount"] = amount
+        if "received_tender_quantity" in snapshot:
+            snapshot["received_tender_quantity"] = _nonnegative_integer_or_none(
+                snapshot["received_tender_quantity"]
+            )
         if "documents" in snapshot:
             snapshot["documents"] = _normalize_documents(snapshot.get("documents"))
         if "is_ute" in snapshot:

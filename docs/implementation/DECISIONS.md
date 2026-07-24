@@ -1261,3 +1261,20 @@ deberá versionarse un flujo de copia/materialización separado.
   como «sin novedades». Se reutilizan preferencias y canal de notificaciones existentes; no se
   crea otro scheduler ni se amplía el alcance fuera de `active`. Una búsqueda que supere 800
   resultados por ciclo falla de forma visible y no simula una cobertura completa.
+
+## D-075 — El recuento de ofertas es contexto por lote, nunca un agregado nominal
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-24
+- **Contexto:** Signal incorporó `received_tender_quantity` desde
+  `TenderResult/ReceivedTenderQuantity` como entero nullable en las adjudicaciones. El mismo valor
+  puede repetirse por cada ganador de un lote, y no hay versión/revisión utilizable en las 496
+  entradas sondeadas.
+- **Decisión:** Oracle conserva el campo opcional solo dentro de cada entrada de adjudicación
+  fijada. Acepta entero no negativo o `null`, lo rechaza si es fraccional/negativo y no lo agrega en
+  la colección, el informe ni el extractor de evidencias. El recuento no identifica participantes
+  ni permite concluir que una sociedad no se presentó.
+- **Consecuencias:** los snapshots futuros pueden mostrar el contexto comunicado por lote sin
+  contaminar importes, ganadores ni listas nominales. No hay migración, backfill, endpoint inverso
+  ni reparseo histórico; los registros ya guardados permanecen inalterados y el campo no sustenta
+  precisión/recall ni promoción automática.

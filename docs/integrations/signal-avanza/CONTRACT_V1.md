@@ -237,6 +237,12 @@ compuesta `(dossier_id, tenant_id)` y deduplica por `(tenant_id, dossier_id, kin
 Campos persistidos:
 
 - `kind`: `tender` o `award`.
+
+Para una entrada `award`, Signal puede incluir `received_tender_quantity` como entero no negativo
+o `null`. Es el recuento comunicado por `TenderResult` para el expediente+lote publicado; se puede
+repetir por cada adjudicatario del mismo lote y Oracle lo conserva solo en la entrada individual.
+Nunca se suma, no identifica licitadores ni permite inferir que una ausencia nominal equivale a no
+participación.
 - `folder_id`: identificador PLACSP.
 - `snapshot`: JSONB con los campos devueltos por Signal en el momento de fijar.
   - En licitaciones, contiene el item único devuelto por `registry/tenders/{folder_id}`.

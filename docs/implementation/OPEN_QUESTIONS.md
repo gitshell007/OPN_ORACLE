@@ -206,14 +206,13 @@
   reconciliable. Oracle no prometerá exhaustividad ni transformará «no localizado» en «no se
   presentó».
 - Pendiente Signal: contrato incremental de participantes por expediente/lote, con documento,
-  página/fragmento, rol y cobertura; `counterpart_kind` fiable para no inferir por el nombre si una
-  contraparte BORME es persona física o jurídica; y disponibilidad/cobertura real de
-  `ReceivedTenderQuantity`. El spike confirmó que el campo existe en origen y que deduplicarlo por
-  expediente+lote+revisión evitó sumar 14 ofertas ficticias en 124 resultados, pero el snapshot
-  Oracle actual lo descarta. INV-02 no ejecutó la concordancia por falta de consumer efímero y
-  detectó que Signal v1 no tiene scopes read-only aplicados a `/registry`, no transporta revisión
-  e indexa solo 643. Queda abrir `registry:read`, crear/revocar un consumer temporal y comparar las
-  48 unidades alojadas sin mezclar las 48 agregadas.
+  página/fragmento, rol y cobertura; y `counterpart_kind` fiable para no inferir por el nombre si
+  una contraparte BORME es persona física o jurídica. Signal ya expone
+  `ReceivedTenderQuantity` como entero nullable por adjudicación/lote; Oracle lo conserva sin
+  sumarlo. El consumer temporal autenticado se creó y revocó correctamente, pero no hay endpoint
+  inverso, no se ha reparseado histórico y el sondeo de 496 entradas no halló una revisión/versionado
+  aprovechable. Producción sigue con cero adjudicaciones pobladas hasta planificar un backfill
+  explícito `force=True` y cache-only.
 - Pendiente etiquetado BORME: INV-02 enumeró 95.711 artículos, sorteó 72 antes del detector y
   preparó 192 candidatos. La segmentación exhaustiva doble ciego y la adjudicación de 72
   aserciones challenge siguen en 0/72; ningún `counterpart_kind` puede promoverse por nombre o

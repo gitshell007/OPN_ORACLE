@@ -429,6 +429,7 @@ def test_procurement_award_snapshot_classifies_signal_documents_and_ute(
         "cpv": ["45233141"],
         "status": "Adjudicada",
         "award_date": "2026-07-16",
+        "received_tender_quantity": "3",
         "region": "Castilla-La Mancha",
         "source_url": "https://contrataciondelestado.es/award",
         "documents": [
@@ -455,6 +456,65 @@ def test_procurement_award_snapshot_classifies_signal_documents_and_ute(
         }
     ]
     assert snapshot["is_ute"] is True
+    assert snapshot["received_tender_quantity"] == 3
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (0, 0),
+        ("4", 4),
+        (4.0, 4),
+        (True, None),
+        (-1, None),
+        ("4.0", None),
+        ("four", None),
+    ],
+)
+def test_procurement_award_snapshot_keeps_received_tender_quantity_per_entry(
+    value: object, expected: int | None
+) -> None:
+    snapshot = procurement_items._snapshot(
+        "award",
+        {
+            "folder_id": "P_6_26",
+            "lot_id": "1",
+            "received_tender_quantity": value,
+        },
+        "P_6_26",
+    )
+
+    assert snapshot["received_tender_quantity"] == expected
+
+
+@pytest.mark.unit
+def test_procurement_award_collection_never_sums_received_tender_quantity() -> None:
+    snapshot = procurement_items._award_collection_snapshot(
+        {
+            "folder_id": "P_6_26",
+            "total": 2,
+            "items": [
+                {
+                    "folder_id": "P_6_26",
+                    "lot_id": "1",
+                    "winner": "Ganador A",
+                    "received_tender_quantity": 4,
+                },
+                {
+                    "folder_id": "P_6_26",
+                    "lot_id": "1",
+                    "winner": "Ganador B",
+                    "received_tender_quantity": 4,
+                },
+            ],
+        },
+        "P_6_26",
+    )
+
+    assert [entry["received_tender_quantity"] for entry in snapshot["entries"]] == [4, 4]
+    assert "received_tender_quantity" not in snapshot
 
 
 @pytest.mark.unit
