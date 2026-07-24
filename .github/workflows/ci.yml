@@ -85,6 +85,12 @@ jobs:
           enable-cache: true
       - working-directory: apps/api
         run: uv sync --frozen
+      - name: Native libs for WeasyPrint (report PDFs)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 \
+            libfontconfig1 fonts-dejavu-core
       - name: Provision isolated runtime roles
         run: sh infra/postgres/init/10-oracle-roles.sh
       - name: Static checks

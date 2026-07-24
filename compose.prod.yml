@@ -74,7 +74,7 @@ x-app-environment: &app-environment
   DOCUMENT_LOCAL_ROOT: /var/lib/oracle-storage
   DOCUMENT_SCANNER_MODE: noop
   DOCUMENT_ALLOW_OFFICIAL_UNSCANNED: ${DOCUMENT_ALLOW_OFFICIAL_UNSCANNED:-false}
-  REPORT_PDF_MODE: disabled
+  REPORT_PDF_MODE: weasyprint
   BACKUP_STORAGE_PATH: /var/backups/opn-oracle
   BACKUP_RETENTION_DAYS: "30"
 

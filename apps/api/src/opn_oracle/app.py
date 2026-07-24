@@ -56,7 +56,7 @@ from opn_oracle.oracle.procurement_search_watch_routes import bp as procurement_
 from opn_oracle.oracle.routes import bp as oracle_bp
 from opn_oracle.platform.backup_routes import bp as platform_backups_bp
 from opn_oracle.platform.routes import bp as platform_bp
-from opn_oracle.reporting.rendering import DisabledPDFRenderer
+from opn_oracle.reporting.rendering import DisabledPDFRenderer, WeasyPrintPDFRenderer
 from opn_oracle.reporting.routes import bp as reporting_bp
 from opn_oracle.tenants.admin_routes import bp as tenant_admin_bp
 
@@ -168,7 +168,11 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> APIFlask:
         app.extensions["email_sender_finalizer"] = weakref.finalize(app, graph_sender.close)
     else:
         app.extensions["email_sender"] = CaptureEmailSender()
-    app.extensions["pdf_renderer"] = DisabledPDFRenderer()
+    app.extensions["pdf_renderer"] = (
+        WeasyPrintPDFRenderer()
+        if app.config["REPORT_PDF_MODE"] == "weasyprint"
+        else DisabledPDFRenderer()
+    )
     register_error_handlers(app)
     app.register_blueprint(health_bp)
     app.register_blueprint(meta_bp)

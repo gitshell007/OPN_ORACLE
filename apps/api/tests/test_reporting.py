@@ -28,6 +28,7 @@ from opn_oracle.reporting.rendering import (
     DisabledPDFRenderer,
     RenderContext,
     ReportRenderError,
+    WeasyPrintPDFRenderer,
     render_report_html,
 )
 from opn_oracle.reporting.service import ReportWorkflowError, _validate_report_output
@@ -107,6 +108,64 @@ def test_report_registry_resolves_template_versions_without_freezing_legacy_outp
     _validate_report_output(output, template=v1, snapshot_ids=set())
     with pytest.raises(ReportWorkflowError, match="secciones requeridas"):
         _validate_report_output(output, template=v2, snapshot_ids=set())
+
+
+def test_paraphrased_headings_are_accepted_and_rewritten_to_the_template_canon() -> None:
+    """Regresión g1-r3 (Informe de actores · Coches de Bomberos, 2026-07-24).
+
+    El modelo devolvió los headings con mayúsculas/acentos distintos y la
+    igualdad exacta tiró el informe entero. La equivalencia normalizada debe
+    aceptarlos y reescribirlos al literal de la plantilla; una sección ausente
+    de verdad debe seguir fallando.
+    """
+
+    template = ReportTemplateRegistry().get("actors")
+    paraphrased = [
+        heading.upper().replace("INFERIDAS", "INFERÍDAS") for heading in template.sections
+    ]
+    output = ReportOutput.model_validate(
+        {
+            **_output(),
+            "sections": [
+                {
+                    "heading": heading,
+                    "paragraphs": [
+                        {
+                            "text": f"Lectura de {heading}.",
+                            "kind": "inference",
+                            "confidence": 50,
+                            "evidence_ids": [],
+                        }
+                    ],
+                }
+                for heading in paraphrased
+            ],
+        }
+    )
+
+    _validate_report_output(output, template=template, snapshot_ids=set())
+    assert [section.heading for section in output.sections] == list(template.sections)
+
+    truncated = ReportOutput.model_validate(
+        {
+            **_output(),
+            "sections": [
+                {
+                    "heading": template.sections[0],
+                    "paragraphs": [
+                        {
+                            "text": "Solo la primera sección.",
+                            "kind": "inference",
+                            "confidence": 50,
+                            "evidence_ids": [],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    with pytest.raises(ReportWorkflowError, match="secciones requeridas"):
+        _validate_report_output(truncated, template=template, snapshot_ids=set())
 
 
 def test_report_output_closure_fields_are_required_only_when_enabled() -> None:
@@ -386,6 +445,29 @@ def test_digest_next_run_is_timezone_and_dst_aware() -> None:
     assert after_dst.hour == 6
 
 
-def test_pdf_mode_fails_closed_in_configuration() -> None:
+def test_pdf_mode_accepts_weasyprint_and_fails_closed_for_unknown_renderers() -> None:
+    settings = Settings.load({"APP_ENV": "test", "REPORT_PDF_MODE": "weasyprint"})
+    assert settings.report_pdf_mode == "weasyprint"
     with pytest.raises(ConfigError):
-        Settings.load({"APP_ENV": "test", "REPORT_PDF_MODE": "weasyprint"})
+        Settings.load({"APP_ENV": "test", "REPORT_PDF_MODE": "chromium"})
+
+
+def test_weasyprint_renderer_emits_real_pdf_and_respects_size_limit() -> None:
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError) as exc:  # librerías nativas ausentes
+        pytest.skip(f"weasyprint no disponible en este entorno: {exc}")
+
+    context = RenderContext(
+        report_id=str(uuid.uuid4()),
+        version=1,
+        generated_on=datetime.now(UTC).date(),
+        confidentiality_label="Uso interno",
+        template_label="Informe de prueba",
+    )
+    rendered = render_report_html(_output(), context, max_bytes=500_000)
+    renderer = WeasyPrintPDFRenderer()
+    pdf = renderer.render(rendered, max_bytes=5_000_000)
+    assert pdf.startswith(b"%PDF-")
+    with pytest.raises(ReportRenderError, match="supera el límite"):
+        renderer.render(rendered, max_bytes=1_000)

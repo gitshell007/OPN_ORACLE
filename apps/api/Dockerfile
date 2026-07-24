@@ -19,7 +19,18 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     APP_ENV=production
 
-RUN groupadd --system --gid 10001 oracle \
+# pango/harfbuzz/fontconfig + fuentes: runtime nativo de WeasyPrint (PDF de informes).
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz0b \
+        libharfbuzz-subset0 \
+        libfontconfig1 \
+        fonts-dejavu-core \
+        fonts-liberation \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 oracle \
     && useradd --system --uid 10001 --gid oracle --home-dir /app oracle \
     && install --directory --owner=oracle --group=oracle --mode=0750 /var/lib/oracle-storage \
     && python -m pip uninstall --yes setuptools wheel \

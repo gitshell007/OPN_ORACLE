@@ -603,10 +603,8 @@ class Settings:
             raise ConfigError("DOCUMENT_STORAGE_BACKEND debe ser local o s3.")
         if self.document_scanner_mode not in {"noop", "clamav"}:
             raise ConfigError("DOCUMENT_SCANNER_MODE debe ser noop o clamav.")
-        if self.report_pdf_mode != "disabled":
-            raise ConfigError(
-                "REPORT_PDF_MODE solo admite disabled hasta aprobar un renderer aislado."
-            )
+        if self.report_pdf_mode not in {"disabled", "weasyprint"}:
+            raise ConfigError("REPORT_PDF_MODE debe ser disabled o weasyprint.")
         if not Path(self.backup_storage_path).is_absolute():
             raise ConfigError("BACKUP_STORAGE_PATH debe ser una ruta absoluta.")
         if self.document_scanner_mode == "clamav" and not self.document_clamav_host:

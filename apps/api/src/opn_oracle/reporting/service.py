@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import re
+import unicodedata
 import uuid
 from contextlib import suppress
 from datetime import UTC, date, datetime
@@ -16,7 +17,7 @@ from sqlalchemy import delete, func, select, text
 
 from opn_oracle.ai.context import BuiltContext, FrozenEvidence, build_frozen_context
 from opn_oracle.ai.models import AIArtifact
-from opn_oracle.ai.schemas import ReportOutput
+from opn_oracle.ai.schemas import ReportOutput, ReportSection
 from opn_oracle.ai.service import EvidenceReviewError, execute_agent
 from opn_oracle.documents.storage import ObjectStorage, object_key
 from opn_oracle.extensions import db
@@ -105,6 +106,12 @@ def _claim_evidence_ids(output: ReportOutput) -> set[uuid.UUID]:
     return values
 
 
+def _normalized_heading(value: str) -> str:
+    text = unicodedata.normalize("NFKD", value)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
 def _validate_report_output(
     output: ReportOutput,
     *,
@@ -112,8 +119,21 @@ def _validate_report_output(
     snapshot_ids: set[uuid.UUID],
     require_closure_fields: bool = False,
 ) -> None:
-    headings = [section.heading.strip() for section in output.sections]
-    missing = [heading for heading in template.sections if heading not in headings]
+    # Los modelos parafrasean mayúsculas, acentos o puntuación en los headings;
+    # exigir igualdad carácter a carácter tiraba informes completos por un
+    # "Mapa de Actores" vs "Mapa de actores". Se acepta el heading equivalente
+    # normalizado y se reescribe al literal de la plantilla para que el resto
+    # del sistema (render, exports, comparativas) siga viendo el canon.
+    sections_by_norm: dict[str, ReportSection] = {}
+    for section in output.sections:
+        sections_by_norm.setdefault(_normalized_heading(section.heading), section)
+    missing: list[str] = []
+    for heading in template.sections:
+        matched = sections_by_norm.get(_normalized_heading(heading))
+        if matched is None:
+            missing.append(heading)
+        else:
+            matched.heading = heading
     if missing:
         raise ReportWorkflowError(
             f"El informe no contiene las secciones requeridas: {', '.join(missing)}."
