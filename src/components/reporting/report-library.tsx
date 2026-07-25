@@ -346,8 +346,13 @@ function ReportGenerateWizard({
                 }
                 return (
                   <label key={key}>
-                    {fieldLabel(key)}
-                    {!isRequired && <span className="field-optional"> · opcional</span>}
+                    {/* Un solo hijo para el rótulo: el label es un grid y cada
+                        hijo ocupa una fila, así que el matiz «opcional» suelto
+                        caía debajo y descuadraba los campos entre columnas. */}
+                    <span>
+                      {fieldLabel(key)}
+                      {!isRequired && <em className="field-optional"> · opcional</em>}
+                    </span>
                     <input
                       type={dateField ? "date" : "text"}
                       required={isRequired}

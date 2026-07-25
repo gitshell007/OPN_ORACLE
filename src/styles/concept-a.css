@@ -3986,7 +3986,10 @@
 .report-review textarea { min-height: 38px; width: 100%; border: 1px solid #c6d2df; border-radius: 7px; padding: 7px 10px; color: var(--va-text); background: white; }
 .report-wizard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .report-wizard-grid label small { color: var(--va-muted); font-weight: 400; line-height: 1.45; }
-.report-wizard-grid .field-optional { color: var(--va-muted); font-weight: 400; }
+.report-wizard-grid .field-optional { color: var(--va-muted); font-weight: 400; font-style: normal; }
+/* Los campos se alinean por su fila de rótulo; sin altura común, una pista
+   larga en una columna desplazaba el campo de la otra. */
+.report-wizard-grid > label { align-content: start; }
 /* Catálogo elegible para los contratos que piden UUIDs: nadie se sabe un
    identificador de memoria. */
 .report-wizard-picker { grid-column: 1 / -1; border: 1px solid #c6d2df; border-radius: 7px; padding: 4px 10px 10px; }
@@ -5173,6 +5176,8 @@
   color: var(--va-text);
   font-size: 16px;
   font-variant-numeric: tabular-nums;
+  /* «Sin puntuar» se partía en dos líneas y parecía roto junto a las cifras. */
+  white-space: nowrap;
 }
 /* La puntuacion y su matiz son dos elementos seguidos sin separador: sin esto
    se leian pegados («69Provisional»). */
@@ -5857,17 +5862,24 @@
 }
 .dossier-nav-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  /* Medido en producción: las pestañas crecen (`flex-grow: 1`) hasta ocupar la
+     fila entera y envuelven dentro, así que al botón no le quedaba sitio y caía
+     debajo, encima del título de la página. Sin envoltura de fila cada uno se
+     queda en su sitio: las pestañas encogen y envuelven en su propio bloque. */
+  flex-wrap: nowrap;
 }
 .dossier-nav-row .dossier-tabs {
   flex: 1 1 auto;
-  /* Sin esto el min-width automático es el del contenido: con doce pestañas la
-     fila no puede encoger, así que «Mejorar con Oracle» se envolvía debajo y
-     quedaba encima del título de la página. Las pestañas ya hacen scroll. */
+  /* El min-width automático es el del contenido; con doce pestañas impediría
+     encoger. */
   min-width: 0;
+}
+.dossier-nav-row .vector-ai {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .dossier-wizard-dialog {
   width: min(960px, calc(100vw - 28px));
@@ -6074,8 +6086,11 @@
   }
   .dossier-nav-row {
     align-items: stretch;
+    /* En estrecho el botón sí baja a su propia fila y ocupa el ancho. */
+    flex-wrap: wrap;
   }
   .dossier-nav-row .vector-ai {
+    flex: 1 1 auto;
     width: 100%;
   }
   .wizard-summary,
