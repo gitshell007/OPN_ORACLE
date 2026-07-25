@@ -4,6 +4,30 @@ Actualizado: 2026-07-25
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 91 · selector asignable, 429 veraz y runtime web reproducible
+
+- `GET /api/v1/assignable-users` expone únicamente `id` y `display_name` de cuentas con usuario y
+  membership activos en el tenant de sesión. Usa `report.generate`, no rebaja permisos ni reutiliza
+  el directorio administrativo, y queda disponible para los roles estándar que generan informes o
+  asignan tareas.
+- El diálogo de informes reutiliza un selector común para `actor_ids` y `owner_user_ids`, con
+  búsqueda, casillas y fallback manual opcional si el catálogo no carga. OpenAPI y cliente
+  TypeScript están regenerados.
+- El transporte ya no convierte una cabecera `Retry-After` ausente en cero. El login diferencia el
+  límite de diez solicitudes por minuto del bloqueo temporal por credenciales fallidas y muestra
+  la cuenta atrás comunicada, incluido el cero explícito. Nginx no filtra esta cabecera.
+- Las trece dependencias runtime que seguían en `latest` están fijadas con `^` sobre las versiones
+  ya resueltas, sin mover ningún paquete, URL ni integridad del lock. El árbol runtime conserva
+  cero vulnerabilidades altas; las once del toolchain de desarrollo continúan visibles bajo D-078.
+- Sin migración, variables nuevas ni cambios en Signal. Las mutaciones verificadas invirtieron el
+  filtro de membership, anularon `toggleId`, convirtieron el fallback en error, reintrodujeron
+  `Number(null)`, invirtieron la clasificación 429 y eliminaron la propagación de `Retry-After`;
+  cada prueba correspondiente cayó y se restauró antes de los recorridos verdes.
+- Gates locales: Ruff check/format-check, mypy sobre 124 módulos, `uv lock --check` y backend
+  integrado 717/717 con cobertura 84,83 %; ESLint sin errores y con el warning TanStack conocido,
+  TypeScript, 233/233 Vitest, contrato OpenAPI sin deriva, build Next y Playwright 29 passed/7
+  skipped por perfil. `npm audit --omit=dev --audit-level=high` conserva cero vulnerabilidades.
+
 ## 2026-07-25 · Investigaciones empresariales trazables en Oracle
 
 - Implementado el agregado productivo `InvestigationRun` con pasos P0-P5, entidades candidatas,

@@ -1367,3 +1367,22 @@ deberá versionarse un flujo de copia/materialización separado.
   explícito: P2 y P5 pueden quedar bloqueados por revisión humana, y la identidad de licitadores no
   adjudicatarios sigue pendiente de un índice documental medido en Signal. La mutación de seguridad
   de alias que incluía personas en candidatos hizo caer el test HTTP/UI correspondiente.
+
+## D-080 — El catálogo asignable es mínimo y usa el permiso del flujo que lo consume
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-25
+- **Contexto:** el directorio `tenant-admin/members` exige administración de usuarios y expone
+  correo, estado y roles. Rebajar su permiso para alimentar selectores de informes o tareas
+  ampliaría datos y capacidades sin necesidad. A la vez, los UUID de responsables no son una
+  entrada utilizable para una persona.
+- **Decisión:** crear un catálogo separado, tenant-scoped, que solo devuelve identificador y nombre
+  visible de usuarios y memberships activos. Se protege con `report.generate`, permiso que ya
+  poseen todos los roles estándar capaces de generar informes y también los roles estándar que
+  asignan tareas. Los flujos futuros con matrices custom que necesiten asignar sin generar deberán
+  justificar un permiso de catálogo propio; no se abrirá el endpoint administrativo.
+- **Consecuencias:** un analista puede elegir responsables sin conocer UUID, correo ni roles, y un
+  tenant no puede enumerar personas de otro. El selector puede reutilizarse dentro de las
+  capacidades actuales sin migración de RBAC. El precio deliberado es que un rol custom con
+  `task.write` pero sin `report.generate` no accede todavía al catálogo; ese caso requiere una
+  decisión explícita de producto en vez de una autorización implícita por unión de permisos.
