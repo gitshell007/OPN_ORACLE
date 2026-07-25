@@ -14,6 +14,7 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1454,7 +1455,7 @@ export function EntityGraphExplorer({
     applyGraphLabelDensity(graphRef.current, labelDensity);
   }, [labelDensity]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const instance = graphRef.current;
     if (!instance) return;
     instance.batch(() => {
