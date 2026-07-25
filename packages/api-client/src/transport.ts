@@ -5,6 +5,7 @@ export type Problem = components["schemas"]["Problem"];
 export type MembershipSummary =
   components["schemas"]["MembershipSummaryResponse"];
 export type SessionIdentity = components["schemas"]["MeResponse"];
+export type AssignableUser = components["schemas"]["AssignableUserResponse"];
 
 export interface PlatformBackup {
   id: string;
@@ -328,6 +329,13 @@ const tenantAdmin = {
     request<components["schemas"]["RolesResponse"]>(
       `/api/v1/tenant-admin/members/${encodeURIComponent(id)}/roles`,
       { method: "PATCH", body: { roles } },
+    ),
+};
+
+const assignableUsers = {
+  list: () =>
+    request<components["schemas"]["AssignableUserListResponse"]>(
+      "/api/v1/assignable-users",
     ),
 };
 
@@ -2547,6 +2555,7 @@ const investigations = {
 export const api = {
   auth,
   tenantAdmin,
+  assignableUsers,
   platform,
   jobs,
   signalAvanza,

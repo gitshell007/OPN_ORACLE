@@ -1,6 +1,10 @@
 export type { components, operations, paths } from "./generated/schema";
 export { ApiError, api, isProblem } from "./transport";
-export type { MembershipSummary, SessionIdentity } from "./transport";
+export type {
+  AssignableUser,
+  MembershipSummary,
+  SessionIdentity,
+} from "./transport";
 export type {
   CreateSignalMonitorInput,
   SignalConnection,

@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   ApiError,
   api,
+  type AssignableUser,
   type BackendDossier,
   type EntityIntelReportJob,
   type OracleActor,
@@ -131,6 +132,65 @@ function toggleId(value: string | undefined, id: string): string {
   return next.join(",");
 }
 
+function IdCatalogPicker({
+  fieldKey,
+  label,
+  optional,
+  items,
+  value,
+  onChange,
+}: {
+  fieldKey: string;
+  label: string;
+  optional: boolean;
+  items: Array<{ id: string; label: string }>;
+  value: string | undefined;
+  onChange: (value: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const chosen = splitIds(value);
+  const needle = query.trim().toLocaleLowerCase("es");
+  const visible = needle
+    ? items.filter((item) =>
+        item.label.toLocaleLowerCase("es").includes(needle),
+      )
+    : items;
+
+  return (
+    <fieldset className="report-wizard-picker">
+      <legend>
+        {label}
+        {optional && <span> · opcional</span>}
+      </legend>
+      <label>
+        <span className="sr-only">Buscar en {label.toLocaleLowerCase("es")}</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar por nombre"
+        />
+      </label>
+      <div>
+        {visible.map((item) => (
+          <label key={item.id}>
+            <input
+              type="checkbox"
+              checked={chosen.includes(item.id)}
+              onChange={() => onChange(toggleId(value, item.id))}
+            />
+            <span>{item.label}</span>
+          </label>
+        ))}
+      </div>
+      {visible.length === 0 && (
+        <small>No hay coincidencias para esta búsqueda.</small>
+      )}
+      <input type="hidden" name={fieldKey} value={value ?? ""} readOnly />
+    </fieldset>
+  );
+}
+
 function normalizeOption(
   type: string,
   value: string,
@@ -173,6 +233,7 @@ function ReportGenerateWizard({
   // Los contratos de plantilla piden `actor_ids` como UUIDs: nadie se los sabe
   // de memoria, así que el campo se sirve como catálogo elegible.
   const [actors, setActors] = useState<OracleActor[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
 
   useEffect(() => {
     if (!open || actors.length) return;
@@ -189,6 +250,22 @@ function ReportGenerateWizard({
       cancelled = true;
     };
   }, [open, actors.length]);
+
+  useEffect(() => {
+    if (!open || assignableUsers.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await api.assignableUsers.list();
+        if (!cancelled) setAssignableUsers(result.items);
+      } catch {
+        // El catálogo es una ayuda: si falla, se conserva la entrada manual.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, assignableUsers.length]);
 
   const selected = templates.find((item) => item.key === templateKey) ?? templates[0];
   const contract = record(selected?.input_contract);
@@ -317,31 +394,39 @@ function ReportGenerateWizard({
                 const dateField = type.startsWith("date");
                 const isRequired = required.includes(key);
                 if (key === "actor_ids" && actors.length) {
-                  const chosen = splitIds(values[key]);
                   return (
-                    <fieldset className="report-wizard-picker" key={key}>
-                      <legend>
-                        {fieldLabel(key)}
-                        {!isRequired && <span> · opcional</span>}
-                      </legend>
-                      <div>
-                        {actors.map((actor) => (
-                          <label key={actor.id}>
-                            <input
-                              type="checkbox"
-                              checked={chosen.includes(actor.id)}
-                              onChange={() =>
-                                setValues((current) => ({
-                                  ...current,
-                                  [key]: toggleId(current[key], actor.id),
-                                }))
-                              }
-                            />
-                            <span>{actor.canonical_name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
+                    <IdCatalogPicker
+                      key={key}
+                      fieldKey={key}
+                      label={fieldLabel(key)}
+                      optional={!isRequired}
+                      items={actors.map((actor) => ({
+                        id: actor.id,
+                        label: actor.canonical_name ?? "Actor sin nombre",
+                      }))}
+                      value={values[key]}
+                      onChange={(value) =>
+                        setValues((current) => ({ ...current, [key]: value }))
+                      }
+                    />
+                  );
+                }
+                if (key === "owner_user_ids" && assignableUsers.length) {
+                  return (
+                    <IdCatalogPicker
+                      key={key}
+                      fieldKey={key}
+                      label={fieldLabel(key)}
+                      optional={!isRequired}
+                      items={assignableUsers.map((user) => ({
+                        id: user.id,
+                        label: user.display_name,
+                      }))}
+                      value={values[key]}
+                      onChange={(value) =>
+                        setValues((current) => ({ ...current, [key]: value }))
+                      }
+                    />
                   );
                 }
                 return (

@@ -60,6 +60,7 @@ from opn_oracle.platform.routes import bp as platform_bp
 from opn_oracle.reporting.rendering import DisabledPDFRenderer, WeasyPrintPDFRenderer
 from opn_oracle.reporting.routes import bp as reporting_bp
 from opn_oracle.tenants.admin_routes import bp as tenant_admin_bp
+from opn_oracle.tenants.routes import bp as tenant_catalogs_bp
 
 
 def _load_local_dotenv() -> None:
@@ -181,6 +182,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> APIFlask:
     app.register_blueprint(platform_bp)
     app.register_blueprint(platform_backups_bp)
     app.register_blueprint(tenant_admin_bp)
+    app.register_blueprint(tenant_catalogs_bp)
     app.register_blueprint(oracle_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(ai_bp)

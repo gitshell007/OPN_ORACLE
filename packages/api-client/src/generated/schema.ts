@@ -1540,6 +1540,84 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/assignable-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return only active identities needed by assignment controls.
+         * @description ``report.generate`` keeps this catalog available to every user who can
+         *     submit a report without exposing the administrative membership directory.
+         *     The standard task-author roles also own this permission, so the same
+         *     minimal catalog can be reused by task assignment controls.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssignableUserListResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/accept-invitation": {
         parameters: {
             query?: never;
@@ -27573,6 +27651,14 @@ export interface components {
             items: {
                 [key: string]: unknown;
             }[];
+        };
+        AssignableUserListResponse: {
+            items: components["schemas"]["AssignableUserResponse"][];
+        };
+        AssignableUserResponse: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
         };
         AuditListResponse: {
             items: components["schemas"]["AuditResponse"][];

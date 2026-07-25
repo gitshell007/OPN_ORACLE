@@ -736,6 +736,144 @@ def test_permission_revocation_is_effective_for_an_open_session(
         migrator.dispose()
 
 
+def test_assignable_users_are_minimal_active_tenant_scoped_and_authorized(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = auth_stack
+    test_ids = {
+        name: uuid.uuid4()
+        for name in (
+            "active_a",
+            "suspended_a",
+            "disabled_a",
+            "active_b",
+            "membership_active_a",
+            "membership_suspended_a",
+            "membership_disabled_a",
+            "membership_active_b",
+            "role_b",
+        )
+    }
+    migrator = create_engine(os.environ["TEST_DATABASE_URL"])
+    try:
+        with migrator.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO users "
+                    "(id,email,display_name,password_hash,status,platform_role,"
+                    "email_verified_at,created_at,updated_at) VALUES "
+                    "(:active_a,'assignable-a@example.test','Ana Asignable',NULL,'active',NULL,"
+                    "now(),now(),now()),"
+                    "(:suspended_a,'suspended-a@example.test','Sara Suspendida',NULL,'active',NULL,"
+                    "now(),now(),now()),"
+                    "(:disabled_a,'disabled-a@example.test','Diana Deshabilitada',NULL,'disabled',"
+                    "NULL,now(),now(),now()),"
+                    "(:active_b,'assignable-b@example.test','Bruno Otro Tenant',NULL,'active',NULL,"
+                    "now(),now(),now())"
+                ),
+                test_ids,
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO tenant_memberships "
+                    "(id,tenant_id,user_id,status,accepted_at,settings,"
+                    "created_at,updated_at) VALUES "
+                    "(:membership_active_a,:tenant,:active_a,'active',now(),'{}',now(),now()),"
+                    "(:membership_suspended_a,:tenant,:suspended_a,'suspended',now(),'{}',now(),now()),"
+                    "(:membership_disabled_a,:tenant,:disabled_a,'active',now(),'{}',now(),now()),"
+                    "(:membership_active_b,:tenant_b,:active_b,'active',now(),'{}',now(),now())"
+                ),
+                test_ids | {"tenant": ids["tenant"], "tenant_b": ids["tenant_b"]},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO roles "
+                    "(id,tenant_id,key,name,description,is_system,created_at,updated_at) VALUES "
+                    "(:role_b,:tenant_b,'report_catalog_test','Generador B',"
+                    "'Prueba',false,now(),now())"
+                ),
+                test_ids | {"tenant_b": ids["tenant_b"]},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO role_permissions (tenant_id,role_id,permission_key) "
+                    "VALUES (:tenant_b,:role_b,'report.generate')"
+                ),
+                test_ids | {"tenant_b": ids["tenant_b"]},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO membership_roles (tenant_id,membership_id,role_id) "
+                    "VALUES (:tenant_b,:membership_b,:role_b)"
+                ),
+                test_ids | {"tenant_b": ids["tenant_b"], "membership_b": ids["membership_b"]},
+            )
+
+        tenant_a_client = app.test_client()
+        assert (
+            _login(tenant_a_client, "owner@example.test", password, ids["tenant"]).status_code
+            == 200
+        )
+        tenant_a = tenant_a_client.get("/api/v1/assignable-users")
+        assert tenant_a.status_code == 200
+        tenant_a_items = tenant_a.get_json()["items"]
+        assert all(set(item) == {"id", "display_name"} for item in tenant_a_items)
+        tenant_a_user_ids = {item["id"] for item in tenant_a_items}
+        assert str(test_ids["active_a"]) in tenant_a_user_ids
+        assert str(test_ids["suspended_a"]) not in tenant_a_user_ids
+        assert str(test_ids["disabled_a"]) not in tenant_a_user_ids
+        assert str(test_ids["active_b"]) not in tenant_a_user_ids
+
+        tenant_b_client = app.test_client()
+        assert (
+            _login(tenant_b_client, "owner@example.test", password, ids["tenant_b"]).status_code
+            == 200
+        )
+        tenant_b = tenant_b_client.get("/api/v1/assignable-users")
+        assert tenant_b.status_code == 200
+        tenant_b_user_ids = {item["id"] for item in tenant_b.get_json()["items"]}
+        assert str(test_ids["active_b"]) in tenant_b_user_ids
+        assert str(test_ids["active_a"]) not in tenant_b_user_ids
+
+        with migrator.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM role_permissions "
+                    "WHERE tenant_id=:tenant_b AND role_id=:role_b "
+                    "AND permission_key='report.generate'"
+                ),
+                test_ids | {"tenant_b": ids["tenant_b"]},
+            )
+        denied = tenant_b_client.get("/api/v1/assignable-users")
+        assert denied.status_code == 403
+        assert denied.get_json()["code"] == "permission_denied"
+    finally:
+        with migrator.begin() as connection:
+            connection.execute(
+                text("DELETE FROM membership_roles WHERE tenant_id=:tenant_b AND role_id=:role_b"),
+                test_ids | {"tenant_b": ids["tenant_b"]},
+            )
+            connection.execute(
+                text("DELETE FROM roles WHERE id=:role_b"),
+                test_ids,
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM tenant_memberships WHERE id IN "
+                    "(:membership_active_a,:membership_suspended_a,"
+                    ":membership_disabled_a,:membership_active_b)"
+                ),
+                test_ids,
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM users WHERE id IN (:active_a,:suspended_a,:disabled_a,:active_b)"
+                ),
+                test_ids,
+            )
+        migrator.dispose()
+
+
 def test_invitation_acceptance_is_one_time_and_enables_login(
     auth_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

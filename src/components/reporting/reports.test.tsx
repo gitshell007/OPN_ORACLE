@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   exportGet: vi.fn(),
   pendingEntityReports: vi.fn(),
   actorsList: vi.fn(),
+  assignableUsersList: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -48,6 +49,7 @@ vi.mock("@oracle/api-client", () => {
       exports: { create: mocks.exportCreate, get: mocks.exportGet },
       entityIntel: { pendingReports: mocks.pendingEntityReports },
       actors: { list: mocks.actorsList },
+      assignableUsers: { list: mocks.assignableUsersList },
     },
   };
 });
@@ -196,6 +198,18 @@ describe("reports Vector", () => {
         { id: "actor-2", canonical_name: "Iberdrola SA" },
       ],
     });
+    mocks.assignableUsersList.mockResolvedValue({
+      items: [
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          display_name: "Ana Responsable",
+        },
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          display_name: "Bruno Analista",
+        },
+      ],
+    });
   });
   afterEach(cleanup);
 
@@ -265,6 +279,77 @@ describe("reports Vector", () => {
         expect.stringContaining("report-"),
       ),
     );
+  });
+
+  it("lista responsables, permite buscarlos y envía sus identificadores", async () => {
+    mocks.templates.mockResolvedValue({
+      items: [
+        {
+          ...template,
+          key: "action_plan",
+          input_contract: {
+            required: ["dossier_id"],
+            properties: { owner_user_ids: "uuid[]?" },
+          },
+        },
+      ],
+      capabilities: { pdf: false },
+    });
+    render(<ReportLibrary routeBase="/app" />);
+    expect(await screen.findByText("Aún no hay informes")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Generar primer informe" }));
+    fireEvent.change(
+      await screen.findByRole("searchbox", {
+        name: "Buscar en ids de responsables",
+      }),
+      { target: { value: "Responsable" } },
+    );
+    expect(screen.queryByRole("checkbox", { name: "Bruno Analista" })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Ana Responsable" }),
+    );
+    fireEvent.change(screen.getByLabelText("Expediente"), {
+      target: { value: baseReport.dossier_id },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generar informe" }));
+    await waitFor(() =>
+      expect(mocks.generate).toHaveBeenCalledWith(
+        baseReport.dossier_id,
+        expect.objectContaining({
+          template_key: "action_plan",
+          options: expect.objectContaining({
+            owner_user_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+          }),
+        }),
+        expect.stringContaining("report-"),
+      ),
+    );
+  });
+
+  it("conserva el diálogo y la entrada opcional si falla el catálogo de responsables", async () => {
+    mocks.assignableUsersList.mockRejectedValue(new Error("sin catálogo"));
+    mocks.templates.mockResolvedValue({
+      items: [
+        {
+          ...template,
+          key: "action_plan",
+          input_contract: {
+            required: ["dossier_id"],
+            properties: { owner_user_ids: "uuid[]?" },
+          },
+        },
+      ],
+      capabilities: { pdf: false },
+    });
+    render(<ReportLibrary routeBase="/app" />);
+    expect(await screen.findByText("Aún no hay informes")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Generar primer informe" }));
+    await waitFor(() => expect(mocks.assignableUsersList).toHaveBeenCalled());
+    expect(screen.getByRole("dialog", { name: "Crear informe" })).toBeVisible();
+    expect(
+      screen.getByRole("textbox", { name: /^IDs de responsables.*opcional/ }),
+    ).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("abre el informe desde la fila con teclado", async () => {
