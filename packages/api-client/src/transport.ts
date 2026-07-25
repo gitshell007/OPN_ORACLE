@@ -2383,6 +2383,167 @@ const documents = {
     ),
 };
 
+export interface InvestigationStep {
+  id: string;
+  stage: string;
+  step_type: string;
+  status: string;
+  result: Record<string, unknown>;
+}
+
+export interface InvestigationEntity {
+  id: string;
+  name: string;
+  normalized_name: string;
+  kind: "company" | "person" | "unknown";
+  identifiers: Record<string, unknown>;
+  depth: number;
+  resolution_status: "candidate" | "verified" | "ambiguous" | "rejected";
+  identity_confidence: number;
+  gate_reason: string | null;
+  canonical_actor_id: string | null;
+  aliases: { id: string; value: string; status: string }[];
+}
+
+export interface InvestigationParticipation {
+  id: string;
+  entity_id: string;
+  folder_id: string;
+  lot_id: string;
+  role: string;
+  evidence_kind: string;
+  exact_name: string;
+  received_tender_quantity: number | null;
+  confidence: number;
+  source_ref: Record<string, unknown>;
+}
+
+export interface InvestigationClaim {
+  id: string;
+  claim_kind: string;
+  subject: string;
+  predicate: string;
+  object_value: string;
+  status: string;
+  confidence: number;
+  evidence_refs: unknown[];
+}
+
+export interface InvestigationRun {
+  id: string;
+  dossier_id: string;
+  question: string;
+  seed: {
+    name: string;
+    kind: "company" | "person" | "unknown";
+    identifiers: Record<string, unknown>;
+  };
+  status:
+    | "awaiting_review"
+    | "ready"
+    | "running"
+    | "paused"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  stage: string;
+  progress: number;
+  cutoff_at: string;
+  period_start: string | null;
+  period_end: string | null;
+  protocol_version: string;
+  source_policy_version: string;
+  limits: Record<string, unknown>;
+  source_policy: Record<string, unknown>;
+  corpus_hash: string | null;
+  stop_reason: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  steps: InvestigationStep[];
+  counts: Record<string, number>;
+  entities: InvestigationEntity[];
+  relations: Record<string, unknown>[];
+  procurement_participations: InvestigationParticipation[];
+  claims: InvestigationClaim[];
+}
+
+export interface InvestigationReportPreview {
+  investigation: InvestigationRun;
+  report: {
+    title: string;
+    protocol_version: string;
+    source_policy_version: string;
+    corpus_hash: string | null;
+    generated_at: string;
+    sections: Record<string, string>;
+    markdown: string;
+    limitations: string[];
+  };
+  verified_entities: InvestigationEntity[];
+  candidate_entities: InvestigationEntity[];
+}
+
+export interface ActorAliasCandidate {
+  identity_key: string;
+  status: string;
+  reason: string;
+  actors: {
+    id: string;
+    name: string;
+    identifiers: Record<string, unknown>;
+    aliases: unknown[];
+  }[];
+}
+
+const investigations = {
+  list: (dossierId: string) =>
+    request<{ items: InvestigationRun[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/investigations`,
+    ),
+  create: (
+    dossierId: string,
+    input: {
+      question: string;
+      seed_name: string;
+      seed_kind: "company" | "person" | "unknown";
+      seed_identifiers?: Record<string, unknown>;
+      period_start?: string | null;
+      period_end?: string | null;
+      limits?: Record<string, number>;
+    },
+    idempotencyKey: string,
+  ) =>
+    request<InvestigationRun>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/investigations`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
+  get: (runId: string) =>
+    request<InvestigationRun>(
+      `/api/v1/investigations/${encodeURIComponent(runId)}`,
+    ),
+  execute: (runId: string, idempotencyKey: string) =>
+    request<{ investigation: InvestigationRun; job: JobResponse }>(
+      `/api/v1/investigations/${encodeURIComponent(runId)}/execute`,
+      { method: "POST", idempotencyKey },
+    ),
+  reviewEntity: (
+    runId: string,
+    entityId: string,
+    input: { decision: "verify" | "reject" | "add_alias"; alias?: string | null },
+  ) =>
+    request<InvestigationRun>(
+      `/api/v1/investigations/${encodeURIComponent(runId)}/entities/${encodeURIComponent(entityId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+  reportPreview: (runId: string) =>
+    request<InvestigationReportPreview>(
+      `/api/v1/investigations/${encodeURIComponent(runId)}/report-preview`,
+    ),
+  aliasCandidates: () =>
+    request<{ items: ActorAliasCandidate[] }>("/api/v1/actors/alias-candidates"),
+};
+
 export const api = {
   auth,
   tenantAdmin,
@@ -2412,6 +2573,7 @@ export const api = {
   dossierProcurement,
   decisions,
   documents,
+  investigations,
   reports,
   notifications,
   exports: exportsApi,

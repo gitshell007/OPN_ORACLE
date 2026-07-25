@@ -9,6 +9,7 @@ import {
   type DossierWorkKind,
 } from "@/components/dossiers/dossier-work-section";
 import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents-section";
+import { DossierInvestigationsSection } from "@/components/dossiers/dossier-investigations-section";
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-section";
 import { DOSSIER_TABS } from "@/lib/app-routes";
@@ -19,6 +20,7 @@ const sectionCopy: Record<string, { description: string; api: string }> = {
   procurement: { description: "Licitaciones y adjudicaciones PLACSP fijadas como evidencia.", api: "GET /api/v1/dossiers/{id}/procurement" },
   risks: { description: "Riesgos, escenarios y mitigaciones del expediente.", api: "GET /api/v1/dossiers/{id}/risks" },
   actors: { description: "Actores y relaciones en contexto.", api: "GET /api/v1/dossiers/{id}/actors" },
+  investigations: { description: "Investigaciones empresariales trazables con revisión humana.", api: "GET /api/v1/dossiers/{id}/investigations" },
   meetings: { description: "Reuniones, documentos preparatorios y seguimiento.", api: "GET /api/v1/dossiers/{id}/meetings" },
   tasks: { description: "Tareas y trabajo pendiente del expediente.", api: "GET /api/v1/dossiers/{id}/tasks" },
   documents: { description: "Documentos, búsqueda y evidencias citables.", api: "GET /api/v1/dossiers/{id}/documents" },
@@ -52,6 +54,8 @@ export default async function DossierSectionPage({
         <DossierDocumentsSection dossierId={id} />
       ) : section === "procurement" ? (
         <DossierProcurementSection dossierId={id} />
+      ) : section === "investigations" ? (
+        <DossierInvestigationsSection dossierId={id} />
       ) : (
         <DossierSettingsSection dossierId={id} />
       )}

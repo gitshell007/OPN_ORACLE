@@ -4,6 +4,27 @@ Actualizado: 2026-07-25
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## 2026-07-25 · Investigaciones empresariales trazables en Oracle
+
+- Implementado el agregado productivo `InvestigationRun` con pasos P0-P5, entidades candidatas,
+  aliases revisables, relaciones registrales, snapshots de fuente, participaciones PLACSP y claims
+  separados de hechos/limitaciones. Todo es tenant-scoped, con RLS, auditoría, idempotencia y job
+  durable `oracle.investigation.run` en cola `signals`.
+- La ejecución MVP consulta Signal solo por las rutas existentes: grafo registral cacheado y
+  adjudicaciones cacheadas. P2 queda como gate humano: ningún nodo candidato expande ni sostiene
+  conclusiones hasta revisión. El borrador de informe es determinista y declara que el dato
+  estructurado no identifica licitadores no adjudicatarios.
+- Vector añade pestaña de expediente `Investigación`: crear semilla, revisar identidades, ejecutar
+  pasadas, ver métricas y leer el borrador trazable. La resolución de alias de actores se expone
+  como lista candidata solo para organizaciones; no fusiona ni muta actores.
+- Migración nueva `20260725_0025_investigation_workbench.py`, OpenAPI y cliente TS regenerados.
+  Sin variables nuevas ni cambios en Signal.
+- Verificación focal: Ruff backend correcto; integración Postgres/Redis
+  `tests/test_integration_investigations.py` 2/2 con `--no-cov`; mutación de alias verificada
+  cambiando el filtro para incluir personas, el test cayó; ESLint correcto con el warning conocido
+  de TanStack, TypeScript correcto, Vitest de la nueva sección 1/1 y rutas 4/4. Pendiente todavía
+  gate completo, CI del SHA final, smoke visual y despliegue.
+
 ## Prompt 90 · gate npm alineado con el artefacto enviado
 
 - `GHSA-mh99-v99m-4gvg` afecta a `brace-expansion <=5.0.7` y solo dispone de corrección en

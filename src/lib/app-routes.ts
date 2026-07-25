@@ -248,6 +248,7 @@ export const DOSSIER_TABS = [
   { id: "procurement", label: "Licitaciones", segment: "procurement", permission: "opportunity.read" },
   { id: "risks", label: "Riesgos", segment: "risks", permission: "risk.read" },
   { id: "actors", label: "Actores", segment: "actors", permission: "actor.read" },
+  { id: "investigations", label: "Investigación", segment: "investigations", permission: "dossier.read" },
   { id: "meetings", label: "Reuniones", segment: "meetings", permission: "meeting.read" },
   { id: "tasks", label: "Tareas", segment: "tasks", permission: "task.read" },
   { id: "documents", label: "Documentos", segment: "documents", permission: "documents.read" },

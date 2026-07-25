@@ -1346,3 +1346,24 @@ deberá versionarse un flujo de copia/materialización separado.
   La siguiente revisión debe intentar volver a un único gate de árbol completo cuando todos los
   consumidores publiquen rangos compatibles con `brace-expansion >=5.0.8`; no existe una exención
   silenciosa ni una fecha cuya expiración pueda dejar el CI indeterminadamente roto.
+
+## D-079 — Investigación es un agregado trazable con gates humanos, no una fusión automática
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-25
+- **Contexto:** el objetivo de investigación empresarial exige encadenar BORME/roles, red de
+  administradores y adjudicaciones PLACSP, pero las fuentes no entregan todos los licitadores de
+  forma estructurada y las personas físicas no son desambiguables solo por nombre BORME. Además, la
+  resolución de aliases observada en actores (`ITURRI SA`, `Iturri`, personas homónimas) puede crear
+  falsos positivos si se promueve automáticamente.
+- **Decisión:** Oracle introduce `InvestigationRun` como workbench separado del grafo canónico de
+  `Actor`. Las entidades descubiertas nacen como candidatas, las personas y sociedades sin
+  identificador requieren revisión humana antes de expandirse, y las relaciones/claims conservan
+  fuente, confianza y limitación. La UI puede proponer alias de organizaciones por normalización de
+  forma jurídica, pero nunca fusiona ni muta actores. El informe MVP es determinista y factual; la
+  opinión queda limitada por evidencia y no convierte ausencia documental en hecho negativo.
+- **Consecuencias:** el producto puede empezar a investigar redes y adjudicaciones con jobs
+  reanudables y trazabilidad, sin esperar un contrato nominal completo de licitadores. El precio es
+  explícito: P2 y P5 pueden quedar bloqueados por revisión humana, y la identidad de licitadores no
+  adjudicatarios sigue pendiente de un índice documental medido en Signal. La mutación de seguridad
+  de alias que incluía personas en candidatos hizo caer el test HTTP/UI correspondiente.

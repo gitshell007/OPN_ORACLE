@@ -37,6 +37,7 @@ from opn_oracle.common.logging import redact
 from opn_oracle.documents.service import DocumentError, process_document
 from opn_oracle.extensions import db
 from opn_oracle.integrations.entity_intel import EntityIntelProviderError
+from opn_oracle.integrations.procurement import ProcurementProviderError
 from opn_oracle.integrations.service import sync_monitor
 from opn_oracle.jobs.service import (
     claim_job_for_publish,
@@ -52,6 +53,7 @@ from opn_oracle.oracle.competitive_procurement_report import (
     process_competitive_procurement_report,
 )
 from opn_oracle.oracle.entity_dossier_report import process_entity_dossier_report
+from opn_oracle.oracle.investigations import process_investigation_run
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier
 from opn_oracle.oracle.procurement_report import (
@@ -142,6 +144,23 @@ def _stub(kind: str) -> Handler:
         return {"kind": kind, "processed": True, "resource_id": payload.get("resource_id")}
 
     return handler
+
+
+def _run_investigation(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    try:
+        run_id = uuid.UUID(str(payload["run_id"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise PermanentJobError("run_id de investigación no es válido.") from error
+    if job.resource_id is not None and job.resource_id != run_id:
+        raise PermanentJobError("El job no pertenece a la investigación indicada.")
+    try:
+        return process_investigation_run(db.session(), run_id=run_id)
+    except (EntityIntelProviderError, ProcurementProviderError) as error:
+        if error.retryable:
+            raise RetriableJobError("Signal no está disponible temporalmente.") from error
+        raise PermanentJobError("Signal rechazó la investigación.") from error
+    except (ValueError, RuntimeError) as error:
+        raise PermanentJobError(str(error)) from error
 
 
 def _retry_exhausted_message(job: BackgroundJob, root_message: str) -> str:
@@ -387,6 +406,7 @@ HANDLERS: dict[str, Handler] = {
     "oracle.entity_dossier_report.generate": (
         lambda payload, job: _generate_entity_dossier_report(payload, job)
     ),
+    "oracle.investigation.run": _run_investigation,
     "oracle.export.generate": lambda payload, job: _generate_export(payload, job),
     "oracle.document.process": lambda payload, job: _process_document(payload, job),
     "notifications.send_email": _send_email,
@@ -1001,6 +1021,7 @@ competitive_procurement_report_generate = _durable_task(
     "oracle.competitive_procurement_report.generate"
 )
 entity_dossier_report_generate = _durable_task("oracle.entity_dossier_report.generate")
+investigation_run = _durable_task("oracle.investigation.run")
 export_generate = _durable_task("oracle.export.generate")
 document_process = _durable_task("oracle.document.process")
 send_email = _durable_task("notifications.send_email")

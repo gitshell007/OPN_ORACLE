@@ -192,10 +192,10 @@
 
 ## Investigaciones empresariales trazables
 
-- Producto autorizó iniciar la Fase 0 de
-  `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md`. ORACLE-EXP-INV-01 deja protocolo, arnés,
-  fixture sintético, medición PLACSP/Ollama y borradores ERD/OpenAPI; no autoriza todavía
-  migraciones, endpoints, task keys ni fuentes runtime nuevas.
+- Resuelto en Oracle el 2026-07-25: la primera versión productiva de
+  `docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md` queda implementada como agregado
+  tenant-scoped con migración, endpoints, job durable, UI Vector y borrador determinista. No añade
+  fuentes runtime nuevas ni task keys de Signal.
 - Pendiente medir en un spike la cobertura real de participantes no adjudicatarios. PLACSP
   estructura adjudicatario y el recuento comunicado de licitadores participantes, pero no
   garantiza una lista nominal completa; la identidad de admitidos, excluidos o perdedores puede
@@ -210,9 +210,10 @@
   una contraparte BORME es persona física o jurídica. Signal ya expone
   `ReceivedTenderQuantity` como entero nullable por adjudicación/lote; Oracle lo conserva sin
   sumarlo. El consumer temporal autenticado se creó y revocó correctamente, pero no hay endpoint
-  inverso, no se ha reparseado histórico y el sondeo de 496 entradas no halló una revisión/versionado
-  aprovechable. Producción sigue con cero adjudicaciones pobladas hasta planificar un backfill
-  explícito `force=True` y cache-only.
+  inverso y el sondeo de 496 entradas no halló una revisión/versionado aprovechable. Signal reingirió
+  histórico cache-only el 2026-07-25: 1.302.166 adjudicaciones quedaron con contador, 99,85 % de
+  cobertura; permanecen 2.004 `NULL` por 930 conflictos cuarentenados, 930 filas fuera de la unión
+  cacheada y 144 XML sin valor válido. Esto no identifica licitadores perdedores.
 - Pendiente etiquetado BORME: INV-02 enumeró 95.711 artículos, sorteó 72 antes del detector y
   preparó 192 candidatos. La segmentación exhaustiva doble ciego y la adjudicación de 72
   aserciones challenge siguen en 0/72; ningún `counterpart_kind` puede promoverse por nombre o

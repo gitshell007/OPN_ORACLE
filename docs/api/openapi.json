@@ -732,6 +732,22 @@
         ],
         "type": "object"
       },
+      "AliasCandidateList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "AuditListResponse": {
         "properties": {
           "items": {
@@ -1892,6 +1908,50 @@
         ],
         "type": "object"
       },
+      "CreateInvestigation": {
+        "additionalProperties": false,
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/InvestigationLimits"
+          },
+          "period_end": {
+            "nullable": true,
+            "type": "string"
+          },
+          "period_start": {
+            "nullable": true,
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 5000,
+            "minLength": 10,
+            "type": "string"
+          },
+          "seed_identifiers": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "seed_kind": {
+            "enum": [
+              "company",
+              "person",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "seed_name": {
+            "maxLength": 300,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "seed_kind",
+          "seed_name"
+        ],
+        "type": "object"
+      },
       "CreateProcurementSearchProfile": {
         "additionalProperties": false,
         "properties": {
@@ -2812,6 +2872,29 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "EntityReview": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "maxLength": 300,
+            "minLength": 2,
+            "nullable": true,
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "verify",
+              "reject",
+              "add_alias"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
         ],
         "type": "object"
       },
@@ -3806,6 +3889,234 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "InvestigationExecution": {
+        "additionalProperties": false,
+        "properties": {
+          "investigation": {
+            "$ref": "#/components/schemas/InvestigationResponse"
+          },
+          "job": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "investigation",
+          "job"
+        ],
+        "type": "object"
+      },
+      "InvestigationLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "max_ai_calls": {
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_depth": {
+            "maximum": 3,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_documents": {
+            "maximum": 5000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_entities": {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_runtime_minutes": {
+            "maximum": 1440,
+            "minimum": 10,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "InvestigationList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "InvestigationReportPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_entities": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "investigation": {
+            "$ref": "#/components/schemas/InvestigationResponse"
+          },
+          "report": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "verified_entities": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidate_entities",
+          "investigation",
+          "report",
+          "verified_entities"
+        ],
+        "type": "object"
+      },
+      "InvestigationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claims": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "corpus_hash": {
+            "nullable": true,
+            "type": "string"
+          },
+          "counts": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "cutoff_at": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "entities": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "limits": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "period_end": {
+            "nullable": true,
+            "type": "string"
+          },
+          "period_start": {
+            "nullable": true,
+            "type": "string"
+          },
+          "procurement_participations": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "progress": {
+            "type": "integer"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "seed": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "source_policy": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "source_policy_version": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "stop_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "claims",
+          "counts",
+          "created_at",
+          "cutoff_at",
+          "dossier_id",
+          "entities",
+          "id",
+          "limits",
+          "procurement_participations",
+          "progress",
+          "protocol_version",
+          "question",
+          "relations",
+          "seed",
+          "source_policy",
+          "source_policy_version",
+          "stage",
+          "status",
+          "steps",
+          "updated_at",
+          "version"
+        ],
         "type": "object"
       },
       "InviteMemberInput": {
@@ -9191,6 +9502,92 @@
         "summary": "Actors Create",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/actors/alias-candidates": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Actor Alias Candidate List",
+        "tags": [
+          "Investigaciones empresariales"
         ]
       }
     },
@@ -17984,6 +18381,213 @@
         "summary": "<Lambda>",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/investigations": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations List",
+        "tags": [
+          "Investigaciones empresariales"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Create",
+        "tags": [
+          "Investigaciones empresariales"
         ]
       }
     },
@@ -26929,6 +27533,572 @@
         "summary": "Rotate Connection",
         "tags": [
           "Signal_Integrations"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Get",
+        "tags": [
+          "Investigaciones empresariales"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Cancel",
+        "tags": [
+          "Investigaciones empresariales"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/entities/{entity_id}/reviews": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityReview"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Review Entity",
+        "tags": [
+          "Investigaciones empresariales"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/execute": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operaci\u00f3n completada"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationExecution"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Execute",
+        "tags": [
+          "Investigaciones empresariales"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/pause": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Pause",
+        "tags": [
+          "Investigaciones empresariales"
+        ]
+      }
+    },
+    "/api/v1/investigations/{run_id}/report-preview": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationReportPreview"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Investigations Report Preview",
+        "tags": [
+          "Investigaciones empresariales"
         ]
       }
     },
@@ -43564,6 +44734,9 @@
     },
     {
       "name": "Vigilancia incremental de licitaciones"
+    },
+    {
+      "name": "Investigaciones empresariales"
     },
     {
       "name": "Signal_Webhooks"

@@ -6025,6 +6025,222 @@
   font-size: 12px;
 }
 
+.investigation-section {
+  display: grid;
+  gap: 16px;
+}
+
+.investigation-heading,
+.investigation-detail-panel > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.investigation-heading h1,
+.investigation-detail-panel h2,
+.investigation-detail-panel h3 {
+  margin: 0;
+  color: var(--va-text);
+}
+
+.investigation-heading p,
+.investigation-detail-panel p {
+  margin: 6px 0 0;
+  color: var(--va-muted);
+}
+
+.investigation-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.investigation-list-panel,
+.investigation-detail-panel {
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  background: var(--va-panel);
+}
+
+.investigation-list-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.investigation-create {
+  display: grid;
+  gap: 10px;
+}
+
+.investigation-create label {
+  display: grid;
+  gap: 5px;
+  color: var(--va-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.investigation-create input,
+.investigation-create select,
+.investigation-create textarea {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--va-border);
+  border-radius: 6px;
+  background: var(--va-bg);
+  color: var(--va-text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.investigation-create textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.investigation-runs {
+  display: grid;
+  gap: 8px;
+}
+
+.investigation-runs > p {
+  margin: 0;
+  color: var(--va-muted);
+}
+
+.investigation-runs button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--va-border);
+  border-radius: 7px;
+  background: var(--va-bg);
+  color: var(--va-text);
+  padding: 10px;
+  text-align: left;
+}
+
+.investigation-runs button.selected,
+.investigation-runs button:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: #edf4ff;
+}
+
+.investigation-runs small,
+.investigation-runs span {
+  color: var(--va-muted);
+  font-size: 11px;
+}
+
+.investigation-detail-panel {
+  display: grid;
+  gap: 16px;
+  padding: 14px;
+  min-width: 0;
+}
+
+.investigation-detail-panel .status {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 6px;
+}
+
+.investigation-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.investigation-metrics div {
+  border: 1px solid var(--va-border);
+  border-radius: 7px;
+  background: var(--va-soft);
+  padding: 10px;
+}
+
+.investigation-metrics dt {
+  color: var(--va-muted);
+  font-size: 11px;
+}
+
+.investigation-metrics dd {
+  margin: 3px 0 0;
+  color: var(--va-text);
+  font-size: 20px;
+  font-weight: 750;
+}
+
+.investigation-columns {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+
+.investigation-columns section,
+.investigation-table-block {
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.investigation-columns h3,
+.investigation-table-block h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.investigation-entity-list {
+  display: grid;
+  gap: 8px;
+}
+
+.investigation-entity-list article {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--va-border);
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.investigation-entity-list strong,
+.investigation-entity-list small {
+  display: block;
+}
+
+.investigation-entity-list small {
+  margin-top: 3px;
+  color: var(--va-muted);
+  font-size: 11px;
+}
+
+.investigation-report-preview {
+  display: grid;
+  gap: 8px;
+}
+
+.investigation-report-preview pre {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--va-border);
+  border-radius: 7px;
+  background: var(--va-bg);
+  color: var(--va-text);
+  padding: 10px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 @media (max-width: 760px) {
   .outcome-row {
     grid-template-columns: 1fr;
@@ -6099,5 +6315,14 @@
   }
   .wizard-summary {
     display: grid;
+  }
+  .investigation-heading,
+  .investigation-detail-panel > header {
+    flex-direction: column;
+  }
+  .investigation-grid,
+  .investigation-columns,
+  .investigation-metrics {
+    grid-template-columns: 1fr;
   }
 }
