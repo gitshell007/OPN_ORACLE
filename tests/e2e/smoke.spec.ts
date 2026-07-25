@@ -47,6 +47,47 @@ test("login corporativo es accesible y no persiste credenciales", async ({
   ).toEqual([]);
 });
 
+test("el navegador conserva Retry-After y muestra la cuenta atrás del bloqueo", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/auth/csrf", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        csrf_token: "csrf-e2e-retry-after-12345678901234567890",
+      }),
+    });
+  });
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 429,
+      contentType: "application/problem+json",
+      headers: { "Retry-After": "23" },
+      body: JSON.stringify({
+        type: "about:blank",
+        title: "Too Many Requests",
+        status: 429,
+        detail: "Demasiados intentos.",
+        instance: "/api/v1/auth/login",
+        code: "login_temporarily_locked",
+        request_id: "request-e2e-rate-limit",
+      }),
+    });
+  });
+
+  await page.goto("/login");
+  await page.getByLabel("Correo electrónico").fill("persona@example.test");
+  await page.getByLabel("Contraseña", { exact: true }).fill("clave errónea");
+  await page.getByRole("button", { name: "Entrar en Oracle" }).click();
+
+  await expect(
+    page.getByText(
+      "El acceso está bloqueado temporalmente tras varios intentos con credenciales no válidas. Vuelve a probar en 23 segundos.",
+    ),
+  ).toBeVisible();
+});
+
 test("recuperación mantiene respuesta anti-enumeración", async ({ page }) => {
   await page.goto("/forgot-password");
   await expect(

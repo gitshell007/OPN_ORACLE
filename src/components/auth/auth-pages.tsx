@@ -95,14 +95,22 @@ function PasswordField({
 
 function ProblemAlert({ error }: { error: ApiError | null }) {
   if (!error) return null;
+  const retry =
+    error.retryAfter !== undefined
+      ? ` Vuelve a probar en ${error.retryAfter} ${
+          error.retryAfter === 1 ? "segundo" : "segundos"
+        }.`
+      : " Vuelve a probar más tarde.";
+  const message =
+    error.status !== 429
+      ? error.message
+      : error.problem.code === "login_temporarily_locked"
+        ? `El acceso está bloqueado temporalmente tras varios intentos con credenciales no válidas.${retry}`
+        : `Has alcanzado el límite de 10 intentos de acceso por minuto.${retry}`;
   return (
     <div className="auth-alert" role="alert">
       <strong>No se pudo completar la solicitud</strong>
-      <span>
-        {error.status === 429
-          ? `Demasiados intentos. Vuelve a probar${error.retryAfter ? ` en ${error.retryAfter} segundos` : " más tarde"}.`
-          : error.message}
-      </span>
+      <span>{message}</span>
     </div>
   );
 }

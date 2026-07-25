@@ -92,11 +92,15 @@ async function parseError(response: Response): Promise<ApiError> {
         code: "http_error",
         request_id: response.headers.get("X-Request-ID") ?? "",
       };
-  const retry = Number(response.headers.get("Retry-After"));
+  const retryHeader = response.headers.get("Retry-After");
+  const retry =
+    retryHeader !== null && /^\d+$/.test(retryHeader.trim())
+      ? Number(retryHeader)
+      : undefined;
   return new ApiError(
     response.status,
     problem,
-    Number.isFinite(retry) ? retry : undefined,
+    retry !== undefined && Number.isSafeInteger(retry) ? retry : undefined,
   );
 }
 

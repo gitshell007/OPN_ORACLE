@@ -60,9 +60,39 @@ describe("transporte auth", () => {
     expect(new Headers(secondLogin.headers).get("X-CSRF-Token")).toBe("csrf-relogin-fresco-333333333333333");
   });
 
-  it("expone Problem Details y Retry-After", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ type:"about:blank",title:"Límite",status:429,detail:"Espera",instance:"/login",code:"login_temporarily_locked",request_id:"req-1" }, 429, {"Retry-After":"30"})));
-    const { api } = await import("@oracle/api-client");
-    await expect(api.auth.me()).rejects.toMatchObject({ status:429, retryAfter:30 });
-  });
+  it.each([
+    ["cabecera ausente", {}, undefined],
+    ["cero explícito", { "Retry-After": "0" }, 0],
+    ["segundos válidos", { "Retry-After": "30" }, 30],
+    ["valor vacío", { "Retry-After": "" }, undefined],
+    ["valor negativo", { "Retry-After": "-1" }, undefined],
+    ["valor no numérico", { "Retry-After": "después" }, undefined],
+  ])(
+    "expone Problem Details y trata Retry-After: %s",
+    async (_case, headers, expected) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          json(
+            {
+              type: "about:blank",
+              title: "Límite",
+              status: 429,
+              detail: "Espera",
+              instance: "/login",
+              code: "login_temporarily_locked",
+              request_id: "req-1",
+            },
+            429,
+            headers,
+          ),
+        ),
+      );
+      const { api } = await import("@oracle/api-client");
+      await expect(api.auth.me()).rejects.toMatchObject({
+        status: 429,
+        retryAfter: expected,
+      });
+    },
+  );
 });
