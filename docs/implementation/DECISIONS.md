@@ -1443,7 +1443,7 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** insight operativo inmediato sin inventar un data warehouse. No se afirma
   cobertura histórica completa; se documenta el límite en UI.
 
-## D-085 — Buscar ejecuta una unión multi-sonda; vigilar es una acción opcional
+## D-087 — Buscar ejecuta una unión multi-sonda; vigilar es una acción opcional
 
 - **Estado:** accepted
 - **Fecha:** 2026-07-26
@@ -1467,7 +1467,7 @@ deberá versionarse un flujo de copia/materialización separado.
   a diez códigos. Ese enriquecimiento ocurre al materializar una generación IA y queda declarado
   en `assumptions`; preview, aceptación y ejecución solo validan el plan revisado, de modo que una
   edición humana vacía no se rellena.
-- **Consecuencias:** D-085 sustituye únicamente el «nunca fusiona» de D-063 para la ejecución
+- **Consecuencias:** D-087 sustituye únicamente el «nunca fusiona» de D-063 para la ejecución
   inmediata; preview, ausencia de boolean query y falta de ranking global siguen vigentes. La
   ventana de 100 evita totales inaccesibles y acota hasta 800 candidatos leídos (100 por sonda).
   El orden local usa relevancia léxica plan↔etiqueta CPV, número de sondas coincidentes y una

@@ -99,13 +99,14 @@
 - **Pendiente Signal:** registrar/autorizar `tender_search_wizard` para el consumer productivo si
   Oracle usa `AI_MODE=signal`. El código funciona también en disabled/mock/ollama, pero Oracle no
   modifica unilateralmente el catálogo ni la allowlist gobernada de Signal.
-- **Prompt 96–97 · smoke Signal real:** la ejecución inmediata ya dispone de unión multi-sonda,
-  ventana acotada y pruebas de contrato HTTP. Antes de cerrar la verificación productiva falta
-  ejecutar el plan canónico de vehículos militares desde el release nuevo con
-  `SIGNAL_AVANZA_MODE=http`, confirmar que recupera el mercado CPV `35400000` y repetir dos
-  consultas no militares para comprobar que el retrieval no introduce sesgo sectorial. El
-  barrido de una vigilancia durable sigue siendo una comprobación separada y no condiciona que
-  «Buscar con Oracle» muestre resultados.
+- **Resuelto en Prompt 96–97:** el smoke del release
+  `20260726T160223Z-quick-c0fff45` contra Signal HTTP recuperó 14 expedientes únicos para el caso
+  canónico de vehículos militares, consultando `35400000` entre los cuatro primeros CPV; los
+  controles multisector devolvieron 25 resultados de bomberos y 79 de energía sin CPV militares.
+  Todas las ejecuciones quedaron dentro de ocho sondas, deduplicaron por expediente y no enviaron
+  comprador ni región propuestos por IA. La búsqueda remota obsoleta se retiró con auditoría y
+  Signal quedó con cero búsquedas guardadas. No se creó una vigilancia artificial: su scheduler,
+  novedad y ciclo delete/recreate permanecen cubiertos por integración HTTP.
 - **Pendiente contrato v2:** declarar formalmente que `keywords` es hoy una subcadena literal
   contigua y sensible a tildes, o sustituirlo por una sintaxis booleana versionada. Oracle v1 usa
   sondas independientes y no concatena chips.

@@ -47,8 +47,25 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - **Contrato y pruebas:** la operación `execute`, su ventana y sus estructuras
   anidadas están declaradas en OpenAPI y en el cliente TypeScript; el test backend
   despacha HTTP real, demuestra tenant derivado de sesión y prueba 403 sin llamar
-  a Signal. D-085 limita expresamente la antigua regla «nunca fusionar» de D-063
+  a Signal. D-087 limita expresamente la antigua regla «nunca fusionar» de D-063
   a la previsualización.
+- **Producción y UAT:** el release inmutable
+  `20260726T160223Z-quick-c0fff45` quedó activo tras backup y restore aislado, con
+  API, web, worker, beat, PostgreSQL y Redis sanos. El CI exacto del commit
+  (`30209247280`) pasó backend, migraciones, integración, frontend, contrato,
+  Playwright, seguridad, imágenes y SBOM. Con `SIGNAL_AVANZA_MODE=http`, el texto
+  canónico de vehículos militares consultó `35400000` entre sus cuatro primeros
+  CPV y devolvió 14 expedientes únicos en cinco peticiones; bomberos devolvió 25
+  y energía 79, sin introducir CPV militares. Las tres ejecuciones respetaron el
+  máximo de ocho sondas, deduplicación, ventana 100/offset 0 y ausencia de
+  comprador o región generados por IA.
+- **Limpieza del diagnóstico:** tras precondiciones exactas y aviso previo se
+  retiraron únicamente la búsqueda Signal obsoleta
+  `tsearch_ext_Jr_uZJfD6VV4fO9gKi1xKA` y su watch local
+  `a35252b0-5e4a-445e-8e25-6cddda8b1103`. Signal quedó con cero búsquedas
+  guardadas; Oracle dejó la watch desactivada/soft-deleted, desvinculó el perfil
+  y registró los eventos de auditoría. No se crearon vigilancias artificiales ni
+  se tocaron perfiles/versiones históricas.
 - Documento de producto/implementación:
   `docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md` y complemento
   técnico `docs/implementation/prompts/97_LICITACIONES_CPV_RETRIEVAL_Y_EJECUCION_MULTISECTOR.md`.
