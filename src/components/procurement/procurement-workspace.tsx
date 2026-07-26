@@ -12,6 +12,7 @@ import {
   type ProcurementTenderFilters,
   type ProcurementTenderItem,
   type ProcurementTendersResponse,
+  type TenderSearchPlan,
   type TenderSearchResource,
 } from "@oracle/api-client";
 import {
@@ -274,6 +275,12 @@ export function ProcurementWorkspace() {
   });
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<ProcurementTendersResponse | null>(null);
+  const [resultOrigin, setResultOrigin] = useState<
+    "oracle-plan" | "watch" | null
+  >(null);
+  const [activeOraclePlan, setActiveOraclePlan] =
+    useState<TenderSearchPlan | null>(null);
+  const [oracleWatchPersisted, setOracleWatchPersisted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SummaryState>>({});
@@ -314,10 +321,20 @@ export function ProcurementWorkspace() {
   const [buyerSelectedSuggestion, setBuyerSelectedSuggestion] = useState(false);
   const [knownRegions, setKnownRegions] = useState<string[]>([]);
   const buyerSuggestionSequence = useRef(0);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const limit = 25;
   const effectiveKeywords = (keywords.trim() || semanticLabel.trim()).trim();
   const currentFilters = useMemo(() => filterRecord(filters), [filters]);
+
+  useEffect(() => {
+    if (resultOrigin !== "oracle-plan") return;
+    const frame = window.requestAnimationFrame(() => {
+      resultsHeadingRef.current?.scrollIntoView?.({ block: "start" });
+      resultsHeadingRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [resultOrigin, result]);
 
   const rememberRegions = useCallback((tenders: ProcurementTenderItem[]) => {
     const observed = tenders
@@ -425,6 +442,9 @@ export function ProcurementWorkspace() {
           offset: nextOffset,
         });
         setResult(response);
+        setActiveOraclePlan(null);
+        setOracleWatchPersisted(false);
+        setResultOrigin(null);
         rememberRegions(response.items);
         setOffset(response.offset ?? nextOffset);
       } catch (reason) {
@@ -488,6 +508,9 @@ export function ProcurementWorkspace() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    setResultOrigin(null);
+    setActiveOraclePlan(null);
+    setOracleWatchPersisted(false);
     setActiveSearchProfile(null);
     setFeedbackByFolder({});
     setFeedbackDigest(null);
@@ -564,6 +587,9 @@ export function ProcurementWorkspace() {
       setSemanticLabel("");
       setFilters(nextFilters);
       setResult(response.results);
+      setResultOrigin("watch");
+      setActiveOraclePlan(null);
+      setOracleWatchPersisted(false);
       rememberRegions(response.results.items);
       setOffset(response.results.offset ?? 0);
       const profile =
@@ -754,14 +780,62 @@ export function ProcurementWorkspace() {
     }
   }
 
+  async function refreshOracleSnapshot() {
+    if (!activeOraclePlan) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.procurement.executeSearchPlan(
+        activeOraclePlan,
+        { limit: 100, offset: 0 },
+      );
+      setResult(response.execution.results);
+      setResultOrigin("oracle-plan");
+      rememberRegions(response.execution.results.items);
+      const refreshedCount = Math.min(
+        response.execution.results.items.length,
+        100,
+      );
+      setOffset((current) =>
+        Math.min(
+          current,
+          Math.max(0, Math.floor((refreshedCount - 1) / limit) * limit),
+        ),
+      );
+    } catch (reason) {
+      setError(
+        problemMessage(
+          reason,
+          "No se pudo actualizar la ejecución multisonda del plan Oracle.",
+        ),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshResults() {
+    if (activeOraclePlan) {
+      await refreshOracleSnapshot();
+      return;
+    }
+    await loadTenders(offset);
+  }
+
   const total = result?.total ?? 0;
+  const navigableTotal = activeOraclePlan
+    ? Math.min(result?.items.length ?? 0, 100)
+    : total;
   const loadedItems = result?.items;
-  const items = useMemo(
+  const sortedItems = useMemo(
     () => sortLoadedTenders(loadedItems ?? [], sort),
     [loadedItems, sort],
   );
+  const items = activeOraclePlan
+    ? sortedItems.slice(offset, offset + limit)
+    : sortedItems;
   const page = Math.floor(offset / limit) + 1;
-  const pages = Math.max(1, Math.ceil(total / limit));
+  const pages = Math.max(1, Math.ceil(navigableTotal / limit));
   const searchProfileVersions = useMemo(
     () =>
       new Map(
@@ -802,7 +876,13 @@ export function ProcurementWorkspace() {
               void loadSearches();
               void loadWatches();
             }}
-            onSearchExecuted={async ({ profile, run }) => {
+            onSearchExecuted={async ({
+              plan,
+              profile,
+              run,
+              watchPersisted,
+              watchWarning: nextWatchWarning,
+            }) => {
               await loadSearches();
               let nextWatches = watches;
               try {
@@ -816,10 +896,14 @@ export function ProcurementWorkspace() {
                 ...filtersFromRecord(run.search.filters ?? {}),
                 scope: "active" as const,
               };
-              setKeywords((run.search.keywords ?? []).join(", "));
-              setSemanticLabel("");
-              setFilters(nextFilters);
+              setKeywords("");
+              setSemanticLabel(profile.original_description);
+              setFilters({ ...emptyFilters, scope: nextFilters.scope });
               setResult(run.results);
+              setResultOrigin("oracle-plan");
+              setActiveOraclePlan(plan);
+              setOracleWatchPersisted(watchPersisted);
+              setWatchError(nextWatchWarning);
               rememberRegions(run.results.items);
               setOffset(run.results.offset ?? 0);
               setActiveSearchProfile(profile);
@@ -843,7 +927,7 @@ export function ProcurementWorkspace() {
           <button
             className="vector-secondary"
             type="button"
-            onClick={() => void loadTenders(offset)}
+            onClick={() => void refreshResults()}
             disabled={loading}
           >
             <RefreshCw size={15} />
@@ -1024,7 +1108,9 @@ export function ProcurementWorkspace() {
           <header>
             <div>
               <span className="section-kicker">Resultados</span>
-              <h2>Licitaciones encontradas</h2>
+              <h2 ref={resultsHeadingRef} tabIndex={-1}>
+                Licitaciones encontradas
+              </h2>
             </div>
             <div className="procurement-results-tools">
               <span className="procurement-count">{total} resultados</span>
@@ -1046,6 +1132,20 @@ export function ProcurementWorkspace() {
               </label>
             </div>
           </header>
+          {resultOrigin === "oracle-plan" && (
+            <p className="procurement-result-origin" role="status">
+              Resultados inmediatos del plan Oracle.{" "}
+              {oracleWatchPersisted
+                ? "La vigilancia guardada sirve para detectar novedades posteriores y no sustituye esta tabla."
+                : "Si guardas una vigilancia, servirá para detectar novedades posteriores sin sustituir esta tabla."}
+            </p>
+          )}
+          {resultOrigin === "watch" && (
+            <p className="procurement-result-origin" role="status">
+              Reconsulta de una vigilancia guardada. Puede ser más estrecha que
+              la búsqueda multisonda del plan Oracle.
+            </p>
+          )}
           {activeWatch && (
             <section className="procurement-watch-status" aria-live="polite">
               <div>
@@ -1327,18 +1427,33 @@ export function ProcurementWorkspace() {
             <button
               type="button"
               disabled={page <= 1 || loading}
-              onClick={() => void loadTenders(Math.max(0, offset - limit))}
+              onClick={() => {
+                const nextOffset = Math.max(0, offset - limit);
+                if (activeOraclePlan) {
+                  setOffset(nextOffset);
+                } else {
+                  void loadTenders(nextOffset);
+                }
+              }}
             >
               <ChevronLeft size={15} />
               Anterior
             </button>
             <span>
               Página {page} de {pages}
+              {activeOraclePlan ? " · ventana Oracle de hasta 100" : ""}
             </span>
             <button
               type="button"
               disabled={page >= pages || loading}
-              onClick={() => void loadTenders(offset + limit)}
+              onClick={() => {
+                const nextOffset = offset + limit;
+                if (activeOraclePlan) {
+                  setOffset(nextOffset);
+                } else {
+                  void loadTenders(nextOffset);
+                }
+              }}
             >
               Siguiente
               <ChevronRight size={15} />
@@ -1361,6 +1476,11 @@ export function ProcurementWorkspace() {
               <RefreshCw size={15} />
             </button>
           </header>
+          <p className="procurement-watch-explainer">
+            Aquí guardas vigilancias estrechas para detectar novedades. Los
+            resultados inmediatos de «Buscar con Oracle» aparecen en la tabla
+            principal.
+          </p>
           <PermissionGate
             permission="opportunity.write"
             fallback={
@@ -1441,7 +1561,7 @@ export function ProcurementWorkspace() {
                       onClick={() => void runSearch(search)}
                     >
                       <Play size={14} />
-                      Ejecutar
+                      Reconsultar vigilancia
                     </AsyncActionButton>
                     <PermissionGate permission="opportunity.write">
                       {editingId === search.id ? (

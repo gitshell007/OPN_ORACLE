@@ -636,6 +636,13 @@
 .procurement-wizard-accepted small { display: block; color: var(--va-muted); font-weight: 500; line-height: 1.45; letter-spacing: 0; text-transform: none; }
 .procurement-wizard-footer { display: flex; justify-content: space-between; gap: 10px; align-items: center; border-top: 1px solid var(--va-border); background: white; padding: 12px 22px; flex-shrink: 0; z-index: 2; box-shadow: 0 -6px 16px #1020330a; }
 .procurement-wizard-footer > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.procurement-result-origin,
+.procurement-watch-explainer { margin: 0; border-left: 3px solid #5d7590; border-radius: 6px; background: #f3f7fb; color: #40566d; padding: 9px 11px; font-size: 11px; line-height: 1.45; }
+.procurement-result-origin { margin: 0 14px 12px; }
+.procurement-watch-explainer { margin: 0 0 12px; }
+.procurement-wizard-watch-toggle { display: flex; align-items: center; gap: 8px; }
+.procurement-wizard-watch-toggle input { width: 16px; height: 16px; flex: 0 0 auto; }
+.procurement-wizard-watch-warning { margin: 0; color: #85651e; font-weight: 700; }
 @media (max-width: 1050px) {
   .entity-graph-layout { grid-template-columns: 1fr; }
   .entity-graph-side { max-height: none; overflow: visible; border-left: 0; border-top: 1px solid var(--va-border); }

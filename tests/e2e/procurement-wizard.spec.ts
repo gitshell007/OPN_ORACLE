@@ -465,6 +465,29 @@ async function installProcurementContract(page: Page) {
     },
   );
   await page.route(
+    "**/api/v1/procurement/search-plans/execute",
+    async (route) => {
+      await route.fulfill({
+        json: {
+          plan,
+          execution: {
+            results: {
+              cache_hit: false,
+              cached_seconds: 0,
+              filters: { scope: "active" },
+              items: [tender],
+              total: 1,
+              limit: 25,
+              offset: 0,
+            },
+            probes: [],
+            provider_requests: 2,
+          },
+        },
+      });
+    },
+  );
+  await page.route(
     `**/api/v1/procurement-search-profiles/${profile.id}/saved-search`,
     async (route) => {
       saved = true;
@@ -506,6 +529,11 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   await expect(
     page.getByRole("button", { name: "Aceptar y buscar" }),
   ).toBeVisible();
+  const saveWatch = page.getByRole("checkbox", {
+    name: /Guardar también una vigilancia/,
+  });
+  await expect(saveWatch).not.toBeChecked();
+  await saveWatch.check();
   await page.getByRole("button", { name: "Previsualizar ahora" }).click();
   await expect(page.getByText("38 coincidencias")).toBeVisible();
   await expect(
@@ -516,6 +544,25 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   // El wizard cierra y pinta resultados de la ejecución inmediata.
   await expect(page.getByText(tender.title)).toBeVisible();
   await expect(
+    page.getByText(
+      /Resultados inmediatos del plan Oracle.*no sustituye esta tabla/,
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Licitaciones encontradas" }),
+  ).toBeFocused();
+  const refreshed = page.waitForRequest(
+    (request) =>
+      request.url().includes("/procurement/search-plans/execute") &&
+      request.method() === "POST",
+  );
+  await page.getByRole("button", { name: "Actualizar", exact: true }).click();
+  await refreshed;
+  await expect(page.getByText(tender.title)).toBeVisible();
+  await expect(
+    page.getByText(/Página 1 de 1 · ventana Oracle de hasta 100/),
+  ).toBeVisible();
+  await expect(
     page.locator(".procurement-saved-searches").getByText("v1", {
       exact: true,
     }),
@@ -524,6 +571,11 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
   expect(overflow).toBeLessThanOrEqual(1);
+  await expect(
+    page
+      .locator(".procurement-saved-searches")
+      .getByRole("button", { name: "Reconsultar vigilancia" }),
+  ).toBeVisible();
   await page
     .locator(".procurement-saved-searches")
     .getByRole("button", { name: "Activar vigilancia y avisos" })

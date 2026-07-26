@@ -269,6 +269,15 @@ describe("UI de contratación pública", () => {
       await screen.findByText("Resumen ya calculado."),
     ).toBeInTheDocument();
     expect(mocks.summarizeTender).not.toHaveBeenCalled();
+
+    expect(await screen.findByText("Expediente CATL")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Fijar$/ }));
+    await waitFor(() =>
+      expect(mocks.pin).toHaveBeenCalledWith("dossier-1", {
+        kind: "tender",
+        folder_id: tender.folder_id,
+      }),
+    );
   });
 
   it("expone el alcance real de Signal y no promete histórico aislado", async () => {
@@ -534,7 +543,16 @@ describe("UI de contratación pública", () => {
     fireEvent.click(screen.getByRole("button", { name: /guardar actual/i }));
     await waitFor(() => expect(mocks.createSearch).toHaveBeenCalled());
 
-    fireEvent.click(await screen.findByRole("button", { name: /ejecutar/i }));
+    expect(
+      screen.getByText(
+        /los resultados inmediatos de «Buscar con Oracle» aparecen en la tabla principal/i,
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /reconsultar vigilancia/i,
+      }),
+    );
     await waitFor(() =>
       expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
         limit: 25,
@@ -593,6 +611,11 @@ describe("UI de contratación pública", () => {
     expect(
       within(card as HTMLElement).getByRole("button", {
         name: "Activar vigilancia y avisos",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(card as HTMLElement).getByRole("button", {
+        name: "Reconsultar vigilancia",
       }),
     ).toBeInTheDocument();
   });
@@ -673,7 +696,11 @@ describe("UI de contratación pública", () => {
       });
 
     render(<ProcurementWorkspace />);
-    fireEvent.click(await screen.findByRole("button", { name: "Ejecutar" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Reconsultar vigilancia",
+      }),
+    );
     const feedbackGroup = await screen.findByRole("group", {
       name: "Valoración para Suministro de baterías",
     });
