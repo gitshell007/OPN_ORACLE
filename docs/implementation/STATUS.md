@@ -13,7 +13,11 @@ Interfaz canónica: `CANONICAL_UI=vector`
   `docs/operations/P2_OPS_READINESS.md` (offsite, documentos fail-closed, patentes EPO,
   rotación de credenciales demo).
 - Documentos siguen `DOCUMENTS_ENABLED=false` (gate de activación documentado, no habilitado).
-- Activación offsite en host y smoke de receipt se hacen en el despliegue de este cambio.
+- Activado en host: clave `oracle_backup_offsite_key`, destino local
+  `/var/backups/opn-oracle-offsite` (fuera de BACKUP_ROOT), `ORACLE_OFFSITE_ENABLED=1` en
+  `backup.conf`. Smoke: push del backup `20260726T110247Z-…` → receipt verificado
+  (`artifact_sha256` ok, ~2,7 MiB cifrado). Release `20260726T110244Z-quick-65c3738`.
+  Destino aún en el mismo servidor: válido como pipeline; DR real = rsync a otro host.
 
 ## P1 demo · higiene de tenant e informes dorados con PDF
 
