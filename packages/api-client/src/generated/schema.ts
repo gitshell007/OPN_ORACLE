@@ -28669,6 +28669,7 @@ export interface components {
             password: string;
             /** Format: uuid */
             tenant_id?: string;
+            remember?: boolean;
         };
         LoginResponse: {
             requires_tenant_selection: boolean;

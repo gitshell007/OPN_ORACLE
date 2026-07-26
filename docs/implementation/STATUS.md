@@ -4,6 +4,26 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## UX · recordar sesión, tipografía, oro, expediente y borrado
+
+- **Login:** checkbox «Recordar sesión» (`remember: bool`). Idle 7d / absoluto 14d
+  (`SESSION_REMEMBER_IDLE_HOURS` / `SESSION_REMEMBER_ABSOLUTE_DAYS`); sin remember
+  se mantienen 30 min / 12 h. Cookie Redis con techo 14d; `UserSession` sigue siendo
+  la fuente de verdad de caducidad.
+- **Ajustes:** tamaño de fuente Pequeña/Media/Grande (`data-font-scale`) además de
+  densidad y navegación compacta (localStorage por usuario).
+- **Nav:** oro de marca más vivo (`--opn-gold-bright` / `--or-light`); chip de
+  organización en blanco + avatar en gradiente dorado (no oro apagado).
+- **Expediente / Oráculo:** se ocultan «Generación nocturna» y el aviso de proveedor
+  secundario en la cabecera; detalle técnico solo en historial del análisis y en
+  `/app/admin/audit` (registro de actividad con búsqueda, ordenación y vaciado de
+  vista local). Layout de objetivos/hipótesis y hint del Oráculo con márgenes.
+- **Borrado bulk:** limpia `ai_context_evidence` y `ai_human_reviews` antes del
+  cascade (evita 500 por FK RESTRICT sobre `evidence_dossiers`). Test de integración
+  nuevo + el atómico previo en verde.
+- Sin migración. OpenAPI `LoginInput.remember`. Tests: vitest login, ruff, typecheck,
+  integración bulk-delete.
+
 ## P2 ops · offsite cifrado, documentos y checklist
 
 - Backup local y timers diarios ya operativos en el host; no se rehacen.

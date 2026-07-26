@@ -158,7 +158,12 @@ def _auth_input_schemas() -> dict[str, Any]:
         "LoginInput": {
             "type": "object",
             "required": ["email", "password"],
-            "properties": {"email": email, "password": password, "tenant_id": uuid},
+            "properties": {
+                "email": email,
+                "password": password,
+                "tenant_id": uuid,
+                "remember": {"type": "boolean"},
+            },
             "additionalProperties": False,
         },
         "PasswordInput": {

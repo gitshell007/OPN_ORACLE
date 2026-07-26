@@ -9,6 +9,7 @@
   --opn-gold:#C79A4B;
   --opn-gold-text:#8A6B2F;   /* only gold allowed in text (AA) */
   --opn-gold-light:#F0D48A;
+  --opn-gold-bright:#F0C75E; /* brand accents on dark chrome (not muted) */
   --opn-porcelain:#EFECE6;
   --opn-paper:#FAF9F6;
   --opn-ink:#1C1B18;
@@ -18,7 +19,7 @@
   --opn-neutral-200:#D8D3C8;
   /* Products: deep (light bg) / light (dark bg) */
   --nx-deep:#3E34A0; --nx-light:#8F83F0;
-  --or-deep:#1C2F8F; --or-light:#F0D48A; /* Oracle inherits the gold */
+  --or-deep:#1C2F8F; --or-light:#F0C75E; /* Oracle gold on dark chrome */
   --co-deep:#095E66; --co-light:#4FC4B0;
   --ra-deep:#D00000; --ra-light:#FF5400;
   /* Product brand gradients (symbols >=24px, covers, app icons only) */

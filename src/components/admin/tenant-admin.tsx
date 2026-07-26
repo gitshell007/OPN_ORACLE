@@ -4,7 +4,7 @@ import { ApiError, api, type components } from "@oracle/api-client";
 import { Activity, AlertTriangle, Ban, MailPlus, RefreshCw, Trash2, UserCog } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRecentAuth } from "@/components/auth/recent-auth";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
@@ -18,6 +18,8 @@ import {
 type Member = components["schemas"]["MemberResponse"];
 type Role = components["schemas"]["RoleResponse"];
 type Job = components["schemas"]["JobResponse"];
+type AuditEvent = components["schemas"]["AuditResponse"];
+type AuditSortKey = "created_at" | "action" | "result";
 
 function formatAdminDate(value?: string | null): string {
   if (!value) return "Sin fecha";
@@ -355,9 +357,7 @@ export function MembersAdmin() {
 }
 
 export function TenantAudit() {
-  const [items, setItems] = useState<components["schemas"]["AuditResponse"][]>(
-    [],
-  );
+  const [items, setItems] = useState<AuditEvent[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [activeView, setActiveView] = useState<"audit" | "processes">(() => {
     if (typeof window === "undefined") return "audit";
@@ -368,6 +368,12 @@ export function TenantAudit() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processError, setProcessError] = useState<string | null>(null);
+  const [auditQuery, setAuditQuery] = useState("");
+  const [auditSort, setAuditSort] = useState<{ key: AuditSortKey; dir: "asc" | "desc" }>({
+    key: "created_at",
+    dir: "desc",
+  });
+  const [clearedIds, setClearedIds] = useState<Set<string>>(() => new Set());
   const failedJobs = jobs.filter((job) => job.status === "failed").length;
 
   const load = useCallback(async () => {
@@ -411,13 +417,74 @@ export function TenantAudit() {
     };
   }, [load]);
 
+  const visibleAudit = useMemo(() => {
+    const needle = auditQuery.trim().toLocaleLowerCase("es");
+    const filtered = items.filter((item) => {
+      if (clearedIds.has(item.id)) return false;
+      if (!needle) return true;
+      const haystack = [
+        item.action,
+        productAuditActionLabel(item.action),
+        item.result,
+        productStatusLabel(item.result),
+      ]
+        .join(" ")
+        .toLocaleLowerCase("es");
+      return haystack.includes(needle);
+    });
+    const factor = auditSort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (auditSort.key === "created_at") {
+        return factor * (Date.parse(a.created_at) - Date.parse(b.created_at));
+      }
+      if (auditSort.key === "action") {
+        return (
+          factor *
+          productAuditActionLabel(a.action).localeCompare(
+            productAuditActionLabel(b.action),
+            "es",
+          )
+        );
+      }
+      return (
+        factor *
+        productStatusLabel(a.result).localeCompare(productStatusLabel(b.result), "es")
+      );
+    });
+  }, [auditQuery, auditSort, clearedIds, items]);
+
+  function toggleSort(key: AuditSortKey) {
+    setAuditSort((current) =>
+      current.key === key
+        ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "created_at" ? "desc" : "asc" },
+    );
+  }
+
+  function clearAuditView() {
+    setClearedIds(new Set(items.map((item) => item.id)));
+    setAuditQuery("");
+    toast.success("Vista del registro vaciada", {
+      description: "Solo se oculta en este dispositivo; la auditoría durable no se borra.",
+    });
+  }
+
+  function restoreAuditView() {
+    setClearedIds(new Set());
+    setAuditQuery("");
+    toast.success("Vista del registro restaurada");
+  }
+
   return (
     <div className="admin-page">
       <header className="admin-heading">
         <div>
           <p className="eyebrow">Administración de organización</p>
-          <h1>Auditoría</h1>
-          <p>Registro temporal de eventos y procesos en segundo plano de la organización activa.</p>
+          <h1>Auditoría y actividad</h1>
+          <p>
+            Registro de eventos, detalle técnico de IA y procesos en segundo plano de la
+            organización activa.
+          </p>
         </div>
         <button className="vector-secondary" type="button" onClick={() => void load()} disabled={loading}>
           <RefreshCw size={15} />
@@ -433,7 +500,7 @@ export function TenantAudit() {
           className={activeView === "audit" ? "active" : ""}
           onClick={() => setActiveView("audit")}
         >
-          Registro de auditoría
+          Registro de actividad
         </button>
         <button
           type="button"
@@ -458,30 +525,75 @@ export function TenantAudit() {
         <section className="admin-table-card" aria-labelledby="tenant-audit-events-title">
           <header className="admin-card-heading">
             <div>
-              <h2 id="tenant-audit-events-title">Registro de auditoría</h2>
-              <p>Quién hizo qué, cuándo y con qué resultado.</p>
+              <h2 id="tenant-audit-events-title">Registro de actividad</h2>
+              <p>
+                Incluye accesos, cambios de dominio y detalle técnico (p. ej. proveedor IA de
+                respaldo). Busca, ordena y vacía la vista local sin borrar la auditoría.
+              </p>
             </div>
           </header>
+          <div className="audit-toolbar">
+            <label className="search-field">
+              <span className="sr-only">Buscar en el registro</span>
+              <input
+                value={auditQuery}
+                onChange={(event) => setAuditQuery(event.target.value)}
+                placeholder="Buscar por acción, resultado o actor…"
+              />
+            </label>
+            <div className="placeholder-actions">
+              <button className="vector-secondary" type="button" onClick={clearAuditView} disabled={!items.length}>
+                Vaciar vista
+              </button>
+              <button
+                className="vector-secondary"
+                type="button"
+                onClick={restoreAuditView}
+                disabled={!clearedIds.size && !auditQuery}
+              >
+                Restaurar
+              </button>
+            </div>
+          </div>
           <div className="table-scroll">
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Fecha</th>
-                  <th>Acción</th>
-                  <th>Resultado</th>
+                  {(
+                    [
+                      ["created_at", "Fecha"],
+                      ["action", "Acción"],
+                      ["result", "Resultado"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <th key={key}>
+                      <button type="button" onClick={() => toggleSort(key)}>
+                        {label}
+                        {auditSort.key === key ? (auditSort.dir === "asc" ? " ↑" : " ↓") : ""}
+                      </button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {visibleAudit.map((item) => (
                   <tr key={item.id}>
                     <td>{formatAdminDate(item.created_at)}</td>
-                    <td>
-                      {productAuditActionLabel(item.action)}
-                    </td>
+                    <td>{productAuditActionLabel(item.action)}</td>
                     <td>{productStatusLabel(item.result)}</td>
                   </tr>
                 ))}
-                {!items.length && <tr><td colSpan={3}>No hay eventos de auditoría recientes.</td></tr>}
+                {!visibleAudit.length && (
+                  <tr>
+                    <td colSpan={3}>
+                      {clearedIds.size
+                        ? "Vista vaciada. Usa Restaurar para volver a mostrar los eventos."
+                        : auditQuery
+                          ? "Ningún evento coincide con la búsqueda."
+                          : "No hay eventos de auditoría recientes."}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

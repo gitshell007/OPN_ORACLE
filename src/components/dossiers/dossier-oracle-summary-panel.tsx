@@ -118,11 +118,13 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
     () => new Map((current?.citations ?? []).map((citation) => [citation.id, citation])),
     [current],
   );
-  const fallbackUsed =
-    current?.audit?.provider === "ollama_titan" ||
-    current?.audit?.model === "qwen3.6:27b" ||
-    current?.audit?.provider === "openrouter";
   const jobRunning = Boolean(state?.job && ["queued", "running", "retrying"].includes(state.job.status));
+  const userFacingWarnings = (output.warnings ?? []).filter(
+    (warning) =>
+      !/proveedor secundario|secondary provider|fallback|indisponibilidad técnica del primario/i.test(
+        warning,
+      ),
+  );
 
   useEffect(() => {
     if (!jobRunning) return;
@@ -266,23 +268,13 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
             <dl>
               <div><dt>Confianza</dt><dd>{output.confidence ?? 0}%</dd></div>
               <div><dt>Fuentes utilizadas</dt><dd>{output.evidence_coverage?.cited_items ?? 0}/{output.evidence_coverage?.available_items ?? 0}</dd></div>
-              <div><dt>Generado</dt><dd>{formatDate(state?.last_refreshed_at ?? current.updated_at)}</dd></div>
+              <div><dt>Actualizado</dt><dd>{formatDate(state?.last_refreshed_at ?? current.updated_at)}</dd></div>
             </dl>
           </div>
-          <p className="reporting-hint">
-            {state?.generation_trigger === "nightly"
-              ? "Generación nocturna"
-              : state?.generation_trigger === "manual"
-                ? "Actualización manual"
-                : "Origen de la versión anterior no registrado"}
-          </p>
           {jobRunning && (
             <p className="oracle-warning"><RefreshCw size={15} /> Actualización en curso; la última versión seguirá visible hasta publicar la nueva.</p>
           )}
-          {fallbackUsed && (
-            <p className="oracle-warning"><AlertCircle size={15} /> Se usó proveedor secundario por indisponibilidad técnica del primario.</p>
-          )}
-          {(output.warnings ?? []).map((warning, index) => (
+          {userFacingWarnings.map((warning, index) => (
             <p className="oracle-warning oracle-output-warning" key={`${index}-${warning}`}>
               <AlertCircle size={15} /> {warning}
             </p>
@@ -310,13 +302,32 @@ export function DossierOracleSummaryPanel({ dossierId }: { dossierId: string }) 
           <details className="oracle-history">
             <summary><History size={15} /> Historial de análisis ({versions.length})</summary>
             <ul>
-              {versions.map((version) => (
-                <li key={version.id}>
-                  <span>Análisis {version.version} · {formatDate(version.created_at)}</span>
-                  <span>{asOutput(version).confidence ?? 0}% confianza</span>
-                </li>
-              ))}
+              {versions.map((version) => {
+                const provider = version.audit?.provider;
+                const model = version.audit?.model;
+                const isCurrent = version.id === current.id;
+                const trigger = isCurrent ? state?.generation_trigger : null;
+                const triggerLabel =
+                  trigger === "nightly"
+                    ? "programada"
+                    : trigger === "manual"
+                      ? "manual"
+                      : null;
+                return (
+                  <li key={version.id}>
+                    <span>
+                      Análisis {version.version} · {formatDate(version.created_at)}
+                      {triggerLabel ? ` · ${triggerLabel}` : ""}
+                      {provider ? ` · ${provider}${model ? ` / ${model}` : ""}` : ""}
+                    </span>
+                    <span>{asOutput(version).confidence ?? 0}% confianza</span>
+                  </li>
+                );
+              })}
             </ul>
+            <p className="reporting-hint">
+              Detalle técnico del motor (proveedor, modelo y origen) solo en este historial y en el registro de actividad.
+            </p>
           </details>
           <div className="oracle-feedback">
             <textarea

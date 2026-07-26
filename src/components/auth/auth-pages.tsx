@@ -121,6 +121,7 @@ export function LoginPage() {
   const search = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [memberships, setMemberships] = useState<
@@ -132,7 +133,12 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const identity = await auth.login(email, password, tenantId || undefined);
+      const identity = await auth.login(
+        email,
+        password,
+        tenantId || undefined,
+        remember,
+      );
       router.replace(authenticatedLanding(search.get("next"), identity));
     } catch (reason) {
       if (
@@ -197,6 +203,17 @@ export function LoginPage() {
             </div>
           </label>
         )}
+        <label className="auth-remember">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(event) => setRemember(event.target.checked)}
+          />
+          <span>
+            Recordar sesión en este dispositivo
+            <small>Hasta 14 días si no cierras sesión. Evítalo en equipos compartidos.</small>
+          </span>
+        </label>
         <div className="auth-form-meta">
           <Link href="/forgot-password">¿Has olvidado la contraseña?</Link>
         </div>

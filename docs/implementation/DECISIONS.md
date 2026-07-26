@@ -1431,6 +1431,21 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** el analista actúa sin SSH. No se añaden columnas nuevas; no se filtran
   stack traces al cliente.
 
+## D-082 — Recordar sesión y ruido técnico fuera del Oráculo
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** el login no ofrecía extensión de sesión; el panel Oráculo mostraba
+  «Generación nocturna» y avisos de proveedor secundario pegados al borde; el bulk-delete
+  fallaba con `ForeignKeyViolation` sobre `ai_context_evidence` → `evidence_dossiers`.
+- **Decisión:** (1) `remember` opcional en login alarga idle/absoluto de `UserSession`
+  (7d/14d) sin cookie JWT ni remember de Flask-Login; (2) detalle de motor IA solo en
+  historial del análisis y en el registro de actividad admin (búsqueda/orden/vaciado de
+  vista local, sin borrar auditoría durable); (3) pre-delete de `AIContextEvidence` y
+  `AIHumanReview` en `delete_dossiers` para respetar RESTRICT.
+- **Consecuencias:** sesión más larga solo con consentimiento explícito; UI del expediente
+  más limpia; borrado de expedientes con contexto IA deja de devolver 500.
+
 ## D-081 — `report_writer` recorta claims ante revisor fallido, no borra el informe
 
 - **Estado:** accepted

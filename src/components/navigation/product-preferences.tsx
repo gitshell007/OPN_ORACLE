@@ -5,13 +5,26 @@ import { toast } from "sonner";
 import { useAuth } from "@/components/auth/auth-provider";
 
 type Density = "compact" | "balanced" | "comfortable";
+type FontScale = "small" | "medium" | "large";
+
+const FONT_LABELS: Record<FontScale, string> = {
+  small: "Pequeña",
+  medium: "Media",
+  large: "Grande",
+};
+
+function applyFontScale(value: FontScale) {
+  document.documentElement.dataset.fontScale = value;
+}
 
 export function ProductPreferences() {
   const userId = useAuth().identity!.user.id;
   const densityKey = `oracle:ui:density:${userId}`;
   const navigationKey = `oracle:nav:compact:${userId}`;
+  const fontKey = `oracle:ui:font-scale:${userId}`;
   const [density, setDensity] = useState<Density>("balanced");
   const [compact, setCompact] = useState(false);
+  const [fontScale, setFontScale] = useState<FontScale>("medium");
 
   useEffect(() => {
     const kickoff = window.setTimeout(() => {
@@ -20,14 +33,21 @@ export function ProductPreferences() {
         setDensity(stored);
       }
       setCompact(window.localStorage.getItem(navigationKey) === "true");
+      const font = window.localStorage.getItem(fontKey);
+      if (font === "small" || font === "medium" || font === "large") {
+        setFontScale(font);
+        applyFontScale(font);
+      }
     }, 0);
     return () => window.clearTimeout(kickoff);
-  }, [densityKey, navigationKey]);
+  }, [densityKey, fontKey, navigationKey]);
 
   const save = () => {
     window.localStorage.setItem(densityKey, density);
     window.localStorage.setItem(navigationKey, String(compact));
+    window.localStorage.setItem(fontKey, fontScale);
     document.documentElement.dataset.density = density;
+    applyFontScale(fontScale);
     window.dispatchEvent(new Event("oracle:navigation-preference"));
     toast.success("Preferencias visuales guardadas", {
       description: "Solo se conserva configuración de interfaz, nunca contenido sensible.",
@@ -37,9 +57,12 @@ export function ProductPreferences() {
   const reset = () => {
     window.localStorage.removeItem(densityKey);
     window.localStorage.removeItem(navigationKey);
+    window.localStorage.removeItem(fontKey);
     delete document.documentElement.dataset.density;
+    delete document.documentElement.dataset.fontScale;
     setDensity("balanced");
     setCompact(false);
+    setFontScale("medium");
     window.dispatchEvent(new Event("oracle:navigation-preference"));
     toast.success("Preferencias visuales restablecidas");
   };
@@ -59,6 +82,27 @@ export function ProductPreferences() {
       </section>
       <section className="settings-section">
         <header>
+          <h2>Tamaño de fuente</h2>
+          <p>Ajusta la legibilidad de la interfaz productiva sin cambiar la densidad.</p>
+        </header>
+        <div className="segmented choice" aria-label="Tamaño de fuente">
+          {(["small", "medium", "large"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={fontScale === value}
+              onClick={() => {
+                setFontScale(value);
+                applyFontScale(value);
+              }}
+            >
+              {FONT_LABELS[value]}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <header>
           <h2>Densidad</h2>
           <p>Ajusta el ritmo visual sin reducir la legibilidad.</p>
         </header>
@@ -66,6 +110,7 @@ export function ProductPreferences() {
           {(["compact", "balanced", "comfortable"] as const).map((value) => (
             <button
               key={value}
+              type="button"
               aria-pressed={density === value}
               onClick={() => setDensity(value)}
             >
@@ -93,8 +138,8 @@ export function ProductPreferences() {
         </label>
       </section>
       <div className="placeholder-actions">
-        <button className="vector-primary" onClick={save}>Guardar</button>
-        <button className="vector-secondary" onClick={reset}>Restablecer</button>
+        <button className="vector-primary" type="button" onClick={save}>Guardar</button>
+        <button className="vector-secondary" type="button" onClick={reset}>Restablecer</button>
       </div>
     </div>
   );

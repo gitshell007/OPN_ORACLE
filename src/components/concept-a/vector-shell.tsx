@@ -102,10 +102,21 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!canonical) return;
-    const loadPreference = () =>
+    const loadPreference = () => {
       setCompact(
         window.localStorage.getItem(`oracle:nav:compact:${user.id}`) === "true",
       );
+      const font = window.localStorage.getItem(`oracle:ui:font-scale:${user.id}`);
+      if (font === "small" || font === "medium" || font === "large") {
+        document.documentElement.dataset.fontScale = font;
+      } else {
+        delete document.documentElement.dataset.fontScale;
+      }
+      const density = window.localStorage.getItem(`oracle:ui:density:${user.id}`);
+      if (density === "compact" || density === "comfortable" || density === "balanced") {
+        document.documentElement.dataset.density = density;
+      }
+    };
     const kickoff = window.setTimeout(loadPreference, 0);
     window.addEventListener("oracle:navigation-preference", loadPreference);
     return () => {

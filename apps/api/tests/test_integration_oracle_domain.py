@@ -3993,6 +3993,104 @@ def test_bulk_dossier_delete_is_atomic_scoped_and_keeps_audit_trail(
     assert invalid.status_code == 422
 
 
+def test_bulk_dossier_delete_clears_ai_context_evidence_restrict(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """AIContextEvidence RESTRICT on evidence_dossiers must not block delete."""
+
+    _, ids, _ = oracle_stack
+    owner = _client(oracle_stack)
+    dossier = _create_dossier(owner, ids, "Borrar con contexto IA")
+    dossier_id = uuid.UUID(dossier["id"])
+    tenant_id = ids["tenant_a"]
+    signal_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    audit_id = uuid.uuid4()
+    snapshot_id = uuid.uuid4()
+    digest = hashlib.sha256(b"delete-context-evidence").digest()
+
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO signals(id,tenant_id,provider,external_id,title,summary,source_type,"
+                "source_name,ingested_at,tags,entities,categories,raw_hash,credibility,"
+                "raw_payload,created_at,updated_at) VALUES ("
+                ":id,:t,'synthetic','delete-ctx','Señal delete','','report','Fixture',now(),"
+                "'[]','[]','[]',:hash,80,'{}',now(),now())"
+            ),
+            {"id": signal_id, "t": tenant_id, "hash": digest},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO evidence(id,tenant_id,signal_id,source_kind,extract,locator,"
+                "checksum,classification,provenance,created_at,updated_at) VALUES ("
+                ":id,:t,:s,'signal','Evidencia delete','{}',:hash,'internal','{}',now(),now())"
+            ),
+            {"id": evidence_id, "t": tenant_id, "s": signal_id, "hash": digest},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO evidence_dossiers(tenant_id,evidence_id,dossier_id) "
+                "VALUES (:t,:e,:d)"
+            ),
+            {"t": tenant_id, "e": evidence_id, "d": dossier_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO ai_audit_logs("
+                "id,tenant_id,dossier_id,use_case,agent,action,provider,model,"
+                "prompt_name,prompt_version,prompt_hash,schema_name,schema_version,input_hash,"
+                "source_ids,status,data_classification,redaction_applied,redaction_summary,"
+                "input_tokens,output_tokens,actual_cost_micros,currency,attempt_count,"
+                "human_review_state,created_at,updated_at"
+                ") VALUES ("
+                ":id,:t,:d,'dossier_summary','dossier_situation_summary','generate',"
+                "'mock','mock-v1','summary','v1',:hash,'DossierSituationSummary','v1',:hash,"
+                "'[]','succeeded','internal',false,'{}',0,0,0,'EUR',1,'not_required',now(),now())"
+            ),
+            {"id": audit_id, "t": tenant_id, "d": dossier_id, "hash": digest},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO ai_context_snapshots(id,tenant_id,audit_log_id,dossier_id,"
+                "context_hash,source_manifest,classification,redaction_summary,"
+                "estimated_tokens,injection_indicators,created_at,updated_at) VALUES ("
+                ":id,:t,:a,:d,:hash,'{}','internal','{}',0,'[]',now(),now())"
+            ),
+            {
+                "id": snapshot_id,
+                "t": tenant_id,
+                "a": audit_id,
+                "d": dossier_id,
+                "hash": digest,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO ai_context_evidence(tenant_id,snapshot_id,evidence_id,"
+                "dossier_id,evidence_hash) VALUES (:t,:s,:e,:d,:hash)"
+            ),
+            {
+                "t": tenant_id,
+                "s": snapshot_id,
+                "e": evidence_id,
+                "d": dossier_id,
+                "hash": digest,
+            },
+        )
+    engine.dispose()
+
+    deleted = owner.post(
+        "/api/v1/dossiers/bulk-delete",
+        json={"dossier_ids": [str(dossier_id)]},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert deleted.status_code == 200, deleted.get_json()
+    assert deleted.get_json()["deleted_ids"] == [str(dossier_id)]
+    assert owner.get(f"/api/v1/dossiers/{dossier_id}").status_code == 404
+
+
 def test_signal_many_to_many_review_promote_idempotency_and_audit(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

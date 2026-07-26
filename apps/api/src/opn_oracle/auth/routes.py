@@ -148,24 +148,38 @@ def _membership_choices(user_id: UUID) -> list[dict[str, Any]]:
 
 
 def _create_session(
-    user: User, tenant_id: UUID | None, *, upgraded_password_hash: str | None = None
+    user: User,
+    tenant_id: UUID | None,
+    *,
+    upgraded_password_hash: str | None = None,
+    remember: bool = False,
 ) -> UserSession:
     user_id = user.id
     rotate_session_id()
     session.clear()
     login_user(user, fresh=True, remember=False)
     session["reauthenticated_at"] = time.time()
+    session["remember"] = bool(remember)
     renew_csrf()
     now = datetime.now(UTC)
     raw_sid = str(getattr(session, "sid", ""))
+    # Cookie lifetime is app-wide (remember ceiling). Durable idle/absolute
+    # timeouts live on UserSession and are enforced on every request.
+    session.permanent = True
+    if remember:
+        idle_delta = timedelta(hours=current_app.config["SESSION_REMEMBER_IDLE_HOURS"])
+        absolute_delta = timedelta(days=current_app.config["SESSION_REMEMBER_ABSOLUTE_DAYS"])
+    else:
+        idle_delta = timedelta(minutes=current_app.config["SESSION_IDLE_MINUTES"])
+        absolute_delta = timedelta(hours=current_app.config["SESSION_ABSOLUTE_HOURS"])
     record = UserSession(
         user_id=user_id,
         active_tenant_id=tenant_id,
         session_hash=session_hash(raw_sid),
         created_at=now,
         last_seen_at=now,
-        idle_expires_at=now + timedelta(minutes=current_app.config["SESSION_IDLE_MINUTES"]),
-        absolute_expires_at=now + timedelta(hours=current_app.config["SESSION_ABSOLUTE_HOURS"]),
+        idle_expires_at=now + idle_delta,
+        absolute_expires_at=now + absolute_delta,
         user_agent_summary=(request.user_agent.string or "")[:255] or None,
         ip_address=request.remote_addr,
     )
@@ -174,7 +188,12 @@ def _create_session(
     db.session.rollback()
     with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
         db.session.add(record)
-        _audit("auth.login.success", "success", resource_id=user.id)
+        _audit(
+            "auth.login.success",
+            "success",
+            resource_id=user.id,
+            metadata={"remember": bool(remember)},
+        )
         user_values: dict[str, Any] = {"last_login_at": now}
         if upgraded_password_hash is not None:
             user_values["password_hash"] = upgraded_password_hash
@@ -273,7 +292,13 @@ def login() -> Any:
         else None
     )
     tenant_id = UUID(str(selected["tenant_id"])) if selected else None
-    record = _create_session(user, tenant_id, upgraded_password_hash=upgraded_password_hash)
+    remember = bool(payload.get("remember", False))
+    record = _create_session(
+        user,
+        tenant_id,
+        upgraded_password_hash=upgraded_password_hash,
+        remember=remember,
+    )
     return {
         "session_id": str(record.id),
         "requires_tenant_selection": bool(choices and selected is None),

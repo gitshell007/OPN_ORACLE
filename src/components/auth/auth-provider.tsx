@@ -29,6 +29,7 @@ interface AuthValue {
     email: string,
     password: string,
     tenantId?: string,
+    remember?: boolean,
   ): Promise<SessionIdentity>;
   logout(): Promise<void>;
   refresh(): Promise<void>;
@@ -101,8 +102,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(
-    async (email: string, password: string, tenantId?: string) => {
-      await api.auth.login({ email, password, tenant_id: tenantId });
+    async (
+      email: string,
+      password: string,
+      tenantId?: string,
+      remember = false,
+    ) => {
+      await api.auth.login({
+        email,
+        password,
+        tenant_id: tenantId,
+        remember,
+      });
       const next = await api.auth.me();
       identityRef.current = next;
       setIdentity(next);

@@ -38,9 +38,9 @@
 }
 .auth-brand em,
 .vector-brand .oracle-logo em {
-  color: var(--or-light);
+  color: var(--opn-gold-bright, #f0c75e);
   font-style: normal;
-  font-weight: 400;
+  font-weight: 500;
 }
 .auth-brand-panel > div:nth-child(2) {
   max-width: 520px;
@@ -146,6 +146,32 @@
   background: transparent;
   color: #617188;
   padding: 5px;
+}
+.auth-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--opn-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.auth-remember input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--or-deep);
+  flex: 0 0 auto;
+}
+.auth-remember span {
+  display: grid;
+  gap: 2px;
+}
+.auth-remember small {
+  color: var(--opn-neutral-400);
+  font-size: 11px;
+  font-weight: 500;
 }
 .auth-form-meta {
   text-align: right;

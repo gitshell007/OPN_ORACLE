@@ -150,10 +150,11 @@ def init_auth_runtime(app: Flask) -> None:
                     401, detail="El acceso al tenant ya no está disponible.", code="session_expired"
                 )
         record.last_seen_at = now
-        record.idle_expires_at = min(
-            now + timedelta(minutes=app.config["SESSION_IDLE_MINUTES"]),
-            record.absolute_expires_at,
-        )
+        if session.get("remember"):
+            idle_delta = timedelta(hours=app.config["SESSION_REMEMBER_IDLE_HOURS"])
+        else:
+            idle_delta = timedelta(minutes=app.config["SESSION_IDLE_MINUTES"])
+        record.idle_expires_at = min(now + idle_delta, record.absolute_expires_at)
         db.session.commit()
         g.active_tenant_id = tenant_id
         return None

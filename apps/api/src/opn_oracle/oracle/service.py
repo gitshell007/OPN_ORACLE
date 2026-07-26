@@ -8,10 +8,11 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from opn_oracle.ai.models import AIArtifact, AIContextEvidence, AIHumanReview
 from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, actor_canonical_key, clean_labels
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import (
@@ -599,9 +600,11 @@ def delete_dossiers(
 ) -> list[uuid.UUID]:
     """Permanently remove a bounded, fully authorized set of dossiers.
 
-    The database owns the dependent-record cascade. Audit events deliberately remain:
-    their dossier reference is set to null by the foreign-key policy, while their
-    resource id and immutable metadata preserve the deletion trail.
+    Most dependent records cascade from ``strategic_dossiers``. Two AI graphs use
+    RESTRICT and must be cleared first: context evidence anchored on
+    ``evidence_dossiers``, and human reviews that pin AI artifacts.
+    Audit events deliberately remain: their dossier reference is set to null by
+    the foreign-key policy, while resource id and metadata preserve the trail.
     """
 
     tenant_id = require_tenant_id()
@@ -625,6 +628,30 @@ def delete_dossiers(
         # Keep unavailable resources indistinguishable from missing ones and avoid
         # a partial deletion if the selection changed between listing and submission.
         raise ResourceNotFound("Uno o varios expedientes ya no están disponibles.")
+
+    # RESTRICT on evidence_dossiers blocks the cascade when AI context still points
+    # at those join rows; clear them before deleting the dossiers.
+    session.execute(
+        delete(AIContextEvidence).where(
+            AIContextEvidence.tenant_id == tenant_id,
+            AIContextEvidence.dossier_id.in_(unique_ids),
+        )
+    )
+    artifact_ids = list(
+        session.scalars(
+            select(AIArtifact.id).where(
+                AIArtifact.tenant_id == tenant_id,
+                AIArtifact.dossier_id.in_(unique_ids),
+            )
+        )
+    )
+    if artifact_ids:
+        session.execute(
+            delete(AIHumanReview).where(
+                AIHumanReview.tenant_id == tenant_id,
+                AIHumanReview.artifact_id.in_(artifact_ids),
+            )
+        )
 
     deleted_ids: list[uuid.UUID] = []
     for dossier in dossiers:

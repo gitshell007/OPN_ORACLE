@@ -130,6 +130,8 @@ class Settings:
     session_cookie_name: str
     session_idle_minutes: int
     session_absolute_hours: int
+    session_remember_idle_hours: int
+    session_remember_absolute_days: int
     password_min_length: int
     password_max_bytes: int
     auth_max_failures: int
@@ -291,6 +293,16 @@ class Settings:
             ),
             session_absolute_hours=_as_int(
                 values.get("SESSION_ABSOLUTE_HOURS", 12), name="SESSION_ABSOLUTE_HOURS", minimum=1
+            ),
+            session_remember_idle_hours=_as_int(
+                values.get("SESSION_REMEMBER_IDLE_HOURS", 168),
+                name="SESSION_REMEMBER_IDLE_HOURS",
+                minimum=12,
+            ),
+            session_remember_absolute_days=_as_int(
+                values.get("SESSION_REMEMBER_ABSOLUTE_DAYS", 14),
+                name="SESSION_REMEMBER_ABSOLUTE_DAYS",
+                minimum=2,
             ),
             password_min_length=_as_int(
                 values.get("PASSWORD_MIN_LENGTH", 12), name="PASSWORD_MIN_LENGTH", minimum=10
@@ -714,7 +726,12 @@ class Settings:
                 "SESSION_COOKIE_PATH": "/",
                 "SESSION_PERMANENT": True,
                 "SESSION_SERIALIZATION_FORMAT": "msgpack",
-                "PERMANENT_SESSION_LIFETIME": timedelta(hours=self.session_absolute_hours),
+                # Ceiling for the Redis session cookie; UserSession enforces idle/absolute.
+                "PERMANENT_SESSION_LIFETIME": timedelta(days=self.session_remember_absolute_days),
+                "SESSION_IDLE_MINUTES": self.session_idle_minutes,
+                "SESSION_ABSOLUTE_HOURS": self.session_absolute_hours,
+                "SESSION_REMEMBER_IDLE_HOURS": self.session_remember_idle_hours,
+                "SESSION_REMEMBER_ABSOLUTE_DAYS": self.session_remember_absolute_days,
                 "RATELIMIT_STORAGE_URI": self.ratelimit_storage_url,
                 "RATELIMIT_HEADERS_ENABLED": True,
                 "MAX_CONTENT_LENGTH": self.document_max_bytes + 1024 * 1024,

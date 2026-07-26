@@ -71,7 +71,41 @@ describe("LoginPage", () => {
 
     await screen.findByText("Credenciales no válidas.");
     expect(screen.queryByText(/Referencia:/)).not.toBeInTheDocument();
-    await waitFor(() => expect(mocks.login).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.login).toHaveBeenCalledWith(
+        "persona@example.test",
+        "clave segura",
+        undefined,
+        false,
+      ),
+    );
+  });
+
+  it("envía remember=true al marcar recordar sesión", async () => {
+    mocks.login.mockResolvedValueOnce({
+      active_tenant_id: "tenant-1",
+      memberships: [],
+      permissions: [],
+      roles: [],
+      user: { id: "user-1", email: "persona@example.test", display_name: "Persona" },
+    });
+    const { container } = render(<LoginPage />);
+    fireEvent.change(container.querySelector<HTMLInputElement>('input[type="email"]')!, {
+      target: { value: "persona@example.test" },
+    });
+    fireEvent.change(container.querySelector<HTMLInputElement>('input[type="password"]')!, {
+      target: { value: "clave segura" },
+    });
+    fireEvent.click(screen.getByLabelText(/Recordar sesión en este dispositivo/i));
+    fireEvent.click(screen.getByRole("button", { name: "Entrar en Oracle" }));
+    await waitFor(() =>
+      expect(mocks.login).toHaveBeenCalledWith(
+        "persona@example.test",
+        "clave segura",
+        undefined,
+        true,
+      ),
+    );
   });
 
   it.each([

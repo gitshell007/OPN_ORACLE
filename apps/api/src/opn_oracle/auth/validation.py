@@ -12,7 +12,12 @@ from opn_oracle.common.errors import problem_response
 
 RULES: dict[tuple[str, str], tuple[dict[str, str], frozenset[str]]] = {
     ("/api/v1/auth/login", "POST"): (
-        {"email": "email", "password": "password", "tenant_id": "uuid"},
+        {
+            "email": "email",
+            "password": "password",
+            "tenant_id": "uuid",
+            "remember": "boolean",
+        },
         frozenset({"email", "password"}),
     ),
     ("/api/v1/auth/reauthenticate", "POST"): (
@@ -79,6 +84,8 @@ def _valid(value: Any, kind: str) -> bool:
             return True
         except (TypeError, ValueError):
             return False
+    if kind == "boolean":
+        return isinstance(value, bool)
     if kind == "member_status":
         return value in {"active", "suspended"}
     if kind == "roles":
