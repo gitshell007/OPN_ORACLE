@@ -1,8 +1,16 @@
 "use client";
 
 import { ApiError } from "@oracle/api-client";
-import { BarChart3, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, Check, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { createPortal } from "react-dom";
 
 export type ProcurementAnalyticsParams = {
   sample_size?: number;
@@ -45,6 +53,29 @@ type RankRow = {
   count: number;
   amount_sum: number;
 };
+
+const ANALYSIS_STAGES = [
+  {
+    id: "registry",
+    label: "Inventario del registro",
+    detail: "Leyendo el estado global de Signal PLACSP",
+  },
+  {
+    id: "sample",
+    label: "Muestreo de abiertas",
+    detail: "Tomando una muestra acotada de licitaciones activas",
+  },
+  {
+    id: "aggregate",
+    label: "Agregación de mercado",
+    detail: "Agrupando CPV, organismos, regiones e importes",
+  },
+  {
+    id: "rankings",
+    label: "Rankings y tramos",
+    detail: "Ordenando resultados y preparando la vista",
+  },
+] as const;
 
 function formatMoney(value: number): string {
   return new Intl.NumberFormat("es-ES", {
@@ -122,6 +153,139 @@ function RankTable({
   );
 }
 
+function AnalyticsProgressModal({
+  open,
+  progress,
+  stageIndex,
+  sampleSize,
+  topN,
+  finishing,
+}: {
+  open: boolean;
+  progress: number;
+  stageIndex: number;
+  sampleSize: number;
+  topN: number;
+  finishing: boolean;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
+  if (!mounted || !open) return null;
+
+  const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+  const ringStyle = {
+    ["--analytics-progress" as string]: String(clamped),
+  } as CSSProperties;
+
+  return createPortal(
+    <div
+      className="analytics-progress-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-busy={!finishing}
+      aria-labelledby="analytics-progress-title"
+      aria-describedby="analytics-progress-desc"
+    >
+      <div className="analytics-progress-backdrop" aria-hidden="true" />
+      <div className={`analytics-progress-card${finishing ? " is-complete" : ""}`}>
+        <div className="analytics-progress-glow" aria-hidden="true" />
+        <div className="analytics-progress-orbit" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+
+        <div className="analytics-progress-ring-wrap" style={ringStyle} aria-hidden="true">
+          <div className="analytics-progress-ring">
+            <svg viewBox="0 0 120 120">
+              <circle className="analytics-progress-track" cx="60" cy="60" r="52" />
+              <circle
+                className="analytics-progress-value"
+                cx="60"
+                cy="60"
+                r="52"
+                style={{
+                  strokeDasharray: `${2 * Math.PI * 52}`,
+                  strokeDashoffset: `${2 * Math.PI * 52 * (1 - clamped / 100)}`,
+                }}
+              />
+            </svg>
+            <div className="analytics-progress-center">
+              {finishing ? (
+                <Check size={28} strokeWidth={2.4} aria-hidden="true" />
+              ) : (
+                <Sparkles size={24} aria-hidden="true" />
+              )}
+              <strong>{clamped}%</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="analytics-progress-copy">
+          <p className="analytics-progress-kicker">
+            <Loader2 size={14} className="analytics-progress-spin" aria-hidden="true" />
+            Análisis de mercado PLACSP
+          </p>
+          <h2 id="analytics-progress-title">
+            {finishing ? "Análisis listo" : "Analizando licitaciones…"}
+          </h2>
+          <p id="analytics-progress-desc">
+            {finishing
+              ? "Rankings actualizados con la configuración seleccionada."
+              : `Muestreando ${formatInt(sampleSize)} licitaciones y preparando el top ${topN}.`}
+          </p>
+        </div>
+
+        <ol className="analytics-progress-stages">
+          {ANALYSIS_STAGES.map((stage, index) => {
+            const state =
+              finishing || index < stageIndex
+                ? "done"
+                : index === stageIndex
+                  ? "active"
+                  : "pending";
+            return (
+              <li key={stage.id} className={`analytics-progress-stage is-${state}`}>
+                <span className="analytics-progress-stage-mark" aria-hidden="true">
+                  {state === "done" ? <Check size={12} strokeWidth={2.5} /> : index + 1}
+                </span>
+                <div>
+                  <strong>{stage.label}</strong>
+                  <small>{stage.detail}</small>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+
+        <div
+          className="analytics-progress-bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={clamped}
+          aria-label="Progreso del análisis"
+        >
+          <span style={{ width: `${clamped}%` }} />
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export type ProcurementStatsViewProps = {
   loadAnalytics: (params: ProcurementAnalyticsParams) => Promise<ProcurementAnalyticsPayload>;
   eyebrow: string;
@@ -143,10 +307,29 @@ export function ProcurementStatsView({
   const [activeTable, setActiveTable] = useState<
     "cpv" | "buyers" | "regions" | "buckets" | "terms" | "statuses"
   >("cpv");
+  const [progress, setProgress] = useState(0);
+  const [stageIndex, setStageIndex] = useState(0);
+  const [finishing, setFinishing] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const loadGeneration = useRef(0);
+  const finishTimer = useRef<number | null>(null);
+
+  const clearFinishTimer = useCallback(() => {
+    if (finishTimer.current != null) {
+      window.clearTimeout(finishTimer.current);
+      finishTimer.current = null;
+    }
+  }, []);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    clearFinishTimer();
     setLoading(true);
     setError(null);
+    setModalOpen(true);
+    setFinishing(false);
+    setProgress(6);
+    setStageIndex(0);
     try {
       const result = await loadAnalytics({
         sample_size: sampleSize,
@@ -154,22 +337,63 @@ export function ProcurementStatsView({
         sort: sortBy,
         direction,
       });
+      if (generation !== loadGeneration.current) return;
       setData(result);
+      setProgress(100);
+      setStageIndex(ANALYSIS_STAGES.length - 1);
+      setFinishing(true);
+      finishTimer.current = window.setTimeout(() => {
+        if (generation !== loadGeneration.current) return;
+        setModalOpen(false);
+        setFinishing(false);
+        setLoading(false);
+      }, 720);
     } catch (reason) {
+      if (generation !== loadGeneration.current) return;
       setError(
         reason instanceof ApiError
           ? reason.problem.detail
           : "No se pudieron calcular las estadísticas de licitaciones.",
       );
-    } finally {
+      setModalOpen(false);
+      setFinishing(false);
       setLoading(false);
     }
-  }, [direction, loadAnalytics, sampleSize, sortBy, topN]);
+  }, [clearFinishTimer, direction, loadAnalytics, sampleSize, sortBy, topN]);
 
   useEffect(() => {
     const kickoff = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(kickoff);
-  }, [load]);
+    return () => {
+      window.clearTimeout(kickoff);
+      clearFinishTimer();
+      loadGeneration.current += 1;
+    };
+  }, [clearFinishTimer, load]);
+
+  // Progreso simulado mientras el servidor responde (la API es una sola petición).
+  useEffect(() => {
+    if (!loading || finishing) return;
+    const tick = window.setInterval(() => {
+      setProgress((current) => {
+        if (current >= 92) return current;
+        const next = current + (current < 35 ? 4.2 : current < 70 ? 2.4 : 1.1);
+        return Math.min(92, next);
+      });
+    }, 420);
+    return () => window.clearInterval(tick);
+  }, [finishing, loading]);
+
+  // Etapa activa acoplada al % (no a un contador independiente).
+  useEffect(() => {
+    if (!loading) return;
+    if (finishing) {
+      setStageIndex(ANALYSIS_STAGES.length - 1);
+      return;
+    }
+    if (progress >= 75) setStageIndex(2);
+    else if (progress >= 45) setStageIndex(1);
+    else setStageIndex(0);
+  }, [finishing, loading, progress]);
 
   const registry = data?.registry ?? {};
   const rankings = data?.rankings;
@@ -233,29 +457,50 @@ export function ProcurementStatsView({
     },
   };
 
+  const controlsDisabled = loading || modalOpen;
+
   return (
     <div className="platform-page">
+      <AnalyticsProgressModal
+        open={modalOpen}
+        progress={progress}
+        stageIndex={stageIndex}
+        sampleSize={sampleSize}
+        topN={topN}
+        finishing={finishing}
+      />
+
       <header className="admin-heading">
         <div>
           <p className="eyebrow">{eyebrow}</p>
           <h1>Estadísticas de licitaciones</h1>
           <p>{description}</p>
         </div>
-        <button className="vector-secondary" type="button" onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={15} /> {loading ? "Calculando…" : "Recalcular"}
+        <button
+          className="vector-secondary"
+          type="button"
+          onClick={() => void load()}
+          disabled={controlsDisabled}
+        >
+          <RefreshCw size={15} className={loading ? "analytics-progress-spin" : undefined} />
+          {loading ? "Analizando…" : "Recalcular"}
         </button>
       </header>
 
       <section className="settings-section">
         <header>
           <h2>Controles de análisis</h2>
-          <p>Los rankings se recalculan en servidor sobre la muestra de mercado PLACSP (no son datos privados del tenant).</p>
+          <p>
+            Al cambiar cualquier control se recalcula el análisis en servidor. Verás el progreso
+            mientras se procesa la muestra PLACSP.
+          </p>
         </header>
-        <div className="platform-analytics-controls">
+        <div className="platform-analytics-controls" aria-busy={controlsDisabled}>
           <label>
             <span>Muestra</span>
             <select
               value={sampleSize}
+              disabled={controlsDisabled}
               onChange={(event) => setSampleSize(Number(event.target.value))}
               aria-label="Tamaño de la muestra"
             >
@@ -270,6 +515,7 @@ export function ProcurementStatsView({
             <span>Top N</span>
             <select
               value={topN}
+              disabled={controlsDisabled}
               onChange={(event) => setTopN(Number(event.target.value))}
               aria-label="Número de filas del ranking"
             >
@@ -284,6 +530,7 @@ export function ProcurementStatsView({
             <span>Ordenar por</span>
             <select
               value={sortBy}
+              disabled={controlsDisabled}
               onChange={(event) => setSortBy(event.target.value as "count" | "amount_sum")}
               aria-label="Criterio de ordenación"
             >
@@ -295,6 +542,7 @@ export function ProcurementStatsView({
             <span>Dirección</span>
             <select
               value={direction}
+              disabled={controlsDisabled}
               onChange={(event) => setDirection(event.target.value as "asc" | "desc")}
               aria-label="Dirección de ordenación"
             >
@@ -308,7 +556,7 @@ export function ProcurementStatsView({
       {error && (
         <div className="inline-error" role="alert">
           {error}
-          <button type="button" onClick={() => void load()}>
+          <button type="button" onClick={() => void load()} disabled={controlsDisabled}>
             Reintentar
           </button>
         </div>
@@ -384,20 +632,27 @@ export function ProcurementStatsView({
             aria-selected={activeTable === id}
             className={activeTable === id ? "active" : ""}
             onClick={() => setActiveTable(id)}
+            disabled={controlsDisabled}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {loading && !data ? (
-        <p role="status">Cargando estadísticas de licitaciones…</p>
+      {!data && loading ? (
+        <p role="status" className="analytics-progress-inline-hint">
+          Preparando el primer análisis de mercado…
+        </p>
       ) : (
         <RankTable
           title={tableMeta[activeTable].title}
           description={tableMeta[activeTable].description}
           rows={activeRows}
-          sortBy={activeTable === "buckets" || activeTable === "terms" || activeTable === "statuses" ? "count" : sortBy}
+          sortBy={
+            activeTable === "buckets" || activeTable === "terms" || activeTable === "statuses"
+              ? "count"
+              : sortBy
+          }
         />
       )}
 

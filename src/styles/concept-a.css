@@ -3241,6 +3241,305 @@
   color: var(--va-text);
   line-height: 1.45;
 }
+
+/* ── Premium analytics analysis modal ───────────────────────── */
+.analytics-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: analytics-overlay-in .28s cubic-bezier(.22, 1, .36, 1);
+}
+.analytics-progress-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgb(21 60 112 / 28%), transparent 70%),
+    rgb(6 16 31 / 62%);
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+}
+.analytics-progress-card {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 20px;
+  background:
+    linear-gradient(165deg, rgb(255 255 255 / 98%) 0%, rgb(244 248 253 / 96%) 55%, rgb(236 244 252 / 97%) 100%);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 55%) inset,
+    0 28px 80px rgb(8 24 48 / 28%),
+    0 8px 24px rgb(15 45 90 / 12%);
+  padding: 28px 26px 24px;
+  animation: analytics-card-in .42s cubic-bezier(.22, 1, .36, 1);
+}
+.analytics-progress-card.is-complete {
+  animation: analytics-card-complete .45s ease;
+}
+.analytics-progress-glow {
+  position: absolute;
+  top: -40%;
+  left: 10%;
+  width: 80%;
+  height: 55%;
+  background: radial-gradient(circle, rgb(85 199 228 / 22%), transparent 68%);
+  pointer-events: none;
+  animation: analytics-glow-pulse 2.8s ease-in-out infinite;
+}
+.analytics-progress-orbit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.analytics-progress-orbit span {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgb(21 60 112 / 8%);
+  animation: analytics-orbit 8s linear infinite;
+}
+.analytics-progress-orbit span:nth-child(1) {
+  width: 180px;
+  height: 180px;
+  top: -50px;
+  right: -40px;
+  animation-duration: 10s;
+}
+.analytics-progress-orbit span:nth-child(2) {
+  width: 120px;
+  height: 120px;
+  bottom: -30px;
+  left: -20px;
+  animation-duration: 14s;
+  animation-direction: reverse;
+}
+.analytics-progress-orbit span:nth-child(3) {
+  width: 60px;
+  height: 60px;
+  top: 40%;
+  right: 12%;
+  background: rgb(85 199 228 / 10%);
+  border: 0;
+  animation-duration: 6s;
+}
+.analytics-progress-ring-wrap {
+  display: grid;
+  place-items: center;
+  margin: 4px auto 18px;
+}
+.analytics-progress-ring {
+  position: relative;
+  width: 132px;
+  height: 132px;
+}
+.analytics-progress-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.analytics-progress-track {
+  fill: none;
+  stroke: #e4edf7;
+  stroke-width: 8;
+}
+.analytics-progress-value {
+  fill: none;
+  stroke: url(#none);
+  stroke: var(--va-primary, #153c70);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset .55s cubic-bezier(.22, 1, .36, 1);
+  filter: drop-shadow(0 0 6px rgb(85 199 228 / 45%));
+}
+.analytics-progress-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2px;
+  color: var(--va-primary, #153c70);
+}
+.analytics-progress-center strong {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.analytics-progress-copy {
+  text-align: center;
+  margin-bottom: 18px;
+}
+.analytics-progress-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 8px;
+  color: #4a6480;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.analytics-progress-copy h2 {
+  margin: 0 0 6px;
+  color: var(--va-text, #122033);
+  font-size: 20px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
+}
+.analytics-progress-copy p:last-child {
+  margin: 0;
+  color: var(--va-muted, #66758a);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.analytics-progress-stages {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.analytics-progress-stage {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 12px;
+  transition: background .25s ease, border-color .25s ease, transform .25s ease;
+}
+.analytics-progress-stage.is-pending {
+  opacity: .48;
+}
+.analytics-progress-stage.is-active {
+  background: rgb(21 60 112 / 6%);
+  border-color: rgb(21 60 112 / 12%);
+  transform: translateX(2px);
+}
+.analytics-progress-stage.is-done {
+  opacity: 1;
+}
+.analytics-progress-stage-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e8eef6;
+  color: #5a6f88;
+  font-size: 11px;
+  font-weight: 800;
+}
+.analytics-progress-stage.is-active .analytics-progress-stage-mark {
+  background: var(--va-primary, #153c70);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgb(21 60 112 / 12%);
+  animation: analytics-mark-pulse 1.4s ease-in-out infinite;
+}
+.analytics-progress-stage.is-done .analytics-progress-stage-mark {
+  background: #e5f5ec;
+  color: #1f7a48;
+}
+.analytics-progress-stage strong {
+  display: block;
+  color: var(--va-text, #122033);
+  font-size: 13px;
+  font-weight: 750;
+}
+.analytics-progress-stage small {
+  display: block;
+  margin-top: 2px;
+  color: var(--va-muted, #66758a);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.analytics-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #e4edf7;
+  overflow: hidden;
+}
+.analytics-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--va-primary, #153c70), #55c7e4 55%, #7dd3fc);
+  background-size: 200% 100%;
+  animation: analytics-bar-shimmer 1.6s linear infinite;
+  transition: width .45s cubic-bezier(.22, 1, .36, 1);
+}
+.analytics-progress-spin {
+  animation: analytics-spin .85s linear infinite;
+}
+.analytics-progress-inline-hint {
+  margin: 0;
+  color: var(--va-muted);
+  font-size: 13px;
+}
+.platform-analytics-controls select:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+@keyframes analytics-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes analytics-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes analytics-card-complete {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.02); }
+}
+@keyframes analytics-glow-pulse {
+  0%, 100% { opacity: .7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+@keyframes analytics-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes analytics-mark-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgb(21 60 112 / 12%); }
+  50% { box-shadow: 0 0 0 8px rgb(21 60 112 / 6%); }
+}
+@keyframes analytics-bar-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@keyframes analytics-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analytics-progress-overlay,
+  .analytics-progress-card,
+  .analytics-progress-glow,
+  .analytics-progress-orbit span,
+  .analytics-progress-stage.is-active .analytics-progress-stage-mark,
+  .analytics-progress-bar > span,
+  .analytics-progress-spin,
+  .analytics-progress-value {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 .platform-insights-list strong {
   color: var(--va-heading, var(--va-text));
 }
