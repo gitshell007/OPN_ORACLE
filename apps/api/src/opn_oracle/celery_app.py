@@ -86,6 +86,12 @@ def celery_init_app(app: Flask) -> Celery:
             "schedule": 300.0,
             "options": {"queue": "maintenance"},
         },
+        # BOE/BORME open data usually settles mid-morning; re-check late morning local.
+        "poll-source-activity": {
+            "task": "maintenance.poll_source_activity",
+            "schedule": crontab(hour=10, minute=15),
+            "options": {"queue": "maintenance"},
+        },
     }
     if app.config["NIGHTLY_SUMMARIES_ENABLED"]:
         beat_schedule["schedule-nightly-dossier-summaries"] = {

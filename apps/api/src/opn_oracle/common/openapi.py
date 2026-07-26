@@ -259,6 +259,11 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
         ("/api/v1/platform/users", "get"): ("200", "UserListResponse"),
         ("/api/v1/assignable-users", "get"): ("200", "AssignableUserListResponse"),
         ("/api/v1/platform/audit", "get"): ("200", "AuditListResponse"),
+        ("/api/v1/platform/source-activity", "get"): ("200", "SourceActivityListResponse"),
+        ("/api/v1/platform/source-activity/refresh", "post"): (
+            "200",
+            "SourceActivityRefreshResponse",
+        ),
         ("/api/v1/tenant-admin/members", "get"): ("200", "MemberListResponse"),
         ("/api/v1/tenant-admin/members", "post"): ("201", "IdResponse"),
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): (
@@ -590,6 +595,70 @@ def _response_schemas() -> dict[str, Any]:
         "MemberListResponse": item_list("#/components/schemas/MemberResponse"),
         "RoleListResponse": item_list("#/components/schemas/RoleResponse"),
         "AuditListResponse": item_list("#/components/schemas/AuditResponse"),
+        "SourceActivityItem": {
+            "type": "object",
+            "required": [
+                "id",
+                "source_key",
+                "source_label",
+                "activity_date",
+                "status",
+                "item_count",
+            ],
+            "properties": {
+                "id": uuid,
+                "source_key": {"type": "string"},
+                "source_label": {"type": "string"},
+                "activity_date": {"type": "string", "format": "date"},
+                "status": {
+                    "type": "string",
+                    "enum": ["published", "not_published", "error"],
+                },
+                "item_count": {"type": "integer", "minimum": 0},
+                "section_counts": {"type": "object", "additionalProperties": {"type": "integer"}},
+                "official_identifier": {"type": "string", "nullable": True},
+                "detail": {"type": "string"},
+                "error_message": {"type": "string", "nullable": True},
+                "checked_at": {"type": "string", "format": "date-time", "nullable": True},
+                "created_at": {"type": "string", "format": "date-time", "nullable": True},
+                "updated_at": {"type": "string", "format": "date-time", "nullable": True},
+            },
+            "additionalProperties": False,
+        },
+        "SourceActivityListResponse": {
+            "type": "object",
+            "required": ["items", "meta"],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/SourceActivityItem"},
+                },
+                "meta": {
+                    "type": "object",
+                    "required": ["total", "published_days", "item_count_sum", "sources"],
+                    "properties": {
+                        "total": {"type": "integer"},
+                        "published_days": {"type": "integer"},
+                        "item_count_sum": {"type": "integer"},
+                        "sources": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+            "additionalProperties": False,
+        },
+        "SourceActivityRefreshResponse": {
+            "type": "object",
+            "required": ["refreshed", "items"],
+            "properties": {
+                "refreshed": {"type": "integer"},
+                "items": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/SourceActivityItem"},
+                },
+            },
+            "additionalProperties": False,
+        },
         "UserListResponse": item_list("#/components/schemas/UserResponse"),
         "AssignableUserListResponse": item_list("#/components/schemas/AssignableUserResponse"),
         "JobResponse": {

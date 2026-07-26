@@ -285,7 +285,15 @@ export function productScoreDetailLabel(key: string): string | null {
   return SCORE_DETAIL_LABELS[key] ?? null;
 }
 
+const EXTRA_AUDIT_ACTION_LABELS: Record<string, string> = {
+  "platform.source_activity.refreshed": "Comprobación de fuentes oficiales",
+};
+
 export function productAuditActionLabel(action?: string | null): string {
+  if (action && EXTRA_AUDIT_ACTION_LABELS[action]) {
+    return EXTRA_AUDIT_ACTION_LABELS[action];
+  }
+
   if (!action) return "Actividad registrada";
   return AUDIT_ACTION_LABELS[action] ?? "Actividad administrativa registrada";
 }

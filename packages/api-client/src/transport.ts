@@ -378,6 +378,58 @@ const platform = {
     request<components["schemas"]["AuditListResponse"]>(
       "/api/v1/platform/audit",
     ),
+  sourceActivity: (params?: {
+    source?: string;
+    q?: string;
+    from?: string;
+    to?: string;
+    sort?: string;
+    direction?: "asc" | "desc";
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.source) query.set("source", params.source);
+    if (params?.q) query.set("q", params.q);
+    if (params?.from) query.set("from", params.from);
+    if (params?.to) query.set("to", params.to);
+    if (params?.sort) query.set("sort", params.sort);
+    if (params?.direction) query.set("direction", params.direction);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request<{
+      items: Array<{
+        id: string;
+        source_key: string;
+        source_label: string;
+        activity_date: string;
+        status: "published" | "not_published" | "error";
+        item_count: number;
+        section_counts?: Record<string, number>;
+        official_identifier?: string | null;
+        detail?: string;
+        error_message?: string | null;
+        checked_at?: string | null;
+      }>;
+      meta: {
+        total: number;
+        published_days: number;
+        item_count_sum: number;
+        sources: string[];
+      };
+    }>(`/api/v1/platform/source-activity${suffix}`);
+  },
+  refreshSourceActivity: (lookback_days = 14) =>
+    request<{
+      refreshed: number;
+      items: Array<{
+        id: string;
+        source_key: string;
+        activity_date: string;
+        status: string;
+        item_count: number;
+      }>;
+    }>("/api/v1/platform/source-activity/refresh", {
+      method: "POST",
+      body: { lookback_days },
+    }),
   system: async () => {
     const [live, ready, meta] = await Promise.all([
       request<components["schemas"]["Health"]>("/health/live"),

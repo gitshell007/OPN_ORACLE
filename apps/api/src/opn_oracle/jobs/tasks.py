@@ -1052,6 +1052,24 @@ AI_DURABLE_TASKS = {
 }
 
 
+@shared_task(name="maintenance.poll_source_activity", ignore_result=True)
+def poll_source_activity(lookback_days: int = 14) -> int:
+    """Refresh BORME/BOE official publication counts for the platform activity log."""
+
+    from opn_oracle.platform.source_activity import poll_source_activity as _poll
+
+    with tenant_context(
+        TenantContext(
+            tenant_id=None,
+            actor_id=None,
+            platform_access=True,
+            access_reason="Comprobación diaria de sumarios BORME/BOE",
+        )
+    ):
+        rows = _poll(db.session, lookback_days=int(lookback_days or 14))
+        return len(rows)
+
+
 @shared_task(name="maintenance.expire_sessions")
 def expire_sessions() -> int:
     now = datetime.now(UTC)

@@ -1431,6 +1431,20 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** el analista actúa sin SSH. No se añaden columnas nuevas; no se filtran
   stack traces al cliente.
 
+## D-083 — Log de fuentes oficiales BORME/BOE para superadmin
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** el superusuario necesita ver cada día si BORME/BOE han publicado y con
+  cuántos registros, sin entrar en datos de tenant. Signal mantiene el índice histórico;
+  Oracle no tenía un trail de comprobación.
+- **Decisión:** tabla global `platform_source_activity` alimentada por sumarios oficiales
+  del BOE (open data), job Celery matutino y pantalla `/platform/source-activity` con
+  recuentos y filtros. No se inventa un conteo de ingesta Signal hasta que exista un
+  endpoint de proveedor explícito.
+- **Consecuencias:** el operador ve «publicado / sin publicación / error» y cantidades
+  oficiales por día. No sustituye el estado interno de Signal; lo complementa.
+
 ## D-082 — Recordar sesión y ruido técnico fuera del Oráculo
 
 - **Estado:** accepted

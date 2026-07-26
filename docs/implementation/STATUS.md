@@ -4,6 +4,18 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Superadmin · log de actividad de fuentes oficiales (BORME/BOE)
+
+- Nuevo registro de plataforma `platform_source_activity` (migración `20260726_0026`):
+  una fila por fuente y día con estado (`published` / `not_published` / `error`),
+  `item_count` y desglose por sección.
+- Poll diario Celery `maintenance.poll_source_activity` (10:15) y botón «Actualizar ahora»
+  en UI superadmin (`/platform/source-activity`).
+- Contadores desde API de datos abiertos del BOE (sumario BORME/BOE): no es el índice
+  Signal; mide si el boletín salió y cuántos identificadores de contenido hay.
+- API: `GET/POST /api/v1/platform/source-activity[+ /refresh]`, solo `platform_super_admin`.
+- UI: búsqueda, ordenación, vaciado de vista local y resumen de registros.
+
 ## UX · recordar sesión, tipografía, oro, expediente y borrado
 
 - **Login:** checkbox «Recordar sesión» (`remember: bool`). Idle 7d / absoluto 14d

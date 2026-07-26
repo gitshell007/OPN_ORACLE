@@ -19,7 +19,7 @@ from opn_oracle.auth.tokens import hash_token, stable_invitation_token
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db
 from opn_oracle.jobs.service import publish_job, stage_job
-from opn_oracle.platform.audit import append_audit_event
+from opn_oracle.platform.audit import append_audit_event, append_global_audit_event
 from opn_oracle.platform.models import (
     AuditEvent,
     Invitation,
@@ -360,4 +360,91 @@ def platform_audit() -> dict[str, Any]:
             }
             for row in audit_rows
         ]
+    }
+
+
+def _parse_day(value: str | None) -> Any:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+@bp.get("/source-activity")
+@require_platform_admin
+def platform_source_activity() -> Any:
+    """Daily official gazette activity (BORME/BOE) for platform operators."""
+
+    from opn_oracle.platform.source_activity import list_source_activity, serialize_activity
+
+    source = (request.args.get("source") or "").strip().lower() or None
+    search = (request.args.get("q") or "").strip() or None
+    sort = (request.args.get("sort") or "activity_date").strip()
+    direction = (request.args.get("direction") or "desc").strip().lower()
+    if direction not in {"asc", "desc"}:
+        direction = "desc"
+    date_from = _parse_day(request.args.get("from"))
+    date_to = _parse_day(request.args.get("to"))
+    if request.args.get("from") and date_from is None:
+        return problem_response(
+            422, detail="from debe ser una fecha YYYY-MM-DD.", code="invalid_from"
+        )[:2]
+    if request.args.get("to") and date_to is None:
+        return problem_response(422, detail="to debe ser una fecha YYYY-MM-DD.", code="invalid_to")[
+            :2
+        ]
+
+    rows = list_source_activity(
+        db.session,
+        source=source,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        sort=sort,
+        direction=direction,
+    )
+    published = sum(1 for row in rows if row.status == "published")
+    items_total = sum(int(row.item_count) for row in rows if row.status == "published")
+    return {
+        "items": [serialize_activity(row) for row in rows],
+        "meta": {
+            "total": len(rows),
+            "published_days": published,
+            "item_count_sum": items_total,
+            "sources": ["borme", "boe"],
+        },
+    }
+
+
+@bp.post("/source-activity/refresh")
+@require_platform_admin
+def platform_source_activity_refresh() -> Any:
+    """Manually re-check recent BORME/BOE sumarios and persist the activity log."""
+
+    from opn_oracle.platform.source_activity import poll_source_activity, serialize_activity
+
+    payload = _payload()
+    lookback = payload.get("lookback_days", 14)
+    try:
+        lookback_days = int(lookback)
+    except (TypeError, ValueError):
+        return problem_response(
+            422, detail="lookback_days debe ser un entero.", code="invalid_lookback"
+        )[:2]
+    lookback_days = max(1, min(lookback_days, 60))
+    rows = poll_source_activity(db.session, lookback_days=lookback_days)
+    append_global_audit_event(
+        db.session,
+        action="platform.source_activity.refreshed",
+        resource_type="platform_source_activity",
+        result="success",
+        actor_id=current_user.id if current_user.is_authenticated else None,
+        metadata={"lookback_days": lookback_days, "rows": len(rows)},
+    )
+    db.session.commit()
+    return {
+        "refreshed": len(rows),
+        "items": [serialize_activity(row) for row in rows[:50]],
     }

@@ -38,6 +38,7 @@ from opn_oracle.platform.models import (
     UserSettings,
     Workspace,
 )
+from opn_oracle.platform.source_activity import PlatformSourceActivity
 from opn_oracle.reporting.models import REPORTING_MODELS
 
 
@@ -77,6 +78,7 @@ MODEL_REGISTRY = (
     AuditEvent,
     IntegrationConnection,
     ApiCredential,
+    PlatformSourceActivity,
     *BACKUP_MODELS,
     *INTEGRATION_MODELS,
     *ORACLE_MODELS,

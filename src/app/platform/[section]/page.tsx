@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { PlatformOperationalOverview, PlatformSystem } from "@/components/platform/platform-pages";
 import { PlatformBackups } from "@/components/platform/platform-backups";
+import { PlatformSourceActivity } from "@/components/platform/platform-source-activity";
 
 const sections = {
   jobs: {
@@ -19,6 +20,10 @@ const sections = {
     title: "Copias de seguridad",
     description: "Creación, retención y recuperación de copias de plataforma.",
   },
+  "source-activity": {
+    title: "Fuentes oficiales",
+    description: "Registro diario de publicación BORME y BOE con recuentos.",
+  },
 } as const;
 
 export default async function Page({ params }: { params: Promise<{ section: string }> }) {
@@ -27,6 +32,7 @@ export default async function Page({ params }: { params: Promise<{ section: stri
   if (!config) notFound();
   if (section === "system") return <PlatformSystem />;
   if (section === "backups") return <PlatformBackups />;
+  if (section === "source-activity") return <PlatformSourceActivity />;
   if (section === "jobs" || section === "integrations") {
     return <PlatformOperationalOverview kind={section} />;
   }
