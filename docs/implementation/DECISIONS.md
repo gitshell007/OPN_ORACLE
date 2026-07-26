@@ -1368,6 +1368,27 @@ deberá versionarse un flujo de copia/materialización separado.
   adjudicatarios sigue pendiente de un índice documental medido en Signal. La mutación de seguridad
   de alias que incluía personas en candidatos hizo caer el test HTTP/UI correspondiente.
 
+## D-081 — `report_writer` recorta claims ante revisor fallido, no borra el informe
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** en producción, reintentar `Informe de actores · Coches de Bomberos` con 104
+  evidencias congeladas termina en `permanent_failure` tras ~2–3 min porque
+  `evidence_review_failure_policy=reject_output` convierte cualquier `verdict=fail` del revisor en
+  `ValueError` sin revision ni artefactos. La validación estructural de citas ya existe; el revisor
+  semántico con modelo local/Signal produce falsos rechazos y deja al analista sin entregable
+  (plantillas `actors`, `action_plan`, ejecutivos vía `report_writer`).
+- **Decisión:** `report_writer` usa `strip_claims` como `dossier_situation_summary`: se retiran solo
+  claims anclados de forma única y se añaden avisos visibles; si el revisor objeta de forma no
+  anclable o de seguridad/privacidad, se mantiene fail-closed. Competitive procurement sigue en
+  `reject_output`. No se desactiva el revisor ni se toca entity_dossier (`not_required`).
+- **Consecuencias:** un informe de actores puede llegar a `ready` con claims recortados y warnings
+  en lugar de desaparecer. El precio es posible infra-especificación del mapa de actores si el
+  revisor es agresivo; se mitiga con avisos y con el prompt 93 (errores/audit legibles). Alternativas
+  descartadas: quitar revisor (rompe garantía pedida en 63), solo `actors` por template (el agente
+  es único y la política vive en el registry de agente), `reject_output` (estado actual medido
+  como demoledor de demo).
+
 ## D-080 — El catálogo asignable es mínimo y usa el permiso del flujo que lo consume
 
 - **Estado:** accepted

@@ -1,8 +1,25 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-25
+Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Prompt 92 · report_writer no se pierde ante revisor `fail`
+
+- UAT autenticado en producción (owner `mburgos@iacell.com`, tenant OPN Consultoría) reintentó
+  `Informe de actores · Coches de Bomberos`: job `f883d306-…` ~166 s, 104 evidencias en snapshot,
+  fallo `El revisor de evidencia rechazó el output` con política `reject_output` y sin `revision`
+  ni artefactos. El fallo antiguo del 24-jul era JSON truncado del revisor; el de hoy es
+  `verdict=fail` limpio.
+- **Decisión (D-081):** `report_writer` pasa a `strip_claims` (misma familia que
+  `dossier_situation_summary`). Si el revisor marca claims anclados, se retiran y el informe se
+  publica con avisos; objeciones no anclables siguen en fail-closed. `competitive_procurement_intelligence`
+  conserva `reject_output`. No se toca entity_dossier (revisor no requerido).
+- Sin migración, variables, frontend ni Signal. Tests: registry unitario; integración
+  `test_report_writer_strips_claims_on_negative_reviewer_verdict` (éxito con strip) y competitive
+  hard-fail. Mutación: revertir a `reject_output` hace caer ambos tests del cambio; restaurado
+  verde. Ruff check/format-check correctos en los ficheros tocados.
+- Tras commit/push se activa release en producción y se reintenta el mismo informe de actores.
 
 ## Prompt 91 · selector asignable, 429 veraz y runtime web reproducible
 

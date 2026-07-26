@@ -160,9 +160,13 @@ EVIDENCE_REVIEW_REQUIRED = {
     "tender_search_wizard": False,
 }
 
-# Respuesta al veredicto `fail`, declarada por agente y consultada directamente. Los informes
-# publicables conservan rechazo duro. Solo el resumen nocturno puede retirar quirúrgicamente
-# claims objetados y continuar, porque mantiene visible el recorte y se regenera automáticamente.
+# Respuesta al veredicto `fail`, declarada por agente y consultada directamente.
+# - reject_output: fallo duro (triage, competitive y agentes de decisión).
+# - strip_claims: retira solo claims anclados y publica con avisos visibles. Aplica al
+#   resumen nocturno y a report_writer (plantillas actors/action_plan/executive/…): en
+#   producción el revisor tumba informes con evidencia real y deja al usuario sin
+#   entregable; el recorte quirúrgico conserva la validación estructural de citas.
+# - not_required: el agente no invoca al revisor semántico.
 EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "intake": "reject_output",
     "signal_triage": "reject_output",
@@ -171,7 +175,7 @@ EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "risk": "reject_output",
     "actor_partnership": "reject_output",
     "meeting_briefing": "reject_output",
-    "report_writer": "reject_output",
+    "report_writer": "strip_claims",
     "competitive_procurement_intelligence": "reject_output",
     "entity_dossier_intelligence": "not_required",
     "memory_curator": "reject_output",

@@ -2202,16 +2202,134 @@ def test_summary_reviewer_fail_strips_uniquely_matched_claim_and_declares_it(
         assert snapshot.source_manifest["evidence_review_failure_policy"] == "strip_claims"
 
 
-@pytest.mark.parametrize(
-    "agent",
-    ["report_writer", "competitive_procurement_intelligence"],
-)
-def test_report_agents_keep_hard_failure_on_negative_reviewer_verdict(
+def test_report_writer_strips_claims_on_negative_reviewer_verdict(
     jobs_stack: tuple[Any, dict[str, uuid.UUID]],
     monkeypatch: pytest.MonkeyPatch,
-    agent: str,
+) -> None:
+    """report_writer uses strip_claims: a scoped reviewer fail must not erase the report."""
+
+    app, ids = jobs_stack
+    rejected: dict[str, str] = {}
+
+    class OneObjectionReportProvider(MockLLMProvider):
+        def generate_structured(self, request: Any, schema: Any) -> LLMResult:
+            if request.agent == "evidence_reviewer":
+                candidate = request.context["candidate_claims"][0]
+                rejected.update(path=candidate["path"], claim=candidate["claim"])
+                output = EvidenceReviewerOutput.model_validate(
+                    {
+                        "facts": [],
+                        "inferences": [],
+                        "recommendations": [],
+                        "confidence": 90,
+                        "open_questions": [],
+                        "warnings": [],
+                        "verdict": "fail",
+                        "unsupported_claims": [
+                            {
+                                "path": candidate["path"],
+                                "claim": candidate["claim"],
+                                "reason": "La cita no respalda esta formulación.",
+                            }
+                        ],
+                        "required_corrections": ["Retirar la afirmación."],
+                    }
+                )
+                return LLMResult(output, 120, 60, 0, 1, provider="mock", model=self.model)
+            output = ReportOutput.model_validate(
+                {
+                    "facts": [],
+                    "inferences": [],
+                    "recommendations": [],
+                    "confidence": 70,
+                    "open_questions": [],
+                    "warnings": [],
+                    "title": "Informe sujeto a revisión",
+                    "executive_summary": "Síntesis ejecutiva conservable.",
+                    "sections": [
+                        {
+                            "heading": "Análisis",
+                            "paragraphs": [
+                                {
+                                    "text": "Una afirmación que el revisor debe rechazar.",
+                                    "kind": "fact",
+                                    "confidence": 70,
+                                    "evidence_ids": [],
+                                }
+                            ],
+                        }
+                    ],
+                    "top_opportunities": [],
+                    "top_risks": [],
+                    "recommended_actions": [],
+                    "decisions_required": [],
+                    "source_index": [],
+                }
+            )
+            return LLMResult(output, 100, 50, 0, 1, provider="mock", model=self.model)
+
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.provider_from_config",
+        lambda config: OneObjectionReportProvider("report-writer-review-strip"),
+    )
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+    ):
+        policy = db.session.scalar(select(AITenantPolicy).with_for_update())
+        assert policy is not None
+        policy.daily_call_limit = 0
+        job = BackgroundJob(
+            tenant_id=ids["tenant"],
+            dossier_id=ids["dossier"],
+            job_type="oracle.ai.report_writer",
+            status="running",
+            queue="ai",
+            idempotency_key=f"report-writer-review-strip-{uuid.uuid4()}",
+            payload_hash=hashlib.sha256(b"report-writer-review-strip").digest(),
+            input_payload={"dossier_id": str(ids["dossier"])},
+            requested_by_user_id=ids["user"],
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        result = execute_agent(
+            agent="report_writer",
+            dossier_id=ids["dossier"],
+            job=job,
+            supplemental_context={"report_scope": {}},
+        )
+
+        artifact = db.session.get(AIArtifact, uuid.UUID(result["artifact_id"]))
+        assert artifact is not None
+        assert artifact.output["title"] == "Informe sujeto a revisión"
+        assert artifact.output["executive_summary"] == "Síntesis ejecutiva conservable."
+        # The only reviewable claim lived in the section paragraph; after strip the section
+        # may remain empty of that paragraph.
+        dumped = json.dumps(artifact.output, ensure_ascii=False)
+        assert rejected["claim"] not in dumped or any(
+            rejected["claim"] in warning and "Afirmación retirada" in warning
+            for warning in artifact.output.get("warnings", [])
+        )
+        assert any(
+            "se retiraron" in warning and "afirmación" in warning
+            for warning in artifact.output["warnings"]
+        )
+        audit = db.session.get(AIAuditLog, artifact.audit_log_id)
+        snapshot = db.session.scalar(
+            select(AIContextSnapshot).where(AIContextSnapshot.audit_log_id == artifact.audit_log_id)
+        )
+        assert audit is not None and audit.status == "succeeded"
+        assert snapshot is not None
+        assert snapshot.source_manifest["evidence_review_failure_policy"] == "strip_claims"
+
+
+def test_competitive_procurement_keeps_hard_failure_on_negative_reviewer_verdict(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, ids = jobs_stack
+    agent = "competitive_procurement_intelligence"
 
     class RejectedReportProvider(MockLLMProvider):
         def generate_structured(self, request: Any, schema: Any) -> LLMResult:
@@ -2294,17 +2412,12 @@ def test_report_agents_keep_hard_failure_on_negative_reviewer_verdict(
         db.session.add(job)
         db.session.commit()
 
-        supplemental = (
-            {"computed_analysis": {}}
-            if agent == "competitive_procurement_intelligence"
-            else {"report_scope": {}}
-        )
         with pytest.raises(ValueError, match="revisor de evidencia rechazó"):
             execute_agent(
                 agent=agent,
                 dossier_id=ids["dossier"],
                 job=job,
-                supplemental_context=supplemental,
+                supplemental_context={"computed_analysis": {}},
             )
         audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
         assert audit is not None and audit.status == "failed"

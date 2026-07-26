@@ -142,7 +142,7 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("evidence_reviewer").requires_evidence_review is False
     assert registry.get("report_writer").requires_evidence_review is True
     assert registry.get("competitive_procurement_intelligence").requires_evidence_review is True
-    assert registry.get("report_writer").evidence_review_failure_policy == "reject_output"
+    assert registry.get("report_writer").evidence_review_failure_policy == "strip_claims"
     assert (
         registry.get("competitive_procurement_intelligence").evidence_review_failure_policy
         == "reject_output"
