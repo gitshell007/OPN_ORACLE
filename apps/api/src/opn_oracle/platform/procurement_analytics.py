@@ -8,7 +8,7 @@ choose top-N and sort without requiring a Signal analytics contract.
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -165,9 +165,9 @@ def aggregate_tenders(
     status_counts: Counter[str] = Counter()
     term_counts: Counter[str] = Counter()
     bucket_counts: Counter[str] = Counter()
-    cpv_amounts: Counter[str] = Counter()
-    buyer_amounts: Counter[str] = Counter()
-    region_amounts: Counter[str] = Counter()
+    cpv_amounts: defaultdict[str, float] = defaultdict(float)
+    buyer_amounts: defaultdict[str, float] = defaultdict(float)
+    region_amounts: defaultdict[str, float] = defaultdict(float)
     with_amount = 0
     amount_sum = 0.0
 

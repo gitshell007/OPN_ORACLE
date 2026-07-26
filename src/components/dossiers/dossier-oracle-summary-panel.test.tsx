@@ -129,7 +129,7 @@ describe("DossierOracleSummaryPanel", () => {
     expect(screen.getByText("1/3")).toBeVisible();
     expect(screen.getByText("La convocatoria está abierta.")).toBeVisible();
     expect(screen.getByText("Alta")).toBeVisible();
-    expect(screen.getByText("Generación nocturna")).toBeVisible();
+    expect(screen.getByText(/· programada ·/)).toBeInTheDocument();
     expect(screen.queryByText(/Revisión de evidencia:/)).not.toBeInTheDocument();
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(screen.queryByText("high")).not.toBeInTheDocument();

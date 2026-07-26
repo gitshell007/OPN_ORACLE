@@ -237,7 +237,14 @@ function ReportGenerateWizard({
 
   useEffect(() => {
     if (!pdfEnabled) return;
-    setFormats((current) => (current.includes("pdf") ? current : [...current, "pdf"]));
+    const kickoff = window.setTimeout(
+      () =>
+        setFormats((current) =>
+          current.includes("pdf") ? current : [...current, "pdf"],
+        ),
+      0,
+    );
+    return () => window.clearTimeout(kickoff);
   }, [pdfEnabled]);
 
   useEffect(() => {

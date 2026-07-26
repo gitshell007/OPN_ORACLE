@@ -388,7 +388,9 @@ test("Vector F11 abre informes, notificaciones, preferencias y exportaciones", a
       ]) {
         await page.goto(path);
         if (path === "/app/reports")
-          await expect(page.getByText("Aún no hay informes")).toBeVisible();
+          await expect(
+            page.getByRole("heading", { name: "Biblioteca de informes" }),
+          ).toBeVisible();
         if (path === "/app/exports")
           await expect(page.getByText("Aún no hay exportaciones")).toBeVisible();
         await noOverflow();

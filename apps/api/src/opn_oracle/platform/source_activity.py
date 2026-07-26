@@ -12,14 +12,14 @@ import json
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Date, DateTime, Index, Integer, String, Text, UniqueConstraint, select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column, scoped_session
 
 from opn_oracle.extensions import Base
 from opn_oracle.platform.models import TimestampMixin, UUIDPrimaryKeyMixin
@@ -35,6 +35,8 @@ _ID_PREFIX = {
     "boe": re.compile(r"^BOE-[AB]-"),
 }
 _MADRID = ZoneInfo("Europe/Madrid")
+SessionT = TypeVar("SessionT", bound=Session)
+SessionProvider = Session | scoped_session[SessionT]
 
 
 class PlatformSourceActivity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -183,7 +185,7 @@ def fetch_official_sumario(
 
 
 def upsert_observation(
-    session: Session,
+    session: SessionProvider[SessionT],
     *,
     source: str,
     day: date,
@@ -225,7 +227,7 @@ def upsert_observation(
 
 
 def poll_source_activity(
-    session: Session,
+    session: SessionProvider[SessionT],
     *,
     lookback_days: int = 14,
     sources: tuple[str, ...] = ("borme", "boe"),
@@ -275,7 +277,7 @@ def serialize_activity(row: PlatformSourceActivity) -> dict[str, Any]:
 
 
 def list_source_activity(
-    session: Session,
+    session: SessionProvider[SessionT],
     *,
     source: str | None = None,
     search: str | None = None,

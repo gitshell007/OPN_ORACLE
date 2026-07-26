@@ -169,7 +169,7 @@
   gap: 2px;
 }
 .auth-remember small {
-  color: var(--opn-neutral-400);
+  color: var(--opn-ink-soft);
   font-size: 11px;
   font-weight: 500;
 }

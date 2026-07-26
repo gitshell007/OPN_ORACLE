@@ -217,7 +217,7 @@ def _fit_budget(payload: dict[str, Any], max_chars: int) -> dict[str, Any]:
             fitted["allowed_evidence_ids"] = [
                 item for item in allow if isinstance(item, str) and item
             ]
-    return cast(dict[str, Any], fitted)
+    return fitted
 
 
 def _canonical(value: Any) -> bytes:

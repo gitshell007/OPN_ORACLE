@@ -2710,7 +2710,16 @@ def test_ai_provider_and_reviewer_failures_terminalize_durable_state(
             select(AIUsageLedger).where(AIUsageLedger.audit_log_id == audit.id)
         )
         assert ledger is not None
-        assert ledger.status == "released" and ledger.reserved_cost_micros == 0
+        assert ledger.reserved_cost_micros == 0
+        if fail_reviewer:
+            # D-083: generate consumed tokens before the reviewer provider failed.
+            assert ledger.status == "settled"
+            assert ledger.input_tokens > 0
+            assert ledger.output_tokens > 0
+        else:
+            assert ledger.status == "released"
+            assert ledger.input_tokens == 0
+            assert ledger.output_tokens == 0
         assert (
             db.session.scalar(
                 select(func.count(AIArtifact.id)).where(AIArtifact.audit_log_id == audit.id)

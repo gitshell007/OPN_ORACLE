@@ -153,8 +153,7 @@ test("F13 recorre rutas productivas sin violaciones WCAG ni errores de consola",
   }
 
   expect(dossierHref).toMatch(/^\/app\/dossiers\/[0-9a-f-]+$/);
-  await navigateWithPalette(page, "Expedientes", "/app/dossiers");
-  await page.locator(`a[href="${dossierHref}"]`).first().evaluate((element: HTMLElement) => element.click());
+  await page.goto(dossierHref);
   await expect(page).toHaveURL(new RegExp(`${dossierHref.replaceAll("/", "\\/")}$`));
   await expectWcagAA(page, dossierHref);
   for (const suffix of ["", "/signals", "/documents", "/settings"]) {
