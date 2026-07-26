@@ -4,7 +4,7 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
-## Prompt 96 · «Buscar con Oracle» ejecuta un plan y no una vigilancia
+## Prompts 96–97 · «Buscar con Oracle» ejecuta un plan multisector
 
 - **Diagnóstico productivo:** Signal contenía mercado real (CPV `35400000`: 11
   licitaciones activas; `acorazados`: 13), pero la única vigilancia superviviente
@@ -15,28 +15,43 @@ Interfaz canónica: `CANONICAL_UI=vector`
   vigilancias de prueba o del flujo obsoleto.
 - **Ejecución inmediata:** `POST /api/v1/procurement/search-plans/execute`
   consulta hasta cuatro términos y cuatro CPV por separado, nunca aplica
-  comprador/geografía generados por IA, fusiona por `folder_id`, prioriza CPV de
-  defensa/vehículos antes del presupuesto de sondas y penaliza SDA multi-CPV.
-  La unión se ordena y pagina de forma estable dentro de una ventana honesta de
-  100 resultados; no se presenta como ranking global de Signal.
-- **Calidad del plan:** `tender_search_wizard/v2` solicita entre cuatro y ocho
-  familias CPV amplias. Si una generación IA aún devuelve CPV vacíos, Oracle
-  propone hasta ocho grupos de la taxonomía oficial por solape determinista y
-  añade una asunción visible. Una edición humana que deja CPV vacíos se respeta.
+  comprador/geografía generados por IA, fusiona por `folder_id`, ordena los CPV
+  por relevancia léxica frente al plan y penaliza SDA multi-CPV. La UI descarga
+  una instantánea honesta de hasta 100 resultados y la pagina localmente en
+  bloques de 25; no se presenta como ranking global de Signal.
+- **Calidad del plan:** `tender_search_wizard/v3` fija un contrato CPV corto y
+  transversal. Al materializar la salida IA, Oracle combina sus códigos con
+  retrieval IDF sobre las 9.454 etiquetas oficiales locales, usa etiquetas
+  canónicas y limita el resultado a diez. No hay ramas por sector ni prioridades
+  militares: defensa, bomberos, energía y textos ambiguos recorren el mismo
+  algoritmo. La descripción original también entra al retrieval para no heredar
+  una omisión del resumen de Ollama. Un padre representativo entra en las cuatro
+  sondas cuando conserva suficiente soporte léxico frente a sus descendientes;
+  el caso canónico prueba `35400000` de extremo a extremo. Preview, aceptación y
+  ejecución respetan una edición humana que deja los CPV vacíos.
 - **UX:** «Aceptar y buscar» acepta el plan y rellena la tabla central. Guardar
   una vigilancia es una casilla opcional, desmarcada por defecto; su copy y el
   panel lateral aclaran que es un proxy estrecho para novedades. Actualizar y
   paginar conservan el plan multi-sonda y no caen en la búsqueda manual.
+- **Ciclo de vida de vigilancia:** al borrar una búsqueda remota se retira su
+  vigilancia y se limpia el `tender_search_id` del perfil en la misma transacción
+  local. Un guardado posterior reutiliza la vigilancia retirada y su memoria,
+  cambia al nuevo ID remoto y evita colisionar con sus constraints únicas. Crear
+  y actualizar usan el mismo endpoint de perfil y la traducción a Signal vive
+  exclusivamente en Flask; un plan `all` se ejecuta como tal aunque su vigilancia
+  durable se traduzca al contrato `active`.
 - **Higiene de versiones:** si Signal devuelve cero o falla después de aceptar,
   «Reintentar búsqueda» reutiliza el perfil durable. Solo una edición real del
   plan crea una versión nueva. «Empezar de cero» no rehidrata el último plan al
   reabrir y los chips conservados se pueden retirar.
-- **Contrato y pruebas:** la operación `execute` y su paginación ya están
-  declaradas en OpenAPI y en el cliente TypeScript; el test backend despacha HTTP
-  real. D-085 limita expresamente la antigua regla «nunca fusionar» de D-063 a
-  la previsualización.
+- **Contrato y pruebas:** la operación `execute`, su ventana y sus estructuras
+  anidadas están declaradas en OpenAPI y en el cliente TypeScript; el test backend
+  despacha HTTP real, demuestra tenant derivado de sesión y prueba 403 sin llamar
+  a Signal. D-085 limita expresamente la antigua regla «nunca fusionar» de D-063
+  a la previsualización.
 - Documento de producto/implementación:
-  `docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md`.
+  `docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md` y complemento
+  técnico `docs/implementation/prompts/97_LICITACIONES_CPV_RETRIEVAL_Y_EJECUCION_MULTISECTOR.md`.
 
 ## Superadmin · estadísticas de licitaciones PLACSP
 

@@ -1443,6 +1443,42 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** insight operativo inmediato sin inventar un data warehouse. No se afirma
   cobertura histórica completa; se documenta el límite en UI.
 
+## D-085 — Buscar ejecuta una unión multi-sonda; vigilar es una acción opcional
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** producción contenía licitaciones militares relevantes, pero una vigilancia
+  heredada con nueve términos y un comprador genérico devolvía cero. El usuario veía esa
+  vigilancia como si fuera el resultado de «Buscar con Oracle». Reintentar tras cero o error
+  aceptaba versiones sucesivas del mismo plan, y actualizar o paginar abandonaba silenciosamente
+  la ejecución multi-sonda. D-063 protegía correctamente la honestidad de la previsualización,
+  pero su frase «nunca los fusiona» impedía distinguir preview diagnóstico de tabla operativa.
+- **Decisión:** la previsualización conserva bloques independientes, sin orden global. Tras una
+  aceptación humana, `search-plans/execute` puede fusionar por `folder_id` hasta cuatro términos y
+  cuatro CPV, aplicar un ranking local explícito y devolver una unión acotada a 100 resultados.
+  La UI obtiene esa instantánea una sola vez y pagina localmente en bloques de 25; «Actualizar»
+  crea una instantánea nueva. No aplica comprador ni geografía propuestos por IA. El endpoint
+  declara `global_order=false`, la ventana y el número de candidatos previos al corte. Una
+  vigilancia Signal es opt-in, queda inactiva y usa un contrato estrecho de un término más el
+  primer CPV relevante del plan; nunca sustituye la tabla inmediata. Un reintento sin editar
+  reutiliza el perfil ya aceptado.
+  El wizard `v3` combina la propuesta IA y la descripción original con retrieval léxico IDF sobre
+  las 9.454 etiquetas de la taxonomía CPV local, valida etiquetas canónicas y limita el resultado
+  a diez códigos. Ese enriquecimiento ocurre al materializar una generación IA y queda declarado
+  en `assumptions`; preview, aceptación y ejecución solo validan el plan revisado, de modo que una
+  edición humana vacía no se rellena.
+- **Consecuencias:** D-085 sustituye únicamente el «nunca fusiona» de D-063 para la ejecución
+  inmediata; preview, ausencia de boolean query y falta de ranking global siguen vigentes. La
+  ventana de 100 evita totales inaccesibles y acota hasta 800 candidatos leídos (100 por sonda).
+  El orden local usa relevancia léxica plan↔etiqueta CPV, número de sondas coincidentes y una
+  penalización estructural para expedientes con más de 15 CPV. Para no perder un mercado medible
+  por llenar las cuatro sondas con descendientes estrechos, un código padre se promueve solo si su
+  etiqueta comparte al menos dos conceptos y conserva al menos el 45 % del score del mejor
+  descendiente; cuando no, prevalece el código específico. No contiene listas de industrias:
+  defensa, bomberos y energía recorren el mismo algoritmo. Esta heurística es observable y queda
+  versionada como `tender-search-plan-to-signal-v3`; no se presenta como puntuación semántica ni
+  orden global del proveedor.
+
 ## D-083 — Log de fuentes oficiales BORME/BOE para superadmin
 
 - **Estado:** accepted
