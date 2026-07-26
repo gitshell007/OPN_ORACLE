@@ -552,10 +552,6 @@
 .procurement-comparable-card dt { color: var(--va-muted); font-size: 10px; text-transform: uppercase; }
 .procurement-comparable-card dd { margin: 3px 0 0; color: var(--va-text); font-weight: 750; }
 .procurement-wizard-optional-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.procurement-wizard-latest { display: flex; justify-content: space-between; gap: 14px; align-items: center; border-left: 3px solid #718096; border-radius: 8px; background: #f5f7fa; padding: 11px 13px; }
-.procurement-wizard-latest strong,
-.procurement-wizard-latest small { display: block; }
-.procurement-wizard-latest > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .procurement-wizard-chip-group .procurement-filter-autocomplete { position: relative; }
 .procurement-wizard-chip-group .procurement-filter-suggestions { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; left: 0; }
 .procurement-wizard-intent { border: 1px solid #dce5ef; border-radius: 12px; background: #f8fafc; padding: 14px; }
@@ -610,13 +606,55 @@
 .procurement-wizard-context,
 .procurement-wizard-preview,
 .procurement-wizard-accepted { border: 1px solid #dce5ef; border-radius: 11px; background: #f9fbfd; padding: 14px; }
-.procurement-wizard-buyers p,
-.procurement-wizard-scope p { margin: 4px 0 10px; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
+.procurement-wizard-buyers p { margin: 4px 0 10px; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
 .procurement-wizard-buyers > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.procurement-wizard-scope fieldset { display: flex; flex-wrap: wrap; gap: 14px; border: 0; padding: 0; }
-.procurement-wizard-scope legend { width: 100%; margin-bottom: 7px; color: var(--va-text); font-weight: 760; }
-.procurement-wizard-scope label { display: flex; align-items: center; gap: 6px; color: #3d5168; font-size: 12px; }
-.procurement-wizard-scope label[aria-disabled="true"] { color: #8491a0; }
+.procurement-wizard-scope { display: grid; gap: 12px; }
+.procurement-wizard-scope-header h3 { margin: 0 0 4px; color: var(--va-text); font-size: 14px; }
+.procurement-wizard-scope-header p { margin: 0; color: var(--va-muted); font-size: 12px; line-height: 1.45; }
+.procurement-scope-segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.procurement-scope-option {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  min-height: 64px;
+  border: 1px solid #c9d5e3;
+  border-radius: 10px;
+  background: #fff;
+  color: #3d5168;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+}
+.procurement-scope-option strong {
+  color: var(--va-text);
+  font-size: 13px;
+  font-weight: 750;
+}
+.procurement-scope-option span {
+  color: var(--va-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.procurement-scope-option:hover {
+  border-color: #9eb4cc;
+  background: #f8fafc;
+}
+.procurement-scope-option:focus-visible {
+  outline: 2px solid var(--va-primary);
+  outline-offset: 2px;
+}
+.procurement-scope-option.is-active {
+  border-color: var(--va-primary);
+  background: color-mix(in srgb, var(--va-primary) 8%, white);
+  box-shadow: inset 0 0 0 1px var(--va-primary);
+}
+.procurement-scope-option.is-active strong { color: var(--va-primary); }
 .procurement-wizard-context { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .procurement-wizard-context h3,
 .procurement-wizard-preview h3 { margin: 0 0 6px; color: var(--va-text); font-size: 14px; }
@@ -640,8 +678,63 @@
 .procurement-watch-explainer { margin: 0; border-left: 3px solid #5d7590; border-radius: 6px; background: #f3f7fb; color: #40566d; padding: 9px 11px; font-size: 11px; line-height: 1.45; }
 .procurement-result-origin { margin: 0 14px 12px; }
 .procurement-watch-explainer { margin: 0 0 12px; }
-.procurement-wizard-watch-toggle { display: flex; align-items: center; gap: 8px; }
-.procurement-wizard-watch-toggle input { width: 16px; height: 16px; flex: 0 0 auto; }
+.procurement-wizard-watch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.procurement-wizard-watch-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.procurement-wizard-watch-copy strong {
+  color: var(--va-text);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.procurement-wizard-watch-copy span {
+  color: var(--va-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.procurement-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: #b7c3d0;
+  padding: 3px;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.procurement-switch.is-on {
+  background: var(--va-primary);
+}
+.procurement-switch:focus-visible {
+  outline: 2px solid var(--va-primary);
+  outline-offset: 2px;
+}
+.procurement-switch-thumb {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 22%);
+  transition: transform .15s ease;
+}
+.procurement-switch.is-on .procurement-switch-thumb {
+  transform: translateX(18px);
+}
 .procurement-wizard-watch-warning { margin: 0; color: #85651e; font-weight: 700; }
 @media (max-width: 1050px) {
   .entity-graph-layout { grid-template-columns: 1fr; }
@@ -704,8 +797,9 @@
   .procurement-wizard-context,
   .procurement-plan-diff-groups { grid-template-columns: 1fr; }
   .procurement-wizard-measured-gap,
-  .procurement-wizard-preview > header,
-  .procurement-wizard-latest { align-items: stretch; flex-direction: column; }
+  .procurement-wizard-preview > header { align-items: stretch; flex-direction: column; }
+  .procurement-scope-segmented { grid-template-columns: 1fr; }
+  .procurement-wizard-watch-row { align-items: flex-start; flex-direction: column; }
   .procurement-feedback-digest > header { flex-direction: column; }
   .procurement-watch-status { align-items: stretch; flex-direction: column; }
   .procurement-wizard-footer { align-items: stretch; }

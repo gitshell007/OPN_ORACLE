@@ -12,7 +12,6 @@ import {
   type TenderSearchPlanPreviewResponse,
   type TenderSearchResource,
   type TenderSearchRunResponse,
-  type TenderSearchWizardAcceptance,
   type TenderSearchWizardArtifact,
 } from "@oracle/api-client";
 import {
@@ -154,16 +153,6 @@ function relativeMeasurementAge(measuredAt: string, now = Date.now()) {
     return `Perfil medido hace ${elapsedMinutes} minuto${elapsedMinutes === 1 ? "" : "s"}`;
   const elapsedHours = Math.floor(elapsedMinutes / 60);
   return `Perfil medido hace ${elapsedHours} hora${elapsedHours === 1 ? "" : "s"}`;
-}
-
-function acceptanceDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "fecha no publicada";
-  return new Intl.DateTimeFormat("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
 }
 
 function problemMessage(reason: unknown, fallback: string) {
@@ -351,20 +340,11 @@ export function ProcurementSearchWizard({
   const [geography, setGeography] = useState("");
   const [minimum, setMinimum] = useState("");
   const [maximum, setMaximum] = useState("");
-  const [latestArtifact, setLatestArtifact] =
-    useState<TenderSearchWizardArtifact | null>(null);
-  const [latestAcceptance, setLatestAcceptance] =
-    useState<TenderSearchWizardAcceptance | null>(null);
-  const [latestInput, setLatestInput] = useState<{
-    comparable: string | null;
-    description: string;
-  } | null>(null);
   const [artifact, setArtifact] = useState<TenderSearchWizardArtifact | null>(
     null,
   );
   const [jobId, setJobId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [latestLoading, setLatestLoading] = useState(false);
   const [plan, setPlan] = useState<TenderSearchPlan | null>(null);
   const [chips, setChips] = useState<TenderSearchChip[]>([]);
   const [tombstones, setTombstones] = useState<Set<string>>(new Set());
@@ -400,7 +380,8 @@ export function ProcurementSearchWizard({
   const suggestionSequence = useRef(0);
   const cpvSuggestionSequence = useRef(0);
   const lastReplanRequestKey = useRef<number | null>(null);
-  const freshSearchRequested = useRef(false);
+  /** Description of the in-flight generation; blocks installing a stale latest artifact. */
+  const pendingGenerationDescription = useRef<string | null>(null);
 
   const effectivePlan = useMemo(
     () => (plan ? applyChipsToTenderSearchPlan(plan, chips) : null),
@@ -437,37 +418,6 @@ export function ProcurementSearchWizard({
         : [],
     [acceptedBaselineChips, chips],
   );
-
-  async function loadLatestBannerOnly() {
-    // Solo para el aviso opcional «hay una propuesta anterior»; nunca rellena el formulario.
-    setLatestLoading(true);
-    try {
-      const response = await api.tenderSearchWizard.latest();
-      if (isWizardArtifact(response.artifact)) {
-        setLatestArtifact(response.artifact);
-        setLatestAcceptance(response.acceptance ?? null);
-        const latestWizardInput =
-          response.input &&
-          typeof response.input.description === "string" &&
-          (typeof response.input.comparable === "string" ||
-            response.input.comparable === null)
-            ? {
-                description: response.input.description,
-                comparable: response.input.comparable,
-              }
-            : null;
-        setLatestInput(latestWizardInput);
-      } else {
-        setLatestArtifact(null);
-        setLatestAcceptance(null);
-        setLatestInput(null);
-      }
-    } catch {
-      // La ausencia del último artefacto no bloquea una generación nueva.
-    } finally {
-      setLatestLoading(false);
-    }
-  }
 
   useEffect(() => {
     if (!open || comparable.trim().length < 3) return;
@@ -687,7 +637,8 @@ export function ProcurementSearchWizard({
 
   async function generate(regenerating = false) {
     if (description.trim().length < 10) return;
-    freshSearchRequested.current = false;
+    const requestedDescription = description.trim();
+    pendingGenerationDescription.current = requestedDescription;
     setGenerating(true);
     setAcceptError(null);
     // Nueva generación desde el paso 1: no arrastrar el perfil aceptado anterior.
@@ -697,21 +648,27 @@ export function ProcurementSearchWizard({
       setAcceptedBaselineChips([]);
       setTombstones(new Set());
       setRetryAcceptedProfile(null);
+      setArtifact(null);
+      setPlan(null);
+      setChips([]);
+      setPreview(null);
     }
     try {
       const response = await api.tenderSearchWizard.run(
         {
-          description: description.trim(),
+          description: requestedDescription,
           comparable: comparable.trim() || null,
         },
         crypto.randomUUID(),
       );
       if (isWizardArtifact(response.artifact)) {
+        pendingGenerationDescription.current = null;
         installArtifact(response.artifact, regenerating);
       } else {
         setJobId(response.job.id);
       }
     } catch (reason) {
+      pendingGenerationDescription.current = null;
       setAcceptError(
         problemMessage(reason, "No se pudo iniciar la generación del plan."),
       );
@@ -721,58 +678,40 @@ export function ProcurementSearchWizard({
   }
 
   async function finishJob() {
+    const expectedDescription = pendingGenerationDescription.current;
     setJobId(null);
     try {
       const response = await api.tenderSearchWizard.latest();
+      const latestDescription =
+        response.input && typeof response.input.description === "string"
+          ? response.input.description.trim()
+          : null;
+      // Evita instalar un plan de una generación anterior si /latest aún no refleja el job.
+      if (
+        expectedDescription &&
+        latestDescription &&
+        latestDescription !== expectedDescription
+      ) {
+        setAcceptError(
+          "El plan recuperado no corresponde a esta generación. Pulsa «Generar propuesta» de nuevo.",
+        );
+        pendingGenerationDescription.current = null;
+        return;
+      }
       if (isWizardArtifact(response.artifact)) {
-        installArtifact(response.artifact, Boolean(plan));
+        pendingGenerationDescription.current = null;
+        // Siempre tratar el resultado del job como plan nuevo (no fusionar chips viejos).
+        installArtifact(response.artifact, false);
       } else {
         setAcceptError(
           "El trabajo terminó, pero el plan todavía no está disponible.",
         );
       }
     } catch (reason) {
+      pendingGenerationDescription.current = null;
       setAcceptError(
         problemMessage(reason, "No se pudo recuperar el plan terminado."),
       );
-    }
-  }
-
-  function applyLatest() {
-    if (!latestArtifact) return;
-    freshSearchRequested.current = false;
-    if (!description.trim()) {
-      setDescription("Continuación del último plan de búsqueda disponible");
-    }
-    installArtifact(latestArtifact, false);
-  }
-
-  async function reviewAcceptedLatest() {
-    if (!latestArtifact || !latestAcceptance) return;
-    freshSearchRequested.current = false;
-    setLatestLoading(true);
-    setAcceptError(null);
-    try {
-      const profile = await api.procurementSearchProfiles.get(
-        latestAcceptance.profile_id,
-      );
-      installArtifact(latestArtifact, false);
-      setPlan(profile.accepted_plan);
-      setChips(
-        tenderSearchPlanToChips(profile.accepted_plan, comparableProfile),
-      );
-      setAcceptedProfile(profile);
-      setTargetProfile(profile);
-      setAcceptedBaselineChips(
-        tenderSearchPlanToChips(profile.accepted_plan, comparableProfile),
-      );
-      setWatchName(profile.accepted_plan.intent_summary.slice(0, 120));
-    } catch (reason) {
-      setAcceptError(
-        problemMessage(reason, "No se pudo recuperar el plan aceptado."),
-      );
-    } finally {
-      setLatestLoading(false);
     }
   }
 
@@ -809,7 +748,7 @@ export function ProcurementSearchWizard({
   }
 
   function startFreshSearch() {
-    freshSearchRequested.current = true;
+    pendingGenerationDescription.current = null;
     setStep("describe");
     setDescription("");
     setComparable("");
@@ -820,9 +759,6 @@ export function ProcurementSearchWizard({
     setGeography("");
     setMinimum("");
     setMaximum("");
-    setLatestArtifact(null);
-    setLatestAcceptance(null);
-    setLatestInput(null);
     setArtifact(null);
     setJobId(null);
     setPlan(null);
@@ -1154,10 +1090,12 @@ export function ProcurementSearchWizard({
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
           if (nextOpen) {
-            // Cada apertura de «Buscar con Oracle» empieza en blanco.
+            // Sin memoria: cada apertura es un lienzo en blanco.
             // Las búsquedas guardadas / vigilancias viven en el panel lateral.
             startFreshSearch();
-            void loadLatestBannerOnly();
+          } else {
+            // Al cerrar también limpia, para que no quede estado residual.
+            startFreshSearch();
           }
         }}
       >
@@ -1181,16 +1119,14 @@ export function ProcurementSearchWizard({
                     : "Revisa el plan antes de usarlo"}
                 </Dialog.Title>
                 <Dialog.Description>
-                  Cada vez que abres este asistente empiezas de cero. Revisa el
-                  plan, elige solo pendientes o todas, y pulsa «Aceptar y
-                  buscar» para rellenar la tabla principal. Las vigilancias se
-                  guardan aparte, solo si lo pides.
+                  Cada apertura empieza en blanco, sin propuestas anteriores.
+                  Describe la necesidad, revisa el plan, elige solo pendientes o
+                  todas, y pulsa «Aceptar y buscar». Las vigilancias se guardan
+                  aparte, solo si lo pides.
                 </Dialog.Description>
               </div>
               <div className="procurement-wizard-header-actions">
-                {(step === "review" ||
-                  Boolean(latestArtifact) ||
-                  Boolean(plan)) && (
+                {(step === "review" || Boolean(plan) || Boolean(description)) && (
                   <button
                     className="vector-secondary compact"
                     type="button"
@@ -1334,54 +1270,6 @@ export function ProcurementSearchWizard({
                     </label>
                   </div>
 
-                  {latestArtifact && !artifact && (
-                    <div className="procurement-wizard-latest">
-                      <div>
-                        <strong>
-                          {latestAcceptance
-                            ? `Aceptado como v${latestAcceptance.version} el ${acceptanceDate(latestAcceptance.accepted_at)}`
-                            : "Hay una propuesta anterior disponible"}
-                        </strong>
-                        <small>
-                          {latestAcceptance
-                            ? "Es memoria aceptada, no una propuesta nueva. Elige revisarla o pedir otra generación."
-                            : "Oracle no la abre ni ejecuta automáticamente."}
-                        </small>
-                      </div>
-                      <div>
-                        <button
-                          className="vector-secondary"
-                          type="button"
-                          onClick={() =>
-                            void (latestAcceptance
-                              ? reviewAcceptedLatest()
-                              : Promise.resolve(applyLatest()))
-                          }
-                        >
-                          {latestAcceptance
-                            ? "Revisar plan aceptado"
-                            : "Revisar propuesta anterior"}
-                        </button>
-                        {latestAcceptance && (
-                          <AsyncActionButton
-                            className="vector-ai"
-                            loading={generating}
-                            disabled={
-                              (latestInput?.description ?? description).trim()
-                                .length < 10
-                            }
-                            onClick={() => void generate(false)}
-                          >
-                            <Sparkles size={14} />
-                            Regenerar propuesta
-                          </AsyncActionButton>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {latestLoading && (
-                    <p role="status">Comprobando si existe un plan anterior…</p>
-                  )}
                   {jobId && (
                     <JobProgress
                       jobId={jobId}
@@ -1661,56 +1549,61 @@ export function ProcurementSearchWizard({
                     )}
 
                     <section className="procurement-wizard-scope">
-                      <fieldset>
-                        <legend>Ámbito de las licitaciones</legend>
-                        <label>
-                          <input
-                            type="radio"
-                            name="wizard-scope"
-                            checked={effectivePlan.scope === "active"}
-                            onChange={() => {
-                              setRetryAcceptedProfile(null);
-                              setPlan((current) =>
-                                current
-                                  ? { ...current, scope: "active" }
-                                  : current,
-                              );
-                            }}
-                          />
-                          Solo pendientes (activas) — recomendado
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            name="wizard-scope"
-                            checked={effectivePlan.scope === "all"}
-                            onChange={() => {
-                              setRetryAcceptedProfile(null);
-                              setPlan((current) =>
-                                current
-                                  ? { ...current, scope: "all" }
-                                  : current,
-                              );
-                            }}
-                          />
-                          Todas (incluye finalizadas o fuera de plazo en el
-                          índice)
-                        </label>
-                        <label aria-disabled="true">
-                          <input
-                            type="radio"
-                            name="wizard-scope"
-                            checked={effectivePlan.scope === "historical"}
-                            disabled
-                          />
-                          Solo histórico (no disponible)
-                        </label>
-                      </fieldset>
-                      <p>
-                        Por defecto solo salen pliegos aún abiertos en Signal.
-                        «Todas» puede mezclar expedientes ya cerrados del
-                        índice; no es un archivo histórico completo.
-                      </p>
+                      <header className="procurement-wizard-scope-header">
+                        <div>
+                          <h3>Ámbito de las licitaciones</h3>
+                          <p>
+                            Por defecto solo pliegos aún abiertos. «Todas»
+                            puede mezclar expedientes ya cerrados del índice.
+                          </p>
+                        </div>
+                      </header>
+                      <div
+                        className="procurement-scope-segmented"
+                        role="radiogroup"
+                        aria-label="Ámbito de las licitaciones"
+                      >
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={effectivePlan.scope === "active"}
+                          className={
+                            effectivePlan.scope === "active"
+                              ? "procurement-scope-option is-active"
+                              : "procurement-scope-option"
+                          }
+                          onClick={() => {
+                            setRetryAcceptedProfile(null);
+                            setPlan((current) =>
+                              current
+                                ? { ...current, scope: "active" }
+                                : current,
+                            );
+                          }}
+                        >
+                          <strong>Solo pendientes</strong>
+                          <span>Activas · recomendado</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={effectivePlan.scope === "all"}
+                          className={
+                            effectivePlan.scope === "all"
+                              ? "procurement-scope-option is-active"
+                              : "procurement-scope-option"
+                          }
+                          onClick={() => {
+                            setRetryAcceptedProfile(null);
+                            setPlan((current) =>
+                              current ? { ...current, scope: "all" } : current,
+                            );
+                          }}
+                        >
+                          <strong>Todas</strong>
+                          <span>Incluye finalizadas del índice</span>
+                        </button>
+                      </div>
                     </section>
 
                     {(effectivePlan.assumptions.length > 0 ||
@@ -1843,19 +1736,29 @@ export function ProcurementSearchWizard({
                     )}
 
                     <section className="procurement-wizard-accepted">
-                      <label className="procurement-wizard-watch-toggle">
-                        <input
-                          type="checkbox"
-                          checked={saveWatch}
-                          onChange={(event) =>
-                            setSaveWatch(event.target.checked)
+                      <div className="procurement-wizard-watch-row">
+                        <div className="procurement-wizard-watch-copy">
+                          <strong>Vigilancia para novedades</strong>
+                          <span>
+                            Opcional. Crea un monitor aparte; no sustituye los
+                            resultados de esta búsqueda.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={saveWatch}
+                          aria-label="Guardar también una vigilancia para novedades"
+                          className={
+                            saveWatch
+                              ? "procurement-switch is-on"
+                              : "procurement-switch"
                           }
-                        />
-                        <span>
-                          Guardar también una vigilancia para novedades
-                          (opcional)
-                        </span>
-                      </label>
+                          onClick={() => setSaveWatch((current) => !current)}
+                        >
+                          <span className="procurement-switch-thumb" />
+                        </button>
+                      </div>
                       <small>
                         «Aceptar y buscar» siempre rellena la tabla con la
                         ejecución multisonda.

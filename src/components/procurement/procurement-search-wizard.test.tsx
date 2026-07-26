@@ -552,10 +552,10 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
     await generatePlan();
 
-    const optionalWatch = screen.getByRole("checkbox", {
+    const optionalWatch = screen.getByRole("switch", {
       name: /Guardar también una vigilancia/,
     });
-    expect(optionalWatch).not.toBeChecked();
+    expect(optionalWatch).toHaveAttribute("aria-checked", "false");
     fireEvent.click(optionalWatch);
     fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
 
@@ -571,7 +571,7 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
     await generatePlan();
     fireEvent.click(
-      screen.getByRole("checkbox", {
+      screen.getByRole("switch", {
         name: /Guardar también una vigilancia/,
       }),
     );
@@ -710,7 +710,7 @@ describe("ProcurementSearchWizard", () => {
     await openWizard();
     await generatePlan();
     fireEvent.click(
-      screen.getByRole("checkbox", {
+      screen.getByRole("switch", {
         name: /Guardar también una vigilancia/,
       }),
     );
@@ -745,19 +745,16 @@ describe("ProcurementSearchWizard", () => {
     await openWizard();
     await generatePlan();
 
-    expect(
-      screen.getByRole("radio", {
-        name: /Solo pendientes \(activas\)/,
-      }),
-    ).toBeChecked();
-    expect(
-      screen.getByRole("radio", { name: "Solo histórico (no disponible)" }),
-    ).toBeDisabled();
-    fireEvent.click(
-      screen.getByRole("radio", {
-        name: /Todas \(incluye finalizadas/,
-      }),
-    );
+    const activeScope = screen.getByRole("radio", {
+      name: /Solo pendientes/i,
+    });
+    const allScope = screen.getByRole("radio", {
+      name: /Todas/i,
+    });
+    expect(activeScope).toHaveAttribute("aria-checked", "true");
+    expect(allScope).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(allScope);
+    expect(allScope).toHaveAttribute("aria-checked", "true");
     fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
     await waitFor(() => expect(mocks.createProfile).toHaveBeenCalledTimes(1));
     expect(mocks.createProfile.mock.calls[0][0].accepted_plan.scope).toBe(
@@ -809,11 +806,11 @@ describe("ProcurementSearchWizard", () => {
     ).toHaveAttribute("aria-invalid", "true");
   });
 
-  it("reabre la última aceptación con versión, fecha y elección explícita", async () => {
+  it("no muestra ni recupera propuestas anteriores al abrir el asistente", async () => {
     mocks.latest.mockResolvedValue({
       artifact: artifact(),
       input: {
-        description: "Equipamiento integral para emergencias públicas",
+        description: "Desarrollo de software y aplicaciones",
         comparable: "ITURRI",
       },
       job: null,
@@ -823,31 +820,20 @@ describe("ProcurementSearchWizard", () => {
         accepted_at: "2026-07-22T09:30:00Z",
       },
     });
-    mocks.getProfile.mockResolvedValue(profile(2));
     await openWizard();
 
     expect(
-      await screen.findByText("Aceptado como v2 el 22/07/2026"),
-    ).toBeInTheDocument();
+      screen.queryByText(/Hay una propuesta anterior disponible/i),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Revisar plan aceptado" }),
-    ).toBeInTheDocument();
+      screen.queryByText(/Aceptado como v2/i),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Regenerar propuesta" }),
-    ).toHaveClass("vector-ai");
+      screen.queryByRole("button", { name: /Revisar plan aceptado|Revisar propuesta anterior/i }),
+    ).not.toBeInTheDocument();
+    expect(mocks.latest).not.toHaveBeenCalled();
     expect(mocks.run).not.toHaveBeenCalled();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Revisar plan aceptado" }),
-    );
-    await screen.findByRole("heading", {
-      name: "Revisa el plan antes de usarlo",
-    });
-    expect(mocks.getProfile).toHaveBeenCalledWith("profile-1");
-    expect(mocks.run).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("button", { name: "Aceptar v3 y buscar" }),
-    ).toBeInTheDocument();
+    expect(mocks.getProfile).not.toHaveBeenCalled();
   });
 
   it("replanifica una vez, muestra el diff y acepta ejecutando la búsqueda", async () => {
@@ -977,13 +963,26 @@ describe("ProcurementSearchWizard", () => {
     const description = screen.getByPlaceholderText(
       /Equipamiento y mantenimiento para emergencias/,
     );
-    // No auto-rellenar: las vigilancias/búsquedas guardadas viven en el panel.
+    // No auto-rellenar ni banner de memoria: las vigilancias viven en el panel.
     await waitFor(() => expect(description).toHaveValue(""));
     expect(
-      await screen.findByRole("button", {
-        name: "Revisar propuesta anterior",
-      }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Revisar propuesta anterior" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.latest).not.toHaveBeenCalled();
+
+    fireEvent.change(description, {
+      target: { value: "Equipamiento para vehículos del ministerio de defensa" },
+    });
+    expect(description).toHaveValue(
+      "Equipamiento para vehículos del ministerio de defensa",
+    );
+    // El texto del plan anterior no aparece bajo el formulario.
+    expect(
+      screen.queryByText(/desarrollo de software/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByDisplayValue(/Equipamiento para emergencias públicas/i),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
     fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
@@ -995,5 +994,30 @@ describe("ProcurementSearchWizard", () => {
       /Equipamiento y mantenimiento para emergencias/,
     );
     await waitFor(() => expect(reopenedDescription).toHaveValue(""));
+  });
+
+  it("ofrece ámbito con control segmentado y vigilancia con interruptor", async () => {
+    await openWizard();
+    await generatePlan();
+
+    const scopeGroup = screen.getByRole("radiogroup", {
+      name: "Ámbito de las licitaciones",
+    });
+    expect(
+      within(scopeGroup).getByRole("radio", { name: /Solo pendientes/i }),
+    ).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(
+      within(scopeGroup).getByRole("radio", { name: /Todas/i }),
+    );
+    expect(
+      within(scopeGroup).getByRole("radio", { name: /Todas/i }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    const watchSwitch = screen.getByRole("switch", {
+      name: /Guardar también una vigilancia/i,
+    });
+    expect(watchSwitch).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(watchSwitch);
+    expect(watchSwitch).toHaveAttribute("aria-checked", "true");
   });
 });
