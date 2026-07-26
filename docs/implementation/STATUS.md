@@ -15,6 +15,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   evidencia ligada a actores/nombres; `report_writer` v7 y `actor_report_guidance` en el alcance
   del informe de actores.
 - Sin migración ni variables nuevas. Tests: fit_budget, registry v7, strip, vitest reporting.
+- **Prod** release `20260726T101849Z-quick-0ced9bd`: informe actores `a60d618a-…` **ready** con
+  artefactos **html+json+pdf** (pedido solo html/json; el backend añadió pdf), `report_writer`
+  **v7**, 7 secciones, menciona ITURRI/Iberdrola/Trillo, **sin** el discurso de «lista vacía de
+  IDs».
 
 ## Prompts 93–94 · errores de informe legibles y telemetría de fallo IA
 
