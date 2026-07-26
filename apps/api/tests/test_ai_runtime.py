@@ -38,10 +38,12 @@ from opn_oracle.ai.schemas import (
     AGENT_SCHEMAS,
     DossierCompletionWizardOutput,
     DossierSituationSummaryOutput,
+    EvidenceReviewerOutput,
     MeetingBriefingOutput,
     ReportOutput,
     SignalTriageOutput,
 )
+from opn_oracle.ai.service import EvidenceReviewError, _strip_reviewer_rejected_claims
 from opn_oracle.auth import permissions
 from opn_oracle.oracle.summary import _validated_summary_payload
 from opn_oracle.platform.models import User
@@ -173,6 +175,73 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("competitive_procurement_intelligence").version == "v2"
     assert registry.get("competitive_procurement_intelligence").max_output_tokens == 16000
     assert registry.get("competitive_procurement_intelligence", "v1").max_output_tokens == 5000
+
+
+def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> None:
+    """Production actors reports fail when the reviewer invents unanchorable paths.
+
+    Strict mode (nightly summary) keeps fail-closed; report_writer uses lenient=True so the
+    generated body is not discarded after a successful writer call.
+    """
+
+    output = {
+        "facts": [],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 70,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Informe de actores",
+        "executive_summary": "Mapa de actores del expediente.",
+        "sections": [
+            {
+                "heading": "Actores",
+                "paragraphs": [
+                    {
+                        "text": "ITURRI SA aparece vinculada al expediente.",
+                        "kind": "fact",
+                        "confidence": 70,
+                        "evidence_ids": [],
+                    }
+                ],
+            }
+        ],
+        "top_opportunities": [],
+        "top_risks": [],
+        "recommended_actions": [],
+        "decisions_required": [],
+        "source_index": [],
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [
+                {
+                    "path": "$.candidate_claims[99].claim",
+                    "claim": "Afirmación inventada que no coincide con ningún claim del informe.",
+                    "reason": "No hay evidencia.",
+                }
+            ],
+            "required_corrections": ["Retirar la afirmación."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match="no se pudo anclar"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
+
+    cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+    assert cleaned["title"] == "Informe de actores"
+    assert cleaned["executive_summary"] == "Mapa de actores del expediente."
+    assert any("no se pudieron anclar" in warning for warning in cleaned["warnings"])
+    assert any("Objeción no anclada" in warning for warning in cleaned["warnings"])
+    # Body preserved when the objection could not be tied to a real claim path.
+    assert cleaned["sections"][0]["paragraphs"][0]["text"].startswith("ITURRI SA")
 
 
 def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viable_copy() -> None:

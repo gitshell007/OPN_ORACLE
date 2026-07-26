@@ -315,14 +315,21 @@ def _reviewer_output_budget(
 
 
 def _strip_reviewer_rejected_claims(
-    output: dict[str, Any], reviewer: EvidenceReviewerOutput
+    output: dict[str, Any],
+    reviewer: EvidenceReviewerOutput,
+    *,
+    lenient: bool = False,
 ) -> dict[str, Any]:
     """Remove only claim blocks that a failed reviewer identifies unambiguously.
 
     Signal has returned both original JSON paths and paths invented over the compact reviewer
     package. A direct path is trusted only when it names a claim Oracle actually sent and carries
-    the same text. Otherwise an exact, unique text match recovers the original output path. Any
-    ambiguity or unscoped safety objection keeps the historical fail-closed behaviour.
+    the same text. Otherwise an exact, unique text match recovers the original output path.
+
+    With ``lenient=False`` (resumen nocturno), ambiguity or unscoped safety objections keep the
+    historical fail-closed behaviour. With ``lenient=True`` (``report_writer``), unanchorable
+    scoped objections become visible warnings and the report still publishes so a demo or
+    analyst is not left without an artifact after a successful generation.
     """
 
     scoped_issues = [
@@ -336,28 +343,79 @@ def _strip_reviewer_rejected_claims(
         *reviewer.prompt_injection_indicators,
         *reviewer.confidence_issues,
     ]
-    if not scoped_issues or unscoped_issues:
+    if unscoped_issues or not scoped_issues:
         raise EvidenceReviewError(
             "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
         )
 
     candidates = _review_candidate_claims(output)
     resolved: dict[str, Any] = {}
+    unanchored: list[Any] = []
     for issue in scoped_issues:
         direct = [
             candidate
             for candidate in candidates
             if candidate["path"] == issue.path and candidate["claim"] == issue.claim
         ]
-        matches = direct or [
-            candidate for candidate in candidates if candidate["claim"] == issue.claim
+        exact_text = [candidate for candidate in candidates if candidate["claim"] == issue.claim]
+        # Reviewer paths over the compact package often miss the original JSON path; fall back
+        # to a unique path suffix or unique substring match before giving up.
+        path_suffix = [
+            candidate
+            for candidate in candidates
+            if issue.path
+            and (
+                str(candidate["path"]).endswith(issue.path)
+                or issue.path.endswith(str(candidate["path"]))
+            )
+            and (
+                candidate["claim"] == issue.claim
+                or issue.claim in str(candidate["claim"])
+                or str(candidate["claim"]) in issue.claim
+            )
         ]
+        fuzzy_text = [
+            candidate
+            for candidate in candidates
+            if issue.claim
+            and (issue.claim in str(candidate["claim"]) or str(candidate["claim"]) in issue.claim)
+        ]
+        matches = direct or exact_text or path_suffix
+        if not matches and len({str(c["path"]) for c in fuzzy_text}) == 1:
+            matches = fuzzy_text
         unique_paths = {str(candidate["path"]) for candidate in matches}
         if len(unique_paths) != 1 or "$" in unique_paths:
+            if lenient:
+                unanchored.append(issue)
+                continue
             raise EvidenceReviewError(
                 "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
             )
         resolved[next(iter(unique_paths))] = issue
+
+    if not resolved and unanchored and lenient:
+        warnings = output.get("warnings")
+        if not isinstance(warnings, list):
+            raise EvidenceReviewError("El informe no permite declarar el recorte del revisor.")
+        warnings = list(warnings)
+        warnings.append(
+            "Revisión de evidencia: el revisor objetó "
+            f"{len(unanchored)} "
+            f"{'afirmación' if len(unanchored) == 1 else 'afirmaciones'} "
+            "que no se pudieron anclar de forma única; el informe se publica con advertencia."
+        )
+        for issue in unanchored[:12]:
+            warnings.append(
+                "Objeción no anclada: "
+                f"{_short_text(issue.claim, limit=500)} "
+                f"Motivo: {_short_text(issue.reason, limit=500)}"
+            )
+        return {**output, "warnings": warnings}
+
+    if not resolved and not lenient:
+        raise EvidenceReviewError(
+            "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
+        )
 
     dropped = object()
 
@@ -378,22 +436,36 @@ def _strip_reviewer_rejected_claims(
             return [item for item in cleaned_items if item is not dropped]
         return value
 
-    cleaned_output = clean(output)
+    cleaned_output = clean(output) if resolved else dict(output)
     if not isinstance(cleaned_output, dict):
         raise EvidenceReviewError("El revisor objetó el resumen completo; no se puede publicar.")
     warnings = cleaned_output.get("warnings")
     if not isinstance(warnings, list):
         raise EvidenceReviewError("El resumen no permite declarar el recorte del revisor.")
+    warnings = list(warnings)
+    cleaned_output = {**cleaned_output, "warnings": warnings}
     count = len(resolved)
-    warnings.append(
-        f"Revisión de evidencia: se retiraron {count} "
-        f"{'afirmación objetada' if count == 1 else 'afirmaciones objetadas'} antes de publicar."
-    )
+    if count:
+        label = "afirmación objetada" if count == 1 else "afirmaciones objetadas"
+        warnings.append(f"Revisión de evidencia: se retiraron {count} {label} antes de publicar.")
     for issue in resolved.values():
         warnings.append(
             "Afirmación retirada: "
             f"{_short_text(issue.claim, limit=500)} Motivo: {_short_text(issue.reason, limit=500)}"
         )
+    if unanchored:
+        warnings.append(
+            "Revisión de evidencia: "
+            f"{len(unanchored)} "
+            f"{'objeción' if len(unanchored) == 1 else 'objeciones'} "
+            "no se anclaron de forma única y se conservan con advertencia."
+        )
+        for issue in unanchored[:12]:
+            warnings.append(
+                "Objeción no anclada: "
+                f"{_short_text(issue.claim, limit=500)} "
+                f"Motivo: {_short_text(issue.reason, limit=500)}"
+            )
     return cleaned_output
 
 
@@ -1016,7 +1088,11 @@ def execute_agent(
         if reviewer.verdict == "fail":
             if prompt.evidence_review_failure_policy == "strip_claims":
                 try:
-                    cleaned_output = _strip_reviewer_rejected_claims(output, reviewer)
+                    cleaned_output = _strip_reviewer_rejected_claims(
+                        output,
+                        reviewer,
+                        lenient=(agent == "report_writer"),
+                    )
                     cleaned_model = prompt.schema.model_validate_json(json.dumps(cleaned_output))
                     validate_evidence(
                         cast(AgentOutput, cleaned_model), {item.id for item in context.evidence}
