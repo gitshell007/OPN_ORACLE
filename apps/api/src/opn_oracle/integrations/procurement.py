@@ -111,6 +111,54 @@ def _normalize_tender_collection(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "items": [_normalize_tender_item(item) for item in items]}
 
 
+def _coerce_nonneg_int(value: Any, *, fallback: int) -> int:
+    if isinstance(value, bool) or value is None:
+        return fallback
+    if isinstance(value, int):
+        return value if value >= 0 else fallback
+    if isinstance(value, float) and value.is_integer() and value >= 0:
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return fallback
+
+
+def _normalize_awards_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Make Signal awards responses dump-safe for AwardsResponseSchema.
+
+    Intermittent 500s when paging often came from null norms, non-int totals, or
+    non-dict rows that blew up APIFlask output validation after a successful
+    provider call.
+    """
+
+    raw_items = payload.get("items")
+    items: list[dict[str, Any]] = []
+    if isinstance(raw_items, list):
+        for entry in raw_items:
+            if isinstance(entry, dict):
+                items.append(entry)
+
+    total = _coerce_nonneg_int(payload.get("total"), fallback=len(items))
+    if total < len(items):
+        total = len(items)
+
+    company_norm = payload.get("company_norm")
+    if not isinstance(company_norm, str):
+        company_norm = "" if company_norm is None else str(company_norm)
+
+    buyer_norm = payload.get("buyer_norm")
+    if not isinstance(buyer_norm, str):
+        buyer_norm = "" if buyer_norm is None else str(buyer_norm)
+
+    return {
+        **payload,
+        "items": items,
+        "total": total,
+        "company_norm": company_norm,
+        "buyer_norm": buyer_norm,
+    }
+
+
 class ProcurementClient:
     """HTTP client for Signal registry/procurement endpoints."""
 
@@ -264,10 +312,11 @@ class ProcurementClient:
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
-        return self._get(
+        payload = self._get(
             "api/v1/registry/awards",
             params={"company": company, "buyer": buyer, "limit": limit, "offset": offset},
         )
+        return _normalize_awards_payload(payload)
 
     def suggest(self, *, query: str, kind: str, limit: int) -> dict[str, Any]:
         payload = self._get(

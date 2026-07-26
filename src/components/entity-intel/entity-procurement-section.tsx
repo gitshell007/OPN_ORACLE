@@ -6,7 +6,7 @@ import {
   type ProcurementAwardsResponse,
   type EntityIntelKind,
 } from "@oracle/api-client";
-import { ExternalLink, FileSearch, RefreshCw } from "lucide-react";
+import { ArrowUpDown, ExternalLink, FileSearch, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PinToDossierControl } from "@/components/procurement/pin-to-dossier-control";
 import {
@@ -17,6 +17,57 @@ import {
 } from "@/components/procurement/procurement-helpers";
 
 const PAGE_SIZE = 25;
+
+type AwardSortKey =
+  | "signal"
+  | "date_desc"
+  | "date_asc"
+  | "amount_desc"
+  | "amount_asc"
+  | "buyer";
+
+function awardAmount(item: ProcurementAwardItem): number {
+  return typeof item.award_amount === "number" && Number.isFinite(item.award_amount)
+    ? item.award_amount
+    : Number.NEGATIVE_INFINITY;
+}
+
+function sortAwards(
+  items: ProcurementAwardItem[],
+  sort: AwardSortKey,
+): ProcurementAwardItem[] {
+  if (sort === "signal") return items;
+  const copy = [...items];
+  copy.sort((a, b) => {
+    switch (sort) {
+      case "date_desc":
+      case "date_asc": {
+        const da = a.award_date || "";
+        const db = b.award_date || "";
+        // Missing dates sink to the end in both directions.
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        const cmp = da.localeCompare(db);
+        return sort === "date_desc" ? -cmp : cmp;
+      }
+      case "amount_desc":
+      case "amount_asc": {
+        const aa = awardAmount(a);
+        const ab = awardAmount(b);
+        if (aa === ab) return (a.title || "").localeCompare(b.title || "", "es");
+        return sort === "amount_desc" ? ab - aa : aa - ab;
+      }
+      case "buyer":
+        return (a.buyer || "").localeCompare(b.buyer || "", "es", {
+          sensitivity: "base",
+        });
+      default:
+        return 0;
+    }
+  });
+  return copy;
+}
 
 function AwardCard({ item }: { item: ProcurementAwardItem }) {
   const lotId =
@@ -60,7 +111,7 @@ function AwardCard({ item }: { item: ProcurementAwardItem }) {
           <dd>{cpvLabel(item.cpv)}</dd>
         </div>
       </dl>
-      <footer>
+      <footer className="procurement-card-actions">
         {item.source_url && (
           <a
             className="vector-secondary"
@@ -91,6 +142,7 @@ export function EntityProcurementSection({
   const [loading, setLoading] = useState(type === "company");
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
+  const [sort, setSort] = useState<AwardSortKey>("date_desc");
 
   const load = useCallback(
     async (nextOffset = 0) => {
@@ -114,7 +166,7 @@ export function EntityProcurementSection({
           typeof response.total === "number" ? response.total : response.items.length,
         );
       } catch (reason) {
-        setResult(null);
+        // Keep previous page on transient failures so pagination does not blank the list.
         onTotalChange?.(null);
         setError(
           problemMessage(
@@ -134,7 +186,8 @@ export function EntityProcurementSection({
     return () => window.clearTimeout(kickoff);
   }, [load]);
 
-  const items = result?.items ?? [];
+  const rawItems = result?.items ?? [];
+  const items = useMemo(() => sortAwards(rawItems, sort), [rawItems, sort]);
   const total = result?.total ?? 0;
   const amountSum = useMemo(
     () =>
@@ -208,7 +261,7 @@ export function EntityProcurementSection({
       {error && (
         <div className="inline-error" role="alert">
           {error}
-          <button type="button" onClick={() => void load(0)}>
+          <button type="button" onClick={() => void load(offset)}>
             Reintentar
           </button>
         </div>
@@ -221,10 +274,36 @@ export function EntityProcurementSection({
         </div>
       ) : items.length > 0 ? (
         <>
+          <div className="entity-procurement-toolbar">
+            <label>
+              <span>
+                <ArrowUpDown size={12} aria-hidden="true" /> Ordenar página
+              </span>
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as AwardSortKey)}
+                aria-label="Ordenar adjudicaciones de esta página"
+              >
+                <option value="date_desc">Fecha · más recientes</option>
+                <option value="date_asc">Fecha · más antiguas</option>
+                <option value="amount_desc">Importe · mayor a menor</option>
+                <option value="amount_asc">Importe · menor a mayor</option>
+                <option value="buyer">Organismo licitador · A-Z</option>
+                <option value="signal">Orden del proveedor</option>
+              </select>
+            </label>
+          </div>
+          {sort !== "signal" && (
+            <p className="procurement-local-sort-note" role="status">
+              Orden local sobre los {items.length} resultados de esta página; no reordena los{" "}
+              {total} del histórico del proveedor (Signal no expone orden global por fecha o
+              importe).
+            </p>
+          )}
           <div className="procurement-awards-list">
             {items.map((item) => (
               <AwardCard
-                key={`${item.folder_id}:${item.lot_id ?? "lot"}:${item.award_date ?? ""}`}
+                key={`${item.folder_id}:${item.lot_id ?? "lot"}:${item.award_date ?? ""}:${item.title ?? ""}`}
                 item={item}
               />
             ))}
@@ -240,7 +319,8 @@ export function EntityProcurementSection({
                 Anterior
               </button>
               <span>
-                {offset + 1}-{Math.min(offset + items.length, total)} de {total}
+                {offset + 1}-{Math.min(offset + rawItems.length, total)} de {total}
+                {loading ? " · cargando…" : ""}
               </span>
               <button
                 className="vector-secondary"

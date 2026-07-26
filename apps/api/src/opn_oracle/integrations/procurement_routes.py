@@ -328,8 +328,9 @@ class TenderSearchPatchSchema(Schema):
 
 
 class AwardsResponseSchema(Schema):
-    company_norm = String(load_default="")
-    buyer_norm = String(load_default="")
+    # allow_none: Signal intermittently returns null norms; normalize to "" on dump.
+    company_norm = String(load_default="", allow_none=True)
+    buyer_norm = String(load_default="", allow_none=True)
     total = Integer(required=True)
     items = List(Dict(keys=String(), values=Raw()), required=True)
     cached_seconds = Integer(required=True)

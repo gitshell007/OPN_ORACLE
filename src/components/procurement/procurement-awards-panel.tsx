@@ -289,7 +289,7 @@ function AwardCard({ item }: { item: ProcurementAwardItem }) {
           <dd>{cpvLabel(item.cpv)}</dd>
         </div>
       </dl>
-      <footer>
+      <footer className="procurement-card-actions">
         {item.source_url && (
           <a
             className="vector-secondary"

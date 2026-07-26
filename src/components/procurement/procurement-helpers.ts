@@ -4,6 +4,20 @@ export function problemMessage(reason: unknown, fallback: string): string {
   if (reason instanceof ApiError) {
     if (reason.status === 503)
       return "La integración de contratación pública no está disponible ahora. Reinténtalo en unos minutos o contacta con soporte si persiste.";
+    if (reason.status === 502 || reason.status === 504)
+      return "El registro de contratación no respondió a tiempo. Reinténtalo; si se repite, el proveedor puede estar saturado.";
+    if (reason.status >= 500) {
+      const detail = (reason.problem.detail || "").trim();
+      // Flask default HTML/text 500 bodies are not actionable; use a stable message.
+      if (
+        !detail ||
+        /internal server error/i.test(detail) ||
+        /server encountered an internal error/i.test(detail) ||
+        /<!doctype html/i.test(detail)
+      ) {
+        return "Error interno al consultar adjudicaciones. Reinténtalo; si persiste, avisa a soporte con la hora y la página.";
+      }
+    }
     return reason.problem.detail || fallback;
   }
   return fallback;

@@ -113,6 +113,47 @@ def test_procurement_awards_calls_global_registry_without_tenant_header() -> Non
     assert payload["total"] == 1
     assert payload["items"][0]["winner"] == "Genesis Consulting SLP"
     assert payload["items"][0]["is_ute"] is True
+    assert payload["company_norm"] == ""
+    assert payload["buyer_norm"] == ""
+
+
+@pytest.mark.unit
+def test_procurement_awards_normalizes_null_norms_and_non_int_total() -> None:
+    """Regression: messy Signal pages used to 500 on AwardsResponseSchema dump."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "total": "3",
+                "company_norm": None,
+                "buyer_norm": None,
+                "items": [
+                    {"folder_id": "A1", "winner": "ITURRI SA"},
+                    "skip-me",
+                    {"folder_id": "A2", "winner": "ITURRI SA"},
+                ],
+            },
+        )
+
+    client = ProcurementClient(
+        base_url="https://signal.example",
+        api_key="test-secret",
+        allowed_hosts=frozenset({"signal.example"}),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        payload = client.awards(company="ITURRI", buyer=None, limit=25, offset=25)
+    finally:
+        client.close()
+
+    assert payload["total"] == 3
+    assert payload["company_norm"] == ""
+    assert payload["buyer_norm"] == ""
+    assert len(payload["items"]) == 2
+    assert all(isinstance(item, dict) for item in payload["items"])
 
 
 @pytest.mark.unit

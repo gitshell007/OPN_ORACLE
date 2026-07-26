@@ -102,4 +102,54 @@ describe("EntityProcurementSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
     expect(await screen.findByText("Suministro de equipos")).toBeInTheDocument();
   });
+
+  it("ordena la página por importe y fecha sin recargar", async () => {
+    render(<EntityProcurementSection name="ITURRI SA" type="company" />);
+    expect(await screen.findByText("Suministro de equipos")).toBeInTheDocument();
+
+    const titles = () =>
+      screen.getAllByText(/Suministro de equipos|Vestuario técnico/).map((node) => node.textContent);
+
+    // Default: fecha más reciente primero (2025-06-01 before 2024-01-10).
+    expect(titles()[0]).toMatch(/Suministro de equipos/);
+
+    fireEvent.change(screen.getByLabelText(/Ordenar adjudicaciones de esta página/i), {
+      target: { value: "amount_asc" },
+    });
+    expect(titles()[0]).toMatch(/Vestuario técnico/);
+    expect(screen.getByText(/Orden local sobre los 2 resultados/i)).toBeInTheDocument();
+    expect(mocks.awards).toHaveBeenCalledTimes(1);
+  });
+
+  it("conserva la página actual si falla el avance de paginación", async () => {
+    mocks.awards
+      .mockResolvedValueOnce({
+        company_norm: "ITURRI SA",
+        buyer_norm: "",
+        total: 50,
+        items: [
+          {
+            folder_id: "folder-1",
+            title: "Suministro de equipos",
+            buyer: "Ministerio de Defensa",
+            winner: "ITURRI SA",
+            award_amount: 120000,
+            award_date: "2025-06-01",
+            status: "Adjudicada",
+          },
+        ],
+        cached_seconds: 60,
+        cache_hit: false,
+      })
+      .mockRejectedValueOnce(new Error("timeout"));
+
+    render(<EntityProcurementSection name="ITURRI SA" type="company" />);
+    expect(await screen.findByText("Suministro de equipos")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(
+      await screen.findByText(/No se pudieron consultar las adjudicaciones/i),
+    ).toBeInTheDocument();
+    // Previous page stays visible (no blank wipe on transient failure).
+    expect(screen.getByText("Suministro de equipos")).toBeInTheDocument();
+  });
 });
