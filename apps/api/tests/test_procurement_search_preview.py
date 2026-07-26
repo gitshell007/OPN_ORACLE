@@ -129,8 +129,6 @@ def test_saved_search_translation_is_active_only_and_bounded() -> None:
     assert payload["filters"] == {
         "scope": "active",
         "cpv": "18100000",
-        "buyer": "Ayuntamiento de ejemplo",
-        "region": "España",
         "min_amount": "10000",
     }
     with pytest.raises(SearchPlanExecutionError, match="solo conserva"):

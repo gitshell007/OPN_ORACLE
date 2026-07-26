@@ -198,12 +198,11 @@ def saved_search_payload(*, name: str, plan: dict[str, Any]) -> dict[str, Any]:
     filters: dict[str, Any] = {"scope": "active"}
     if cpvs:
         filters["cpv"] = cpvs[0].value
-    buyer = _first(plan.get("buyers"))
-    geography = _first(plan.get("geographies"))
-    if buyer:
-        filters["buyer"] = buyer
-    if geography:
-        filters["region"] = geography
+    # No se proyectan buyers/geographies del plan a filtros Signal:
+    # el matching del proveedor es estricto sobre el órgano exacto y la IA suele
+    # proponer instituciones genéricas (p. ej. «Ministerio de Defensa») que no
+    # coinciden con el comprador real (parques, secciones, mandos) y devuelven 0.
+    # Siguen en el plan aceptado para revisión humana y previsualización.
     if plan.get("min_amount") is not None:
         filters["min_amount"] = str(plan["min_amount"])
     if plan.get("max_amount") is not None:
