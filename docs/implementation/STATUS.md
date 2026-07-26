@@ -4,6 +4,19 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## P1 demo · higiene de tenant e informes dorados con PDF
+
+- Archivados en prod (tenant OPN): `AUDIT-TEST`, `Licitación movilidad… prueba real`,
+  `Mercado baterías LFP… prueba real` (Playwright ya estaba archivado). Quedan activos/draft de
+  demo: Coches de Bomberos, CATL-Stellantis, Concurso bomberos.
+- `POST /notifications/read-all` → 52+2 notificaciones leídas; `unread_count=0`.
+- Informes dorados ready con **html+json+pdf**: ejecutivo CATL (`14a0381e-…`), actores Concurso
+  bomberos / ITURRI SCIS (`1c72df9d-…`), y el de actores Coches ya existente (`a60d618a-…`).
+- Script reutilizable `scripts/demo_tenant_hygiene.py` + runbook
+  `docs/operations/DEMO_TENANT_HYGIENE.md` (credenciales solo por entorno).
+- Sin migración ni cambio de schema. Competitive en Concurso sigue exigiendo denominación
+  registral fijada (422 esperado si no hay awards alineados).
+
 ## Prompt 95 + writer de actores · PDF por defecto y allowlist de evidencia
 
 - **PDF (95):** con `REPORT_PDF_MODE=weasyprint` (prod ya lo tenía y WeasyPrint responde
