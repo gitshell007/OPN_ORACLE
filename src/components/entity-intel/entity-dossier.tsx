@@ -32,6 +32,7 @@ import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
 import { ReportNarrativeSection } from "@/components/reporting/report-narrative-section";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { EntityGraphV2Explorer } from "./entity-graph-v2";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
 import { registryCounterpartLabel } from "./registry-status";
 
@@ -45,6 +46,7 @@ const ENTITY_TAB_VALUES = [
   "profile",
   "registry",
   "graph",
+  "graph-v2",
   "disclosures",
   "patents",
   "news",
@@ -283,6 +285,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<EntityTab>("profile");
   const [graphVisited, setGraphVisited] = useState(false);
+  const [graphV2Visited, setGraphV2Visited] = useState(false);
   const [activeTool, setActiveTool] = useState<EntityTool | null>(null);
   const tabInteractionStarted = useRef(false);
 
@@ -351,6 +354,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
         : "profile";
       setActiveTab(nextTab);
       setGraphVisited(nextTab === "graph");
+      setGraphV2Visited(nextTab === "graph-v2");
       const requestedTool = url.searchParams.get("tool");
       if (requestedTool === "search" || requestedTool === "link" || requestedTool === "report") {
         setActiveTool(requestedTool);
@@ -537,6 +541,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     const nextTab = ENTITY_TAB_SET.has(value) ? value as EntityTab : "profile";
     tabInteractionStarted.current = true;
     if (nextTab === "graph") setGraphVisited(true);
+    if (nextTab === "graph-v2") setGraphV2Visited(true);
     setActiveTab(nextTab);
     setActiveTool(null);
     const url = new URL(window.location.href);
@@ -598,6 +603,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
             <Tabs.Trigger value="profile">Perfil</Tabs.Trigger>
             <Tabs.Trigger value="registry">Órganos y cargos</Tabs.Trigger>
             <Tabs.Trigger value="graph">Grafo</Tabs.Trigger>
+            <Tabs.Trigger value="graph-v2">Grafo v2</Tabs.Trigger>
             <Tabs.Trigger
               value="disclosures"
               aria-label={sourceTabAria("Hechos relevantes", disclosures.length, disclosureState)}
@@ -774,6 +780,18 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
               <div className="inline-error">{sectionError(dossier, "graph")}</div>
             ) : (
               <EntityGraphExplorer name={name} type={type} initialGraph={graph} embedded />
+            )}
+          </Tabs.Content>
+
+          <Tabs.Content
+            value="graph-v2"
+            className="entity-tab-panel"
+            forceMount={graphV2Visited || activeTab === "graph-v2" ? true : undefined}
+          >
+            {sectionError(dossier, "graph") ? (
+              <div className="inline-error">{sectionError(dossier, "graph")}</div>
+            ) : (
+              <EntityGraphV2Explorer name={name} type={type} initialGraph={graph} />
             )}
           </Tabs.Content>
 
