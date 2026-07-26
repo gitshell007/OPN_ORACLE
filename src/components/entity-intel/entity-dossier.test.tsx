@@ -213,6 +213,8 @@ const pendingEvidenceSources = [
 describe("EntityDossier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // mockReset limpia implementaciones once/hanging del test anterior.
+    Object.values(mocks).forEach((mock) => mock.mockReset());
     window.history.replaceState(null, "", "/app/actors/entity/company/IBERDROLA");
     mocks.dossier.mockResolvedValue(dossierResponse);
     mocks.suggest.mockResolvedValue({ suggestions: [], kind: "company", cached_seconds: 600, cache_hit: false });

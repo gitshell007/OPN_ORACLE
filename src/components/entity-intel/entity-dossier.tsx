@@ -32,6 +32,10 @@ import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
 import { ReportNarrativeSection } from "@/components/reporting/report-narrative-section";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import {
+  ENTITY_DOSSIER_STAGE_COUNT,
+  EntityDossierLoadingModal,
+} from "./entity-dossier-loading-modal";
 import { EntityGraphV2Explorer } from "./entity-graph-v2";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
 import { registryCounterpartLabel } from "./registry-status";
@@ -287,12 +291,46 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   const [graphVisited, setGraphVisited] = useState(false);
   const [graphV2Visited, setGraphV2Visited] = useState(false);
   const [activeTool, setActiveTool] = useState<EntityTool | null>(null);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadStageIndex, setLoadStageIndex] = useState(0);
+  const [loadFinishing, setLoadFinishing] = useState(false);
+  const [loadModalOpen, setLoadModalOpen] = useState(true);
   const tabInteractionStarted = useRef(false);
+  const finishTimer = useRef<number | null>(null);
+  const progressTimer = useRef<number | null>(null);
+
+  const clearLoadTimers = useCallback(() => {
+    if (finishTimer.current != null) {
+      window.clearTimeout(finishTimer.current);
+      finishTimer.current = null;
+    }
+    if (progressTimer.current != null) {
+      window.clearInterval(progressTimer.current);
+      progressTimer.current = null;
+    }
+  }, []);
+
+  const startProgressTicker = useCallback(() => {
+    if (progressTimer.current != null) window.clearInterval(progressTimer.current);
+    progressTimer.current = window.setInterval(() => {
+      setLoadProgress((current) => {
+        if (current >= 92) return current;
+        const next = current + (current < 35 ? 4.5 : current < 70 ? 2.6 : 1.2);
+        return Math.min(92, next);
+      });
+    }, 380);
+  }, []);
 
   const loadDossier = useCallback(async () => {
+    clearLoadTimers();
     setLoading(true);
     setError(null);
     setRegistryError(null);
+    setLoadModalOpen(true);
+    setLoadFinishing(false);
+    setLoadProgress(8);
+    setLoadStageIndex(0);
+    startProgressTicker();
     try {
       const [dossierResult, registryResult] = await Promise.allSettled([
         api.entityIntel.dossier({ name, type }),
@@ -325,12 +363,23 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
       setRegistryQuery("");
       setProvince("");
       setOffset(0);
+      clearLoadTimers();
+      setLoadProgress(100);
+      setLoadStageIndex(ENTITY_DOSSIER_STAGE_COUNT - 1);
+      setLoadFinishing(true);
+      setLoading(false);
+      finishTimer.current = window.setTimeout(() => {
+        setLoadModalOpen(false);
+        setLoadFinishing(false);
+      }, 480);
     } catch (reason) {
+      clearLoadTimers();
       setError(problemMessage(reason, "No se pudo cargar la ficha de entidad."));
-    } finally {
+      setLoadModalOpen(false);
+      setLoadFinishing(false);
       setLoading(false);
     }
-  }, [name, type]);
+  }, [clearLoadTimers, name, startProgressTicker, type]);
 
   useEffect(() => {
     let cancelled = false;
@@ -339,8 +388,16 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     });
     return () => {
       cancelled = true;
+      clearLoadTimers();
     };
-  }, [loadDossier]);
+  }, [clearLoadTimers, loadDossier]);
+
+  useEffect(() => {
+    if (!loadModalOpen || loadFinishing) return;
+    if (loadProgress >= 75) setLoadStageIndex(2);
+    else if (loadProgress >= 45) setLoadStageIndex(1);
+    else if (loadProgress >= 12) setLoadStageIndex(0);
+  }, [loadFinishing, loadModalOpen, loadProgress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -552,6 +609,16 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
 
   return (
     <div className="entity-intel-page entity-dossier">
+      <EntityDossierLoadingModal
+        open={loadModalOpen}
+        progress={loadProgress}
+        stageIndex={loadStageIndex}
+        entityName={name}
+        entityKind={type}
+        finishing={loadFinishing}
+        reloading={Boolean(dossier) && loading}
+      />
+
       <section className="page-heading">
         <div>
           <div className="eyebrow">Actores · ficha 360º</div>
@@ -566,14 +633,20 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
           disabled={loading}
           onClick={() => void loadDossier()}
         >
-          <RefreshCw size={15} />
-          {loading && dossier ? "Recargando vista…" : "Recargar vista"}
+          <RefreshCw size={15} className={loading ? "analytics-progress-spin" : undefined} />
+          {loading && !dossier
+            ? "Analizando…"
+            : loading
+              ? "Recargando vista…"
+              : "Recargar vista"}
         </button>
       </section>
 
       {error && <div className="inline-error" role="alert">{error}</div>}
       {loading && !dossier ? (
-        <div className="global-inventory-state" role="status">Cargando ficha de entidad...</div>
+        <div className="global-inventory-state entity-dossier-loading-placeholder" role="status">
+          Preparando la ficha de entidad…
+        </div>
       ) : dossier ? (
         <>
           <section className="entity-dossier-header" aria-busy={loading}>

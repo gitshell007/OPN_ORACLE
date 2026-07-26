@@ -141,6 +141,40 @@
 .entity-suggestions button:hover { border-color: var(--va-primary); color: var(--va-primary); }
 .entity-search-help { grid-column: 2; margin: 8px 0 0; color: #53677f; font-size: 12px; line-height: 1.45; }
 .entity-intel-page { display: grid; gap: 14px; }
+.entity-dossier-progress-entity {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 6px !important;
+  color: var(--va-text) !important;
+  font-size: 14px !important;
+  font-weight: 750 !important;
+}
+.entity-dossier-progress-entity small {
+  color: var(--va-muted);
+  font-weight: 600;
+}
+.entity-dossier-progress-sub {
+  margin: 0 !important;
+  color: var(--va-muted) !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+.entity-dossier-loading-placeholder {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--va-muted);
+  font-size: 13px;
+}
+.entity-dossier-progress-overlay {
+  /* El overlay premium no debe quedar por debajo del shell Vector. */
+  z-index: 140;
+}
+.entity-dossier-progress-overlay[data-finishing="true"] {
+  pointer-events: none;
+}
 /* ── Entity Graph V2 (ego radial / directory / matrix) ───────── */
 .entity-graph-v2 {
   display: grid;
