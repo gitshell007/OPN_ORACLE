@@ -4,25 +4,39 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
-## Prompt 96 · problema de licitaciones «Buscar con Oracle»
+## Prompt 96 · «Buscar con Oracle» ejecuta un plan y no una vigilancia
 
+- **Diagnóstico productivo:** Signal contenía mercado real (CPV `35400000`: 11
+  licitaciones activas; `acorazados`: 13), pero la única vigilancia superviviente
+  conservaba el contrato antiguo de nueve keywords más comprador genérico y
+  devolvía cero. La última aceptación observada era anterior al release
+  multi-sonda y no existía un smoke autenticado posterior. También había cinco
+  perfiles repetidos para la misma descripción, versiones hasta v7 y cuatro
+  vigilancias de prueba o del flujo obsoleto.
+- **Ejecución inmediata:** `POST /api/v1/procurement/search-plans/execute`
+  consulta hasta cuatro términos y cuatro CPV por separado, nunca aplica
+  comprador/geografía generados por IA, fusiona por `folder_id`, prioriza CPV de
+  defensa/vehículos antes del presupuesto de sondas y penaliza SDA multi-CPV.
+  La unión se ordena y pagina de forma estable dentro de una ventana honesta de
+  100 resultados; no se presenta como ranking global de Signal.
+- **Calidad del plan:** `tender_search_wizard/v2` solicita entre cuatro y ocho
+  familias CPV amplias. Si una generación IA aún devuelve CPV vacíos, Oracle
+  propone hasta ocho grupos de la taxonomía oficial por solape determinista y
+  añade una asunción visible. Una edición humana que deja CPV vacíos se respeta.
+- **UX:** «Aceptar y buscar» acepta el plan y rellena la tabla central. Guardar
+  una vigilancia es una casilla opcional, desmarcada por defecto; su copy y el
+  panel lateral aclaran que es un proxy estrecho para novedades. Actualizar y
+  paginar conservan el plan multi-sonda y no caen en la búsqueda manual.
+- **Higiene de versiones:** si Signal devuelve cero o falla después de aceptar,
+  «Reintentar búsqueda» reutiliza el perfil durable. Solo una edición real del
+  plan crea una versión nueva. «Empezar de cero» no rehidrata el último plan al
+  reabrir y los chips conservados se pueden retirar.
+- **Contrato y pruebas:** la operación `execute` y su paginación ya están
+  declaradas en OpenAPI y en el cliente TypeScript; el test backend despacha HTTP
+  real. D-085 limita expresamente la antigua regla «nunca fusionar» de D-063 a
+  la previsualización.
 - Documento de producto/implementación:
   `docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md`.
-- Define el dolor (plan vs ejecución Signal, confusión vigilancia/resultados),
-  la definición de hecho (tabla central tras Aceptar y buscar), multi-sonda
-  `search-plans/execute`, vigilancia estrecha y caso canónico defensa.
-
-## Wizard «Buscar con Oracle» · aceptar ejecuta y muestra resultados
-
-- **Aceptar y buscar** (antes solo versionaba el perfil): acepta el plan, crea o
-  actualiza la búsqueda Signal, la ejecuta y cierra el diálogo mostrando las
-  licitaciones en el workspace.
-- **Descartar**: «Quitar todos» por categoría de chips, × en Conservados del
-  diff, «Descartar versión anterior» y «Empezar de cero» (limpia estado y no
-  rehidrata CPV/conservados del plan previo).
-- **Layout**: el body del diálogo es el único scroller; chips y Conservados con
-  wrap y scroll interno para no quedar bajo el footer (capturas oracle1/2).
-- Solo frontend. Tests vitest del wizard actualizados.
 
 ## Superadmin · estadísticas de licitaciones PLACSP
 
