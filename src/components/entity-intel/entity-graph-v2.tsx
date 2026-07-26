@@ -228,6 +228,55 @@ function polar(angle: number, radius: number): { x: number; y: number } {
   };
 }
 
+/**
+ * Place the label outside the node disc so the circle never covers the name.
+ * Uses the radial angle (outward from graph focus) to pick left / right / top / bottom.
+ */
+function labelLayout(
+  angle: number,
+  nodeRadius: number,
+): {
+  x: number;
+  y: number;
+  textAnchor: "start" | "middle" | "end";
+  dominantBaseline: "auto" | "middle" | "hanging";
+} {
+  const gap = nodeRadius + 10;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  // Prefer side labels when the node is more on the left/right of the ring.
+  if (Math.abs(cos) >= Math.abs(sin) * 0.85) {
+    if (cos >= 0) {
+      return {
+        x: gap,
+        y: 0,
+        textAnchor: "start",
+        dominantBaseline: "middle",
+      };
+    }
+    return {
+      x: -gap,
+      y: 0,
+      textAnchor: "end",
+      dominantBaseline: "middle",
+    };
+  }
+  if (sin >= 0) {
+    return {
+      x: 0,
+      y: gap + 2,
+      textAnchor: "middle",
+      dominantBaseline: "hanging",
+    };
+  }
+  return {
+    x: 0,
+    y: -gap - 2,
+    textAnchor: "middle",
+    dominantBaseline: "auto",
+  };
+}
+
 function placeRing(
   candidates: NormalizedNode[],
   depth: number,
@@ -1042,11 +1091,22 @@ export function EntityGraphV2Explorer({
                   const isCollapsed = collapsedIds.has(place.node.id);
                   const ring1Count = visiblePlacements.filter((p) => p.depth === 1).length;
                   const ring2Count = visiblePlacements.filter((p) => p.depth === 2).length;
+                  // Show names around the full ring when density allows; always for
+                  // selection, hover, expansion, or high-degree nodes.
                   const showLabel =
                     active ||
                     isExpanded ||
-                    (place.depth === 1 && (place.node.degree >= 3 || ring1Count <= 18)) ||
-                    (place.depth === 2 && ring2Count <= 24);
+                    place.depth === 1 ||
+                    (place.depth === 2 && (ring2Count <= 36 || place.node.degree >= 2));
+                  const label = labelLayout(place.angle, place.radius);
+                  const maxChars =
+                    place.depth === 1
+                      ? ring1Count > 40
+                        ? 14
+                        : 22
+                      : ring2Count > 40
+                        ? 12
+                        : 16;
                   return (
                     <g
                       key={place.node.id}
@@ -1087,11 +1147,13 @@ export function EntityGraphV2Explorer({
                       )}
                       {showLabel && (
                         <text
-                          y={place.radius + 12}
-                          textAnchor="middle"
-                          className="entity-graph-v2-node-label"
+                          x={label.x}
+                          y={label.y}
+                          textAnchor={label.textAnchor}
+                          dominantBaseline={label.dominantBaseline}
+                          className={`entity-graph-v2-node-label${active ? " is-emphasis" : ""}`}
                         >
-                          {truncateLabel(place.node.label, place.depth === 1 ? 22 : 16)}
+                          {truncateLabel(place.node.label, maxChars)}
                         </text>
                       )}
                       <title>
@@ -1128,8 +1190,14 @@ export function EntityGraphV2Explorer({
                   <text y={4} textAnchor="middle" className="entity-graph-v2-center-glyph">
                     {focusNode.kind === "person" ? "P" : "E"}
                   </text>
-                  <text y={CENTER_R + 18} textAnchor="middle" className="entity-graph-v2-center-label">
-                    {truncateLabel(focusNode.label, 34)}
+                  {/* Focus label always below the disc so it is never covered */}
+                  <text
+                    y={CENTER_R + 16}
+                    textAnchor="middle"
+                    dominantBaseline="hanging"
+                    className="entity-graph-v2-center-label"
+                  >
+                    {truncateLabel(focusNode.label, 36)}
                   </text>
                 </g>
               </g>

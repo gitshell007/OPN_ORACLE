@@ -60,7 +60,7 @@ describe("EntityGraphV2Explorer", () => {
     cleanup();
   });
 
-  it("renderiza vista radial con foco y anillo de 1er salto", async () => {
+  it("renderiza vista radial con foco y nombres en el anillo completo", async () => {
     render(
       <EntityGraphV2Explorer
         name="MAGTEL GLOBAL SL"
@@ -73,7 +73,10 @@ describe("EntityGraphV2Explorer", () => {
     expect(screen.getByRole("img", { name: /Grafo radial de MAGTEL GLOBAL SL/i })).toBeInTheDocument();
     expect(screen.getAllByText(/1er salto/i).length).toBeGreaterThan(0);
     expect(screen.queryByText("LEJANA SL")).not.toBeInTheDocument();
+    // Labels on the full ring (not only one side): all 1-hop neighbors named.
     expect(screen.getByText("FILIAL ALFA SL")).toBeInTheDocument();
+    expect(screen.getByText("FILIAL BETA SL")).toBeInTheDocument();
+    expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
   });
 
   it("ofrece controles de zoom y reencuadre", async () => {

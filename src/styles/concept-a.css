@@ -397,12 +397,20 @@
 .entity-graph-v2-node { transition: opacity .15s ease; }
 .entity-graph-v2-node.is-dimmed { opacity: .22; }
 .entity-graph-v2-node-label {
-  fill: #1e334d;
-  font-size: 9px;
-  font-weight: 650;
-  paint-order: stroke;
-  stroke: #ffffffd9;
-  stroke-width: 3px;
+  fill: #13283f;
+  font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke fill;
+  stroke: #ffffff;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.entity-graph-v2-node-label.is-emphasis {
+  fill: #0b1a2c;
+  font-size: 11px;
+  font-weight: 800;
+  stroke-width: 5px;
 }
 .entity-graph-v2-center-glyph {
   fill: #fff;
@@ -413,9 +421,11 @@
   fill: #0f172a;
   font-size: 12px;
   font-weight: 800;
-  paint-order: stroke;
-  stroke: #fffffff0;
-  stroke-width: 4px;
+  paint-order: stroke fill;
+  stroke: #ffffff;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 .entity-graph-v2-hint {
   fill: #7a8ea5;
