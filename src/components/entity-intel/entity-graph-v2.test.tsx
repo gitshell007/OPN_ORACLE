@@ -72,9 +72,55 @@ describe("EntityGraphV2Explorer", () => {
     expect(await screen.findByText(/Entorno de MAGTEL GLOBAL SL/i)).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Grafo radial de MAGTEL GLOBAL SL/i })).toBeInTheDocument();
     expect(screen.getAllByText(/1er salto/i).length).toBeGreaterThan(0);
-    // Depth 2 node should not appear at default depth 1
     expect(screen.queryByText("LEJANA SL")).not.toBeInTheDocument();
     expect(screen.getByText("FILIAL ALFA SL")).toBeInTheDocument();
+  });
+
+  it("ofrece controles de zoom y reencuadre", async () => {
+    render(
+      <EntityGraphV2Explorer
+        name="MAGTEL GLOBAL SL"
+        type="company"
+        initialGraph={sampleGraph}
+      />,
+    );
+    await screen.findByText(/Entorno de MAGTEL GLOBAL SL/i);
+    expect(screen.getByRole("button", { name: "Acercar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Alejar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reencuadrar" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Acercar" }));
+    expect(screen.getByText("115%")).toBeInTheDocument();
+  });
+
+  it("permite expandir vecinos del nodo seleccionado y ver el 2º salto", async () => {
+    render(
+      <EntityGraphV2Explorer
+        name="MAGTEL GLOBAL SL"
+        type="company"
+        initialGraph={sampleGraph}
+      />,
+    );
+    await screen.findByText("FILIAL ALFA SL");
+    fireEvent.click(screen.getByText("FILIAL ALFA SL"));
+    expect(await screen.findByRole("button", { name: /Expandir vecinos/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Expandir vecinos/i }));
+    expect(await screen.findByText("LEJANA SL")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Colapsar rama/i })).toBeInTheDocument();
+  });
+
+  it("permite centrar la exploración en otra entidad sin salir de la vista", async () => {
+    render(
+      <EntityGraphV2Explorer
+        name="MAGTEL GLOBAL SL"
+        type="company"
+        initialGraph={sampleGraph}
+      />,
+    );
+    await screen.findByText("FILIAL ALFA SL");
+    fireEvent.click(screen.getByText("FILIAL ALFA SL"));
+    fireEvent.click(await screen.findByRole("button", { name: /Centrar exploración aquí/i }));
+    expect(await screen.findByText(/Entorno de FILIAL ALFA SL/i)).toBeInTheDocument();
+    expect(screen.getByText(/Explorando desde un nodo secundario/i)).toBeInTheDocument();
   });
 
   it("permite cambiar a directorio y listar vecinos", async () => {
@@ -89,19 +135,6 @@ describe("EntityGraphV2Explorer", () => {
     fireEvent.click(screen.getByRole("tab", { name: /Directorio/i }));
     expect(await screen.findByRole("columnheader", { name: /Entidad/i })).toBeInTheDocument();
     expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
-  });
-
-  it("expone matriz de adyacencia como modo alternativo", async () => {
-    render(
-      <EntityGraphV2Explorer
-        name="MAGTEL GLOBAL SL"
-        type="company"
-        initialGraph={sampleGraph}
-      />,
-    );
-    await screen.findByText(/Entorno de MAGTEL GLOBAL SL/i);
-    fireEvent.click(screen.getByRole("tab", { name: /Matriz/i }));
-    expect(await screen.findByText(/Matriz de adyacencia/i)).toBeInTheDocument();
   });
 
   it("recarga el grafo con solo activos cuando se marca el filtro", async () => {

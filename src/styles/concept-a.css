@@ -331,6 +331,37 @@
   color: var(--va-text);
   box-shadow: 0 1px 3px rgb(15 23 42 / 10%);
 }
+.entity-graph-v2-zoombar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d7e3f1;
+  border-radius: 999px;
+  background: #fff;
+  padding: 4px 8px 4px 4px;
+}
+.entity-graph-v2-zoombar span {
+  min-width: 40px;
+  color: var(--va-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+.entity-graph-v2-trail {
+  margin: 8px 0 0 !important;
+  color: #0f6a7a !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+}
+.entity-graph-v2-node.is-expanded circle {
+  /* ring handled in SVG */
+}
+.entity-graph-v2-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
 .entity-graph-v2-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

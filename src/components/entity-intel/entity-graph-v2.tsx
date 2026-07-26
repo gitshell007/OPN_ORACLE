@@ -1,29 +1,45 @@
 "use client";
 
 /**
- * Entity Graph V2 — enterprise ego-network visualization.
+ * Entity Graph V2 — interactive ego-network (radial) with enterprise controls.
  *
- * Design goals (corporate intelligence / market-data style):
- * - Default to a readable 1-hop radial neighborhood around the focus entity
- * - Progressive disclosure (depth 1 → 2) instead of a full force hairball
- * - Ranked directory + optional adjacency matrix for dense relationship sets
- * - Pure SVG/React (no cytoscape) so layout is deterministic and inspectable
+ * Adds navigation utilities comparable to Grafo v1 without force-layout hairballs:
+ * - Zoom / pan / fit
+ * - Re-root focus on any selected entity (explore branches in-place)
+ * - Expand / collapse neighborhood of a node
+ * - Isolation of direct environment
+ * - Directory + adjacency matrix modes
  *
  * Does not modify EntityGraphExplorer (Grafo v1).
  */
 
-import { ApiError, api, type EntityIntelGraphEdge, type EntityIntelGraphNode, type EntityIntelGraphResponse, type EntityIntelKind } from "@oracle/api-client";
+import {
+  ApiError,
+  api,
+  type EntityIntelGraphEdge,
+  type EntityIntelGraphNode,
+  type EntityIntelGraphResponse,
+  type EntityIntelKind,
+} from "@oracle/api-client";
 import {
   Building2,
   ChevronRight,
   CircleDot,
+  Expand,
   ExternalLink,
+  Focus,
+  GitBranchPlus,
   Grid3X3,
   List,
+  Minimize2,
   Network,
   RefreshCw,
+  Scan,
   Search,
+  Shrink,
   UserRound,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -33,12 +49,14 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { entityRoute } from "@/lib/entity-route";
 import { graphNodeDepths } from "./entity-graph-layout";
 
 type ViewMode = "radial" | "directory" | "matrix";
 type TypeFilter = "all" | "company" | "person";
+type DragMode = "pan" | "rotate" | null;
 
 interface NormalizedNode {
   id: string;
@@ -66,15 +84,18 @@ interface RingPlacement {
   x: number;
   y: number;
   radius: number;
+  parentId: string | null;
 }
 
 const VIEW_W = 920;
 const VIEW_H = 640;
 const CX = VIEW_W / 2;
 const CY = VIEW_H / 2;
-const RING_RADIUS: Record<number, number> = { 1: 210, 2: 305 };
+const RING_RADIUS: Record<number, number> = { 1: 200, 2: 300 };
 const CENTER_R = 28;
 const DEFAULT_RING_CAP = 36;
+const MIN_ZOOM = 0.45;
+const MAX_ZOOM = 2.8;
 
 function problemMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
@@ -113,9 +134,14 @@ function findCenterId(nodes: NormalizedNode[], queryName: string): string | null
   const marked = nodes.find((n) => n.isCenter);
   if (marked) return marked.id;
   const needle = normalizeFold(queryName);
-  const exact = nodes.find((n) => normalizeFold(n.routeName) === needle || normalizeFold(n.label) === needle);
+  const exact = nodes.find(
+    (n) => normalizeFold(n.routeName) === needle || normalizeFold(n.label) === needle,
+  );
   if (exact) return exact.id;
-  const partial = nodes.find((n) => normalizeFold(n.label).includes(needle) || normalizeFold(n.routeName).includes(needle));
+  const partial = nodes.find(
+    (n) =>
+      normalizeFold(n.label).includes(needle) || normalizeFold(n.routeName).includes(needle),
+  );
   return partial?.id ?? nodes[0]?.id ?? null;
 }
 
@@ -137,14 +163,16 @@ function buildNormalized(graph: EntityIntelGraphResponse, queryName: string) {
     const source = String(edge.source);
     const target = String(edge.target);
     if (!known.has(source) || !known.has(target) || source === target) return [];
-    return [{
-      id: String(edge.id ?? `${source}-${target}-${index}`),
-      source,
-      target,
-      role: edgeRole(edge),
-      active: typeof edge.active === "boolean" ? edge.active : null,
-      date: typeof edge.date === "string" ? edge.date : null,
-    }];
+    return [
+      {
+        id: String(edge.id ?? `${source}-${target}-${index}`),
+        source,
+        target,
+        role: edgeRole(edge),
+        active: typeof edge.active === "boolean" ? edge.active : null,
+        date: typeof edge.date === "string" ? edge.date : null,
+      },
+    ];
   });
   const degreeFromEdges = new Map<string, number>();
   for (const edge of edges) {
@@ -154,16 +182,35 @@ function buildNormalized(graph: EntityIntelGraphResponse, queryName: string) {
   for (const node of nodes) {
     if (node.degree <= 0) node.degree = degreeFromEdges.get(node.id) ?? 0;
   }
-  const centerId = findCenterId(nodes, queryName);
-  for (const node of nodes) node.isCenter = node.id === centerId;
-  const depths = centerId
-    ? graphNodeDepths(centerId, nodes.map((n) => n.id), edges)
-    : new Map<string, number>();
-  return { nodes, edges, centerId, depths };
+  const rootId = findCenterId(nodes, queryName);
+  for (const node of nodes) node.isCenter = node.id === rootId;
+
+  const adjacency = new Map<string, Set<string>>();
+  for (const node of nodes) adjacency.set(node.id, new Set());
+  for (const edge of edges) {
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  }
+
+  return { nodes, edges, rootId, adjacency };
 }
 
-function nodeFill(kind: NormalizedNode["kind"], isCenter: boolean): string {
-  if (isCenter) return "#0891b2";
+function depthsFrom(
+  focusId: string,
+  adjacency: Map<string, Set<string>>,
+  nodeIds: string[],
+): Map<string, number> {
+  return graphNodeDepths(
+    focusId,
+    nodeIds,
+    [...adjacency.entries()].flatMap(([source, targets]) =>
+      [...targets].map((target) => ({ source, target })),
+    ),
+  );
+}
+
+function nodeFill(kind: NormalizedNode["kind"], isFocus: boolean): string {
+  if (isFocus) return "#0891b2";
   if (kind === "person") return "#7c3aed";
   if (kind === "company") return "#2563eb";
   return "#64748b";
@@ -185,6 +232,8 @@ function placeRing(
   candidates: NormalizedNode[],
   depth: number,
   cap: number,
+  parentId: string | null,
+  rotation: number,
 ): RingPlacement[] {
   const sorted = [...candidates].sort(
     (a, b) => b.degree - a.degree || a.label.localeCompare(b.label, "es"),
@@ -193,11 +242,10 @@ function placeRing(
   const ringR = RING_RADIUS[depth] ?? 210;
   const count = Math.max(limited.length, 1);
   return limited.map((node, index) => {
-    // Start at top (-π/2) and go clockwise for a stable reading order.
-    const angle = -Math.PI / 2 + (index / count) * Math.PI * 2;
+    const angle = -Math.PI / 2 + rotation + (index / count) * Math.PI * 2;
     const { x, y } = polar(angle, ringR);
     const radius = Math.min(18, Math.max(9, 8 + Math.sqrt(node.degree + 1) * 1.6));
-    return { node, depth, angle, x, y, radius };
+    return { node, depth, angle, x, y, radius, parentId };
   });
 }
 
@@ -221,6 +269,7 @@ export function EntityGraphV2Explorer({
   initialGraph?: EntityIntelGraphResponse | null;
 }) {
   const router = useRouter();
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
   const [loading, setLoading] = useState(!initialGraph);
   const [error, setError] = useState<string | null>(null);
@@ -232,8 +281,22 @@ export function EntityGraphV2Explorer({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [isolatedId, setIsolatedId] = useState<string | null>(null);
+  const [focusTrail, setFocusTrail] = useState<string[]>([]);
   const [rotation, setRotation] = useState(0);
-  const dragRef = useRef<{ startX: number; startRot: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{
+    mode: DragMode;
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    startRot: number;
+  } | null>(null);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -247,6 +310,14 @@ export function EntityGraphV2Explorer({
       });
       setGraph(result);
       setSelectedId(null);
+      setFocusId(null);
+      setExpandedIds(new Set());
+      setCollapsedIds(new Set());
+      setIsolatedId(null);
+      setFocusTrail([]);
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      setRotation(0);
     } catch (reason) {
       setGraph(null);
       setError(problemMessage(reason, "No se pudo cargar el grafo de la entidad."));
@@ -272,6 +343,18 @@ export function EntityGraphV2Explorer({
     [graph, name],
   );
 
+  // Active radial focus (re-root without leaving the page).
+  const activeFocusId = focusId ?? model?.rootId ?? null;
+
+  const depths = useMemo(() => {
+    if (!model || !activeFocusId) return new Map<string, number>();
+    return depthsFrom(
+      activeFocusId,
+      model.adjacency,
+      model.nodes.map((n) => n.id),
+    );
+  }, [activeFocusId, model]);
+
   const filteredEdges = useMemo(() => {
     if (!model) return [];
     return model.edges.filter((edge) => {
@@ -280,32 +363,146 @@ export function EntityGraphV2Explorer({
     });
   }, [activeOnly, model]);
 
-  const visiblePlacements = useMemo(() => {
-    if (!model?.centerId) return [] as RingPlacement[];
-    const byDepth = new Map<number, NormalizedNode[]>();
+  const visibleNodeIds = useMemo(() => {
+    if (!model || !activeFocusId) return new Set<string>();
+    const visible = new Set<string>([activeFocusId]);
+
+    // Base ego neighborhood by depth from current focus.
     for (const node of model.nodes) {
-      if (node.id === model.centerId) continue;
-      const depth = model.depths.get(node.id);
+      if (node.id === activeFocusId) continue;
+      const depth = depths.get(node.id);
       if (depth == null || depth < 1 || depth > maxDepth) continue;
       if (typeFilter !== "all" && node.kind !== typeFilter) continue;
-      const bucket = byDepth.get(depth) ?? [];
-      bucket.push(node);
-      byDepth.set(depth, bucket);
+      visible.add(node.id);
     }
-    const placements: RingPlacement[] = [];
-    for (const depth of [1, 2] as const) {
-      if (depth > maxDepth) continue;
-      const candidates = byDepth.get(depth) ?? [];
-      for (const placed of placeRing(candidates, depth, ringCap)) {
-        placements.push({
-          ...placed,
-          angle: placed.angle + rotation,
-          ...polar(placed.angle + rotation, RING_RADIUS[depth] ?? 210),
-        });
+
+    // Expanded branches: force-show neighbors of expanded nodes.
+    for (const expanded of expandedIds) {
+      if (!visible.has(expanded) && expanded !== activeFocusId) continue;
+      for (const neighbor of model.adjacency.get(expanded) ?? []) {
+        if (neighbor === activeFocusId) continue;
+        const n = model.nodes.find((node) => node.id === neighbor);
+        if (!n) continue;
+        if (typeFilter !== "all" && n.kind !== typeFilter) continue;
+        visible.add(neighbor);
       }
     }
+
+    // Collapsed: hide nodes whose path goes through a collapsed parent at depth 1.
+    if (collapsedIds.size > 0) {
+      for (const nodeId of [...visible]) {
+        if (nodeId === activeFocusId) continue;
+        const depth = depths.get(nodeId) ?? 99;
+        if (depth <= 1) continue;
+        // Hide depth-2 nodes if their only path is via a collapsed depth-1 neighbor.
+        const parents = [...(model.adjacency.get(nodeId) ?? [])].filter(
+          (p) => (depths.get(p) ?? 99) === 1,
+        );
+        if (parents.length > 0 && parents.every((p) => collapsedIds.has(p))) {
+          visible.delete(nodeId);
+        }
+      }
+      // Also hide the collapsed node's expansion-only children if expanded was cleared.
+      for (const collapsed of collapsedIds) {
+        for (const neighbor of model.adjacency.get(collapsed) ?? []) {
+          if (neighbor === activeFocusId) continue;
+          const d = depths.get(neighbor) ?? 99;
+          if (d >= 2 && !expandedIds.has(neighbor)) {
+            // keep direct neighbors of focus even if somehow marked
+            if ((depths.get(neighbor) ?? 99) === 1) continue;
+          }
+        }
+      }
+    }
+
+    // Isolation: only focus + its direct neighbors (and their expanded children if any).
+    if (isolatedId) {
+      const keep = new Set<string>([isolatedId]);
+      for (const neighbor of model.adjacency.get(isolatedId) ?? []) keep.add(neighbor);
+      if (expandedIds.has(isolatedId)) {
+        for (const neighbor of model.adjacency.get(isolatedId) ?? []) {
+          for (const second of model.adjacency.get(neighbor) ?? []) keep.add(second);
+        }
+      }
+      for (const id of [...visible]) {
+        if (!keep.has(id)) visible.delete(id);
+      }
+      visible.add(isolatedId);
+    }
+
+    return visible;
+  }, [
+    activeFocusId,
+    collapsedIds,
+    depths,
+    expandedIds,
+    isolatedId,
+    maxDepth,
+    model,
+    typeFilter,
+  ]);
+
+  const visiblePlacements = useMemo(() => {
+    if (!model || !activeFocusId) return [] as RingPlacement[];
+
+    const byDepth = new Map<number, NormalizedNode[]>();
+    for (const node of model.nodes) {
+      if (!visibleNodeIds.has(node.id) || node.id === activeFocusId) continue;
+      let depth = depths.get(node.id) ?? 99;
+      // Expanded-only nodes beyond maxDepth treat as depth 2 for layout.
+      if (depth > 2) depth = 2;
+      if (depth < 1) continue;
+      if (depth > maxDepth && !expandedIds.size) continue;
+      const layoutDepth = Math.min(depth, 2) as 1 | 2;
+      if (layoutDepth > maxDepth && !expandedIds.has(node.id)) {
+        // Allow depth-2 layout if any expansion is active or maxDepth is 2.
+        if (!(maxDepth === 2 || [...expandedIds].some((id) => model.adjacency.get(id)?.has(node.id)))) {
+          continue;
+        }
+      }
+      const bucket = byDepth.get(layoutDepth) ?? [];
+      bucket.push(node);
+      byDepth.set(layoutDepth, bucket);
+    }
+
+    // If expansions force extra nodes and maxDepth is 1, put expansion children on ring 2.
+    if (expandedIds.size > 0) {
+      for (const expanded of expandedIds) {
+        for (const neighbor of model.adjacency.get(expanded) ?? []) {
+          if (neighbor === activeFocusId || !visibleNodeIds.has(neighbor)) continue;
+          if ((depths.get(neighbor) ?? 99) === 1) continue;
+          const n = model.nodes.find((node) => node.id === neighbor);
+          if (!n) continue;
+          if (typeFilter !== "all" && n.kind !== typeFilter) continue;
+          const bucket = byDepth.get(2) ?? [];
+          if (!bucket.some((x) => x.id === n.id) && !(byDepth.get(1) ?? []).some((x) => x.id === n.id)) {
+            bucket.push(n);
+            byDepth.set(2, bucket);
+          }
+        }
+      }
+    }
+
+    const placements: RingPlacement[] = [];
+    const effectiveMax = Math.max(maxDepth, byDepth.has(2) ? 2 : 1) as 1 | 2;
+    for (const depth of [1, 2] as const) {
+      if (depth > effectiveMax) continue;
+      const candidates = byDepth.get(depth) ?? [];
+      const parentId = depth === 1 ? activeFocusId : null;
+      placements.push(...placeRing(candidates, depth, ringCap, parentId, rotation));
+    }
     return placements;
-  }, [maxDepth, model, ringCap, rotation, typeFilter]);
+  }, [
+    activeFocusId,
+    depths,
+    expandedIds,
+    maxDepth,
+    model,
+    ringCap,
+    rotation,
+    typeFilter,
+    visibleNodeIds,
+  ]);
 
   const placementById = useMemo(() => {
     const map = new Map<string, RingPlacement>();
@@ -313,9 +510,9 @@ export function EntityGraphV2Explorer({
     return map;
   }, [visiblePlacements]);
 
-  const centerNode = useMemo(
-    () => model?.nodes.find((n) => n.id === model.centerId) ?? null,
-    [model],
+  const focusNode = useMemo(
+    () => model?.nodes.find((n) => n.id === activeFocusId) ?? null,
+    [activeFocusId, model],
   );
 
   const selectedNode = useMemo(() => {
@@ -323,29 +520,37 @@ export function EntityGraphV2Explorer({
     return model.nodes.find((n) => n.id === selectedId) ?? null;
   }, [model, selectedId]);
 
+  const selectedNeighborCount = useMemo(() => {
+    if (!model || !selectedId) return 0;
+    return model.adjacency.get(selectedId)?.size ?? 0;
+  }, [model, selectedId]);
+
+  const selectedIsExpanded = selectedId ? expandedIds.has(selectedId) : false;
+  const selectedIsCollapsed = selectedId ? collapsedIds.has(selectedId) : false;
+
   const neighborRows = useMemo(() => {
-    if (!model?.centerId) return [];
-    const rows = model.nodes
+    if (!model || !activeFocusId) return [];
+    return model.nodes
       .filter((node) => {
-        if (node.id === model.centerId) return false;
-        const depth = model.depths.get(node.id) ?? 99;
-        if (depth > maxDepth) return false;
-        if (typeFilter !== "all" && node.kind !== typeFilter) return false;
+        if (!visibleNodeIds.has(node.id) || node.id === activeFocusId) return false;
         if (query.trim()) {
           const q = normalizeFold(query);
-          if (!normalizeFold(node.label).includes(q) && !normalizeFold(node.routeName).includes(q)) {
+          if (
+            !normalizeFold(node.label).includes(q) &&
+            !normalizeFold(node.routeName).includes(q)
+          ) {
             return false;
           }
         }
         return true;
       })
       .map((node) => {
-        const depth = model.depths.get(node.id) ?? 99;
+        const depth = depths.get(node.id) ?? 99;
         const linkRoles = filteredEdges
           .filter(
             (e) =>
-              (e.source === model.centerId && e.target === node.id) ||
-              (e.target === model.centerId && e.source === node.id),
+              (e.source === activeFocusId && e.target === node.id) ||
+              (e.target === activeFocusId && e.source === node.id),
           )
           .map((e) => e.role);
         return {
@@ -354,18 +559,24 @@ export function EntityGraphV2Explorer({
           roles: Array.from(new Set(linkRoles)).slice(0, 4),
         };
       })
-      .sort((a, b) => a.depth - b.depth || b.node.degree - a.node.degree || a.node.label.localeCompare(b.node.label, "es"));
-    return rows;
-  }, [filteredEdges, maxDepth, model, query, typeFilter]);
+      .sort(
+        (a, b) =>
+          a.depth - b.depth ||
+          b.node.degree - a.node.degree ||
+          a.node.label.localeCompare(b.node.label, "es"),
+      );
+  }, [activeFocusId, depths, filteredEdges, model, query, visibleNodeIds]);
 
   const matrixNodes = useMemo(() => {
-    if (!model?.centerId) return [] as NormalizedNode[];
+    if (!model || !activeFocusId) return [] as NormalizedNode[];
+    const focus = model.nodes.find((n) => n.id === activeFocusId);
+    if (!focus) return [];
     const direct = model.nodes
-      .filter((n) => n.id !== model.centerId && (model.depths.get(n.id) ?? 99) === 1)
+      .filter((n) => n.id !== activeFocusId && (depths.get(n.id) ?? 99) === 1)
       .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label, "es"))
       .slice(0, 12);
-    return [model.nodes.find((n) => n.id === model.centerId)!, ...direct].filter(Boolean);
-  }, [model]);
+    return [focus, ...direct];
+  }, [activeFocusId, depths, model]);
 
   const matrixLinks = useMemo(() => {
     const set = new Set<string>();
@@ -377,33 +588,43 @@ export function EntityGraphV2Explorer({
   }, [filteredEdges]);
 
   const radialEdges = useMemo(() => {
-    if (!model?.centerId) return [] as Array<{ edge: NormalizedEdge; d: string; strong: boolean }>;
+    if (!model || !activeFocusId) {
+      return [] as Array<{ edge: NormalizedEdge; d: string; strong: boolean }>;
+    }
     const result: Array<{ edge: NormalizedEdge; d: string; strong: boolean }> = [];
+    const focusPos = { x: CX, y: CY };
     for (const edge of filteredEdges) {
-      const a = edge.source === model.centerId ? edge.target : edge.target === model.centerId ? edge.source : null;
-      if (a) {
-        const place = placementById.get(a);
+      const touchesFocus =
+        edge.source === activeFocusId || edge.target === activeFocusId;
+      if (touchesFocus) {
+        const other = edge.source === activeFocusId ? edge.target : edge.source;
+        if (!visibleNodeIds.has(other)) continue;
+        const place = placementById.get(other);
         if (!place) continue;
         const strong =
-          hoveredId === a || selectedId === a || hoveredId === model.centerId || selectedId === model.centerId;
+          hoveredId === other ||
+          selectedId === other ||
+          hoveredId === activeFocusId ||
+          selectedId === activeFocusId;
         result.push({
           edge,
           strong,
-          d: arcPath(CX, CY, place.x, place.y, 0.08),
+          d: arcPath(focusPos.x, focusPos.y, place.x, place.y, 0.08),
         });
         continue;
       }
-      // Peer edges only when both ends are visible and depth ≤ 1 (reduces clutter).
+      if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) continue;
       const p1 = placementById.get(edge.source);
       const p2 = placementById.get(edge.target);
       if (!p1 || !p2) continue;
-      if (p1.depth > 1 || p2.depth > 1) continue;
       const strong =
         hoveredId === edge.source ||
         hoveredId === edge.target ||
         selectedId === edge.source ||
         selectedId === edge.target;
-      if (!strong && maxDepth === 2) continue; // hide peer edges unless focused when dense
+      // Peer edges: only when strong or both at depth 1 with maxDepth 1
+      if (!strong && (p1.depth > 1 || p2.depth > 1)) continue;
+      if (!strong && maxDepth === 2 && visiblePlacements.length > 40) continue;
       result.push({
         edge,
         strong,
@@ -411,40 +632,168 @@ export function EntityGraphV2Explorer({
       });
     }
     return result;
-  }, [filteredEdges, hoveredId, maxDepth, model, placementById, selectedId]);
+  }, [
+    activeFocusId,
+    filteredEdges,
+    hoveredId,
+    maxDepth,
+    model,
+    placementById,
+    selectedId,
+    visibleNodeIds,
+    visiblePlacements.length,
+  ]);
 
   const hiddenByCap = useMemo(() => {
-    if (!model?.centerId) return 0;
-    let total = 0;
-    let shown = 0;
+    if (!model || !activeFocusId) return 0;
+    let eligible = 0;
     for (const node of model.nodes) {
-      if (node.id === model.centerId) continue;
-      const depth = model.depths.get(node.id);
+      if (node.id === activeFocusId) continue;
+      const depth = depths.get(node.id);
       if (depth == null || depth < 1 || depth > maxDepth) continue;
       if (typeFilter !== "all" && node.kind !== typeFilter) continue;
-      total += 1;
+      eligible += 1;
     }
-    shown = visiblePlacements.length;
-    return Math.max(0, total - shown);
-  }, [maxDepth, model, typeFilter, visiblePlacements.length]);
+    return Math.max(0, eligible - visiblePlacements.length);
+  }, [activeFocusId, depths, maxDepth, model, typeFilter, visiblePlacements.length]);
 
   function openEntity(routeName: string, kind: EntityIntelKind | "entity") {
     const k: EntityIntelKind = kind === "person" ? "person" : "company";
     router.push(entityRoute(k, routeName));
   }
 
+  function reRootTo(nodeId: string) {
+    if (!model) return;
+    const node = model.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    setFocusTrail((trail) => {
+      if (activeFocusId && trail[trail.length - 1] !== activeFocusId) {
+        return [...trail, activeFocusId];
+      }
+      return trail.length ? trail : activeFocusId ? [activeFocusId] : [];
+    });
+    setFocusId(nodeId);
+    setSelectedId(nodeId);
+    setIsolatedId(null);
+    setExpandedIds(new Set());
+    setCollapsedIds(new Set());
+    setRotation(0);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setMaxDepth(1);
+  }
+
+  function goBackFocus() {
+    setFocusTrail((trail) => {
+      if (!trail.length) {
+        setFocusId(model?.rootId ?? null);
+        return [];
+      }
+      const next = [...trail];
+      const prev = next.pop()!;
+      setFocusId(prev);
+      setSelectedId(prev);
+      return next;
+    });
+    setIsolatedId(null);
+    setExpandedIds(new Set());
+    setCollapsedIds(new Set());
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }
+
+  function resetToRoot() {
+    setFocusId(model?.rootId ?? null);
+    setFocusTrail([]);
+    setIsolatedId(null);
+    setExpandedIds(new Set());
+    setCollapsedIds(new Set());
+    setSelectedId(model?.rootId ?? null);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(0);
+    setMaxDepth(1);
+  }
+
+  function expandSelected() {
+    if (!selectedId || !model) return;
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(selectedId);
+      return next;
+    });
+    setExpandedIds((prev) => new Set(prev).add(selectedId));
+    setMaxDepth(2);
+    setIsolatedId(null);
+  }
+
+  function collapseSelected() {
+    if (!selectedId) return;
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(selectedId);
+      return next;
+    });
+    setCollapsedIds((prev) => new Set(prev).add(selectedId));
+  }
+
+  function isolateSelected() {
+    if (!selectedId) return;
+    setIsolatedId(selectedId);
+    setExpandedIds(new Set());
+  }
+
+  function clearIsolation() {
+    setIsolatedId(null);
+  }
+
+  function zoomBy(factor: number) {
+    setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor)));
+  }
+
+  function fitView() {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(0);
+  }
+
   function onPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.button !== 0) return;
-    dragRef.current = { startX: event.clientX, startRot: rotation };
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+    const target = event.target as Element;
+    // Don't pan when clicking nodes (they stopPropagation). Background pans; Alt/Shift rotates.
+    const mode: DragMode = event.altKey || event.shiftKey ? "rotate" : "pan";
+    dragRef.current = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPanX: pan.x,
+      startPanY: pan.y,
+      startRot: rotation,
+    };
+    svgRef.current?.setPointerCapture?.(event.pointerId);
   }
+
   function onPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (!dragRef.current) return;
-    const delta = (event.clientX - dragRef.current.startX) / 140;
-    setRotation(dragRef.current.startRot + delta);
+    const { mode, startX, startY, startPanX, startPanY, startRot } = dragRef.current;
+    if (mode === "rotate") {
+      setRotation(startRot + (event.clientX - startX) / 140);
+      return;
+    }
+    setPan({
+      x: startPanX + (event.clientX - startX) / zoom,
+      y: startPanY + (event.clientY - startY) / zoom,
+    });
   }
+
   function onPointerUp() {
     dragRef.current = null;
+  }
+
+  function onWheel(event: ReactWheelEvent<SVGSVGElement>) {
+    event.preventDefault();
+    const factor = event.deltaY > 0 ? 0.9 : 1.1;
+    setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor)));
   }
 
   if (loading) {
@@ -471,7 +820,7 @@ export function EntityGraphV2Explorer({
     );
   }
 
-  if (!model || !centerNode) {
+  if (!model || !focusNode || !activeFocusId) {
     return (
       <div className="entity-graph-v2">
         <p className="entity-graph-v2-empty">No hay datos de grafo para esta entidad.</p>
@@ -479,32 +828,33 @@ export function EntityGraphV2Explorer({
     );
   }
 
-  const stats = {
-    totalNodes: model.nodes.length,
-    totalEdges: model.edges.length,
-    visibleNodes: visiblePlacements.length + 1,
-    visibleEdges: radialEdges.length,
-    truncated: Boolean(graph?.truncated),
-  };
+  const worldTransform = `translate(${CX + pan.x} ${CY + pan.y}) scale(${zoom}) translate(${-CX} ${-CY})`;
+  const isOffRoot = Boolean(focusId && model.rootId && focusId !== model.rootId);
 
   return (
     <div className="entity-graph-v2">
       <header className="entity-graph-v2-header">
         <div>
-          <p className="section-kicker">Grafo v2 · red ego radial</p>
-          <h2>Entorno de {centerNode.label}</h2>
+          <p className="section-kicker">Grafo v2 · exploración interactiva</p>
+          <h2>Entorno de {focusNode.label}</h2>
           <p>
-            Vista enterprise por anillos de distancia (1–2 saltos). No es un force-layout completo:
-            prioriza legibilidad y divulgación progresiva, como en herramientas de inteligencia
-            corporativa y grafo de contrapartes.
+            Red ego radial con zoom, pan, re-centrado de foco y expansión/colapso de ramas.
+            La legibilidad se mantiene con anillos de distancia; no se pinta el hairball completo.
           </p>
+          {isOffRoot && (
+            <p className="entity-graph-v2-trail">
+              Explorando desde un nodo secundario
+              {focusTrail.length > 0 ? ` · ${focusTrail.length} paso(s) en la ruta` : ""}.
+            </p>
+          )}
         </div>
         <div className="entity-graph-v2-metrics" aria-label="Métricas del grafo v2">
-          <span>{stats.visibleNodes} nodos visibles</span>
-          <span>{stats.totalNodes} recibidos</span>
-          <span>{stats.totalEdges} vínculos</span>
+          <span>{visiblePlacements.length + 1} nodos visibles</span>
+          <span>{model.nodes.length} recibidos</span>
+          <span>{model.edges.length} vínculos</span>
+          <span>Zoom {Math.round(zoom * 100)}%</span>
           {hiddenByCap > 0 && <span className="is-warn">+{hiddenByCap} fuera del tope</span>}
-          {stats.truncated && <span className="is-warn">Muestra truncada por proveedor</span>}
+          {graph?.truncated && <span className="is-warn">Muestra truncada</span>}
         </div>
       </header>
 
@@ -539,6 +889,21 @@ export function EntityGraphV2Explorer({
           </button>
         </div>
 
+        {viewMode === "radial" && (
+          <div className="entity-graph-v2-zoombar" aria-label="Zoom y encuadre">
+            <button type="button" className="vector-secondary compact" onClick={() => zoomBy(1.15)} aria-label="Acercar">
+              <ZoomIn size={14} />
+            </button>
+            <button type="button" className="vector-secondary compact" onClick={() => zoomBy(1 / 1.15)} aria-label="Alejar">
+              <ZoomOut size={14} />
+            </button>
+            <button type="button" className="vector-secondary compact" onClick={fitView} aria-label="Reencuadrar">
+              <Scan size={14} /> Reencuadrar
+            </button>
+            <span>{Math.round(zoom * 100)}%</span>
+          </div>
+        )}
+
         <label>
           <span>Saltos</span>
           <select
@@ -546,7 +911,7 @@ export function EntityGraphV2Explorer({
             onChange={(e) => setMaxDepth(Number(e.target.value) as 1 | 2)}
             aria-label="Profundidad en saltos"
           >
-            <option value={1}>1 salto (recomendado)</option>
+            <option value={1}>1 salto</option>
             <option value={2}>2 saltos</option>
           </select>
         </label>
@@ -562,6 +927,7 @@ export function EntityGraphV2Explorer({
             <option value={36}>36</option>
             <option value={48}>48</option>
             <option value={72}>72</option>
+            <option value={100}>100</option>
           </select>
         </label>
 
@@ -587,6 +953,18 @@ export function EntityGraphV2Explorer({
           Solo vínculos activos
         </label>
 
+        {(isOffRoot || isolatedId || expandedIds.size > 0 || collapsedIds.size > 0) && (
+          <button type="button" className="vector-secondary compact" onClick={resetToRoot}>
+            <Minimize2 size={14} /> Restaurar foco raíz
+          </button>
+        )}
+
+        {focusTrail.length > 0 && (
+          <button type="button" className="vector-secondary compact" onClick={goBackFocus}>
+            ← Foco anterior
+          </button>
+        )}
+
         <button type="button" className="vector-secondary compact" onClick={() => void loadGraph()}>
           <RefreshCw size={14} /> Recargar
         </button>
@@ -596,14 +974,16 @@ export function EntityGraphV2Explorer({
         <div className="entity-graph-v2-stage">
           {viewMode === "radial" && (
             <svg
+              ref={svgRef}
               className="entity-graph-v2-svg"
               viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
               role="img"
-              aria-label={`Grafo radial de ${centerNode.label}`}
+              aria-label={`Grafo radial de ${focusNode.label}`}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerLeave={onPointerUp}
+              onWheel={onWheel}
             >
               <defs>
                 <radialGradient id="egv2-bg" cx="50%" cy="50%" r="65%">
@@ -616,116 +996,147 @@ export function EntityGraphV2Explorer({
               </defs>
               <rect width={VIEW_W} height={VIEW_H} fill="url(#egv2-bg)" />
 
-              {/* Guide rings */}
-              {[1, 2]
-                .filter((d) => d <= maxDepth)
-                .map((d) => (
-                  <g key={`ring-${d}`}>
-                    <circle
-                      cx={CX}
-                      cy={CY}
-                      r={RING_RADIUS[d]}
-                      fill="none"
-                      stroke="#c9d7e8"
-                      strokeDasharray="4 6"
-                      strokeWidth={1}
-                    />
-                    <text
-                      x={CX + RING_RADIUS[d] - 8}
-                      y={CY - 8}
-                      className="entity-graph-v2-ring-label"
-                      textAnchor="end"
-                    >
-                      {d === 1 ? "1er salto" : "2º salto"}
-                    </text>
-                  </g>
+              <g transform={worldTransform}>
+                {[1, 2]
+                  .filter((d) => d <= Math.max(maxDepth, visiblePlacements.some((p) => p.depth === 2) ? 2 : 1))
+                  .map((d) => (
+                    <g key={`ring-${d}`}>
+                      <circle
+                        cx={CX}
+                        cy={CY}
+                        r={RING_RADIUS[d]}
+                        fill="none"
+                        stroke="#c9d7e8"
+                        strokeDasharray="4 6"
+                        strokeWidth={1}
+                      />
+                      <text
+                        x={CX + RING_RADIUS[d] - 8}
+                        y={CY - 8}
+                        className="entity-graph-v2-ring-label"
+                        textAnchor="end"
+                      >
+                        {d === 1 ? "1er salto" : "2º salto"}
+                      </text>
+                    </g>
+                  ))}
+
+                {radialEdges.map(({ edge, d, strong }) => (
+                  <path
+                    key={edge.id}
+                    d={d}
+                    className={strong ? "entity-graph-v2-edge is-strong" : "entity-graph-v2-edge"}
+                    fill="none"
+                  />
                 ))}
 
-              {/* Edges */}
-              {radialEdges.map(({ edge, d, strong }) => (
-                <path
-                  key={edge.id}
-                  d={d}
-                  className={strong ? "entity-graph-v2-edge is-strong" : "entity-graph-v2-edge"}
-                  fill="none"
-                />
-              ))}
+                {visiblePlacements.map((place) => {
+                  const active =
+                    place.node.id === selectedId || place.node.id === hoveredId;
+                  const dimmed =
+                    Boolean(selectedId || hoveredId) &&
+                    place.node.id !== selectedId &&
+                    place.node.id !== hoveredId &&
+                    place.node.id !== activeFocusId;
+                  const isExpanded = expandedIds.has(place.node.id);
+                  const isCollapsed = collapsedIds.has(place.node.id);
+                  const ring1Count = visiblePlacements.filter((p) => p.depth === 1).length;
+                  const ring2Count = visiblePlacements.filter((p) => p.depth === 2).length;
+                  const showLabel =
+                    active ||
+                    isExpanded ||
+                    (place.depth === 1 && (place.node.degree >= 3 || ring1Count <= 18)) ||
+                    (place.depth === 2 && ring2Count <= 24);
+                  return (
+                    <g
+                      key={place.node.id}
+                      className={`entity-graph-v2-node${active ? " is-active" : ""}${dimmed ? " is-dimmed" : ""}${isExpanded ? " is-expanded" : ""}`}
+                      transform={`translate(${place.x} ${place.y})`}
+                      onMouseEnter={() => setHoveredId(place.node.id)}
+                      onMouseLeave={() =>
+                        setHoveredId((id) => (id === place.node.id ? null : id))
+                      }
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedId(place.node.id);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        reRootTo(place.node.id);
+                      }}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <circle
+                        r={place.radius}
+                        fill={nodeFill(place.node.kind, false)}
+                        stroke={
+                          active ? "#0f172a" : isExpanded ? "#0f8a76" : isCollapsed ? "#94a3b8" : "#ffffff"
+                        }
+                        strokeWidth={active || isExpanded ? 2.5 : 1.5}
+                        filter="url(#egv2-shadow)"
+                      />
+                      {isExpanded && (
+                        <circle
+                          r={place.radius + 5}
+                          fill="none"
+                          stroke="#0f8a76"
+                          strokeWidth={1}
+                          strokeDasharray="2 2"
+                        />
+                      )}
+                      {showLabel && (
+                        <text
+                          y={place.radius + 12}
+                          textAnchor="middle"
+                          className="entity-graph-v2-node-label"
+                        >
+                          {truncateLabel(place.node.label, place.depth === 1 ? 22 : 16)}
+                        </text>
+                      )}
+                      <title>
+                        {place.node.label}
+                        {"\n"}
+                        {place.node.kind === "person" ? "Persona" : "Empresa"}
+                        {" · "}
+                        {place.node.degree} vínculos · salto {place.depth}
+                        {"\n"}
+                        Clic: seleccionar · Doble clic: centrar exploración
+                      </title>
+                    </g>
+                  );
+                })}
 
-              {/* Peripheral nodes */}
-              {visiblePlacements.map((place) => {
-                const active =
-                  place.node.id === selectedId || place.node.id === hoveredId;
-                const dimmed =
-                  (selectedId || hoveredId) &&
-                  place.node.id !== selectedId &&
-                  place.node.id !== hoveredId;
-                const showLabel =
-                  active ||
-                  place.depth === 1 && place.node.degree >= 3 ||
-                  place.depth === 1 && visiblePlacements.filter((p) => p.depth === 1).length <= 18;
-                return (
-                  <g
-                    key={place.node.id}
-                    className={`entity-graph-v2-node${active ? " is-active" : ""}${dimmed ? " is-dimmed" : ""}`}
-                    transform={`translate(${place.x} ${place.y})`}
-                    onMouseEnter={() => setHoveredId(place.node.id)}
-                    onMouseLeave={() => setHoveredId((id) => (id === place.node.id ? null : id))}
-                    onClick={() => setSelectedId(place.node.id)}
-                    onDoubleClick={() => openEntity(place.node.routeName, place.node.kind)}
-                    style={{ cursor: "pointer" }}
-                  >
-                    <circle
-                      r={place.radius}
-                      fill={nodeFill(place.node.kind, false)}
-                      stroke={active ? "#0f172a" : "#ffffff"}
-                      strokeWidth={active ? 2.5 : 1.5}
-                      filter="url(#egv2-shadow)"
-                    />
-                    {showLabel && (
-                      <text
-                        y={place.radius + 12}
-                        textAnchor="middle"
-                        className="entity-graph-v2-node-label"
-                      >
-                        {truncateLabel(place.node.label, place.depth === 1 ? 22 : 16)}
-                      </text>
-                    )}
-                    <title>
-                      {place.node.label}
-                      {"\n"}
-                      {place.node.kind === "person" ? "Persona" : "Empresa"}
-                      {" · "}
-                      {place.node.degree} vínculos · salto {place.depth}
-                    </title>
-                  </g>
-                );
-              })}
-
-              {/* Center */}
-              <g
-                className="entity-graph-v2-center"
-                transform={`translate(${CX} ${CY})`}
-                onClick={() => setSelectedId(centerNode.id)}
-                style={{ cursor: "pointer" }}
-              >
-                <circle r={CENTER_R + 10} fill="#0891b215" />
-                <circle
-                  r={CENTER_R}
-                  fill={nodeFill(centerNode.kind, true)}
-                  stroke="#0f172a"
-                  strokeWidth={3}
-                  filter="url(#egv2-shadow)"
-                />
-                <text y={4} textAnchor="middle" className="entity-graph-v2-center-glyph">
-                  {centerNode.kind === "person" ? "P" : "E"}
-                </text>
-                <text y={CENTER_R + 18} textAnchor="middle" className="entity-graph-v2-center-label">
-                  {truncateLabel(centerNode.label, 34)}
-                </text>
+                <g
+                  className="entity-graph-v2-center"
+                  transform={`translate(${CX} ${CY})`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedId(activeFocusId);
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  <circle r={CENTER_R + 10} fill="#0891b215" />
+                  <circle
+                    r={CENTER_R}
+                    fill={nodeFill(focusNode.kind, true)}
+                    stroke="#0f172a"
+                    strokeWidth={3}
+                    filter="url(#egv2-shadow)"
+                  />
+                  <text y={4} textAnchor="middle" className="entity-graph-v2-center-glyph">
+                    {focusNode.kind === "person" ? "P" : "E"}
+                  </text>
+                  <text y={CENTER_R + 18} textAnchor="middle" className="entity-graph-v2-center-label">
+                    {truncateLabel(focusNode.label, 34)}
+                  </text>
+                </g>
               </g>
 
               <text x={16} y={VIEW_H - 14} className="entity-graph-v2-hint">
-                Arrastra horizontalmente para rotar · clic selecciona · doble clic abre ficha
+                Rueda: zoom · Arrastrar: pan · Alt+arrastrar: rotar · Doble clic nodo: centrar
+                exploración · Clic: seleccionar
               </text>
             </svg>
           )}
@@ -767,16 +1178,29 @@ export function EntityGraphV2Explorer({
                       <td>{node.degree}</td>
                       <td>{roles.length ? roles.join(", ") : "—"}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="vector-secondary compact"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEntity(node.routeName, node.kind);
-                          }}
-                        >
-                          Abrir <ChevronRight size={13} />
-                        </button>
+                        <div className="entity-graph-v2-row-actions">
+                          <button
+                            type="button"
+                            className="vector-secondary compact"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              reRootTo(node.id);
+                              setViewMode("radial");
+                            }}
+                          >
+                            Centrar
+                          </button>
+                          <button
+                            type="button"
+                            className="vector-secondary compact"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEntity(node.routeName, node.kind);
+                            }}
+                          >
+                            Ficha <ChevronRight size={13} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -793,8 +1217,8 @@ export function EntityGraphV2Explorer({
           {viewMode === "matrix" && (
             <div className="entity-graph-v2-matrix-wrap">
               <p>
-                Matriz de adyacencia de los 12 vecinos de mayor grado del 1er salto más el foco.
-                Una celda marcada indica al menos un vínculo en la muestra.
+                Matriz de adyacencia de los 12 vecinos de mayor grado del 1er salto más el foco
+                actual.
               </p>
               <div className="entity-graph-v2-matrix-scroll">
                 <table className="entity-graph-v2-matrix">
@@ -841,47 +1265,59 @@ export function EntityGraphV2Explorer({
         </div>
 
         <aside className="entity-graph-v2-side" aria-label="Detalle del nodo">
-          {!selectedNode ? (
+          {!selectedNode || selectedNode.id === activeFocusId ? (
             <>
               <h3>
                 <CircleDot size={16} /> Foco actual
               </h3>
-              <p>{centerNode.label}</p>
+              <p>{focusNode.label}</p>
               <dl>
                 <div>
                   <dt>Tipo</dt>
-                  <dd>{centerNode.kind === "person" ? "Persona" : "Empresa"}</dd>
+                  <dd>{focusNode.kind === "person" ? "Persona" : "Empresa"}</dd>
                 </div>
                 <div>
                   <dt>Grado en muestra</dt>
-                  <dd>{centerNode.degree}</dd>
+                  <dd>{focusNode.degree}</dd>
                 </div>
                 <div>
                   <dt>Vecinos 1er salto</dt>
                   <dd>
-                    {model.nodes.filter((n) => (model.depths.get(n.id) ?? 99) === 1).length}
+                    {model.nodes.filter((n) => (depths.get(n.id) ?? 99) === 1).length}
                   </dd>
                 </div>
                 <div>
-                  <dt>Vecinos 2º salto</dt>
-                  <dd>
-                    {model.nodes.filter((n) => (model.depths.get(n.id) ?? 99) === 2).length}
-                  </dd>
+                  <dt>Ramas expandidas</dt>
+                  <dd>{expandedIds.size}</dd>
                 </div>
               </dl>
               <p className="entity-graph-v2-side-hint">
-                Selecciona un nodo del anillo o del directorio para ver roles y abrir su ficha.
+                Selecciona un nodo para expandir su vecindario, colapsarlo, aislar su entorno o
+                re-centrar la exploración sin salir de la ficha.
               </p>
               <div className="entity-graph-v2-legend">
-                <span><i style={{ background: "#0891b2" }} /> Foco</span>
-                <span><i style={{ background: "#2563eb" }} /> Empresa</span>
-                <span><i style={{ background: "#7c3aed" }} /> Persona</span>
+                <span>
+                  <i style={{ background: "#0891b2" }} /> Foco
+                </span>
+                <span>
+                  <i style={{ background: "#2563eb" }} /> Empresa
+                </span>
+                <span>
+                  <i style={{ background: "#7c3aed" }} /> Persona
+                </span>
+                <span>
+                  <i style={{ background: "#0f8a76", borderRadius: 2 }} /> Rama expandida
+                </span>
               </div>
             </>
           ) : (
             <>
               <h3>
-                {selectedNode.kind === "person" ? <UserRound size={16} /> : <Building2 size={16} />}
+                {selectedNode.kind === "person" ? (
+                  <UserRound size={16} />
+                ) : (
+                  <Building2 size={16} />
+                )}
                 {selectedNode.label}
               </h3>
               <dl>
@@ -891,11 +1327,15 @@ export function EntityGraphV2Explorer({
                 </div>
                 <div>
                   <dt>Salto desde el foco</dt>
-                  <dd>{model.depths.get(selectedNode.id) ?? "—"}</dd>
+                  <dd>{depths.get(selectedNode.id) ?? "—"}</dd>
                 </div>
                 <div>
                   <dt>Grado</dt>
                   <dd>{selectedNode.degree}</dd>
+                </div>
+                <div>
+                  <dt>Vecinos en muestra</dt>
+                  <dd>{selectedNeighborCount}</dd>
                 </div>
                 <div>
                   <dt>Roles con el foco</dt>
@@ -903,8 +1343,8 @@ export function EntityGraphV2Explorer({
                     {filteredEdges
                       .filter(
                         (e) =>
-                          (e.source === model.centerId && e.target === selectedNode.id) ||
-                          (e.target === model.centerId && e.source === selectedNode.id),
+                          (e.source === activeFocusId && e.target === selectedNode.id) ||
+                          (e.target === activeFocusId && e.source === selectedNode.id),
                       )
                       .map((e) => e.role)
                       .filter((v, i, a) => a.indexOf(v) === i)
@@ -912,10 +1352,36 @@ export function EntityGraphV2Explorer({
                   </dd>
                 </div>
               </dl>
+
               <div className="entity-graph-v2-side-actions">
                 <button
                   type="button"
                   className="vector-primary"
+                  onClick={() => reRootTo(selectedNode.id)}
+                >
+                  <Focus size={14} /> Centrar exploración aquí
+                </button>
+                {!selectedIsExpanded ? (
+                  <button type="button" className="vector-secondary" onClick={expandSelected}>
+                    <GitBranchPlus size={14} /> Expandir vecinos ({selectedNeighborCount})
+                  </button>
+                ) : (
+                  <button type="button" className="vector-secondary" onClick={collapseSelected}>
+                    <Shrink size={14} /> Colapsar rama
+                  </button>
+                )}
+                {isolatedId === selectedNode.id ? (
+                  <button type="button" className="vector-secondary" onClick={clearIsolation}>
+                    <Expand size={14} /> Quitar aislamiento
+                  </button>
+                ) : (
+                  <button type="button" className="vector-secondary" onClick={isolateSelected}>
+                    <Minimize2 size={14} /> Aislar entorno directo
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="vector-secondary"
                   onClick={() => openEntity(selectedNode.routeName, selectedNode.kind)}
                 >
                   Abrir ficha <ExternalLink size={14} />
