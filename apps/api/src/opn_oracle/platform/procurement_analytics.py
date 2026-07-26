@@ -280,7 +280,7 @@ def sample_tenders(
     # Larger samples use bigger pages to cut round-trips to Signal.
     default_page = 200 if target > 1000 else 100
     page = max(10, min(int(page_size if page_size is not None else default_page), 200))
-    active_filter: bool | None = True if scope != "all" else False
+    active_filter: bool | None = scope != "all"
     collected: list[dict[str, Any]] = []
     offset = 0
     reported_total: int | None = None
