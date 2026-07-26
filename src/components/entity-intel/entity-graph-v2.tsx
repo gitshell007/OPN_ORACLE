@@ -416,7 +416,7 @@ export function EntityGraphV2Explorer({
     if (!model || !activeFocusId) return new Set<string>();
     const visible = new Set<string>([activeFocusId]);
 
-    // Base ego neighborhood by depth from current focus.
+    // Base ego neighborhood: only the global depth control (not expansion).
     for (const node of model.nodes) {
       if (node.id === activeFocusId) continue;
       const depth = depths.get(node.id);
@@ -425,9 +425,11 @@ export function EntityGraphV2Explorer({
       visible.add(node.id);
     }
 
-    // Expanded branches: force-show neighbors of expanded nodes.
+    // Branch expansion: show exclusive neighbors of each expanded node only.
+    // Never flips global maxDepth — expanding ALFA must not reveal BETA's far neighbors.
     for (const expanded of expandedIds) {
       if (!visible.has(expanded) && expanded !== activeFocusId) continue;
+      if (collapsedIds.has(expanded)) continue;
       for (const neighbor of model.adjacency.get(expanded) ?? []) {
         if (neighbor === activeFocusId) continue;
         const n = model.nodes.find((node) => node.id === neighbor);
@@ -437,38 +439,38 @@ export function EntityGraphV2Explorer({
       }
     }
 
-    // Collapsed: hide nodes whose path goes through a collapsed parent at depth 1.
+    // Collapse: hide nodes that only remain visible through a collapsed branch parent.
+    // - Depth > maxDepth: hide if they touch any collapsed expanded parent.
+    // - Depth <= maxDepth (global 2º salto): hide if every depth-1 path parent is collapsed.
     if (collapsedIds.size > 0) {
       for (const nodeId of [...visible]) {
         if (nodeId === activeFocusId) continue;
         const depth = depths.get(nodeId) ?? 99;
         if (depth <= 1) continue;
-        // Hide depth-2 nodes if their only path is via a collapsed depth-1 neighbor.
-        const parents = [...(model.adjacency.get(nodeId) ?? [])].filter(
-          (p) => (depths.get(p) ?? 99) === 1,
-        );
-        if (parents.length > 0 && parents.every((p) => collapsedIds.has(p))) {
+
+        const adjacencyParents = [...(model.adjacency.get(nodeId) ?? [])];
+        const collapsedParents = adjacencyParents.filter((p) => collapsedIds.has(p));
+        if (collapsedParents.length === 0) continue;
+
+        // Expansion-only nodes (beyond global maxDepth): drop if linked to a collapsed node.
+        if (depth > maxDepth) {
           visible.delete(nodeId);
+          continue;
         }
-      }
-      // Also hide the collapsed node's expansion-only children if expanded was cleared.
-      for (const collapsed of collapsedIds) {
-        for (const neighbor of model.adjacency.get(collapsed) ?? []) {
-          if (neighbor === activeFocusId) continue;
-          const d = depths.get(neighbor) ?? 99;
-          if (d >= 2 && !expandedIds.has(neighbor)) {
-            // keep direct neighbors of focus even if somehow marked
-            if ((depths.get(neighbor) ?? 99) === 1) continue;
-          }
+
+        // Base depth-2 nodes: hide only when all depth-1 parents are collapsed.
+        const depth1Parents = adjacencyParents.filter((p) => (depths.get(p) ?? 99) === 1);
+        if (depth1Parents.length > 0 && depth1Parents.every((p) => collapsedIds.has(p))) {
+          visible.delete(nodeId);
         }
       }
     }
 
-    // Isolation: only focus + its direct neighbors (and their expanded children if any).
+    // Isolation: only focus + its direct neighbors (and expanded branch of the isolate).
     if (isolatedId) {
       const keep = new Set<string>([isolatedId]);
       for (const neighbor of model.adjacency.get(isolatedId) ?? []) keep.add(neighbor);
-      if (expandedIds.has(isolatedId)) {
+      if (expandedIds.has(isolatedId) && !collapsedIds.has(isolatedId)) {
         for (const neighbor of model.adjacency.get(isolatedId) ?? []) {
           for (const second of model.adjacency.get(neighbor) ?? []) keep.add(second);
         }
@@ -494,62 +496,98 @@ export function EntityGraphV2Explorer({
   const visiblePlacements = useMemo(() => {
     if (!model || !activeFocusId) return [] as RingPlacement[];
 
-    const byDepth = new Map<number, NormalizedNode[]>();
-    for (const node of model.nodes) {
-      if (!visibleNodeIds.has(node.id) || node.id === activeFocusId) continue;
-      let depth = depths.get(node.id) ?? 99;
-      // Expanded-only nodes beyond maxDepth treat as depth 2 for layout.
-      if (depth > 2) depth = 2;
-      if (depth < 1) continue;
-      if (depth > maxDepth && !expandedIds.size) continue;
-      const layoutDepth = Math.min(depth, 2) as 1 | 2;
-      if (layoutDepth > maxDepth && !expandedIds.has(node.id)) {
-        // Allow depth-2 layout if any expansion is active or maxDepth is 2.
-        if (!(maxDepth === 2 || [...expandedIds].some((id) => model.adjacency.get(id)?.has(node.id)))) {
-          continue;
-        }
+    // Which expanded parent "owns" an expansion-only node (for layout near the branch).
+    const expansionParent = new Map<string, string>();
+    for (const expanded of expandedIds) {
+      if (collapsedIds.has(expanded)) continue;
+      for (const neighbor of model.adjacency.get(expanded) ?? []) {
+        if (neighbor === activeFocusId) continue;
+        const depth = depths.get(neighbor) ?? 99;
+        // Only claim nodes that are not already in the base ego ring(s).
+        if (depth <= maxDepth) continue;
+        if (!visibleNodeIds.has(neighbor)) continue;
+        if (!expansionParent.has(neighbor)) expansionParent.set(neighbor, expanded);
       }
-      const bucket = byDepth.get(layoutDepth) ?? [];
-      bucket.push(node);
-      byDepth.set(layoutDepth, bucket);
     }
 
-    // If expansions force extra nodes and maxDepth is 1, put expansion children on ring 2.
-    if (expandedIds.size > 0) {
-      for (const expanded of expandedIds) {
-        for (const neighbor of model.adjacency.get(expanded) ?? []) {
-          if (neighbor === activeFocusId || !visibleNodeIds.has(neighbor)) continue;
-          if ((depths.get(neighbor) ?? 99) === 1) continue;
-          const n = model.nodes.find((node) => node.id === neighbor);
-          if (!n) continue;
-          if (typeFilter !== "all" && n.kind !== typeFilter) continue;
-          const bucket = byDepth.get(2) ?? [];
-          if (!bucket.some((x) => x.id === n.id) && !(byDepth.get(1) ?? []).some((x) => x.id === n.id)) {
-            bucket.push(n);
-            byDepth.set(2, bucket);
-          }
-        }
+    const ring1: NormalizedNode[] = [];
+    const ring2Base: NormalizedNode[] = [];
+    const ring2ByParent = new Map<string, NormalizedNode[]>();
+
+    for (const node of model.nodes) {
+      if (!visibleNodeIds.has(node.id) || node.id === activeFocusId) continue;
+      const depth = depths.get(node.id) ?? 99;
+      if (depth < 1) continue;
+
+      // Base depth-1 always on ring 1.
+      if (depth === 1) {
+        ring1.push(node);
+        continue;
+      }
+
+      // Expansion-only: ring 2, grouped under their expanded parent.
+      const parent = expansionParent.get(node.id);
+      if (parent) {
+        const bucket = ring2ByParent.get(parent) ?? [];
+        bucket.push(node);
+        ring2ByParent.set(parent, bucket);
+        continue;
+      }
+
+      // Base depth-2 (global maxDepth === 2).
+      if (depth <= maxDepth) {
+        ring2Base.push(node);
       }
     }
 
     const placements: RingPlacement[] = [];
-    const effectiveMax = Math.max(maxDepth, byDepth.has(2) ? 2 : 1) as 1 | 2;
-    for (const depth of [1, 2] as const) {
-      if (depth > effectiveMax) continue;
-      const candidates = byDepth.get(depth) ?? [];
-      const parentId = depth === 1 ? activeFocusId : null;
-      placements.push(...placeRing(candidates, depth, ringCap, parentId, rotation));
+    placements.push(...placeRing(ring1, 1, ringCap, activeFocusId, rotation));
+
+    // Place base depth-2 evenly, then expansion children clustered near their parent angle.
+    const parentAngle = new Map<string, number>();
+    for (const p of placements) parentAngle.set(p.node.id, p.angle);
+
+    if (maxDepth >= 2 && ring2Base.length > 0) {
+      placements.push(...placeRing(ring2Base, 2, ringCap, null, rotation));
     }
+
+    let expansionSlotsLeft = ringCap;
+    for (const [parentId, children] of ring2ByParent) {
+      if (expansionSlotsLeft <= 0) break;
+      const limited = [...children]
+        .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label, "es"))
+        .slice(0, expansionSlotsLeft);
+      expansionSlotsLeft -= limited.length;
+      const baseAngle = parentAngle.get(parentId) ?? -Math.PI / 2 + rotation;
+      const spread = Math.min(Math.PI / 2.4, Math.max(0.35, limited.length * 0.28));
+      const ringR = RING_RADIUS[2] ?? 300;
+      limited.forEach((node, index) => {
+        const t = limited.length === 1 ? 0.5 : index / (limited.length - 1);
+        const angle = baseAngle - spread / 2 + t * spread;
+        const { x, y } = polar(angle, ringR);
+        const radius = Math.min(18, Math.max(9, 8 + Math.sqrt(node.degree + 1) * 1.6));
+        placements.push({
+          node,
+          depth: 2,
+          angle,
+          x,
+          y,
+          radius,
+          parentId,
+        });
+      });
+    }
+
     return placements;
   }, [
     activeFocusId,
+    collapsedIds,
     depths,
     expandedIds,
     maxDepth,
     model,
     ringCap,
     rotation,
-    typeFilter,
     visibleNodeIds,
   ]);
 
@@ -573,6 +611,23 @@ export function EntityGraphV2Explorer({
     if (!model || !selectedId) return 0;
     return model.adjacency.get(selectedId)?.size ?? 0;
   }, [model, selectedId]);
+
+  /** Neighbors of the selection that expand would newly reveal (excludes focus + already base-visible). */
+  const selectedExpandableCount = useMemo(() => {
+    if (!model || !selectedId || !activeFocusId) return 0;
+    let count = 0;
+    for (const neighbor of model.adjacency.get(selectedId) ?? []) {
+      if (neighbor === activeFocusId) continue;
+      const depth = depths.get(neighbor) ?? 99;
+      // Already in the base ego rings controlled by maxDepth.
+      if (depth >= 1 && depth <= maxDepth) continue;
+      const n = model.nodes.find((node) => node.id === neighbor);
+      if (!n) continue;
+      if (typeFilter !== "all" && n.kind !== typeFilter) continue;
+      count += 1;
+    }
+    return count;
+  }, [activeFocusId, depths, maxDepth, model, selectedId, typeFilter]);
 
   const selectedIsExpanded = selectedId ? expandedIds.has(selectedId) : false;
   const selectedIsCollapsed = selectedId ? collapsedIds.has(selectedId) : false;
@@ -766,13 +821,13 @@ export function EntityGraphV2Explorer({
 
   function expandSelected() {
     if (!selectedId || !model) return;
+    // Branch-local only: never raise global maxDepth (that would reveal every 2º salto).
     setCollapsedIds((prev) => {
       const next = new Set(prev);
       next.delete(selectedId);
       return next;
     });
     setExpandedIds((prev) => new Set(prev).add(selectedId));
-    setMaxDepth(2);
     setIsolatedId(null);
   }
 
@@ -1430,8 +1485,18 @@ export function EntityGraphV2Explorer({
                   <Focus size={14} /> Centrar exploración aquí
                 </button>
                 {!selectedIsExpanded ? (
-                  <button type="button" className="vector-secondary" onClick={expandSelected}>
-                    <GitBranchPlus size={14} /> Expandir vecinos ({selectedNeighborCount})
+                  <button
+                    type="button"
+                    className="vector-secondary"
+                    onClick={expandSelected}
+                    disabled={selectedExpandableCount === 0}
+                    title={
+                      selectedExpandableCount === 0
+                        ? "No hay vecinos ocultos en esta rama"
+                        : `Mostrar ${selectedExpandableCount} vecinos de esta rama`
+                    }
+                  >
+                    <GitBranchPlus size={14} /> Expandir vecinos ({selectedExpandableCount})
                   </button>
                 ) : (
                   <button type="button" className="vector-secondary" onClick={collapseSelected}>

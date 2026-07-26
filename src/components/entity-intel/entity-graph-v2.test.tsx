@@ -37,12 +37,15 @@ const sampleGraph = {
     { id: "b", label: "FILIAL BETA SL", type: "company", degree: 3, norm: "FILIAL BETA SL" },
     { id: "c", label: "PERSONA UNO", type: "person", degree: 2, norm: "PERSONA UNO" },
     { id: "d", label: "LEJANA SL", type: "company", degree: 1, norm: "LEJANA SL" },
+    // Depth-2 only via BETA — must not appear when expanding ALFA.
+    { id: "e", label: "OTRA LEJANA SL", type: "company", degree: 1, norm: "OTRA LEJANA SL" },
   ],
   edges: [
     { id: "e1", source: "magtel", target: "a", role: "ADMINISTRADOR", active: true },
     { id: "e2", source: "magtel", target: "b", role: "SOCIO", active: true },
     { id: "e3", source: "magtel", target: "c", role: "APODERADO", active: true },
     { id: "e4", source: "a", target: "d", role: "SOCIO", active: true },
+    { id: "e5", source: "b", target: "e", role: "SOCIO", active: true },
   ],
   truncated: false,
   cached_seconds: 60,
@@ -95,7 +98,7 @@ describe("EntityGraphV2Explorer", () => {
     expect(screen.getByText("115%")).toBeInTheDocument();
   });
 
-  it("permite expandir vecinos del nodo seleccionado y ver el 2º salto", async () => {
+  it("expande solo la rama del nodo seleccionado, no todo el 2º salto", async () => {
     render(
       <EntityGraphV2Explorer
         name="MAGTEL GLOBAL SL"
@@ -104,11 +107,26 @@ describe("EntityGraphV2Explorer", () => {
       />,
     );
     await screen.findByText("FILIAL ALFA SL");
+    expect(screen.queryByText("LEJANA SL")).not.toBeInTheDocument();
+    expect(screen.queryByText("OTRA LEJANA SL")).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByText("FILIAL ALFA SL"));
-    expect(await screen.findByRole("button", { name: /Expandir vecinos/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Expandir vecinos \(1\)/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Expandir vecinos/i }));
+
+    // Exclusive neighbor of ALFA appears…
     expect(await screen.findByText("LEJANA SL")).toBeInTheDocument();
+    // …but BETA's exclusive depth-2 neighbor must stay hidden (branch-local expand).
+    expect(screen.queryByText("OTRA LEJANA SL")).not.toBeInTheDocument();
+    // 1er salto peers remain; global depth control was not forced to 2.
+    expect(screen.getByText("FILIAL BETA SL")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Colapsar rama/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Colapsar rama/i }));
+    await waitFor(() => {
+      expect(screen.queryByText("LEJANA SL")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("OTRA LEJANA SL")).not.toBeInTheDocument();
   });
 
   it("permite centrar la exploración en otra entidad sin salir de la vista", async () => {
