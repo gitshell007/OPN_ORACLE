@@ -20,6 +20,7 @@ import {
   useState,
 } from "react";
 import type cytoscape from "cytoscape";
+import { entityRoute as buildEntityRoute } from "@/lib/entity-route";
 import { EntityDetailDialog, type EntityDetailRelation } from "./entity-detail-dialog";
 import { graphNodeDepths, separateGraphNodePositions } from "./entity-graph-layout";
 
@@ -121,8 +122,12 @@ function problemMessage(reason: unknown, fallback: string): string {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
 }
 
-export function entityRoute(kind: EntityIntelKind, name: string): string {
-  return `/app/actors/entity/${kind}/${encodeURIComponent(name)}`;
+export function entityRoute(
+  kind: EntityIntelKind,
+  name: string,
+  extras?: { tab?: string; tool?: string },
+): string {
+  return buildEntityRoute(kind, name, extras);
 }
 
 function validEntityKind(value: unknown): EntityIntelKind | null {

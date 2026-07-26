@@ -502,7 +502,7 @@ describe("EntityGraphExplorer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Consultar/i }));
 
     expect(mocks.push).toHaveBeenCalledWith(
-      "/app/actors/entity/person/BURGOS%20CANTO%20MIGUEL%20NORMALIZADO",
+      "/app/actors/entity/person?name=BURGOS+CANTO+MIGUEL+NORMALIZADO",
     );
   });
 

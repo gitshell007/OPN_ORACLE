@@ -38,6 +38,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { entityRoute } from "@/lib/entity-route";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { ExportMenu } from "./exports";
@@ -725,7 +726,7 @@ export function ReportLibrary({
                   ) : (
                     <Link
                       className="vector-secondary"
-                      href={`/app/actors/entity/${kind}/${encodeURIComponent(entityName)}?tool=report`}
+                      href={entityRoute(kind, entityName, { tool: "report" })}
                     >
                       Abrir ficha e incorporar
                     </Link>

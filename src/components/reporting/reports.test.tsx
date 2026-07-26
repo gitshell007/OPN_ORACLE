@@ -422,7 +422,7 @@ describe("reports Vector", () => {
     const link = screen.getByRole("link", { name: "Abrir ficha e incorporar" });
     expect(link).toHaveAttribute(
       "href",
-      "/app/actors/entity/person/ITURRI%20FRANCO%20JUAN%20FRANCISCO?tool=report",
+      "/app/actors/entity/person?name=ITURRI+FRANCO+JUAN+FRANCISCO&tool=report",
     );
   });
 
