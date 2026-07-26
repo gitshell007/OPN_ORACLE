@@ -1292,8 +1292,28 @@ class SignalGovernedLLMProvider:
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 timeout=self.timeout_seconds,
             )
+            if response.status_code == 403:
+                detail = ""
+                try:
+                    payload = response.json()
+                    if isinstance(payload, dict):
+                        detail = str(payload.get("detail") or "")[:200]
+                except ValueError:
+                    detail = ""
+                if detail == "task_not_allowed":
+                    task = str(body.get("task_key") or "desconocida")
+                    raise AIUnavailable(
+                        "Signal rechazó la tarea de IA "
+                        f"('{task}'): no está autorizada para este consumidor."
+                    )
+                if detail == "consumer_ai_disabled":
+                    raise AIUnavailable("Signal tiene deshabilitada la IA para este consumidor.")
+                if detail:
+                    raise AIUnavailable(f"Signal rechazó la ejecución de IA ({detail}).")
             response.raise_for_status()
             payload = response.json()
+        except AIUnavailable:
+            raise
         except (httpx.HTTPError, ValueError) as error:
             raise AIUnavailable("Signal no esta disponible para ejecutar IA.") from error
         if not isinstance(payload, dict):
