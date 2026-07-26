@@ -8,14 +8,24 @@ import {
   type CreateProcurementSearchProfile,
   type ProcurementCpvSuggestion,
   type ProcurementSearchProfile,
+  type TenderSearchPayload,
   type TenderSearchPlan,
   type TenderSearchPlanPreviewResponse,
+  type TenderSearchRunResponse,
   type TenderSearchWizardAcceptance,
   type TenderSearchWizardArtifact,
 } from "@oracle/api-client";
-import { Check, ChevronLeft, Eye, Plus, Save, Sparkles, X } from "lucide-react";
 import {
-  type FormEvent,
+  Check,
+  ChevronLeft,
+  Eraser,
+  Eye,
+  Plus,
+  Search,
+  Sparkles,
+  X,
+} from "lucide-react";
+import {
   type KeyboardEvent,
   useEffect,
   useMemo,
@@ -69,8 +79,16 @@ const EDITABLE_CATEGORIES = [
 
 type Step = "describe" | "review";
 
+export interface ProcurementWizardSearchResult {
+  profile: ProcurementSearchProfile;
+  run: TenderSearchRunResponse;
+}
+
 interface ProcurementSearchWizardProps {
   onWatchSaved?: () => void | Promise<void>;
+  onSearchExecuted?: (
+    result: ProcurementWizardSearchResult,
+  ) => void | Promise<void>;
   replanRequest?: {
     digestHash: string;
     profileId: string;
@@ -239,6 +257,40 @@ function acceptedPlan(
   };
 }
 
+/** Mirror del contrato Signal v1 que usa el backend al guardar la vigilancia. */
+function planToSearchPayload(
+  name: string,
+  plan: TenderSearchPlan,
+): TenderSearchPayload {
+  const terms = Array.from(
+    new Set(
+      [...plan.include_terms, ...plan.synonyms]
+        .map((term) => term.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 20);
+  const filters: Record<string, unknown> = { scope: "active" };
+  const cpv = plan.candidate_cpv[0]?.code?.trim();
+  if (cpv) filters.cpv = cpv;
+  const buyer = plan.buyers[0]?.trim();
+  if (buyer) filters.buyer = buyer;
+  const geography = plan.geographies[0]?.trim();
+  if (geography) filters.region = geography;
+  if (plan.min_amount != null) filters.min_amount = String(plan.min_amount);
+  if (plan.max_amount != null) filters.max_amount = String(plan.max_amount);
+  return { name: name.slice(0, 120), keywords: terms, filters };
+}
+
+function searchIdFromSave(
+  saved: { id?: unknown } | null | undefined,
+  profile: ProcurementSearchProfile,
+): string | null {
+  if (typeof saved?.id === "string" && saved.id.trim()) return saved.id.trim();
+  if (typeof profile.tender_search_id === "string" && profile.tender_search_id)
+    return profile.tender_search_id;
+  return null;
+}
+
 function PlanChip({
   chip,
   onConfirm,
@@ -296,6 +348,7 @@ function PlanChip({
 
 export function ProcurementSearchWizard({
   onWatchSaved,
+  onSearchExecuted,
   replanRequest,
 }: ProcurementSearchWizardProps) {
   const [open, setOpen] = useState(false);
@@ -347,7 +400,6 @@ export function ProcurementSearchWizard({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [watchName, setWatchName] = useState("");
-  const [savingWatch, setSavingWatch] = useState(false);
   const [watchSaved, setWatchSaved] = useState(false);
   const [cpvQuery, setCpvQuery] = useState("");
   const [cpvSuggestions, setCpvSuggestions] = useState<
@@ -536,10 +588,15 @@ export function ProcurementSearchWizard({
       setPlan(merged.plan);
       setChips(merged.chips);
     } else {
+      // Generación nueva: no heredar chips ni baseline de la versión anterior.
       setPlan(overridden);
       setChips(
         tenderSearchPlanToChips(overridden, comparableProfile, { userKeys }),
       );
+      setTombstones(new Set());
+      if (!targetProfile) {
+        setAcceptedBaselineChips([]);
+      }
     }
     setArtifact(nextArtifact);
     setPreview(null);
@@ -628,6 +685,14 @@ export function ProcurementSearchWizard({
     if (description.trim().length < 10) return;
     setGenerating(true);
     setAcceptError(null);
+    // Nueva generación desde el paso 1: no arrastrar el perfil aceptado anterior.
+    if (!regenerating) {
+      setTargetProfile(null);
+      setAcceptedProfile(null);
+      setAcceptedBaselineChips([]);
+      setTombstones(new Set());
+      setWatchSaved(false);
+    }
     try {
       const response = await api.tenderSearchWizard.run(
         {
@@ -709,6 +774,63 @@ export function ProcurementSearchWizard({
     setTombstones((current) => new Set([...current, chip.key]));
     setPreview(null);
     setAcceptedProfile(null);
+  }
+
+  function clearCategory(category: TenderSearchChipCategory) {
+    const removed = chips.filter((chip) => chip.category === category);
+    if (!removed.length) return;
+    setChips((current) =>
+      current.filter((chip) => chip.category !== category),
+    );
+    setTombstones((current) => {
+      const next = new Set(current);
+      for (const chip of removed) next.add(chip.key);
+      return next;
+    });
+    setPreview(null);
+    setAcceptedProfile(null);
+  }
+
+  function discardPriorVersion() {
+    setTargetProfile(null);
+    setAcceptedProfile(null);
+    setAcceptedBaselineChips([]);
+    setWatchSaved(false);
+    setPreview(null);
+  }
+
+  function startFreshSearch() {
+    setStep("describe");
+    setDescription("");
+    setComparable("");
+    setSuggestions([]);
+    setComparableProfile(null);
+    setComparableError(null);
+    setComparableFromCache(false);
+    setGeography("");
+    setMinimum("");
+    setMaximum("");
+    setLatestArtifact(null);
+    setLatestAcceptance(null);
+    setLatestInput(null);
+    setArtifact(null);
+    setJobId(null);
+    setPlan(null);
+    setChips([]);
+    setTombstones(new Set());
+    setNewChipValues({});
+    setPreview(null);
+    setPreviewError(null);
+    setAcceptedProfile(null);
+    setTargetProfile(null);
+    setAcceptedBaselineChips([]);
+    setFieldErrors({});
+    setAcceptError(null);
+    setWatchName("");
+    setWatchSaved(false);
+    setCpvQuery("");
+    setCpvSuggestions([]);
+    setCpvDiscarded(null);
   }
 
   function confirmChip(chip: TenderSearchChip) {
@@ -840,86 +962,102 @@ export function ProcurementSearchWizard({
     }
   }
 
-  async function acceptPlan() {
+  async function acceptAndSearch() {
     if (!effectivePlan || !artifact || hasMissingBaseline) return;
+    if (effectivePlan.scope === "historical") {
+      setAcceptError(
+        "El histórico exclusivo no es ejecutable. Elige activas o todo el índice.",
+      );
+      return;
+    }
+
+    // Signal v1 solo ejecuta búsquedas guardadas en ámbito activo.
+    const executablePlan: TenderSearchPlan =
+      effectivePlan.scope === "active"
+        ? effectivePlan
+        : { ...effectivePlan, scope: "active" };
+
     setAccepting(true);
     setAcceptError(null);
     setFieldErrors({});
     try {
       const profileToUpdate = targetProfile ?? acceptedProfile;
-      const response = profileToUpdate
+      let profile = profileToUpdate
         ? await api.procurementSearchProfiles.accept(profileToUpdate.id, {
             expected_version: profileToUpdate.version,
-            accepted_plan: acceptedPlan(effectivePlan),
+            accepted_plan: acceptedPlan(executablePlan),
             ai_artifact_id: artifact.id,
           })
         : await api.procurementSearchProfiles.create({
             original_description: description.trim(),
             comparables: comparable.trim() ? [comparable.trim()] : [],
-            accepted_plan: acceptedPlan(effectivePlan),
+            accepted_plan: acceptedPlan(executablePlan),
             ai_artifact_id: artifact.id,
           });
-      setAcceptedProfile(response);
-      setTargetProfile(response);
+
+      const searchName =
+        watchName.trim() ||
+        executablePlan.intent_summary.slice(0, 120).trim() ||
+        "Búsqueda Oracle";
+      setWatchName(searchName);
+
+      let searchId =
+        typeof profile.tender_search_id === "string" && profile.tender_search_id
+          ? profile.tender_search_id
+          : null;
+
+      if (!searchId) {
+        const saved = await api.procurementSearchProfiles.saveSearch(
+          profile.id,
+          {
+            expected_version: profile.version,
+            name: searchName,
+          },
+        );
+        profile = saved.profile;
+        searchId = searchIdFromSave(
+          saved.saved_search as { id?: unknown },
+          profile,
+        );
+        setWatchSaved(true);
+      } else {
+        await api.procurement.patchSearch(
+          searchId,
+          planToSearchPayload(searchName, executablePlan),
+        );
+      }
+
+      if (!searchId) {
+        throw new Error("Signal no devolvió el identificador de la búsqueda.");
+      }
+
+      const run = await api.procurement.runSearch(searchId, {
+        limit: 25,
+        offset: 0,
+      });
+
+      setAcceptedProfile(profile);
+      setTargetProfile(profile);
       setAcceptedBaselineChips(chips);
-      setWatchName(
-        (current) =>
-          current || effectivePlan.intent_summary.slice(0, 120).trim(),
-      );
+      await onWatchSaved?.();
+      await onSearchExecuted?.({ profile, run });
+      setOpen(false);
+      startFreshSearch();
     } catch (reason) {
       const errors = structuredFieldErrors(reason);
       setFieldErrors(errors);
       if (!Object.keys(errors).length) {
         setAcceptError(
           reason instanceof ApiError && reason.status === 422
-            ? "El servidor rechazó el plan sin indicar los campos afectados."
+            ? "El servidor rechazó el plan o la búsqueda sin indicar los campos afectados."
             : problemMessage(
                 reason,
-                "No se pudo aceptar esta versión del plan.",
+                "No se pudo aceptar el plan y ejecutar la búsqueda.",
               ),
         );
       }
     } finally {
       setAccepting(false);
-    }
-  }
-
-  async function saveWatch(event: FormEvent) {
-    event.preventDefault();
-    if (
-      !acceptedProfile ||
-      effectivePlan?.scope !== "active" ||
-      !watchName.trim()
-    )
-      return;
-    setSavingWatch(true);
-    setAcceptError(null);
-    setFieldErrors({});
-    try {
-      const response = await api.procurementSearchProfiles.saveSearch(
-        acceptedProfile.id,
-        {
-          expected_version: acceptedProfile.version,
-          name: watchName.trim(),
-        },
-      );
-      setAcceptedProfile(response.profile);
-      setWatchSaved(true);
-      await onWatchSaved?.();
-    } catch (reason) {
-      const errors = structuredFieldErrors(reason);
-      setFieldErrors(errors);
-      setAcceptError(
-        reason instanceof ApiError &&
-          reason.status === 422 &&
-          Object.keys(errors).length > 0
-          ? null
-          : reason instanceof ApiError && reason.status === 422
-            ? "El servidor rechazó la vigilancia sin indicar los campos afectados."
-            : problemMessage(reason, "No se pudo guardar la vigilancia."),
-      );
-    } finally {
-      setSavingWatch(false);
     }
   }
 
@@ -970,16 +1108,31 @@ export function ProcurementSearchWizard({
                     : "Revisa el plan antes de usarlo"}
                 </Dialog.Title>
                 <Dialog.Description>
-                  La IA propone candidatos; ninguna búsqueda, aceptación o
-                  vigilancia se ejecuta sin tu acción explícita.
+                  Revisa el plan, descarta lo que no sirva y pulsa «Aceptar y
+                  buscar» para ver las licitaciones. Nada se ejecuta sin tu
+                  acción.
                 </Dialog.Description>
               </div>
-              <Dialog.Close
-                className="icon-button bordered"
-                aria-label="Cerrar"
-              >
-                <X size={18} />
-              </Dialog.Close>
+              <div className="procurement-wizard-header-actions">
+                {(step === "review" ||
+                  Boolean(latestArtifact) ||
+                  Boolean(plan)) && (
+                  <button
+                    className="vector-secondary compact"
+                    type="button"
+                    onClick={startFreshSearch}
+                  >
+                    <Eraser size={14} />
+                    Empezar de cero
+                  </button>
+                )}
+                <Dialog.Close
+                  className="icon-button bordered"
+                  aria-label="Cerrar"
+                >
+                  <X size={18} />
+                </Dialog.Close>
+              </div>
             </header>
 
             <div className="procurement-wizard-body">
@@ -1251,6 +1404,8 @@ export function ProcurementSearchWizard({
                       <ProcurementPlanDiff
                         changes={planDiff}
                         version={targetProfile.version}
+                        onRemoveChip={removeChip}
+                        onDiscardBaseline={discardPriorVersion}
                       />
                     )}
 
@@ -1282,7 +1437,18 @@ export function ProcurementSearchWizard({
                             >
                               <header>
                                 <h3 id={headingId}>{copy.label}</h3>
-                                <small>{categoryChips.length}</small>
+                                <div className="procurement-wizard-chip-group-meta">
+                                  <small>{categoryChips.length}</small>
+                                  {categoryChips.length > 0 && (
+                                    <button
+                                      type="button"
+                                      className="procurement-wizard-clear-category"
+                                      onClick={() => clearCategory(category)}
+                                    >
+                                      Quitar todos
+                                    </button>
+                                  )}
+                                </div>
                               </header>
                               <div className="procurement-wizard-chip-list">
                                 {categoryChips.map((chip) => (
@@ -1583,71 +1749,42 @@ export function ProcurementSearchWizard({
                       </p>
                     )}
 
-                    {acceptedProfile && (
-                      <section className="procurement-wizard-accepted">
-                        <div>
-                          <Check size={16} />
-                          <div>
-                            <strong>
-                              Plan aceptado · v{acceptedProfile.version} ·{" "}
-                              {acceptanceDate(acceptedProfile.last_accepted_at)}
-                            </strong>
-                            <small>
-                              La vigilancia sigue sin guardarse hasta la
-                              siguiente acción.
-                            </small>
-                          </div>
-                        </div>
-                        {effectivePlan.scope === "active" ? (
-                          <form onSubmit={saveWatch}>
-                            <label htmlFor="procurement-wizard-watch-name">
-                              <span>Nombre de la vigilancia</span>
-                              <input
-                                id="procurement-wizard-watch-name"
-                                aria-invalid={watchNameErrors.length > 0}
-                                aria-describedby={
-                                  watchNameErrors.length > 0
-                                    ? "procurement-wizard-watch-name-error"
-                                    : undefined
-                                }
-                                value={watchName}
-                                maxLength={120}
-                                onChange={(event) =>
-                                  setWatchName(event.target.value)
-                                }
-                              />
-                              {watchNameErrors.length > 0 && (
-                                <small
-                                  id="procurement-wizard-watch-name-error"
-                                  className="form-error"
-                                  role="alert"
-                                >
-                                  {watchNameErrors.join(" ")}
-                                </small>
-                              )}
-                            </label>
-                            <AsyncActionButton
-                              className="vector-primary"
-                              type="submit"
-                              loading={savingWatch}
-                              disabled={
-                                watchSaved || watchName.trim().length < 2
-                              }
-                            >
-                              <Save size={14} />
-                              {watchSaved
-                                ? "Vigilancia guardada"
-                                : "Guardar vigilancia"}
-                            </AsyncActionButton>
-                          </form>
+                    <section className="procurement-wizard-accepted">
+                      <label htmlFor="procurement-wizard-watch-name">
+                        <span>Nombre de la búsqueda / vigilancia</span>
+                        <input
+                          id="procurement-wizard-watch-name"
+                          aria-invalid={watchNameErrors.length > 0}
+                          aria-describedby={
+                            watchNameErrors.length > 0
+                              ? "procurement-wizard-watch-name-error"
+                              : "procurement-wizard-watch-name-help"
+                          }
+                          value={watchName}
+                          maxLength={120}
+                          placeholder={
+                            effectivePlan.intent_summary.slice(0, 120) ||
+                            "Nombre de la búsqueda"
+                          }
+                          onChange={(event) => setWatchName(event.target.value)}
+                        />
+                        {watchNameErrors.length > 0 ? (
+                          <small
+                            id="procurement-wizard-watch-name-error"
+                            className="form-error"
+                            role="alert"
+                          >
+                            {watchNameErrors.join(" ")}
+                          </small>
                         ) : (
-                          <p>
-                            Una vigilancia solo puede guardarse para
-                            licitaciones activas con Signal v1.
-                          </p>
+                          <small id="procurement-wizard-watch-name-help">
+                            Al aceptar se crea la búsqueda, se ejecuta y verás
+                            las licitaciones en la página. La vigilancia queda
+                            lista (inactiva) para activar avisos después.
+                          </small>
                         )}
-                      </section>
-                    )}
+                      </label>
+                    </section>
                   </div>
                 )
               )}
@@ -1697,14 +1834,14 @@ export function ProcurementSearchWizard({
                         hasMissingBaseline ||
                         effectivePlan?.scope === "historical"
                       }
-                      onClick={() => void acceptPlan()}
+                      onClick={() => void acceptAndSearch()}
                     >
-                      <Check size={14} />
+                      <Search size={14} />
                       {acceptedProfile
-                        ? `Aceptar como v${acceptedProfile.version + 1}`
+                        ? `Aceptar v${acceptedProfile.version + 1} y buscar`
                         : targetProfile
-                          ? `Aceptar como v${targetProfile.version + 1}`
-                          : "Aceptar plan"}
+                          ? `Aceptar v${targetProfile.version + 1} y buscar`
+                          : "Aceptar y buscar"}
                     </AsyncActionButton>
                   </div>
                 </>

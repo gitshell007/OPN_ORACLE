@@ -802,6 +802,42 @@ export function ProcurementWorkspace() {
               void loadSearches();
               void loadWatches();
             }}
+            onSearchExecuted={async ({ profile, run }) => {
+              await loadSearches();
+              let nextWatches = watches;
+              try {
+                const response = await api.procurementSearchWatches.list();
+                nextWatches = response.items;
+                setWatches(response.items);
+              } catch {
+                // Si falla el listado de vigilancias, igual mostramos resultados.
+              }
+              const nextFilters = {
+                ...filtersFromRecord(run.search.filters ?? {}),
+                scope: "active" as const,
+              };
+              setKeywords((run.search.keywords ?? []).join(", "));
+              setSemanticLabel("");
+              setFilters(nextFilters);
+              setResult(run.results);
+              rememberRegions(run.results.items);
+              setOffset(run.results.offset ?? 0);
+              setActiveSearchProfile(profile);
+              setError(null);
+              const watch =
+                nextWatches.find(
+                  (candidate) =>
+                    candidate.tender_search_id === run.search.id ||
+                    candidate.profile_id === profile.id,
+                ) ?? null;
+              setActiveWatch(watch);
+              await loadFeedback(profile);
+              if (watch) {
+                await loadWatchItems(watch);
+              } else {
+                setWatchItemsByFolder({});
+              }
+            }}
             replanRequest={replanRequest}
           />
           <button

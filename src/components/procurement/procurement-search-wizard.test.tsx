@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   saveSearch: vi.fn(),
   getProfile: vi.fn(),
   replan: vi.fn(),
+  runSearch: vi.fn(),
+  patchSearch: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => {
@@ -44,6 +46,8 @@ vi.mock("@oracle/api-client", () => {
         suggestCpvs: mocks.suggestCpvs,
         comparableProfile: mocks.comparableProfile,
         previewSearchPlan: mocks.previewSearchPlan,
+        runSearch: mocks.runSearch,
+        patchSearch: mocks.patchSearch,
       },
       tenderSearchWizard: {
         latest: mocks.latest,
@@ -295,6 +299,25 @@ describe("ProcurementSearchWizard", () => {
       }),
       job: { id: "job-replan" },
     });
+    mocks.saveSearch.mockResolvedValue({
+      profile: { ...profile(), tender_search_id: "search-1" },
+      saved_search: { id: "search-1" },
+    });
+    mocks.runSearch.mockResolvedValue({
+      search: {
+        id: "search-1",
+        name: "Equipamiento para emergencias públicas",
+        keywords: ["equipos de extinción"],
+        filters: { scope: "active", cpv: "35110000" },
+      },
+      results: { items: [], total: 0, limit: 25, offset: 0 },
+    });
+    mocks.patchSearch.mockResolvedValue({
+      id: "search-1",
+      name: "Equipamiento para emergencias públicas",
+      keywords: ["equipos de extinción"],
+      filters: { scope: "active" },
+    });
   });
 
   afterEach(() => cleanup());
@@ -313,7 +336,7 @@ describe("ProcurementSearchWizard", () => {
     await generatePlan();
     expect(mocks.run).toHaveBeenCalledTimes(1);
     expect(
-      screen.getByRole("button", { name: "Aceptar plan" }),
+      screen.getByRole("button", { name: "Aceptar y buscar" }),
     ).not.toHaveClass("vector-ai");
   });
 
@@ -335,7 +358,9 @@ describe("ProcurementSearchWizard", () => {
     expect(
       within(measuredGap).getByText(/1 términos y 1 CPV/),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Aceptar plan" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Aceptar y buscar" }),
+    ).toBeDisabled();
 
     fireEvent.click(
       within(measuredGap).getByRole("button", {
@@ -347,7 +372,9 @@ describe("ProcurementSearchWizard", () => {
       screen.getByText("35113400 · Ropa de protección"),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Medido").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByRole("button", { name: "Aceptar plan" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Aceptar y buscar" }),
+    ).toBeEnabled();
   });
 
   it("usa la copia de sesión del comparable ante 429 sin reintentar", async () => {
@@ -460,35 +487,41 @@ describe("ProcurementSearchWizard", () => {
     ).toBeDisabled();
   });
 
-  it("separa aceptar una versión de guardar la vigilancia activa", async () => {
+  it("acepta el plan, guarda la búsqueda y ejecuta para mostrar resultados", async () => {
     const onWatchSaved = vi.fn();
+    const onSearchExecuted = vi.fn();
     mocks.createProfile.mockResolvedValue(profile());
-    mocks.saveSearch.mockResolvedValue({
-      profile: { ...profile(), tender_search_id: "search-1" },
-      saved_search: { id: "search-1" },
-    });
-    render(<ProcurementSearchWizard onWatchSaved={onWatchSaved} />);
+    render(
+      <ProcurementSearchWizard
+        onWatchSaved={onWatchSaved}
+        onSearchExecuted={onSearchExecuted}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
     await generatePlan();
 
     expect(mocks.createProfile).not.toHaveBeenCalled();
     expect(mocks.saveSearch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Aceptar plan" }));
-    await screen.findByText(/Plan aceptado · v1 ·/);
-    expect(mocks.createProfile).toHaveBeenCalledTimes(1);
-    expect(mocks.saveSearch).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Guardar vigilancia" }));
-    await screen.findByRole("button", { name: "Vigilancia guardada" });
-    expect(mocks.saveSearch).toHaveBeenCalledTimes(1);
+    expect(mocks.runSearch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
+    await waitFor(() => expect(mocks.createProfile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.saveSearch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
+        limit: 25,
+        offset: 0,
+      }),
+    );
     expect(onWatchSaved).toHaveBeenCalledTimes(1);
+    expect(onSearchExecuted).toHaveBeenCalledTimes(1);
+    expect(onSearchExecuted.mock.calls[0][0].run.search.id).toBe("search-1");
   });
 
-  it("declara el histórico no disponible y no ofrece vigilancia para todo el índice", async () => {
-    mocks.createProfile.mockResolvedValue({
+  it("fuerza ámbito activo al ejecutar aunque el plan diga todo el índice", async () => {
+    mocks.createProfile.mockImplementation(async (input) => ({
       ...profile(),
-      accepted_plan: { ...basePlan, scope: "all" },
-    });
+      accepted_plan: input.accepted_plan,
+    }));
     await openWizard();
     await generatePlan();
 
@@ -498,14 +531,12 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.click(
       screen.getByRole("radio", { name: "Todo el índice disponible" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Aceptar plan" }));
-    await screen.findByText(/Plan aceptado · v1 ·/);
-    expect(
-      screen.queryByRole("button", { name: "Guardar vigilancia" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/solo puede guardarse para licitaciones activas/),
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
+    await waitFor(() => expect(mocks.createProfile).toHaveBeenCalledTimes(1));
+    expect(mocks.createProfile.mock.calls[0][0].accepted_plan.scope).toBe(
+      "active",
+    );
+    await waitFor(() => expect(mocks.runSearch).toHaveBeenCalledTimes(1));
   });
 
   it("elimina chips por teclado y muestra 422 estructurado junto al plan", async () => {
@@ -530,7 +561,7 @@ describe("ProcurementSearchWizard", () => {
       { key: "Delete" },
     );
     expect(screen.queryByText("formación")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Aceptar plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
     await screen.findByText("Revisa los campos indicados por el servidor");
     expect(
       screen.getByText(/accepted_plan.candidate_cpv.0.code:/),
@@ -579,14 +610,22 @@ describe("ProcurementSearchWizard", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Revisar plan aceptado" }),
     );
-    await screen.findByText(/Plan aceptado · v2 · 23\/07\/2026/);
+    await screen.findByRole("heading", {
+      name: "Revisa el plan antes de usarlo",
+    });
     expect(mocks.getProfile).toHaveBeenCalledWith("profile-1");
     expect(mocks.run).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Aceptar v3 y buscar" }),
+    ).toBeInTheDocument();
   });
 
-  it("replanifica una vez, muestra el diff triple y acepta sobre el perfil exacto", async () => {
+  it("replanifica una vez, muestra el diff y acepta ejecutando la búsqueda", async () => {
     mocks.getProfile.mockResolvedValue(profile(2));
-    mocks.acceptProfile.mockResolvedValue(profile(3));
+    mocks.acceptProfile.mockResolvedValue({
+      ...profile(3),
+      tender_search_id: "search-1",
+    });
     render(
       <ProcurementSearchWizard
         replanRequest={{
@@ -618,13 +657,50 @@ describe("ProcurementSearchWizard", () => {
     expect(within(diff).getByText(/Conservado ·/)).toBeInTheDocument();
     expect(within(diff).getByText("limpieza")).toBeInTheDocument();
     expect(within(diff).getByText("formación")).toBeInTheDocument();
+    expect(
+      within(diff).getByRole("button", { name: "Descartar versión anterior" }),
+    ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Aceptar como v3" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Aceptar v3 y buscar" }),
+    );
     await waitFor(() =>
       expect(mocks.acceptProfile).toHaveBeenCalledWith(
         "profile-1",
         expect.objectContaining({ expected_version: 2 }),
       ),
     );
+    await waitFor(() => expect(mocks.patchSearch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
+        limit: 25,
+        offset: 0,
+      }),
+    );
+  });
+
+  it("permite quitar todos los CPV y empezar de cero", async () => {
+    await openWizard();
+    await generatePlan();
+    expect(
+      screen.getByText("35110000 · Equipo de extinción"),
+    ).toBeInTheDocument();
+    const cpvGroup = screen.getByRole("group", { name: "CPV candidatos" });
+    fireEvent.click(
+      within(cpvGroup).getByRole("button", { name: "Quitar todos" }),
+    );
+    expect(
+      screen.queryByText("35110000 · Equipo de extinción"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Empezar de cero" }));
+    await screen.findByRole("heading", {
+      name: "Describe qué quieres encontrar",
+    });
+    expect(
+      screen.getByPlaceholderText(
+        /Equipamiento y mantenimiento para emergencias/,
+      ),
+    ).toHaveValue("");
   });
 });

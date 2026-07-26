@@ -4,6 +4,18 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Wizard «Buscar con Oracle» · aceptar ejecuta y muestra resultados
+
+- **Aceptar y buscar** (antes solo versionaba el perfil): acepta el plan, crea o
+  actualiza la búsqueda Signal, la ejecuta y cierra el diálogo mostrando las
+  licitaciones en el workspace.
+- **Descartar**: «Quitar todos» por categoría de chips, × en Conservados del
+  diff, «Descartar versión anterior» y «Empezar de cero» (limpia estado y no
+  rehidrata CPV/conservados del plan previo).
+- **Layout**: el body del diálogo es el único scroller; chips y Conservados con
+  wrap y scroll interno para no quedar bajo el footer (capturas oracle1/2).
+- Solo frontend. Tests vitest del wizard actualizados.
+
 ## Superadmin · estadísticas de licitaciones PLACSP
 
 - Pantalla `/platform/procurement-stats` (solo superadmin): rankings de CPV, organismos,

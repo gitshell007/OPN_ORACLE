@@ -190,6 +190,19 @@ async function installProcurementContract(page: Page) {
       });
     },
   );
+  await page.route(
+    "**/api/v1/procurement/tender-searches/search-wizard-1",
+    async (route) => {
+      await route.fulfill({
+        json: {
+          id: "search-wizard-1",
+          name: "Equipamiento y mantenimiento para emergencias públicas",
+          keywords: ["equipos de extinción", "bomberos"],
+          filters: { scope: "active" },
+        },
+      });
+    },
+  );
   await page.route("**/api/v1/procurement-search-watches", async (route) => {
     await route.fulfill({ json: { items: saved ? [watch()] : [] } });
   });
@@ -491,39 +504,26 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   ).toBeVisible();
   await expect(page.getByText("Confianza Media")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Guardar vigilancia" }),
-  ).toHaveCount(0);
+    page.getByRole("button", { name: "Aceptar y buscar" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Previsualizar ahora" }).click();
   await expect(page.getByText("38 coincidencias")).toBeVisible();
   await expect(
     page.getByText("Los resultados se solapan: los totales no se suman."),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Aceptar plan" }).click();
-  await expect(page.getByText("Plan aceptado · v1")).toBeVisible();
-  await page.getByRole("button", { name: "Guardar vigilancia" }).click();
-  await expect(
-    page.getByRole("button", { name: "Vigilancia guardada" }),
-  ).toBeVisible();
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - window.innerWidth,
-  );
-  expect(overflow).toBeLessThanOrEqual(1);
-  if (testInfo.project.name === "mobile") {
-    const bounds = await page.locator(".procurement-wizard-dialog").boundingBox();
-    expect(bounds?.width).toBeLessThanOrEqual(390);
-    expect(bounds?.height).toBeLessThanOrEqual(844);
-  }
-  await page.screenshot({
-    path: testInfo.outputPath(`procurement-wizard-${testInfo.project.name}.png`),
-    fullPage: false,
-  });
-  await page.getByRole("button", { name: "Cerrar" }).click();
+  await page.getByRole("button", { name: "Aceptar y buscar" }).click();
+  // El wizard cierra y pinta resultados de la ejecución inmediata.
+  await expect(page.getByText(tender.title)).toBeVisible();
   await expect(
     page.locator(".procurement-saved-searches").getByText("v1", {
       exact: true,
     }),
   ).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
   await page
     .locator(".procurement-saved-searches")
     .getByRole("button", { name: "Activar vigilancia y avisos" })
@@ -533,11 +533,6 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
       name: "Pausar vigilancia",
     }),
   ).toBeVisible();
-  await page
-    .locator(".procurement-saved-searches")
-    .getByRole("button", { name: "Ejecutar" })
-    .click();
-  await expect(page.getByText(tender.title)).toBeVisible();
   await expect(page.getByText("Nuevo", { exact: true })).toBeVisible();
   await page
     .getByRole("group", { name: `Valoración para ${tender.title}` })
@@ -562,6 +557,6 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   await expect(diff.getByText("bomberos")).toBeVisible();
   await expect(diff.getByText("limpieza")).toBeVisible();
   await expect(page.getByText("Retirado · 1")).toBeVisible();
-  await page.getByRole("button", { name: "Aceptar como v2" }).click();
-  await expect(page.getByText("Plan aceptado · v2")).toBeVisible();
+  await page.getByRole("button", { name: "Aceptar v2 y buscar" }).click();
+  await expect(page.getByText(tender.title)).toBeVisible();
 });
