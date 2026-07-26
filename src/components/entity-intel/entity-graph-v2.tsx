@@ -53,6 +53,15 @@ import {
 } from "react";
 import { entityRoute } from "@/lib/entity-route";
 import { graphNodeDepths } from "./entity-graph-layout";
+import {
+  allCategoryKeys,
+  edgeMatchesRoleCategories,
+  edgeRoleCategories,
+  GRAPH_ROLE_CATEGORY_META,
+  graphRoleCategoryOptions,
+  primaryRoleCategory,
+  type GraphRoleCategory,
+} from "./entity-graph-roles";
 
 type ViewMode = "radial" | "directory" | "matrix";
 type TypeFilter = "all" | "company" | "person";
@@ -75,6 +84,9 @@ interface NormalizedEdge {
   role: string;
   active: boolean | null;
   date: string | null;
+  categories: GraphRoleCategory[];
+  primaryCategory: GraphRoleCategory;
+  raw: EntityIntelGraphEdge;
 }
 
 interface RingPlacement {
@@ -93,7 +105,7 @@ const CX = VIEW_W / 2;
 const CY = VIEW_H / 2;
 const RING_RADIUS: Record<number, number> = { 1: 200, 2: 300 };
 const CENTER_R = 28;
-const DEFAULT_RING_CAP = 36;
+const DEFAULT_RING_CAP = 72;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.8;
 
@@ -163,6 +175,7 @@ function buildNormalized(graph: EntityIntelGraphResponse, queryName: string) {
     const source = String(edge.source);
     const target = String(edge.target);
     if (!known.has(source) || !known.has(target) || source === target) return [];
+    const categories = edgeRoleCategories(edge);
     return [
       {
         id: String(edge.id ?? `${source}-${target}-${index}`),
@@ -171,6 +184,9 @@ function buildNormalized(graph: EntityIntelGraphResponse, queryName: string) {
         role: edgeRole(edge),
         active: typeof edge.active === "boolean" ? edge.active : null,
         date: typeof edge.date === "string" ? edge.date : null,
+        categories,
+        primaryCategory: primaryRoleCategory(edge),
+        raw: edge,
       },
     ];
   });
@@ -283,9 +299,11 @@ function placeRing(
   cap: number,
   parentId: string | null,
   rotation: number,
+  degreeById?: Map<string, number>,
 ): RingPlacement[] {
+  const degreeOf = (node: NormalizedNode) => degreeById?.get(node.id) ?? node.degree;
   const sorted = [...candidates].sort(
-    (a, b) => b.degree - a.degree || a.label.localeCompare(b.label, "es"),
+    (a, b) => degreeOf(b) - degreeOf(a) || a.label.localeCompare(b.label, "es"),
   );
   const limited = sorted.slice(0, cap);
   const ringR = RING_RADIUS[depth] ?? 210;
@@ -293,9 +311,20 @@ function placeRing(
   return limited.map((node, index) => {
     const angle = -Math.PI / 2 + rotation + (index / count) * Math.PI * 2;
     const { x, y } = polar(angle, ringR);
-    const radius = Math.min(18, Math.max(9, 8 + Math.sqrt(node.degree + 1) * 1.6));
+    const deg = degreeOf(node);
+    const radius = Math.min(18, Math.max(9, 8 + Math.sqrt(deg + 1) * 1.6));
     return { node, depth, angle, x, y, radius, parentId };
   });
+}
+
+function buildAdjacency(edges: Array<{ source: string; target: string }>, nodeIds: string[]) {
+  const adjacency = new Map<string, Set<string>>();
+  for (const id of nodeIds) adjacency.set(id, new Set());
+  for (const edge of edges) {
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  }
+  return adjacency;
 }
 
 function arcPath(x1: number, y1: number, x2: number, y2: number, bulge = 0.22): string {
@@ -326,6 +355,10 @@ export function EntityGraphV2Explorer({
   const [maxDepth, setMaxDepth] = useState<1 | 2>(1);
   const [ringCap, setRingCap] = useState(DEFAULT_RING_CAP);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  /** null = all families present in the graph (default on load). */
+  const [enabledCategories, setEnabledCategories] = useState<Set<GraphRoleCategory> | null>(
+    null,
+  );
   const [viewMode, setViewMode] = useState<ViewMode>("radial");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -364,6 +397,7 @@ export function EntityGraphV2Explorer({
       setCollapsedIds(new Set());
       setIsolatedId(null);
       setFocusTrail([]);
+      setEnabledCategories(null); // all families on reload
       setZoom(1);
       setPan({ x: 0, y: 0 });
       setRotation(0);
@@ -392,25 +426,68 @@ export function EntityGraphV2Explorer({
     [graph, name],
   );
 
+  const roleCategoryOptions = useMemo(() => graphRoleCategoryOptions(graph), [graph]);
+
+  const effectiveCategories = useMemo(() => {
+    const available = allCategoryKeys(roleCategoryOptions);
+    if (available.length === 0) {
+      return new Set<GraphRoleCategory>([
+        "governance",
+        "representation",
+        "audit",
+        "ownership",
+        "liquidation",
+        "other",
+      ]);
+    }
+    if (enabledCategories === null) return new Set(available);
+    // Keep only categories that still exist in the loaded graph.
+    const next = new Set<GraphRoleCategory>();
+    for (const key of enabledCategories) {
+      if (available.includes(key)) next.add(key);
+    }
+    return next.size > 0 ? next : new Set(available);
+  }, [enabledCategories, roleCategoryOptions]);
+
+  const allFamiliesEnabled =
+    roleCategoryOptions.length > 0 &&
+    roleCategoryOptions.every((opt) => effectiveCategories.has(opt.key));
+
   // Active radial focus (re-root without leaving the page).
   const activeFocusId = focusId ?? model?.rootId ?? null;
-
-  const depths = useMemo(() => {
-    if (!model || !activeFocusId) return new Map<string, number>();
-    return depthsFrom(
-      activeFocusId,
-      model.adjacency,
-      model.nodes.map((n) => n.id),
-    );
-  }, [activeFocusId, model]);
 
   const filteredEdges = useMemo(() => {
     if (!model) return [];
     return model.edges.filter((edge) => {
       if (activeOnly && edge.active === false) return false;
-      return true;
+      return edgeMatchesRoleCategories(edge.raw, effectiveCategories);
     });
-  }, [activeOnly, model]);
+  }, [activeOnly, effectiveCategories, model]);
+
+  const filteredAdjacency = useMemo(() => {
+    if (!model) return new Map<string, Set<string>>();
+    return buildAdjacency(
+      filteredEdges,
+      model.nodes.map((n) => n.id),
+    );
+  }, [filteredEdges, model]);
+
+  const filteredDegree = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [id, neighbors] of filteredAdjacency) {
+      map.set(id, neighbors.size);
+    }
+    return map;
+  }, [filteredAdjacency]);
+
+  const depths = useMemo(() => {
+    if (!model || !activeFocusId) return new Map<string, number>();
+    return depthsFrom(
+      activeFocusId,
+      filteredAdjacency,
+      model.nodes.map((n) => n.id),
+    );
+  }, [activeFocusId, filteredAdjacency, model]);
 
   const visibleNodeIds = useMemo(() => {
     if (!model || !activeFocusId) return new Set<string>();
@@ -425,12 +502,11 @@ export function EntityGraphV2Explorer({
       visible.add(node.id);
     }
 
-    // Branch expansion: show exclusive neighbors of each expanded node only.
-    // Never flips global maxDepth — expanding ALFA must not reveal BETA's far neighbors.
+    // Branch expansion: exclusive neighbors via filtered (role-family) adjacency only.
     for (const expanded of expandedIds) {
       if (!visible.has(expanded) && expanded !== activeFocusId) continue;
       if (collapsedIds.has(expanded)) continue;
-      for (const neighbor of model.adjacency.get(expanded) ?? []) {
+      for (const neighbor of filteredAdjacency.get(expanded) ?? []) {
         if (neighbor === activeFocusId) continue;
         const n = model.nodes.find((node) => node.id === neighbor);
         if (!n) continue;
@@ -440,25 +516,21 @@ export function EntityGraphV2Explorer({
     }
 
     // Collapse: hide nodes that only remain visible through a collapsed branch parent.
-    // - Depth > maxDepth: hide if they touch any collapsed expanded parent.
-    // - Depth <= maxDepth (global 2º salto): hide if every depth-1 path parent is collapsed.
     if (collapsedIds.size > 0) {
       for (const nodeId of [...visible]) {
         if (nodeId === activeFocusId) continue;
         const depth = depths.get(nodeId) ?? 99;
         if (depth <= 1) continue;
 
-        const adjacencyParents = [...(model.adjacency.get(nodeId) ?? [])];
+        const adjacencyParents = [...(filteredAdjacency.get(nodeId) ?? [])];
         const collapsedParents = adjacencyParents.filter((p) => collapsedIds.has(p));
         if (collapsedParents.length === 0) continue;
 
-        // Expansion-only nodes (beyond global maxDepth): drop if linked to a collapsed node.
         if (depth > maxDepth) {
           visible.delete(nodeId);
           continue;
         }
 
-        // Base depth-2 nodes: hide only when all depth-1 parents are collapsed.
         const depth1Parents = adjacencyParents.filter((p) => (depths.get(p) ?? 99) === 1);
         if (depth1Parents.length > 0 && depth1Parents.every((p) => collapsedIds.has(p))) {
           visible.delete(nodeId);
@@ -466,13 +538,13 @@ export function EntityGraphV2Explorer({
       }
     }
 
-    // Isolation: only focus + its direct neighbors (and expanded branch of the isolate).
+    // Isolation: focus + direct filtered neighbors (and expanded branch of the isolate).
     if (isolatedId) {
       const keep = new Set<string>([isolatedId]);
-      for (const neighbor of model.adjacency.get(isolatedId) ?? []) keep.add(neighbor);
+      for (const neighbor of filteredAdjacency.get(isolatedId) ?? []) keep.add(neighbor);
       if (expandedIds.has(isolatedId) && !collapsedIds.has(isolatedId)) {
-        for (const neighbor of model.adjacency.get(isolatedId) ?? []) {
-          for (const second of model.adjacency.get(neighbor) ?? []) keep.add(second);
+        for (const neighbor of filteredAdjacency.get(isolatedId) ?? []) {
+          for (const second of filteredAdjacency.get(neighbor) ?? []) keep.add(second);
         }
       }
       for (const id of [...visible]) {
@@ -487,6 +559,7 @@ export function EntityGraphV2Explorer({
     collapsedIds,
     depths,
     expandedIds,
+    filteredAdjacency,
     isolatedId,
     maxDepth,
     model,
@@ -500,7 +573,7 @@ export function EntityGraphV2Explorer({
     const expansionParent = new Map<string, string>();
     for (const expanded of expandedIds) {
       if (collapsedIds.has(expanded)) continue;
-      for (const neighbor of model.adjacency.get(expanded) ?? []) {
+      for (const neighbor of filteredAdjacency.get(expanded) ?? []) {
         if (neighbor === activeFocusId) continue;
         const depth = depths.get(neighbor) ?? 99;
         // Only claim nodes that are not already in the base ego ring(s).
@@ -541,21 +614,25 @@ export function EntityGraphV2Explorer({
     }
 
     const placements: RingPlacement[] = [];
-    placements.push(...placeRing(ring1, 1, ringCap, activeFocusId, rotation));
+    placements.push(...placeRing(ring1, 1, ringCap, activeFocusId, rotation, filteredDegree));
 
     // Place base depth-2 evenly, then expansion children clustered near their parent angle.
     const parentAngle = new Map<string, number>();
     for (const p of placements) parentAngle.set(p.node.id, p.angle);
 
     if (maxDepth >= 2 && ring2Base.length > 0) {
-      placements.push(...placeRing(ring2Base, 2, ringCap, null, rotation));
+      placements.push(...placeRing(ring2Base, 2, ringCap, null, rotation, filteredDegree));
     }
 
     let expansionSlotsLeft = ringCap;
     for (const [parentId, children] of ring2ByParent) {
       if (expansionSlotsLeft <= 0) break;
       const limited = [...children]
-        .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label, "es"))
+        .sort(
+          (a, b) =>
+            (filteredDegree.get(b.id) ?? b.degree) - (filteredDegree.get(a.id) ?? a.degree) ||
+            a.label.localeCompare(b.label, "es"),
+        )
         .slice(0, expansionSlotsLeft);
       expansionSlotsLeft -= limited.length;
       const baseAngle = parentAngle.get(parentId) ?? -Math.PI / 2 + rotation;
@@ -565,7 +642,8 @@ export function EntityGraphV2Explorer({
         const t = limited.length === 1 ? 0.5 : index / (limited.length - 1);
         const angle = baseAngle - spread / 2 + t * spread;
         const { x, y } = polar(angle, ringR);
-        const radius = Math.min(18, Math.max(9, 8 + Math.sqrt(node.degree + 1) * 1.6));
+        const deg = filteredDegree.get(node.id) ?? node.degree;
+        const radius = Math.min(18, Math.max(9, 8 + Math.sqrt(deg + 1) * 1.6));
         placements.push({
           node,
           depth: 2,
@@ -584,6 +662,8 @@ export function EntityGraphV2Explorer({
     collapsedIds,
     depths,
     expandedIds,
+    filteredAdjacency,
+    filteredDegree,
     maxDepth,
     model,
     ringCap,
@@ -608,15 +688,15 @@ export function EntityGraphV2Explorer({
   }, [model, selectedId]);
 
   const selectedNeighborCount = useMemo(() => {
-    if (!model || !selectedId) return 0;
-    return model.adjacency.get(selectedId)?.size ?? 0;
-  }, [model, selectedId]);
+    if (!selectedId) return 0;
+    return filteredAdjacency.get(selectedId)?.size ?? 0;
+  }, [filteredAdjacency, selectedId]);
 
   /** Neighbors of the selection that expand would newly reveal (excludes focus + already base-visible). */
   const selectedExpandableCount = useMemo(() => {
     if (!model || !selectedId || !activeFocusId) return 0;
     let count = 0;
-    for (const neighbor of model.adjacency.get(selectedId) ?? []) {
+    for (const neighbor of filteredAdjacency.get(selectedId) ?? []) {
       if (neighbor === activeFocusId) continue;
       const depth = depths.get(neighbor) ?? 99;
       // Already in the base ego rings controlled by maxDepth.
@@ -627,7 +707,7 @@ export function EntityGraphV2Explorer({
       count += 1;
     }
     return count;
-  }, [activeFocusId, depths, maxDepth, model, selectedId, typeFilter]);
+  }, [activeFocusId, depths, filteredAdjacency, maxDepth, model, selectedId, typeFilter]);
 
   const selectedIsExpanded = selectedId ? expandedIds.has(selectedId) : false;
   const selectedIsCollapsed = selectedId ? collapsedIds.has(selectedId) : false;
@@ -677,10 +757,14 @@ export function EntityGraphV2Explorer({
     if (!focus) return [];
     const direct = model.nodes
       .filter((n) => n.id !== activeFocusId && (depths.get(n.id) ?? 99) === 1)
-      .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label, "es"))
+      .sort(
+        (a, b) =>
+          (filteredDegree.get(b.id) ?? b.degree) - (filteredDegree.get(a.id) ?? a.degree) ||
+          a.label.localeCompare(b.label, "es"),
+      )
       .slice(0, 12);
     return [focus, ...direct];
-  }, [activeFocusId, depths, model]);
+  }, [activeFocusId, depths, filteredDegree, model]);
 
   const matrixLinks = useMemo(() => {
     const set = new Set<string>();
@@ -1074,6 +1158,85 @@ export function EntityGraphV2Explorer({
         </button>
       </div>
 
+      {roleCategoryOptions.length > 0 && (
+        <section
+          className="entity-graph-v2-role-families"
+          aria-label="Lecturas rápidas por familia de vínculo"
+        >
+          <header>
+            <div>
+              <strong>Lecturas rápidas por familia</strong>
+              <small>
+                Filtros voluntarios; al entrar se muestran todas las relaciones. Activa una, varias
+                o todas — también aplica al expandir ramas y al recentrar el foco.
+              </small>
+            </div>
+            <div className="entity-role-filter-actions">
+              <button
+                type="button"
+                onClick={() => setEnabledCategories(new Set(allCategoryKeys(roleCategoryOptions)))}
+              >
+                Todas
+              </button>
+            </div>
+          </header>
+          <div className="entity-graph-v2-role-family-chips">
+            {roleCategoryOptions.map((category) => {
+              const pressed = effectiveCategories.has(category.key);
+              return (
+                <button
+                  type="button"
+                  key={category.key}
+                  aria-pressed={pressed}
+                  aria-label={`${pressed ? "Ocultar" : "Mostrar"} ${category.label}, ${category.count} ${
+                    category.count === 1 ? "vínculo" : "vínculos"
+                  }`}
+                  title={
+                    pressed
+                      ? `Clic: quitar ${category.label}. Doble clic: solo esta familia.`
+                      : `Clic: incluir ${category.label}. Doble clic: solo esta familia.`
+                  }
+                  onClick={() => {
+                    setEnabledCategories((prev) => {
+                      const base =
+                        prev === null
+                          ? new Set(allCategoryKeys(roleCategoryOptions))
+                          : new Set(prev);
+                      if (base.has(category.key)) {
+                        // Don't allow emptying completely — fall back to this family alone.
+                        if (base.size <= 1) return base;
+                        base.delete(category.key);
+                      } else {
+                        base.add(category.key);
+                      }
+                      return base;
+                    });
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    setEnabledCategories(new Set([category.key]));
+                  }}
+                >
+                  <i className={GRAPH_ROLE_CATEGORY_META[category.key].className} />
+                  <span>{category.label}</span>
+                  <small>{category.count}</small>
+                </button>
+              );
+            })}
+          </div>
+          {!allFamiliesEnabled && (
+            <p className="entity-graph-v2-role-filter-note" role="status">
+              Filtrando{" "}
+              {roleCategoryOptions
+                .filter((c) => effectiveCategories.has(c.key))
+                .map((c) => c.label)
+                .join(", ")}
+              . El anillo y la expansión solo usan estas familias.
+            </p>
+          )}
+        </section>
+      )}
+
       <div className="entity-graph-v2-body">
         <div className="entity-graph-v2-stage">
           {viewMode === "radial" && (
@@ -1129,7 +1292,7 @@ export function EntityGraphV2Explorer({
                   <path
                     key={edge.id}
                     d={d}
-                    className={strong ? "entity-graph-v2-edge is-strong" : "entity-graph-v2-edge"}
+                    className={`entity-graph-v2-edge role-category-${GRAPH_ROLE_CATEGORY_META[edge.primaryCategory].className}${strong ? " is-strong" : ""}`}
                     fill="none"
                   />
                 ))}
@@ -1400,13 +1563,24 @@ export function EntityGraphV2Explorer({
                   <dd>{focusNode.kind === "person" ? "Persona" : "Empresa"}</dd>
                 </div>
                 <div>
-                  <dt>Grado en muestra</dt>
-                  <dd>{focusNode.degree}</dd>
+                  <dt>Grado (filtro actual)</dt>
+                  <dd>{filteredDegree.get(focusNode.id) ?? 0}</dd>
                 </div>
                 <div>
                   <dt>Vecinos 1er salto</dt>
                   <dd>
                     {model.nodes.filter((n) => (depths.get(n.id) ?? 99) === 1).length}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Familias activas</dt>
+                  <dd>
+                    {allFamiliesEnabled
+                      ? "Todas"
+                      : roleCategoryOptions
+                          .filter((c) => effectiveCategories.has(c.key))
+                          .map((c) => c.label)
+                          .join(", ") || "—"}
                   </dd>
                 </div>
                 <div>
@@ -1416,7 +1590,8 @@ export function EntityGraphV2Explorer({
               </dl>
               <p className="entity-graph-v2-side-hint">
                 Selecciona un nodo para expandir su vecindario, colapsarlo, aislar su entorno o
-                re-centrar la exploración sin salir de la ficha.
+                re-centrar la exploración sin salir de la ficha. Las familias de vínculo filtran
+                también las expansiones.
               </p>
               <div className="entity-graph-v2-legend">
                 <span>

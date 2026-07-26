@@ -144,6 +144,36 @@ describe("EntityGraphV2Explorer", () => {
     expect(screen.getByText(/Explorando desde un nodo secundario/i)).toBeInTheDocument();
   });
 
+  it("filtra por familia de vínculo y al entrar muestra todas", async () => {
+    render(
+      <EntityGraphV2Explorer
+        name="MAGTEL GLOBAL SL"
+        type="company"
+        initialGraph={sampleGraph}
+      />,
+    );
+    await screen.findByText("FILIAL ALFA SL");
+    // All families visible by default (administrador, socio, apoderado).
+    expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
+    expect(screen.getByText("FILIAL BETA SL")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Gobierno/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // Solo Representación → apoderado (PERSONA UNO); no gobierno ni propiedad.
+    fireEvent.doubleClick(screen.getByRole("button", { name: /Representación/i }));
+    await waitFor(() => {
+      expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
+      expect(screen.queryByText("FILIAL ALFA SL")).not.toBeInTheDocument();
+      expect(screen.queryByText("FILIAL BETA SL")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Todas$/i }));
+    expect(await screen.findByText("FILIAL ALFA SL")).toBeInTheDocument();
+    expect(screen.getByText("FILIAL BETA SL")).toBeInTheDocument();
+  });
+
   it("permite cambiar a directorio y listar vecinos", async () => {
     render(
       <EntityGraphV2Explorer
