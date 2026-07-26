@@ -357,10 +357,23 @@ def execute_search_plan(
             }
         )
 
-    ranked = sorted(
-        order,
-        key=lambda key: (-int(by_folder[key].get("_probe_hits") or 0), order.index(key)),
-    )
+    def _rank_key(folder_key: str) -> tuple[int, int, int, int]:
+        item = by_folder[folder_key]
+        hits = int(item.get("_probe_hits") or 0)
+        matched = item.get("_matched_probes") if isinstance(item.get("_matched_probes"), list) else []
+        # Prioriza aciertos en CPV de defensa/vehículo frente a "defensa" jurídica o SDA genéricos.
+        priority_hit = 0
+        for value in matched:
+            if isinstance(value, str) and any(value.startswith(prefix) for prefix in _PRIORITY_CPV_PREFIXES[:6]):
+                priority_hit = 1
+                break
+        raw_cpvs = item.get("cpv")
+        cpv_list = raw_cpvs if isinstance(raw_cpvs, list) else []
+        # Penaliza paquetes SDA con decenas de CPV (ruido de coincidencia accidental).
+        bloat = 1 if len(cpv_list) > 15 else 0
+        return (-priority_hit, bloat, -hits, order.index(folder_key))
+
+    ranked = sorted(order, key=_rank_key)
     merged_items: list[dict[str, Any]] = []
     for key in ranked[:result_limit]:
         item = dict(by_folder[key])
