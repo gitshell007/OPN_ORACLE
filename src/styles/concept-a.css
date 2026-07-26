@@ -141,6 +141,56 @@
 .entity-suggestions button:hover { border-color: var(--va-primary); color: var(--va-primary); }
 .entity-search-help { grid-column: 2; margin: 8px 0 0; color: #53677f; font-size: 12px; line-height: 1.45; }
 .entity-intel-page { display: grid; gap: 14px; }
+.entity-procurement-section { display: grid; gap: 14px; }
+.entity-procurement-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.entity-procurement-header h2 { margin: 4px 0 6px; font-size: 17px; }
+.entity-procurement-header p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--va-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.entity-procurement-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.entity-procurement-summary article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #d7e3f1;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px 13px;
+}
+.entity-procurement-summary span {
+  color: var(--va-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.entity-procurement-summary strong {
+  color: var(--va-text);
+  font-size: 14px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+.entity-procurement-footnote {
+  margin: 0;
+  color: var(--va-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+@media (max-width: 720px) {
+  .entity-procurement-header { flex-direction: column; }
+}
 .entity-dossier-progress-entity {
   display: inline-flex !important;
   align-items: center;

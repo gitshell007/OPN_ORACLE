@@ -38,6 +38,7 @@ import {
 } from "./entity-dossier-loading-modal";
 import { EntityGraphV2Explorer } from "./entity-graph-v2";
 import { EntityGraphExplorer, EntitySearchPanel, entityRoute } from "./entity-intel";
+import { EntityProcurementSection } from "./entity-procurement-section";
 import { registryCounterpartLabel } from "./registry-status";
 
 const KIND_LABELS: Record<EntityIntelKind, string> = {
@@ -49,6 +50,7 @@ const REGISTRY_PAGE_SIZE = 50;
 const ENTITY_TAB_VALUES = [
   "profile",
   "registry",
+  "procurement",
   "graph",
   "graph-v2",
   "disclosures",
@@ -290,6 +292,8 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
   const [activeTab, setActiveTab] = useState<EntityTab>("profile");
   const [graphVisited, setGraphVisited] = useState(false);
   const [graphV2Visited, setGraphV2Visited] = useState(false);
+  const [procurementVisited, setProcurementVisited] = useState(false);
+  const [procurementTotal, setProcurementTotal] = useState<number | null>(null);
   const [activeTool, setActiveTool] = useState<EntityTool | null>(null);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadStageIndex, setLoadStageIndex] = useState(0);
@@ -412,6 +416,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
       setActiveTab(nextTab);
       setGraphVisited(nextTab === "graph");
       setGraphV2Visited(nextTab === "graph-v2");
+      setProcurementVisited(nextTab === "procurement");
       const requestedTool = url.searchParams.get("tool");
       if (requestedTool === "search" || requestedTool === "link" || requestedTool === "report") {
         setActiveTool(requestedTool);
@@ -599,6 +604,7 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
     tabInteractionStarted.current = true;
     if (nextTab === "graph") setGraphVisited(true);
     if (nextTab === "graph-v2") setGraphV2Visited(true);
+    if (nextTab === "procurement") setProcurementVisited(true);
     setActiveTab(nextTab);
     setActiveTool(null);
     const url = new URL(window.location.href);
@@ -675,6 +681,19 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
           <Tabs.List className="dossier-tabs" aria-label="Secciones de la ficha de entidad">
             <Tabs.Trigger value="profile">Perfil</Tabs.Trigger>
             <Tabs.Trigger value="registry">Órganos y cargos</Tabs.Trigger>
+            <Tabs.Trigger
+              value="procurement"
+              aria-label={
+                procurementTotal != null
+                  ? `Licitaciones, ${procurementTotal} adjudicaciones`
+                  : "Licitaciones y adjudicaciones"
+              }
+            >
+              Licitaciones
+              {procurementTotal != null ? (
+                <b aria-hidden="true">{procurementTotal}</b>
+              ) : null}
+            </Tabs.Trigger>
             <Tabs.Trigger value="graph">Grafo</Tabs.Trigger>
             <Tabs.Trigger value="graph-v2">Grafo v2</Tabs.Trigger>
             <Tabs.Trigger
@@ -841,6 +860,20 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
                   Siguiente
                 </button>
               </div>
+            )}
+          </Tabs.Content>
+
+          <Tabs.Content
+            value="procurement"
+            className="entity-tab-panel"
+            forceMount={procurementVisited || activeTab === "procurement" ? true : undefined}
+          >
+            {(procurementVisited || activeTab === "procurement") && (
+              <EntityProcurementSection
+                name={dossier.entity.name ?? name}
+                type={type}
+                onTotalChange={setProcurementTotal}
+              />
             )}
           </Tabs.Content>
 
