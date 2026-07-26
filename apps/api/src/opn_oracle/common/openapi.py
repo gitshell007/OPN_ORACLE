@@ -685,39 +685,27 @@ def _response_schemas() -> dict[str, Any]:
                     "properties": {
                         "top_cpv": {
                             "type": "array",
-                            "items": {
-                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
-                            },
+                            "items": {"$ref": "#/components/schemas/ProcurementAnalyticsRankItem"},
                         },
                         "top_buyers": {
                             "type": "array",
-                            "items": {
-                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
-                            },
+                            "items": {"$ref": "#/components/schemas/ProcurementAnalyticsRankItem"},
                         },
                         "top_regions": {
                             "type": "array",
-                            "items": {
-                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
-                            },
+                            "items": {"$ref": "#/components/schemas/ProcurementAnalyticsRankItem"},
                         },
                         "top_terms": {
                             "type": "array",
-                            "items": {
-                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
-                            },
+                            "items": {"$ref": "#/components/schemas/ProcurementAnalyticsRankItem"},
                         },
                         "statuses": {
                             "type": "array",
-                            "items": {
-                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
-                            },
+                            "items": {"$ref": "#/components/schemas/ProcurementAnalyticsRankItem"},
                         },
                         "amount_buckets": {
                             "type": "array",
-                            "items": {
-                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
-                            },
+                            "items": {"$ref": "#/components/schemas/ProcurementAnalyticsRankItem"},
                         },
                     },
                     "additionalProperties": True,
@@ -789,6 +777,11 @@ def _response_schemas() -> dict[str, Any]:
 def _declare_oracle_operation(
     path: str, method: str, operation: dict[str, Any], problem_content: dict[str, Any]
 ) -> None:
+    # Procurement endpoints own their APIFlask schemas. The broad "/search"
+    # Oracle token must not reinterpret /procurement/search-plans/* as a
+    # StrategicDossier domain operation.
+    if path.startswith("/api/v1/procurement/"):
+        return
     if not path.startswith("/api/v1/") or not any(
         token in path
         for token in (

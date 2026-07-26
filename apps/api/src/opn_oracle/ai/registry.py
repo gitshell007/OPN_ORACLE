@@ -194,13 +194,14 @@ PROMPT_VERSIONS = {
         if name == "report_writer"
         else ("v1", "v2", "v3")
         if name == "entity_dossier_intelligence"
+        else ("v1", "v2", "v3")
+        if name == "tender_search_wizard"
         else ("v1", "v2")
         if name
         in {
             "meeting_briefing",
             "weekly_change",
             "competitive_procurement_intelligence",
-            "tender_search_wizard",
         }
         else ("v1",)
     )
@@ -271,6 +272,7 @@ class PromptRegistry:
                             "v2: añade replanificación explícita desde plan aceptado y "
                             "digest determinista de feedback."
                         ),
+                        "v3": ("v3: CPV específicos validados y combinados con retrieval local."),
                     }[version]
                 else:
                     changelog = (

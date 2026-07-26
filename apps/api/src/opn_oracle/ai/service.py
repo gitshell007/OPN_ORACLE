@@ -968,7 +968,11 @@ def execute_agent(
         if agent == "dossier_completion_wizard":
             validate_dossier_completion_output(output, context)
         elif agent == "tender_search_wizard":
-            output = postvalidate_tender_search_plan(output)
+            output = postvalidate_tender_search_plan(
+                output,
+                enrich_cpvs=True,
+                source_text=str(context.payload.get("description") or ""),
+            )
     except Exception as error:
         fail(error, active_attempt_id=attempt_id)
         raise

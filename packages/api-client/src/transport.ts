@@ -1980,8 +1980,8 @@ export interface TenderSearchPreview {
     merged_results: false;
     keyword_blocks: string;
     exclude_terms_applied: false;
-    additional_buyers_applied: false;
-    additional_geographies_applied: false;
+    buyers_applied: false;
+    geographies_applied: false;
     limitations: string[];
   };
 }
@@ -2132,7 +2132,7 @@ const procurement = {
     ),
   executeSearchPlan: (
     plan: TenderSearchPlan,
-    input: { limit?: number } = {},
+    input: { limit?: number; offset?: number } = {},
   ) =>
     request<{
       plan: TenderSearchPlan;
@@ -2149,7 +2149,11 @@ const procurement = {
       };
     }>("/api/v1/procurement/search-plans/execute", {
       method: "POST",
-      body: { plan, limit: input.limit ?? 25 },
+      body: {
+        plan,
+        limit: input.limit ?? 25,
+        offset: input.offset ?? 0,
+      },
     }),
   searches: () =>
     request<TenderSearchListResponse>("/api/v1/procurement/tender-searches"),

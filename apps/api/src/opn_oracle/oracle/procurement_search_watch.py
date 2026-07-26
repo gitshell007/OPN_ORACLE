@@ -305,8 +305,26 @@ def create_watch_for_saved_profile(
 ) -> ProcurementSearchWatch:
     """Persist an inactive watch beside the user-created Signal saved search."""
 
-    existing = get_watch_for_profile(session, profile.id)
+    tenant_id = require_tenant_id()
+    existing = session.scalar(
+        select(ProcurementSearchWatch)
+        .where(
+            ProcurementSearchWatch.tenant_id == tenant_id,
+            ProcurementSearchWatch.profile_id == profile.id,
+        )
+        .with_for_update()
+    )
     if existing is not None:
+        if existing.deleted_at is not None:
+            existing.tender_search_id = tender_search_id
+            existing.name = _clean_text(name)[:120]
+            existing.enabled = False
+            existing.notifications_enabled = False
+            existing.notification_user_id = None
+            existing.deleted_at = None
+            existing.last_error_code = None
+            existing.last_error_message = None
+            _upsert_schedule(session, existing, now=datetime.now(UTC))
         return existing
     watch = ProcurementSearchWatch(
         tenant_id=profile.tenant_id,
@@ -730,9 +748,19 @@ def retire_procurement_search_watch_for_tender_search(
     tender_search_id: str,
     request_id: str | None = None,
 ) -> bool:
-    """Stop a deleted Signal search without prematurely deleting its seen memory."""
+    """Unlink a deleted Signal search and retain its stopped watch memory."""
 
     tenant_id = require_tenant_id()
+    profiles = list(
+        session.scalars(
+            select(ProcurementSearchProfile)
+            .where(
+                ProcurementSearchProfile.tenant_id == tenant_id,
+                ProcurementSearchProfile.tender_search_id == tender_search_id,
+            )
+            .with_for_update()
+        )
+    )
     watch = session.scalar(
         select(ProcurementSearchWatch)
         .where(
@@ -742,31 +770,50 @@ def retire_procurement_search_watch_for_tender_search(
         )
         .with_for_update()
     )
-    if watch is None:
+    if watch is None and not profiles:
         return False
-    watch.enabled = False
-    watch.notifications_enabled = False
-    watch.notification_user_id = None
-    watch.deleted_at = datetime.now(UTC)
-    schedule = session.scalar(
-        select(JobSchedule)
-        .where(
-            JobSchedule.tenant_id == tenant_id,
-            JobSchedule.schedule_key == _watch_schedule_key(watch.id),
+    if watch is not None:
+        watch.enabled = False
+        watch.notifications_enabled = False
+        watch.notification_user_id = None
+        watch.deleted_at = datetime.now(UTC)
+        schedule = session.scalar(
+            select(JobSchedule)
+            .where(
+                JobSchedule.tenant_id == tenant_id,
+                JobSchedule.schedule_key == _watch_schedule_key(watch.id),
+            )
+            .with_for_update()
         )
-        .with_for_update()
-    )
-    if schedule is not None:
-        schedule.enabled = False
-    append_audit_event(
-        session,
-        action="procurement.search_watch.retired",
-        resource_type="procurement_search_watch",
-        resource_id=watch.id,
-        result="success",
-        request_id=request_id,
-        metadata={"tender_search_id": tender_search_id, "retention_days": WATCH_RETENTION_DAYS},
-    )
+        if schedule is not None:
+            schedule.enabled = False
+        append_audit_event(
+            session,
+            action="procurement.search_watch.retired",
+            resource_type="procurement_search_watch",
+            resource_id=watch.id,
+            result="success",
+            request_id=request_id,
+            metadata={
+                "tender_search_id": tender_search_id,
+                "retention_days": WATCH_RETENTION_DAYS,
+                "profile_ids": [str(profile.id) for profile in profiles],
+            },
+        )
+    for profile in profiles:
+        profile.tender_search_id = None
+        append_audit_event(
+            session,
+            action="procurement.search_profile.watch_unlinked",
+            resource_type="procurement_search_profile",
+            resource_id=profile.id,
+            result="success",
+            request_id=request_id,
+            metadata={
+                "tender_search_id": tender_search_id,
+                "watch_id": str(watch.id) if watch is not None else None,
+            },
+        )
     session.commit()
     return True
 
@@ -778,14 +825,13 @@ def save_profile_watch(
     expected_version: int,
     name: str,
     create_search: Callable[..., dict[str, Any]],
+    patch_search: Callable[..., dict[str, Any]],
     request_id: str | None = None,
 ) -> tuple[ProcurementSearchProfile, dict[str, Any]]:
-    """Create one active-only Signal search and its initially inactive Oracle watch."""
+    """Create or update one active-only Signal search and its Oracle watch."""
 
     if profile.version != expected_version:
         raise ProcurementSearchProfileVersionConflict("El perfil cambió desde la última lectura.")
-    if profile.tender_search_id:
-        raise ProcurementSearchProfileVersionConflict("El perfil ya tiene una vigilancia guardada.")
     clean_name = _clean_text(name)
     if not 2 <= len(clean_name) <= 120:
         raise ProcurementSearchProfileValidationError(
@@ -793,25 +839,41 @@ def save_profile_watch(
             errors={"name": ["Debe contener entre 2 y 120 caracteres."]},
         )
     payload = saved_search_payload(name=clean_name, plan=profile.accepted_plan)
-    created = create_search(payload=payload)
-    external_id = created.get("id")
-    if not isinstance(external_id, str) or not external_id.strip():
-        raise ProcurementSearchProfileValidationError(
-            "Signal no devolvió el identificador de la vigilancia creada.",
-            errors={
-                "saved_search": ["Signal no devolvió el identificador de la vigilancia creada."]
-            },
+    existing_search_id = profile.tender_search_id
+    if existing_search_id:
+        saved_search = patch_search(search_id=existing_search_id, payload=payload)
+        watch = get_watch_for_profile(session, profile.id)
+        if watch is None:
+            watch = create_watch_for_saved_profile(
+                session,
+                profile,
+                name=clean_name,
+                tender_search_id=existing_search_id,
+            )
+        else:
+            watch.name = clean_name
+        audit_action = "procurement.search_profile.watch_updated"
+    else:
+        saved_search = create_search(payload=payload)
+        external_id = saved_search.get("id")
+        if not isinstance(external_id, str) or not external_id.strip():
+            raise ProcurementSearchProfileValidationError(
+                "Signal no devolvió el identificador de la vigilancia creada.",
+                errors={
+                    "saved_search": ["Signal no devolvió el identificador de la vigilancia creada."]
+                },
+            )
+        profile.tender_search_id = external_id.strip()[:120]
+        watch = create_watch_for_saved_profile(
+            session,
+            profile,
+            name=clean_name,
+            tender_search_id=profile.tender_search_id,
         )
-    profile.tender_search_id = external_id.strip()[:120]
-    watch = create_watch_for_saved_profile(
-        session,
-        profile,
-        name=clean_name,
-        tender_search_id=profile.tender_search_id,
-    )
+        audit_action = "procurement.search_profile.watch_saved"
     append_audit_event(
         session,
-        action="procurement.search_profile.watch_saved",
+        action=audit_action,
         resource_type="procurement_search_profile",
         resource_id=profile.id,
         result="success",
@@ -821,11 +883,13 @@ def save_profile_watch(
             "tender_search_id": profile.tender_search_id,
             "scope": "active",
             "watch_id": str(watch.id),
-            "enabled": False,
+            "enabled": watch.enabled,
+            "notifications_enabled": watch.notifications_enabled,
+            "operation": "updated" if existing_search_id else "created",
         },
     )
     session.commit()
-    return profile, created
+    return profile, saved_search
 
 
 PROCUREMENT_SEARCH_WATCH_MODELS = (ProcurementSearchWatch, ProcurementSearchWatchItem)

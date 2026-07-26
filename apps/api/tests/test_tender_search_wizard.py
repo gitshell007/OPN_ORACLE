@@ -60,7 +60,7 @@ def _plan(**overrides: Any) -> dict[str, Any]:
 def test_registry_exposes_governed_tender_search_wizard() -> None:
     prompt = PromptRegistry().get("tender_search_wizard")
 
-    assert prompt.version == "v2"
+    assert prompt.version == "v3"
     assert prompt.schema is TenderSearchWizardOutput
     assert prompt.requires_evidence_review is False
     assert prompt.evidence_review_failure_policy == "not_required"
@@ -90,7 +90,7 @@ def test_postvalidation_labels_cpvs_and_exposes_every_discard_reason() -> None:
         )
     )
 
-    assert result["candidate_cpv"] == [{"code": "18100000", "label": taxonomy.codes["18100000"]}]
+    assert {"code": "18100000", "label": taxonomy.codes["18100000"]} in result["candidate_cpv"]
     assert result["include_terms"] == ["personal", "proteccion"]
     assert result["synonyms"] == ["equipos"]
     assert result["exclude_terms"] == ["riesgo"]
@@ -116,6 +116,68 @@ def test_acceptance_mode_rejects_silent_cpv_label_replacement() -> None:
 def test_postvalidation_rejects_inverted_amount_range() -> None:
     with pytest.raises(TenderSearchPlanValidationError, match="importe mínimo"):
         postvalidate_tender_search_plan(_plan(min_amount="200", max_amount="100"))
+
+
+def test_plan_merges_local_retrieval_when_ai_returns_no_cpvs() -> None:
+    result = postvalidate_tender_search_plan(
+        _plan(
+            intent_summary="Vehículos militares blindados y sistemas para defensa.",
+            include_terms=["militares", "vehículos", "blindados"],
+            synonyms=["militar"],
+            candidate_cpv=[],
+        ),
+        enrich_cpvs=True,
+    )
+
+    inferred_codes = [item["code"] for item in result["candidate_cpv"]]
+    assert inferred_codes[0].startswith("354")
+    assert any(code.startswith("357") for code in inferred_codes)
+    assert result["assumptions"][-1].startswith("Oracle combinó")
+    assert all(
+        load_cpv_taxonomy().codes[code] == item["label"]
+        for code, item in zip(inferred_codes, result["candidate_cpv"], strict=True)
+    )
+
+    ambiguous = postvalidate_tender_search_plan(
+        _plan(
+            intent_summary="Suministros varios.",
+            include_terms=["suministros varios"],
+            synonyms=[],
+            candidate_cpv=[],
+        ),
+        reject_discards=True,
+    )
+    assert ambiguous["candidate_cpv"] == []
+
+    human_edited = postvalidate_tender_search_plan(
+        _plan(
+            intent_summary="Vehículos militares blindados y sistemas para defensa.",
+            include_terms=["militares", "vehículos", "blindados"],
+            synonyms=[],
+            candidate_cpv=[],
+        ),
+        reject_discards=True,
+    )
+    assert human_edited["candidate_cpv"] == []
+
+
+def test_plan_retrieval_recovers_concept_omitted_by_model_from_original_description() -> None:
+    model_plan = _plan(
+        intent_summary="Necesidad institucional pendiente de concretar.",
+        include_terms=["necesidad institucional"],
+        synonyms=[],
+        candidate_cpv=[],
+    )
+
+    without_description = postvalidate_tender_search_plan(model_plan, enrich_cpvs=True)
+    with_description = postvalidate_tender_search_plan(
+        model_plan,
+        enrich_cpvs=True,
+        source_text="Instalación de paneles solares fotovoltaicos y energía renovable.",
+    )
+
+    assert without_description["candidate_cpv"] == []
+    assert any(item["code"].startswith("0933") for item in with_description["candidate_cpv"])
 
 
 def test_context_grounds_only_measured_comparable_aggregates(

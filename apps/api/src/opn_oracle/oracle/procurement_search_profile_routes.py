@@ -20,6 +20,7 @@ from opn_oracle.integrations.procurement import (
     ProcurementConfigurationError,
     ProcurementProviderError,
     create_tender_search,
+    patch_tender_search,
 )
 from opn_oracle.jobs.service import enqueue_job, serialize_job
 from opn_oracle.oracle.procurement_search_preview import SearchPlanExecutionError
@@ -376,6 +377,7 @@ def profiles_save_search(
             expected_version=int(json_data["expected_version"]),
             name=str(json_data["name"]),
             create_search=create_tender_search,
+            patch_search=patch_tender_search,
             request_id=getattr(g, "request_id", None),
         )
     except (

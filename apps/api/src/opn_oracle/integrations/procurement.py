@@ -632,7 +632,11 @@ def patch_tender_search(*, search_id: str, payload: Mapping[str, Any]) -> dict[s
         client.close()
 
 
-def delete_tender_search(*, search_id: str) -> dict[str, Any]:
+def delete_tender_search(
+    *,
+    search_id: str,
+    request_id: str | None = None,
+) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
     client = procurement_client_from_config()
     try:
@@ -647,7 +651,11 @@ def delete_tender_search(*, search_id: str) -> dict[str, Any]:
         retire_procurement_search_watch_for_tender_search,
     )
 
-    retire_procurement_search_watch_for_tender_search(db.session(), tender_search_id=search_id)
+    retire_procurement_search_watch_for_tender_search(
+        db.session(),
+        tender_search_id=search_id,
+        request_id=request_id,
+    )
     return deleted
 
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from opn_oracle.ai.schemas import TenderSearchWizardOutput
 from opn_oracle.oracle.comparable_procurement import title_terms
+from opn_oracle.oracle.cpv_retrieval import merge_cpv_candidates
 from opn_oracle.oracle.cpv_taxonomy import load_cpv_taxonomy, normalize_cpv_code
 
 
@@ -56,6 +57,8 @@ def postvalidate_tender_search_plan(
     raw_plan: Mapping[str, Any] | TenderSearchWizardOutput,
     *,
     reject_discards: bool = False,
+    enrich_cpvs: bool = False,
+    source_text: str | None = None,
 ) -> dict[str, Any]:
     """Return the canonical v1 plan, with only official CPVs and measurable tokens.
 
@@ -116,6 +119,23 @@ def postvalidate_tender_search_plan(
         occupied=occupied_terms,
         reasons=reasons,
     )
+    retrieved_count = 0
+    if enrich_cpvs:
+        retrieval_text = " ".join(
+            [
+                " ".join((source_text or "").split()),
+                candidate.intent_summary,
+                *include_terms,
+                *synonyms,
+            ]
+        )
+        cpvs, retrieved_count = merge_cpv_candidates(cpvs, text=retrieval_text)
+    assumptions = _clean_text_list(candidate.assumptions, limit=20)
+    if retrieved_count:
+        assumptions = [
+            *assumptions[:19],
+            "Oracle combinó la propuesta IA con retrieval léxico sobre la taxonomía CPV oficial.",
+        ]
     discarded_reasons = {reason: count for reason, count in sorted(reasons.items()) if count > 0}
     discarded_count = sum(discarded_reasons.values())
     if reject_discards and discarded_count:
@@ -133,7 +153,7 @@ def postvalidate_tender_search_plan(
             "candidate_cpv": cpvs,
             "buyers": _clean_text_list(candidate.buyers, limit=30),
             "geographies": _clean_text_list(candidate.geographies, limit=30),
-            "assumptions": _clean_text_list(candidate.assumptions, limit=20),
+            "assumptions": assumptions,
             "questions": _clean_text_list(candidate.questions, limit=20),
             "discarded_count": discarded_count,
             "discarded_reasons": discarded_reasons,

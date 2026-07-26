@@ -35,7 +35,7 @@ def _authenticated_http_probe(
     app: Any,
     monkeypatch: pytest.MonkeyPatch,
     allowed_permissions: frozenset[str],
-) -> Iterator[None]:
+) -> Iterator[uuid.UUID]:
     """Use real HTTP dispatch while replacing only DB-backed session runtime."""
 
     user = User(
@@ -64,7 +64,7 @@ def _authenticated_http_probe(
 
     before_request_funcs[auth_index] = install_test_identity
     try:
-        yield
+        yield tenant_id
     finally:
         before_request_funcs[auth_index] = original_auth_runtime
 
@@ -1078,6 +1078,149 @@ def test_procurement_search_plan_preview_dispatches_bounded_independent_probes(
     assert payload["preview"]["semantics"]["merged_results"] is False
     assert [call["keywords"] for call in calls] == ["proteccion", "bomberos", None]
     assert [call["cpv"] for call in calls] == [None, None, "18100000"]
+
+
+@pytest.mark.unit
+def test_procurement_search_plan_execute_dispatches_and_merges_unique_results(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter.reset()
+    calls: list[dict[str, Any]] = []
+
+    def fake_tenders(**query: Any) -> dict[str, Any]:
+        calls.append(query)
+        if query.get("cpv") == "18100000":
+            return {
+                "total": 2,
+                "items": [
+                    {"folder_id": "A", "title": "Ropa de trabajo"},
+                    {"folder_id": "B", "title": "Protección individual"},
+                ],
+            }
+        return {
+            "total": 1,
+            "items": [{"folder_id": "A", "title": "Ropa de trabajo"}],
+        }
+
+    monkeypatch.setattr(procurement_routes, "cached_tenders", fake_tenders)
+    plan = {
+        "intent_summary": "Equipos de protección para servicios públicos.",
+        "include_terms": ["protección"],
+        "synonyms": [],
+        "exclude_terms": [],
+        "candidate_cpv": [{"code": "18100000", "label": None}],
+        "buyers": ["Ministerio de ejemplo"],
+        "geographies": ["España"],
+        "scope": "active",
+        "min_amount": None,
+        "max_amount": None,
+        "assumptions": [],
+        "questions": [],
+        "confidence": 80,
+        "discarded_count": 0,
+        "discarded_reasons": {},
+    }
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})) as tenant_id:
+        first_response = client.post(
+            "/api/v1/procurement/search-plans/execute",
+            json={"plan": plan, "limit": 1, "offset": 0},
+        )
+        second_response = client.post(
+            "/api/v1/procurement/search-plans/execute",
+            json={"plan": plan, "limit": 1, "offset": 1},
+        )
+
+    assert first_response.status_code == 200, first_response.get_data(as_text=True)
+    assert second_response.status_code == 200, second_response.get_data(as_text=True)
+    first_payload = first_response.get_json()
+    payload = second_response.get_json()
+    assert payload["plan"]["include_terms"] == ["proteccion"]
+    assert payload["execution"]["provider_requests"] == 2
+    assert [item["folder_id"] for item in first_payload["execution"]["results"]["items"]] == ["A"]
+    assert [item["folder_id"] for item in payload["execution"]["results"]["items"]] == ["B"]
+    assert first_payload["execution"]["results"]["total"] == 2
+    assert payload["execution"]["results"]["total"] == 2
+    assert payload["execution"]["results"]["limit"] == 1
+    assert payload["execution"]["results"]["offset"] == 1
+    assert all(call["limit"] == 100 for call in calls)
+    assert all(call["tenant_id"] == str(tenant_id) for call in calls)
+    assert all(call["buyer"] is None for call in calls)
+    assert all(call["region"] is None for call in calls)
+
+
+@pytest.mark.unit
+def test_procurement_search_plan_execute_forbidden_never_calls_provider(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def unexpected_tenders(**query: Any) -> dict[str, Any]:
+        del query
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(procurement_routes, "cached_tenders", unexpected_tenders)
+    plan = {
+        "intent_summary": "Equipos de protección.",
+        "include_terms": ["protección"],
+        "synonyms": [],
+        "exclude_terms": [],
+        "candidate_cpv": [],
+        "buyers": [],
+        "geographies": [],
+        "scope": "active",
+        "min_amount": None,
+        "max_amount": None,
+        "assumptions": [],
+        "questions": [],
+        "confidence": 80,
+        "discarded_count": 0,
+        "discarded_reasons": {},
+    }
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset()):
+        response = client.post(
+            "/api/v1/procurement/search-plans/execute",
+            json={"plan": plan},
+        )
+
+    assert response.status_code == 403
+    assert called is False
+
+
+@pytest.mark.unit
+def test_procurement_search_plan_execute_is_declared_in_openapi(client: Any) -> None:
+    spec = client.get("/api/v1/openapi.json").get_json()
+    operation = spec["paths"]["/api/v1/procurement/search-plans/execute"]["post"]
+
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/TenderSearchPlanExecutePayload"
+    }
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/TenderSearchPlanExecuteResponse"
+    }
+    assert operation["security"] == [{"cookieAuth": []}]
+    schemas = spec["components"]["schemas"]
+    payload = schemas["TenderSearchPlanExecutePayload"]
+    assert payload["properties"]["plan"] == {"$ref": "#/components/schemas/TenderSearchPlan"}
+    assert payload["properties"]["limit"]["maximum"] == 100
+    response = schemas["TenderSearchPlanExecuteResponse"]
+    assert response["properties"]["execution"] == {
+        "$ref": "#/components/schemas/TenderSearchExecution"
+    }
+    execution = schemas["TenderSearchExecution"]
+    assert execution["properties"]["probes"]["items"] == {
+        "$ref": "#/components/schemas/TenderSearchProbe"
+    }
+    assert execution["properties"]["results"] == {
+        "$ref": "#/components/schemas/TenderSearchExecutionResults"
+    }
 
 
 @pytest.mark.unit

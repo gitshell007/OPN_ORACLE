@@ -4031,8 +4031,7 @@ def test_bulk_dossier_delete_clears_ai_context_evidence_restrict(
         )
         connection.execute(
             text(
-                "INSERT INTO evidence_dossiers(tenant_id,evidence_id,dossier_id) "
-                "VALUES (:t,:e,:d)"
+                "INSERT INTO evidence_dossiers(tenant_id,evidence_id,dossier_id) VALUES (:t,:e,:d)"
             ),
             {"t": tenant_id, "e": evidence_id, "d": dossier_id},
         )
@@ -7298,11 +7297,13 @@ def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
     )
     assert preview["provider_requests"] == 4
 
-    monkeypatch.setattr(
-        procurement_search_profile_routes,
-        "create_tender_search",
-        lambda *, payload: {"id": "signal-active-search-1", **payload},
-    )
+    created_search_payloads: list[dict[str, Any]] = []
+
+    def create_search(*, payload: dict[str, Any]) -> dict[str, Any]:
+        created_search_payloads.append(payload)
+        return {"id": "signal-active-search-1", **payload}
+
+    monkeypatch.setattr(procurement_search_profile_routes, "create_tender_search", create_search)
     saved = client.post(
         f"/api/v1/procurement-search-profiles/{profile['id']}/saved-search",
         json={"expected_version": 2, "name": "Emergencias activas"},
@@ -7310,6 +7311,40 @@ def _assert_procurement_search_profile_acceptance_is_explicit_and_versioned(
     )
     assert saved.status_code == 200, saved.get_json()
     assert saved.get_json()["profile"]["tender_search_id"] == "signal-active-search-1"
+    assert len(created_search_payloads) == 1
+
+    patched_searches: list[tuple[str, dict[str, Any]]] = []
+
+    def patch_search(*, search_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        patched_searches.append((search_id, payload))
+        return {"id": search_id, **payload}
+
+    def unexpected_create(**kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        raise AssertionError("Una vigilancia ya enlazada debe actualizarse, no duplicarse.")
+
+    monkeypatch.setattr(
+        procurement_search_profile_routes,
+        "create_tender_search",
+        unexpected_create,
+    )
+    monkeypatch.setattr(procurement_search_profile_routes, "patch_tender_search", patch_search)
+    updated_saved = client.post(
+        f"/api/v1/procurement-search-profiles/{profile['id']}/saved-search",
+        json={"expected_version": 2, "name": "Emergencias activas actualizadas"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert updated_saved.status_code == 200, updated_saved.get_json()
+    assert updated_saved.get_json()["profile"]["tender_search_id"] == "signal-active-search-1"
+    assert patched_searches == [
+        (
+            "signal-active-search-1",
+            {
+                **created_search_payloads[0],
+                "name": "Emergencias activas actualizadas",
+            },
+        )
+    ]
     with (
         app.app_context(),
         tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),

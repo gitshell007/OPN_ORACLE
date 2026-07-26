@@ -4444,6 +4444,9 @@
             "minLength": 1,
             "type": "string"
           },
+          "remember": {
+            "type": "boolean"
+          },
           "tenant_id": {
             "format": "uuid",
             "type": "string"
@@ -5828,6 +5831,96 @@
         ],
         "type": "object"
       },
+      "ProcurementAnalyticsRankItem": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_sum": {
+            "type": "number"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count",
+          "amount_sum"
+        ],
+        "type": "object"
+      },
+      "ProcurementAnalyticsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "controls": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "rankings": {
+            "additionalProperties": true,
+            "properties": {
+              "amount_buckets": {
+                "items": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                },
+                "type": "array"
+              },
+              "statuses": {
+                "items": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                },
+                "type": "array"
+              },
+              "top_buyers": {
+                "items": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                },
+                "type": "array"
+              },
+              "top_cpv": {
+                "items": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                },
+                "type": "array"
+              },
+              "top_regions": {
+                "items": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                },
+                "type": "array"
+              },
+              "top_terms": {
+                "items": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "registry": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "sample": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "registry",
+          "sample",
+          "rankings",
+          "controls"
+        ],
+        "type": "object"
+      },
       "ProcurementPromoteInput": {
         "additionalProperties": false,
         "properties": {},
@@ -6096,6 +6189,24 @@
           "cached_seconds",
           "kind",
           "suggestions"
+        ],
+        "type": "object"
+      },
+      "ProcurementTenderSearchCandidateCPV": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "pattern": "^\\d{8}$",
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label"
         ],
         "type": "object"
       },
@@ -7816,6 +7927,140 @@
         ],
         "type": "object"
       },
+      "SourceActivityItem": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "error_message": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "item_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "official_identifier": {
+            "nullable": true,
+            "type": "string"
+          },
+          "section_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "source_key": {
+            "type": "string"
+          },
+          "source_label": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "published",
+              "not_published",
+              "error"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_key",
+          "source_label",
+          "activity_date",
+          "status",
+          "item_count"
+        ],
+        "type": "object"
+      },
+      "SourceActivityListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceActivityItem"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "item_count_sum": {
+                "type": "integer"
+              },
+              "published_days": {
+                "type": "integer"
+              },
+              "sources": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "published_days",
+              "item_count_sum",
+              "sources"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "items",
+          "meta"
+        ],
+        "type": "object"
+      },
+      "SourceActivityRefreshResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceActivityItem"
+            },
+            "type": "array"
+          },
+          "refreshed": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "refreshed",
+          "items"
+        ],
+        "type": "object"
+      },
       "StatsResponse": {
         "additionalProperties": false,
         "properties": {
@@ -8198,6 +8443,139 @@
         ],
         "type": "object"
       },
+      "TenderSearchExecution": {
+        "additionalProperties": false,
+        "properties": {
+          "probes": {
+            "items": {
+              "$ref": "#/components/schemas/TenderSearchProbe"
+            },
+            "type": "array"
+          },
+          "provider_requests": {
+            "type": "integer"
+          },
+          "results": {
+            "$ref": "#/components/schemas/TenderSearchExecutionResults"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "translation_version": {
+            "type": "string"
+          },
+          "unprobed_chips": {
+            "items": {
+              "$ref": "#/components/schemas/TenderSearchUnprobedChip"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "probes",
+          "provider_requests",
+          "results",
+          "scope",
+          "translation_version",
+          "unprobed_chips"
+        ],
+        "type": "object"
+      },
+      "TenderSearchExecutionFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "type": "object"
+      },
+      "TenderSearchExecutionResults": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_hit": {
+            "type": "boolean"
+          },
+          "cached_seconds": {
+            "type": "integer"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/TenderSearchExecutionFilters"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "semantics": {
+            "$ref": "#/components/schemas/TenderSearchExecutionSemantics"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_hit",
+          "cached_seconds",
+          "filters",
+          "items",
+          "limit",
+          "offset",
+          "semantics",
+          "total"
+        ],
+        "type": "object"
+      },
+      "TenderSearchExecutionSemantics": {
+        "additionalProperties": false,
+        "properties": {
+          "global_order": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "matched_before_window_cap": {
+            "type": "integer"
+          },
+          "merge_strategy": {
+            "type": "string"
+          },
+          "merged_results": {
+            "type": "boolean"
+          },
+          "oracle_scope": {
+            "type": "string"
+          },
+          "result_window_cap": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "global_order",
+          "limitations",
+          "matched_before_window_cap",
+          "merge_strategy",
+          "merged_results",
+          "oracle_scope",
+          "result_window_cap"
+        ],
+        "type": "object"
+      },
       "TenderSearchList": {
         "additionalProperties": false,
         "properties": {
@@ -8263,6 +8641,148 @@
         ],
         "type": "object"
       },
+      "TenderSearchPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "buyers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "candidate_cpv": {
+            "items": {
+              "$ref": "#/components/schemas/ProcurementTenderSearchCandidateCPV"
+            },
+            "type": "array"
+          },
+          "confidence": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "discarded_count": {
+            "type": "integer"
+          },
+          "discarded_reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "exclude_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "geographies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "include_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "intent_summary": {
+            "type": "string"
+          },
+          "max_amount": {
+            "nullable": true,
+            "type": "number"
+          },
+          "min_amount": {
+            "nullable": true,
+            "type": "number"
+          },
+          "questions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "enum": [
+              "active",
+              "historical",
+              "all"
+            ],
+            "type": "string"
+          },
+          "synonyms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "assumptions",
+          "buyers",
+          "candidate_cpv",
+          "confidence",
+          "discarded_count",
+          "discarded_reasons",
+          "exclude_terms",
+          "geographies",
+          "include_terms",
+          "intent_summary",
+          "questions",
+          "scope",
+          "synonyms"
+        ],
+        "type": "object"
+      },
+      "TenderSearchPlanExecutePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 25,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "maximum": 99,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/TenderSearchPlan"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "type": "object"
+      },
+      "TenderSearchPlanExecuteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "execution": {
+            "$ref": "#/components/schemas/TenderSearchExecution"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/TenderSearchPlan"
+          }
+        },
+        "required": [
+          "execution",
+          "plan"
+        ],
+        "type": "object"
+      },
       "TenderSearchPlanPreviewPayload": {
         "additionalProperties": false,
         "properties": {
@@ -8293,6 +8813,38 @@
         "required": [
           "plan",
           "preview"
+        ],
+        "type": "object"
+      },
+      "TenderSearchProbe": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "term",
+              "cpv"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "returned": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "returned",
+          "total",
+          "value"
         ],
         "type": "object"
       },
@@ -8342,6 +8894,30 @@
         "required": [
           "results",
           "search"
+        ],
+        "type": "object"
+      },
+      "TenderSearchUnprobedChip": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "term",
+              "cpv"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
         ],
         "type": "object"
       },
@@ -33474,6 +34050,214 @@
         ]
       }
     },
+    "/api/v1/platform/procurement-analytics": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Ranked PLACSP market snapshot for platform operators (open tenders sample).",
+        "tags": [
+          "Plataforma"
+        ]
+      }
+    },
+    "/api/v1/platform/source-activity": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceActivityListResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Daily official gazette activity (BORME/BOE) for platform operators.",
+        "tags": [
+          "Plataforma"
+        ]
+      }
+    },
+    "/api/v1/platform/source-activity/refresh": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceActivityRefreshResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Manually re-check recent BORME/BOE sumarios and persist the activity log.",
+        "tags": [
+          "Plataforma"
+        ]
+      }
+    },
     "/api/v1/platform/tenants": {
       "get": {
         "parameters": [],
@@ -35978,7 +36762,7 @@
         ]
       }
     },
-    "/api/v1/procurement/search-plans/preview": {
+    "/api/v1/procurement/search-plans/execute": {
       "post": {
         "parameters": [
           {
@@ -35995,22 +36779,21 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DossierWriteInput"
+                "$ref": "#/components/schemas/TenderSearchPlanExecutePayload"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
-          "201": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DossierResource"
+                  "$ref": "#/components/schemas/TenderSearchPlanExecuteResponse"
                 }
               }
             },
-            "description": "Operaci\u00f3n de dominio completada"
+            "description": "Successful response"
           },
           "401": {
             "content": {
@@ -36032,7 +36815,7 @@
             },
             "description": "Permiso denegado"
           },
-          "404": {
+          "422": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -36040,9 +36823,9 @@
                 }
               }
             },
-            "description": "Recurso no encontrado"
+            "description": "Datos no v\u00e1lidos"
           },
-          "409": {
+          "500": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -36050,7 +36833,72 @@
                 }
               }
             },
-            "description": "Conflicto de versi\u00f3n o idempotencia"
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Execute an accepted plan via multi-probe merge for the results table.",
+        "tags": [
+          "Contrataci\u00f3n p\u00fablica"
+        ]
+      }
+    },
+    "/api/v1/procurement/search-plans/preview": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenderSearchPlanPreviewPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenderSearchPlanPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
           },
           "422": {
             "content": {

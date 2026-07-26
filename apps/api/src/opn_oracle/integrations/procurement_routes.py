@@ -182,6 +182,77 @@ class TenderSearchRunQuerySchema(PaginationQuerySchema):
     pass
 
 
+class ProcurementTenderSearchCandidateCPVSchema(Schema):
+    code = String(required=True, validate=validate.Regexp(r"^\d{8}$"))
+    label = String(required=True, allow_none=True)
+
+
+class TenderSearchPlanSchema(Schema):
+    intent_summary = String(required=True)
+    include_terms = List(String(), required=True)
+    synonyms = List(String(), required=True)
+    exclude_terms = List(String(), required=True)
+    candidate_cpv = List(Nested(ProcurementTenderSearchCandidateCPVSchema), required=True)
+    buyers = List(String(), required=True)
+    geographies = List(String(), required=True)
+    scope = String(required=True, validate=validate.OneOf(["active", "historical", "all"]))
+    min_amount = Float(allow_none=True)
+    max_amount = Float(allow_none=True)
+    assumptions = List(String(), required=True)
+    questions = List(String(), required=True)
+    confidence = Integer(required=True, validate=validate.Range(min=0, max=100))
+    discarded_count = Integer(required=True)
+    discarded_reasons = Dict(keys=String(), values=Integer(), required=True)
+
+
+class TenderSearchProbeSchema(Schema):
+    kind = String(required=True, validate=validate.OneOf(["term", "cpv"]))
+    value = String(required=True)
+    label = String(allow_none=True)
+    total = Integer(required=True)
+    returned = Integer(required=True)
+
+
+class TenderSearchUnprobedChipSchema(Schema):
+    kind = String(required=True, validate=validate.OneOf(["term", "cpv"]))
+    value = String(required=True)
+    label = String(allow_none=True)
+
+
+class TenderSearchExecutionSemanticsSchema(Schema):
+    oracle_scope = String(required=True)
+    merged_results = Boolean(required=True)
+    merge_strategy = String(required=True)
+    global_order = Boolean(required=True)
+    result_window_cap = Integer(required=True)
+    matched_before_window_cap = Integer(required=True)
+    limitations = List(String(), required=True)
+
+
+class TenderSearchExecutionFiltersSchema(Schema):
+    scope = String(required=True)
+
+
+class TenderSearchExecutionResultsSchema(Schema):
+    items = List(Dict(keys=String(), values=Raw()), required=True)
+    total = Integer(required=True)
+    limit = Integer(required=True)
+    offset = Integer(required=True)
+    cache_hit = Boolean(required=True)
+    cached_seconds = Integer(required=True)
+    filters = Nested(TenderSearchExecutionFiltersSchema, required=True)
+    semantics = Nested(TenderSearchExecutionSemanticsSchema, required=True)
+
+
+class TenderSearchExecutionSchema(Schema):
+    translation_version = String(required=True)
+    scope = String(required=True)
+    provider_requests = Integer(required=True)
+    probes = List(Nested(TenderSearchProbeSchema), required=True)
+    unprobed_chips = List(Nested(TenderSearchUnprobedChipSchema), required=True)
+    results = Nested(TenderSearchExecutionResultsSchema, required=True)
+
+
 class TenderSearchPlanPreviewPayloadSchema(Schema):
     plan = Dict(keys=String(), values=Raw(allow_none=True), required=True)
 
@@ -192,13 +263,23 @@ class TenderSearchPlanPreviewResponseSchema(Schema):
 
 
 class TenderSearchPlanExecutePayloadSchema(Schema):
-    plan = Dict(keys=String(), values=Raw(allow_none=True), required=True)
-    limit = Integer(load_default=25, validate=validate.Range(min=1, max=50))
+    plan = Nested(TenderSearchPlanSchema, required=True)
+    limit = Integer(load_default=25, validate=validate.Range(min=1, max=100))
+    offset = Integer(load_default=0, validate=validate.Range(min=0, max=99))
+
+    @validates_schema
+    def validate_window(self, data: dict[str, Any], **kwargs: Any) -> None:
+        del kwargs
+        if int(data.get("offset") or 0) + int(data.get("limit") or 25) > 100:
+            raise ValidationError(
+                "La ventana offset + limit no puede superar 100 resultados.",
+                field_name="offset",
+            )
 
 
 class TenderSearchPlanExecuteResponseSchema(Schema):
-    plan = Dict(keys=String(), values=Raw(), required=True)
-    execution = Dict(keys=String(), values=Raw(), required=True)
+    plan = Nested(TenderSearchPlanSchema, required=True)
+    execution = Nested(TenderSearchExecutionSchema, required=True)
 
 
 def _validate_saved_search_temporal_scope(filters: dict[str, Any]) -> None:
@@ -707,6 +788,7 @@ def tender_search_plan_execute(json_data: dict[str, Any]) -> dict[str, Any] | An
             plan=plan,
             tender_loader=cached_tenders,
             result_limit=int(json_data.get("limit") or 25),
+            result_offset=int(json_data.get("offset") or 0),
         )
     except PydanticValidationError as error:
         return _problem_response_passthrough(
@@ -779,9 +861,7 @@ def tender_summary(
     path_data: dict[str, Any] | None = None,
 ) -> dict[str, Any] | Any:
     resolved = cast(str, (path_data or {}).get("folder_id") or folder_id)
-    return _handle_provider_call(
-        lambda: uncached_tender_summary(folder_id=resolved)
-    )
+    return _handle_provider_call(lambda: uncached_tender_summary(folder_id=resolved))
 
 
 @bp.get("/stats")
@@ -863,7 +943,12 @@ def tender_searches_delete(
     path_data: dict[str, Any] | None = None,
 ) -> dict[str, Any] | Any:
     resolved = _resolved_search_id(search_id, path_data)
-    return _handle_provider_call(lambda: delete_tender_search(search_id=resolved))
+    return _handle_provider_call(
+        lambda: delete_tender_search(
+            search_id=resolved,
+            request_id=getattr(g, "request_id", None),
+        )
+    )
 
 
 @bp.get("/tender-searches/<search_id>/run")

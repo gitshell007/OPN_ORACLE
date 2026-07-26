@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from opn_oracle.ai.tender_search_wizard import postvalidate_tender_search_plan
 from opn_oracle.oracle.procurement_search_preview import (
     SearchPlanExecutionError,
     build_search_probes,
@@ -61,6 +62,7 @@ def test_search_probe_budget_is_visible_and_never_merges_results() -> None:
         tender_loader=loader,
     )
 
+    assert result["translation_version"] == "tender-search-plan-to-signal-v3"
     assert result["provider_requests"] == 8
     assert result["probe_budget"] == {
         "total": 8,
@@ -74,10 +76,10 @@ def test_search_probe_budget_is_visible_and_never_merges_results() -> None:
         "bomberos",
         "vehiculos",
         "incendios",
-        "18100000",
         "34144210",
-        "35110000",
         "35811100",
+        "35110000",
+        "18100000",
     ]
     assert result["unprobed_chips"] == [
         {"kind": "term", "value": "epis", "label": None},
@@ -85,8 +87,10 @@ def test_search_probe_budget_is_visible_and_never_merges_results() -> None:
         {"kind": "cpv", "value": "18444111", "label": "Cascos de protección"},
     ]
     assert result["semantics"]["merged_results"] is False
-    assert all(call["buyer"] == "Ayuntamiento de ejemplo" for call in calls)
-    assert all(call["region"] == "España" for call in calls)
+    assert result["semantics"]["buyers_applied"] is False
+    assert result["semantics"]["geographies_applied"] is False
+    assert all(call["buyer"] is None for call in calls)
+    assert all(call["region"] is None for call in calls)
     assert all(call["active"] is True for call in calls)
 
 
@@ -119,20 +123,23 @@ def test_saved_search_translation_is_active_only_and_bounded() -> None:
     payload = saved_search_payload(name="Emergencias", plan=_plan())
 
     assert payload["name"] == "Emergencias"
-    # Una sola keyword: Signal hace AND y una lista larga devuelve 0 hits.
-    assert payload["keywords"] == ["proteccion"]
+    # La vigilancia conserva una sola señal rara para reducir ruido; Signal combina tokens con OR.
+    assert payload["keywords"] == ["epis"]
     assert payload["filters"] == {
         "scope": "active",
-        # 358 (equipo individual/apoyo) va antes que 181 (ropa) en la prioridad.
-        "cpv": "35811100",
+        "cpv": "34144210",
         "min_amount": "10000",
     }
-    with pytest.raises(SearchPlanExecutionError, match="solo conserva"):
-        saved_search_payload(name="Histórico", plan=_plan(scope="all"))
+    all_payload = saved_search_payload(name="Todas", plan=_plan(scope="all"))
+    assert all_payload["filters"]["scope"] == "active"
+    assert "buyer" not in all_payload["filters"]
+    assert "region" not in all_payload["filters"]
+    with pytest.raises(SearchPlanExecutionError, match="históricas"):
+        saved_search_payload(name="Histórico", plan=_plan(scope="historical"))
 
 
 @pytest.mark.unit
-def test_saved_search_prefers_defense_cpv_prefix() -> None:
+def test_saved_search_prefers_lexically_relevant_cpv() -> None:
     payload = saved_search_payload(
         name="Defensa",
         plan=_plan(
@@ -153,7 +160,10 @@ def test_saved_search_prefers_defense_cpv_prefix() -> None:
 
 @pytest.mark.unit
 def test_execute_search_plan_merges_unique_folder_ids() -> None:
+    calls: list[dict[str, Any]] = []
+
     def loader(**query: Any) -> dict[str, Any]:
+        calls.append(query)
         if query.get("cpv") == "35400000":
             return {
                 "total": 2,
@@ -191,9 +201,143 @@ def test_execute_search_plan_merges_unique_folder_ids() -> None:
     )
     items = result["results"]["items"]
     ids = [item["folder_id"] for item in items]
-    assert ids == ["A", "B", "C"] or ids[0] == "A"
+    assert ids == ["A", "B", "C"]
     assert len(ids) == 3
     assert len(set(ids)) == 3
     # Buyer del plan no se envía a Signal (evita 0 hits).
+    assert all(call["buyer"] is None for call in calls)
+    assert all(call["region"] is None for call in calls)
     assert result["results"]["total"] == 3
     assert result["results"]["semantics"]["merged_results"] is True
+
+
+@pytest.mark.unit
+def test_execute_search_plan_promotes_relevant_cpv_before_probe_budget() -> None:
+    called_cpvs: list[str] = []
+
+    def loader(**query: Any) -> dict[str, Any]:
+        cpv = query.get("cpv")
+        if isinstance(cpv, str):
+            called_cpvs.append(cpv)
+        return {"total": 0, "limit": 20, "offset": 0, "items": []}
+
+    result = execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            include_terms=["vehiculos", "incendios", "bomberos"],
+            synonyms=[],
+            candidate_cpv=[
+                {"code": "18100000", "label": "Ropa de trabajo"},
+                {"code": "35110000", "label": "Equipo de extinción de incendios"},
+                {"code": "18444111", "label": "Cascos de protección"},
+                {"code": "45000000", "label": "Trabajos de construcción"},
+                {"code": "34144210", "label": "Vehículos de extinción de incendios"},
+            ],
+            min_amount=None,
+        ),
+        tender_loader=loader,
+    )
+
+    assert called_cpvs == ["34144210", "35110000", "18100000", "18444111"]
+    assert result["unprobed_chips"] == [
+        {"kind": "cpv", "value": "45000000", "label": "Trabajos de construcción"}
+    ]
+
+
+@pytest.mark.unit
+def test_execute_search_plan_probes_representative_parent_market_in_top_four() -> None:
+    called_cpvs: list[str] = []
+
+    def loader(**query: Any) -> dict[str, Any]:
+        if isinstance(query.get("cpv"), str):
+            called_cpvs.append(query["cpv"])
+        return {"total": 0, "limit": 20, "offset": 0, "items": []}
+
+    plan = postvalidate_tender_search_plan(
+        _plan(
+            intent_summary="Necesidad institucional pendiente de concretar.",
+            include_terms=["licitacion"],
+            synonyms=[],
+            candidate_cpv=[],
+            min_amount=None,
+            discarded_count=0,
+            discarded_reasons={},
+        ),
+        enrich_cpvs=True,
+        source_text=("licitacion vehiculos militares y componentes para el ministerio de defensa"),
+    )
+    candidate_codes = [item["code"] for item in plan["candidate_cpv"]]
+
+    execute_search_plan(
+        tenant_id="tenant-a",
+        plan=plan,
+        tender_loader=loader,
+    )
+
+    assert "35400000" in candidate_codes[:4]
+    assert "35400000" in called_cpvs
+    assert called_cpvs.index("35400000") < 4
+
+
+@pytest.mark.unit
+def test_firefighting_plan_does_not_promote_military_cpv_for_vehicle_token() -> None:
+    called_cpvs: list[str] = []
+
+    def loader(**query: Any) -> dict[str, Any]:
+        if isinstance(query.get("cpv"), str):
+            called_cpvs.append(query["cpv"])
+        return {"total": 0, "items": []}
+
+    execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            include_terms=["vehiculos", "incendios", "bomberos"],
+            synonyms=[],
+            candidate_cpv=[
+                {"code": "18100000", "label": "Ropa de trabajo"},
+                {"code": "35110000", "label": "Equipo de extinción de incendios"},
+                {"code": "18444111", "label": "Cascos de protección"},
+                {"code": "34144210", "label": "Vehículos de extinción de incendios"},
+                {"code": "35400000", "label": "Vehículos militares y sus partes"},
+            ],
+            min_amount=None,
+        ),
+        tender_loader=loader,
+    )
+
+    assert called_cpvs[0] == "34144210"
+    assert "35400000" not in called_cpvs
+
+
+@pytest.mark.unit
+def test_execute_search_plan_counts_distinct_probes_not_duplicate_provider_rows() -> None:
+    def loader(**query: Any) -> dict[str, Any]:
+        if query.get("cpv") == "18100000":
+            return {
+                "total": 3,
+                "items": [
+                    {"folder_id": "A", "title": "Duplicado"},
+                    {"folder_id": "A", "title": "Duplicado"},
+                    {"folder_id": "B", "title": "Coincide en dos sondas"},
+                ],
+            }
+        if query.get("keywords") == "proteccion":
+            return {
+                "total": 1,
+                "items": [{"folder_id": "B", "title": "Coincide en dos sondas"}],
+            }
+        return {"total": 0, "items": []}
+
+    result = execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            include_terms=["proteccion"],
+            synonyms=[],
+            candidate_cpv=[{"code": "18100000", "label": "Ropa de trabajo"}],
+            min_amount=None,
+        ),
+        tender_loader=loader,
+    )
+
+    assert [item["folder_id"] for item in result["results"]["items"]] == ["B", "A"]
+    assert result["results"]["total"] == 2

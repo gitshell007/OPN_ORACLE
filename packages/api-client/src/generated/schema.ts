@@ -18684,6 +18684,224 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/platform/procurement-analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ranked PLACSP market snapshot for platform operators (open tenders sample). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementAnalyticsResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform/source-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Daily official gazette activity (BORME/BOE) for platform operators. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SourceActivityListResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform/source-activity/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manually re-check recent BORME/BOE sumarios and persist the activity log. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SourceActivityRefreshResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platform/tenants": {
         parameters: {
             query?: never;
@@ -20801,7 +21019,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/procurement/search-plans/preview": {
+    "/api/v1/procurement/search-plans/execute": {
         parameters: {
             query?: never;
             header?: never;
@@ -20810,7 +21028,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Tender Search Plan Preview */
+        /** Execute an accepted plan via multi-probe merge for the results table. */
         post: {
             parameters: {
                 query?: never;
@@ -20820,19 +21038,19 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody: {
+            requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["DossierWriteInput"];
+                    "application/json": components["schemas"]["TenderSearchPlanExecutePayload"];
                 };
             };
             responses: {
-                /** @description Operación de dominio completada */
-                201: {
+                /** @description Successful response */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["DossierResource"];
+                        "application/json": components["schemas"]["TenderSearchPlanExecuteResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -20853,8 +21071,8 @@ export interface paths {
                         "application/problem+json": components["schemas"]["Problem"];
                     };
                 };
-                /** @description Recurso no encontrado */
-                404: {
+                /** @description Datos no válidos */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -20862,8 +21080,68 @@ export interface paths {
                         "application/problem+json": components["schemas"]["Problem"];
                     };
                 };
-                /** @description Conflicto de versión o idempotencia */
-                409: {
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement/search-plans/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Tender Search Plan Preview */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TenderSearchPlanPreviewPayload"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenderSearchPlanPreviewResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -28667,9 +28945,9 @@ export interface components {
             email: string;
             /** Format: password */
             password: string;
+            remember?: boolean;
             /** Format: uuid */
             tenant_id?: string;
-            remember?: boolean;
         };
         LoginResponse: {
             requires_tenant_selection: boolean;
@@ -29049,6 +29327,33 @@ export interface components {
             title: string;
             type: string;
         };
+        ProcurementAnalyticsRankItem: {
+            amount_sum: number;
+            count: number;
+            key: string;
+            label: string;
+        };
+        ProcurementAnalyticsResponse: {
+            controls: {
+                [key: string]: unknown;
+            };
+            rankings: {
+                amount_buckets?: components["schemas"]["ProcurementAnalyticsRankItem"][];
+                statuses?: components["schemas"]["ProcurementAnalyticsRankItem"][];
+                top_buyers?: components["schemas"]["ProcurementAnalyticsRankItem"][];
+                top_cpv?: components["schemas"]["ProcurementAnalyticsRankItem"][];
+                top_regions?: components["schemas"]["ProcurementAnalyticsRankItem"][];
+                top_terms?: components["schemas"]["ProcurementAnalyticsRankItem"][];
+            } & {
+                [key: string]: unknown;
+            };
+            registry: {
+                [key: string]: unknown;
+            };
+            sample: {
+                [key: string]: unknown;
+            };
+        };
         ProcurementPromoteInput: Record<string, never>;
         ProcurementPromotionResponse: {
             opportunity: components["schemas"]["OpportunityResource"];
@@ -29115,6 +29420,10 @@ export interface components {
             cached_seconds: number;
             kind: string;
             suggestions: string[];
+        };
+        ProcurementTenderSearchCandidateCPV: {
+            code: string;
+            label: string | null;
         };
         PromotionResponse: {
             /** @enum {string} */
@@ -29576,6 +29885,42 @@ export interface components {
             version: number;
             why_it_matters?: string;
         };
+        SourceActivityItem: {
+            /** Format: date */
+            activity_date: string;
+            /** Format: date-time */
+            checked_at?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            detail?: string;
+            error_message?: string | null;
+            /** Format: uuid */
+            id: string;
+            item_count: number;
+            official_identifier?: string | null;
+            section_counts?: {
+                [key: string]: number;
+            };
+            source_key: string;
+            source_label: string;
+            /** @enum {string} */
+            status: "published" | "not_published" | "error";
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        SourceActivityListResponse: {
+            items: components["schemas"]["SourceActivityItem"][];
+            meta: {
+                item_count_sum: number;
+                published_days: number;
+                sources: string[];
+                total: number;
+            };
+        };
+        SourceActivityRefreshResponse: {
+            items: components["schemas"]["SourceActivityItem"][];
+            refreshed: number;
+        };
         StatsResponse: {
             /** @default 0 */
             days_processed: number;
@@ -29701,6 +30046,38 @@ export interface components {
             code: string;
             label: string;
         };
+        TenderSearchExecution: {
+            probes: components["schemas"]["TenderSearchProbe"][];
+            provider_requests: number;
+            results: components["schemas"]["TenderSearchExecutionResults"];
+            scope: string;
+            translation_version: string;
+            unprobed_chips: components["schemas"]["TenderSearchUnprobedChip"][];
+        };
+        TenderSearchExecutionFilters: {
+            scope: string;
+        };
+        TenderSearchExecutionResults: {
+            cache_hit: boolean;
+            cached_seconds: number;
+            filters: components["schemas"]["TenderSearchExecutionFilters"];
+            items: {
+                [key: string]: unknown;
+            }[];
+            limit: number;
+            offset: number;
+            semantics: components["schemas"]["TenderSearchExecutionSemantics"];
+            total: number;
+        };
+        TenderSearchExecutionSemantics: {
+            global_order: boolean;
+            limitations: string[];
+            matched_before_window_cap: number;
+            merge_strategy: string;
+            merged_results: boolean;
+            oracle_scope: string;
+            result_window_cap: number;
+        };
         TenderSearchList: {
             items: components["schemas"]["TenderSearchResource"][];
         };
@@ -29718,6 +30095,37 @@ export interface components {
             keywords: string[];
             name: string;
         };
+        TenderSearchPlan: {
+            assumptions: string[];
+            buyers: string[];
+            candidate_cpv: components["schemas"]["ProcurementTenderSearchCandidateCPV"][];
+            confidence: number;
+            discarded_count: number;
+            discarded_reasons: {
+                [key: string]: number;
+            };
+            exclude_terms: string[];
+            geographies: string[];
+            include_terms: string[];
+            intent_summary: string;
+            max_amount?: number | null;
+            min_amount?: number | null;
+            questions: string[];
+            /** @enum {string} */
+            scope: "active" | "historical" | "all";
+            synonyms: string[];
+        };
+        TenderSearchPlanExecutePayload: {
+            /** @default 25 */
+            limit: number;
+            /** @default 0 */
+            offset: number;
+            plan: components["schemas"]["TenderSearchPlan"];
+        };
+        TenderSearchPlanExecuteResponse: {
+            execution: components["schemas"]["TenderSearchExecution"];
+            plan: components["schemas"]["TenderSearchPlan"];
+        };
         TenderSearchPlanPreviewPayload: {
             plan: {
                 [key: string]: unknown;
@@ -29730,6 +30138,14 @@ export interface components {
             preview: {
                 [key: string]: unknown;
             };
+        };
+        TenderSearchProbe: {
+            /** @enum {string} */
+            kind: "term" | "cpv";
+            label?: string | null;
+            returned: number;
+            total: number;
+            value: string;
         };
         TenderSearchResource: {
             created_at?: string | null;
@@ -29746,6 +30162,12 @@ export interface components {
                 [key: string]: unknown;
             };
             search: components["schemas"]["TenderSearchResource"];
+        };
+        TenderSearchUnprobedChip: {
+            /** @enum {string} */
+            kind: "term" | "cpv";
+            label?: string | null;
+            value: string;
         };
         TenderSearchWizardAcceptance: {
             accepted_at: string;

@@ -233,6 +233,38 @@ describe("transporte de contratación pública", () => {
     expect(JSON.parse(String(options.body))).toEqual({ plan });
   });
 
+  it("envía la ventana solicitada al ejecutar un plan multi-sonda", async () => {
+    const plan = { ...searchPlan(), max_amount: null, min_amount: null };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-execute" }))
+      .mockResolvedValueOnce(
+        json({
+          plan,
+          execution: {
+            results: { items: [], total: 60, limit: 25, offset: 25 },
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("@oracle/api-client");
+
+    await api.procurement.executeSearchPlan(plan, { limit: 25, offset: 25 });
+
+    const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe("/api/v1/procurement/search-plans/execute");
+    expect(options.method).toBe("POST");
+    expect(options.credentials).toBe("include");
+    expect(new Headers(options.headers).get("X-CSRF-Token")).toBe(
+      "csrf-execute",
+    );
+    expect(JSON.parse(String(options.body))).toEqual({
+      plan,
+      limit: 25,
+      offset: 25,
+    });
+  });
+
   it("lee el último wizard y crea una ejecución idempotente", async () => {
     const fetchMock = vi
       .fn()
