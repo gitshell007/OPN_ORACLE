@@ -456,13 +456,45 @@ export function EntityGraphV2Explorer({
   // Active radial focus (re-root without leaving the page).
   const activeFocusId = focusId ?? model?.rootId ?? null;
 
-  const filteredEdges = useMemo(() => {
+  /**
+   * Structural edges: topology for BFS depths (activeOnly only).
+   * Role filters must NOT rebuild this graph — most Gobierno/Propiedad edges do not
+   * touch the center (they sit on 2º salto). Filtering topology by role made Gobierno
+   * look empty while Auditoría/Representación (many center edges) "worked".
+   */
+  const structuralEdges = useMemo(() => {
     if (!model) return [];
-    return model.edges.filter((edge) => {
-      if (activeOnly && edge.active === false) return false;
-      return edgeMatchesRoleCategories(edge.raw, effectiveCategories);
-    });
-  }, [activeOnly, effectiveCategories, model]);
+    return model.edges.filter((edge) => !(activeOnly && edge.active === false));
+  }, [activeOnly, model]);
+
+  const structuralAdjacency = useMemo(() => {
+    if (!model) return new Map<string, Set<string>>();
+    return buildAdjacency(
+      structuralEdges,
+      model.nodes.map((n) => n.id),
+    );
+  }, [model, structuralEdges]);
+
+  const depths = useMemo(() => {
+    if (!model || !activeFocusId) return new Map<string, number>();
+    return depthsFrom(
+      activeFocusId,
+      structuralAdjacency,
+      model.nodes.map((n) => n.id),
+    );
+  }, [activeFocusId, model, structuralAdjacency]);
+
+  // Restricted family filters need the 2º salto: governance/ownership edges rarely hit center.
+  const displayMaxDepth = (
+    !allFamiliesEnabled ? Math.max(maxDepth, 2) : maxDepth
+  ) as 1 | 2;
+
+  /** Edges that pass the voluntary role-family filter (and activeOnly). */
+  const filteredEdges = useMemo(() => {
+    return structuralEdges.filter((edge) =>
+      edgeMatchesRoleCategories(edge.raw, effectiveCategories),
+    );
+  }, [effectiveCategories, structuralEdges]);
 
   const filteredAdjacency = useMemo(() => {
     if (!model) return new Map<string, Set<string>>();
@@ -480,65 +512,66 @@ export function EntityGraphV2Explorer({
     return map;
   }, [filteredAdjacency]);
 
-  const depths = useMemo(() => {
-    if (!model || !activeFocusId) return new Map<string, number>();
-    return depthsFrom(
-      activeFocusId,
-      filteredAdjacency,
-      model.nodes.map((n) => n.id),
-    );
-  }, [activeFocusId, filteredAdjacency, model]);
-
   const visibleNodeIds = useMemo(() => {
     if (!model || !activeFocusId) return new Set<string>();
-    const visible = new Set<string>([activeFocusId]);
 
-    // Base ego neighborhood: only the global depth control (not expansion).
+    // Ego ball from structural depths (full topology).
+    const ego = new Set<string>([activeFocusId]);
     for (const node of model.nodes) {
       if (node.id === activeFocusId) continue;
       const depth = depths.get(node.id);
-      if (depth == null || depth < 1 || depth > maxDepth) continue;
+      if (depth == null || depth < 1 || depth > displayMaxDepth) continue;
       if (typeFilter !== "all" && node.kind !== typeFilter) continue;
-      visible.add(node.id);
+      ego.add(node.id);
     }
 
-    // Branch expansion: exclusive neighbors via filtered (role-family) adjacency only.
+    // Branch expansion: add role-matching neighbors of expanded nodes (even beyond depth).
     for (const expanded of expandedIds) {
-      if (!visible.has(expanded) && expanded !== activeFocusId) continue;
+      if (!ego.has(expanded) && expanded !== activeFocusId) continue;
       if (collapsedIds.has(expanded)) continue;
       for (const neighbor of filteredAdjacency.get(expanded) ?? []) {
         if (neighbor === activeFocusId) continue;
         const n = model.nodes.find((node) => node.id === neighbor);
         if (!n) continue;
         if (typeFilter !== "all" && n.kind !== typeFilter) continue;
-        visible.add(neighbor);
+        ego.add(neighbor);
       }
     }
 
-    // Collapse: hide nodes that only remain visible through a collapsed branch parent.
+    // Role filter: keep focus + endpoints of matching edges inside the ego ball
+    // (same idea as v1: hide edges by role, drop orphaned nodes — without rewiring BFS).
+    const visible = new Set<string>([activeFocusId]);
+    for (const edge of filteredEdges) {
+      if (!ego.has(edge.source) || !ego.has(edge.target)) continue;
+      if (typeFilter !== "all") {
+        const s = model.nodes.find((n) => n.id === edge.source);
+        const t = model.nodes.find((n) => n.id === edge.target);
+        if (s && s.id !== activeFocusId && s.kind !== typeFilter) continue;
+        if (t && t.id !== activeFocusId && t.kind !== typeFilter) continue;
+      }
+      visible.add(edge.source);
+      visible.add(edge.target);
+    }
+
+    // Collapse: drop nodes only reached as exclusive children of collapsed parents.
     if (collapsedIds.size > 0) {
       for (const nodeId of [...visible]) {
         if (nodeId === activeFocusId) continue;
         const depth = depths.get(nodeId) ?? 99;
         if (depth <= 1) continue;
-
-        const adjacencyParents = [...(filteredAdjacency.get(nodeId) ?? [])];
-        const collapsedParents = adjacencyParents.filter((p) => collapsedIds.has(p));
-        if (collapsedParents.length === 0) continue;
-
-        if (depth > maxDepth) {
-          visible.delete(nodeId);
-          continue;
-        }
-
-        const depth1Parents = adjacencyParents.filter((p) => (depths.get(p) ?? 99) === 1);
-        if (depth1Parents.length > 0 && depth1Parents.every((p) => collapsedIds.has(p))) {
+        const structuralParents = [...(structuralAdjacency.get(nodeId) ?? [])].filter(
+          (p) => (depths.get(p) ?? 99) === 1,
+        );
+        if (
+          structuralParents.length > 0 &&
+          structuralParents.every((p) => collapsedIds.has(p))
+        ) {
           visible.delete(nodeId);
         }
       }
     }
 
-    // Isolation: focus + direct filtered neighbors (and expanded branch of the isolate).
+    // Isolation: isolate id + its role-matching neighborhood.
     if (isolatedId) {
       const keep = new Set<string>([isolatedId]);
       for (const neighbor of filteredAdjacency.get(isolatedId) ?? []) keep.add(neighbor);
@@ -558,11 +591,13 @@ export function EntityGraphV2Explorer({
     activeFocusId,
     collapsedIds,
     depths,
+    displayMaxDepth,
     expandedIds,
     filteredAdjacency,
+    filteredEdges,
     isolatedId,
-    maxDepth,
     model,
+    structuralAdjacency,
     typeFilter,
   ]);
 
@@ -577,7 +612,7 @@ export function EntityGraphV2Explorer({
         if (neighbor === activeFocusId) continue;
         const depth = depths.get(neighbor) ?? 99;
         // Only claim nodes that are not already in the base ego ring(s).
-        if (depth <= maxDepth) continue;
+        if (depth <= displayMaxDepth) continue;
         if (!visibleNodeIds.has(neighbor)) continue;
         if (!expansionParent.has(neighbor)) expansionParent.set(neighbor, expanded);
       }
@@ -589,8 +624,11 @@ export function EntityGraphV2Explorer({
 
     for (const node of model.nodes) {
       if (!visibleNodeIds.has(node.id) || node.id === activeFocusId) continue;
-      const depth = depths.get(node.id) ?? 99;
-      if (depth < 1) continue;
+      let depth = depths.get(node.id) ?? 99;
+      if (depth < 1) {
+        // Nodes only present via expansion may lack a structural path; put on ring 2.
+        depth = 2;
+      }
 
       // Base depth-1 always on ring 1.
       if (depth === 1) {
@@ -607,8 +645,8 @@ export function EntityGraphV2Explorer({
         continue;
       }
 
-      // Base depth-2 (global maxDepth === 2).
-      if (depth <= maxDepth) {
+      // Base depth-2 (or filter-elevated display).
+      if (depth <= displayMaxDepth || depth === 2) {
         ring2Base.push(node);
       }
     }
@@ -620,7 +658,7 @@ export function EntityGraphV2Explorer({
     const parentAngle = new Map<string, number>();
     for (const p of placements) parentAngle.set(p.node.id, p.angle);
 
-    if (maxDepth >= 2 && ring2Base.length > 0) {
+    if (displayMaxDepth >= 2 && ring2Base.length > 0) {
       placements.push(...placeRing(ring2Base, 2, ringCap, null, rotation, filteredDegree));
     }
 
@@ -661,10 +699,10 @@ export function EntityGraphV2Explorer({
     activeFocusId,
     collapsedIds,
     depths,
+    displayMaxDepth,
     expandedIds,
     filteredAdjacency,
     filteredDegree,
-    maxDepth,
     model,
     ringCap,
     rotation,
@@ -692,22 +730,40 @@ export function EntityGraphV2Explorer({
     return filteredAdjacency.get(selectedId)?.size ?? 0;
   }, [filteredAdjacency, selectedId]);
 
-  /** Neighbors of the selection that expand would newly reveal (excludes focus + already base-visible). */
+  /** Neighbors of the selection not yet visible (role-matching, in current sample). */
   const selectedExpandableCount = useMemo(() => {
     if (!model || !selectedId || !activeFocusId) return 0;
     let count = 0;
     for (const neighbor of filteredAdjacency.get(selectedId) ?? []) {
       if (neighbor === activeFocusId) continue;
-      const depth = depths.get(neighbor) ?? 99;
-      // Already in the base ego rings controlled by maxDepth.
-      if (depth >= 1 && depth <= maxDepth) continue;
+      if (visibleNodeIds.has(neighbor)) continue;
       const n = model.nodes.find((node) => node.id === neighbor);
       if (!n) continue;
       if (typeFilter !== "all" && n.kind !== typeFilter) continue;
       count += 1;
     }
     return count;
-  }, [activeFocusId, depths, filteredAdjacency, maxDepth, model, selectedId, typeFilter]);
+  }, [activeFocusId, filteredAdjacency, model, selectedId, typeFilter, visibleNodeIds]);
+
+  /** True when the node only links to the focus in this sample — needs a re-fetch to see more. */
+  const selectedNeedsRemoteExpand = useMemo(() => {
+    if (!model || !selectedId || !activeFocusId) return false;
+    if (selectedId === activeFocusId) return false;
+    if (selectedExpandableCount > 0) return false;
+    const structural = structuralAdjacency.get(selectedId)?.size ?? 0;
+    // Only the focus (or nothing) in the current company-centered sample.
+    if (structural <= 1) {
+      const node = model.nodes.find((n) => n.id === selectedId);
+      return node?.kind === "person" || node?.kind === "company";
+    }
+    return false;
+  }, [
+    activeFocusId,
+    model,
+    selectedExpandableCount,
+    selectedId,
+    structuralAdjacency,
+  ]);
 
   const selectedIsExpanded = selectedId ? expandedIds.has(selectedId) : false;
   const selectedIsCollapsed = selectedId ? collapsedIds.has(selectedId) : false;
@@ -850,10 +906,60 @@ export function EntityGraphV2Explorer({
     router.push(entityRoute(k, routeName));
   }
 
-  function reRootTo(nodeId: string) {
+  async function reRootTo(nodeId: string) {
     if (!model) return;
     const node = model.nodes.find((n) => n.id === nodeId);
     if (!node) return;
+
+    // People/companies often have degree 1 in a company-centered sample (only the link
+    // to the center). Fetch their own ego-network so expand/center show real relations.
+    if (node.kind === "person" || node.kind === "company") {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await api.entityIntel.graph({
+          name: node.routeName,
+          type: node.kind,
+          depth: 2,
+          activeOnly,
+        });
+        setGraph(result);
+        setFocusId(null); // new graph center is the entity itself
+        setSelectedId(null);
+        setFocusTrail([]);
+        setIsolatedId(null);
+        setExpandedIds(new Set());
+        setCollapsedIds(new Set());
+        setEnabledCategories(null);
+        setMaxDepth(1);
+        setRotation(0);
+        setZoom(1);
+        setPan({ x: 0, y: 0 });
+      } catch (reason) {
+        setError(
+          problemMessage(
+            reason,
+            "No se pudo cargar el entorno de esta entidad. Se mantiene el grafo actual.",
+          ),
+        );
+        // Fall back to in-sample re-root.
+        setFocusTrail((trail) => {
+          if (activeFocusId && trail[trail.length - 1] !== activeFocusId) {
+            return [...trail, activeFocusId];
+          }
+          return trail.length ? trail : activeFocusId ? [activeFocusId] : [];
+        });
+        setFocusId(nodeId);
+        setSelectedId(nodeId);
+        setIsolatedId(null);
+        setExpandedIds(new Set());
+        setCollapsedIds(new Set());
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     setFocusTrail((trail) => {
       if (activeFocusId && trail[trail.length - 1] !== activeFocusId) {
         return [...trail, activeFocusId];
@@ -905,6 +1011,11 @@ export function EntityGraphV2Explorer({
 
   function expandSelected() {
     if (!selectedId || !model) return;
+    // No more neighbors in this sample → load that entity's own graph (like opening it).
+    if (selectedNeedsRemoteExpand) {
+      void reRootTo(selectedId);
+      return;
+    }
     // Branch-local only: never raise global maxDepth (that would reveal every 2º salto).
     setCollapsedIds((prev) => {
       const next = new Set(prev);
@@ -1183,38 +1294,44 @@ export function EntityGraphV2Explorer({
           <div className="entity-graph-v2-role-family-chips">
             {roleCategoryOptions.map((category) => {
               const pressed = effectiveCategories.has(category.key);
+              const solo =
+                pressed &&
+                effectiveCategories.size === 1 &&
+                !allFamiliesEnabled;
               return (
                 <button
                   type="button"
                   key={category.key}
-                  aria-pressed={pressed}
-                  aria-label={`${pressed ? "Ocultar" : "Mostrar"} ${category.label}, ${category.count} ${
+                  aria-pressed={solo || (pressed && !allFamiliesEnabled)}
+                  data-solo={solo ? "true" : "false"}
+                  aria-label={`${category.label}, ${category.count} ${
                     category.count === 1 ? "vínculo" : "vínculos"
-                  }`}
-                  title={
-                    pressed
-                      ? `Clic: quitar ${category.label}. Doble clic: solo esta familia.`
-                      : `Clic: incluir ${category.label}. Doble clic: solo esta familia.`
-                  }
-                  onClick={() => {
-                    setEnabledCategories((prev) => {
-                      const base =
-                        prev === null
-                          ? new Set(allCategoryKeys(roleCategoryOptions))
-                          : new Set(prev);
-                      if (base.has(category.key)) {
-                        // Don't allow emptying completely — fall back to this family alone.
-                        if (base.size <= 1) return base;
-                        base.delete(category.key);
-                      } else {
-                        base.add(category.key);
-                      }
-                      return base;
-                    });
-                  }}
-                  onDoubleClick={(event) => {
-                    event.preventDefault();
-                    setEnabledCategories(new Set([category.key]));
+                  }. Clic: solo esta familia. Mayús+clic: sumar o quitar.`}
+                  title="Clic: ver solo esta familia. Mayús+clic: combinar varias. Clic en Todas para resetear."
+                  onClick={(event) => {
+                    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                      // Multi-select toggle
+                      setEnabledCategories((prev) => {
+                        const base =
+                          prev === null
+                            ? new Set(allCategoryKeys(roleCategoryOptions))
+                            : new Set(prev);
+                        if (base.has(category.key)) {
+                          if (base.size <= 1) return base;
+                          base.delete(category.key);
+                        } else {
+                          base.add(category.key);
+                        }
+                        return base;
+                      });
+                      return;
+                    }
+                    // Primary: solo this family (like Grafo v1). Second click on solo → all.
+                    if (solo) {
+                      setEnabledCategories(new Set(allCategoryKeys(roleCategoryOptions)));
+                    } else {
+                      setEnabledCategories(new Set([category.key]));
+                    }
                   }}
                 >
                   <i className={GRAPH_ROLE_CATEGORY_META[category.key].className} />
@@ -1231,7 +1348,8 @@ export function EntityGraphV2Explorer({
                 .filter((c) => effectiveCategories.has(c.key))
                 .map((c) => c.label)
                 .join(", ")}
-              . El anillo y la expansión solo usan estas familias.
+              . Se usa el 2º salto automáticamente (muchas relaciones de Gobierno/Propiedad no
+              tocan el centro). Mayús+clic combina familias.
             </p>
           )}
         </section>
@@ -1655,11 +1773,11 @@ export function EntityGraphV2Explorer({
                 <button
                   type="button"
                   className="vector-primary"
-                  onClick={() => reRootTo(selectedNode.id)}
+                  onClick={() => void reRootTo(selectedNode.id)}
                 >
                   <Focus size={14} /> Centrar exploración aquí
                 </button>
-                {!selectedIsExpanded ? (
+                {!selectedIsExpanded && !selectedNeedsRemoteExpand ? (
                   <button
                     type="button"
                     className="vector-secondary"
@@ -1667,11 +1785,20 @@ export function EntityGraphV2Explorer({
                     disabled={selectedExpandableCount === 0}
                     title={
                       selectedExpandableCount === 0
-                        ? "No hay vecinos ocultos en esta rama"
-                        : `Mostrar ${selectedExpandableCount} vecinos de esta rama`
+                        ? "No hay vecinos ocultos en esta muestra para esta rama"
+                        : `Mostrar ${selectedExpandableCount} vecinos de esta rama en la muestra`
                     }
                   >
                     <GitBranchPlus size={14} /> Expandir vecinos ({selectedExpandableCount})
+                  </button>
+                ) : selectedNeedsRemoteExpand ? (
+                  <button
+                    type="button"
+                    className="vector-secondary"
+                    onClick={expandSelected}
+                    title="En el grafo de la empresa solo aparece el vínculo con el centro. Carga el entorno propio de esta entidad."
+                  >
+                    <GitBranchPlus size={14} /> Cargar su entorno completo
                   </button>
                 ) : (
                   <button type="button" className="vector-secondary" onClick={collapseSelected}>

@@ -129,7 +129,32 @@ describe("EntityGraphV2Explorer", () => {
     expect(screen.queryByText("OTRA LEJANA SL")).not.toBeInTheDocument();
   });
 
-  it("permite centrar la exploración en otra entidad sin salir de la vista", async () => {
+  it("permite centrar la exploración en otra entidad recargando su grafo", async () => {
+    mocks.graph.mockResolvedValueOnce({
+      nodes: [
+        {
+          id: "a",
+          label: "FILIAL ALFA SL",
+          type: "company",
+          is_center: true,
+          degree: 2,
+          norm: "FILIAL ALFA SL",
+        },
+        {
+          id: "d",
+          label: "LEJANA SL",
+          type: "company",
+          degree: 1,
+          norm: "LEJANA SL",
+        },
+      ],
+      edges: [
+        { id: "e4", source: "a", target: "d", role: "SOCIO", active: true },
+      ],
+      truncated: false,
+      cached_seconds: 60,
+      cache_hit: false,
+    });
     render(
       <EntityGraphV2Explorer
         name="MAGTEL GLOBAL SL"
@@ -141,7 +166,9 @@ describe("EntityGraphV2Explorer", () => {
     fireEvent.click(screen.getByText("FILIAL ALFA SL"));
     fireEvent.click(await screen.findByRole("button", { name: /Centrar exploración aquí/i }));
     expect(await screen.findByText(/Entorno de FILIAL ALFA SL/i)).toBeInTheDocument();
-    expect(screen.getByText(/Explorando desde un nodo secundario/i)).toBeInTheDocument();
+    expect(mocks.graph).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "FILIAL ALFA SL", type: "company", depth: 2 }),
+    );
   });
 
   it("filtra por familia de vínculo y al entrar muestra todas", async () => {
@@ -156,22 +183,79 @@ describe("EntityGraphV2Explorer", () => {
     // All families visible by default (administrador, socio, apoderado).
     expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
     expect(screen.getByText("FILIAL BETA SL")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Gobierno/i })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
 
-    // Solo Representación → apoderado (PERSONA UNO); no gobierno ni propiedad.
-    fireEvent.doubleClick(screen.getByRole("button", { name: /Representación/i }));
+    // Clic = solo esa familia (como Grafo v1).
+    fireEvent.click(screen.getByRole("button", { name: /Representación/i }));
     await waitFor(() => {
       expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
       expect(screen.queryByText("FILIAL ALFA SL")).not.toBeInTheDocument();
       expect(screen.queryByText("FILIAL BETA SL")).not.toBeInTheDocument();
     });
 
+    // Gobierno: administrador (FILIAL ALFA), no apoderado.
+    fireEvent.click(screen.getByRole("button", { name: /Gobierno/i }));
+    await waitFor(() => {
+      expect(screen.getByText("FILIAL ALFA SL")).toBeInTheDocument();
+      expect(screen.queryByText("PERSONA UNO")).not.toBeInTheDocument();
+    });
+
     fireEvent.click(screen.getByRole("button", { name: /^Todas$/i }));
     expect(await screen.findByText("FILIAL ALFA SL")).toBeInTheDocument();
     expect(screen.getByText("FILIAL BETA SL")).toBeInTheDocument();
+    expect(screen.getByText("PERSONA UNO")).toBeInTheDocument();
+  });
+
+  it("al centrar en una persona recarga su grafo propio", async () => {
+    mocks.graph.mockResolvedValueOnce({
+      nodes: [
+        {
+          id: "person:c",
+          label: "PERSONA UNO",
+          type: "person",
+          is_center: true,
+          degree: 2,
+          norm: "PERSONA UNO",
+        },
+        {
+          id: "company:otra",
+          label: "OTRA EMPRESA SL",
+          type: "company",
+          degree: 1,
+          norm: "OTRA EMPRESA SL",
+        },
+      ],
+      edges: [
+        {
+          id: "x1",
+          source: "person:c",
+          target: "company:otra",
+          role: "ADMINISTRADOR UNICO",
+          active: true,
+        },
+      ],
+      truncated: false,
+      cached_seconds: 60,
+      cache_hit: false,
+    });
+
+    render(
+      <EntityGraphV2Explorer
+        name="MAGTEL GLOBAL SL"
+        type="company"
+        initialGraph={sampleGraph}
+      />,
+    );
+    await screen.findByText("PERSONA UNO");
+    fireEvent.click(screen.getByText("PERSONA UNO"));
+    // Degree 1 in company sample → remote expand CTA
+    expect(
+      await screen.findByRole("button", { name: /Cargar su entorno completo/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Cargar su entorno completo/i }));
+    expect(await screen.findByText("OTRA EMPRESA SL")).toBeInTheDocument();
+    expect(mocks.graph).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "PERSONA UNO", type: "person", depth: 2 }),
+    );
   });
 
   it("permite cambiar a directorio y listar vecinos", async () => {
