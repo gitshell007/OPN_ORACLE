@@ -298,6 +298,7 @@ class ProcurementClient:
         buyer: str | None,
         region: str | None,
         active: bool | None,
+        scope: str | None = None,
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
@@ -312,6 +313,7 @@ class ProcurementClient:
                 "buyer": buyer,
                 "region": region,
                 "active": active,
+                "scope": scope,
                 "limit": limit,
                 "offset": offset,
             },
@@ -551,6 +553,7 @@ def cached_tenders(
             buyer=buyer,
             region=region,
             active=active,
+            scope=scope,
             limit=limit,
             offset=offset,
         )

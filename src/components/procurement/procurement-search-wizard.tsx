@@ -438,7 +438,8 @@ export function ProcurementSearchWizard({
     [acceptedBaselineChips, chips],
   );
 
-  async function loadLatest() {
+  async function loadLatestBannerOnly() {
+    // Solo para el aviso opcional «hay una propuesta anterior»; nunca rellena el formulario.
     setLatestLoading(true);
     try {
       const response = await api.tenderSearchWizard.latest();
@@ -456,14 +457,10 @@ export function ProcurementSearchWizard({
               }
             : null;
         setLatestInput(latestWizardInput);
-        if (
-          !freshSearchRequested.current &&
-          !description.trim() &&
-          latestWizardInput?.description
-        ) {
-          setDescription(latestWizardInput.description);
-          setComparable(latestWizardInput.comparable ?? "");
-        }
+      } else {
+        setLatestArtifact(null);
+        setLatestAcceptance(null);
+        setLatestInput(null);
       }
     } catch {
       // La ausencia del último artefacto no bloquea una generación nueva.
@@ -569,24 +566,36 @@ export function ProcurementSearchWizard({
       minimum,
       maximum,
     );
+    // Por defecto solo pendientes/activas; el usuario puede ampliar a «todas» en el paso 2.
+    // No heredar scope=all del modelo: mezclaba pliegos ya finalizados en la tabla.
+    const scoped = {
+      ...overridden,
+      scope:
+        regenerating && plan?.scope === "all"
+          ? ("all" as const)
+          : ("active" as const),
+    };
     const geographyKey = geography.trim()
       ? tenderSearchChipKey("geographies", geography)
       : null;
     const userKeys = geographyKey ? [geographyKey] : [];
     if (regenerating && plan) {
       const merged = mergeRegeneratedTenderSearchPlan(
-        overridden,
+        scoped,
         chips,
         comparableProfile,
         tombstones,
       );
-      setPlan(merged.plan);
+      setPlan({
+        ...merged.plan,
+        scope: plan.scope === "all" ? "all" : "active",
+      });
       setChips(merged.chips);
     } else {
       // Generación nueva: no heredar chips ni baseline de la versión anterior.
-      setPlan(overridden);
+      setPlan(scoped);
       setChips(
-        tenderSearchPlanToChips(overridden, comparableProfile, { userKeys }),
+        tenderSearchPlanToChips(scoped, comparableProfile, { userKeys }),
       );
       setTombstones(new Set());
       if (!targetProfile) {
@@ -1144,7 +1153,12 @@ export function ProcurementSearchWizard({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (nextOpen) void loadLatest();
+          if (nextOpen) {
+            // Cada apertura de «Buscar con Oracle» empieza en blanco.
+            // Las búsquedas guardadas / vigilancias viven en el panel lateral.
+            startFreshSearch();
+            void loadLatestBannerOnly();
+          }
         }}
       >
         <Dialog.Trigger asChild>
@@ -1167,9 +1181,10 @@ export function ProcurementSearchWizard({
                     : "Revisa el plan antes de usarlo"}
                 </Dialog.Title>
                 <Dialog.Description>
-                  Revisa el plan, descarta lo que no sirva y pulsa «Aceptar y
-                  buscar» para ver las licitaciones. Nada se ejecuta sin tu
-                  acción.
+                  Cada vez que abres este asistente empiezas de cero. Revisa el
+                  plan, elige solo pendientes o todas, y pulsa «Aceptar y
+                  buscar» para rellenar la tabla principal. Las vigilancias se
+                  guardan aparte, solo si lo pides.
                 </Dialog.Description>
               </div>
               <div className="procurement-wizard-header-actions">
@@ -1387,7 +1402,7 @@ export function ProcurementSearchWizard({
                   <div className="procurement-wizard-review">
                     <section className="procurement-wizard-intent">
                       <label htmlFor="procurement-wizard-intent">
-                        Intención de búsqueda
+                        Intención de búsqueda (redacción de la IA)
                       </label>
                       <textarea
                         id="procurement-wizard-intent"
@@ -1395,7 +1410,7 @@ export function ProcurementSearchWizard({
                         aria-describedby={
                           intentErrors.length > 0
                             ? "procurement-wizard-intent-error"
-                            : undefined
+                            : "procurement-wizard-intent-help"
                         }
                         rows={3}
                         value={effectivePlan.intent_summary}
@@ -1412,7 +1427,7 @@ export function ProcurementSearchWizard({
                           setAcceptedProfile(null);
                         }}
                       />
-                      {intentErrors.length > 0 && (
+                      {intentErrors.length > 0 ? (
                         <p
                           id="procurement-wizard-intent-error"
                           className="form-error"
@@ -1420,6 +1435,12 @@ export function ProcurementSearchWizard({
                         >
                           {intentErrors.join(" ")}
                         </p>
+                      ) : (
+                        <small id="procurement-wizard-intent-help">
+                          Es un resumen editable de tu descripción, no una
+                          búsqueda guardada. Puedes reescribirlo; no reabre el
+                          plan anterior.
+                        </small>
                       )}
                       <div>
                         <span className="procurement-confidence">
@@ -1641,7 +1662,7 @@ export function ProcurementSearchWizard({
 
                     <section className="procurement-wizard-scope">
                       <fieldset>
-                        <legend>Ámbito temporal</legend>
+                        <legend>Ámbito de las licitaciones</legend>
                         <label>
                           <input
                             type="radio"
@@ -1656,7 +1677,7 @@ export function ProcurementSearchWizard({
                               );
                             }}
                           />
-                          Solo activas
+                          Solo pendientes (activas) — recomendado
                         </label>
                         <label>
                           <input
@@ -1672,7 +1693,8 @@ export function ProcurementSearchWizard({
                               );
                             }}
                           />
-                          Todo el índice disponible
+                          Todas (incluye finalizadas o fuera de plazo en el
+                          índice)
                         </label>
                         <label aria-disabled="true">
                           <input
@@ -1685,8 +1707,9 @@ export function ProcurementSearchWizard({
                         </label>
                       </fieldset>
                       <p>
-                        “Todo” no promete un archivo histórico completo. El
-                        histórico fiable sigue siendo adjudicación-céntrico.
+                        Por defecto solo salen pliegos aún abiertos en Signal.
+                        «Todas» puede mezclar expedientes ya cerrados del
+                        índice; no es un archivo histórico completo.
                       </p>
                     </section>
 

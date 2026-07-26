@@ -724,7 +724,7 @@ describe("ProcurementSearchWizard", () => {
     expect(mocks.patchSearch).not.toHaveBeenCalled();
   });
 
-  it("conserva todo el índice al aceptar y ejecutar el plan", async () => {
+  it("por defecto ejecuta solo pendientes y permite ampliar a todas", async () => {
     mocks.createProfile.mockImplementation(async (input) => ({
       ...profile(),
       accepted_plan: input.accepted_plan,
@@ -746,10 +746,17 @@ describe("ProcurementSearchWizard", () => {
     await generatePlan();
 
     expect(
+      screen.getByRole("radio", {
+        name: /Solo pendientes \(activas\)/,
+      }),
+    ).toBeChecked();
+    expect(
       screen.getByRole("radio", { name: "Solo histórico (no disponible)" }),
     ).toBeDisabled();
     fireEvent.click(
-      screen.getByRole("radio", { name: "Todo el índice disponible" }),
+      screen.getByRole("radio", {
+        name: /Todas \(incluye finalizadas/,
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
     await waitFor(() => expect(mocks.createProfile).toHaveBeenCalledTimes(1));
@@ -956,7 +963,7 @@ describe("ProcurementSearchWizard", () => {
     ).toHaveValue("");
   });
 
-  it("mantiene vacío un inicio limpio al cerrar y reabrir", async () => {
+  it("abre siempre en blanco y no rellena la descripción del plan anterior", async () => {
     mocks.latest.mockResolvedValue({
       artifact: artifact(),
       input: {
@@ -970,14 +977,14 @@ describe("ProcurementSearchWizard", () => {
     const description = screen.getByPlaceholderText(
       /Equipamiento y mantenimiento para emergencias/,
     );
-    await waitFor(() =>
-      expect(description).toHaveValue(
-        "Descripción heredada de la búsqueda anterior",
-      ),
-    );
+    // No auto-rellenar: las vigilancias/búsquedas guardadas viven en el panel.
+    await waitFor(() => expect(description).toHaveValue(""));
+    expect(
+      await screen.findByRole("button", {
+        name: "Revisar propuesta anterior",
+      }),
+    ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Empezar de cero" }));
-    expect(description).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
     fireEvent.click(screen.getByRole("button", { name: "Buscar con Oracle" }));
 

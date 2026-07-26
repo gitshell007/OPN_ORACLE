@@ -574,11 +574,53 @@ export function ProcurementWorkspace() {
     setLoading(true);
     setError(null);
     try {
+      const profile =
+        searchProfiles.find(
+          (candidate) => candidate.tender_search_id === search.id,
+        ) ?? null;
+      // Si la vigilancia nació de un plan Oracle, reconsultar con multi-sonda
+      // (misma calidad que «Aceptar y buscar»). La saved-search Signal es solo
+      // un proxy estrecho de 1 keyword+CPV y a menudo devuelve 0.
+      if (profile?.accepted_plan) {
+        const plan = {
+          ...profile.accepted_plan,
+          scope: "active" as const,
+        };
+        const executed = await api.procurement.executeSearchPlan(plan, {
+          limit: 100,
+          offset: 0,
+        });
+        setKeywords("");
+        setSemanticLabel(profile.original_description);
+        setFilters({ ...emptyFilters, scope: "active" });
+        setResult(executed.execution.results);
+        setResultOrigin("oracle-plan");
+        setActiveOraclePlan(plan);
+        setOracleWatchPersisted(true);
+        rememberRegions(executed.execution.results.items);
+        setOffset(0);
+        setActiveSearchProfile(profile);
+        const watch =
+          watches.find(
+            (candidate) => candidate.tender_search_id === search.id,
+          ) ?? null;
+        setActiveWatch(watch);
+        await loadFeedback(profile);
+        if (watch) await loadWatchItems(watch);
+        else setWatchItemsByFolder({});
+        if (!executed.execution.results.items?.length) {
+          setError(
+            "La vigilancia no ha devuelto licitaciones pendientes con el plan actual. Prueba «Buscar con Oracle» de nuevo o revisa términos y CPV.",
+          );
+        }
+        return;
+      }
+
       const response = await api.procurement.runSearch(search.id, {
         limit,
         offset: 0,
       });
-      // Signal v1 descarta scope al guardar y fuerza active=true al ejecutar.
+      // Signal v1 fuerza active al ejecutar saved-search.
       const nextFilters = {
         ...filtersFromRecord(search.filters),
         scope: "active" as const,
@@ -592,14 +634,11 @@ export function ProcurementWorkspace() {
       setOracleWatchPersisted(false);
       rememberRegions(response.results.items);
       setOffset(response.results.offset ?? 0);
-      const profile =
-        searchProfiles.find(
+      setActiveSearchProfile(profile);
+      const watch =
+        watches.find(
           (candidate) => candidate.tender_search_id === search.id,
         ) ?? null;
-      setActiveSearchProfile(profile);
-      const watch = watches.find(
-        (candidate) => candidate.tender_search_id === search.id,
-      ) ?? null;
       setActiveWatch(watch);
       if (profile) {
         await loadFeedback(profile);
@@ -607,14 +646,16 @@ export function ProcurementWorkspace() {
         setFeedbackByFolder({});
         setFeedbackDigest(null);
       }
-      if (watch) {
-        await loadWatchItems(watch);
-      } else {
-        setWatchItemsByFolder({});
+      if (watch) await loadWatchItems(watch);
+      else setWatchItemsByFolder({});
+      if (!response.results.items?.length) {
+        setError(
+          "La vigilancia no ha devuelto licitaciones pendientes. El contrato Signal es estrecho (pocas keywords/CPV); usa «Buscar con Oracle» para una búsqueda completa.",
+        );
       }
     } catch (reason) {
       setError(
-        problemMessage(reason, "No se pudo ejecutar la búsqueda guardada."),
+        problemMessage(reason, "No se pudo reconsultar la vigilancia guardada."),
       );
     } finally {
       setLoading(false);
@@ -892,13 +933,12 @@ export function ProcurementWorkspace() {
               } catch {
                 // Si falla el listado de vigilancias, igual mostramos resultados.
               }
-              const nextFilters = {
-                ...filtersFromRecord(run.search.filters ?? {}),
-                scope: "active" as const,
-              };
+              // La tabla principal refleja el scope del plan ejecutado (por defecto activas).
+              const planScope =
+                plan.scope === "all" ? ("all" as const) : ("active" as const);
               setKeywords("");
               setSemanticLabel(profile.original_description);
-              setFilters({ ...emptyFilters, scope: nextFilters.scope });
+              setFilters({ ...emptyFilters, scope: planScope });
               setResult(run.results);
               setResultOrigin("oracle-plan");
               setActiveOraclePlan(plan);
@@ -1088,14 +1128,13 @@ export function ProcurementWorkspace() {
                     }))
                   }
                 >
-                  <option value="active">Solo activas</option>
+                  <option value="active">Solo pendientes (activas)</option>
+                  {/* historical omitido: no disponible en Signal v1 */}
                   <option value="all">Todo el índice disponible</option>
                 </select>
                 <small id="procurement-scope-help">
-                  Signal todavía no permite aislar licitaciones históricas. Todo
-                  el índice incluye activas y registros no activos, pero no
-                  equivale a un archivo histórico completo; el histórico fiable
-                  se consulta por adjudicaciones.
+                  Por defecto solo pendientes. «Todas» incluye finalizadas del
+                  índice y no es un archivo histórico completo.
                 </small>
               </div>
             </div>
@@ -1506,8 +1545,9 @@ export function ProcurementWorkspace() {
               </AsyncActionButton>
               {filters.scope !== "active" && (
                 <small role="status">
-                  Signal v1 solo conserva búsquedas guardadas de licitaciones
-                  activas. Cambia el ámbito a «Solo activas» para guardarla.
+                  Signal v1 solo conserva vigilancias de licitaciones
+                  pendientes. Cambia el ámbito a «Solo pendientes» para
+                  guardarla.
                 </small>
               )}
             </form>

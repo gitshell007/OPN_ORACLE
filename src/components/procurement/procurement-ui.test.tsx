@@ -293,10 +293,15 @@ describe("UI de contratación pública", () => {
       within(scope).queryByRole("option", { name: "No activas" }),
     ).not.toBeInTheDocument();
     expect(
+      within(scope).getByRole("option", {
+        name: "Solo pendientes (activas)",
+      }),
+    ).toBeInTheDocument();
+    expect(
       within(scope).getByRole("option", { name: "Todo el índice disponible" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/no equivale a un archivo histórico completo/i),
+      screen.getByText(/por defecto solo pendientes/i),
     ).toBeInTheDocument();
 
     fireEvent.change(scope, { target: { value: "all" } });
@@ -311,9 +316,7 @@ describe("UI de contratación pública", () => {
       screen.getByRole("button", { name: /guardar actual/i }),
     ).toBeDisabled();
     expect(
-      screen.getByText(
-        /solo conserva búsquedas guardadas de licitaciones activas/i,
-      ),
+      screen.getByText(/solo conserva vigilancias de licitaciones pendientes/i),
     ).toBeInTheDocument();
   });
 
