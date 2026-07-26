@@ -3185,27 +3185,40 @@
   text-align: inherit;
 }
 .platform-analytics-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px 16px;
   align-items: end;
+  /* settings-section only pads the header; body content needs explicit inset */
+  padding: 16px 18px 18px;
+  box-sizing: border-box;
 }
 .platform-analytics-controls label {
   display: grid;
-  gap: 5px;
-  min-width: 140px;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
   font-size: 12px;
   font-weight: 700;
   color: var(--va-muted);
+  letter-spacing: 0.02em;
+}
+.platform-analytics-controls label span {
+  display: block;
+  line-height: 1.3;
 }
 .platform-analytics-controls select {
-  min-height: 38px;
+  width: 100%;
+  min-height: 40px;
   border: 1px solid var(--va-border);
-  border-radius: 7px;
-  background: var(--va-panel);
+  border-radius: 8px;
+  background: var(--va-panel, #fff);
   color: var(--va-text);
-  padding: 0 10px;
+  padding: 8px 12px;
   font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  box-sizing: border-box;
 }
 .platform-rank-bar {
   width: min(160px, 100%);
@@ -3828,6 +3841,7 @@
   border: 1px solid var(--va-border);
   border-radius: var(--va-radius);
   box-shadow: var(--va-shadow);
+  overflow: hidden;
 }
 .settings-section > header {
   padding: 16px 18px;
@@ -3838,9 +3852,10 @@
   margin-bottom: 4px;
 }
 .settings-section header p {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--va-muted);
   margin: 0;
+  line-height: 1.45;
 }
 .profile-row {
   display: flex;
