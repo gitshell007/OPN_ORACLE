@@ -11,6 +11,7 @@ import {
   type TenderSearchPayload,
   type TenderSearchPlan,
   type TenderSearchPlanPreviewResponse,
+  type TenderSearchResource,
   type TenderSearchRunResponse,
   type TenderSearchWizardAcceptance,
   type TenderSearchWizardArtifact,
@@ -257,28 +258,87 @@ function acceptedPlan(
   };
 }
 
-/** Mirror del contrato Signal v1 que usa el backend al guardar la vigilancia. */
-function planToSearchPayload(
-  name: string,
+const PRIORITY_CPV_PREFIXES = [
+  "354",
+  "357",
+  "356",
+  "355",
+  "353",
+  "358",
+  "341",
+  "342",
+  "343",
+  "5011",
+] as const;
+
+const GENERIC_WATCH_TERMS = new Set([
+  "defensa",
+  "militar",
+  "militares",
+  "equipamiento",
+  "accesorios",
+  "transporte",
+  "vehiculos",
+  "vehículos",
+]);
+
+function primaryCpvCode(
   plan: TenderSearchPlan,
-): TenderSearchPayload {
+): string | null {
+  const codes = plan.candidate_cpv
+    .map((item) => item.code?.trim())
+    .filter((code): code is string => Boolean(code));
+  for (const prefix of PRIORITY_CPV_PREFIXES) {
+    const match = codes.find((code) => code.startsWith(prefix));
+    if (match) return match;
+  }
+  return codes[0] ?? null;
+}
+
+function watchKeyword(plan: TenderSearchPlan): string {
   const terms = Array.from(
     new Set(
       [...plan.include_terms, ...plan.synonyms]
         .map((term) => term.trim())
         .filter(Boolean),
     ),
-  ).slice(0, 20);
+  );
+  const preferred = terms.find(
+    (term) => term.length >= 6 && !GENERIC_WATCH_TERMS.has(term.toLocaleLowerCase("es")),
+  );
+  if (preferred) return preferred.slice(0, 120);
+  if (terms[0]) return terms[0].slice(0, 120);
+  const label = plan.candidate_cpv[0]?.label?.trim();
+  if (label) {
+    const token = label.split(/[\s,]+/).find((part) => part.length >= 5);
+    if (token) return token.slice(0, 120);
+  }
+  return primaryCpvCode(plan) || "licitacion";
+}
+
+function shortWatchName(plan: TenderSearchPlan, fallback: string): string {
+  const raw = fallback.trim() || plan.intent_summary.trim() || "Búsqueda Oracle";
+  if (raw.length <= 72) return raw;
+  const cut = raw.slice(0, 72);
+  const boundary = cut.lastIndexOf(" ");
+  return `${(boundary > 40 ? cut.slice(0, boundary) : cut).trim()}…`;
+}
+
+/** Mirror del contrato Signal v1 que usa el backend al guardar la vigilancia. */
+function planToSearchPayload(
+  name: string,
+  plan: TenderSearchPlan,
+): TenderSearchPayload {
   const filters: Record<string, unknown> = { scope: "active" };
-  const cpv = plan.candidate_cpv[0]?.code?.trim();
+  const cpv = primaryCpvCode(plan);
   if (cpv) filters.cpv = cpv;
-  const buyer = plan.buyers[0]?.trim();
-  if (buyer) filters.buyer = buyer;
-  const geography = plan.geographies[0]?.trim();
-  if (geography) filters.region = geography;
   if (plan.min_amount != null) filters.min_amount = String(plan.min_amount);
   if (plan.max_amount != null) filters.max_amount = String(plan.max_amount);
-  return { name: name.slice(0, 120), keywords: terms, filters };
+  return {
+    name: shortWatchName(plan, name).slice(0, 120),
+    keywords: [watchKeyword(plan)],
+    filters,
+  };
 }
 
 function searchIdFromSave(
@@ -995,10 +1055,10 @@ export function ProcurementSearchWizard({
             ai_artifact_id: artifact.id,
           });
 
-      const searchName =
-        watchName.trim() ||
-        executablePlan.intent_summary.slice(0, 120).trim() ||
-        "Búsqueda Oracle";
+      const searchName = shortWatchName(
+        executablePlan,
+        watchName.trim() || executablePlan.intent_summary || "Búsqueda Oracle",
+      );
       setWatchName(searchName);
 
       let searchId =
@@ -1006,35 +1066,81 @@ export function ProcurementSearchWizard({
           ? profile.tender_search_id
           : null;
 
-      if (!searchId) {
-        const saved = await api.procurementSearchProfiles.saveSearch(
-          profile.id,
-          {
-            expected_version: profile.version,
-            name: searchName,
-          },
-        );
-        profile = saved.profile;
-        searchId = searchIdFromSave(
-          saved.saved_search as { id?: unknown },
-          profile,
-        );
-        setWatchSaved(true);
-      } else {
-        await api.procurement.patchSearch(
-          searchId,
-          planToSearchPayload(searchName, executablePlan),
-        );
-      }
-
-      if (!searchId) {
-        throw new Error("Signal no devolvió el identificador de la búsqueda.");
-      }
-
-      const run = await api.procurement.runSearch(searchId, {
+      // Resultados inmediatos: multi-sonda fusionada (no el AND restrictivo de la vigilancia).
+      const executed = await api.procurement.executeSearchPlan(executablePlan, {
         limit: 25,
-        offset: 0,
       });
+      const executionResults = executed.execution.results;
+
+      if (!searchId) {
+        try {
+          const saved = await api.procurementSearchProfiles.saveSearch(
+            profile.id,
+            {
+              expected_version: profile.version,
+              name: searchName,
+            },
+          );
+          profile = saved.profile;
+          searchId = searchIdFromSave(
+            saved.saved_search as { id?: unknown },
+            profile,
+          );
+          setWatchSaved(true);
+        } catch {
+          // La vigilancia es opcional si la ejecución ya devolvió resultados.
+        }
+      } else {
+        try {
+          await api.procurement.patchSearch(
+            searchId,
+            planToSearchPayload(searchName, executablePlan),
+          );
+        } catch {
+          // Igual: no bloquear resultados por fallo al actualizar la vigilancia.
+        }
+      }
+
+      const syntheticSearch = {
+        id: searchId || `plan-exec:${profile.id}`,
+        name: searchName,
+        keywords: [watchKeyword(executablePlan)],
+        filters: {
+          scope: "active",
+          ...(primaryCpvCode(executablePlan)
+            ? { cpv: primaryCpvCode(executablePlan) }
+            : {}),
+        },
+      } as TenderSearchResource;
+      let run: TenderSearchRunResponse = {
+        search: syntheticSearch,
+        results: executionResults,
+      };
+
+      // Si la multi-sonda no trajo nada, último intento con la vigilancia Signal.
+      if (
+        searchId &&
+        (!executionResults.items || executionResults.items.length === 0)
+      ) {
+        try {
+          run = await api.procurement.runSearch(searchId, {
+            limit: 25,
+            offset: 0,
+          });
+        } catch {
+          // Conservamos executionResults vacío y el error de UI si aplica.
+        }
+      }
+
+      if (!run.results?.items?.length) {
+        setAcceptError(
+          "El plan se aceptó, pero no hay licitaciones activas que coincidan con las sondas (términos/CPV). Prueba quitar CPV de extinción, dejar 354/357 y chips como «acorazados» o «repuestos».",
+        );
+        setAcceptedProfile(profile);
+        setTargetProfile(profile);
+        setAcceptedBaselineChips(chips);
+        return;
+      }
 
       setAcceptedProfile(profile);
       setTargetProfile(profile);

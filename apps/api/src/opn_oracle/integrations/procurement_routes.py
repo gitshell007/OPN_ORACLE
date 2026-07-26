@@ -40,6 +40,7 @@ from opn_oracle.integrations.procurement import (
 from opn_oracle.oracle.cpv_taxonomy import suggest_cpv_codes
 from opn_oracle.oracle.procurement_search_preview import (
     SearchPlanExecutionError,
+    execute_search_plan,
     preview_search_plan,
 )
 
@@ -188,6 +189,16 @@ class TenderSearchPlanPreviewPayloadSchema(Schema):
 class TenderSearchPlanPreviewResponseSchema(Schema):
     plan = Dict(keys=String(), values=Raw(), required=True)
     preview = Dict(keys=String(), values=Raw(), required=True)
+
+
+class TenderSearchPlanExecutePayloadSchema(Schema):
+    plan = Dict(keys=String(), values=Raw(allow_none=True), required=True)
+    limit = Integer(load_default=25, validate=validate.Range(min=1, max=50))
+
+
+class TenderSearchPlanExecuteResponseSchema(Schema):
+    plan = Dict(keys=String(), values=Raw(), required=True)
+    execution = Dict(keys=String(), values=Raw(), required=True)
 
 
 def _validate_saved_search_temporal_scope(filters: dict[str, Any]) -> None:
@@ -679,6 +690,53 @@ def tender_search_plan_preview(json_data: dict[str, Any]) -> dict[str, Any] | An
     except ProcurementProviderError as error:
         return _provider_error_response(error)
     return {"plan": plan, "preview": preview}
+
+
+@bp.post("/search-plans/execute")
+@require_permission("opportunity.read")
+@bp.input(TenderSearchPlanExecutePayloadSchema)
+@bp.output(TenderSearchPlanExecuteResponseSchema)
+@limiter.limit("12/minute")
+def tender_search_plan_execute(json_data: dict[str, Any]) -> dict[str, Any] | Any:
+    """Execute an accepted plan via multi-probe merge for the results table."""
+
+    try:
+        plan = postvalidate_tender_search_plan(cast(dict[str, Any], json_data["plan"]))
+        execution = execute_search_plan(
+            tenant_id=str(g.active_tenant_id),
+            plan=plan,
+            tender_loader=cached_tenders,
+            result_limit=int(json_data.get("limit") or 25),
+        )
+    except PydanticValidationError as error:
+        return _problem_response_passthrough(
+            422,
+            title="Plan de búsqueda no válido",
+            detail="El plan de búsqueda contiene campos no válidos.",
+            code="validation_error",
+            errors=_pydantic_plan_errors(error),
+        )
+    except TenderSearchPlanValidationError as error:
+        return _problem_response_passthrough(
+            422,
+            title="Plan de búsqueda no válido",
+            detail=str(error),
+            code="validation_error",
+            errors=_postvalidation_plan_errors(error),
+        )
+    except SearchPlanExecutionError as error:
+        return _problem_response_passthrough(
+            422,
+            title="Plan de búsqueda no ejecutable",
+            detail=str(error),
+            code="validation_error",
+            errors=_execution_plan_errors(error),
+        )
+    except ProcurementConfigurationError as error:
+        return _configuration_error_response(error)
+    except ProcurementProviderError as error:
+        return _provider_error_response(error)
+    return {"plan": plan, "execution": execution}
 
 
 @bp.get("/tenders")

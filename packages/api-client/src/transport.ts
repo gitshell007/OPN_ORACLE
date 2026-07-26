@@ -2130,6 +2130,27 @@ const procurement = {
       "/api/v1/procurement/search-plans/preview",
       { method: "POST", body: { plan } },
     ),
+  executeSearchPlan: (
+    plan: TenderSearchPlan,
+    input: { limit?: number } = {},
+  ) =>
+    request<{
+      plan: TenderSearchPlan;
+      execution: {
+        results: ProcurementTendersResponse;
+        probes?: Array<{
+          kind: string;
+          value: string;
+          label?: string | null;
+          total: number;
+          returned: number;
+        }>;
+        provider_requests?: number;
+      };
+    }>("/api/v1/procurement/search-plans/execute", {
+      method: "POST",
+      body: { plan, limit: input.limit ?? 25 },
+    }),
   searches: () =>
     request<TenderSearchListResponse>("/api/v1/procurement/tender-searches"),
   createSearch: (input: TenderSearchPayload) =>

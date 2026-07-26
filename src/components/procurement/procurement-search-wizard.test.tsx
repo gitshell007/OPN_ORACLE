@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   replan: vi.fn(),
   runSearch: vi.fn(),
   patchSearch: vi.fn(),
+  executeSearchPlan: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => {
@@ -48,6 +49,7 @@ vi.mock("@oracle/api-client", () => {
         previewSearchPlan: mocks.previewSearchPlan,
         runSearch: mocks.runSearch,
         patchSearch: mocks.patchSearch,
+        executeSearchPlan: mocks.executeSearchPlan,
       },
       tenderSearchWizard: {
         latest: mocks.latest,
@@ -312,6 +314,26 @@ describe("ProcurementSearchWizard", () => {
       },
       results: { items: [], total: 0, limit: 25, offset: 0 },
     });
+    mocks.executeSearchPlan.mockResolvedValue({
+      plan: basePlan,
+      execution: {
+        results: {
+          items: [
+            {
+              folder_id: "EXP-1",
+              title: "Suministro de equipos de extinción",
+              buyer: "Ayuntamiento de Sevilla",
+              cpv: ["35110000"],
+            },
+          ],
+          total: 1,
+          limit: 25,
+          offset: 0,
+        },
+        probes: [],
+        provider_requests: 2,
+      },
+    });
     mocks.patchSearch.mockResolvedValue({
       id: "search-1",
       name: "Equipamiento para emergencias públicas",
@@ -487,7 +509,7 @@ describe("ProcurementSearchWizard", () => {
     ).toBeDisabled();
   });
 
-  it("acepta el plan, guarda la búsqueda y ejecuta para mostrar resultados", async () => {
+  it("acepta el plan, ejecuta multi-sonda y muestra resultados", async () => {
     const onWatchSaved = vi.fn();
     const onSearchExecuted = vi.fn();
     mocks.createProfile.mockResolvedValue(profile());
@@ -501,20 +523,19 @@ describe("ProcurementSearchWizard", () => {
     await generatePlan();
 
     expect(mocks.createProfile).not.toHaveBeenCalled();
-    expect(mocks.saveSearch).not.toHaveBeenCalled();
-    expect(mocks.runSearch).not.toHaveBeenCalled();
+    expect(mocks.executeSearchPlan).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Aceptar y buscar" }));
     await waitFor(() => expect(mocks.createProfile).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.saveSearch).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
-        limit: 25,
-        offset: 0,
-      }),
+      expect(mocks.executeSearchPlan).toHaveBeenCalledTimes(1),
     );
+    await waitFor(() => expect(mocks.saveSearch).toHaveBeenCalledTimes(1));
     expect(onWatchSaved).toHaveBeenCalledTimes(1);
     expect(onSearchExecuted).toHaveBeenCalledTimes(1);
-    expect(onSearchExecuted.mock.calls[0][0].run.search.id).toBe("search-1");
+    expect(onSearchExecuted.mock.calls[0][0].run.results.items).toHaveLength(1);
+    expect(onSearchExecuted.mock.calls[0][0].run.results.items[0].title).toMatch(
+      /extinción/i,
+    );
   });
 
   it("fuerza ámbito activo al ejecutar aunque el plan diga todo el índice", async () => {
@@ -536,7 +557,9 @@ describe("ProcurementSearchWizard", () => {
     expect(mocks.createProfile.mock.calls[0][0].accepted_plan.scope).toBe(
       "active",
     );
-    await waitFor(() => expect(mocks.runSearch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.executeSearchPlan).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("elimina chips por teclado y muestra 422 estructurado junto al plan", async () => {
@@ -670,12 +693,8 @@ describe("ProcurementSearchWizard", () => {
         expect.objectContaining({ expected_version: 2 }),
       ),
     );
-    await waitFor(() => expect(mocks.patchSearch).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(mocks.runSearch).toHaveBeenCalledWith("search-1", {
-        limit: 25,
-        offset: 0,
-      }),
+      expect(mocks.executeSearchPlan).toHaveBeenCalledTimes(1),
     );
   });
 

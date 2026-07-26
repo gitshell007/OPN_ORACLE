@@ -7,6 +7,7 @@ import pytest
 from opn_oracle.oracle.procurement_search_preview import (
     SearchPlanExecutionError,
     build_search_probes,
+    execute_search_plan,
     preview_search_plan,
     saved_search_payload,
 )
@@ -118,18 +119,81 @@ def test_saved_search_translation_is_active_only_and_bounded() -> None:
     payload = saved_search_payload(name="Emergencias", plan=_plan())
 
     assert payload["name"] == "Emergencias"
-    assert payload["keywords"] == [
-        "proteccion",
-        "bomberos",
-        "vehiculos",
-        "incendios",
-        "epis",
-        "emergencias",
-    ]
+    # Una sola keyword: Signal hace AND y una lista larga devuelve 0 hits.
+    assert payload["keywords"] == ["proteccion"]
     assert payload["filters"] == {
         "scope": "active",
-        "cpv": "18100000",
+        # 358 (equipo individual/apoyo) va antes que 181 (ropa) en la prioridad.
+        "cpv": "35811100",
         "min_amount": "10000",
     }
     with pytest.raises(SearchPlanExecutionError, match="solo conserva"):
         saved_search_payload(name="Histórico", plan=_plan(scope="all"))
+
+
+@pytest.mark.unit
+def test_saved_search_prefers_defense_cpv_prefix() -> None:
+    payload = saved_search_payload(
+        name="Defensa",
+        plan=_plan(
+            include_terms=["blindados", "militares"],
+            synonyms=[],
+            candidate_cpv=[
+                {"code": "35110000", "label": "Equipo de extinción de incendios"},
+                {"code": "35400000", "label": "Vehículos militares y sus partes"},
+                {"code": "35700000", "label": "Sistemas electrónicos militares"},
+            ],
+            min_amount=None,
+        ),
+    )
+    assert payload["keywords"] == ["blindados"]
+    assert payload["filters"]["cpv"] == "35400000"
+    assert "buyer" not in payload["filters"]
+
+
+@pytest.mark.unit
+def test_execute_search_plan_merges_unique_folder_ids() -> None:
+    def loader(**query: Any) -> dict[str, Any]:
+        if query.get("cpv") == "35400000":
+            return {
+                "total": 2,
+                "limit": 20,
+                "offset": 0,
+                "items": [
+                    {"folder_id": "A", "title": "Repuestos TOA"},
+                    {"folder_id": "B", "title": "ATP"},
+                ],
+            }
+        if query.get("keywords") == "blindados":
+            return {
+                "total": 1,
+                "limit": 20,
+                "offset": 0,
+                "items": [
+                    {"folder_id": "A", "title": "Repuestos TOA"},
+                    {"folder_id": "C", "title": "Otro"},
+                ],
+            }
+        return {"total": 0, "limit": 20, "offset": 0, "items": []}
+
+    result = execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            include_terms=["blindados"],
+            synonyms=[],
+            candidate_cpv=[{"code": "35400000", "label": "Vehículos militares y sus partes"}],
+            buyers=["Ministerio de Defensa"],
+            geographies=["España"],
+            min_amount=None,
+        ),
+        tender_loader=loader,
+        result_limit=25,
+    )
+    items = result["results"]["items"]
+    ids = [item["folder_id"] for item in items]
+    assert ids == ["A", "B", "C"] or ids[0] == "A"
+    assert len(ids) == 3
+    assert len(set(ids)) == 3
+    # Buyer del plan no se envía a Signal (evita 0 hits).
+    assert result["results"]["total"] == 3
+    assert result["results"]["semantics"]["merged_results"] is True
