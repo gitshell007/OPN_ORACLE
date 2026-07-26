@@ -419,16 +419,26 @@ def _validate_options(
         and options["period_start"] > options["period_end"]
     ):
         raise ReportWorkflowError("period_start no puede ser posterior a period_end.")
-    formats = options.get("formats", ["html", "json"])
+    renderer: PDFRenderer = current_app.extensions["pdf_renderer"]
+    default_formats = (
+        ["html", "json", "pdf"]
+        if renderer.enabled and "pdf" in template.formats
+        else ["html", "json"]
+    )
+    formats = options.get("formats", default_formats)
     if not isinstance(formats, list) or not formats:
         raise ReportWorkflowError("formats debe ser una lista no vacía.")
-    normalized_formats = tuple(dict.fromkeys(str(value) for value in formats))
-    if not set(normalized_formats).issubset(template.formats):
+    normalized_formats = list(dict.fromkeys(str(value) for value in formats))
+    # When WeasyPrint is on, always materialize PDF for templates that declare it so
+    # comité downloads work without the user having to tick a checkbox.
+    if renderer.enabled and "pdf" in template.formats and "pdf" not in normalized_formats:
+        normalized_formats.append("pdf")
+    normalized_formats_tuple = tuple(normalized_formats)
+    if not set(normalized_formats_tuple).issubset(template.formats):
         raise ReportWorkflowError("Formato de informe no permitido por el template.")
-    renderer: PDFRenderer = current_app.extensions["pdf_renderer"]
-    if "pdf" in normalized_formats and not renderer.enabled:
+    if "pdf" in normalized_formats_tuple and not renderer.enabled:
         raise ReportWorkflowError("PDF no está habilitado; solicita HTML o JSON.")
-    options["formats"] = list(normalized_formats)
+    options["formats"] = list(normalized_formats_tuple)
     classification = str(options.get("classification", "internal"))
     if classification not in {"public", "internal"}:
         raise ReportWorkflowError("classification debe ser public o internal.")
@@ -1615,6 +1625,25 @@ def process_report(
             "snapshot_hash": report.source_snapshot_hash.hex(),
             **(requested_scope or {}),
         }
+        if report.template_key == "actors":
+            actor_rows = list(report.source_snapshot.get("actors") or [])
+            supplemental_context["actor_report_guidance"] = {
+                "instruction": (
+                    "Este informe es de actores. Escribe sobre la lista `actors` y "
+                    "`relationships` del contexto: nombres, roles, scores y evidence_ids "
+                    "de cada ficha. La evidencia del snapshot (BORME, adjudicaciones, "
+                    "noticias) es material citable: usa `allowed_evidence_ids` y no "
+                    "afirmes que la lista de IDs está vacía si el contexto trae "
+                    "extractos. Si un actor no tiene evidence_ids propios, declara "
+                    "limitación y usa evidencia del expediente que mencione su nombre."
+                ),
+                "actor_count": len(actor_rows),
+                "actor_names": [
+                    str(item.get("canonical_name") or "")
+                    for item in actor_rows
+                    if isinstance(item, dict)
+                ][:40],
+            }
         result = execute_agent(
             agent=agent,
             dossier_id=report.dossier_id,

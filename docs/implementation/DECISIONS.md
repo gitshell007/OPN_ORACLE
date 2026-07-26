@@ -1368,6 +1368,28 @@ deberá versionarse un flujo de copia/materialización separado.
   adjudicatarios sigue pendiente de un índice documental medido en Signal. La mutación de seguridad
   de alias que incluía personas en candidatos hizo caer el test HTTP/UI correspondiente.
 
+## D-085 — El presupuesto de contexto no puede vaciar `allowed_evidence_ids`
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** un informe de actores ready tenía 104 evidencias en snapshot pero el modelo
+  afirmó lista vacía de IDs. `_fit_budget` truncaba cadenas por orden de inserción y dejaba los
+  UUID de `allowed_evidence_ids` en `""` tras saturar el presupuesto con extractos.
+- **Decisión:** proteger claves de identidad/allowlist en el fit; priorizar evidencia de actores
+  en el snapshot congelado; `report_writer` v7 + guidance de plantilla actors.
+- **Consecuencias:** el writer recibe IDs citables aunque los extractos se recorten.
+
+## D-084 — PDF se materializa por defecto cuando WeasyPrint está activo
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** prod tenía `REPORT_PDF_MODE=weasyprint` y `capabilities.pdf=true`, pero los
+  informes se pedían con `formats=["html","json"]` (default backend y UI).
+- **Decisión:** si el renderer está habilitado y la plantilla declara `pdf`, se incluye PDF en
+  el default y se añade aunque el cliente omita el tick. La UI marca PDF al detectar capability.
+- **Consecuencias:** nuevos informes (y reintentos con normalización de options) generan
+  artefacto PDF. Informes históricos ready sin PDF requieren reintento/regeneración.
+
 ## D-083 — El audit de fallo IA liquida tokens y conserva el provider upstream
 
 - **Estado:** accepted

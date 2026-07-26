@@ -4,6 +4,18 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 95 + writer de actores · PDF por defecto y allowlist de evidencia
+
+- **PDF (95):** con `REPORT_PDF_MODE=weasyprint` (prod ya lo tenía y WeasyPrint responde
+  `%PDF-` en el contenedor), el backend añade `pdf` a los formatos si la plantilla lo declara
+  y el renderer está activo; el diálogo Vector marca PDF cuando `capabilities.pdf` es true.
+  Causa de «solo html+json» en ready: defaults/UI sin pdf, no el motor.
+- **Writer actores:** `_fit_budget` ya no trunca a vacío los UUID de `allowed_evidence_ids`
+  (causa de «lista vacía de IDs» con 104 evidencias en snapshot). El contexto congelado prioriza
+  evidencia ligada a actores/nombres; `report_writer` v7 y `actor_report_guidance` en el alcance
+  del informe de actores.
+- Sin migración ni variables nuevas. Tests: fit_budget, registry v7, strip, vitest reporting.
+
 ## Prompts 93–94 · errores de informe legibles y telemetría de fallo IA
 
 - **93:** `_report_failure_message` incluye la causa del revisor (texto acotado) en el informe

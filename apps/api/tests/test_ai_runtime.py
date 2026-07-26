@@ -160,11 +160,13 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("dossier_situation_summary", "v3").max_output_tokens == 1600
     assert registry.get("dossier_situation_summary", "v4").max_output_tokens == 1900
     assert registry.get("dossier_situation_summary").max_output_tokens == 2600
-    assert registry.get("report_writer").version == "v6"
+    assert registry.get("report_writer").version == "v7"
     assert registry.get("report_writer").max_output_tokens == 6500
     assert registry.get("report_writer", "v2").max_output_tokens == 6500
     assert registry.get("report_writer", "v5").max_output_tokens == 6500
     assert registry.get("report_writer", "v6").max_output_tokens == 6500
+    assert registry.get("report_writer", "v7").max_output_tokens == 6500
+    assert "informe de actores" in registry.get("report_writer").text.lower()
     assert registry.get("meeting_briefing").version == "v2"
     assert registry.get("meeting_briefing").max_output_tokens == 3500
     assert registry.get("weekly_change").version == "v2"
@@ -175,6 +177,25 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert registry.get("competitive_procurement_intelligence").version == "v2"
     assert registry.get("competitive_procurement_intelligence").max_output_tokens == 16000
     assert registry.get("competitive_procurement_intelligence", "v1").max_output_tokens == 5000
+
+
+def test_fit_budget_never_zeroes_allowed_evidence_ids() -> None:
+    from opn_oracle.ai.context import _fit_budget
+
+    payload = {
+        "dossier": {"title": "Expediente de prueba"},
+        "evidence": [{"id": "a", "extract": "Y" * 8_000, "untrusted_data": True}],
+        "allowed_evidence_ids": [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ],
+        "security_instruction": "dato no confiable",
+        "snapshot_mode": True,
+    }
+    fitted = _fit_budget(payload, max_chars=900)
+    allow = fitted.get("allowed_evidence_ids")
+    assert isinstance(allow, list) and allow
+    assert all(isinstance(item, str) and len(item) == 36 for item in allow)
 
 
 def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> None:
@@ -265,9 +286,12 @@ def test_report_writer_v6_prompt_forbids_empty_sections_and_pins_required_headin
     viajaba dentro del JSON de contexto.
     """
 
-    prompt = PromptRegistry().get("report_writer")
+    prompt = PromptRegistry().get("report_writer", "v6")
+    latest = PromptRegistry().get("report_writer")
 
     assert prompt.version == "v6"
+    assert latest.version == "v7"
+    assert "sections" in latest.text and "nunca" in latest.text.lower()
     assert "`requested_scope.required_sections`" in prompt.text
     assert "exactamente una sección por cada heading" in prompt.text
     assert "nunca** puede ir vacío" in prompt.text

@@ -124,28 +124,99 @@ def _trim_portfolio(items: list[dict[str, Any]], max_chars: int) -> list[dict[st
     return kept
 
 
+# Keys whose values are identifiers or policy flags: never mid-truncate their strings.
+# Production bug: after packing long evidence extracts, `_fit_budget` zeroed
+# `allowed_evidence_ids` UUID strings and the model wrote «lista vacía de IDs».
+_FIT_BUDGET_PROTECTED_KEYS = frozenset(
+    {
+        "allowed_evidence_ids",
+        "evidence_ids",
+        "id",
+        "dossier_id",
+        "actor_id",
+        "from_actor_id",
+        "to_actor_id",
+        "snapshot_mode",
+        "security_instruction",
+        "schema",
+        "kind",
+        "status",
+        "actor_type",
+        "relationship_type",
+        "classification",
+    }
+)
+
+
 def _fit_budget(payload: dict[str, Any], max_chars: int) -> dict[str, Any]:
-    """Deterministically truncate every string until the whole serialized payload fits."""
+    """Deterministically shrink bulk text until the serialized payload fits.
+
+    Identity lists and structural flags are reserved first so citation allowlists
+    cannot collapse to empty strings when extracts exhaust the character budget.
+    """
     if len(_canonical(payload)) <= max_chars:
         return payload
-    remaining = max_chars
 
-    def fit(value: Any) -> Any:
-        nonlocal remaining
+    def truncate_strings(value: Any, *, remaining: list[int], protect: bool) -> Any:
         if isinstance(value, str):
-            selected = value[: max(0, remaining)]
-            remaining -= len(selected)
+            if protect:
+                size = len(value)
+                if size > remaining[0]:
+                    return ""
+                remaining[0] -= size
+                return value
+            selected = value[: max(0, remaining[0])]
+            remaining[0] -= len(selected)
             return selected
         if isinstance(value, dict):
-            return {key: fit(child) for key, child in value.items()}
+            return {
+                key: truncate_strings(
+                    child,
+                    remaining=remaining,
+                    protect=protect or key in _FIT_BUDGET_PROTECTED_KEYS,
+                )
+                for key, child in value.items()
+            }
         if isinstance(value, list):
-            return [fit(child) for child in value]
+            if protect:
+                kept: list[Any] = []
+                for child in value:
+                    if isinstance(child, str):
+                        size = len(child)
+                        if size > remaining[0]:
+                            break
+                        remaining[0] -= size
+                        kept.append(child)
+                    else:
+                        kept.append(truncate_strings(child, remaining=remaining, protect=True))
+                return kept
+            return [truncate_strings(child, remaining=remaining, protect=False) for child in value]
         return value
 
-    fitted = fit(payload)
-    while len(_canonical(fitted)) > max_chars and remaining > -max_chars:
-        remaining -= max(1, len(_canonical(fitted)) - max_chars)
-        fitted = fit(payload)
+    protected = {key: value for key, value in payload.items() if key in _FIT_BUDGET_PROTECTED_KEYS}
+    bulk = {key: value for key, value in payload.items() if key not in _FIT_BUDGET_PROTECTED_KEYS}
+    protected_size = len(_canonical(protected))
+    bulk_budget = max(64, max_chars - protected_size)
+    fitted_bulk = truncate_strings(bulk, remaining=[bulk_budget], protect=False)
+    remaining_for_ids = max(0, max_chars - len(_canonical(fitted_bulk)))
+    fitted_protected = truncate_strings(protected, remaining=[remaining_for_ids], protect=True)
+    fitted: dict[str, Any] = {**fitted_bulk, **fitted_protected}
+    allow = fitted.get("allowed_evidence_ids")
+    if isinstance(allow, list):
+        fitted["allowed_evidence_ids"] = [item for item in allow if isinstance(item, str) and item]
+    guard = 0
+    while len(_canonical(fitted)) > max_chars and guard < 8:
+        guard += 1
+        shrink = max(64, bulk_budget // (guard + 1))
+        fitted_bulk = truncate_strings(bulk, remaining=[shrink], protect=False)
+        remaining_for_ids = max(0, max_chars - len(_canonical(fitted_bulk)))
+        fitted_protected = truncate_strings(protected, remaining=[remaining_for_ids], protect=True)
+        fitted = {**fitted_bulk, **fitted_protected}
+        allow = fitted.get("allowed_evidence_ids")
+        if isinstance(allow, list):
+            fitted["allowed_evidence_ids"] = [
+                item for item in allow if isinstance(item, str) and item
+            ]
     return cast(dict[str, Any], fitted)
 
 
@@ -1115,7 +1186,28 @@ def build_frozen_context(
     used_chars = 0
     evidence_payload: list[dict[str, Any]] = []
     selected: list[FrozenEvidence] = []
-    for item in evidence:
+    # Prefer evidence linked from actor/relationship cards so actor reports do not only
+    # see a bulk BORME stream while actor.evidence_ids stay empty in prose.
+    priority_ids: set[str] = set()
+    for actor in actors or []:
+        if isinstance(actor, dict):
+            for evidence_id in actor.get("evidence_ids") or []:
+                priority_ids.add(str(evidence_id))
+            name = str(actor.get("canonical_name") or "").strip().lower()
+            if name:
+                for item in evidence:
+                    extract = (item.extract or "").lower()
+                    if name in extract:
+                        priority_ids.add(str(item.row.id))
+    for relation in relationships or []:
+        if isinstance(relation, dict):
+            for evidence_id in relation.get("evidence_ids") or []:
+                priority_ids.add(str(evidence_id))
+    ordered_evidence = sorted(
+        evidence,
+        key=lambda item: (0 if str(item.row.id) in priority_ids else 1, str(item.row.id)),
+    )
+    for item in ordered_evidence:
         extract = item.extract
         if used_chars + len(extract) > char_budget:
             extract = extract[: max(0, char_budget - used_chars)]
@@ -1142,12 +1234,13 @@ def build_frozen_context(
         "objectives": objectives,
         "hypotheses": hypotheses,
         "living_summary": living_summary,
+        # Actors before bulk evidence in serialization order for residual budget fitting.
         "actors": actors or [],
         "relationships": relationships or [],
+        "entity_context_meta": entity_context_meta or {},
         "opportunity": opportunity,
         "risk": risk,
         "meeting": meeting,
-        "entity_context_meta": entity_context_meta or {},
         "procurement_items": procurement_items or [],
         "evidence": evidence_payload,
         "allowed_evidence_ids": [str(item.row.id) for item in selected],

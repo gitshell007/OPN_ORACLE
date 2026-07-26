@@ -236,6 +236,11 @@ function ReportGenerateWizard({
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
 
   useEffect(() => {
+    if (!pdfEnabled) return;
+    setFormats((current) => (current.includes("pdf") ? current : [...current, "pdf"]));
+  }, [pdfEnabled]);
+
+  useEffect(() => {
     if (!open || actors.length) return;
     let cancelled = false;
     void (async () => {
