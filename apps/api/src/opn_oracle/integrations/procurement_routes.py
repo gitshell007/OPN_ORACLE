@@ -716,9 +716,13 @@ def tenders(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 @bp.input(TenderSummaryPathSchema, location="path")
 @bp.output(TenderSummaryResponseSchema)
 @limiter.limit("20/minute")
-def tender_summary(path_data: dict[str, Any]) -> dict[str, Any] | Any:
+def tender_summary(
+    folder_id: str,
+    path_data: dict[str, Any] | None = None,
+) -> dict[str, Any] | Any:
+    resolved = cast(str, (path_data or {}).get("folder_id") or folder_id)
     return _handle_provider_call(
-        lambda: uncached_tender_summary(folder_id=cast(str, path_data["folder_id"]))
+        lambda: uncached_tender_summary(folder_id=resolved)
     )
 
 
@@ -747,15 +751,28 @@ def tender_searches_create(json_data: dict[str, Any]) -> dict[str, Any] | Any:
     return _handle_provider_call(lambda: create_tender_search(payload=json_data))
 
 
+def _resolved_search_id(
+    search_id: str | None,
+    path_data: dict[str, Any] | None,
+) -> str:
+    """Flask path converters still inject ``search_id``; webargs path schema uses ``path_data``."""
+    resolved = (path_data or {}).get("search_id") or search_id
+    if not isinstance(resolved, str) or not resolved.strip():
+        raise ValidationError("search_id es obligatorio.", field_name="search_id")
+    return resolved.strip()
+
+
 @bp.get("/tender-searches/<search_id>")
 @require_permission("opportunity.read")
 @bp.input(TenderSearchPathSchema, location="path")
 @bp.output(TenderSearchResourceSchema)
 @limiter.limit("60/minute")
-def tender_searches_get(path_data: dict[str, Any]) -> dict[str, Any] | Any:
-    return _handle_provider_call(
-        lambda: get_tender_search(search_id=cast(str, path_data["search_id"]))
-    )
+def tender_searches_get(
+    search_id: str,
+    path_data: dict[str, Any] | None = None,
+) -> dict[str, Any] | Any:
+    resolved = _resolved_search_id(search_id, path_data)
+    return _handle_provider_call(lambda: get_tender_search(search_id=resolved))
 
 
 @bp.patch("/tender-searches/<search_id>")
@@ -765,12 +782,14 @@ def tender_searches_get(path_data: dict[str, Any]) -> dict[str, Any] | Any:
 @bp.output(TenderSearchResourceSchema)
 @limiter.limit("30/minute")
 def tender_searches_patch(
+    search_id: str,
     json_data: dict[str, Any],
-    path_data: dict[str, Any],
+    path_data: dict[str, Any] | None = None,
 ) -> dict[str, Any] | Any:
+    resolved = _resolved_search_id(search_id, path_data)
     return _handle_provider_call(
         lambda: patch_tender_search(
-            search_id=cast(str, path_data["search_id"]),
+            search_id=resolved,
             payload=json_data,
         )
     )
@@ -781,10 +800,12 @@ def tender_searches_patch(
 @bp.input(TenderSearchPathSchema, location="path")
 @bp.output(TenderSearchResourceSchema)
 @limiter.limit("30/minute")
-def tender_searches_delete(path_data: dict[str, Any]) -> dict[str, Any] | Any:
-    return _handle_provider_call(
-        lambda: delete_tender_search(search_id=cast(str, path_data["search_id"]))
-    )
+def tender_searches_delete(
+    search_id: str,
+    path_data: dict[str, Any] | None = None,
+) -> dict[str, Any] | Any:
+    resolved = _resolved_search_id(search_id, path_data)
+    return _handle_provider_call(lambda: delete_tender_search(search_id=resolved))
 
 
 @bp.get("/tender-searches/<search_id>/run")
@@ -794,12 +815,14 @@ def tender_searches_delete(path_data: dict[str, Any]) -> dict[str, Any] | Any:
 @bp.output(TenderSearchRunSchema)
 @limiter.limit("60/minute")
 def tender_searches_run(
+    search_id: str,
     query_data: dict[str, Any],
-    path_data: dict[str, Any],
+    path_data: dict[str, Any] | None = None,
 ) -> dict[str, Any] | Any:
+    resolved = _resolved_search_id(search_id, path_data)
     return _handle_provider_call(
         lambda: run_tender_search(
-            search_id=cast(str, path_data["search_id"]),
+            search_id=resolved,
             limit=int(query_data["limit"]),
             offset=int(query_data["offset"]),
         )
