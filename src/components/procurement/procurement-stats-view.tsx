@@ -17,7 +17,10 @@ export type ProcurementAnalyticsParams = {
   top_n?: number;
   sort?: "count" | "amount_sum";
   direction?: "asc" | "desc";
+  scope?: "active" | "all";
 };
+
+const SAMPLE_SIZE_OPTIONS = [100, 200, 300, 500, 750, 1000, 2000, 5000, 10000] as const;
 
 export type ProcurementAnalyticsPayload = {
   registry: Record<string, unknown>;
@@ -44,6 +47,7 @@ export type ProcurementAnalyticsPayload = {
     top_n: number;
     sort_by: string;
     direction: string;
+    scope?: "active" | "all";
   };
 };
 
@@ -159,6 +163,7 @@ function AnalyticsProgressModal({
   stageIndex,
   sampleSize,
   topN,
+  scope,
   finishing,
 }: {
   open: boolean;
@@ -166,6 +171,7 @@ function AnalyticsProgressModal({
   stageIndex: number;
   sampleSize: number;
   topN: number;
+  scope: "active" | "all";
   finishing: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
@@ -244,7 +250,7 @@ function AnalyticsProgressModal({
           <p id="analytics-progress-desc">
             {finishing
               ? "Rankings actualizados con la configuración seleccionada."
-              : `Muestreando ${formatInt(sampleSize)} licitaciones y preparando el top ${topN}.`}
+              : `Muestreando ${formatInt(sampleSize)} licitaciones (${scope === "active" ? "solo activas" : "todas"}) y preparando el top ${topN}.`}
           </p>
         </div>
 
@@ -304,6 +310,7 @@ export function ProcurementStatsView({
   const [topN, setTopN] = useState(25);
   const [sortBy, setSortBy] = useState<"count" | "amount_sum">("count");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const [scope, setScope] = useState<"active" | "all">("active");
   const [activeTable, setActiveTable] = useState<
     "cpv" | "buyers" | "regions" | "buckets" | "terms" | "statuses"
   >("cpv");
@@ -336,6 +343,7 @@ export function ProcurementStatsView({
         top_n: topN,
         sort: sortBy,
         direction,
+        scope,
       });
       if (generation !== loadGeneration.current) return;
       setData(result);
@@ -359,7 +367,7 @@ export function ProcurementStatsView({
       setFinishing(false);
       setLoading(false);
     }
-  }, [clearFinishTimer, direction, loadAnalytics, sampleSize, sortBy, topN]);
+  }, [clearFinishTimer, direction, loadAnalytics, sampleSize, scope, sortBy, topN]);
 
   useEffect(() => {
     const kickoff = window.setTimeout(() => void load(), 0);
@@ -467,6 +475,7 @@ export function ProcurementStatsView({
         stageIndex={stageIndex}
         sampleSize={sampleSize}
         topN={topN}
+        scope={scope}
         finishing={finishing}
       />
 
@@ -504,11 +513,23 @@ export function ProcurementStatsView({
               onChange={(event) => setSampleSize(Number(event.target.value))}
               aria-label="Tamaño de la muestra"
             >
-              {[100, 200, 300, 500, 750, 1000].map((value) => (
+              {SAMPLE_SIZE_OPTIONS.map((value) => (
                 <option key={value} value={value}>
-                  {value} licitaciones
+                  {formatInt(value)} licitaciones
                 </option>
               ))}
+            </select>
+          </label>
+          <label>
+            <span>Ámbito</span>
+            <select
+              value={scope}
+              disabled={controlsDisabled}
+              onChange={(event) => setScope(event.target.value as "active" | "all")}
+              aria-label="Ámbito de las licitaciones"
+            >
+              <option value="active">Solo activas (pendientes)</option>
+              <option value="all">Todas (incluye finalizadas del índice)</option>
             </select>
           </label>
           <label>

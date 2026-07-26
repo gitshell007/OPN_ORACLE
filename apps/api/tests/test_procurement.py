@@ -1573,13 +1573,19 @@ def test_procurement_analytics_requires_opportunity_read(
 ) -> None:
     called = False
 
+    seen: dict[str, Any] = {}
+
     def fake_build(**kwargs: Any) -> dict[str, Any]:
-        del kwargs
         nonlocal called
         called = True
+        seen.update(kwargs)
         return {
             "registry": {},
-            "sample": {"requested": 50, "collected": 0, "scope": "open_tenders"},
+            "sample": {
+                "requested": kwargs.get("sample_size", 50),
+                "collected": 0,
+                "scope": "active_tenders",
+            },
             "rankings": {
                 "sample_size": 0,
                 "with_amount": 0,
@@ -1592,10 +1598,11 @@ def test_procurement_analytics_requires_opportunity_read(
                 "amount_buckets": [],
             },
             "controls": {
-                "sample_size": 50,
-                "top_n": 10,
-                "sort_by": "count",
-                "direction": "desc",
+                "sample_size": kwargs.get("sample_size", 50),
+                "top_n": kwargs.get("top_n", 10),
+                "sort_by": kwargs.get("sort_by", "count"),
+                "direction": kwargs.get("direction", "desc"),
+                "scope": kwargs.get("scope", "active"),
             },
         }
 
@@ -1613,16 +1620,20 @@ def test_procurement_analytics_requires_opportunity_read(
         allowed = client.get(
             "/api/v1/procurement/analytics",
             query_string={
-                "sample_size": "50",
+                "sample_size": "5000",
                 "top_n": "10",
                 "sort": "count",
                 "direction": "desc",
+                "scope": "all",
             },
         )
     assert allowed.status_code == 200, allowed.get_data(as_text=True)
     body = allowed.get_json()
-    assert body["sample"]["requested"] == 50
+    assert body["sample"]["requested"] == 5000
     assert body["controls"]["top_n"] == 10
+    assert body["controls"]["scope"] == "all"
+    assert seen["sample_size"] == 5000
+    assert seen["scope"] == "all"
     assert called is True
 
 

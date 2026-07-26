@@ -443,7 +443,7 @@ def platform_procurement_analytics() -> Any:
             )[:2]
         return max(minimum, min(maximum, value))
 
-    sample_size = _int_arg("sample_size", 300, minimum=50, maximum=1000)
+    sample_size = _int_arg("sample_size", 300, minimum=50, maximum=10_000)
     if not isinstance(sample_size, int):
         return sample_size
     top_n = _int_arg("top_n", 25, minimum=5, maximum=100)
@@ -455,12 +455,16 @@ def platform_procurement_analytics() -> Any:
     direction = (request.args.get("direction") or "desc").strip().lower()
     if direction not in {"asc", "desc"}:
         direction = "desc"
+    scope = (request.args.get("scope") or "active").strip().lower()
+    if scope not in {"active", "all"}:
+        scope = "active"
     try:
         return build_procurement_analytics(
             sample_size=sample_size,
             top_n=top_n,
             sort_by=sort_by,
             direction=direction,
+            scope=scope,
         )
     except ProcurementConfigurationError as exc:
         return problem_response(

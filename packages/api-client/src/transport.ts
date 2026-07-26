@@ -435,12 +435,14 @@ const platform = {
     top_n?: number;
     sort?: "count" | "amount_sum";
     direction?: "asc" | "desc";
+    scope?: "active" | "all";
   }) => {
     const query = new URLSearchParams();
     if (params?.sample_size != null) query.set("sample_size", String(params.sample_size));
     if (params?.top_n != null) query.set("top_n", String(params.top_n));
     if (params?.sort) query.set("sort", params.sort);
     if (params?.direction) query.set("direction", params.direction);
+    if (params?.scope) query.set("scope", params.scope);
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return request<{
       registry: Record<string, unknown>;
@@ -467,6 +469,7 @@ const platform = {
         top_n: number;
         sort_by: string;
         direction: string;
+        scope?: "active" | "all";
       };
     }>(`/api/v1/platform/procurement-analytics${suffix}`);
   },
@@ -2118,18 +2121,20 @@ const procurement = {
     );
   },
   stats: () => request<ProcurementStatsResponse>("/api/v1/procurement/stats"),
-  /** PLACSP open-tender market rankings (tenant; requires opportunity.read). */
+  /** PLACSP market rankings (tenant; requires opportunity.read). */
   analytics: (params?: {
     sample_size?: number;
     top_n?: number;
     sort?: "count" | "amount_sum";
     direction?: "asc" | "desc";
+    scope?: "active" | "all";
   }) => {
     const query = new URLSearchParams();
     if (params?.sample_size != null) query.set("sample_size", String(params.sample_size));
     if (params?.top_n != null) query.set("top_n", String(params.top_n));
     if (params?.sort) query.set("sort", params.sort);
     if (params?.direction) query.set("direction", params.direction);
+    if (params?.scope) query.set("scope", params.scope);
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return request<{
       registry: Record<string, unknown>;
@@ -2156,6 +2161,7 @@ const procurement = {
         top_n: number;
         sort_by: string;
         direction: string;
+        scope?: "active" | "all";
       };
     }>(`/api/v1/procurement/analytics${suffix}`);
   },

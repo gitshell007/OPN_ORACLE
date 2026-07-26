@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from opn_oracle.platform.procurement_analytics import (
+    MAX_ANALYTICS_SAMPLE_SIZE,
     aggregate_tenders,
     amount_bucket_label,
     parse_amount,
+    sample_tenders,
 )
 
 
@@ -74,3 +76,33 @@ def test_aggregate_tenders_ranks_cpv_buyers_and_buckets() -> None:
     by_amount = aggregate_tenders(items, top_n=5, sort_by="amount_sum", direction="desc")
     assert by_amount["top_buyers"][0]["key"] == "Servicio Andaluz de Salud"
     assert by_amount["top_buyers"][0]["amount_sum"] == 165_000.0
+
+
+def test_sample_tenders_respects_scope_and_max_size() -> None:
+    seen: list[dict[str, object]] = []
+
+    class FakeClient:
+        def tenders(self, **kwargs: object) -> dict[str, object]:
+            seen.append(dict(kwargs))
+            return {
+                "total": 3,
+                "items": [
+                    {"title": "A", "buyer": "B", "cpv": ["90910000"], "amount": 1},
+                    {"title": "C", "buyer": "D", "cpv": ["33140000"], "amount": 2},
+                ],
+            }
+
+    active_items, active_total = sample_tenders(
+        FakeClient(),  # type: ignore[arg-type]
+        sample_size=50_000,
+        scope="active",
+    )
+    assert MAX_ANALYTICS_SAMPLE_SIZE == 10_000
+    assert active_total == 3
+    assert len(active_items) == 2
+    assert seen[0]["active"] is True
+    assert seen[0]["limit"] == 200  # large sample uses page 200
+
+    seen.clear()
+    sample_tenders(FakeClient(), sample_size=100, scope="all")  # type: ignore[arg-type]
+    assert seen[0]["active"] is False

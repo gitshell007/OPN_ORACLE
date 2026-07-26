@@ -257,14 +257,30 @@ def aggregate_tenders(
     }
 
 
-def sample_open_tenders(
+MAX_ANALYTICS_SAMPLE_SIZE = 10_000
+DEFAULT_ANALYTICS_SAMPLE_SIZE = 300
+ALLOWED_ANALYTICS_SCOPES = frozenset({"active", "all"})
+
+
+def sample_tenders(
     client: ProcurementClient,
     *,
     sample_size: int,
-    page_size: int = 100,
+    scope: str = "active",
+    page_size: int | None = None,
 ) -> tuple[list[dict[str, Any]], int | None]:
-    target = max(1, min(int(sample_size), 1000))
-    page = max(10, min(int(page_size), 200))
+    """Sample tenders from Signal for market rankings.
+
+    ``scope=active`` keeps the provider ``active=true`` filter.
+    ``scope=all`` uses ``active=false`` (Signal v1: omit is_active predicate, not
+    inactive-only), so finished tenders can appear in the sample.
+    """
+
+    target = max(1, min(int(sample_size), MAX_ANALYTICS_SAMPLE_SIZE))
+    # Larger samples use bigger pages to cut round-trips to Signal.
+    default_page = 200 if target > 1000 else 100
+    page = max(10, min(int(page_size if page_size is not None else default_page), 200))
+    active_filter: bool | None = True if scope != "all" else False
     collected: list[dict[str, Any]] = []
     offset = 0
     reported_total: int | None = None
@@ -277,7 +293,7 @@ def sample_open_tenders(
             deadline_before=None,
             buyer=None,
             region=None,
-            active=True,
+            active=active_filter,
             limit=min(page, target - len(collected)),
             offset=offset,
         )
@@ -296,16 +312,35 @@ def sample_open_tenders(
     return collected[:target], reported_total
 
 
+def sample_open_tenders(
+    client: ProcurementClient,
+    *,
+    sample_size: int,
+    page_size: int | None = None,
+) -> tuple[list[dict[str, Any]], int | None]:
+    """Backward-compatible alias for active-only sampling."""
+
+    return sample_tenders(
+        client,
+        sample_size=sample_size,
+        scope="active",
+        page_size=page_size,
+    )
+
+
 def build_procurement_analytics(
     *,
-    sample_size: int = 300,
+    sample_size: int = DEFAULT_ANALYTICS_SAMPLE_SIZE,
     top_n: int = 25,
     sort_by: str = "count",
     direction: str = "desc",
+    scope: str = "active",
     client: ProcurementClient | None = None,
 ) -> dict[str, Any]:
     owns_client = client is None
     active = client or procurement_client_from_config()
+    resolved_scope = scope if scope in ALLOWED_ANALYTICS_SCOPES else "active"
+    clamped_sample = max(1, min(int(sample_size), MAX_ANALYTICS_SAMPLE_SIZE))
     try:
         try:
             registry = procurement_stats() if owns_client else active.stats()
@@ -314,31 +349,45 @@ def build_procurement_analytics(
                 "error": exc.detail[:300],
                 "error_code": exc.code,
             }
-        sample, reported_total = sample_open_tenders(active, sample_size=sample_size)
+        sample, reported_total = sample_tenders(
+            active,
+            sample_size=clamped_sample,
+            scope=resolved_scope,
+        )
         rankings = aggregate_tenders(
             sample,
             top_n=top_n,
             sort_by=sort_by,
             direction=direction,
         )
+        if resolved_scope == "all":
+            note = (
+                "Rankings calculados sobre una muestra acotada del índice PLACSP "
+                "(activas y finalizadas presentes en Signal). No es un archivo histórico completo."
+            )
+            sample_scope = "all_tenders"
+        else:
+            note = (
+                "Rankings calculados sobre una muestra acotada de licitaciones activas "
+                "PLACSP. No es el universo histórico completo."
+            )
+            sample_scope = "active_tenders"
         return {
             "registry": registry if isinstance(registry, dict) else {},
             "sample": {
-                "requested": sample_size,
+                "requested": clamped_sample,
                 "collected": len(sample),
                 "provider_total": reported_total,
-                "scope": "open_tenders",
-                "note": (
-                    "Rankings calculados sobre una muestra acotada de licitaciones abiertas "
-                    "PLACSP. No es el universo histórico completo."
-                ),
+                "scope": sample_scope,
+                "note": note,
             },
             "rankings": rankings,
             "controls": {
-                "sample_size": sample_size,
+                "sample_size": clamped_sample,
                 "top_n": top_n,
                 "sort_by": sort_by,
                 "direction": direction,
+                "scope": resolved_scope,
             },
         }
     finally:
