@@ -1431,6 +1431,18 @@ deberá versionarse un flujo de copia/materialización separado.
 - **Consecuencias:** el analista actúa sin SSH. No se añaden columnas nuevas; no se filtran
   stack traces al cliente.
 
+## D-084 — Estadísticas de licitaciones en superadmin por muestra acotada
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** el superusuario quiere ver qué se convoca más (CPV, organismos, tramos €).
+  Signal no ofrece un endpoint de ranking global; `awards` exige company/buyer.
+- **Decisión:** calcular rankings en Oracle sobre una muestra configurable de licitaciones
+  abiertas (`registry/tenders`) más el snapshot opaco de `registry/stats`. Controles top-N y
+  orden por conteo o importe de la muestra.
+- **Consecuencias:** insight operativo inmediato sin inventar un data warehouse. No se afirma
+  cobertura histórica completa; se documenta el límite en UI.
+
 ## D-083 — Log de fuentes oficiales BORME/BOE para superadmin
 
 - **Estado:** accepted

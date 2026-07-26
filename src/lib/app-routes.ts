@@ -18,6 +18,7 @@ import {
   Network,
   Newspaper,
   PlugZap,
+  BarChart3,
   RadioTower,
   SearchCheck,
   Settings,
@@ -239,6 +240,7 @@ export const PLATFORM_ROUTES = [
   { id: "platform-integrations", label: "Integraciones", href: "/platform/integrations", group: "platform", icon: PlugZap, platformOnly: true, nav: true },
   { id: "platform-audit", label: "Auditoría global", href: "/platform/audit", group: "platform", icon: FileSearch, platformOnly: true, nav: true },
   { id: "platform-source-activity", label: "Fuentes oficiales", href: "/platform/source-activity", group: "platform", icon: Newspaper, platformOnly: true, nav: true },
+  { id: "platform-procurement-stats", label: "Estadísticas licitaciones", href: "/platform/procurement-stats", group: "platform", icon: BarChart3, platformOnly: true, nav: true },
   { id: "platform-system", label: "Salud técnica", href: "/platform/system", group: "platform", icon: Activity, platformOnly: true, nav: true },
   { id: "platform-backups", label: "Copias de seguridad", href: "/platform/backups", group: "platform", icon: DatabaseBackup, platformOnly: true, nav: true },
 ] as const satisfies readonly AppRouteDefinition[];

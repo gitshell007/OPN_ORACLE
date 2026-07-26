@@ -264,6 +264,10 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "200",
             "SourceActivityRefreshResponse",
         ),
+        ("/api/v1/platform/procurement-analytics", "get"): (
+            "200",
+            "ProcurementAnalyticsResponse",
+        ),
         ("/api/v1/tenant-admin/members", "get"): ("200", "MemberListResponse"),
         ("/api/v1/tenant-admin/members", "post"): ("201", "IdResponse"),
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): (
@@ -656,6 +660,69 @@ def _response_schemas() -> dict[str, Any]:
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/SourceActivityItem"},
                 },
+            },
+            "additionalProperties": False,
+        },
+        "ProcurementAnalyticsRankItem": {
+            "type": "object",
+            "required": ["key", "label", "count", "amount_sum"],
+            "properties": {
+                "key": {"type": "string"},
+                "label": {"type": "string"},
+                "count": {"type": "integer"},
+                "amount_sum": {"type": "number"},
+            },
+            "additionalProperties": False,
+        },
+        "ProcurementAnalyticsResponse": {
+            "type": "object",
+            "required": ["registry", "sample", "rankings", "controls"],
+            "properties": {
+                "registry": {"type": "object", "additionalProperties": True},
+                "sample": {"type": "object", "additionalProperties": True},
+                "rankings": {
+                    "type": "object",
+                    "properties": {
+                        "top_cpv": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                            },
+                        },
+                        "top_buyers": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                            },
+                        },
+                        "top_regions": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                            },
+                        },
+                        "top_terms": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                            },
+                        },
+                        "statuses": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                            },
+                        },
+                        "amount_buckets": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/components/schemas/ProcurementAnalyticsRankItem"
+                            },
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "controls": {"type": "object", "additionalProperties": True},
             },
             "additionalProperties": False,
         },

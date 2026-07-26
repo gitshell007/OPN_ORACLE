@@ -418,6 +418,64 @@ def platform_source_activity() -> Any:
     }
 
 
+@bp.get("/procurement-analytics")
+@require_platform_admin
+def platform_procurement_analytics() -> Any:
+    """Ranked PLACSP market snapshot for platform operators (open tenders sample)."""
+
+    from opn_oracle.integrations.procurement import (
+        ProcurementConfigurationError,
+        ProcurementProviderError,
+    )
+    from opn_oracle.platform.procurement_analytics import build_procurement_analytics
+
+    def _int_arg(name: str, default: int, *, minimum: int, maximum: int) -> int | Any:
+        raw = request.args.get(name)
+        if raw is None or raw == "":
+            return default
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return problem_response(
+                422,
+                detail=f"{name} debe ser un entero.",
+                code=f"invalid_{name}",
+            )[:2]
+        return max(minimum, min(maximum, value))
+
+    sample_size = _int_arg("sample_size", 300, minimum=50, maximum=1000)
+    if not isinstance(sample_size, int):
+        return sample_size
+    top_n = _int_arg("top_n", 25, minimum=5, maximum=100)
+    if not isinstance(top_n, int):
+        return top_n
+    sort_by = (request.args.get("sort") or "count").strip()
+    if sort_by not in {"count", "amount_sum"}:
+        sort_by = "count"
+    direction = (request.args.get("direction") or "desc").strip().lower()
+    if direction not in {"asc", "desc"}:
+        direction = "desc"
+    try:
+        return build_procurement_analytics(
+            sample_size=sample_size,
+            top_n=top_n,
+            sort_by=sort_by,
+            direction=direction,
+        )
+    except ProcurementConfigurationError as exc:
+        return problem_response(
+            503,
+            detail=str(exc),
+            code="procurement_not_configured",
+        )[:2]
+    except ProcurementProviderError as exc:
+        return problem_response(
+            exc.status_code if 400 <= exc.status_code < 600 else 502,
+            detail=exc.detail,
+            code=exc.code,
+        )[:2]
+
+
 @bp.post("/source-activity/refresh")
 @require_platform_admin
 def platform_source_activity_refresh() -> Any:

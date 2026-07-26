@@ -4,6 +4,16 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Superadmin · estadísticas de licitaciones PLACSP
+
+- Pantalla `/platform/procurement-stats` (solo superadmin): rankings de CPV, organismos,
+  regiones, tramos de importe, términos de título y estados.
+- Controles: tamaño de muestra (100–1000), top N (10–100), orden por conteo o importe
+  acumulado, asc/desc. KPI de inventario Signal (`/registry/stats`) + muestra de abiertas.
+- Backend `GET /api/v1/platform/procurement-analytics` agrega en Oracle una muestra acotada
+  de `registry/tenders` (no ranking global histórico: awards exige company/buyer en Signal).
+- Tests unitarios de parseo de importes, buckets y rankings.
+
 ## Superadmin · log de actividad de fuentes oficiales (BORME/BOE)
 
 - Nuevo registro de plataforma `platform_source_activity` (migración `20260726_0026`):

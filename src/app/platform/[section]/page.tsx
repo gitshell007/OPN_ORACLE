@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { PlatformOperationalOverview, PlatformSystem } from "@/components/platform/platform-pages";
 import { PlatformBackups } from "@/components/platform/platform-backups";
 import { PlatformSourceActivity } from "@/components/platform/platform-source-activity";
+import { PlatformProcurementStats } from "@/components/platform/platform-procurement-stats";
 
 const sections = {
   jobs: {
@@ -24,6 +25,10 @@ const sections = {
     title: "Fuentes oficiales",
     description: "Registro diario de publicación BORME y BOE con recuentos.",
   },
+  "procurement-stats": {
+    title: "Estadísticas de licitaciones",
+    description: "Rankings CPV, organismos, regiones y tramos de importe.",
+  },
 } as const;
 
 export default async function Page({ params }: { params: Promise<{ section: string }> }) {
@@ -33,6 +38,7 @@ export default async function Page({ params }: { params: Promise<{ section: stri
   if (section === "system") return <PlatformSystem />;
   if (section === "backups") return <PlatformBackups />;
   if (section === "source-activity") return <PlatformSourceActivity />;
+  if (section === "procurement-stats") return <PlatformProcurementStats />;
   if (section === "jobs" || section === "integrations") {
     return <PlatformOperationalOverview kind={section} />;
   }

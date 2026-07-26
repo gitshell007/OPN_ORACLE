@@ -430,6 +430,46 @@ const platform = {
       method: "POST",
       body: { lookback_days },
     }),
+  procurementAnalytics: (params?: {
+    sample_size?: number;
+    top_n?: number;
+    sort?: "count" | "amount_sum";
+    direction?: "asc" | "desc";
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.sample_size != null) query.set("sample_size", String(params.sample_size));
+    if (params?.top_n != null) query.set("top_n", String(params.top_n));
+    if (params?.sort) query.set("sort", params.sort);
+    if (params?.direction) query.set("direction", params.direction);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request<{
+      registry: Record<string, unknown>;
+      sample: {
+        requested: number;
+        collected: number;
+        provider_total?: number | null;
+        scope: string;
+        note?: string;
+      };
+      rankings: {
+        sample_size?: number;
+        with_amount?: number;
+        amount_sum?: number;
+        top_cpv: Array<{ key: string; label: string; count: number; amount_sum: number }>;
+        top_buyers: Array<{ key: string; label: string; count: number; amount_sum: number }>;
+        top_regions: Array<{ key: string; label: string; count: number; amount_sum: number }>;
+        top_terms: Array<{ key: string; label: string; count: number; amount_sum: number }>;
+        statuses: Array<{ key: string; label: string; count: number; amount_sum: number }>;
+        amount_buckets: Array<{ key: string; label: string; count: number; amount_sum: number }>;
+      };
+      controls: {
+        sample_size: number;
+        top_n: number;
+        sort_by: string;
+        direction: string;
+      };
+    }>(`/api/v1/platform/procurement-analytics${suffix}`);
+  },
   system: async () => {
     const [live, ready, meta] = await Promise.all([
       request<components["schemas"]["Health"]>("/health/live"),
