@@ -12,14 +12,17 @@ Interfaz canónica: `CANONICAL_UI=vector`
   ni artefactos. El fallo antiguo del 24-jul era JSON truncado del revisor; el de hoy es
   `verdict=fail` limpio.
 - **Decisión (D-081):** `report_writer` pasa a `strip_claims` (misma familia que
-  `dossier_situation_summary`). Si el revisor marca claims anclados, se retiran y el informe se
-  publica con avisos; objeciones no anclables siguen en fail-closed. `competitive_procurement_intelligence`
-  conserva `reject_output`. No se toca entity_dossier (revisor no requerido).
-- Sin migración, variables, frontend ni Signal. Tests: registry unitario; integración
-  `test_report_writer_strips_claims_on_negative_reviewer_verdict` (éxito con strip) y competitive
-  hard-fail. Mutación: revertir a `reject_output` hace caer ambos tests del cambio; restaurado
-  verde. Ruff check/format-check correctos en los ficheros tocados.
-- Tras commit/push se activa release en producción y se reintenta el mismo informe de actores.
+  `dossier_situation_summary`). Además, strip **lenient** solo para `report_writer`: si el revisor
+  inventa paths no anclables, el cuerpo se publica con avisos en lugar de borrar el entregable.
+  El resumen nocturno sigue estricto. Competitive conserva `reject_output`.
+- Commits `8d19873` + `af10878`. Releases prod:
+  `20260726T094145Z-quick-8d19873` (strip estricto) y `20260726T095055Z-quick-af10878` (lenient).
+- **Verificación prod final:** reintento → informe `14a9fb0d-…`, job `1d58ca71-…` **succeeded**,
+  report **ready**, 7 secciones, 21 warnings (16 afirmaciones retiradas), artefactos html+json,
+  104 evidencias, provider `ollama`/`qwen3.5:9b` ~149 s. Antes: permanent_failure sin revision.
+- Tests: registry, strip lenient unitario, integración strip anclado + competitive hard-fail.
+  Mutación de política a `reject_output` hizo caer tests; restaurada. Ruff OK. Sin migración ni
+  variables nuevas.
 
 ## Prompt 91 · selector asignable, 429 veraz y runtime web reproducible
 
