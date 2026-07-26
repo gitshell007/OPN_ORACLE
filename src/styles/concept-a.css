@@ -993,12 +993,14 @@
   background: var(--va-panel);
   box-shadow: var(--va-shadow);
   padding: 16px;
+  min-width: 0;
+  overflow: visible;
 }
-.dossier-context-panel > header,
-.dossier-context-panel section > header {
-  align-items: center;
+.dossier-context-panel > header {
+  align-items: flex-start;
   display: flex;
   justify-content: space-between;
+  gap: 12px;
 }
 .dossier-context-panel h2,
 .dossier-context-panel h3,
@@ -1007,13 +1009,20 @@
 }
 .dossier-context-grid {
   display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 14px;
   min-width: 0;
 }
+@media (min-width: 1200px) {
+  .dossier-context-grid {
+    grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.35fr);
+    align-items: start;
+  }
+}
 .dossier-context-grid > section {
   min-width: 0;
+  overflow: visible;
 }
 .dossier-context-grid ul {
   display: grid;
@@ -1051,25 +1060,45 @@
   gap: 12px;
   min-width: 0;
 }
+.hypotheses-workspace-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.hypotheses-workspace-toolbar > div {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.hypotheses-workspace-toolbar .vector-primary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  max-width: 100%;
+}
 .hypotheses-workspace .table-scroll {
   min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
 }
-.hypotheses-workspace > header {
-  align-items: flex-start;
-  gap: 12px;
-}
-.hypotheses-workspace > header p {
+.hypotheses-workspace > header p,
+.hypotheses-workspace-toolbar p {
   color: var(--va-muted);
   font-size: 12px;
   line-height: 1.5;
   margin-top: 3px;
 }
 .hypothesis-filter {
-  max-width: 420px;
+  max-width: min(420px, 100%);
+  width: 100%;
 }
 .hypotheses-table {
-  min-width: 780px;
+  min-width: 640px;
+  width: 100%;
 }
 .hypotheses-table th button {
   border: 0;
@@ -1246,9 +1275,6 @@
     grid-column: 2;
     justify-self: start;
     text-align: left;
-  }
-  .dossier-context-grid {
-    grid-template-columns: 1fr;
   }
 }
 .dossier-tabs,

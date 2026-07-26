@@ -257,7 +257,7 @@ export function DossierContextPanel({ dossierId }: { dossierId: string }) {
           {objectives.length ? <ul>{objectives.map((item) => <li key={item.id}><strong>{item.title}</strong><span>{item.status === "achieved" ? "Alcanzado" : item.status === "in_progress" ? "En curso" : "Abierto"}</span><p>{item.description || "Sin descripción adicional."}</p></li>)}</ul> : <p>No hay objetivos registrados todavía.</p>}
         </section>
         <section className="hypotheses-workspace" aria-labelledby="hypotheses-title">
-          <header>
+          <div className="hypotheses-workspace-toolbar">
             <div>
               <h3 id="hypotheses-title">Hipótesis</h3>
               <p>Lista editable para validar, contradecir o descartar supuestos del expediente.</p>
@@ -268,7 +268,7 @@ export function DossierContextPanel({ dossierId }: { dossierId: string }) {
                 Nueva hipótesis
               </button>
             </PermissionGate>
-          </header>
+          </div>
           <label className="search-field hypothesis-filter">
             <Search size={15} aria-hidden="true" />
             <input
