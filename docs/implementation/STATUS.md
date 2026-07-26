@@ -70,15 +70,21 @@ Interfaz canónica: `CANONICAL_UI=vector`
   `docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md` y complemento
   técnico `docs/implementation/prompts/97_LICITACIONES_CPV_RETRIEVAL_Y_EJECUCION_MULTISECTOR.md`.
 
-## Superadmin · estadísticas de licitaciones PLACSP
+## Estadísticas de licitaciones PLACSP (producto + superadmin)
 
-- Pantalla `/platform/procurement-stats` (solo superadmin): rankings de CPV, organismos,
-  regiones, tramos de importe, términos de título y estados.
+- Pantalla producto `/app/procurement/stats` (nav «Estadísticas mercado», `opportunity.read`):
+  mismos rankings de CPV, organismos, regiones, tramos, términos y estados.
+- Pantalla superadmin `/platform/procurement-stats` se mantiene para operadores de plataforma.
 - Controles: tamaño de muestra (100–1000), top N (10–100), orden por conteo o importe
   acumulado, asc/desc. KPI de inventario Signal (`/registry/stats`) + muestra de abiertas.
-- Backend `GET /api/v1/platform/procurement-analytics` agrega en Oracle una muestra acotada
-  de `registry/tenders` (no ranking global histórico: awards exige company/buyer en Signal).
-- Tests unitarios de parseo de importes, buckets y rankings.
+- Backend tenant `GET /api/v1/procurement/analytics` (rate limit 12/h) y plataforma
+  `GET /api/v1/platform/procurement-analytics` reutilizan `build_procurement_analytics`
+  sobre una muestra acotada de `registry/tenders` (no ranking histórico global: awards
+  exige company/buyer en Signal). Los datos son snapshot de mercado compartido, no
+  privados del tenant.
+- UI compartida `ProcurementStatsView`; cliente `api.procurement.analytics` y
+  `api.platform.procurementAnalytics`.
+- Tests unitarios de parseo/rankings y HTTP de permiso + OpenAPI del endpoint tenant.
 
 ## Superadmin · log de actividad de fuentes oficiales (BORME/BOE)
 

@@ -147,6 +147,15 @@ export const GLOBAL_ROUTES = [
     nav: true,
   },
   {
+    id: "procurement-stats",
+    label: "Estadísticas mercado",
+    href: "/app/procurement/stats",
+    group: "intelligence",
+    icon: BarChart3,
+    permission: "opportunity.read",
+    nav: true,
+  },
+  {
     id: "risks",
     label: "Riesgos",
     href: "/app/risks",

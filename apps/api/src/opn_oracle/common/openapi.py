@@ -268,6 +268,10 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "200",
             "ProcurementAnalyticsResponse",
         ),
+        ("/api/v1/procurement/analytics", "get"): (
+            "200",
+            "ProcurementAnalyticsResponse",
+        ),
         ("/api/v1/tenant-admin/members", "get"): ("200", "MemberListResponse"),
         ("/api/v1/tenant-admin/members", "post"): ("201", "IdResponse"),
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): (

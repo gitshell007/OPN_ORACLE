@@ -1566,6 +1566,92 @@ def test_comparable_profile_route_dispatches_with_actor_permission(
 
 
 @pytest.mark.unit
+def test_procurement_analytics_requires_opportunity_read(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_build(**kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        nonlocal called
+        called = True
+        return {
+            "registry": {},
+            "sample": {"requested": 50, "collected": 0, "scope": "open_tenders"},
+            "rankings": {
+                "sample_size": 0,
+                "with_amount": 0,
+                "amount_sum": 0.0,
+                "top_cpv": [],
+                "top_buyers": [],
+                "top_regions": [],
+                "top_terms": [],
+                "statuses": [],
+                "amount_buckets": [],
+            },
+            "controls": {
+                "sample_size": 50,
+                "top_n": 10,
+                "sort_by": "count",
+                "direction": "desc",
+            },
+        }
+
+    monkeypatch.setattr(
+        "opn_oracle.platform.procurement_analytics.build_procurement_analytics",
+        fake_build,
+    )
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset()):
+        denied = client.get("/api/v1/procurement/analytics")
+    assert denied.status_code == 403
+    assert called is False
+
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        allowed = client.get(
+            "/api/v1/procurement/analytics",
+            query_string={
+                "sample_size": "50",
+                "top_n": "10",
+                "sort": "count",
+                "direction": "desc",
+            },
+        )
+    assert allowed.status_code == 200, allowed.get_data(as_text=True)
+    body = allowed.get_json()
+    assert body["sample"]["requested"] == 50
+    assert body["controls"]["top_n"] == 10
+    assert called is True
+
+
+@pytest.mark.unit
+def test_procurement_analytics_rejects_non_integer_controls(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"opportunity.read"})):
+        response = client.get(
+            "/api/v1/procurement/analytics",
+            query_string={"sample_size": "mucho"},
+        )
+    assert response.status_code == 422
+    assert response.get_json()["code"] == "invalid_sample_size"
+
+
+@pytest.mark.unit
+def test_procurement_analytics_is_declared_in_openapi(client: Any) -> None:
+    spec = client.get("/api/v1/openapi.json").get_json()
+    operation = spec["paths"]["/api/v1/procurement/analytics"]["get"]
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProcurementAnalyticsResponse"
+    }
+    assert operation["security"] == [{"cookieAuth": []}]
+
+
+@pytest.mark.unit
 def test_cpv_suggest_route_is_bounded_cacheable_and_never_calls_signal(
     app: Any,
     client: Any,
