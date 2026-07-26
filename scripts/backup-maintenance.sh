@@ -153,6 +153,15 @@ else
     "$release_dir/scripts/restore-test-production.sh" --verify-isolated "$manifest"
 fi
 
+# Copia cifrada off-host opcional. Si ORACLE_OFFSITE_ENABLED=0 (default) es no-op.
+# Si está habilitada y mal configurada, falla cerrado aquí (no se publica catálogo a medias).
+if [[ -x "$release_dir/scripts/backup-offsite.sh" ]]; then
+  ORACLE_BACKUP_ROOT="$backup_root" \
+    "$release_dir/scripts/backup-offsite.sh" --push "$manifest"
+else
+  echo "Script backup-offsite.sh ausente en el release; se omite la copia offsite." >&2
+fi
+
 dump_sha="$(manifest_value "$manifest" dump_sha256)"
 created="$(manifest_value "$manifest" created_at_utc)"
 created_date="${created:0:8} ${created:9:2}:${created:11:2}:${created:13:2} UTC"

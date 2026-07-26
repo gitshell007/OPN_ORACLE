@@ -15,7 +15,7 @@ for unit in opn-oracle-backup-agent.service opn-oracle-backup-agent.timer \
   [[ -f "$release_dir/infra/systemd/$unit" && ! -L "$release_dir/infra/systemd/$unit" ]] || exit 2
 done
 for script in backup-production.sh restore-test-production.sh backup-maintenance.sh \
-  backup-host-agent.sh enqueue-scheduled-backup.sh restore-production.sh; do
+  backup-host-agent.sh enqueue-scheduled-backup.sh restore-production.sh backup-offsite.sh; do
   [[ -x "$release_dir/scripts/$script" && ! -L "$release_dir/scripts/$script" ]] || exit 2
   bash -n "$release_dir/scripts/$script"
 done

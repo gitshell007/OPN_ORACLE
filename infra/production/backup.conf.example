@@ -6,3 +6,15 @@ ORACLE_RESTORE_EVIDENCE_ROOT=/var/backups/opn-oracle/restore-evidence
 ORACLE_RETENTION_DAYS=30
 ORACLE_BACKUP_WORKER_ID=oracle-production-backup-agent
 
+# --- Copia cifrada off-host (opcional) ---
+# 0 = no-op (default UAT). 1 = obligatorio tras cada backup local verificado.
+ORACLE_OFFSITE_ENABLED=0
+# local = segundo árbol en disco/volumen montado (no dentro de BACKUP_ROOT).
+# rsync = destino SSH o ruta rsync (requiere rsync + acceso sin contraseña en CLI).
+ORACLE_OFFSITE_METHOD=local
+ORACLE_OFFSITE_DEST=/var/backups/opn-oracle-offsite
+# Clave simétrica >=32 bytes, root:root 0400. No va en este fichero.
+ORACLE_OFFSITE_KEY_FILE=/etc/opn-oracle/secrets/oracle_backup_offsite_key
+ORACLE_OFFSITE_RECEIPT_ROOT=/var/backups/opn-oracle/offsite-receipts
+# Para releases estrictos: ORACLE_REQUIRE_OFFSITE_RECEIPT=1 y el path del receipt.
+

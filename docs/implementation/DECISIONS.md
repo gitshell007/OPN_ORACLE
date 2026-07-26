@@ -1368,6 +1368,20 @@ deberá versionarse un flujo de copia/materialización separado.
   adjudicatarios sigue pendiente de un índice documental medido en Signal. La mutación de seguridad
   de alias que incluía personas en candidatos hizo caer el test HTTP/UI correspondiente.
 
+## D-086 — Offsite es opt-in cifrado con receipt; local montado no es DR completo
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** la copia local diaria y el restore aislado ya corren; faltaba un pipeline
+  reutilizable de copia cifrada fuera del árbol de backup sin inventar un proveedor cloud.
+- **Decisión:** `backup-offsite.sh` cifra el tarball del backup con clave en secret file y lo
+  publica por `local` o `rsync`; genera receipt con hashes. Integrado tras restore en
+  `backup-maintenance`. Default `ORACLE_OFFSITE_ENABLED=0`. Un destino `local` en otro path
+  valida el pipeline; el DR real exige otra máquina/volumen.
+- **Consecuencias:** se puede activar offsite sin reescribir el agente; el gate
+  `ORACLE_REQUIRE_OFFSITE_RECEIPT=1` sigue siendo decisión de release. No se meten secretos en
+  `backup.conf`.
+
 ## D-085 — El presupuesto de contexto no puede vaciar `allowed_evidence_ids`
 
 - **Estado:** accepted

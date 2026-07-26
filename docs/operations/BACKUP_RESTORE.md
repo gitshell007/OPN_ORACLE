@@ -29,6 +29,17 @@ un destino off-host con credencial de escritura limitada, retención/inmutabilid
 El destino, RPO, RTO, rotación y procedimiento de borrado continúan siendo decisiones operativas
 explícitas; no se simula una copia remota cuando no existe proveedor configurado.
 
+### Copia cifrada off-host (`backup-offsite.sh`)
+
+Tras el restore aislado, `backup-maintenance.sh` invoca `scripts/backup-offsite.sh --push` si el
+script existe. Con `ORACLE_OFFSITE_ENABLED=0` (default) es un no-op. Con `=1` empaqueta el
+directorio del backup, lo cifra (AES-256-CBC pbkdf2, clave en
+`ORACLE_OFFSITE_KEY_FILE`) y lo publica en `ORACLE_OFFSITE_DEST` (`local` o `rsync`). El receipt
+queda en `ORACLE_OFFSITE_RECEIPT_ROOT` y es el valor de `ORACLE_BACKUP_OFFSITE_RECEIPT` para el
+gate estricto de release.
+
+Runbook de activación y límites: [P2_OPS_READINESS.md](./P2_OPS_READINESS.md).
+
 `scripts/restore-test-production.sh` no acepta host, URL ni nombre de destino. Siempre crea:
 
 - una red Docker interna y aleatoria;

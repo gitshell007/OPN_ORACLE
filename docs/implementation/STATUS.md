@@ -4,6 +4,17 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## P2 ops · offsite cifrado, documentos y checklist
+
+- Backup local y timers diarios ya operativos en el host; no se rehacen.
+- Nuevo `scripts/backup-offsite.sh`: tar + AES-256-CBC (pbkdf2), destino `local`/`rsync`,
+  receipt verificable; hook en `backup-maintenance.sh` (no-op si `ORACLE_OFFSITE_ENABLED=0`).
+- `backup.conf.example` e `install-backup-systemd.sh` actualizados; runbook
+  `docs/operations/P2_OPS_READINESS.md` (offsite, documentos fail-closed, patentes EPO,
+  rotación de credenciales demo).
+- Documentos siguen `DOCUMENTS_ENABLED=false` (gate de activación documentado, no habilitado).
+- Activación offsite en host y smoke de receipt se hacen en el despliegue de este cambio.
+
 ## P1 demo · higiene de tenant e informes dorados con PDF
 
 - Archivados en prod (tenant OPN): `AUDIT-TEST`, `Licitación movilidad… prueba real`,
