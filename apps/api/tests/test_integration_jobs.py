@@ -2421,6 +2421,13 @@ def test_competitive_procurement_keeps_hard_failure_on_negative_reviewer_verdict
             )
         audit = db.session.scalar(select(AIAuditLog).where(AIAuditLog.background_job_id == job.id))
         assert audit is not None and audit.status == "failed"
+        # Prompt 94: generate+reviewer tokens are settled on the failed audit, not left at 0.
+        assert audit.input_tokens >= 100
+        assert audit.output_tokens >= 50
+        ledger = db.session.scalar(
+            select(AIUsageLedger).where(AIUsageLedger.audit_log_id == audit.id)
+        )
+        assert ledger is not None and ledger.status == "settled"
         assert (
             db.session.scalar(
                 select(func.count(AIArtifact.id)).where(AIArtifact.audit_log_id == audit.id)

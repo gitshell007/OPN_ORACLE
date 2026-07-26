@@ -113,16 +113,38 @@ REPORT_SNAPSHOT_PORTFOLIO_LIMIT = 25
 TEMPLATES_WITH_PORTFOLIO_SECTIONS = frozenset({"executive_dossier", "action_plan"})
 
 
+def _safe_failure_detail(error: BaseException, *, limit: int = 480) -> str:
+    """User-visible cause without stack traces, secrets or multi-line dumps."""
+
+    text = " ".join(str(error).split())
+    if not text:
+        return ""
+    if len(text) > limit:
+        return text[: limit - 1].rstrip() + "…"
+    return text
+
+
 def _report_failure_message(error: BaseException) -> str:
+    detail = _safe_failure_detail(error)
     if isinstance(error, EvidenceReviewError):
-        return (
-            "El informe se generó, pero falló la revisión obligatoria de evidencias. "
-            "Revisa el job para ver la causa."
-        )
+        base = "El informe se generó, pero falló la revisión obligatoria de evidencias."
+        if detail:
+            return f"{base} Causa: {detail}"
+        return f"{base} Revisa el job para ver la causa."
     if isinstance(error, ReportOutputContractError):
         # El texto lo redacta Oracle a partir de la plantilla congelada, no el modelo:
         # es seguro mostrarlo y evita que el usuario vea solo el nombre de la excepción.
         return str(error)
+    if isinstance(error, ValueError) and "revisor" in str(error).lower():
+        if detail:
+            return f"La revisión de evidencia rechazó el informe. Causa: {detail}"
+        return "La revisión de evidencia rechazó el informe."
+    if detail and type(error).__name__ in {
+        "ReportWorkflowError",
+        "AIPolicyDenied",
+        "AIUnavailable",
+    }:
+        return f"No se pudo generar el informe. Causa: {detail}"
     return "No se pudo generar el informe. Revisa el job para más detalle."
 
 

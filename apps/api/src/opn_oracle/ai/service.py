@@ -917,14 +917,41 @@ def execute_agent(
             current_attempt.status = "failed"
             current_attempt.error_code = code
             current_attempt.completed_at = completed
+        # Roll up metrics from generate/reviewer attempts already persisted under this audit.
+        # Without this, a writer that succeeds and a reviewer that fails left usage=0 and
+        # provider stuck at the policy label (signal) even when Signal returned ollama.
+        sibling_attempts = list(
+            db.session.scalars(
+                select(AIAttempt).where(
+                    AIAttempt.audit_log_id == audit_id,
+                    AIAttempt.tenant_id == tenant_id,
+                )
+            )
+        )
+        total_input = sum(item.input_tokens for item in sibling_attempts)
+        total_output = sum(item.output_tokens for item in sibling_attempts)
+        total_cost = sum(item.cost_micros for item in sibling_attempts)
+        total_latency = sum(item.latency_ms or 0 for item in sibling_attempts)
         current_audit.status = "failed"
         current_audit.error_code = code
+        current_audit.input_tokens = total_input
+        current_audit.output_tokens = total_output
+        current_audit.actual_cost_micros = total_cost
+        if total_latency:
+            current_audit.latency_ms = total_latency
         current_audit.attempt_count = max(
             current_audit.attempt_count, current_attempt.attempt_number
         )
         current_audit.completed_at = completed
-        current_usage.status = "released"
+        current_usage.input_tokens = total_input
+        current_usage.output_tokens = total_output
+        current_usage.actual_cost_micros = total_cost
         current_usage.reserved_cost_micros = 0
+        current_usage.provider = current_audit.provider
+        current_usage.model = current_audit.model
+        current_usage.status = (
+            "settled" if (total_input or total_output or total_cost) else "released"
+        )
         db.session.commit()
 
     try:
@@ -987,6 +1014,12 @@ def execute_agent(
     checked_attempt.cost_micros = result.cost_micros
     checked_attempt.latency_ms = result.latency_ms
     checked_attempt.completed_at = checkpoint
+    # Persist upstream provider/model as soon as generate succeeds so a later reviewer
+    # failure still shows ollama vs signal (not only the tenant policy label).
+    if result.provider:
+        checked_audit.provider = result.provider
+    if result.model:
+        checked_audit.model = result.model
     total_input, total_output, total_cost = (
         result.input_tokens,
         result.output_tokens,

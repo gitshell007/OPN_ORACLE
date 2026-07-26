@@ -1368,6 +1368,33 @@ deberá versionarse un flujo de copia/materialización separado.
   adjudicatarios sigue pendiente de un índice documental medido en Signal. La mutación de seguridad
   de alias que incluía personas en candidatos hizo caer el test HTTP/UI correspondiente.
 
+## D-083 — El audit de fallo IA liquida tokens y conserva el provider upstream
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** producción usa `AI_MODE=signal`. Cuando Signal ejecuta Ollama, el éxito
+  reescribe `audit.provider=ollama`; un fallo del revisor tras generate dejaba provider=`signal`,
+  usage 0 y ledger `released`, ocultando coste y el proveedor real.
+- **Decisión:** tras generate exitoso se persisten provider/model del `LLMResult` en el audit
+  antes del revisor. En `fail()` se suman tokens/coste/latencia de todos los intentos del audit y
+  el ledger se marca `settled` si hubo uso (si no, `released`). No se cambia el routing de política:
+  Signal sigue siendo el adapter de producción; Ollama directo solo si `AI_MODE=ollama`.
+- **Consecuencias:** un UAT ve el mismo eje provider/tokens en éxitos y fallos. Alternativa
+  descartada: forzar `AI_MODE=ollama` en prod (rompe gobierno Signal y presupuestos de task).
+
+## D-082 — El mensaje de fallo de informe incluye la causa del revisor
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-26
+- **Contexto:** el informe fallido solo mostraba «Código seguro: EvidenceReviewError» o un
+  genérico «Revisa el job», aunque el job ya tenía la causa (`no se pudo anclar`, rechazo de
+  output, etc.).
+- **Decisión:** `_report_failure_message` concatena un detalle acotado y saneado del error
+  (EvidenceReviewError, ValueError de revisor, AIPolicy/AIUnavailable/ReportWorkflow). El visor
+  prioriza `error_message`. La API de audit expone intentos y métricas sin secretos.
+- **Consecuencias:** el analista actúa sin SSH. No se añaden columnas nuevas; no se filtran
+  stack traces al cliente.
+
 ## D-081 — `report_writer` recorta claims ante revisor fallido, no borra el informe
 
 - **Estado:** accepted

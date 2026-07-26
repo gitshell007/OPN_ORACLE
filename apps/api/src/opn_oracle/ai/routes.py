@@ -22,7 +22,7 @@ from flask_login import current_user
 from marshmallow import validate
 from sqlalchemy import select
 
-from opn_oracle.ai.models import AIArtifact, AIHumanReview
+from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
@@ -426,11 +426,23 @@ def get_audit(audit_id: uuid.UUID) -> Any:
         audit.dossier_id is not None and _dossier(audit.dossier_id, write=False) is None
     ):
         return problem_response(404, detail="Auditoría no disponible.", code="not_found")
+    attempts = list(
+        db.session.scalars(
+            select(AIAttempt)
+            .where(
+                AIAttempt.audit_log_id == audit.id,
+                AIAttempt.tenant_id == g.active_tenant_id,
+            )
+            .order_by(AIAttempt.attempt_number)
+        )
+    )
     return {
         "id": str(audit.id),
-        "dossier_id": str(audit.dossier_id),
+        "dossier_id": str(audit.dossier_id) if audit.dossier_id else None,
+        "background_job_id": (str(audit.background_job_id) if audit.background_job_id else None),
         "agent": audit.agent,
         "status": audit.status,
+        "error_code": audit.error_code,
         "provider": audit.provider,
         "model": audit.model,
         "prompt": {
@@ -444,7 +456,21 @@ def get_audit(audit_id: uuid.UUID) -> Any:
             "output_tokens": audit.output_tokens,
             "cost_micros": audit.actual_cost_micros,
         },
+        "latency_ms": audit.latency_ms,
         "review_state": audit.human_review_state,
+        "attempts": [
+            {
+                "number": item.attempt_number,
+                "kind": item.kind,
+                "status": item.status,
+                "input_tokens": item.input_tokens,
+                "output_tokens": item.output_tokens,
+                "cost_micros": item.cost_micros,
+                "latency_ms": item.latency_ms,
+                "error_code": item.error_code,
+            }
+            for item in attempts
+        ],
     }
 
 
@@ -576,9 +602,12 @@ def list_ai_audit() -> Any:
         "items": [
             {
                 "id": str(row.id),
-                "dossier_id": str(row.dossier_id),
+                "dossier_id": str(row.dossier_id) if row.dossier_id else None,
                 "agent": row.agent,
                 "status": row.status,
+                "error_code": row.error_code,
+                "provider": row.provider,
+                "model": row.model,
                 "created_at": row.created_at.isoformat(),
             }
             for row in visible

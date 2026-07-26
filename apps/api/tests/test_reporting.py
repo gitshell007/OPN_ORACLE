@@ -282,6 +282,23 @@ def test_empty_sections_name_the_template_and_reach_the_user_as_a_contract_failu
     assert _report_failure_message(failure.value) == message
 
 
+def test_report_failure_message_includes_evidence_review_cause() -> None:
+    from opn_oracle.ai.service import EvidenceReviewError
+
+    message = _report_failure_message(
+        EvidenceReviewError(
+            "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
+        )
+    )
+    assert "falló la revisión obligatoria de evidencias" in message
+    assert "no se pudo anclar" in message
+    assert "Causa:" in message
+
+    rejected = _report_failure_message(ValueError("El revisor de evidencia rechazó el output."))
+    assert "revisión de evidencia rechazó" in rejected
+    assert "Causa:" in rejected
+
+
 def test_report_output_closure_fields_are_required_only_when_enabled() -> None:
     template = ReportTemplateRegistry().get("executive_dossier")
     output = ReportOutput.model_validate(

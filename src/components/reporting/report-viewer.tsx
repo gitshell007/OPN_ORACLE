@@ -261,9 +261,16 @@ export function ReportViewer({
         <div className="reporting-error" role="alert">
           <strong>La generación no se completó</strong>
           <p>
-            Código seguro: {report.error_code || "generation_failed"}. Puedes
-            reintentar sin sobrescribir este intento.
+            {report.error_message?.trim()
+              ? report.error_message
+              : `Código seguro: ${report.error_code || "generation_failed"}.`}{" "}
+            Puedes reintentar sin sobrescribir este intento.
           </p>
+          {report.error_message?.trim() && report.error_code ? (
+            <p>
+              <small>Código: {report.error_code}</small>
+            </p>
+          ) : null}
         </div>
       )}
 

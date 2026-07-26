@@ -4,6 +4,18 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompts 93–94 · errores de informe legibles y telemetría de fallo IA
+
+- **93:** `_report_failure_message` incluye la causa del revisor (texto acotado) en el informe
+  fallido; el visor Vector muestra `error_message` en lugar de solo el código. `GET /ai/audits/{id}`
+  expone `error_code`, `background_job_id`, `latency_ms` e intentos (kind/status/tokens); el listado
+  `ai-audit` añade provider, model y error_code.
+- **94:** con `AI_MODE=signal` en producción el provider de política es `signal`, pero el audit
+  fallido se quedaba en 0 tokens y en la etiqueta de política. Tras un generate exitoso se persiste
+  el provider/model upstream (`ollama` cuando Signal lo devuelve); en `fail()` se liquidan tokens
+  de intentos hermanos y el ledger pasa a `settled` si hubo uso. Sin migración ni variables nuevas.
+- Tests unitarios del mensaje de fallo; gates Ruff en módulos tocados. Verificación prod tras release.
+
 ## Prompt 92 · report_writer no se pierde ante revisor `fail`
 
 - UAT autenticado en producción (owner `mburgos@iacell.com`, tenant OPN Consultoría) reintentó
