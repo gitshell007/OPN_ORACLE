@@ -4,6 +4,14 @@ Actualizado: 2026-07-26
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Prompt 96 · problema de licitaciones «Buscar con Oracle»
+
+- Documento de producto/implementación:
+  `docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md`.
+- Define el dolor (plan vs ejecución Signal, confusión vigilancia/resultados),
+  la definición de hecho (tabla central tras Aceptar y buscar), multi-sonda
+  `search-plans/execute`, vigilancia estrecha y caso canónico defensa.
+
 ## Wizard «Buscar con Oracle» · aceptar ejecuta y muestra resultados
 
 - **Aceptar y buscar** (antes solo versionaba el perfil): acepta el plan, crea o
