@@ -1017,10 +1017,13 @@ def test_procurement_tender_scope_maps_to_signal_over_http(
     assert response.status_code == 200
     assert seen[0].get("active") == expected_active
     assert response.get_json()["semantics"]["oracle_scope"] == expected_scope
-    assert [item["canonical_status"] for item in response.get_json()["items"]] == [
-        "awarded",
-        "unknown",
-    ]
+    statuses = [item["canonical_status"] for item in response.get_json()["items"]]
+    if expected_scope == "active":
+        # Solo pendientes: se eliminan adjudicadas/resueltas residuales del proveedor.
+        assert statuses == ["unknown"]
+        assert [item["folder_id"] for item in response.get_json()["items"]] == ["unknown"]
+    else:
+        assert statuses == ["awarded", "unknown"]
 
 
 @pytest.mark.unit

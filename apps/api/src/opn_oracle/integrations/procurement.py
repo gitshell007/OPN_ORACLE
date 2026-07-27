@@ -12,6 +12,7 @@ separate:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -51,19 +52,53 @@ _CANONICAL_TENDER_STATUSES: dict[str, str] = {
     "abierto": "open",
     "activa": "open",
     "activo": "open",
+    # PLACSP / Signal short codes (case-insensitive via casefold).
+    "pub": "open",  # Publicada
+    "ev": "open",  # En vigor / en evaluación con is_active (filtrar por plazo aparte)
+    "pre": "open",
     "closed": "closed",
     "cerrada": "closed",
     "cerrado": "closed",
+    "res": "closed",  # Resuelta
+    "resuelta": "closed",
+    "resuelto": "closed",
     "awarded": "awarded",
     "adjudicada": "awarded",
     "adjudicado": "awarded",
+    "adj": "awarded",
     "cancelled": "cancelled",
     "canceled": "cancelled",
     "cancelada": "cancelled",
     "cancelado": "cancelled",
     "anulada": "cancelled",
     "anulado": "cancelled",
+    "anul": "cancelled",
+    "an": "cancelled",
 }
+
+# Terminal / non-pending provider status tokens (after casefold + strip).
+_NON_PENDING_STATUS_TOKENS = frozenset(
+    {
+        "adj",
+        "adjudicada",
+        "adjudicado",
+        "awarded",
+        "res",
+        "resuelta",
+        "resuelto",
+        "closed",
+        "cerrada",
+        "cerrado",
+        "anul",
+        "an",
+        "anulada",
+        "anulado",
+        "cancelled",
+        "canceled",
+        "cancelada",
+        "cancelado",
+    }
+)
 
 
 def _clean_params(params: Mapping[str, Any]) -> dict[str, str]:
@@ -98,16 +133,86 @@ def canonical_tender_status(value: Any) -> str:
     return _CANONICAL_TENDER_STATUSES.get(value.strip().casefold(), "unknown")
 
 
+def _parse_tender_deadline(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def tender_is_pending_open(item: Mapping[str, Any], *, now: datetime | None = None) -> bool:
+    """Whether a tender still looks open for "solo pendientes".
+
+    Signal's active=true is the primary filter, but residual RES/ADJ rows or expired
+    deadlines still appear in multi-probe merges. This is the honest local gate.
+    """
+
+    if item.get("is_active") is False:
+        return False
+    status_raw = item.get("status")
+    status = status_raw.strip().casefold() if isinstance(status_raw, str) else ""
+    if status in _NON_PENDING_STATUS_TOKENS:
+        return False
+    canonical = item.get("canonical_status")
+    if canonical in {"awarded", "closed", "cancelled"}:
+        return False
+    # Also re-map from raw status in case normalize has not run yet.
+    if canonical_tender_status(status_raw) in {"awarded", "closed", "cancelled"}:
+        return False
+    deadline = _parse_tender_deadline(item.get("deadline"))
+    if deadline is not None:
+        moment = now or datetime.now(UTC)
+        if deadline < moment:
+            return False
+    return True
+
+
+def filter_pending_tender_items(
+    items: list[Any],
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    moment = now or datetime.now(UTC)
+    kept: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        normalized = _normalize_tender_item(item)
+        if tender_is_pending_open(normalized, now=moment):
+            kept.append(normalized)
+    return kept
+
+
 def _normalize_tender_item(item: Any) -> Any:
     if not isinstance(item, dict):
         return item
     return {**item, "canonical_status": canonical_tender_status(item.get("status"))}
 
 
-def _normalize_tender_collection(payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_tender_collection(
+    payload: dict[str, Any],
+    *,
+    pending_only: bool = False,
+) -> dict[str, Any]:
     items = payload.get("items")
     if not isinstance(items, list):
         return payload
+    if pending_only:
+        filtered = filter_pending_tender_items(items)
+        return {
+            **payload,
+            "items": filtered,
+            # Keep provider total if present; note local drop for clients.
+            "pending_filter_dropped": max(0, len(items) - len(filtered)),
+        }
     return {**payload, "items": [_normalize_tender_item(item) for item in items]}
 
 
@@ -367,7 +472,9 @@ class ProcurementClient:
                 "offset": offset,
             },
         )
-        return _normalize_tender_collection(payload)
+        # active=True / scope=active: also drop residual closed/awarded/expired rows.
+        pending_only = active is True or scope == "active"
+        return _normalize_tender_collection(payload, pending_only=pending_only)
 
     def tender_summary(self, *, folder_id: str) -> dict[str, Any]:
         payload = self._post(f"api/v1/registry/tenders/{_quote_path_part(folder_id)}/summary")

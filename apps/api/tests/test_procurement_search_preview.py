@@ -159,6 +159,64 @@ def test_saved_search_prefers_lexically_relevant_cpv() -> None:
 
 
 @pytest.mark.unit
+def test_execute_search_plan_drops_closed_and_expired_when_scope_active() -> None:
+    def loader(**query: Any) -> dict[str, Any]:
+        assert query.get("active") is True
+        assert query.get("scope") == "active"
+        return {
+            "total": 4,
+            "limit": 100,
+            "offset": 0,
+            "items": [
+                {
+                    "folder_id": "open-1",
+                    "title": "Abierta",
+                    "status": "PUB",
+                    "is_active": True,
+                    "deadline": "2099-12-31T12:00:00Z",
+                },
+                {
+                    "folder_id": "awarded-1",
+                    "title": "Ya adjudicada",
+                    "status": "ADJ",
+                    "is_active": True,
+                    "deadline": "2099-12-31T12:00:00Z",
+                },
+                {
+                    "folder_id": "resolved-1",
+                    "title": "Resuelta",
+                    "status": "RES",
+                    "is_active": False,
+                    "deadline": "2020-01-01T12:00:00Z",
+                },
+                {
+                    "folder_id": "expired-1",
+                    "title": "Plazo pasado",
+                    "status": "PUB",
+                    "is_active": True,
+                    "deadline": "2020-06-01T12:00:00Z",
+                },
+            ],
+        }
+
+    result = execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            include_terms=["blindados"],
+            synonyms=[],
+            candidate_cpv=[{"code": "35400000", "label": "Vehículos militares"}],
+            min_amount=None,
+            scope="active",
+        ),
+        tender_loader=loader,
+        result_limit=25,
+    )
+    ids = [item["folder_id"] for item in result["results"]["items"]]
+    assert ids == ["open-1"]
+    assert result["results"]["total"] == 1
+
+
+@pytest.mark.unit
 def test_execute_search_plan_merges_unique_folder_ids() -> None:
     calls: list[dict[str, Any]] = []
 

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from opn_oracle.integrations.procurement import tender_is_pending_open
 from opn_oracle.oracle.cpv_retrieval import (
     cpv_label_relevance,
     procurement_text_tokens,
@@ -172,6 +173,15 @@ def preview_search_plan(
             "offset": 0,
         }
         result = tender_loader(tenant_id=tenant_id, **query)
+        if scope == "active" and isinstance(result, dict):
+            raw_items = result.get("items")
+            if isinstance(raw_items, list):
+                kept = [
+                    item
+                    for item in raw_items
+                    if isinstance(item, dict) and tender_is_pending_open(item)
+                ]
+                result = {**result, "items": kept}
         blocks.append(
             {
                 "chip": {
@@ -180,7 +190,7 @@ def preview_search_plan(
                     "label": probe.label,
                 },
                 "query": query,
-                "total": int(result.get("total") or 0),
+                "total": int(result.get("total") or 0) if isinstance(result, dict) else 0,
                 "result": result,
             }
         )
@@ -367,6 +377,9 @@ def execute_search_plan(
         hits = 0
         for item in items:
             if not isinstance(item, dict):
+                continue
+            # Defense in depth: even if a probe leaked closed rows, drop them for active scope.
+            if scope == "active" and not tender_is_pending_open(item):
                 continue
             folder_id = item.get("folder_id")
             if not isinstance(folder_id, str) or not folder_id.strip():
