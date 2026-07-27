@@ -4,13 +4,26 @@ OPN Oracle es una aplicación de inteligencia estratégica centrada en el expedi
 
 ## Arranque local
 
+Entorno completo sin Docker, sobre PostgreSQL y Redis de brew:
+
 ```bash
-npm ci
-cd apps/api && uv sync --frozen && cd ../..
-ORACLE_API_ORIGIN=http://127.0.0.1:8000 npm run dev
+brew install postgresql@17 redis && brew services start postgresql@17 && brew services start redis
+npm ci && (cd apps/api && uv sync --frozen)
+scripts/dev-local.sh setup   # base oracle_dev, migraciones, tenant y datos de demo
+scripts/dev-local.sh up      # API, worker, beat y frontend con recarga en caliente
 ```
 
-Arranca Flask en otra terminal siguiendo [apps/api/README.md](apps/api/README.md). La web usa cookie de sesión `HttpOnly`, `credentials: include` y CSRF en memoria.
+Frontend en `http://localhost:3000`, API en `http://127.0.0.1:8010`. `down` para todo, `status` dice qué está vivo, `logs api|worker|beat|web` sigue un proceso y `psql` abre una consola sobre la base de desarrollo. La IA arranca en modo `mock`; exporta `AI_MODE=signal` antes de `up` para usar la gobernanza real.
+
+Docker sigue siendo el mecanismo de producción (`compose.prod.yml`) y `compose.dev.yml` sigue disponible si prefieres contenedores.
+
+Para levantar solo la web contra una API que ya tengas en marcha:
+
+```bash
+ORACLE_API_ORIGIN=http://127.0.0.1:8010 npm run dev
+```
+
+La web usa cookie de sesión `HttpOnly`, `credentials: include` y CSRF en memoria. Detalles de la API en [apps/api/README.md](apps/api/README.md).
 
 ## Superficies
 
