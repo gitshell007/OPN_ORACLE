@@ -16,6 +16,9 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - Evidencia y runbook: `docs/operations/DEV_NATIVE_DEPLOY.md`, `infra/native-dev/`.
 - CI del SHA: Backend y Frontend/contract en verde; E2E procurement-wizard en rojo
   (checkbox vigilancia) — no bloquea el runtime nativo validado en host.
+- Runbook para crear consumidores separados de Signal Dev y conectar Oracle/Risk/Nexus:
+  `docs/operations/SIGNAL_DEV_CREDENTIALS_RUNBOOK.html`. Oracle Dev debe recibir primero
+  su clave propia; Risk y Nexus esperan a tener aplicación desplegada.
 
 ## Prompts 96–97 · «Buscar con Oracle» ejecuta un plan multisector
 
