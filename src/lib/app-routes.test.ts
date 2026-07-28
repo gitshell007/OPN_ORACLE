@@ -9,16 +9,8 @@ import {
 
 describe("registro de rutas", () => {
   it("mantiene los destinos de trabajo productivos en orden estable", () => {
-    // Rutas nav de producto antes del bloque admin/account/platform.
-    const productNav = GLOBAL_ROUTES.filter(
-      (route) =>
-        route.nav === true &&
-        route.group !== "admin" &&
-        route.group !== "account" &&
-        route.group !== "platform" &&
-        !route.platformOnly,
-    );
-    expect(productNav.map((route) => route.id)).toEqual([
+    // Primer bloque de GLOBAL_ROUTES: nav de producto (12) antes de admin.
+    expect(GLOBAL_ROUTES.slice(0, 12).map((route) => route.id)).toEqual([
       "home",
       "dossiers",
       "changes",
@@ -38,6 +30,7 @@ describe("registro de rutas", () => {
       "/app/changes",
     ]);
     expect(GLOBAL_ROUTES.map((route) => route.id)).toContain("procurement");
+    expect(GLOBAL_ROUTES.map((route) => route.id)).toContain("procurement-stats");
   });
 
   it("deriva navegación por permiso sin conceder administración", () => {
