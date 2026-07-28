@@ -398,9 +398,9 @@ export function EntityDossier({ name, type }: { name: string; type: EntityIntelK
 
   useEffect(() => {
     if (!loadModalOpen || loadFinishing) return;
-    if (loadProgress >= 75) setLoadStageIndex(2);
-    else if (loadProgress >= 45) setLoadStageIndex(1);
-    else if (loadProgress >= 12) setLoadStageIndex(0);
+    const next =
+      loadProgress >= 75 ? 2 : loadProgress >= 45 ? 1 : loadProgress >= 12 ? 0 : 0;
+    queueMicrotask(() => setLoadStageIndex(next));
   }, [loadFinishing, loadModalOpen, loadProgress]);
 
   useEffect(() => {

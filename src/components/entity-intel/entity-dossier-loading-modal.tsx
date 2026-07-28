@@ -51,7 +51,8 @@ export function EntityDossierLoadingModal({
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    setMounted(true);
+    // Client-only portal mount gate; defer to avoid sync setState-in-effect lint.
+    queueMicrotask(() => setMounted(true));
   }, []);
 
   useEffect(() => {

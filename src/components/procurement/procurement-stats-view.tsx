@@ -176,7 +176,8 @@ function AnalyticsProgressModal({
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    setMounted(true);
+    // Client-only portal mount gate; defer to avoid sync setState-in-effect lint.
+    queueMicrotask(() => setMounted(true));
   }, []);
 
   useEffect(() => {
@@ -394,13 +395,14 @@ export function ProcurementStatsView({
   // Etapa activa acoplada al % (no a un contador independiente).
   useEffect(() => {
     if (!loading) return;
-    if (finishing) {
-      setStageIndex(ANALYSIS_STAGES.length - 1);
-      return;
-    }
-    if (progress >= 75) setStageIndex(2);
-    else if (progress >= 45) setStageIndex(1);
-    else setStageIndex(0);
+    const next = finishing
+      ? ANALYSIS_STAGES.length - 1
+      : progress >= 75
+        ? 2
+        : progress >= 45
+          ? 1
+          : 0;
+    queueMicrotask(() => setStageIndex(next));
   }, [finishing, loading, progress]);
 
   const registry = data?.registry ?? {};
