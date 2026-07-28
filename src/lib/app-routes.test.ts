@@ -8,8 +8,30 @@ import {
 } from "./app-routes";
 
 describe("registro de rutas", () => {
-  it("mantiene los once destinos de trabajo en orden estable", () => {
-    expect(GLOBAL_ROUTES.filter((route) => route.group !== "admin")).toHaveLength(11);
+  it("mantiene los destinos de trabajo productivos en orden estable", () => {
+    // Rutas nav de producto antes del bloque admin/account/platform.
+    const productNav = GLOBAL_ROUTES.filter(
+      (route) =>
+        route.nav === true &&
+        route.group !== "admin" &&
+        route.group !== "account" &&
+        route.group !== "platform" &&
+        !route.platformOnly,
+    );
+    expect(productNav.map((route) => route.id)).toEqual([
+      "home",
+      "dossiers",
+      "changes",
+      "signals",
+      "opportunities",
+      "procurement",
+      "procurement-stats",
+      "risks",
+      "actors",
+      "meetings",
+      "tasks",
+      "reports",
+    ]);
     expect(GLOBAL_ROUTES.slice(0, 3).map((route) => route.href)).toEqual([
       "/app",
       "/app/dossiers",
