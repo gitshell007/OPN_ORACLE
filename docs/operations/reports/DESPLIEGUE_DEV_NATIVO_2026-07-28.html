@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Informe de despliegue nativo · Oracle Dev · 2026-07-28</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --border: #2d3a4f;
+      --text: #e8eef7;
+      --muted: #8b9bb4;
+      --accent: #3b82f6;
+      --accent-soft: rgba(59, 130, 246, 0.12);
+      --ok: #22c55e;
+      --ok-bg: rgba(34, 197, 94, 0.12);
+      --warn: #f59e0b;
+      --warn-bg: rgba(245, 158, 11, 0.12);
+      --fail: #ef4444;
+      --fail-bg: rgba(239, 68, 68, 0.12);
+      --info: #38bdf8;
+      --info-bg: rgba(56, 189, 248, 0.12);
+      --mono: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+      --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+
+    header.hero {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0f1419 55%, #1a1f2e 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem 2rem 1.5rem;
+      margin-bottom: 1.75rem;
+      position: relative;
+      overflow: hidden;
+    }
+    header.hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 60% 80% at 100% 0%, rgba(59,130,246,.18), transparent 55%);
+      pointer-events: none;
+    }
+    header.hero > * { position: relative; z-index: 1; }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .75rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: .75rem;
+    }
+    .eyebrow .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 0 3px var(--ok-bg);
+    }
+
+    h1 {
+      margin: 0 0 .5rem;
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+    }
+    .subtitle { color: var(--muted); margin: 0 0 1.25rem; max-width: 48rem; }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: .75rem;
+    }
+    .meta-card {
+      background: rgba(0,0,0,.25);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: .75rem 1rem;
+    }
+    .meta-card .label {
+      font-size: .7rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: .2rem;
+    }
+    .meta-card .value {
+      font-family: var(--mono);
+      font-size: .85rem;
+      word-break: break-all;
+    }
+
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.75rem;
+    }
+    nav.toc h2 {
+      margin: 0 0 .75rem;
+      font-size: .8rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    nav.toc ol {
+      margin: 0;
+      padding-left: 1.25rem;
+      columns: 2;
+      gap: 2rem;
+    }
+    @media (max-width: 640px) {
+      nav.toc ol { columns: 1; }
+    }
+    nav.toc a {
+      color: var(--info);
+      text-decoration: none;
+    }
+    nav.toc a:hover { text-decoration: underline; }
+    nav.toc li { margin-bottom: .35rem; break-inside: avoid; }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 1.5rem 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    section h2 {
+      margin: 0 0 1rem;
+      font-size: 1.15rem;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    section h2 .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.6rem;
+      height: 1.6rem;
+      border-radius: 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: .75rem;
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+    h3 {
+      margin: 1.25rem 0 .6rem;
+      font-size: .95rem;
+      color: var(--text);
+    }
+    p { margin: 0 0 .75rem; color: var(--text); }
+    p.muted, .muted { color: var(--muted); }
+    ul, ol { margin: 0 0 .75rem; padding-left: 1.25rem; }
+    li { margin-bottom: .3rem; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      padding: .15rem .55rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 650;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      vertical-align: middle;
+    }
+    .badge.ok { background: var(--ok-bg); color: var(--ok); }
+    .badge.warn { background: var(--warn-bg); color: var(--warn); }
+    .badge.fail { background: var(--fail-bg); color: var(--fail); }
+    .badge.info { background: var(--info-bg); color: var(--info); }
+    .badge.neutral { background: var(--surface2); color: var(--muted); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+      margin: .5rem 0 1rem;
+    }
+    th, td {
+      text-align: left;
+      padding: .55rem .7rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      background: rgba(0,0,0,.2);
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(255,255,255,.02); }
+    td code, p code, li code {
+      font-family: var(--mono);
+      font-size: .82em;
+      background: rgba(0,0,0,.35);
+      padding: .1rem .35rem;
+      border-radius: 4px;
+      color: #c4d4f0;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 720px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: .75rem;
+      margin: .75rem 0 1rem;
+    }
+    .stat {
+      background: var(--surface2);
+      border-radius: 10px;
+      padding: .85rem 1rem;
+      border: 1px solid var(--border);
+    }
+    .stat .n {
+      font-size: 1.4rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      line-height: 1.2;
+    }
+    .stat .n.ok { color: var(--ok); }
+    .stat .n.warn { color: var(--warn); }
+    .stat .n.fail { color: var(--fail); }
+    .stat .l {
+      font-size: .75rem;
+      color: var(--muted);
+      margin-top: .2rem;
+    }
+
+    .callout {
+      border-radius: 10px;
+      padding: .85rem 1rem;
+      margin: .75rem 0 1rem;
+      border: 1px solid var(--border);
+      font-size: .9rem;
+    }
+    .callout.ok { background: var(--ok-bg); border-color: rgba(34,197,94,.3); }
+    .callout.warn { background: var(--warn-bg); border-color: rgba(245,158,11,.3); }
+    .callout.fail { background: var(--fail-bg); border-color: rgba(239,68,68,.3); }
+    .callout.info { background: var(--info-bg); border-color: rgba(56,189,248,.3); }
+    .callout strong { display: block; margin-bottom: .25rem; }
+
+    pre {
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .85rem 1rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: .78rem;
+      line-height: 1.45;
+      color: #b8c7dc;
+      margin: .5rem 0 1rem;
+    }
+
+    .timeline {
+      border-left: 2px solid var(--border);
+      margin: .5rem 0 1rem 0.5rem;
+      padding-left: 1.25rem;
+    }
+    .timeline .step {
+      position: relative;
+      margin-bottom: 1rem;
+    }
+    .timeline .step::before {
+      content: "";
+      position: absolute;
+      left: -1.5rem;
+      top: .35rem;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--ok);
+      border: 2px solid var(--bg);
+    }
+    .timeline .step.partial::before { background: var(--warn); }
+    .timeline .step.blocked::before { background: var(--fail); }
+    .timeline .step h4 {
+      margin: 0 0 .25rem;
+      font-size: .9rem;
+    }
+    .timeline .step p { margin: 0; font-size: .85rem; color: var(--muted); }
+
+    footer {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: .8rem;
+      text-align: center;
+    }
+
+    .hash { font-family: var(--mono); font-size: .8rem; word-break: break-all; }
+
+    @media print {
+      body { background: #fff; color: #111; font-size: 11pt; }
+      :root {
+        --bg: #fff; --surface: #fff; --surface2: #f5f5f5;
+        --border: #ddd; --text: #111; --muted: #555;
+        --accent: #1d4ed8; --ok: #15803d; --warn: #b45309; --fail: #b91c1c;
+      }
+      header.hero, section, nav.toc { box-shadow: none; break-inside: avoid; }
+      .badge { border: 1px solid currentColor; }
+      a { color: #1d4ed8; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div class="eyebrow"><span class="dot"></span> OPN Oracle · Operaciones · Informe de despliegue</div>
+      <h1>Despliegue nativo de desarrollo<br />Oracle primero, sin Docker</h1>
+      <p class="subtitle">
+        Resultado verificable del despliegue en
+        <strong>oracle-dev.opnconsultoria.com</strong>
+        (<code>159.195.216.33</code>): Flask/Gunicorn, Next.js standalone,
+        Celery worker/beat, PostgreSQL 17 y Redis nativos bajo systemd y Nginx TLS.
+      </p>
+      <div class="meta-grid">
+        <div class="meta-card">
+          <div class="label">Fecha</div>
+          <div class="value">2026-07-28 UTC</div>
+        </div>
+        <div class="meta-card">
+          <div class="label">Resultado global</div>
+          <div class="value"><span class="badge ok">Oracle operativo</span></div>
+        </div>
+        <div class="meta-card">
+          <div class="label">Release activo</div>
+          <div class="value">20260728T085951Z-native-22a5a79</div>
+        </div>
+        <div class="meta-card">
+          <div class="label">Git SHA</div>
+          <div class="value">22a5a794e2c5…</div>
+        </div>
+        <div class="meta-card">
+          <div class="label">URL pública</div>
+          <div class="value">oracle-dev.opnconsultoria.com</div>
+        </div>
+        <div class="meta-card">
+          <div class="label">Runtime Docker</div>
+          <div class="value"><span class="badge ok">Ninguno</span></div>
+        </div>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="Índice">
+      <h2>Contenido</h2>
+      <ol>
+        <li><a href="#resumen">Resumen ejecutivo</a></li>
+        <li><a href="#fase0">Fase 0 · Auditoría</a></li>
+        <li><a href="#base">Fases 1–2 · Base nativa</a></li>
+        <li><a href="#datos">Fase 3 · Migración de datos</a></li>
+        <li><a href="#release">Fases 4–5 · Release y TLS</a></li>
+        <li><a href="#validacion">Fase 6 · Validación</a></li>
+        <li><a href="#risk-nexus">Fase 7 · Risk y Nexus</a></li>
+        <li><a href="#ci">CI y calidad</a></li>
+        <li><a href="#riesgos">Riesgos abiertos</a></li>
+        <li><a href="#rollback">Rollback</a></li>
+        <li><a href="#commits">Commits y artefactos</a></li>
+        <li><a href="#siguientes">Siguientes pasos</a></li>
+      </ol>
+    </nav>
+
+    <!-- 1 Resumen -->
+    <section id="resumen">
+      <h2><span class="num">01</span> Resumen ejecutivo</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="n ok">4/4</div><div class="l">Servicios systemd activos</div></div>
+        <div class="stat"><div class="n ok">200</div><div class="l">HTTPS login + health/live</div></div>
+        <div class="stat"><div class="n ok">0</div><div class="l">Procesos Docker Oracle</div></div>
+        <div class="stat"><div class="n warn">2</div><div class="l">Productos pendientes (Risk app / Nexus)</div></div>
+      </div>
+
+      <div class="callout ok">
+        <strong>Veredicto</strong>
+        Oracle dev está sano en el host nativo: API, web, worker y un único beat responden;
+        TLS válido; PostgreSQL/Redis solo en loopback; snapshot de producción restaurado
+        en <code>opn_oracle_dev</code> con Alembic <code>20260726_0026</code>.
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Objetivo del prompt</th><th>Estado</th><th>Notas</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Oracle nativo sin Docker</td>
+            <td><span class="badge ok">Hecho</span></td>
+            <td>Gunicorn, Next standalone, Celery, PG, Redis, Nginx</td>
+          </tr>
+          <tr>
+            <td>Snapshot de datos de producción</td>
+            <td><span class="badge ok">Hecho</span></td>
+            <td>Dump <code>-Fc</code>, restore temporal + final, sin tocar origen</td>
+          </tr>
+          <tr>
+            <td>Aislamiento DB/Redis entre productos</td>
+            <td><span class="badge ok">Hecho</span></td>
+            <td>Bases y roles separados; Redis con auth y DBs lógicas</td>
+          </tr>
+          <tr>
+            <td>TLS oracle-dev + risk-dev</td>
+            <td><span class="badge ok">Hecho</span></td>
+            <td>Let’s Encrypt hasta 2026-10-26; risk-dev placeholder 503</td>
+          </tr>
+          <tr>
+            <td>Risk desplegado</td>
+            <td><span class="badge warn">Shell</span></td>
+            <td>DB/roles/usuario/Nginx listos; app pendiente post-Oracle</td>
+          </tr>
+          <tr>
+            <td>Nexus desplegado</td>
+            <td><span class="badge fail">Bloqueado</span></td>
+            <td>DNS A existe; no hay repositorio en la org</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 2 Fase 0 -->
+    <section id="fase0">
+      <h2><span class="num">02</span> Fase 0 · Auditoría de solo lectura</h2>
+
+      <h3>Huella SSH validada</h3>
+      <p class="muted">Contraste triple: <code>ssh-keyscan</code> · <code>known_hosts</code> local · claves del host. Sin <code>accept-new</code> ciego.</p>
+      <table>
+        <thead><tr><th>Tipo</th><th>SHA256</th></tr></thead>
+        <tbody>
+          <tr><td>ED25519</td><td class="hash">SHA256:J+djX/nOcNIYx0R/Y1yrpJcoqW83bbmYk6odQzVMKfQ</td></tr>
+          <tr><td>RSA</td><td class="hash">SHA256:M0+BxshIr6NDoegg2C/CU6MaSwOTgTqUn35OgnJ5ixM</td></tr>
+          <tr><td>ECDSA</td><td class="hash">SHA256:M1mkbDnRqWWlnOwlYOzDnbLngHpNsH/25krZM6RpnXc</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Inventario previo del host</h3>
+      <div class="grid-2">
+        <div>
+          <table>
+            <tbody>
+              <tr><th>Hostname</th><td><code>v2202607388167489673</code></td></tr>
+              <tr><th>OS</th><td>Debian 13 (trixie)</td></tr>
+              <tr><th>Kernel</th><td>6.12.96+deb13-amd64</td></tr>
+              <tr><th>CPU</th><td>4 vCPU AMD EPYC-Genoa (KVM)</td></tr>
+              <tr><th>RAM</th><td>7,8 GiB (sin swap)</td></tr>
+              <tr><th>Disco</th><td>251 GiB ext4 · ~1 % usado al inicio</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <table>
+            <tbody>
+              <tr><th>Listeners previos</th><td>Solo SSH <code>:22</code></td></tr>
+              <tr><th>Nginx / PG / Redis</th><td>Ausentes</td></tr>
+              <tr><th>Docker</th><td>Ausente</td></tr>
+              <tr><th>DNS A oracle-dev</th><td><code>159.195.216.33</code></td></tr>
+              <tr><th>DNS A risk-dev</th><td><code>159.195.216.33</code></td></tr>
+              <tr><th>AAAA</th><td>Sin registro IPv6 real</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h3>Origen de datos (producción, solo lectura)</h3>
+      <table>
+        <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+        <tbody>
+          <tr><td>Host prod</td><td><code>oracle.opnconsultoria.com</code> / <code>167.233.73.138</code></td></tr>
+          <tr><td>Modelo prod</td><td>Docker Compose (no modificado)</td></tr>
+          <tr><td>Release prod</td><td><code>20260727T085427Z-quick-f9a637e</code></td></tr>
+          <tr><td>Base origen</td><td><code>opn_oracle</code> (~31 MB)</td></tr>
+          <tr><td>Alembic origen</td><td><code>20260726_0026</code></td></tr>
+          <tr><td>Extensiones</td><td><code>citext</code>, <code>plpgsql</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 3 Base -->
+    <section id="base">
+      <h2><span class="num">03</span> Fases 1–2 · Base nativa del host</h2>
+
+      <h3>Paquetes y versiones instaladas</h3>
+      <table>
+        <thead><tr><th>Componente</th><th>Versión</th><th>Notas</th></tr></thead>
+        <tbody>
+          <tr><td>PostgreSQL</td><td>17.10</td><td>listen solo localhost</td></tr>
+          <tr><td>Redis</td><td>8.0.2</td><td>Debian trixie (no 7.x en repos)</td></tr>
+          <tr><td>Python runtime app</td><td>3.12.13</td><td>vía uv en <code>/opt/uv-python</code></td></tr>
+          <tr><td>uv</td><td>0.11.x</td><td>gestión de venv</td></tr>
+          <tr><td>Node.js</td><td>20.19.2</td><td>build Next standalone</td></tr>
+          <tr><td>Nginx</td><td>1.26.3</td><td>reverse proxy TLS</td></tr>
+          <tr><td>Certbot</td><td>4.0.0</td><td>webroot ACME</td></tr>
+          <tr><td>WeasyPrint deps</td><td>pango/cairo/gdk…</td><td>PDF nativo</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Usuarios y rutas</h3>
+      <div class="grid-2">
+        <div>
+          <h3 style="margin-top:0">Usuarios sistema</h3>
+          <ul>
+            <li><code>opn-oracle</code> — nologin, servicios Oracle</li>
+            <li><code>opn-risk</code> — nologin, preparado para Risk</li>
+            <li><code>opn-nexus</code> — no creado (producto no identificado)</li>
+          </ul>
+        </div>
+        <div>
+          <h3 style="margin-top:0">Árbol de despliegue</h3>
+<pre>/opt/opn-oracle/releases/&lt;id&gt;/
+/opt/opn-oracle/current → releases/…
+/etc/opn-oracle-dev/oracle.env
+/etc/opn-oracle-dev/secrets/*
+/var/lib/opn-oracle-dev/
+/var/log/opn-oracle-dev/
+/var/backups/opn-oracle-dev/</pre>
+        </div>
+      </div>
+
+      <h3>PostgreSQL · roles y bases</h3>
+      <table>
+        <thead><tr><th>Rol / base</th><th>Atributos</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>oracle_migrator</code></td>
+            <td>LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT, <strong>BYPASSRLS</strong></td>
+          </tr>
+          <tr>
+            <td><code>oracle_app</code></td>
+            <td>LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT, <strong>NOBYPASSRLS</strong></td>
+          </tr>
+          <tr>
+            <td><code>opn_oracle_dev</code></td>
+            <td>Owner <code>oracle_migrator</code>; <code>oracle_app</code> solo CONNECT + grants de restore</td>
+          </tr>
+          <tr>
+            <td><code>risk_migrator</code> / <code>risk_app</code></td>
+            <td>Shell para Risk; no reutilizan roles Oracle</td>
+          </tr>
+          <tr>
+            <td><code>opn_risk_advisor_dev</code></td>
+            <td>Base vacía owner <code>risk_migrator</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Redis</h3>
+      <ul>
+        <li>Bind <code>127.0.0.1</code> / <code>::1</code>, <code>protected-mode yes</code>, <code>requirepass</code></li>
+        <li>DB lógicas Oracle: 0 cache · 1 session · 2 rate-limit · 3 broker · 4 result</li>
+        <li>Verificado con <code>ss -lntp</code>: sin exposición pública</li>
+      </ul>
+    </section>
+
+    <!-- 4 Datos -->
+    <section id="datos">
+      <h2><span class="num">04</span> Fase 3 · Migración segura de datos</h2>
+
+      <div class="callout info">
+        <strong>Naturaleza del copiado</strong>
+        Snapshot lógico de un solo momento (<code>pg_dump -Fc</code>). No es replicación
+        continua; no se promete sincronización posterior con producción.
+      </div>
+
+      <table>
+        <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+        <tbody>
+          <tr><td>Archivo dump</td><td><code>opn_oracle_prod_20260728T085259Z.dump</code></td></tr>
+          <tr><td>SHA-256</td><td class="hash">53247f0c192e5522727bc36e6eedf2c56633fe3896bb39938a00df5fe4c2a7bc</td></tr>
+          <tr><td>Tamaño</td><td>~2,9 MiB comprimido custom</td></tr>
+          <tr><td>Formato</td><td>PostgreSQL custom (<code>-Fc</code>), sin roles globales</td></tr>
+          <tr><td>Transferencia</td><td>SSH prod → dev (sin imprimir secretos)</td></tr>
+          <tr><td>Restore temporal</td><td><code>opn_oracle_dev_restore_tmp</code> → verificado → eliminado</td></tr>
+          <tr><td>Restore final</td><td><code>opn_oracle_dev</code></td></tr>
+          <tr><td>Alembic destino</td><td><code>20260726_0026</code> (= origen, head)</td></tr>
+          <tr><td>Warning no fatal</td><td><code>COMMENT ON EXTENSION citext</code> (ownership)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Recuentos críticos origen ≈ destino</h3>
+      <table>
+        <thead>
+          <tr><th>Tabla</th><th>Origen (est. live)</th><th>Destino (count)</th><th>Match</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>users</td><td>4</td><td>4</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>tenants</td><td>2</td><td>2</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>strategic_dossiers</td><td>10</td><td>10</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>signals</td><td>32</td><td>32</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>audit_events</td><td>5780</td><td>5780</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>background_jobs</td><td>5091</td><td>5091</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>documents</td><td>2</td><td>2</td><td><span class="badge ok">OK</span></td></tr>
+          <tr><td>pg_policies (RLS)</td><td>92</td><td>92</td><td><span class="badge ok">OK</span></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Qué no se migró (deliberado)</h3>
+      <ul>
+        <li>Sesiones Redis de producción → re-login obligatorio</li>
+        <li>Volumen de documentos / storage fuera de PG</li>
+        <li>Secretos de producción (Graph, Signal AI, keyring) → no copiados a Git ni al env de dev</li>
+        <li>Keyring de integración de prod → keyring <strong>nuevo</strong> en dev (creds cifradas ilegibles)</li>
+      </ul>
+
+      <p class="muted">Usuarios migrados (emails, no contraseñas):
+        <code>info@opnconsultoria.com</code>,
+        <code>mburgos@iacell.com</code>,
+        más cuentas de prueba <code>@oracle.invalid</code>.
+      </p>
+    </section>
+
+    <!-- 5 Release -->
+    <section id="release">
+      <h2><span class="num">05</span> Fases 4–5 · Release inmutable y TLS</h2>
+
+      <div class="timeline">
+        <div class="step">
+          <h4>Build release <code>20260728T085951Z-native-22a5a79</code></h4>
+          <p>SHA <code>22a5a794e2c502282041b83c91bfc81adf57f3e5</code> · lint 0 errores · typecheck · vitest frontend · Next standalone · uv sync Python 3.12</p>
+        </div>
+        <div class="step">
+          <h4>Activación atómica <code>current</code></h4>
+          <p>Symlink a release; venv regenerado con intérprete en <code>/opt/uv-python</code> (accesible por <code>opn-oracle</code>)</p>
+        </div>
+        <div class="step">
+          <h4>Migración Alembic una vez</h4>
+          <p><code>flask db upgrade</code> con rol migrador vía <code>*_FILE</code> → ya en head <code>20260726_0026</code></p>
+        </div>
+        <div class="step">
+          <h4>systemd</h4>
+          <p>api :8010 · web :3010 · worker concurrency 1 · beat único con schedule en <code>/var/lib/opn-oracle-dev/</code></p>
+        </div>
+        <div class="step">
+          <h4>Nginx + Let’s Encrypt</h4>
+          <p>Certificado dual oracle-dev + risk-dev · expira 2026-10-26 · HTTP→HTTPS 308 · ready solo loopback</p>
+        </div>
+      </div>
+
+      <h3>Configuración de desarrollo (no secretos)</h3>
+      <table>
+        <thead><tr><th>Variable</th><th>Valor efectivo</th></tr></thead>
+        <tbody>
+          <tr><td><code>APP_ENV</code></td><td><code>production</code> (endurecimiento de runtime)</td></tr>
+          <tr><td><code>FRONTEND_ORIGIN</code></td><td><code>https://oracle-dev.opnconsultoria.com</code></td></tr>
+          <tr><td><code>TRUSTED_PROXY_COUNT</code></td><td><code>1</code></td></tr>
+          <tr><td><code>AI_ENABLED</code> / <code>AI_MODE</code></td><td><code>false</code> / <code>disabled</code></td></tr>
+          <tr><td><code>SIGNAL_AVANZA_*</code></td><td>deshabilitado / mock</td></tr>
+          <tr><td><code>DOCUMENTS_ENABLED</code></td><td><code>false</code></td></tr>
+          <tr><td><code>NIGHTLY_SUMMARIES_ENABLED</code></td><td><code>false</code></td></tr>
+          <tr><td><code>MAIL_BACKEND</code></td><td><code>smtp</code> → 127.0.0.1:2525 (fail-closed)</td></tr>
+          <tr><td>Secretos</td><td>solo <code>*_FILE</code> bajo <code>/etc/opn-oracle-dev/secrets/</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 6 Validación -->
+    <section id="validacion">
+      <h2><span class="num">06</span> Fase 6 · Validación de Oracle</h2>
+
+      <table>
+        <thead>
+          <tr><th>#</th><th>Comprobación</th><th>Resultado</th><th>Evidencia</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>systemd api / web / worker / beat</td>
+            <td><span class="badge ok">active ×4</span></td>
+            <td><code>systemctl is-active</code></td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>Loopback <code>/health/live</code></td>
+            <td><span class="badge ok">200</span></td>
+            <td><code>{"status":"ok"}</code></td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>Loopback <code>/health/ready</code></td>
+            <td><span class="badge ok">200</span></td>
+            <td>database ok · redis ok</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>HTTPS login público</td>
+            <td><span class="badge ok">200</span></td>
+            <td>TLS verify_result=0</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>Redirect HTTP→HTTPS</td>
+            <td><span class="badge ok">308</span></td>
+            <td><code>Location: https://oracle-dev…/login</code></td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><code>/health/ready</code> público</td>
+            <td><span class="badge ok">403</span></td>
+            <td>deny all excepto loopback</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td>HTTPS <code>/health/live</code></td>
+            <td><span class="badge ok">200</span></td>
+            <td>vía Nginx → API</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td>HSTS</td>
+            <td><span class="badge ok">presente</span></td>
+            <td><code>max-age=86400</code></td>
+          </tr>
+          <tr>
+            <td>9</td>
+            <td>Roles PG</td>
+            <td><span class="badge ok">OK</span></td>
+            <td>migrator BYPASSRLS; app no superuser / no BYPASSRLS</td>
+          </tr>
+          <tr>
+            <td>10</td>
+            <td>RLS</td>
+            <td><span class="badge ok">92 tablas FORCE</span></td>
+            <td><code>users</code>/<code>tenants</code> sin RLS (plataforma)</td>
+          </tr>
+          <tr>
+            <td>11</td>
+            <td>Celery ping</td>
+            <td><span class="badge ok">1 node</span></td>
+            <td>pong · worker concurrency 1 · 1 beat</td>
+          </tr>
+          <tr>
+            <td>12</td>
+            <td>Listeners sensibles</td>
+            <td><span class="badge ok">loopback</span></td>
+            <td>5432, 6379, 8010, 3010 no públicos</td>
+          </tr>
+          <tr>
+            <td>13</td>
+            <td>Docker en runtime</td>
+            <td><span class="badge ok">ausente</span></td>
+            <td>unidades y procesos sin docker</td>
+          </tr>
+          <tr>
+            <td>14</td>
+            <td>Backup nativo + restore test</td>
+            <td><span class="badge ok">OK</span></td>
+            <td>SHA <code>859f6d51…</code> · alembic + users=4</td>
+          </tr>
+          <tr>
+            <td>15</td>
+            <td>Login real con contraseña migrada</td>
+            <td><span class="badge warn">pendiente</span></td>
+            <td>hashes migrados; contraseña no ejercitada en este informe</td>
+          </tr>
+          <tr>
+            <td>16</td>
+            <td>Smoke aislamiento tenant UI</td>
+            <td><span class="badge warn">pendiente</span></td>
+            <td>requiere sesión autenticada</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Listeners finales (extracto)</h3>
+<pre>0.0.0.0:22     sshd
+0.0.0.0:80     nginx
+0.0.0.0:443    nginx
+127.0.0.1:5432 postgres
+127.0.0.1:6379 redis-server
+127.0.0.1:8010 gunicorn (API)
+127.0.0.1:3010 next-server (web)</pre>
+    </section>
+
+    <!-- 7 Risk Nexus -->
+    <section id="risk-nexus">
+      <h2><span class="num">07</span> Fase 7 · Risk y Nexus</h2>
+
+      <div class="grid-2">
+        <div class="callout warn">
+          <strong>Risk · shell listo, app pendiente</strong>
+          Repositorio: <code>gitshell007/opn_risk_advisor</code><br />
+          Local: <code>~/PycharmProjects/opn_risk_advisor</code><br />
+          Host: DB <code>opn_risk_advisor_dev</code>, roles <code>risk_*</code>,
+          usuario <code>opn-risk</code>, Nginx+TLS en
+          <code>risk-dev.opnconsultoria.com</code> (placeholder 503).<br />
+          <em>No reutilizar <code>oracle_app</code> / <code>oracle_migrator</code>.</em>
+        </div>
+        <div class="callout fail">
+          <strong>Nexus · bloqueo concreto</strong>
+          DNS A <code>nexus-dev.opnconsultoria.com</code> → mismo host, pero
+          <strong>no existe repositorio Nexus</strong> en la org
+          <code>gitshell007</code> ni runtime/esquema documentado.<br />
+          No se inventó hostname, DB ni código. Pendiente de identificación de producto.
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 CI -->
+    <section id="ci">
+      <h2><span class="num">08</span> CI y calidad del SHA desplegado</h2>
+      <p>SHA de runtime: <code class="hash">22a5a794e2c502282041b83c91bfc81adf57f3e5</code></p>
+      <table>
+        <thead><tr><th>Job CI</th><th>Conclusión</th></tr></thead>
+        <tbody>
+          <tr><td>Backend, migrations and integration</td><td><span class="badge ok">success</span></td></tr>
+          <tr><td>Frontend and contract</td><td><span class="badge ok">success</span></td></tr>
+          <tr><td>Frontend E2E</td><td><span class="badge fail">failure</span></td></tr>
+          <tr><td>Security, images and SBOM</td><td><span class="badge neutral">skipped</span></td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>E2E en rojo (preexistente de producto)</strong>
+        Fallo en <code>procurement-wizard.spec.ts</code>: no encuentra el checkbox
+        «Guardar también una vigilancia». No afecta al arranque nativo validado en host
+        (lint, typecheck y unit frontend pasaron en el build del release).
+      </div>
+      <p class="muted">
+        Commits de soporte del despliegue: corrección lint setState-in-effect y test de rutas
+        (12 destinos productivos incluyendo <code>procurement-stats</code>).
+      </p>
+    </section>
+
+    <!-- 9 Riesgos -->
+    <section id="riesgos">
+      <h2><span class="num">09</span> Riesgos abiertos y deuda</h2>
+      <table>
+        <thead><tr><th>Prioridad</th><th>Riesgo</th><th>Mitigación / acción</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="badge warn">Media</span></td>
+            <td>Login real con contraseña de usuario migrado no ejercitado en el informe</td>
+            <td>Probar manualmente con credenciales conocidas del operador</td>
+          </tr>
+          <tr>
+            <td><span class="badge warn">Media</span></td>
+            <td>Documentos: filas en PG pero storage no migrado; módulo deshabilitado</td>
+            <td>Inventariar volume y reactivar solo con scanner/storage dev</td>
+          </tr>
+          <tr>
+            <td><span class="badge warn">Media</span></td>
+            <td>Credenciales cifradas de integraciones ilegibles (keyring nuevo)</td>
+            <td>Reconfigurar integraciones en dev o transferir keyring con autorización</td>
+          </tr>
+          <tr>
+            <td><span class="badge info">Baja</span></td>
+            <td>SMTP local fail-closed: cualquier envío fallará</td>
+            <td>Comportamiento deseado hasta credenciales dev autorizadas</td>
+          </tr>
+          <tr>
+            <td><span class="badge info">Baja</span></td>
+            <td>Jobs Celery de la copia pueden encolarse</td>
+            <td>AI/Signal off; nightly summaries off; vigilar colas</td>
+          </tr>
+          <tr>
+            <td><span class="badge fail">Alta (producto)</span></td>
+            <td>Nexus sin repositorio</td>
+            <td>Identificar repo/runtime o retirar DNS</td>
+          </tr>
+          <tr>
+            <td><span class="badge warn">Media</span></td>
+            <td>Risk app no desplegada</td>
+            <td>Auditar runbook Alembic y desplegar con roles propios</td>
+          </tr>
+          <tr>
+            <td><span class="badge info">Baja</span></td>
+            <td>E2E wizard en rojo en CI</td>
+            <td>Corregir checkbox/copy o actualizar spec</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 10 Rollback -->
+    <section id="rollback">
+      <h2><span class="num">10</span> Plan de rollback</h2>
+      <table>
+        <thead><tr><th>Capa</th><th>Procedimiento</th><th>Notas</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Código</td>
+            <td><code>ln -sfn /opt/opn-oracle/releases/&lt;prev&gt; /opt/opn-oracle/current</code> y restart de las 4 unidades</td>
+            <td>Symlink atómico; sin <code>git pull</code> in-place</td>
+          </tr>
+          <tr>
+            <td>Config Nginx/systemd</td>
+            <td>Restaurar backups timestamped en <code>/var/backups/opn-oracle-dev/</code></td>
+            <td><code>nginx -t</code> + reload; no restart si basta</td>
+          </tr>
+          <tr>
+            <td>Datos</td>
+            <td>Restore del dump <code>-Fc</code> a base nueva o sobrescritura controlada</td>
+            <td><strong>Sin downgrade Alembic automático</strong></td>
+          </tr>
+          <tr>
+            <td>Esquema avanzado</td>
+            <td>Forward-fix o rollback explícitamente compatible</td>
+            <td>Conservar dump + logs + base para diagnóstico</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 11 Commits -->
+    <section id="commits">
+      <h2><span class="num">11</span> Commits y artefactos versionables</h2>
+      <table>
+        <thead><tr><th>Hash</th><th>Título</th><th>Push</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>7f672de</code></td>
+            <td>fix(ui): evitar setState síncrono en effects de modales</td>
+            <td><span class="badge ok">sí</span></td>
+          </tr>
+          <tr>
+            <td><code>2268792</code> / <code>22a5a79</code></td>
+            <td>test(ui): alinear registro de rutas productivas</td>
+            <td><span class="badge ok">sí</span></td>
+          </tr>
+          <tr>
+            <td><code>a21bf9d</code></td>
+            <td>feat(ops): despliegue nativo de Oracle en oracle-dev sin Docker</td>
+            <td><span class="badge ok">sí</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Documentación y plantillas</h3>
+      <ul>
+        <li><code>docs/operations/DEV_NATIVE_DEPLOY.md</code></li>
+        <li><code>docs/operations/reports/DESPLIEGUE_DEV_NATIVO_2026-07-28.html</code> (este informe)</li>
+        <li><code>docs/implementation/STATUS.md</code></li>
+        <li><code>infra/native-dev/**</code> — bootstrap, build-release, activate, systemd, nginx, env example</li>
+      </ul>
+      <p class="muted">Ningún secreto en Git. Secretos solo en el host bajo <code>/etc/opn-oracle-dev/secrets/</code>.</p>
+    </section>
+
+    <!-- 12 Siguientes -->
+    <section id="siguientes">
+      <h2><span class="num">12</span> Siguientes pasos recomendados</h2>
+      <ol>
+        <li>Login manual en <a href="https://oracle-dev.opnconsultoria.com/login">oracle-dev …/login</a> con un usuario migrado y verificar cookies Secure/HttpOnly/SameSite.</li>
+        <li>Smoke de aislamiento multi-tenant en UI (IDOR negativo básico).</li>
+        <li>Desplegar <strong>Risk</strong> nativo en <code>risk-dev</code> con roles y Redis propios.</li>
+        <li>Resolver bloqueo <strong>Nexus</strong> (repo/runtime) o retirar DNS si no aplica.</li>
+        <li>Corregir E2E del wizard de procurement si el gate de CI completo es obligatorio en cada release.</li>
+        <li>Cuando se autorice: credenciales dev de Signal/IA/correo y política de documentos.</li>
+      </ol>
+    </section>
+
+    <footer>
+      OPN Oracle · Informe de despliegue nativo dev · generado 2026-07-28 ·
+      evidencia en host <code>oracle-dev.opnconsultoria.com</code> y repo
+      <code>gitshell007/OPN_ORACLE</code> · sin secretos en este documento
+    </footer>
+  </div>
+</body>
+</html>
