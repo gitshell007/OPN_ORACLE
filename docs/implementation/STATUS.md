@@ -1,8 +1,21 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-26
+Actualizado: 2026-07-28
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Despliegue nativo oracle-dev (2026-07-28)
+
+- Host `oracle-dev.opnconsultoria.com` (`159.195.216.33`): Oracle **sin Docker**
+  (Gunicorn, Next standalone, Celery worker/beat, PostgreSQL 17, Redis 8, Nginx+TLS).
+- Release activo: `20260728T085951Z-native-22a5a79` (SHA `22a5a79`).
+- Snapshot prod → `opn_oracle_dev` (Alembic `20260726_0026`); Redis no migrado.
+- AI/Signal deshabilitados; SMTP local fail-closed; `DOCUMENTS_ENABLED=false`.
+- Risk: server block + cert + DB shell `opn_risk_advisor_dev`; app pendiente.
+- Nexus: DNS A presente en el mismo host; **sin repositorio** en la org → bloqueado.
+- Evidencia y runbook: `docs/operations/DEV_NATIVE_DEPLOY.md`, `infra/native-dev/`.
+- CI del SHA: Backend y Frontend/contract en verde; E2E procurement-wizard en rojo
+  (checkbox vigilancia) — no bloquea el runtime nativo validado en host.
 
 ## Prompts 96–97 · «Buscar con Oracle» ejecuta un plan multisector
 

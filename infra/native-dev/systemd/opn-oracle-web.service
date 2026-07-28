@@ -1,0 +1,34 @@
+[Unit]
+Description=OPN Oracle Next.js web (native dev standalone)
+After=network-online.target opn-oracle-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opn-oracle
+Group=opn-oracle
+WorkingDirectory=/opt/opn-oracle/current/.next/standalone
+EnvironmentFile=/etc/opn-oracle-dev/oracle.env
+Environment=NODE_ENV=production
+Environment=PORT=3010
+Environment=HOSTNAME=127.0.0.1
+Environment=ORACLE_API_ORIGIN=http://127.0.0.1:8010
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/opn-oracle-dev /var/log/opn-oracle-dev /tmp
+ReadOnlyPaths=/opt/opn-oracle /etc/opn-oracle-dev
+UMask=0027
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opn-oracle-web
+
+[Install]
+WantedBy=multi-user.target
