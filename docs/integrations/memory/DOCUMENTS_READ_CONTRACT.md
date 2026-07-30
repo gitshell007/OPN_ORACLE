@@ -57,8 +57,8 @@ Para ingestión de memoria, consumir preferentemente filas con
 | Campo | Contrato |
 |---|---|
 | `id`, `tenant_id`, `document_id`, `document_version_id` | |
-| `ordinal` | orden estable del fragmento |
-| `text` | texto extraído del chunk |
+| `sequence` | orden estable del fragmento |
+| `text_content` | texto extraído del chunk |
 | `locator` | JSON (página, párrafo, char_start, etc.) |
 | `checksum` | hash del chunk |
 | `tsv` / FTS | índice de búsqueda (implementación; no API externa) |
@@ -68,7 +68,7 @@ Para ingestión de memoria, consumir preferentemente filas con
 ## 2. Dónde vive el texto extraído
 
 - El **blob original** está en el backend de storage (`local` o `s3`) bajo `storage_key`.
-- El **texto libre** para lectura/FTS está en **`document_chunks.text`**, no en el fichero.
+- El **texto libre** para lectura/FTS está en **`document_chunks.text_content`**, no en el fichero.
 - Se genera en el job `oracle.document.process` (scan → parse → chunk).
 - **Garantías:**
   - Con `status=ready` y versión actual, los chunks de `current_version_id` son la vista canónica.
@@ -100,7 +100,7 @@ Para ingestión de memoria, consumir preferentemente filas con
 4. Calcular SHA-256 del stream y comparar con `documents.checksum` (32 bytes raw) o su hex
    en API (`checksum` serializado en hex).
 5. Para texto libre, unir `document_chunks` de `document_version_id = current_version_id`
-   ordenados por `ordinal`.
+   ordenados por `sequence`.
 
 **No** confiar en un `tenant_id` aportado por un cliente externo sin contexto de sesión:
 el motor de memoria debe usar credenciales de servicio y scoping explícito por tenant.
@@ -125,6 +125,17 @@ el motor de memoria debe usar credenciales de servicio y scoping explícito por 
 - Endpoints HTTP y códigos problem+json (salvo los ya documentados en OpenAPI).
 
 ---
+
+## 5.1 Descarga y citabilidad con scanner noop
+
+`document_available_for_citation` solo permite descarga/cita cuando:
+
+- `status=ready` y `scan_status=clean` (ClamAV), **o**
+- excepción oficial unscanned (host allowlist + aceptación), **o**
+- **escape de shared-dev:** `DOCUMENT_SCANNER_MODE=noop` **y** `DOCUMENT_ALLOW_LOCAL_BACKEND=true`
+  (resultado `scan_status=not_configured`).
+
+Sin ese escape, un documento `ready` con noop **no es descargable** (404).
 
 ## 6. Excepciones de entorno (oracle-dev)
 
