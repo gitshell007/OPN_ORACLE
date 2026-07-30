@@ -1625,6 +1625,30 @@ def _oracle_schemas() -> dict[str, Any]:
                 "success_indicators": string_array,
             },
         },
+        "MarketProfileInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["own_offer", "decision_to_make", "competitors"],
+            "properties": {
+                "own_offer": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "decision_to_make": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "horizon": {"type": "string", "maxLength": 500},
+                "segments": string_array,
+                "channels": string_array,
+                "target_buyers": string_array,
+                "competitors": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {"$ref": "#/components/schemas/CompetitiveCompetitorInput"},
+                },
+                "partners": string_array,
+                "regulators": string_array,
+                "barriers": string_array,
+                "success_indicators": string_array,
+                "keywords": string_array,
+            },
+        },
         "DossierCreateInput": {
             "type": "object",
             "additionalProperties": False,
@@ -1641,7 +1665,12 @@ def _oracle_schemas() -> dict[str, Any]:
                 "sectors": string_array,
                 "languages": string_array,
                 "scoring_config": json_object,
-                "profile_config": {"$ref": "#/components/schemas/CompetitiveProfileInput"},
+                "profile_config": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/CompetitiveProfileInput"},
+                        {"$ref": "#/components/schemas/MarketProfileInput"},
+                    ]
+                },
                 "initial_status": {"type": "string", "enum": ["draft", "active"]},
                 "create_starter_profile": {"type": "boolean"},
             },
@@ -1658,6 +1687,15 @@ def _oracle_schemas() -> dict[str, Any]:
                 },
                 "owner_user_id": uuid,
                 "scoring_config": json_object,
+                "geography": string_array,
+                "sectors": string_array,
+                "languages": string_array,
+                "profile_config": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/CompetitiveProfileInput"},
+                        {"$ref": "#/components/schemas/MarketProfileInput"},
+                    ]
+                },
             }
         ),
         "DossierBulkDeleteInput": {

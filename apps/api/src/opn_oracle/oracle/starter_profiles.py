@@ -52,7 +52,7 @@ STARTER_PROFILES: dict[str, StarterProfile] = {
                 "Contrastar fuentes de mercado y publicaciones oficiales.",
             ),
         ),
-        ("market_signal", "company_signal", "news", "regulatory_signal", "official_publication"),
+        ("news", "company_signal", "regulatory_signal", "official_publication"),
     ),
     "strategic_account": StarterProfile(
         "Desarrollar la cuenta estratégica",

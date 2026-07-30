@@ -2084,6 +2084,52 @@ def test_dossier_completion_context_handles_empty_answers_and_first_round(
         assert context.context_hash == hashlib.sha256(_canonical(context.payload)).digest()
 
 
+def test_dossier_completion_context_exposes_market_profile_and_scope(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    response = client.post(
+        "/api/v1/dossiers",
+        json={
+            "workspace_id": str(ids["workspace_a"]),
+            "title": "Mercado con contexto IA",
+            "type": "market",
+            "strategic_goal": "Decidir la entrada.",
+            "description": "D" * 2000,
+            "geography": ["ES", "DE"],
+            "sectors": ["energía"],
+            "languages": ["es", "de"],
+            "profile_config": {
+                "own_offer": "Oferta propia",
+                "decision_to_make": "Entrar o no.",
+                "horizon": "6 meses",
+                "competitors": [{"name": "Rival Uno"}],
+            },
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 201, response.get_json()
+    market_dossier_id = uuid.UUID(response.get_json()["id"])
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        context = build_dossier_completion_context(
+            market_dossier_id, max_tokens=4_000, answers=None
+        )
+        snapshot_dossier = context.payload["completion_snapshot"]["dossier"]
+        assert snapshot_dossier["geography"] == ["ES", "DE"]
+        assert snapshot_dossier["languages"] == ["es", "de"]
+        assert snapshot_dossier["sectors"] == ["energía"]
+        assert len(snapshot_dossier["description"]) == 1500
+        assert snapshot_dossier["profile"]["version"] == "market.v1"
+        assert snapshot_dossier["profile"]["decision_to_make"] == "Entrar o no."
+        assert snapshot_dossier["profile"]["horizon"] == "6 meses"
+        assert snapshot_dossier["profile"]["competitors"] == ["Rival Uno"]
+
+
 def test_dossier_completion_context_trims_large_payload_to_budget_deterministically(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
@@ -3884,6 +3930,131 @@ def test_competitive_intelligence_creation_is_active_specific_and_honest(
         headers={"X-CSRF-Token": _csrf(client)},
     )
     assert invalid.status_code == 422
+
+
+def test_market_dossier_intake_materialises_editable_context(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    _, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    response = client.post(
+        "/api/v1/dossiers",
+        json={
+            "workspace_id": str(ids["workspace_a"]),
+            "title": "Mercado de almacenamiento energético",
+            "type": "market",
+            "strategic_goal": "Decidir antes de diciembre si entramos y mediante qué canal.",
+            "create_starter_profile": True,
+            "geography": ["es", "DE"],
+            "sectors": ["almacenamiento energético"],
+            "languages": ["ES", "de"],
+            "profile_config": {
+                "own_offer": "Integración de sistemas de baterías",
+                "decision_to_make": "Entrar o no en el mercado y con qué canal.",
+                "horizon": "Antes de diciembre",
+                "segments": ["utility scale"],
+                "channels": ["licitación pública"],
+                "target_buyers": ["operadores de red"],
+                "competitors": [
+                    {"name": "Compañía Gamma", "aliases": ["Gamma Storage"]},
+                    {"name": "Compañía Delta"},
+                ],
+                "partners": ["Partner Local"],
+                "regulators": ["Regulador Energía"],
+                "barriers": ["Permisos de conexión lentos", "Concentración de EPCistas"],
+                "success_indicators": ["pipeline cualificado"],
+                "keywords": ["almacenamiento energético"],
+            },
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 201, response.get_json()
+    dossier = response.get_json()
+    assert dossier["profile_config"]["version"] == "market.v1"
+    assert dossier["geography"] == ["ES", "DE"]
+    assert dossier["languages"] == ["es", "de"]
+    dossier_id = dossier["id"]
+
+    actors = client.get(f"/api/v1/dossiers/{dossier_id}/actors").get_json()["data"]
+    roles_by_count: dict[str, int] = {}
+    for item in actors:
+        for role in item["roles"]:
+            roles_by_count[role] = roles_by_count.get(role, 0) + 1
+    assert roles_by_count == {"competidor": 2, "partner": 1, "regulador": 1}
+
+    decisions = client.get(f"/api/v1/dossiers/{dossier_id}/decisions").get_json()["data"]
+    assert len(decisions) == 1
+    assert decisions[0]["status"] == "proposed"
+    assert decisions[0]["title"] == "Entrar o no en el mercado y con qué canal."
+
+    risks = client.get(f"/api/v1/dossiers/{dossier_id}/risks").get_json()["data"]
+    assert sorted(item["title"] for item in risks) == [
+        "Concentración de EPCistas",
+        "Permisos de conexión lentos",
+    ]
+    assert all(item["status"] == "open" for item in risks)
+
+    tasks = client.get(f"/api/v1/dossiers/{dossier_id}/tasks").get_json()["data"]
+    assert len(tasks) == 3
+
+    watchlist = client.get(f"/api/v1/dossiers/{dossier_id}/watchlists").get_json()["data"][0]
+    config = watchlist["query_config"]
+    assert config["requires_review"] is True
+    assert config["query"] == ""
+    assert config["cadence"] == "daily"
+    assert "market_signal" not in config["source_types"]
+    assert config["languages"] == ["es", "de"]
+    assert config["geographies"] == ["ES", "DE"]
+    assert {"type": "company", "name": "Compañía Gamma"} in config["entities"]
+    assert {"type": "company", "name": "Regulador Energía"} in config["entities"]
+    assert "utility scale" in config["keywords"]
+    assert "licitación pública" in config["keywords"]
+
+    patched = client.patch(
+        f"/api/v1/dossiers/{dossier_id}",
+        json={
+            "geography": ["ES"],
+            "sectors": ["baterías"],
+            "profile_config": {
+                **dossier["profile_config"],
+                "decision_to_make": "Entrar mediante partner local.",
+            },
+        },
+        headers={"X-CSRF-Token": _csrf(client), "If-Match": 'W/"1"'},
+    )
+    assert patched.status_code == 200, patched.get_json()
+    assert patched.get_json()["geography"] == ["ES"]
+    assert patched.get_json()["sectors"] == ["baterías"]
+    assert (
+        patched.get_json()["profile_config"]["decision_to_make"] == "Entrar mediante partner local."
+    )
+
+    incomplete = client.post(
+        "/api/v1/dossiers",
+        json={
+            "title": "Mercado sin decisión",
+            "type": "market",
+            "strategic_goal": "No debe persistirse",
+            "profile_config": {
+                "own_offer": "Oferta",
+                "competitors": [{"name": "Alguien"}],
+            },
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert incomplete.status_code == 422
+
+    outside_eu = client.post(
+        "/api/v1/dossiers",
+        json={
+            "title": "Mercado fuera de ámbito",
+            "type": "market",
+            "strategic_goal": "No debe persistirse",
+            "geography": ["US"],
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert outside_eu.status_code == 422
 
 
 def test_dossier_crud_filters_concurrency_archive_and_idor(

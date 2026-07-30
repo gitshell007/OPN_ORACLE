@@ -15,6 +15,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { EuCountryMultiSelect } from "@/components/ui/eu-country-multiselect";
 import { productStatusLabel } from "@/lib/product-copy";
 
 const errorText = (reason: unknown, fallback: string) =>
@@ -25,6 +26,7 @@ const safeSourceTypes: Array<{ value: SignalMonitorSourceType; label: string; hi
   { value: "company_signal", label: "Actividad corporativa", hint: "Webs y comunicados de organizaciones" },
   { value: "official_publication", label: "Publicaciones oficiales", hint: "Boletines y diarios oficiales" },
   { value: "regulatory_signal", label: "Regulación", hint: "Normativa, consultas y reguladores" },
+  { value: "social_signal", label: "Redes y foros", hint: "Conversación pública y menciones sociales" },
 ];
 
 type MonitorDraft = {
@@ -130,6 +132,9 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
           keywords: Array.isArray(value.keywords)
             ? value.keywords.map(String).join(", ")
             : current.keywords,
+          entities: Array.isArray(value.entities)
+            ? value.entities.map(String).join(", ")
+            : current.entities,
           source_types: Array.isArray(value.source_types)
             ? value.source_types
                 .map(String)
@@ -205,7 +210,11 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
     event.preventDefault();
     const keywords = commaSeparated(monitorForm.keywords);
     const entities = commaSeparated(monitorForm.entities);
-    if (!monitorForm.connection_id || !monitorForm.query.trim() || !monitorForm.name.trim()) return;
+    if (!monitorForm.connection_id || !monitorForm.name.trim()) return;
+    if (!monitorForm.query.trim() && keywords.length === 0 && entities.length === 0) {
+      setError("Define al menos una consulta, palabras clave o entidades a vigilar.");
+      return;
+    }
     if (monitorForm.source_types.length === 0) {
       setError("Selecciona al menos un tipo de fuente.");
       return;
@@ -292,13 +301,19 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
             <div className="dossier-monitor-create-heading"><CirclePlus size={17} aria-hidden="true" /><div><h3>Nueva vigilancia</h3><p>Define qué vigilar y enviaremos la configuración a Signal Avanza.</p></div></div>
             <label className="field"><span>Conexión activa</span><select required value={monitorForm.connection_id} onChange={(event) => setMonitorForm({ ...monitorForm, connection_id: event.target.value })} disabled={busy || connections.length === 0}><option value="">Selecciona una conexión</option>{connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select></label>
             <label className="field"><span>Nombre de la vigilancia</span><input required maxLength={200} value={monitorForm.name} onChange={(event) => setMonitorForm({ ...monitorForm, name: event.target.value })} placeholder="Ej. Competencia y regulación" disabled={busy || connections.length === 0} /></label>
-            <label className="field full"><span>Consulta principal</span><input required value={monitorForm.query} onChange={(event) => setMonitorForm({ ...monitorForm, query: event.target.value })} placeholder="Ej. almacenamiento energético España" disabled={busy || connections.length === 0} /><small>Usa una frase concreta; las palabras clave y entidades se aplicarán como filtros adicionales.</small></label>
+            <label className="field full"><span>Consulta principal (opcional)</span><input value={monitorForm.query} onChange={(event) => setMonitorForm({ ...monitorForm, query: event.target.value })} placeholder="Ej. almacenamiento energético España" disabled={busy || connections.length === 0} /><small>Puedes dejarla vacía si defines palabras clave o entidades: la vigilancia se construye a partir de ellas.</small></label>
             <label className="field"><span>Palabras clave</span><textarea value={monitorForm.keywords} onChange={(event) => setMonitorForm({ ...monitorForm, keywords: event.target.value })} placeholder="baterías, subvenciones, almacenamiento" disabled={busy || connections.length === 0} /><small>Separadas por comas o líneas.</small></label>
             <label className="field"><span>Competidores y entidades</span><textarea value={monitorForm.entities} onChange={(event) => setMonitorForm({ ...monitorForm, entities: event.target.value })} placeholder="Empresa A, Organismo B" disabled={busy || connections.length === 0} /><small>Se guardarán como organizaciones vigiladas.</small></label>
             <label className="field"><span>Cadencia</span><select value={monitorForm.cadence} onChange={(event) => setMonitorForm({ ...monitorForm, cadence: event.target.value as MonitorDraft["cadence"] })} disabled={busy || connections.length === 0}><option value="hourly">Cada hora</option><option value="daily">Diaria</option><option value="weekly">Semanal</option></select></label>
             <label className="field"><span>Conservación</span><select value={monitorForm.retention_days} onChange={(event) => setMonitorForm({ ...monitorForm, retention_days: Number(event.target.value) })} disabled={busy || connections.length === 0}><option value={30}>30 días</option><option value={90}>90 días</option><option value={180}>180 días</option><option value={365}>365 días</option></select></label>
             <label className="field"><span>Idiomas</span><input value={monitorForm.languages} onChange={(event) => setMonitorForm({ ...monitorForm, languages: event.target.value })} placeholder="es, en" disabled={busy || connections.length === 0} /><small>Códigos ISO separados por comas.</small></label>
-            <label className="field"><span>Ámbitos geográficos</span><input value={monitorForm.geographies} onChange={(event) => setMonitorForm({ ...monitorForm, geographies: event.target.value })} placeholder="ES, EU" disabled={busy || connections.length === 0} /><small>Códigos de país o región separados por comas.</small></label>
+            <EuCountryMultiSelect
+              label="Ámbitos geográficos (UE)"
+              value={commaSeparated(monitorForm.geographies).map((item) => item.toUpperCase())}
+              onChange={(next) => setMonitorForm({ ...monitorForm, geographies: next.join(", ") })}
+              disabled={busy || connections.length === 0}
+              hint="España y Alemania son los mercados prioritarios ahora mismo."
+            />
             <fieldset className="monitor-source-types full" disabled={busy || connections.length === 0}><legend>Fuentes a vigilar</legend><p>Solo se muestran fuentes compatibles y verificadas con Signal Avanza.</p><div>{safeSourceTypes.map((source) => <label key={source.value}><input type="checkbox" checked={monitorForm.source_types.includes(source.value)} onChange={() => toggleSourceType(source.value)} /><span><strong>{source.label}</strong><small>{source.hint}</small></span></label>)}</div></fieldset>
             {connections.length === 0 && <p className="monitor-create-notice full" role="status">No hay una conexión activa disponible. Pide a la administración de tu organización que active Signal Avanza.</p>}
             <div className="settings-actions"><AsyncActionButton className="vector-primary" type="submit" disabled={connections.length === 0} loading={busy}><CirclePlus size={15} /> Crear vigilancia</AsyncActionButton></div>

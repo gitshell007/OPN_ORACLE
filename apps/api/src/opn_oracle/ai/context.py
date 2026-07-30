@@ -471,8 +471,13 @@ def build_context(
         "dossier": {
             "id": str(dossier.id),
             "title": dossier.title,
+            "dossier_type": dossier.dossier_type,
             "description": dossier.description,
             "strategic_goal": dossier.strategic_goal,
+            "sectors": list(dossier.sectors),
+            "geography": list(dossier.geography),
+            "languages": list(dossier.languages),
+            "profile": _profile_summary(dossier),
         },
         "objectives": [{"id": str(item.id), "title": item.title} for item in objectives],
         "hypotheses": [
@@ -511,6 +516,35 @@ def build_context(
 
 def _small_text(value: str, limit: int = 1200) -> str:
     return value[:limit]
+
+
+def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
+    """Resumen compacto y tipado del profile_config para los contextos de IA."""
+
+    profile = dossier.profile_config or {}
+    version = str(profile.get("version", ""))
+    if version == "market.v1":
+        return {
+            "version": version,
+            "own_offer": _small_text(str(profile.get("own_offer", "")), 500),
+            "decision_to_make": _small_text(str(profile.get("decision_to_make", "")), 2000),
+            "horizon": _small_text(str(profile.get("horizon", "")), 300),
+            "segments": list(profile.get("segments", []))[:15],
+            "channels": list(profile.get("channels", []))[:15],
+            "target_buyers": list(profile.get("target_buyers", []))[:15],
+            "competitors": [
+                str(item.get("name", ""))
+                for item in profile.get("competitors", [])
+                if isinstance(item, dict)
+            ][:20],
+            "partners": list(profile.get("partners", []))[:15],
+            "regulators": list(profile.get("regulators", []))[:15],
+            "barriers": list(profile.get("barriers", []))[:15],
+            "success_indicators": list(profile.get("success_indicators", []))[:15],
+        }
+    if version:
+        return {"version": version}
+    return {}
 
 
 def build_dossier_situation_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
@@ -859,6 +893,11 @@ def build_dossier_completion_context(
             "strategic_goal": dossier.strategic_goal,
             "status": dossier.status,
             "description_present": bool(dossier.description.strip()),
+            "description": _small_text(dossier.description, 1500),
+            "sectors": list(dossier.sectors),
+            "geography": list(dossier.geography),
+            "languages": list(dossier.languages),
+            "profile": _profile_summary(dossier),
         },
         "counts": {
             "objectives": _count_for(DossierObjective, tenant_id, dossier_id),

@@ -56,6 +56,65 @@ describe("CreateProductDossierDialog", () => {
     })));
   });
 
+  it("guía el intake de mercado en cuatro pasos y deja preparada la vigilancia", async () => {
+    sessionStorage.clear();
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "market" } });
+    expect(screen.getByText("Paso 1 de 4")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Mercado de almacenamiento" } });
+    fireEvent.change(screen.getByLabelText("Objetivo estratégico"), { target: { value: "Decidir si entramos" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    expect(await screen.findByText("Paso 2 de 4")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Quitar España" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Quitar Alemania" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Oferta o capacidades propias"), { target: { value: "Integración de baterías" } });
+    fireEvent.change(screen.getByLabelText("Sector"), { target: { value: "almacenamiento energético" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    expect(await screen.findByText("Paso 3 de 4")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText("Una o varias razones sociales, separadas por comas"), { target: { value: "Compañía Gamma, Compañía Delta" } });
+    fireEvent.change(screen.getByLabelText("Posibles partners"), { target: { value: "Partner Local" } });
+    fireEvent.change(screen.getByLabelText("Reguladores"), { target: { value: "CNMC" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    expect(await screen.findByText("Paso 4 de 4")).toBeInTheDocument();
+    expect(mocks.readiness).toHaveBeenCalled();
+    expect(screen.getByText("La política IA está desactivada.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Decisión concreta"), { target: { value: "Entrar con partner local" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      type: "market",
+      initial_status: "active",
+      geography: ["ES", "DE"],
+      languages: ["es", "de"],
+      sectors: ["almacenamiento energético"],
+      profile_config: expect.objectContaining({
+        own_offer: "Integración de baterías",
+        decision_to_make: "Entrar con partner local",
+        competitors: [
+          { name: "Compañía Gamma", aliases: [] },
+          { name: "Compañía Delta", aliases: [] },
+        ],
+        partners: ["Partner Local"],
+        regulators: ["CNMC"],
+      }),
+    })));
+
+    const stored = sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor");
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored as string)).toMatchObject({
+      entities: ["Compañía Gamma", "Compañía Delta", "Partner Local", "CNMC"],
+      geographies: ["ES", "DE"],
+      languages: ["es", "de"],
+      cadence: "daily",
+    });
+    expect(mocks.push).toHaveBeenCalledWith("/app/dossiers/dossier-1/settings?wizard_prefill=monitor");
+  });
+
   it("revisa dependencias y crea un perfil competitivo activo sin ocultar bloqueos", async () => {
     render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "competitive_intelligence" } });
