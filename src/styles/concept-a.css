@@ -5483,8 +5483,26 @@ html[data-font-scale="small"] .workspace-chip strong {
 
 .dossier-inventory-table .selection-column {
   width: 48px;
-  padding-right: 4px;
+  min-width: 48px;
+  padding: 0;
   text-align: center;
+  vertical-align: middle;
+}
+
+/* Toda la primera columna es hit target de selección (no de navegación). */
+.dossier-inventory-table tbody .selection-column .selection-cell-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.dossier-inventory-table tbody .selection-column input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
 }
 
 .dossier-inventory-table input[type="checkbox"],

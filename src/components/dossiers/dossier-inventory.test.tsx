@@ -170,6 +170,27 @@ describe("DossierInventory", () => {
     expect(screen.getByText("Columnas")).toBeVisible();
   });
 
+  it("marca la selección al clicar la celda del checkbox sin abrir el expediente", async () => {
+    render(<DossierInventory />);
+    await screen.findAllByText("Expansión Delta");
+
+    // Desktop + móvil renderizan el mismo aria-label; usamos la celda de tabla.
+    const checkbox = screen
+      .getAllByLabelText("Seleccionar Expansión Delta")
+      .find((node) => node.closest("td.selection-column"));
+    expect(checkbox).toBeTruthy();
+    const hit = checkbox!.closest("label");
+    expect(hit).toHaveClass("selection-cell-hit");
+    fireEvent.click(hit!);
+
+    expect(screen.getByText("1 seleccionados")).toBeVisible();
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    fireEvent.click(hit!);
+    expect(screen.queryByText("1 seleccionados")).not.toBeInTheDocument();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("exige resolver una suma antes de eliminar la selección", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     render(<DossierInventory />);
