@@ -2,7 +2,23 @@
 
 **Host:** `oracle-dev.opnconsultoria.com` → `159.195.216.33`  
 **Modelo:** sin Docker para Oracle; systemd + PostgreSQL/Redis/Nginx nativos.  
-**Fecha de arranque:** 2026-07-28
+**Fecha de arranque:** 2026-07-28  
+
+## Rama de despliegue
+
+| Campo | Valor |
+|---|---|
+| Checkout local canónico | `/Users/gitshellmini/PycharmProjects/OPN_ORACLE` |
+| Rama a desplegar en el host | `oracle-dev` |
+| Remoto | `origin` → `gitshell007/OPN_ORACLE` |
+| URL del entorno | `https://oracle-dev.opnconsultoria.com` |
+
+Reglas:
+
+- Los releases inmutables del host se construyen desde un **SHA de `oracle-dev`**, no desde `master` a ciegas.
+- `master` puede avanzar con trabajo no listo para el entorno dev compartido; `oracle-dev` es la línea que el servidor debe ejecutar.
+- Tras mergear a `oracle-dev`, construir release con el SHA exacto y CI aceptable, y activar con symlink `current`.
+- No hacer `git pull` in-place sobre `/opt/opn-oracle/current`.
 
 ## Fingerprint SSH validado
 
