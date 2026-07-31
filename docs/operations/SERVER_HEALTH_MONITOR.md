@@ -8,6 +8,10 @@ El monitor genera un informe diario para info@opnconsultoria.com con:
 - porcentaje de variación frente a la captura diaria anterior;
 - Oracle: docker system df, contenedores activos, snapshots de
   /var/backups/opn-oracle y copia off-host.
+- OpenRouter: gasto de las últimas 24 horas, total, variación, solicitudes, tokens y desglose
+  por consumidor, modelo, tarea, proyecto, coste y estado. Se obtiene de `ai_usage_logs` en
+  Signal y se calcula con los tokens y el catálogo de precios registrado; se etiqueta como coste
+  registrado y no como factura descargada del proveedor.
 
 La ejecución es externa al backend Flask: un host monitor conecta por SSH, recibe un pequeño
 recolector por stdin y no instala agentes ni modifica los servidores consultados. El histórico se
@@ -40,6 +44,11 @@ Después de publicar el release:
 El timer queda programado a las 08:00 de Europe/Madrid, con hasta diez minutos de dispersión.
 Persistent=true permite recuperar una ejecución perdida tras reiniciar el host.
 
+El correo se entrega como HTML responsive: cabecera ejecutiva, tarjetas de KPIs, control de coste
+OpenRouter y una tarjeta por servidor. A 430 px de ancho (viewport aproximado de un iPhone 16 Pro
+Max) las métricas se apilan en dos columnas y el único detalle tabular, el desglose OpenRouter,
+se desplaza horizontalmente dentro de su propia caja sin ensanchar el correo completo.
+
 ## Seguridad y límites
 
 - La clave de monitorización es dedicada; no se reutiliza una clave de aplicación.
@@ -53,3 +62,5 @@ Persistent=true permite recuperar una ejecución perdida tras reiniciar el host.
 - “Tareas ejecutadas” significa trabajos persistidos por cada aplicación: background_jobs,
   connector_run_logs, ai_analysis_jobs y tablas de ejecución equivalentes. No se infieren
   ejecuciones desde logs cuando la aplicación no las persiste.
+- Si Signal no conserva coste para una fila OpenRouter, el informe cuenta la solicitud y la marca
+  como coste no calculable; no inventa un precio.

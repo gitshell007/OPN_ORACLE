@@ -57,6 +57,8 @@ db_user = "opn_signal"
 db_name = "opn_signal_db"
 task_mode = "signal"
 docker_metrics = true
+# Gasto OpenRouter registrado en ai_usage_logs durante la ventana de 24 h.
+openrouter_spend = true
 services = ["docker.service", "nginx.service", "opn-signal-api.service", "opn-signal-worker.service", "opn-signal-beat.service"]
 
 [[targets]]

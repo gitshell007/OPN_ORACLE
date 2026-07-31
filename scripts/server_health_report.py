@@ -276,6 +276,82 @@ def task_metrics():
     return result
 
 
+def parse_spend_rows(raw):
+    rows = []
+    for line in raw.splitlines():
+        fields = line.split("|")
+        if len(fields) != 10:
+            continue
+        consumer, model, task, project, status, count, cost, missing_cost, input_tokens, output_tokens = fields
+        try:
+            rows.append({
+                "consumer": consumer or "—",
+                "model": model or "—",
+                "task": task or "—",
+                "project": project or "(sin proyecto)",
+                "status": status or "unknown",
+                "requests": int(count),
+                "cost_usd": float(cost) if cost else 0.0,
+                "missing_cost_requests": int(missing_cost),
+                "input_tokens": int(input_tokens),
+                "output_tokens": int(output_tokens),
+            })
+        except ValueError:
+            continue
+    return rows
+
+
+def openrouter_spend_metrics():
+    if os.environ.get("MONITOR_OPENROUTER_SPEND", "0") != "1":
+        return None
+    interval = int(os.environ.get("MONITOR_WINDOW_HOURS", "24"))
+    sql = f"""
+        select coalesce(c.name, 'consumer-' || u.consumer_id::text),
+               coalesce(u.model, '—'),
+               coalesce(u.task_key, '—'),
+               coalesce(u.project_name, '(sin proyecto)'),
+               u.status,
+               count(*),
+               coalesce(sum(u.estimated_cost_usd), 0),
+               count(*) filter (where u.estimated_cost_usd is null),
+               coalesce(sum(u.input_tokens), 0),
+               coalesce(sum(u.output_tokens), 0)
+          from ai_usage_logs u
+          left join consumers c on c.id = u.consumer_id
+         where lower(u.provider) = 'openrouter'
+           and u.created_at >= now() - interval '{interval} hours'
+         group by 1, 2, 3, 4, 5
+         order by 7 desc, 6 desc
+         limit 100
+    """
+    raw, error = db_query(sql, timeout=60)
+    result = {
+        "provider": "openrouter",
+        "window_hours": interval,
+        "rows": parse_spend_rows(raw or "") if not error else [],
+        "total_usd": 0.0,
+        "requests": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "error_requests": 0,
+        "missing_cost_requests": 0,
+        "errors": [],
+    }
+    if error:
+        result["errors"].append(f"OpenRouter: {error}")
+        return result
+    for row in result["rows"]:
+        result["total_usd"] += row["cost_usd"]
+        result["requests"] += row["requests"]
+        result["input_tokens"] += row["input_tokens"]
+        result["output_tokens"] += row["output_tokens"]
+        result["missing_cost_requests"] += row["missing_cost_requests"]
+        if row["status"] != "ok":
+            result["error_requests"] += row["requests"]
+    result["total_usd"] = round(result["total_usd"], 8)
+    return result
+
+
 def service_metrics():
     result = {}
     for unit in filter(None, os.environ.get("MONITOR_SERVICE_UNITS", "").split(",")):
@@ -298,6 +374,7 @@ def main():
         "services": service_metrics(),
         "database": database_metrics(),
         "tasks": task_metrics(),
+        "openrouter_spend": openrouter_spend_metrics(),
         "snapshots": snapshot_metrics(),
         "docker": None,
         "errors": [],
@@ -306,6 +383,8 @@ def main():
         data["docker"] = docker_metrics()
     data["errors"].extend(data["database"].get("errors", []))
     data["errors"].extend(data["tasks"].get("errors", []))
+    if data["openrouter_spend"]:
+        data["errors"].extend(data["openrouter_spend"].get("errors", []))
     data["errors"].extend(data["docker"].get("errors", []) if data["docker"] else [])
     print(json.dumps(data, separators=(",", ":"), sort_keys=True))
 
@@ -363,6 +442,15 @@ def format_pct(value: float | None) -> str:
     return f"{value:+.1f}%"
 
 
+def format_usd(value: int | float | None) -> str:
+    if value is None:
+        return "n/d"
+    amount = float(value)
+    if abs(amount) < 0.01:
+        return f"{amount:.6f} USD"
+    return f"{amount:,.4f} USD"
+
+
 def load_toml(path: Path) -> dict[str, Any]:
     with path.open("rb") as handle:
         return tomllib.load(handle)
@@ -403,6 +491,7 @@ def target_env(target: dict[str, Any], window_hours: int) -> dict[str, str]:
         "MONITOR_TASK_MODE": str(target.get("task_mode", "none")),
         "MONITOR_BACKUP_PATHS": json.dumps(target.get("backup_paths", [])),
         "MONITOR_DOCKER": "1" if target.get("docker_metrics", False) else "0",
+        "MONITOR_OPENROUTER_SPEND": "1" if target.get("openrouter_spend", False) else "0",
         "MONITOR_WINDOW_HOURS": str(window_hours),
     }
 
@@ -458,11 +547,13 @@ def normalized_metrics(capture: dict[str, Any]) -> dict[str, Any]:
             "total": row.get("total"), "active": row.get("active"),
         }
     snapshot_sizes = {item.get("path"): item.get("total_bytes") for item in data.get("snapshots", [])}
+    openrouter = data.get("openrouter_spend") or {}
     return {
         "disk_free_bytes": data.get("disk", {}).get("free_bytes"),
         "memory_available_bytes": data.get("memory", {}).get("available_bytes"),
         "database_total_bytes": sum(item.get("size_bytes", 0) or 0 for item in databases),
         "tasks_total": sum(item.get("count", 0) or 0 for item in tasks),
+        "openrouter_spend_usd": openrouter.get("total_usd"),
         "docker_sizes": docker_sizes,
         "snapshot_sizes": snapshot_sizes,
     }
@@ -475,7 +566,10 @@ def add_variations(current: dict[str, Any], previous: dict[str, Any] | None) -> 
     current["variation"] = {
         key: percentage_change(value, previous_metrics.get(key))
         for key, value in current_metrics.items()
-        if key in {"disk_free_bytes", "memory_available_bytes", "database_total_bytes", "tasks_total"}
+        if key in {
+            "disk_free_bytes", "memory_available_bytes", "database_total_bytes", "tasks_total",
+            "openrouter_spend_usd",
+        }
     }
     current["variation"]["docker_sizes"] = {}
     for kind, values in current_metrics["docker_sizes"].items():
@@ -511,6 +605,53 @@ def docker_summary(capture: dict[str, Any]) -> list[str]:
     return lines
 
 
+def openrouter_spend(capture: dict[str, Any]) -> dict[str, Any] | None:
+    spend = capture.get("data", {}).get("openrouter_spend")
+    return spend if isinstance(spend, dict) else None
+
+
+def openrouter_summary_line(capture: dict[str, Any]) -> str | None:
+    spend = openrouter_spend(capture)
+    if not spend:
+        return None
+    variation = capture.get("variation", {}).get("openrouter_spend_usd")
+    return (
+        f"Gasto OpenRouter: {format_usd(spend.get('total_usd'))} ({format_pct(variation)}) · "
+        f"{format_count(spend.get('requests'))} solicitudes · "
+        f"tokens: {format_count(spend.get('input_tokens'))} entrada / "
+        f"{format_count(spend.get('output_tokens'))} salida"
+    )
+
+
+def openrouter_detail_lines(capture: dict[str, Any]) -> list[str]:
+    spend = openrouter_spend(capture)
+    if not spend:
+        return []
+    lines = [
+        "  OpenRouter (coste registrado según tokens y catálogo de precios de Signal): "
+        f"{format_usd(spend.get('total_usd'))} ({format_pct(capture.get('variation', {}).get('openrouter_spend_usd'))})",
+        f"  OpenRouter: {format_count(spend.get('requests'))} solicitudes · "
+        f"{format_count(spend.get('input_tokens'))} tokens entrada · "
+        f"{format_count(spend.get('output_tokens'))} tokens salida · "
+        f"errores {format_count(spend.get('error_requests'))}",
+    ]
+    for row in spend.get("rows", []):
+        lines.append(
+            "  OpenRouter detalle: "
+            f"{row.get('model', '—')} · tarea {row.get('task', '—')} · "
+            f"proyecto {row.get('project', '(sin proyecto)')} · "
+            f"{format_count(row.get('requests'))} solicitudes · "
+            f"{format_usd(row.get('cost_usd'))} · "
+            f"tokens {format_count((row.get('input_tokens') or 0) + (row.get('output_tokens') or 0))} · "
+            f"estado {row.get('status', 'unknown')}"
+        )
+    if spend.get("missing_cost_requests"):
+        lines.append(
+            f"  OpenRouter aviso: {format_count(spend.get('missing_cost_requests'))} solicitudes sin coste calculable."
+        )
+    return lines
+
+
 def render_text(report: dict[str, Any]) -> str:
     lines = [
         f"Resumen diario de servidores OPN · {report['captured_at_local']}",
@@ -519,6 +660,12 @@ def render_text(report: dict[str, Any]) -> str:
         "Servidor | Estado | Disco libre | RAM disponible | BD total | Tareas ejecutadas",
         "---------|--------|-------------|----------------|----------|------------------",
     ]
+    spend_captures = [capture for capture in report["targets"] if openrouter_spend(capture)]
+    if spend_captures:
+        lines.extend(["", "OpenRouter · gasto IA (últimas 24 horas)"])
+        for capture in spend_captures:
+            lines.append(f"{capture['label']} ({capture['host']}) · {openrouter_summary_line(capture)}")
+        lines.append("Coste registrado por Signal a partir de tokens y catálogo de precios de OpenRouter; no es una descarga de factura.")
     for capture in report["targets"]:
         metrics = capture.get("metrics", {})
         variation = capture.get("variation", {})
@@ -548,6 +695,7 @@ def render_text(report: dict[str, Any]) -> str:
             lines.append("  Bases: " + ", ".join(f"{item['name']}={format_bytes(item['size_bytes'])}" for item in databases))
         if data.get("tasks", {}).get("rows"):
             lines.append("  Tareas: " + "; ".join(f"{row['source']}/{row['status']}/{row['kind']}={format_count(row['count'])}" for row in data["tasks"]["rows"]))
+        lines.extend(openrouter_detail_lines(capture))
         if data.get("docker"):
             lines.append("  Docker: " + "; ".join(docker_summary(capture))
                          if docker_summary(capture) else "  Docker: sin datos")
@@ -561,48 +709,124 @@ def render_text(report: dict[str, Any]) -> str:
 
 
 def render_html(report: dict[str, Any]) -> str:
-    rows = []
-    details = []
+    def esc(value: Any) -> str:
+        return html.escape(str(value))
+
+    def change_class(value: float | None) -> str:
+        if value is None:
+            return "change muted"
+        return "change up" if value > 0 else "change down" if value < 0 else "change flat"
+
+    def metric_card(label: str, value: str, change: float | None) -> str:
+        return (
+            f"<div class='metric'><div class='metric-label'>{esc(label)}</div>"
+            f"<div class='metric-value'>{esc(value)}</div>"
+            f"<div class='{change_class(change)}'>{esc(format_pct(change))}</div></div>"
+        )
+
+    def chip(value: str, extra_class: str = "") -> str:
+        return f"<span class='chip {extra_class}'>{esc(value)}</span>"
+
+    server_cards: list[str] = []
+    spend_captures = [capture for capture in report["targets"] if openrouter_spend(capture)]
+    spend_details: list[str] = []
+    total_spend = 0.0
+    total_requests = 0
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_spend_errors = 0
+    for spend_capture in spend_captures:
+        spend = openrouter_spend(spend_capture) or {}
+        total_spend += float(spend.get("total_usd") or 0)
+        total_requests += int(spend.get("requests") or 0)
+        total_input_tokens += int(spend.get("input_tokens") or 0)
+        total_output_tokens += int(spend.get("output_tokens") or 0)
+        total_spend_errors += int(spend.get("error_requests") or 0)
+        for row in spend.get("rows", []):
+            spend_details.append(
+                "<tr>"
+                f"<td data-label='Modelo'><strong>{esc(row.get('model', '—'))}</strong><small>{esc(row.get('consumer', '—'))}</small></td>"
+                f"<td data-label='Tarea'>{esc(row.get('task', '—'))}</td>"
+                f"<td data-label='Proyecto'>{esc(row.get('project', '(sin proyecto)'))}</td>"
+                f"<td data-label='Solicitudes'>{esc(format_count(row.get('requests')))}</td>"
+                f"<td data-label='Coste'><strong>{esc(format_usd(row.get('cost_usd')))}</strong></td>"
+                f"<td data-label='Tokens'>{esc(format_count((row.get('input_tokens') or 0) + (row.get('output_tokens') or 0)))}<small>{esc(format_count(row.get('input_tokens')))} in · {esc(format_count(row.get('output_tokens')))} out</small></td>"
+                f"<td data-label='Estado'>{esc(str(row.get('status', 'unknown')))}</td>"
+                "</tr>"
+            )
+
+    spend_section = ""
+    if spend_captures:
+        primary_change = spend_captures[0].get("variation", {}).get("openrouter_spend_usd")
+        source_host = esc(spend_captures[0].get("host", "signal.opnconsultoria.com"))
+        spend_section = f"""
+        <section class='section spend-section'>
+          <div class='section-kicker'>CONTROL DE COSTE · OPENROUTER</div>
+          <div class='spend-header'><div><h2>Gasto de IA</h2><p>Últimas 24 horas · fuente: registros de uso de Signal</p></div><span class='{change_class(primary_change)} badge'>{esc(format_pct(primary_change))} vs. día anterior</span></div>
+          <div class='spend-grid'>
+            <div class='spend-total'><span>Total registrado</span><strong>{esc(format_usd(total_spend))}</strong><small>{esc(source_host)} · cálculo por tokens y catálogo de precios</small></div>
+            <div class='spend-stat'><span>Solicitudes</span><strong>{esc(format_count(total_requests))}</strong><small>{esc(format_count(total_spend_errors))} con error</small></div>
+            <div class='spend-stat'><span>Tokens</span><strong>{esc(format_count(total_input_tokens + total_output_tokens))}</strong><small>{esc(format_count(total_input_tokens))} entrada · {esc(format_count(total_output_tokens))} salida</small></div>
+          </div>
+          <p class='footnote'>El coste es el registrado por Signal a partir del uso y el catálogo de precios de OpenRouter; no es una factura descargada del proveedor.</p>
+          <div class='table-wrap'><table class='spend-table'><thead><tr><th>Modelo</th><th>Tarea</th><th>Proyecto</th><th>Solicitudes</th><th>Coste</th><th>Tokens</th><th>Estado</th></tr></thead><tbody>{''.join(spend_details)}</tbody></table></div>
+        </section>"""
+
     for capture in report["targets"]:
-        label = html.escape(str(capture["label"]))
-        host = html.escape(str(capture["host"]))
-        if capture.get("status") == "error":
-            rows.append(f"<tr><td>{label}<br><small>{host}</small></td><td class='bad'>ERROR</td><td colspan='4'>{html.escape(str(capture.get('error', 'sin detalle')))}</td></tr>")
+        label = esc(capture["label"])
+        host = esc(capture["host"])
+        status = str(capture.get("status", "error"))
+        status_class = "ok" if status == "ok" else "warn" if status == "degraded" else "bad"
+        status_label = "OK" if status == "ok" else "DEGRADADO" if status == "degraded" else "ERROR"
+        if status == "error":
+            server_cards.append(
+                f"<article class='server-card error-card'><div class='server-head'><div><div class='server-kicker'>SUPERFICIE</div><h3>{label}</h3><div class='host'>{host}</div></div><span class='status {status_class}'>{status_label}</span></div><p class='warn'>{esc(capture.get('error', 'sin detalle'))}</p></article>"
+            )
             continue
         metrics = capture.get("metrics", {})
         variation = capture.get("variation", {})
-        def cell(value, change):
-            return f"{html.escape(value)}<small>{html.escape(format_pct(change))}</small>"
-        rows.append(
-            f"<tr><td>{label}<br><small>{host}</small></td><td>{html.escape(str(capture.get('status')))}</td>"
-            f"<td>{cell(format_bytes(metrics.get('disk_free_bytes')), variation.get('disk_free_bytes'))}</td>"
-            f"<td>{cell(format_bytes(metrics.get('memory_available_bytes')), variation.get('memory_available_bytes'))}</td>"
-            f"<td>{cell(format_bytes(metrics.get('database_total_bytes')), variation.get('database_total_bytes'))}</td>"
-            f"<td>{cell(task_summary(capture), variation.get('tasks_total'))}</td></tr>"
-        )
         data = capture.get("data", {})
-        detail_parts = [f"<h3>{label} · {host}</h3>", f"<p>{html.escape(str(data.get('os', 'n/d')))} · CPU {html.escape(str(data.get('cpu_count', 'n/d')))} · carga 1m {html.escape(str(data.get('load_1m', 'n/d')))}</p>"]
-        services = data.get("services", {})
-        if services:
-            detail_parts.append("<p><b>Servicios:</b> " + ", ".join(f"{html.escape(str(name))}={html.escape(str(status))}" for name, status in services.items()) + "</p>")
-        databases = data.get("database", {}).get("databases", [])
-        if databases:
-            detail_parts.append("<p><b>Bases:</b> " + ", ".join(f"{html.escape(str(item['name']))}={format_bytes(item['size_bytes'])}" for item in databases) + "</p>")
-        tasks = data.get("tasks", {}).get("rows", [])
-        if tasks:
-            detail_parts.append("<p><b>Tareas:</b> " + "; ".join(f"{html.escape(str(row['source']))}/{html.escape(str(row['status']))}/{html.escape(str(row['kind']))}={format_count(row['count'])}" for row in tasks) + "</p>")
+        service_chips = "".join(chip(f"{name} · {status}", "service-ok" if status == "active" else "service-warn") for name, status in data.get("services", {}).items())
+        database_chips = "".join(chip(f"{item.get('name', '—')} · {format_bytes(item.get('size_bytes'))}") for item in data.get("database", {}).get("databases", []))
+        task_rows = "".join(
+            f"<div class='task-row'><span>{esc(row.get('source'))} · {esc(row.get('kind'))} · {esc(row.get('status'))}</span><strong>{esc(format_count(row.get('count')))}</strong></div>"
+            for row in data.get("tasks", {}).get("rows", [])
+        ) or "<div class='empty'>Sin tareas registradas en la ventana.</div>"
+        docker_chips = "".join(chip(line, "docker-chip") for line in docker_summary(capture))
+        snapshot_rows = "".join(
+            f"<div class='detail-row'><span>{esc(snapshot.get('path'))}</span><strong>{esc(format_bytes(snapshot.get('total_bytes')))} <em class='{change_class(variation.get('snapshot_sizes', {}).get(snapshot.get('path')))}'>{esc(format_pct(variation.get('snapshot_sizes', {}).get(snapshot.get('path'))))}</em></strong></div>"
+            for snapshot in data.get("snapshots", [])
+        )
+        extras = ""
+        if service_chips:
+            extras += f"<div class='detail-block'><div class='detail-label'>Servicios</div><div class='chips'>{service_chips}</div></div>"
+        if database_chips:
+            extras += f"<div class='detail-block'><div class='detail-label'>Bases de datos</div><div class='chips'>{database_chips}</div></div>"
+        extras += f"<div class='detail-block'><div class='detail-label'>Tareas ejecutadas · últimas 24 h</div><div class='task-list'>{task_rows}</div></div>"
         if data.get("docker"):
-            detail_parts.append("<p><b>Docker:</b> " + "; ".join(html.escape(line) for line in docker_summary(capture)) + f" · {len(data['docker'].get('containers', []))} contenedores activos</p>")
-        snapshots = data.get("snapshots", [])
-        for snapshot in snapshots:
-            change = capture.get("variation", {}).get("snapshot_sizes", {}).get(snapshot.get("path"))
-            detail_parts.append(f"<p><b>Snapshot:</b> {html.escape(str(snapshot.get('path')))} · {format_bytes(snapshot.get('total_bytes'))} · {html.escape(format_pct(change))}</p>")
+            extras += f"<div class='detail-block'><div class='detail-label'>Docker · espacio explícito · {len(data['docker'].get('containers', []))} contenedores activos</div><div class='chips'>{docker_chips or chip('Sin datos')}</div></div>"
+        if snapshot_rows:
+            extras += f"<div class='detail-block'><div class='detail-label'>Snapshots / copias</div><div class='detail-list'>{snapshot_rows}</div></div>"
         if data.get("errors"):
-            detail_parts.append("<p class='warn'><b>Avisos:</b> " + "; ".join(html.escape(str(item)) for item in data["errors"]) + "</p>")
-        details.append("\n".join(detail_parts))
-    return """<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
-body{font-family:Arial,sans-serif;color:#172033;background:#f6f7f9;padding:24px}main{max-width:1100px;margin:auto;background:#fff;padding:24px;border:1px solid #e2e6ed}h1{font-size:22px}h2{font-size:17px;margin-top:28px}h3{font-size:15px;border-top:1px solid #e2e6ed;padding-top:14px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 8px;border-bottom:1px solid #e2e6ed;text-align:left;vertical-align:top}th{background:#f0f3f7}small{display:block;color:#687386;margin-top:3px}.bad{color:#a32626;font-weight:bold}.warn{color:#8a5b00}td small{color:#58708c;font-weight:600}
-</style></head><body><main><h1>Resumen diario de servidores OPN</h1><p>__CAPTURED__<br>Ventana de tareas: últimas 24 horas · porcentajes frente a la captura diaria anterior.</p><h2>Resumen</h2><table><thead><tr><th>Servidor</th><th>Estado</th><th>Disco libre</th><th>RAM disponible</th><th>BD total</th><th>Tareas ejecutadas</th></tr></thead><tbody>__ROWS__</tbody></table><h2>Detalles operativos</h2>__DETAILS__</main></body></html>""".replace("__CAPTURED__", html.escape(str(report["captured_at_local"]))).replace("__ROWS__", "".join(rows)).replace("__DETAILS__", "".join(details))
+            extras += f"<div class='alert'>{'; '.join(esc(item) for item in data['errors'])}</div>"
+        server_cards.append(f"""
+        <article class='server-card'>
+          <div class='server-head'><div><div class='server-kicker'>{esc(str(data.get('os', 'Linux')))} · CPU {esc(data.get('cpu_count', 'n/d'))} · carga {esc(data.get('load_1m', 'n/d'))}</div><h3>{label}</h3><div class='host'>{host}</div></div><span class='status {status_class}'>{status_label}</span></div>
+          <div class='metrics'>
+            {metric_card('Disco libre', format_bytes(metrics.get('disk_free_bytes')), variation.get('disk_free_bytes'))}
+            {metric_card('RAM disponible', format_bytes(metrics.get('memory_available_bytes')), variation.get('memory_available_bytes'))}
+            {metric_card('Bases de datos', format_bytes(metrics.get('database_total_bytes')), variation.get('database_total_bytes'))}
+            {metric_card('Tareas', task_summary(capture), variation.get('tasks_total'))}
+          </div>
+          <div class='server-details'>{extras}</div>
+        </article>""")
+
+    captured = esc(report["captured_at_local"])
+    host_count = len(report["targets"])
+    error_count = sum(1 for capture in report["targets"] if capture.get("status") == "error")
+    return f"""<!doctype html><html lang='es'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta name='color-scheme' content='light'><title>OPN · Estado diario</title><style>
+*{{box-sizing:border-box}}html,body{{margin:0;padding:0;background:#edf1f6;color:#152238;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;-webkit-text-size-adjust:100%}}body{{padding:20px}}.shell{{max-width:780px;margin:0 auto;background:#fff;border:1px solid #e1e7ef;border-radius:24px;overflow:hidden;box-shadow:0 18px 55px rgba(20,39,67,.12)}}.hero{{padding:28px 28px 24px;background:#0c1b2e;color:#fff;border-bottom:3px solid #c7a667}}.eyebrow,.section-kicker,.server-kicker,.detail-label{{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;font-weight:750}}.eyebrow,.section-kicker{{color:#c7a667}}.hero h1{{margin:10px 0 7px;font-size:28px;line-height:1.1;letter-spacing:-.6px}}.hero p{{margin:0;color:#b7c5d6;font-size:13px;line-height:1.5}}.hero-meta{{display:flex;gap:8px;flex-wrap:wrap;margin-top:19px}}.hero-meta span{{padding:7px 10px;border:1px solid rgba(255,255,255,.18);border-radius:999px;color:#dce5ef;font-size:11px}}.section{{padding:24px 28px}}.section h2{{margin:4px 0 4px;font-size:19px;letter-spacing:-.2px}}.section-subtitle,.spend-header p{{margin:0;color:#6c7a8e;font-size:12px}}.summary-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}}.summary-card,.spend-stat,.spend-total{{padding:16px;border:1px solid #e2e8f0;border-radius:16px;background:#fbfcfe}}.summary-card span,.spend-stat span,.spend-total span{{display:block;color:#6c7a8e;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.5px}}.summary-card strong,.spend-stat strong{{display:block;margin-top:6px;color:#152238;font-size:20px;letter-spacing:-.4px}}.summary-card small,.spend-stat small,.spend-total small{{display:block;margin-top:6px;color:#8290a1;font-size:11px;line-height:1.4}}.summary-card.accent{{background:#f8f5ee;border-color:#dfcfad}}.spend-section{{padding-top:25px;background:#fbfaf7;border-top:1px solid #eee8db;border-bottom:1px solid #eee8db}}.spend-header{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}}.spend-header h2{{color:#172238}}.badge{{white-space:nowrap;margin-top:3px;padding:6px 8px;border-radius:999px;font-size:10px;font-weight:750}}.spend-grid{{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:10px;margin-top:16px}}.spend-total{{background:#fff;border-color:#dfcfad}}.spend-total strong{{display:block;margin-top:5px;color:#0c1b2e;font-size:28px;letter-spacing:-.8px}}.spend-total small{{color:#7c6b4d}}.spend-stat{{background:rgba(255,255,255,.65)}}.footnote{{margin:14px 0 0;color:#7c6b4d;font-size:11px;line-height:1.45}}.table-wrap{{overflow-x:auto;margin-top:16px;border:1px solid #e6e0d5;border-radius:13px;background:#fff}}table{{width:100%;border-collapse:collapse;font-size:11px}}th,td{{padding:10px 9px;text-align:left;vertical-align:top;border-bottom:1px solid #edf0f4}}th{{color:#6c7a8e;background:#f7f8fa;font-size:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}}td{{color:#25344a}}td small{{display:block;margin-top:3px;color:#8a97a8;font-size:10px}}tr:last-child td{{border-bottom:0}}.change{{font-size:11px;font-weight:750;margin-top:5px}}.change.up{{color:#b75d52}}.change.down{{color:#27866e}}.change.flat,.change.muted{{color:#7e8b9c}}.server-section{{padding-top:20px}}.server-section h2{{margin-bottom:14px}}.server-card{{margin-top:14px;padding:20px;border:1px solid #e0e7ef;border-radius:18px;background:#fff;box-shadow:0 6px 18px rgba(33,53,79,.05)}}.server-card:first-child{{margin-top:0}}.server-head{{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}}.server-kicker{{color:#8794a5;letter-spacing:.8px;font-size:9px}}.server-head h3{{margin:6px 0 3px;color:#152238;font-size:17px;letter-spacing:-.2px}}.host{{color:#728095;font-size:11px;overflow-wrap:anywhere}}.status{{flex:none;padding:6px 9px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.4px}}.status.ok{{color:#16735e;background:#e6f5ef}}.status.warn{{color:#946b18;background:#fbf2d8}}.status.bad{{color:#a54545;background:#fae8e8}}.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:18px}}.metric{{min-width:0;padding:11px 10px;border-radius:12px;background:#f5f7fa}}.metric-label{{color:#718096;font-size:10px;font-weight:650;line-height:1.25}}.metric-value{{margin-top:6px;color:#152238;font-size:14px;font-weight:750;overflow-wrap:anywhere;line-height:1.2}}.server-details{{margin-top:18px;border-top:1px solid #edf0f4;padding-top:16px}}.detail-block+.detail-block{{margin-top:14px}}.detail-label{{color:#8794a5;font-size:9px;letter-spacing:.8px;margin-bottom:8px}}.chips{{display:flex;flex-wrap:wrap;gap:6px}}.chip{{display:inline-block;padding:6px 8px;border:1px solid #e1e7ef;border-radius:8px;background:#f8fafc;color:#485870;font-size:10px;line-height:1.25;overflow-wrap:anywhere}}.service-ok{{color:#22745f;background:#edf8f4;border-color:#d2eee3}}.service-warn{{color:#946b18;background:#fff8e5;border-color:#f1e2b4}}.docker-chip{{color:#315b88;background:#eff6ff;border-color:#d9e8f8}}.task-list,.detail-list{{border:1px solid #edf0f4;border-radius:10px;overflow:hidden}}.task-row,.detail-row{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 10px;border-bottom:1px solid #edf0f4;color:#526176;font-size:10px;line-height:1.3}}.task-row:last-child,.detail-row:last-child{{border-bottom:0}}.task-row strong,.detail-row strong{{flex:none;color:#152238;font-size:11px}}.detail-row span{{overflow-wrap:anywhere}}em{{font-style:normal;font-size:10px;font-weight:750;margin-left:5px}}.empty{{padding:10px;color:#8794a5;font-size:10px}}.alert{{margin-top:14px;padding:10px 12px;border-radius:10px;color:#946b18;background:#fff8e5;border:1px solid #f1e2b4;font-size:10px;line-height:1.4}}.error-card{{border-color:#efcaca;background:#fffafa}}.footer{{padding:20px 28px 25px;color:#8995a5;font-size:10px;line-height:1.5;border-top:1px solid #edf0f4}}@media(max-width:620px){{body{{padding:0;background:#fff}}.shell{{border:0;border-radius:0;box-shadow:none;max-width:none}}.hero,.section,.footer{{padding-left:18px;padding-right:18px}}.hero{{padding-top:24px;padding-bottom:21px}}.hero h1{{font-size:25px}}.summary-grid{{grid-template-columns:1fr 1fr;gap:8px}}.summary-card{{padding:13px}}.summary-card strong{{font-size:17px}}.spend-header{{display:block}}.badge{{display:inline-block;margin-top:10px}}.spend-grid{{grid-template-columns:1fr 1fr}}.spend-total{{grid-column:1/-1}}.spend-total strong{{font-size:26px}}.server-card{{padding:16px;border-radius:15px}}.metrics{{grid-template-columns:1fr 1fr;gap:7px}}.metric{{min-height:78px;padding:10px}}.metric-value{{font-size:13px}}.server-head h3{{font-size:16px}}.spend-table{{min-width:650px}}}}
+</style></head><body><main class='shell'><header class='hero'><div class='eyebrow'>OPN · CONTROL CENTER</div><h1>Estado diario de infraestructura</h1><p>Salud operativa, capacidad y gasto de IA en una vista ejecutiva.</p><div class='hero-meta'><span>{captured}</span><span>{host_count} superficies monitorizadas</span><span>Ventana 24 h</span></div></header><section class='section'><div class='section-kicker'>RESUMEN EJECUTIVO</div><h2>La operación, en una pantalla</h2><p class='section-subtitle'>Variaciones frente a la captura diaria anterior.</p><div class='summary-grid'><div class='summary-card accent'><span>Servidores OK</span><strong>{host_count - error_count} / {host_count}</strong><small>{'Sin incidencias de conexión' if error_count == 0 else f'{error_count} con incidencia'}</small></div><div class='summary-card'><span>Ventana de actividad</span><strong>24 horas</strong><small>Servicios, tareas y consumo registrados</small></div></div></section>{spend_section}<section class='section server-section'><div class='section-kicker'>SALUD POR SUPERFICIE</div><h2>Servidores y servicios</h2><p class='section-subtitle'>Capacidad disponible, bases de datos y ejecución reciente.</p>{''.join(server_cards)}</section><footer class='footer'>Informe generado automáticamente por el monitor externo de OPN. El gasto OpenRouter se toma de los registros de uso de Signal y se muestra con su variación frente al informe anterior.</footer></main></body></html>"""
 
 
 def send_graph_email(monitor: dict[str, Any], subject: str, text_body: str, html_body: str) -> None:

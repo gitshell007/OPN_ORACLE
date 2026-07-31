@@ -10,7 +10,14 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from server_health_report import add_variations, format_bytes, parse_human_size, percentage_change, render_text
+from server_health_report import (
+    add_variations,
+    format_bytes,
+    parse_human_size,
+    percentage_change,
+    render_html,
+    render_text,
+)
 
 
 SCRIPT = Path(__file__).with_name("server_health_report.py")
@@ -115,6 +122,59 @@ services = []
             self.assertEqual(variation["memory_available_bytes"], 10.0)
             self.assertEqual(variation["database_total_bytes"], 20.0)
             self.assertEqual(variation["tasks_total"], 50.0)
+
+    def test_openrouter_spend_is_in_summary_detail_and_mobile_html(self) -> None:
+        capture = {
+            "id": "signal",
+            "label": "Signal",
+            "host": "signal.example.invalid",
+            "status": "ok",
+            "data": {
+                "os": "Linux",
+                "cpu_count": 4,
+                "load_1m": 0.2,
+                "memory": {"available_bytes": 200},
+                "disk": {"free_bytes": 100},
+                "database": {"databases": [], "errors": []},
+                "tasks": {"rows": [], "errors": []},
+                "snapshots": [],
+                "docker": None,
+                "openrouter_spend": {
+                    "provider": "openrouter",
+                    "window_hours": 24,
+                    "total_usd": 0.055862,
+                    "requests": 16,
+                    "input_tokens": 74940,
+                    "output_tokens": 13352,
+                    "error_requests": 0,
+                    "missing_cost_requests": 0,
+                    "errors": [],
+                    "rows": [{
+                        "consumer": "OPN Oracle",
+                        "model": "google/gemini-2.5-flash",
+                        "task": "dossier_situation_summary",
+                        "project": "(sin proyecto)",
+                        "status": "ok",
+                        "requests": 16,
+                        "cost_usd": 0.055862,
+                        "input_tokens": 74940,
+                        "output_tokens": 13352,
+                        "missing_cost_requests": 0,
+                    }],
+                },
+                "errors": [],
+            },
+        }
+        add_variations(capture, None)
+        report = {"captured_at_local": "2026-07-31 12:00 CEST", "targets": [capture]}
+        text = render_text(report)
+        rendered = render_html(report)
+        self.assertIn("Gasto OpenRouter: 0.0559 USD", text)
+        self.assertIn("google/gemini-2.5-flash", text)
+        self.assertIn("Gasto de IA", rendered)
+        self.assertIn("google/gemini-2.5-flash", rendered)
+        self.assertIn("width=device-width", rendered)
+        self.assertIn("@media(max-width:620px)", rendered)
 
 
 if __name__ == "__main__":
