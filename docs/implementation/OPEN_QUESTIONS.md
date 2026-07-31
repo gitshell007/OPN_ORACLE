@@ -12,6 +12,12 @@
   paquete de puertos compartido. Es gate P0 demostrar scope por consumer/tenant, retirar defaults
   de piloto y completar CAS, heartbeat, cancelación y recuperación de analysis requests antes de
   habilitarlo en producción.
+- **Recuperación híbrida:** comparar PostgreSQL full-text con full-text + `pgvector` sobre preguntas
+  representativas antes de aceptar embeddings en el core. Deben definirse versión de embedding,
+  reindexado, filtros previos al retrieval y métricas de precisión/recall, latencia y aislamiento.
+- **Consolidación y retención:** fijar watermarks, triggers por evento/volumen/periodo y política de
+  retención/licencia. La compactación no puede confundirse con borrado; cuando la política obligue
+  a eliminar una fuente debe quedar tombstone, hash y auditoría segura.
 - **Revisión de intención:** confirmar que una nueva revisión no altera automatizaciones en curso
   y que estas quedan `needs_review` hasta una decisión humana.
 - **Política IA:** resolver la tensión entre D-015, que mantiene proveedor/modelo en Signal y trata
@@ -69,7 +75,6 @@
 
 - ¿Se migrará el frontend de la raíz a `apps/web` después de estabilizar `apps/api`?
 - ¿Se requieren roles custom en el primer release o solo roles de sistema extensibles?
-- ¿Se habilitará pgvector o bastará inicialmente PostgreSQL full-text?
 - ¿Se necesita OCR en P1 o queda fuera del alcance inicial?
 - ¿Se requiere MFA antes del primer release productivo?
 - Revisar en la fase 04 si los accesos runtime a tablas globales de identidad deben reducirse mediante funciones o servicios SQL más estrechos.

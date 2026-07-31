@@ -21,6 +21,11 @@ Interfaz canónica: `CANONICAL_UI=vector`
   preguntas persistentes, asistente de informes, fuentes a escala y operación. La activación del
   `opn_memory` experimental queda bloqueada hasta demostrar aislamiento por consumidor/tenant y un
   ciclo de vida recuperable para sus análisis.
+- La revisión posterior del patrón de memoria jerárquica no cambia la arquitectura: la concreta
+  como fuente → fragmento → observación → consolidación → snapshot de consulta, con distinción
+  entre afirmación y hecho, actualización incremental, idempotencia por versión y recuperación
+  híbrida. PostgreSQL full-text sigue siendo el baseline; embeddings/`pgvector` quedan sujetos a
+  evaluación y no se introduce otro datastore.
 - Documento de trabajo: [`docs/product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md`](../product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md).
 - Estado: plan inicial documentado; no se cambió esquema, API, runtime ni configuración.
 

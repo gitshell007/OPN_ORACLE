@@ -290,7 +290,83 @@ No se enviará «toda la información» al modelo. Un `DossierContextBuilder` re
 pregunta, la intención y las entidades implicadas, aplicará permisos/clasificación, priorizará
 evidencias y declarará recortes, fuentes fallidas y ausencias.
 
-### 4.2 Modelo mínimo del asistente
+### 4.2 Pirámide de procesamiento de memoria
+
+Las tres capas anteriores describen propiedad de negocio. Dentro de ellas, el procesamiento seguirá
+cinco niveles para que la ventana de contexto nunca se convierta en base de datos:
+
+| Nivel | Contenido | Regla |
+|---|---|---|
+| 0. Fuente | documento, señal, reunión, nota o payload original | inmutable mientras su política de retención permita conservarlo; checksum, fecha, clasificación y ACL |
+| 1. Fragmento | unidad semántica con posición y jerarquía | se busca y reprocesa sin perder la referencia al original |
+| 2. Observación | entidad, afirmación, compromiso, riesgo, relación o fecha extraídos | salida candidata; no es un hecho por provenir de un modelo |
+| 3. Consolidación | hechos vigentes, contradicciones y resúmenes vivos versionados | combina deltas, evidencia y reglas de vigencia; nunca borra la historia |
+| 4. Contexto de consulta | selección específica para una pregunta o informe | snapshot acotado, explicable y desechable; no memoria autoritativa |
+
+El sistema distinguirá explícitamente:
+
+- **semántica:** hechos relativamente estables y confirmados;
+- **episódica:** reuniones, señales, publicaciones y cambios fechados;
+- **relacional:** actores, roles y relaciones con vigencia/procedencia;
+- **operativa:** requisitos, búsquedas, decisiones, tareas y compromisos;
+- **inferida:** hipótesis, riesgos, oportunidades e insights, siempre separados de los hechos.
+
+El modelo puede extraer «la persona X afirma Y», pero no promoverá automáticamente Y a hecho. Una
+evidencia posterior incompatible crea un conflicto; no sobrescribe el dato anterior. La
+consolidación conserva soporte, oposición, vigencia, fiabilidad de fuente, confianza de extracción
+y estado `candidate|confirmed|disputed|contradicted|superseded|expired|rejected`.
+
+Esta pirámide no obliga a duplicar tablas. Los documentos/chunks y evidencias ya existentes en
+Oracle, junto con sources/chunks/observations/facts/conflicts de `opn_memory`, se mapearán mediante
+contrato. Oracle solo promoverá a su memoria canónica lo que corresponda al expediente y a una
+decisión humana o regla determinista autorizada.
+
+No es una construcción greenfield: `opn_memory` ya implementa source/chunk/observation/fact,
+evidencia de soporte/contradicción, resúmenes versionados, `tsvector`, `pg_trgm` y context builder.
+La fase propuesta debe endurecer su aislamiento y lifecycle, conectarlo por un contrato explícito
+y medirlo; no recrear el mismo modelo dentro de Oracle.
+
+### 4.3 Ingesta y consolidación incremental
+
+El pipeline será determinista y compuesto por tareas pequeñas, no por agentes autónomos que se
+envían contexto libre entre sí:
+
+```text
+fuente nueva → normalizar → fragmentar → extraer observaciones
+             → enlazar entidades → detectar conflictos → consolidar
+             → actualizar resumen vivo → dejar disponible para recuperación
+```
+
+Reglas iniciales:
+
+- fragmentar por límites semánticos —sección, asunto, cambio de tema, tabla o tramo de reunión—;
+  un rango de tokens solo será un guardarraíl medido, no una frontera ciega;
+- validar cada extracción con schema estricto; una salida inválida no se guarda como observación
+  válida;
+- usar una idempotency key equivalente a
+  `hash(scope + source_checksum + chunk_hash + job_type + schema_version + model_version + prompt_version)`;
+- versionar por separado modelo/dimensión de embeddings, si se habilitan, y permitir reindexar sin
+  destruir la versión anterior;
+- registrar checkpoint, intento, modelo, prompt, hashes, coste, latencia y error seguro;
+- aplicar CAS, heartbeat, retry acotado y estado terminal a cada analysis run de Signal antes de
+  integrarlo con Oracle.
+
+Los resúmenes vivos se actualizarán por diferencias:
+
+```text
+resumen anterior + observaciones nuevas/modificadas/contradichas = nueva versión
+```
+
+Cada versión guardará watermark, entradas utilizadas, cambios, exclusiones, modelo y prompt. Los
+triggers podrán ser evento material, volumen acumulado, cierre de episodio y mantenimiento
+nocturno/semanal; sus umbrales se fijarán con métricas y no se hardcodeará como regla universal un
+número arbitrario de fragmentos.
+
+Compactar reduce lo que debe leer el modelo, no destruye fuentes, evidencias o versiones. Una
+política legal/licencia puede expirar contenido original, pero dejará tombstone, hash y auditoría;
+esa retención es independiente del resumen.
+
+### 4.4 Modelo mínimo del asistente
 
 - `DossierConversation`: expediente, título, estado y participantes autorizados.
 - `DossierMessage`: rol, texto, estado, job, contexto/hash, audit, respuesta estructurada y citas.
@@ -330,6 +406,21 @@ Cada pregunta o informe guardará un `coverage_manifest` con:
 - límites del proveedor y recorte local;
 - hashes y locators de lo citado;
 - clasificación, licencia/retención y redacción aplicada.
+
+La recuperación será híbrida y respetará este orden:
+
+1. derivar tenant, permisos, clasificación y entidades autorizadas **antes** de recuperar texto;
+2. obtener datos exactos y filtros estructurados desde PostgreSQL —IDs, fechas, importes, códigos,
+   estados y denominaciones—;
+3. combinar PostgreSQL full-text con intención, entidades y ventana temporal;
+4. añadir búsqueda vectorial solo si una evaluación demuestra mejora de recall/precisión sin
+   degradar aislamiento ni latencia;
+5. incorporar relaciones y evidencias contradictorias;
+6. reordenar por autoridad, relevancia, recencia, diversidad y fiabilidad.
+
+No se introduce Qdrant ni otro datastore en el primer release. PostgreSQL y full-text son la base;
+`pgvector` se evaluará con un corpus y preguntas representativas antes de aceptarlo. La búsqueda
+vectorial nunca sustituirá coincidencia exacta para CIF, CPV, expedientes, importes o fechas.
 
 El primer release usará el contexto y evidencias que Oracle ya posee. La integración amplia de
 `opn_memory` queda como spike posterior con dos alternativas aceptables:
@@ -430,7 +521,7 @@ procesando. No se fijarán nuevos valores sin benchmark de primario, fallback y 
 | 0. Reconciliar ramas y contratos | `oracle-dev` rebasada/integrada selectivamente; Signal WIP limpio; matriz de contratos congelada | sin cambios locales ajenos, CI de ambos SHAs, contract diff revisado |
 | 1. Intención v1 | revisión aceptada y trazable para Mercado, licitación/ayuda, investigación, IC y custom | migración expand/contract, backfill contado, tests de tenant/IDOR/versión |
 | 2. Actividad y cadencias | actor/producto seleccionable, monitor/búsqueda activable y sección Actividad | create/pause/resume/error por HTTP real; next run coincide con cadencia |
-| 3. Memoria recuperable | context builder por intención + evidencia + memoria canónica | citas válidas, truncación declarada, anti-inyección y aislamiento |
+| 3. Memoria recuperable | pirámide fuente→fragmento→observación→consolidación→snapshot | idempotencia, contradicciones, citas, truncación, anti-inyección y aislamiento |
 | 4. Preguntar a Oracle | hilo persistente con respuesta asíncrona y acciones confirmables | pregunta devuelve 202; navegación no pierde estado; fallo termina/reintenta |
 | 5. Asistente de informes | encargo libre → plan revisable → informe durable | pending inmediato, snapshot fijo, cancel/retry, HTML/PDF, auditoría IA |
 | 6. Fuentes a escala | catálogo/coverage manifest e integración medida de `opn_memory` | ninguna fuente fallida se presenta como ausencia; coste/retención visibles |
@@ -462,6 +553,14 @@ Secuencia recomendada: 0 → 1 → 2 → 3 → 4 → 5. El slice 6 empieza con u
 11. Los permisos, RLS y negative tests impiden leer conversaciones, jobs, fuentes o informes de
     otro tenant.
 12. OpenAPI, cliente TypeScript, métricas, auditoría y runbooks quedan alineados con los dos repos.
+13. Una afirmación extraída no se convierte en hecho sin consolidación; evidencia incompatible
+    produce un conflicto visible y conserva ambas procedencias.
+14. Repetir la ingesta con la misma idempotency key no duplica fragmentos, observaciones, hechos ni
+    coste; cambiar schema/modelo crea una versión nueva auditable.
+15. Compactar o regenerar un resumen no elimina la fuente, evidencias ni versiones anteriores,
+    salvo una retención explícita que deja tombstone y auditoría.
+16. Tenant, ACL y clasificación se aplican antes de full-text/vector; un chunk no autorizado nunca
+    llega al reranker ni al modelo.
 
 ## 10. Decisiones abiertas antes de implementar
 
@@ -478,6 +577,12 @@ Secuencia recomendada: 0 → 1 → 2 → 3 → 4 → 5. El slice 6 empieza con u
    canónica solo tras aceptación.
 8. Cerrar la política de noticias con fecha/medio/desambiguación antes de denominarla seguimiento
    periodístico completo.
+9. Medir PostgreSQL full-text solo frente a full-text + `pgvector`; no añadir vector database ni
+   embeddings al core sin mejora demostrada y plan de reindexado versionado.
+10. Definir watermarks, triggers y SLO de consolidación incremental por tipo de fuente, evitando un
+    umbral universal de fragmentos.
+11. Fijar retención/licencia de fuentes originales, chunks, conversaciones y embeddings, incluida
+    la semántica de tombstone cuando deba eliminarse contenido.
 
 ## 11. Primer bloque ejecutable recomendado
 
