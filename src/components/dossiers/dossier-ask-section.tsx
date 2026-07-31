@@ -53,6 +53,9 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
   const [busy, setBusy] = useState(false);
   const [hydrating, setHydrating] = useState(true);
   const pollTimer = useRef<number | null>(null);
+  const pollMessageRef = useRef<
+    ((conversationId: string, messageId: string) => Promise<void>) | null
+  >(null);
 
   const stopPoll = useCallback(() => {
     if (pollTimer.current != null) {
@@ -79,7 +82,7 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
         if (["queued", "running"].includes(current.status)) {
           stopPoll();
           pollTimer.current = window.setTimeout(() => {
-            void pollMessage(conversationId, messageId);
+            void pollMessageRef.current?.(conversationId, messageId);
           }, 2000);
         } else {
           stopPoll();
@@ -94,6 +97,10 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
     },
     [dossierId, stopPoll],
   );
+
+  useEffect(() => {
+    pollMessageRef.current = pollMessage;
+  }, [pollMessage]);
 
   // Reload-safe rehydrate: conversation + last message from sessionStorage → GET API
   useEffect(() => {

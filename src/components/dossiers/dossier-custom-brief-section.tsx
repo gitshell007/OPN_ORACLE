@@ -57,6 +57,7 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
   const [detail, setDetail] = useState<CustomBriefDetail | null>(null);
   const [hydrating, setHydrating] = useState(true);
   const pollTimer = useRef<number | null>(null);
+  const pollBriefRef = useRef<((reportId: string) => Promise<void>) | null>(null);
 
   const stopPoll = useCallback(() => {
     if (pollTimer.current != null) {
@@ -87,7 +88,7 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
         if (current.plan_status === "draft" && !current.error_code) {
           stopPoll();
           pollTimer.current = window.setTimeout(() => {
-            void pollBrief(reportId);
+            void pollBriefRef.current?.(reportId);
           }, 2000);
         } else {
           stopPoll();
@@ -102,6 +103,10 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
     },
     [dossierId, stopPoll],
   );
+
+  useEffect(() => {
+    pollBriefRef.current = pollBrief;
+  }, [pollBrief]);
 
   useEffect(() => {
     let cancelled = false;
