@@ -2720,6 +2720,113 @@ const investigations = {
     request<{ items: ActorAliasCandidate[] }>("/api/v1/actors/alias-candidates"),
 };
 
+/** MEMSOL read model of dossier activity (watchlists, monitors, jobs). */
+export interface DossierActivityItem {
+  kind: string;
+  id: string;
+  title: string;
+  product_state: string;
+  desired_status?: string | null;
+  observed_status?: string | null;
+  cadence?: string | null;
+  next_run_at?: string | null;
+  last_success_at?: string | null;
+  last_attempt_at?: string | null;
+  last_error?: string | null;
+  alignment_state?: string | null;
+  provider_ref?: string | null;
+  target?: Record<string, unknown>;
+}
+
+export interface DossierActivityResponse {
+  dossier_id: string;
+  intent: Record<string, unknown> | null;
+  requirements: unknown[];
+  offerings: unknown[];
+  summary: {
+    total: number;
+    by_state: Record<string, number>;
+    by_kind: Record<string, number>;
+  };
+  items: DossierActivityItem[];
+  pagination: { limit: number; offset: number; total: number };
+}
+
+export interface DossierConversation {
+  id: string;
+  dossier_id: string;
+  status: string;
+  title: string;
+  intent_revision_id?: string | null;
+  created_at?: string | null;
+}
+
+export interface DossierMessage {
+  id: string;
+  conversation_id: string;
+  dossier_id: string;
+  role: string;
+  status: string;
+  sequence: number;
+  content_text: string;
+  answer_payload?: Record<string, unknown>;
+  coverage_manifest?: Record<string, unknown>;
+  background_job_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+}
+
+export interface CustomBriefAccepted {
+  job_id: string;
+  report_id: string;
+  plan_status: string;
+  report?: Record<string, unknown>;
+}
+
+const dossierActivity = {
+  get: (dossierId: string, query?: { kind?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (query?.kind) params.set("kind", query.kind);
+    if (query?.limit != null) params.set("limit", String(query.limit));
+    if (query?.offset != null) params.set("offset", String(query.offset));
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<DossierActivityResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/activity${suffix}`,
+    );
+  },
+};
+
+const dossierConversations = {
+  create: (dossierId: string, input: { title?: string } = {}) =>
+    request<DossierConversation>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations`,
+      { method: "POST", body: input },
+    ),
+  enqueueMessage: (
+    dossierId: string,
+    conversationId: string,
+    input: { content_text: string },
+    idempotencyKey: string,
+  ) =>
+    request<{ job_id: string; message_id: string; message?: DossierMessage }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations/${encodeURIComponent(conversationId)}/messages`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
+  getMessage: (dossierId: string, conversationId: string, messageId: string) =>
+    request<DossierMessage>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    ),
+};
+
+const customBriefs = {
+  create: (dossierId: string, input: { brief_request: string }, idempotencyKey: string) =>
+    request<CustomBriefAccepted>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
 export const api = {
   auth,
   tenantAdmin,
@@ -2751,6 +2858,9 @@ export const api = {
   decisions,
   documents,
   investigations,
+  dossierActivity,
+  dossierConversations,
+  customBriefs,
   reports,
   notifications,
   exports: exportsApi,

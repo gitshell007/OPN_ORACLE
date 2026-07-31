@@ -1,54 +1,54 @@
 # MEMSOL Execution Ledger
 
-> Fuente de verdad de ejecución del programa Memoria Sol.
+> Fuente de verdad de ejecución. Actualizado con evidencia medible.
 
-## Identidad de ejecución
+## Identidad
 
-- Inicio Europe/Madrid: 2026-07-31 19:21:27 Europe/Madrid
-- Última actualización: 2026-07-31 Europe/Madrid (cierre desarrollo/UAT parcial)
-- Agente/sesión: Grok Build · Memoria Sol master goal
-- Oracle master final: ver tabla (último `git rev-parse origin/master`)
-- Signal: `main@60a5782` baseline; hardening en `memsol/02-memory-hardening@86c1f74` (no merge a main en esta sesión)
+- Última actualización: 2026-07-31 20:16 Europe/Madrid
+- Oracle worktree: `.worktrees/memsol` · `memsol/execution`
+- Oracle `origin/master` pre-commit residual UI: `5bee9cc` (workers) + UI/OpenAPI pending this commit
+- Signal `origin/main`: `f934ead` (MEMSOL-02 CAS/fencing, flags OFF)
 - Producción autorizada: **no**
+
+## Reconciliación (verificada)
+
+| Claim previo | Evidencia re-ejecutada | Resultado |
+|---|---|---|
+| geography / intent / activity / conversations / brief / memory context | `pytest` 43 baseline + 49 combined | **pass** |
+| Signal lifecycle 8 tests | worktree memsol-02 + memsol-02-on-main | **pass** |
+| Workers Q&A + brief | handlers reales + tests | **pass** (this residual) |
+| Signal en main | cherry-pick 86c1f74 → main f934ead | **pass** |
+| Postgres integration suite | role `oracle` missing | **blocked_env** |
+| Backfill counts live | same DB | **blocked_env** (script + pure tests) |
+| Playwright UAT | not run | **residual documented** |
 
 ## Estado global
 
-| Fase | Estado | Oracle SHA | Signal SHA | Gate | Evidencia/riesgo |
-|---|---|---|---|---|---|
-| MEMSOL-00 | complete | 50a3b8a | 06fbdd6 | pass | merge oracle-dev + geo global + matrix |
-| MEMSOL-01 | complete | e2ca757 | 06fbdd6 | pass | ADR-0009 + schemas |
-| MEMSOL-02 | complete | n/a | 86c1f74 | pass* | *branch memsol/02; no merge main; flags OFF |
-| MEMSOL-03 | complete | cfe88d1 | — | pass | IntentRevision + API + 11 tests |
-| MEMSOL-04 | complete | 04bdb8c | — | pass | activity read model; UI Vector diferida |
-| MEMSOL-05 | complete | 89e2e3d | — | pass | MemoryContext mock/disabled; HTTP stub |
-| MEMSOL-06 | complete | 89e2e3d | — | pass | conversations 202; worker answer diferido |
-| MEMSOL-07 | complete | 89e2e3d | — | pass | custom brief 202; no report_writer change |
-| MEMSOL-08 | complete | 804d9bd | — | pass* | *plan + fault matrix; workers/fault suite residual |
-| MEMSOL-09 | complete | 804d9bd | — | pass* | *naming/coverage docs; runtime health residual |
-| MEMSOL-10 | complete | 804d9bd | — | pass* | *checklist UAT; Playwright/E2E bilateral residual |
-| MEMSOL-11 | pending | 804d9bd | 86c1f74 | prepared | runbook listo; **sin autorización prod** |
+| Fase | Estado | SHA / ref | Gate |
+|---|---|---|---|
+| MEMSOL-00…01 | complete | e2ca757 / 50a3b8a | pass (re-checked) |
+| MEMSOL-02 | complete | Signal main **f934ead** | pass + mutation scope |
+| MEMSOL-03…04 | complete | cfe88d1 / 04bdb8c | pass |
+| MEMSOL-05…07 | complete | 89e2e3d + workers 5bee9cc | pass |
+| Workers residual | complete | process_* + HANDLERS | pass |
+| UI/OpenAPI/client/backfill script | in_progress→complete this commit | — | UI unit pass; OpenAPI regenerated |
+| Integration full / Playwright | blocked_env / residual | evidence scratch | documented |
+| MEMSOL-11 | prepared | docs/implementation/memsol/MEMSOL_11_ROLLOUT_PREP.md | **no deploy** |
 
-\* Residual documentado: no se afirma E2E productivo ni merge Signal→main.
+## Residual explícito restante
 
-## Resultado de sesión
+1. Ejecutar `memsol_backfill_intent_revisions.py --dry-run/--apply` con `TEST_DATABASE_URL` real y pegar counts al ledger.
+2. `ORACLE_RUN_INTEGRATION=1` suite completa + Playwright cuando haya Postgres/Redis/CI.
+3. Worker Celery e2e con broker real (handlers unitarios ya existen).
+4. UI polish a11y/Playwright.
 
-```text
-DESARROLLO_Y_UAT_PARCIAL_COMPLETOS
-ROLLOUT_PRODUCCION_PREPARADO_PENDIENTE_DE_AUTORIZACION
-```
+## Scratch evidence
 
-## Residual explícito (no bloquea más docs; bloquea claim "prod-ready")
-
-1. Merge Signal `memsol/02-memory-hardening` → `main` tras review
-2. Workers Celery answer/plan + fault injection ejecutada
-3. HttpMemoryContextAdapter live + consumer sintético Dev
-4. UI Vector Actividad / Preguntar / informe custom
-5. Backfill profile_config → IntentRevision contado
-6. OpenAPI/cliente TS regenerados post-rutas 06/07
-7. Integración Postgres migrate apply + Playwright UAT
-8. Autorización MEMSOL-11 producción
+- `memsol_git.txt`, `memsol_baseline_tests.txt`, `memsol_signal_02.txt`
+- `memsol_workers.txt`, `memsol_ui_tests.txt`, `memsol_openapi.txt`
+- `memsol_backfill.txt`, `memsol_integration_uat.txt`
 
 ## Handoff
 
-- Producción: solo con autorización explícita y checklist MEMSOL_11_ROLLOUT_PREP.md
-- Reanudar: leer este ledger + `git log origin/master -15` + CI
+- No producción. Kill switches memory OFF.
+- Signal main ya contiene MEMSOL-02; no activar MEMORY_ENGINE_ENABLED sin autorización.

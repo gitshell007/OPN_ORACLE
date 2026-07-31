@@ -2,6 +2,17 @@
 
 Actualizado: 2026-07-31
 
+## Memoria Sol · residuales cerrados con evidencia (2026-07-31 20:16)
+
+- Re-verificados tests baseline Oracle (43/43) y Signal lifecycle (8/8; 49 en main-base).
+- Signal MEMSOL-02 cherry-pick a `main` (`f934ead`), flags OFF; mutación tenant tumba test.
+- Workers `oracle.dossier_question.answer` y `oracle.report.custom_brief.plan` en HANDLERS + tests.
+- UI Vector: pestañas Actividad / Preguntar / Informe libre + client TS + OpenAPI regenerado.
+- Script backfill contado; dry-run bloqueado por Postgres local (role oracle missing) — sin inventar ceros.
+- MEMSOL-11 runbook intacto; producción no desplegada.
+
+
+
 ## Memoria Sol · cierre de desarrollo (2026-07-31)
 
 - MEMSOL-00…07 implementados en `master` (intent, activity, memory adapter, Q&A, brief).

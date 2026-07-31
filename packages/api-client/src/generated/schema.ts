@@ -5300,6 +5300,102 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read model agregado: intención, vigilancias, monitores, jobs. */
+        get: {
+            parameters: {
+                query?: {
+                    kind?: "watchlist" | "signal_monitor" | "procurement_watch" | "background_job" | null;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/actor-candidates": {
         parameters: {
             query?: never;
@@ -6406,6 +6502,306 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Dossier Conversation */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue Conversation Message */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Successful response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MessageAccepted"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/conversations/{conversation_id}/messages/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation Message */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                    conversation_id: string;
+                    message_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/decisions": {
         parameters: {
             query?: never;
@@ -7366,6 +7762,476 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Intent Get */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntentOverviewResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/intent/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Create Draft */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["IntentDraftCreateInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntentRevisionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Conflicto de versión o estado */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Intent Update Draft */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                    revision_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["IntentDraftPatchInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntentRevisionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Conflicto de versión o estado */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Accept Draft */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                    revision_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntentRevisionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Conflicto de versión o estado */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Intent Reject Draft */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                    revision_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntentRevisionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Conflicto de versión o estado */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/investigations": {
         parameters: {
             query?: never;
@@ -8147,6 +9013,171 @@ export interface paths {
                     };
                 };
                 /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/offerings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Offerings List */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierOfferingListResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Offerings Create */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierOfferingInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierOfferingResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Conflicto de versión o estado */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -9429,6 +10460,278 @@ export interface paths {
                     };
                 };
                 /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/reports/custom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Custom Report */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReportWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReportResource"];
+                    };
+                };
+                /** @description Successful response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CustomBriefAccepted"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Requirements List */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntelligenceRequirementListResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Requirements Create */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["IntelligenceRequirementInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IntelligenceRequirementResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Conflicto de versión o estado */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -28309,6 +29612,21 @@ export interface components {
             }[];
             ready: boolean;
         };
+        ConversationCreate: {
+            /** @default  */
+            title: string;
+        };
+        ConversationResponse: {
+            created_at?: string | null;
+            created_by_user_id: string;
+            dossier_id: string;
+            id: string;
+            intent_revision_id?: string | null;
+            status: string;
+            tenant_id: string;
+            title: string;
+            updated_at?: string | null;
+        };
         CreateInvestigation: {
             limits?: components["schemas"]["InvestigationLimits"];
             period_end?: string | null;
@@ -28329,6 +29647,18 @@ export interface components {
         };
         CsrfResponse: {
             csrf_token: string;
+        };
+        CustomBriefAccepted: {
+            job_id: string;
+            plan_status: string;
+            report: {
+                [key: string]: unknown;
+            };
+            report_id: string;
+            status: string;
+        };
+        CustomBriefCreate: {
+            brief_request: string;
         };
         DecisionResource: {
             content?: components["schemas"]["JsonObject"];
@@ -28429,6 +29759,38 @@ export interface components {
         };
         DossierIncludes: {
             dossiers: components["schemas"]["DossierReference"][];
+        };
+        DossierOfferingInput: {
+            aliases?: string[];
+            description?: string;
+            /** Format: uuid */
+            intent_revision_id?: string | null;
+            name: string;
+            /** @enum {string} */
+            status?: "active" | "retired";
+            taxonomies?: components["schemas"]["JsonObject"];
+        };
+        DossierOfferingListResponse: {
+            items: components["schemas"]["DossierOfferingResponse"][];
+        };
+        DossierOfferingResponse: {
+            aliases?: string[];
+            /** Format: date-time */
+            created_at?: string;
+            description?: string;
+            /** Format: uuid */
+            dossier_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intent_revision_id?: string | null;
+            name: string;
+            status: string;
+            taxonomies?: components["schemas"]["JsonObject"];
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            updated_at?: string;
         };
         DossierPatchInput: {
             description?: string;
@@ -28875,6 +30237,125 @@ export interface components {
             title?: string;
             version?: number;
         };
+        IntelligenceRequirementInput: {
+            /** @enum {string} */
+            alignment_state?: "aligned" | "needs_review" | "overridden";
+            /** @enum {string} */
+            class: "market_scan" | "competitive_watch" | "procurement_fit" | "actor_monitor" | "research_question" | "risk_watch" | "custom";
+            decision_to_support?: string;
+            exclusions?: components["schemas"]["JsonObject"];
+            /** Format: uuid */
+            intent_revision_id?: string | null;
+            /** @enum {string} */
+            priority?: "low" | "medium" | "high" | "critical";
+            question: string;
+            scope?: components["schemas"]["JsonObject"];
+            /** @enum {string} */
+            status?: "active" | "paused" | "needs_review" | "retired";
+            success_criteria?: string[];
+        };
+        IntelligenceRequirementListResponse: {
+            items: components["schemas"]["IntelligenceRequirementResponse"][];
+        };
+        IntelligenceRequirementResponse: {
+            alignment_state?: string;
+            class: string;
+            /** Format: date-time */
+            created_at?: string;
+            decision_to_support?: string;
+            /** Format: uuid */
+            dossier_id: string;
+            exclusions?: components["schemas"]["JsonObject"];
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intent_revision_id?: string | null;
+            priority: string;
+            question: string;
+            scope?: components["schemas"]["JsonObject"];
+            status: string;
+            success_criteria?: string[];
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        IntentDraftCreate: {
+            request_text: string;
+            /** @enum {string} */
+            schema_key: "market" | "procurement" | "research" | "competitive-intelligence" | "custom";
+            schema_version: string;
+            source_refs?: components["schemas"]["SourceRef"][];
+            structured_spec?: {
+                [key: string]: unknown;
+            };
+        };
+        IntentDraftCreateInput: {
+            request_text: string;
+            /** @enum {string} */
+            schema_key: "market" | "procurement" | "research" | "competitive-intelligence" | "custom";
+            schema_version: string;
+            source_refs?: components["schemas"]["IntentSourceRef"][];
+            structured_spec?: components["schemas"]["JsonObject"];
+        };
+        IntentDraftPatch: {
+            expected_row_version: number;
+            request_text?: string;
+            /** @enum {string} */
+            schema_key?: "market" | "procurement" | "research" | "competitive-intelligence" | "custom";
+            schema_version?: string;
+            source_refs?: components["schemas"]["SourceRef"][];
+            structured_spec?: {
+                [key: string]: unknown;
+            };
+        };
+        IntentDraftPatchInput: {
+            expected_row_version: number;
+            request_text?: string;
+            /** @enum {string} */
+            schema_key?: "market" | "procurement" | "research" | "competitive-intelligence" | "custom";
+            schema_version?: string;
+            source_refs?: components["schemas"]["IntentSourceRef"][];
+            structured_spec?: components["schemas"]["JsonObject"];
+        };
+        IntentOverviewResponse: {
+            current: components["schemas"]["IntentRevisionResponse"] | null;
+            revisions: components["schemas"]["IntentRevisionResponse"][];
+        };
+        IntentRevisionResponse: {
+            /** Format: date-time */
+            accepted_at?: string | null;
+            /** Format: uuid */
+            accepted_by_user_id?: string | null;
+            content_hash: string;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: uuid */
+            dossier_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            proposed_by_user_id?: string | null;
+            request_text: string;
+            row_version: number;
+            /** @enum {string} */
+            schema_key: "market" | "procurement" | "research" | "competitive-intelligence" | "custom";
+            schema_version: string;
+            source_refs: components["schemas"]["IntentSourceRef"][];
+            /** @enum {string} */
+            status: "draft" | "accepted" | "superseded" | "rejected";
+            structured_spec: components["schemas"]["JsonObject"];
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            updated_at?: string;
+            version: number;
+        };
+        IntentSourceRef: {
+            kind: string;
+            label?: string;
+            ref: string;
+        };
         InvestigationExecution: {
             investigation: components["schemas"]["InvestigationResponse"];
             job: {
@@ -29151,6 +30632,39 @@ export interface components {
             tenant_name: string;
             tenant_slug: string;
         };
+        MessageAccepted: {
+            job_id: string;
+            message: {
+                [key: string]: unknown;
+            };
+            message_id: string;
+            status: string;
+        };
+        MessageCreate: {
+            content_text: string;
+        };
+        MessageResponse: {
+            answer_payload: {
+                [key: string]: unknown;
+            };
+            background_job_id?: string | null;
+            content_text: string;
+            conversation_id: string;
+            coverage_manifest: {
+                [key: string]: unknown;
+            };
+            created_at?: string | null;
+            created_by_user_id?: string | null;
+            dossier_id: string;
+            error_code?: string | null;
+            error_message?: string | null;
+            id: string;
+            role: string;
+            sequence: number;
+            status: string;
+            tenant_id: string;
+            updated_at?: string | null;
+        };
         Meta: {
             capabilities: string[];
             environment: string;
@@ -29258,6 +30772,39 @@ export interface components {
             status?: string;
             title?: string;
             version?: number;
+        };
+        OfferingCreate: {
+            aliases?: string[];
+            /** @default  */
+            description: string;
+            intent_revision_id?: string | null;
+            name: string;
+            /**
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "retired";
+            taxonomies?: {
+                [key: string]: unknown;
+            };
+        };
+        OfferingList: {
+            items: components["schemas"]["OfferingResponse"][];
+        };
+        OfferingResponse: {
+            aliases: string[];
+            created_at?: string | null;
+            description: string;
+            dossier_id: string;
+            id: string;
+            intent_revision_id?: string | null;
+            name: string;
+            status: string;
+            taxonomies: {
+                [key: string]: unknown;
+            };
+            tenant_id: string;
+            updated_at?: string | null;
         };
         OpportunityResource: {
             actionability?: number;
@@ -29720,6 +31267,60 @@ export interface components {
             title?: string;
             version?: number;
         };
+        RequirementCreate: {
+            /**
+             * @default aligned
+             * @enum {string}
+             */
+            alignment_state: "aligned" | "needs_review" | "overridden";
+            /** @enum {string} */
+            class: "market_scan" | "competitive_watch" | "procurement_fit" | "actor_monitor" | "research_question" | "risk_watch" | "custom";
+            /** @default  */
+            decision_to_support: string;
+            exclusions?: {
+                [key: string]: unknown;
+            };
+            intent_revision_id?: string | null;
+            /**
+             * @default medium
+             * @enum {string}
+             */
+            priority: "low" | "medium" | "high" | "critical";
+            question: string;
+            scope?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "paused" | "needs_review" | "retired";
+            success_criteria?: string[];
+        };
+        RequirementList: {
+            items: components["schemas"]["RequirementResponse"][];
+        };
+        RequirementResponse: {
+            alignment_state: string;
+            class: string;
+            created_at?: string | null;
+            decision_to_support: string;
+            dossier_id: string;
+            exclusions: {
+                [key: string]: unknown;
+            };
+            id: string;
+            intent_revision_id?: string | null;
+            priority: string;
+            question: string;
+            scope: {
+                [key: string]: unknown;
+            };
+            status: string;
+            success_criteria: string[];
+            tenant_id: string;
+            updated_at?: string | null;
+        };
         ResetPasswordInput: {
             /** Format: password */
             new_password: string;
@@ -30018,6 +31619,11 @@ export interface components {
         SourceActivityRefreshResponse: {
             items: components["schemas"]["SourceActivityItem"][];
             refreshed: number;
+        };
+        SourceRef: {
+            kind: string;
+            label?: string | null;
+            ref: string;
         };
         StatsResponse: {
             /** @default 0 */

@@ -8,6 +8,9 @@ import {
   DossierWorkSection,
   type DossierWorkKind,
 } from "@/components/dossiers/dossier-work-section";
+import { DossierActivitySection } from "@/components/dossiers/dossier-activity-section";
+import { DossierAskSection } from "@/components/dossiers/dossier-ask-section";
+import { DossierCustomBriefSection } from "@/components/dossiers/dossier-custom-brief-section";
 import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents-section";
 import { DossierInvestigationsSection } from "@/components/dossiers/dossier-investigations-section";
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
@@ -15,6 +18,9 @@ import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-s
 import { DOSSIER_TABS } from "@/lib/app-routes";
 
 const sectionCopy: Record<string, { description: string; api: string }> = {
+  activity: { description: "Vigilancias, monitores y jobs del expediente.", api: "GET /api/v1/dossiers/{id}/activity" },
+  ask: { description: "Preguntas durables a Oracle con citas.", api: "POST /api/v1/dossiers/{id}/conversations/.../messages" },
+  "custom-brief": { description: "Brief libre y plan de informe personalizado.", api: "POST /api/v1/dossiers/{id}/reports/custom" },
   signals: { description: "Señales asociadas a este expediente.", api: "GET /api/v1/dossiers/{id}/signals" },
   opportunities: { description: "Oportunidades y puntuación del expediente.", api: "GET /api/v1/dossiers/{id}/opportunities" },
   procurement: { description: "Licitaciones y adjudicaciones PLACSP fijadas como evidencia.", api: "GET /api/v1/dossiers/{id}/procurement" },
@@ -56,6 +62,12 @@ export default async function DossierSectionPage({
         <DossierProcurementSection dossierId={id} />
       ) : section === "investigations" ? (
         <DossierInvestigationsSection dossierId={id} />
+      ) : section === "activity" ? (
+        <DossierActivitySection dossierId={id} />
+      ) : section === "ask" ? (
+        <DossierAskSection dossierId={id} />
+      ) : section === "custom-brief" ? (
+        <DossierCustomBriefSection dossierId={id} />
       ) : (
         <DossierSettingsSection dossierId={id} />
       )}
