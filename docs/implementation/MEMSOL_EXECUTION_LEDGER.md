@@ -222,3 +222,21 @@ El skeptic rechazó marcar el gate solo con `POST /api/v1/ai/run` Signal. Se re-
 
 **Nota:** primer Ask durable (job `6d224a18-…`, usage **4468**) ya succeeded bajo Titan pero con JSON truncado → safe answer; Ask re-run con `max_output_tokens=4000` (usage **4471**) es la prueba de calidad. Config temporal de tokens y modelo inexistente **revertida**.
 
+## Gate observabilidad por intento IA (Signal 2026-08-01)
+
+Tabla audit-only `ai_usage_attempts` + `attempt_audit` en `POST /api/v1/ai/run`. KPI/cobro siguen en **una** fila `ai_usage_logs` final. Sin prompts/bodies en intentos. Política de fallback **sin cambios**.
+
+| Check | Resultado |
+|---|---|
+| Schema | migración `20260801_ai_usage_attempts` · Signal Dev upgrade head aplicado |
+| Código | Signal `eafa61b` (+ follow-up error_code ok→null) · tests `tests/test_ai_usage_attempts.py` |
+| 404/timeout/429 unit | 2 attempts + `run_id` común · attempt1 reason `status_404`/`timeout`/`status_429` |
+| Negativos | `consumer_ai_disabled` 0 HTTP; semantic 400 → 1 attempt; budget openrouter → sin 2º HTTP |
+| KPI | 1 `ai_usage_logs` / fallback run; `summarize_ai_usage.requests == 1` |
+| Dev real (id 61) | request `attempt-obs-dev-1785539609` · usage **4472** titan `fallback_used=true` · **2** attempts (`status_404` + titan ok) · openrouter **0** |
+| Kill switch | 403 · usage delta **0** |
+| Restore | model `qwen3.5:9b` · fos `[429]` · match backup |
+| MEMORY / OpenRouter / prod | off / 0 / no |
+
+**Rollback config:** restaurar `ConsumerAISettings` consumer 61 (ya hecho). **Rollback schema:** `alembic downgrade 20260731_usage_logs_retention` (solo Dev si se revierte el feature).
+

@@ -109,3 +109,11 @@ Ver `signal_pilot.env.example` en este directorio (todos los flags a 0).
 2. Confirmar `enabled=true` limited + `MEMORY_ENGINE_ENABLED=0`.
 3. No dejar primary model inventado ni `fallback_on_status` ampliado en Dev.
 
+## Observabilidad por intento (Signal, 2026-08-01)
+
+- Tabla `ai_usage_attempts` (audit): attempt_no, role primary|fallback, provider/model, started_at/ended_at/duration_ms, status/http_status/error_code, fallback_eligible/reason, tokens/cost **solo en is_effective**, `run_id`(=request_id) + `usage_log_id`.
+- Respuesta API: `attempt_audit: { run_id, usage_log_id, attempts[] }` — **sin** prompts ni payloads.
+- Fila final `ai_usage_logs` inalterada para dashboards/KPI (una por run).
+- Dev proof: `request_id=attempt-obs-dev-1785539609`, usage_log **4472**, 2 attempts, openrouter 0, restore OK.
+- Tests Signal: `tests/test_ai_usage_attempts.py`.
+
