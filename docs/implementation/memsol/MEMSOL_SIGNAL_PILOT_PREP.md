@@ -86,9 +86,26 @@ Ver `signal_pilot.env.example` en este directorio (todos los flags a 0).
 
 ## Fallback Ollama→Titan (gate 2026-08-01)
 
-1. Backup `ConsumerAISettings` del consumer sintético.
-2. Temporal (solo id 61): primary model inexistente + `fallback_on_status` con 404.
-3. `POST /api/v1/ai/run` por task key → titan real.
-4. Kill switch: `enabled=false` → 403; re-enable + restore backup.
-5. No OpenRouter. No prod. MEMORY off.
+1. Backup `ConsumerAISettings` del consumer sintético (`opn-oracle-memsol-pilot` id 61).
+2. Temporal (solo id 61): primary model inexistente (`…-MEMSOL-FALLBACK-GATE-DOES-NOT-EXIST`) + `fallback_on_status` con **404** (además de 408/429).
+3. `POST /api/v1/ai/run` por task key → Titan real (`ollama_titan`/`qwen3.6:27b`, `fallback_used=true`).
+4. **Path durable Oracle (obligatorio si Titan ok):** Celery `oracle.dossier_question.answer` y `oracle.report.custom_brief.plan` con `AI_MODE=signal`; GET message/report con `provider_path=signal` + `AIArtifact`; correlacionar `ai_usage_logs` (logger Signal: **1 fila final** efectiva titan, no fila separada del primario).
+5. Coerción Titan en `apps/api/src/opn_oracle/ai/schemas.py` (confidence 0–1→0–100; notes/formats string→list) — necesaria para persistir salida Titan válida.
+6. Kill switch: `enabled=false` → 403 `consumer_ai_disabled` + usage delta 0; re-enable limited + **restore backup bit-for-bit** (model `qwen3.5:9b`, `fallback_on_status=[429]`).
+7. No OpenRouter. No prod. MEMORY off.
+
+### Evidencia gate (redactada)
+
+| Clave | IDs |
+|---|---|
+| Ask durable | job `459abd72-…` · message `259ab833-…` · artifact `685536d3-…` · usage **4471** |
+| Brief durable | job `5dbe7a68-…` · report `1a30a856-…` · artifact `01b6bb59-…` · usage **4470** |
+| Signal `/ai/run` only | usage **4461** (ask) · **4462** (brief) |
+| Host Oracle | `/var/lib/opn-oracle-dev/memsol_fallback_oracle_capture_20260731T224331Z/` |
+
+### Rollback
+
+1. Restaurar `ConsumerAISettings` del consumer 61 desde backup (models `qwen3.5:9b`, `fallback_on_status=[429]`, tokens 2500/2000).
+2. Confirmar `enabled=true` limited + `MEMORY_ENGINE_ENABLED=0`.
+3. No dejar primary model inventado ni `fallback_on_status` ampliado en Dev.
 

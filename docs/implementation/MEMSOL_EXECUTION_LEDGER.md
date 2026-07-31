@@ -195,8 +195,8 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 |---|---|
 | Consumer | `opn-oracle-memsol-pilot` id **61** (solo Dev) |
 | Método fail primario | model `qwen3.5:9b-MEMSOL-FALLBACK-GATE-DOES-NOT-EXIST` + `fallback_on_status=[404,408,429]` (reversible) |
-| dossier_question_answer | HTTP 200 · **ollama_titan/qwen3.6:27b** · `fallback_used=true` · usage **4461** · in=1699 out=110 · 110149 ms · cost null |
-| report_custom_brief_plan | HTTP 200 · **ollama_titan/qwen3.6:27b** · `fallback_used=true` · usage **4462** · in=1798 out=308 · 129218 ms · cost null |
+| dossier_question_answer (Signal `/ai/run`) | HTTP 200 · **ollama_titan/qwen3.6:27b** · `fallback_used=true` · usage **4461** · in=1699 out=110 · 110149 ms · cost null |
+| report_custom_brief_plan (Signal `/ai/run`) | HTTP 200 · **ollama_titan/qwen3.6:27b** · `fallback_used=true` · usage **4462** · in=1798 out=308 · 129218 ms · cost null |
 | OpenRouter | **0** filas consumer 61 |
 | Logger shape | 1 fila final por run (provider efectivo titan + fallback_used); primario intermedio no se inserta como fila |
 | Kill switch | disable → 403 `consumer_ai_disabled` · usage delta **0** |
@@ -204,4 +204,21 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 | MEMORY | `MEMORY_ENGINE_ENABLED=0` |
 
 **Rollback:** `var/memsol_fallback_config_backup.json` en Signal Dev; ya reaplicado en restore del gate.
+
+### Gap-fix skeptic — persistencia durable Oracle bajo Titan (2026-08-01 ~00:45 Europe/Madrid)
+
+El skeptic rechazó marcar el gate solo con `POST /api/v1/ai/run` Signal. Se re-indujo el fail primario y se ejecutó el path Celery durable en Oracle Dev (tenant `memsol-celery-smoke`, dossier sintético). Coerción Titan (confidence 0–1 → 0–100; notes/formats string→list) hotpatched en `schemas.py` + tests.
+
+| Check | Resultado |
+|---|---|
+| Ask durable Titan | job `459abd72-…` **succeeded** · message `259ab833-…` status **succeeded** · `provider_path=signal` · task_key `dossier_question_answer` · artifact `685536d3-…` · respuesta con facts+citation evidence `2e358274-…` · GET reload match |
+| Ask usage correlacionado | Signal `ai_usage_logs` id **4471** · ollama_titan/`qwen3.6:27b` · `fallback_used=true` · in=4975 out=696 · 269020 ms |
+| Brief durable Titan | job `5dbe7a68-…` **succeeded** · report `1a30a856-…` · `plan_status=proposed` · proposed_plan `provider_path=signal` · task_key `report_custom_brief_plan` · artifact `01b6bb59-…` · audit_log `772b9022-…` |
+| Brief usage correlacionado | Signal `ai_usage_logs` id **4470** · ollama_titan/`qwen3.6:27b` · `fallback_used=true` · in=1975 out=187 · 103810 ms |
+| OpenRouter | **0** en ventana id≥4460 consumer 61 |
+| Kill switch post-gate | 403 `consumer_ai_disabled` · usage max 4471 delta **0** · re-enable limited |
+| Restore post-gate | models `qwen3.5:9b` · `fallback_on_status=[429]` · max_tokens 2500/2000 · match backup slim |
+| Evidencia host | `/var/lib/opn-oracle-dev/memsol_fallback_oracle_capture_20260731T224331Z/` · scratch `memsol_fallback_oracle_persist.json` |
+
+**Nota:** primer Ask durable (job `6d224a18-…`, usage **4468**) ya succeeded bajo Titan pero con JSON truncado → safe answer; Ask re-run con `max_output_tokens=4000` (usage **4471**) es la prueba de calidad. Config temporal de tokens y modelo inexistente **revertida**.
 
