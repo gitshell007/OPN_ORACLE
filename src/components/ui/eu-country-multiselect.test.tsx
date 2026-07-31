@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EuCountryMultiSelect } from "./eu-country-multiselect";
+import { PRESET_COUNTRIES } from "@/lib/eu-countries";
 
 describe("EuCountryMultiSelect", () => {
   afterEach(cleanup);
@@ -11,7 +12,7 @@ describe("EuCountryMultiSelect", () => {
 
     const group = screen.getByRole("group", { name: "Países" });
     const checkboxes = within(group).getAllByRole("checkbox");
-    expect(checkboxes).toHaveLength(27);
+    expect(checkboxes).toHaveLength(PRESET_COUNTRIES.length);
     const names = within(group)
       .getAllByRole("checkbox")
       .map((checkbox) => checkbox.closest("label")?.textContent ?? "");
@@ -42,6 +43,29 @@ describe("EuCountryMultiSelect", () => {
     expect(within(group).getByRole("checkbox", { name: /Portugal/ })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Filtrar Países"), { target: { value: "zz" } });
-    expect(screen.getByText("Sin coincidencias.")).toBeInTheDocument();
+    expect(screen.getByText("Sin coincidencias en el catálogo.")).toBeInTheDocument();
+  });
+
+  it("permite añadir un país no listado por código ISO global", () => {
+    const onChange = vi.fn();
+    render(<EuCountryMultiSelect label="Países" value={["ES"]} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Código ISO de país no listado"), {
+      target: { value: "us" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Añadir país" }));
+    expect(onChange).toHaveBeenCalledWith(["ES", "US"]);
+  });
+
+  it("rechaza códigos ISO mal formados", () => {
+    const onChange = vi.fn();
+    render(<EuCountryMultiSelect label="Países" value={[]} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Código ISO de país no listado"), {
+      target: { value: "USA" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Añadir país" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/dos letras/);
   });
 });

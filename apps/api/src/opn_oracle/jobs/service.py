@@ -30,6 +30,8 @@ TASK_QUEUES = {
     "oracle.procurement_document_report.generate": "ai",
     "oracle.competitive_procurement_report.generate": "ai",
     "oracle.entity_dossier_report.generate": "ai",
+    "oracle.dossier_question.answer": "ai",
+    "oracle.report.custom_brief.plan": "ai",
     "oracle.investigation.run": "signals",
     "oracle.export.generate": "documents",
     "oracle.document.process": "documents",

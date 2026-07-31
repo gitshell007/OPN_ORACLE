@@ -1,0 +1,85 @@
+# Copiar como /etc/opn-server-monitor/server-health-monitor.toml.
+# Este fichero no contiene contraseñas ni claves privadas.
+
+[monitor]
+timezone = "Europe/Madrid"
+window_hours = 24
+ssh_user = "root"
+ssh_command_timeout_seconds = 180
+ssh_key_file = "/etc/opn-server-monitor/secrets/id_ed25519"
+ssh_known_hosts_file = "/etc/opn-server-monitor/known_hosts"
+state_file = "/var/lib/opn-server-monitor/state.json"
+
+# Microsoft Graph con permiso Mail.Send sobre el buzón remitente.
+graph_tenant_id = "3b953a25-3fba-4d54-b6d0-38961d1d0141"
+graph_client_id = "326f998d-6d85-4ad6-842c-e7084cc4c7a4"
+graph_sender_mailbox = "info@opnconsultoria.com"
+graph_client_secret_file = "/etc/opn-oracle/secrets/oracle_graph_client_secret"
+recipients = ["info@opnconsultoria.com"]
+
+[[targets]]
+id = "advisor"
+label = "Advisor"
+host = "advisor.opnconsultoria.com"
+db_mode = "native"
+db_name = "OPN"
+task_mode = "advisor"
+services = ["nginx.service", "OPN-app.service", "OPN-celery.service", "OPN-celery-beat.service", "postgresql@16-main.service", "redis-server.service"]
+
+[[targets]]
+id = "risk"
+label = "Risk Advisor"
+host = "risk.opnconsultoria.com"
+db_mode = "native"
+db_name = "opn_risk_advisor_db"
+task_mode = "risk"
+services = ["nginx.service", "opn-risk-web.service", "opn-risk-worker.service", "opn-risk-beat.service", "postgresql@16-main.service", "redis-server.service"]
+
+[[targets]]
+id = "oracle"
+label = "Oracle"
+host = "oracle.opnconsultoria.com"
+db_mode = "docker"
+db_container = "opn-oracle-prod-postgres-1"
+db_user = "postgres"
+db_name = "opn_oracle"
+task_mode = "oracle"
+docker_metrics = true
+backup_paths = ["/var/backups/opn-oracle", "/var/backups/opn-oracle-offsite"]
+services = ["docker.service", "nginx.service", "opn-oracle-backup-agent.timer", "opn-oracle-backup-schedule.timer"]
+
+[[targets]]
+id = "signal"
+label = "Signal"
+host = "signal.opnconsultoria.com"
+db_mode = "docker"
+db_container = "opn_signal-postgres-1"
+db_user = "opn_signal"
+db_name = "opn_signal_db"
+task_mode = "signal"
+docker_metrics = true
+# Gasto OpenRouter registrado en ai_usage_logs durante la ventana de 24 h.
+openrouter_spend = true
+services = ["docker.service", "nginx.service", "opn-signal-api.service", "opn-signal-worker.service", "opn-signal-beat.service"]
+
+[[targets]]
+id = "signal-dev"
+label = "Signal Dev"
+host = "signal-dev.opnconsultoria.com"
+db_mode = "docker"
+db_container = "signal_dev_postgres"
+db_user = "opn_signal_dev"
+db_name = "opn_signal_dev_db"
+task_mode = "signal"
+docker_metrics = true
+services = ["docker.service", "nginx.service", "opn-signal-dev-api.service", "opn-signal-dev-worker.service", "opn-signal-dev-beat.service"]
+
+[[targets]]
+id = "oracle-dev"
+label = "Oracle Dev"
+host = "oracle-dev.opnconsultoria.com"
+db_mode = "native"
+db_name = "opn_oracle_dev"
+task_mode = "oracle"
+services = ["nginx.service", "opn-oracle-api.service", "opn-oracle-worker.service", "opn-oracle-beat.service", "postgresql@17-main.service", "redis-server.service"]
+backup_paths = ["/var/backups/opn-oracle-dev"]

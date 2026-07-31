@@ -57,6 +57,13 @@ class StrategicDossier(TenantDomainMixin, Base):
             "AND risk_score BETWEEN 0 AND 100",
             name="dossier_scores_range",
         ),
+        ForeignKeyConstraint(
+            ("current_intent_revision_id", "tenant_id"),
+            ("dossier_intent_revisions.id", "dossier_intent_revisions.tenant_id"),
+            ondelete="SET NULL",
+            name="fk_dossiers_current_intent_revision_tenant",
+            use_alter=True,
+        ),
         Index("ix_dossiers_tenant_status_updated", "tenant_id", "status", "updated_at"),
         Index("ix_dossiers_tenant_owner", "tenant_id", "owner_user_id"),
     )
@@ -80,6 +87,7 @@ class StrategicDossier(TenantDomainMixin, Base):
     risk_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     score_explanation: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    current_intent_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")

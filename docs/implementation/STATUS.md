@@ -1,8 +1,191 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-28
-Rama observada: `master`  
+Actualizado: 2026-07-31
+
+## Memoria Sol · verificación final con Postgres real (2026-07-31)
+
+- oracle_test migrado a `20260731_0028`; backfill dry-run midió 0 dossiers/0 revisiones.
+- Integration: multitenancy+jobs 46 pass; HTTP MEMSOL intent/activity/ask/brief 3 pass.
+- Unit baseline 56 pass; Signal lifecycle 8 pass; UI vitest 7 pass; Celery durable-task mutation OK.
+- MEMSOL-11 preparado; producción no desplegada.
+
+
+
+## Memoria Sol · residuales cerrados con evidencia (2026-07-31 20:16)
+
+- Re-verificados tests baseline Oracle (43/43) y Signal lifecycle (8/8; 49 en main-base).
+- Signal MEMSOL-02 cherry-pick a `main` (`f934ead`), flags OFF; mutación tenant tumba test.
+- Workers `oracle.dossier_question.answer` y `oracle.report.custom_brief.plan` en HANDLERS + tests.
+- UI Vector: pestañas Actividad / Preguntar / Informe libre + client TS + OpenAPI regenerado.
+- Script backfill contado; dry-run bloqueado por Postgres local (role oracle missing) — sin inventar ceros.
+- MEMSOL-11 runbook intacto; producción no desplegada.
+
+
+
+## Memoria Sol · cierre de desarrollo (2026-07-31)
+
+- MEMSOL-00…07 implementados en `master` (intent, activity, memory adapter, Q&A, brief).
+- MEMSOL-02 en Signal rama `memsol/02-memory-hardening@86c1f74` (flags OFF; sin merge main).
+- MEMSOL-08…10 documentados; UAT/E2E residual. MEMSOL-11 preparado sin deploy.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
+
+Rama observada: `master` / `memsol/execution`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Sistema vivo de planificación (2026-07-31)
+
+- Se creó `docs/development/oracle-roadmap.json` como fuente estructurada de estado, dependencias,
+  criterios, evidencias y próximos trabajos; el dashboard HTML es un artefacto generado.
+- Auditoría inicial: 10 módulos y 31 funcionalidades, con estados separados entre implementado,
+  validado, desplegado, en revisión, bloqueado y diferido. No se desarrolló nueva funcionalidad de
+  negocio en esta fase.
+- El snapshot de auditoría se tomó en `oracle-dev`; el commit de gobernanza se integró en `master`
+  sin incluir cambios funcionales ajenos de otras sesiones.
+- Comprobaciones realizadas: `python3 scripts/generate-development-dashboard.py --check`, generación
+  determinista del HTML, parser HTML estándar, sintaxis JavaScript y protección contra sobrescritura
+  con roadmap inválido. La inspección visual mediante navegador integrado no se pudo ejecutar porque
+  la política del navegador bloquea abrir `file://`; no se sorteó esa restricción.
+- Fuente y uso: `docs/development/oracle-architecture.md`, `oracle-decisions.md` y
+  `oracle-progress.md`. Regenerar con `python3 scripts/generate-development-dashboard.py`.
+
+## MEMSOL-05 · MemoryContextAdapter Oracle (2026-07-31)
+
+- `integrations/memory_context.py`: Protocol `MemoryContextAdapter`, `MockMemoryContextAdapter`
+  (items vacíos + `coverage_manifest.v1` válido), `DisabledMemoryContextAdapter` (fail closed),
+  stub HTTP no activado.
+- Config: `MEMORY_CONTEXT_MODE=disabled|mock|http` (default **disabled**), base URL HTTPS en http,
+  timeout. Cableado en `Settings`, `compose.prod.yml`, `oracle.env.example` (+ native-dev).
+- Tests unitarios de forma del manifiesto y modos. Sin llamadas reales a Signal.
+
+## MEMSOL-06 · Preguntar a Oracle durable (2026-07-31)
+
+- Modelos `DossierConversation` / `DossierMessage` tenant+dossier scoped; estados
+  conversation `open|archived`, message `queued→running→succeeded|failed|cancelled`.
+- Migración expand-only `20260731_0028` (+ RLS). Registro en `MODEL_REGISTRY`.
+- Servicio: create conversation; enqueue message **persiste la pregunta antes** del
+  `BackgroundJob` (`oracle.dossier_question.answer`, sin publish al broker en accept).
+- HTTP: `POST .../conversations` 201, `POST .../messages` **202** `{job_id,message_id}`,
+  `GET .../messages/{id}`. La respuesta **no** muta intent ni promueve hechos de memoria.
+- Worker de respuesta IA y retrieve de memoria en el job: diferidos.
+
+## MEMSOL-07 · Custom report brief mínimo (2026-07-31)
+
+- Reutiliza `Report` con `template_key=custom_assistant_brief`, `options.brief_request` y
+  `options.plan_status` (`draft|proposed|accepted`). Status de informe `draft`.
+- `POST .../reports/custom` → **202** con Report + `BackgroundJob`
+  `oracle.report.custom_brief.plan` pending (sin publish; **no** toca `report_writer`).
+- Sin llamadas a Signal. Plan accept / planner task: diferidos.
+
+## MEMSOL-03 · IntentRevision Oracle expand (2026-07-31)
+
+- Modelos: `DossierIntentRevision`, `IntelligenceRequirement`, `DossierOffering`;
+  `StrategicDossier.current_intent_revision_id` nullable.
+- Migración expand-only `20260731_0027` (tablas + índice único parcial un `accepted` por
+  expediente + RLS). Sin backfill de `profile_config` en este paso.
+- Servicio `oracle/intent.py`: draft/update (row_version), accept (supersede + current pointer),
+  reject. **Accept no crea monitores Signal ni recursos externos.**
+- API `/api/v1/dossiers/{id}/intent|intent/drafts|requirements|offerings` + OpenAPI tipado.
+- Tests unitarios lifecycle (11 passed). Integración Postgres + backfill contado: siguiente.
+- Worktree `memsol/execution`. Siguiente: backfill profile_config → IntentRevision o MEMSOL-04.
+
+## MEMSOL-04 · Read model Actividad (2026-07-31)
+
+- `GET /api/v1/dossiers/{id}/activity` agrega intención, watchlists, monitores Signal,
+  vigilancias de licitación ligadas por artefacto y jobs recientes.
+- Estados de producto normalizados (prepared/active/paused/pending/running/retrying/
+  needs_attention/finished). Sin autoactivación ni llamadas a Signal en el read model.
+- Tests unitarios de mapeo de estados. UI Vector y commands pause/resume quedan
+  ampliables; el contrato HTTP del panel ya está disponible.
+
+## MEMSOL-01 · Contrato de intención y memoria (2026-07-31)
+
+- ADR-0009 aceptada: `DossierIntentRevision`, requirements, offerings dossier-scoped, provenance,
+  `needs_review`, HTTP Oracle↔opn_memory, coverage_manifest, state machines, D-015 aclarado.
+- Schemas JSON en `docs/implementation/schemas/memsol/` (+ ejemplos validados como JSON).
+- Sin migraciones ni activación de memoria. Siguiente: MEMSOL-02 (Signal) y MEMSOL-03 (Oracle)
+  en paralelo aislado.
+
+## MEMSOL-00 · Auditoría y reconciliación (2026-07-31)
+
+- Worktree aislado `memsol/execution` desde `master@35b2e94`; WIP de `oracle-dev` y Signal
+  inventariado y **excluido** del staging.
+- Merge limpio `oracle-dev@eb61173` → master (intake `market.v1`, documentos dev, UI inventario,
+  scripts nativos) sobre la base operativa de master (monitor infra + plan Memoria Sol).
+- Geografía: se elimina la restricción UE-27 de `_geography_codes`; se valida ISO 3166-1 alpha-2
+  global. UI de países con presets UE+extra y alta libre por código ISO. Tests unitarios +
+  mutación (UE-only tumba 2 tests) y vitest del selector (5/5).
+- Prefill `sessionStorage` de monitor de Mercado queda documentado como UX efímera; la verdad
+  durable es `profile_config` + API. Starter no crea monitores Signal remotos.
+- Matriz contractual: `docs/implementation/MEMSOL_CONTRACT_MATRIX_2026-07-31.md`.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
+- Signal: sin cambios de código; `main@60a5782` / `signal-dev@06fbdd6`; orden de integración
+  documentado; `opn_memory` flags OFF; WIP local no tocado.
+- Siguiente: MEMSOL-01 (ADR y contratos de intención/memoria).
+
+## Plan inicial de intención, memoria, vigilancia e informes (2026-07-31)
+
+- Se auditó sin cambiar de rama la divergencia Oracle `master...oracle-dev`: 7 commits exclusivos
+  en `master`, 6 en `oracle-dev` y 26 ficheros afectados por el trabajo de intake de Mercado desde
+  el ancestro. `market.v1` es reutilizable, pero no debe integrarse sin corregir el límite UE-27,
+  el prefill efímero y las rutas que pueden evitar una aceptación durable del intake.
+- Se auditó Signal `origin/main...origin/signal-dev` y se revalidó al moverse la rama durante la
+  revisión. El cierre queda en `60a5782...f32fed6`: Signal Dev prueba Gemini 3.1 Flash Lite con
+  fallback 3.5 Flash Lite en tres tasks OpenRouter de Oracle, mientras producción/main conserva la
+  política anterior. El checkout local sigue recibiendo WIP concurrente y no se modificó.
+- Se propone que Oracle sea autoridad de una intención aceptada y versionada, requisitos de
+  inteligencia, memoria de negocio, jobs e informes; Signal seguirá siendo autoridad de fuentes,
+  monitores y política de proveedor/modelo/fallback.
+- El roadmap se divide en reconciliación, intención v1, Actividad/cadencias, memoria recuperable,
+  preguntas persistentes, asistente de informes, fuentes a escala y operación. La activación del
+  `opn_memory` experimental queda bloqueada hasta demostrar aislamiento por consumidor/tenant y un
+  ciclo de vida recuperable para sus análisis.
+- La revisión posterior del patrón de memoria jerárquica no cambia la arquitectura: la concreta
+  como fuente → fragmento → observación → consolidación → snapshot de consulta, con distinción
+  entre afirmación y hecho, actualización incremental, idempotencia por versión y recuperación
+  híbrida. PostgreSQL full-text sigue siendo el baseline; embeddings/`pgvector` quedan sujetos a
+  evaluación y no se introduce otro datastore.
+- Se regeneró el paquete ejecutable `SignalV2/memoria_sol` tras contrastarlo con
+  `SignalV2/memoria_luna`: contiene planificación, checklist, matriz, 12 prompts de implementación,
+  17 contratos de runtime IA y un arranque continuo para Grok Build con `/goal`, objetivo maestro y
+  ledger reanudable. Se adoptaron como propuestas opcionales la clasificación de fuentes, detección
+  de contradicciones, planificación de acciones y diagnóstico de calidad; scope, chunking,
+  recuperación/selección final, activación, mantenimiento y jobs siguen siendo deterministas.
+- La ejecución autónoma termina en MEMSOL-10 con MEMSOL-11 preparado salvo autorización explícita de
+  producción. El paquete no concede acceso a secretos, gasto externo, despliegues ni operaciones
+  destructivas, y no activa código ni configuración por el mero hecho de entregarlo a Grok Build.
+- Documento de trabajo: [`docs/product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md`](../product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md).
+- Estado: plan inicial documentado; no se cambió esquema, API, runtime ni configuración.
+
+## Monitor diario de infraestructura (2026-07-31)
+
+- Auditoría read-only ejecutada con `root` sobre `advisor`, `risk`, `oracle`, `signal`,
+  `signal-dev` y `oracle-dev`. Se confirma PostgreSQL nativo en Advisor/Risk/Oracle Dev,
+  Docker en Oracle/Signal/Signal Dev y Celery/systemd en las seis superficies.
+- DNS observado: `signal-dev.opnconsultoria.com` es el nombre válido; la variante escrita sin
+  la `n` (`signal-dev.opconsultoria.com`) no resuelve.
+- Se implementa un monitor externo con almacenamiento de histórico local, variación diaria,
+  correo Graph y timer systemd. La activación en hosts requiere una clave SSH dedicada y se
+  deja fuera del repositorio cualquier secreto, contraseña o clave privada.
+- Activado en `oracle.opnconsultoria.com`: release `20260731-3ad0177`, timer
+  `opn-server-health-report.timer` habilitado/activo, ejecución diaria a las 08:00 Europe/Madrid
+  con hasta diez minutos de dispersión. La ejecución manual del 2026-07-31 terminó con estado
+  systemd `success` y el journal confirma `Correo enviado a info@opnconsultoria.com`.
+- La primera captura real dejó la línea base; desde la próxima ejecución se mostrarán los
+  porcentajes de variación frente a ese estado. Se verificó el acceso de la clave dedicada a los
+  seis hosts y se incluyen los datos Docker/snapshots solicitados para Oracle.
+- Ampliación desplegada en la release `20260731-d4afd77`: el correo incorpora gasto OpenRouter
+  de las últimas 24 horas, resumen y detalle por modelo/tarea/proyecto, tokens, errores y
+  variación. La ejecución real del 2026-07-31 registró `0.055862 USD` en 16 solicitudes; al
+  ser el primer informe con esta métrica, su variación figura como `n/d` y quedará disponible
+  frente a la próxima captura.
+- HTML premium validado con viewport de 430 px: ancho renderizado 430 px sin overflow horizontal;
+  las tarjetas se apilan y el detalle OpenRouter mantiene su scroll interno.
+- Ranking de almacenamiento desplegado en `20260731-8484ab4`: cada host aporta 10 directorios y
+  10 archivos más grandes, con tamaño y variación por ruta. La ejecución real terminó en `success`,
+  envió el correo y persistió `10/10` entradas sin errores en los seis servidores. El escaneo tarda
+  hasta ~90 segundos en Oracle por `containerd`/Docker; el timeout SSH del monitor es 180 segundos.
+- El timer sigue habilitado y activo: ejecución diaria a las 08:00 Europe/Madrid con dispersión de
+  hasta 10 minutos; la siguiente ejecución observada por systemd es 08:00 local.
 
 ## Despliegue nativo oracle-dev (2026-07-28)
 

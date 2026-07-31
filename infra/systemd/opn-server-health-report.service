@@ -1,0 +1,30 @@
+[Unit]
+Description=OPN daily server health report
+Documentation=file:/opt/opn-server-monitor/current/docs/operations/SERVER_HEALTH_MONITOR.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/opn-server-monitor/current/scripts/server_health_report.py
+ConditionPathExists=/etc/opn-server-monitor/server-health-monitor.toml
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/opn-server-monitor/current
+ExecStart=/usr/bin/python3 /opt/opn-server-monitor/current/scripts/server_health_report.py --config /etc/opn-server-monitor/server-health-monitor.toml --state /var/lib/opn-server-monitor/state.json
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/opn-server-monitor /etc/opn-oracle/secrets/oracle_graph_client_secret
+ReadWritePaths=/var/lib/opn-server-monitor
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=15min

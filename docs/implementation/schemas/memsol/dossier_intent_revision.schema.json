@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oracle.opnconsultoria.com/schemas/memsol/dossier_intent_revision.schema.json",
+  "title": "DossierIntentRevision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_key",
+    "schema_version",
+    "request_text",
+    "structured_spec",
+    "status"
+  ],
+  "properties": {
+    "schema_key": {
+      "type": "string",
+      "enum": [
+        "market",
+        "procurement",
+        "research",
+        "competitive-intelligence",
+        "custom"
+      ]
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^v[0-9]+$"
+    },
+    "request_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "structured_spec": {
+      "type": "object"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "accepted",
+        "superseded",
+        "rejected"
+      ]
+    },
+    "source_refs": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "ref"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

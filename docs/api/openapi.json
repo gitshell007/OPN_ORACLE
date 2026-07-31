@@ -1941,6 +1941,61 @@
         ],
         "type": "object"
       },
+      "ConversationCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "default": "",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ConversationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_by_user_id",
+          "dossier_id",
+          "id",
+          "status",
+          "tenant_id",
+          "title"
+        ],
+        "type": "object"
+      },
       "CreateInvestigation": {
         "additionalProperties": false,
         "properties": {
@@ -2024,6 +2079,130 @@
         },
         "required": [
           "csrf_token"
+        ],
+        "type": "object"
+      },
+      "CustomBriefAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "plan_status": {
+            "type": "string"
+          },
+          "report": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "report_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "plan_status",
+          "report",
+          "report_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "CustomBriefCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "brief_request": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_request"
+        ],
+        "type": "object"
+      },
+      "CustomBriefDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "background_job_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "brief_request": {
+            "type": "string"
+          },
+          "created_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "error_code": {
+            "nullable": true,
+            "type": "string"
+          },
+          "error_message": {
+            "nullable": true,
+            "type": "string"
+          },
+          "generation_version": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "plan_status": {
+            "type": "string"
+          },
+          "proposed_plan": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "report_type": {
+            "type": "string"
+          },
+          "requested_by_user_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "template_key": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_request",
+          "dossier_id",
+          "generation_version",
+          "id",
+          "plan_status",
+          "report_type",
+          "requested_by_user_id",
+          "status",
+          "template_key",
+          "template_version",
+          "tenant_id",
+          "title"
         ],
         "type": "object"
       },
@@ -2400,6 +2579,116 @@
         },
         "required": [
           "dossiers"
+        ],
+        "type": "object"
+      },
+      "DossierOfferingInput": {
+        "additionalProperties": false,
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "maxLength": 5000,
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "retired"
+            ],
+            "type": "string"
+          },
+          "taxonomies": {
+            "$ref": "#/components/schemas/JsonObject"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "DossierOfferingListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DossierOfferingResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "DossierOfferingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taxonomies": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "dossier_id",
+          "name",
+          "status"
         ],
         "type": "object"
       },
@@ -3987,6 +4276,482 @@
         },
         "type": "object"
       },
+      "IntelligenceRequirementInput": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment_state": {
+            "enum": [
+              "aligned",
+              "needs_review",
+              "overridden"
+            ],
+            "type": "string"
+          },
+          "class": {
+            "enum": [
+              "market_scan",
+              "competitive_watch",
+              "procurement_fit",
+              "actor_monitor",
+              "research_question",
+              "risk_watch",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "decision_to_support": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "exclusions": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "intent_revision_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "priority": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "paused",
+              "needs_review",
+              "retired"
+            ],
+            "type": "string"
+          },
+          "success_criteria": {
+            "items": {
+              "maxLength": 500,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          }
+        },
+        "required": [
+          "class",
+          "question"
+        ],
+        "type": "object"
+      },
+      "IntelligenceRequirementListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IntelligenceRequirementResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "IntelligenceRequirementResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment_state": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decision_to_support": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "exclusions": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "status": {
+            "type": "string"
+          },
+          "success_criteria": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "dossier_id",
+          "class",
+          "priority",
+          "question",
+          "status"
+        ],
+        "type": "object"
+      },
+      "IntentDraftCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "request_text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_key": {
+            "enum": [
+              "market",
+              "procurement",
+              "research",
+              "competitive-intelligence",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "pattern": "^v[0-9]+$",
+            "type": "string"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "structured_spec": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "request_text",
+          "schema_key",
+          "schema_version"
+        ],
+        "type": "object"
+      },
+      "IntentDraftCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "request_text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_key": {
+            "enum": [
+              "market",
+              "procurement",
+              "research",
+              "competitive-intelligence",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "pattern": "^v[0-9]+$",
+            "type": "string"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/IntentSourceRef"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "structured_spec": {
+            "$ref": "#/components/schemas/JsonObject"
+          }
+        },
+        "required": [
+          "schema_key",
+          "schema_version",
+          "request_text"
+        ],
+        "type": "object"
+      },
+      "IntentDraftPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_row_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "request_text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_key": {
+            "enum": [
+              "market",
+              "procurement",
+              "research",
+              "competitive-intelligence",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "pattern": "^v[0-9]+$",
+            "type": "string"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "structured_spec": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "expected_row_version"
+        ],
+        "type": "object"
+      },
+      "IntentDraftPatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_row_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "request_text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_key": {
+            "enum": [
+              "market",
+              "procurement",
+              "research",
+              "competitive-intelligence",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "pattern": "^v[0-9]+$",
+            "type": "string"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/IntentSourceRef"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "structured_spec": {
+            "$ref": "#/components/schemas/JsonObject"
+          }
+        },
+        "required": [
+          "expected_row_version"
+        ],
+        "type": "object"
+      },
+      "IntentOverviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IntentRevisionResponse"
+              }
+            ],
+            "nullable": true
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/IntentRevisionResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "current",
+          "revisions"
+        ],
+        "type": "object"
+      },
+      "IntentRevisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "accepted_by_user_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "content_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "proposed_by_user_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "request_text": {
+            "type": "string"
+          },
+          "row_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "schema_key": {
+            "enum": [
+              "market",
+              "procurement",
+              "research",
+              "competitive-intelligence",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/IntentSourceRef"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "accepted",
+              "superseded",
+              "rejected"
+            ],
+            "type": "string"
+          },
+          "structured_spec": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "dossier_id",
+          "version",
+          "schema_key",
+          "schema_version",
+          "request_text",
+          "structured_spec",
+          "status",
+          "content_hash",
+          "source_refs",
+          "row_version"
+        ],
+        "type": "object"
+      },
+      "IntentSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "ref": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ref"
+        ],
+        "type": "object"
+      },
       "InvestigationExecution": {
         "additionalProperties": false,
         "properties": {
@@ -5000,6 +5765,119 @@
         ],
         "type": "object"
       },
+      "MessageAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "message": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "message",
+          "message_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "MessageCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "content_text": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_text"
+        ],
+        "type": "object"
+      },
+      "MessageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_payload": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "background_job_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "content_text": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "coverage_manifest": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "created_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "error_code": {
+            "nullable": true,
+            "type": "string"
+          },
+          "error_message": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer_payload",
+          "content_text",
+          "conversation_id",
+          "coverage_manifest",
+          "dossier_id",
+          "id",
+          "role",
+          "sequence",
+          "status",
+          "tenant_id"
+        ],
+        "type": "object"
+      },
       "Meta": {
         "additionalProperties": false,
         "properties": {
@@ -5394,6 +6272,119 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "OfferingCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "aliases": {
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 5000,
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "default": "active",
+            "enum": [
+              "active",
+              "retired"
+            ],
+            "type": "string"
+          },
+          "taxonomies": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "OfferingList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OfferingResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "OfferingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taxonomies": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "aliases",
+          "description",
+          "dossier_id",
+          "id",
+          "name",
+          "status",
+          "taxonomies",
+          "tenant_id"
+        ],
         "type": "object"
       },
       "OpportunityResource": {
@@ -7074,6 +8065,175 @@
         },
         "type": "object"
       },
+      "RequirementCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment_state": {
+            "default": "aligned",
+            "enum": [
+              "aligned",
+              "needs_review",
+              "overridden"
+            ],
+            "type": "string"
+          },
+          "class": {
+            "enum": [
+              "market_scan",
+              "competitive_watch",
+              "procurement_fit",
+              "actor_monitor",
+              "research_question",
+              "risk_watch",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "decision_to_support": {
+            "default": "",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "exclusions": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "intent_revision_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "priority": {
+            "default": "medium",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "status": {
+            "default": "active",
+            "enum": [
+              "active",
+              "paused",
+              "needs_review",
+              "retired"
+            ],
+            "type": "string"
+          },
+          "success_criteria": {
+            "items": {
+              "maxLength": 500,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          }
+        },
+        "required": [
+          "class",
+          "question"
+        ],
+        "type": "object"
+      },
+      "RequirementList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "RequirementResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "alignment_state": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "created_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "decision_to_support": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "exclusions": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "intent_revision_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "scope": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "status": {
+            "type": "string"
+          },
+          "success_criteria": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "alignment_state",
+          "class",
+          "decision_to_support",
+          "dossier_id",
+          "exclusions",
+          "id",
+          "priority",
+          "question",
+          "scope",
+          "status",
+          "success_criteria",
+          "tenant_id"
+        ],
+        "type": "object"
+      },
       "ResetPasswordInput": {
         "additionalProperties": false,
         "properties": {
@@ -8204,6 +9364,31 @@
         "required": [
           "refreshed",
           "items"
+        ],
+        "type": "object"
+      },
+      "SourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 300,
+            "nullable": true,
+            "type": "string"
+          },
+          "ref": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ref"
         ],
         "type": "object"
       },
@@ -16123,6 +17308,139 @@
         ]
       }
     },
+    "/api/v1/dossiers/{dossier_id}/activity": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": null,
+              "enum": [
+                "watchlist",
+                "signal_monitor",
+                "procurement_watch",
+                "background_job",
+                null
+              ],
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Read model agregado: intenci\u00f3n, vigilancias, monitores, jobs.",
+        "tags": [
+          "Actividad del expediente"
+        ]
+      }
+    },
     "/api/v1/dossiers/{dossier_id}/actor-candidates": {
       "get": {
         "parameters": [
@@ -17628,6 +18946,363 @@
         "summary": "Collaborators Put",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/conversations": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create Dossier Conversation",
+        "tags": [
+          "Conversaciones e informes personalizados"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/conversations/{conversation_id}/messages": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccepted"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Enqueue Conversation Message",
+        "tags": [
+          "Conversaciones e informes personalizados"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/conversations/{conversation_id}/messages/{message_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get Conversation Message",
+        "tags": [
+          "Conversaciones e informes personalizados"
         ]
       }
     },
@@ -19204,6 +20879,551 @@
         ]
       }
     },
+    "/api/v1/dossiers/{dossier_id}/intent": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentOverviewResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Intent Get",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/intent/drafts": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntentDraftCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentRevisionResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o estado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Intent Create Draft",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}": {
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntentDraftPatchInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentRevisionResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o estado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Intent Update Draft",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentRevisionResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o estado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Intent Accept Draft",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntentRevisionResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o estado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Intent Reject Draft",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      }
+    },
     "/api/v1/dossiers/{dossier_id}/investigations": {
       "get": {
         "parameters": [
@@ -20366,6 +22586,203 @@
         "summary": "<Lambda>",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/offerings": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierOfferingListResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Offerings List",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierOfferingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierOfferingResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o estado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Offerings Create",
+        "tags": [
+          "Intenci\u00f3n del expediente"
         ]
       }
     },
@@ -22054,6 +24471,430 @@
         "summary": "<Lambda>",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/reports/custom": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomBriefAccepted"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create Custom Report",
+        "tags": [
+          "Conversaciones e informes personalizados"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/reports/custom/{report_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Poll custom brief plan_status / proposed_plan after 202 create.",
+        "tags": [
+          "Conversaciones e informes personalizados"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/requirements": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntelligenceRequirementListResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Requirements List",
+        "tags": [
+          "Intenci\u00f3n del expediente"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntelligenceRequirementInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntelligenceRequirementResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o estado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Requirements Create",
+        "tags": [
+          "Intenci\u00f3n del expediente"
         ]
       }
     },
@@ -45863,6 +48704,15 @@
     },
     {
       "name": "Oracle"
+    },
+    {
+      "name": "Intenci\u00f3n del expediente"
+    },
+    {
+      "name": "Actividad del expediente"
+    },
+    {
+      "name": "Conversaciones e informes personalizados"
     },
     {
       "name": "Trabajos"

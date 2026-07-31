@@ -256,6 +256,8 @@ export const PLATFORM_ROUTES = [
 
 export const DOSSIER_TABS = [
   { id: "summary", label: "Resumen", segment: "", permission: "dossier.read" },
+  { id: "activity", label: "Actividad", segment: "activity", permission: "dossier.read" },
+  { id: "ask", label: "Preguntar", segment: "ask", permission: "ai.execute" },
   { id: "signals", label: "Señales", segment: "signals", permission: "signal.read" },
   { id: "opportunities", label: "Oportunidades", segment: "opportunities", permission: "opportunity.read" },
   { id: "procurement", label: "Licitaciones", segment: "procurement", permission: "opportunity.read" },
@@ -266,6 +268,7 @@ export const DOSSIER_TABS = [
   { id: "tasks", label: "Tareas", segment: "tasks", permission: "task.read" },
   { id: "documents", label: "Documentos", segment: "documents", permission: "documents.read" },
   { id: "reports", label: "Informes", segment: "reports", permission: "report.read" },
+  { id: "custom-brief", label: "Informe libre", segment: "custom-brief", permission: "report.generate" },
   { id: "decisions", label: "Decisiones", segment: "decisions", permission: "task.read" },
   { id: "settings", label: "Configuración", segment: "settings", permission: "dossier.read" },
 ] as const;

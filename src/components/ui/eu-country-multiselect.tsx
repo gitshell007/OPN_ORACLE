@@ -1,8 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useId, useMemo, useState } from "react";
-import { EU_COUNTRIES, PRIORITY_COUNTRY_CODES, euCountryName } from "@/lib/eu-countries";
+import { FormEvent, useId, useMemo, useState } from "react";
+import {
+  PRESET_COUNTRIES,
+  PRIORITY_COUNTRY_CODES,
+  euCountryName,
+  isIsoAlpha2,
+} from "@/lib/eu-countries";
 
 export function EuCountryMultiSelect({
   label,
@@ -21,12 +26,14 @@ export function EuCountryMultiSelect({
 }) {
   const labelId = useId();
   const [filter, setFilter] = useState("");
+  const [customCode, setCustomCode] = useState("");
+  const [customError, setCustomError] = useState<string | null>(null);
 
   const options = useMemo(() => {
     const priority = priorityCodes
-      .map((code) => EU_COUNTRIES.find((country) => country.code === code))
-      .filter((country): country is (typeof EU_COUNTRIES)[number] => Boolean(country));
-    const rest = EU_COUNTRIES.filter((country) => !priorityCodes.includes(country.code)).sort(
+      .map((code) => PRESET_COUNTRIES.find((country) => country.code === code))
+      .filter((country): country is (typeof PRESET_COUNTRIES)[number] => Boolean(country));
+    const rest = PRESET_COUNTRIES.filter((country) => !priorityCodes.includes(country.code)).sort(
       (a, b) => a.name.localeCompare(b.name, "es"),
     );
     const ordered = [...priority, ...rest];
@@ -41,6 +48,20 @@ export function EuCountryMultiSelect({
 
   function toggle(code: string) {
     onChange(value.includes(code) ? value.filter((item) => item !== code) : [...value, code]);
+  }
+
+  function addCustomCode(event: FormEvent) {
+    event.preventDefault();
+    const code = customCode.trim().toUpperCase();
+    if (!isIsoAlpha2(code)) {
+      setCustomError("Usa un código ISO de dos letras (p. ej. US, MX, JP).");
+      return;
+    }
+    setCustomError(null);
+    if (!value.includes(code)) {
+      onChange([...value, code]);
+    }
+    setCustomCode("");
   }
 
   return (
@@ -86,8 +107,35 @@ export function EuCountryMultiSelect({
             </small>
           </label>
         ))}
-        {options.length === 0 && <p className="eu-country-empty">Sin coincidencias.</p>}
+        {options.length === 0 && <p className="eu-country-empty">Sin coincidencias en el catálogo.</p>}
       </div>
+      <div className="eu-country-custom">
+        <label>
+          <span className="sr-only">Añadir país por código ISO</span>
+          <input
+            type="text"
+            inputMode="text"
+            maxLength={2}
+            disabled={disabled}
+            value={customCode}
+            onChange={(event) => {
+              setCustomCode(event.target.value.toUpperCase());
+              setCustomError(null);
+            }}
+            placeholder="ISO (p. ej. US)"
+            aria-label="Código ISO de país no listado"
+            aria-invalid={customError ? true : undefined}
+          />
+        </label>
+        <button type="button" disabled={disabled} onClick={addCustomCode}>
+          Añadir país
+        </button>
+      </div>
+      {customError && (
+        <small role="alert" className="eu-country-error">
+          {customError}
+        </small>
+      )}
       {hint && <small>{hint}</small>}
     </div>
   );

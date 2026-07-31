@@ -1,0 +1,11 @@
+[Unit]
+Description=Send OPN server health report every day
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Europe/Madrid
+RandomizedDelaySec=10min
+Persistent=true
+Unit=opn-server-health-report.service
+
+[Install]
+WantedBy=timers.target

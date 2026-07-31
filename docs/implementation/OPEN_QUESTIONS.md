@@ -1,5 +1,41 @@
 # Preguntas abiertas
 
+## Intención, memoria, vigilancia e informes por expediente
+
+- **Tipo Investigación:** confirmar si será tipo visible de expediente además de conservar
+  `InvestigationRun` como capacidad transversal. Recomendación inicial: ambas cosas, con un
+  `research.v1` compartido y sin duplicar el motor de ejecución.
+- **Licitaciones y ayudas:** decidir si comparten `procurement.v1` con subtipo explícito o si deben
+  separarse en la UX y el dominio. No reutilizar `tender_or_grant` en Signal hasta que su contrato
+  de monitor lo admita de forma real.
+- **Memoria probatoria:** acordar si `opn_memory` se consume por API interna versionada o por un
+  paquete de puertos compartido. Es gate P0 demostrar scope por consumer/tenant, retirar defaults
+  de piloto y completar CAS, heartbeat, cancelación y recuperación de analysis requests antes de
+  habilitarlo en producción.
+- **Recuperación híbrida:** comparar PostgreSQL full-text con full-text + `pgvector` sobre preguntas
+  representativas antes de aceptar embeddings en el core. Deben definirse versión de embedding,
+  reindexado, filtros previos al retrieval y métricas de precisión/recall, latencia y aislamiento.
+- **Consolidación y retención:** fijar watermarks, triggers por evento/volumen/periodo y política de
+  retención/licencia. La compactación no puede confundirse con borrado; cuando la política obligue
+  a eliminar una fuente debe quedar tombstone, hash y auditoría segura.
+- **Revisión de intención:** confirmar que una nueva revisión no altera automatizaciones en curso
+  y que estas quedan `needs_review` hasta una decisión humana.
+- **Política IA:** resolver la tensión entre D-015, que mantiene proveedor/modelo en Signal y trata
+  OpenRouter como sujeto a gate, y las tasks actuales que ya lo usan. Hay que fijar clasificación,
+  presupuesto, kill switch, errores recuperables y si se autoriza fallback cruzado
+  OpenRouter→Ollama. Un contract test debe demostrar también que una task `enabled=false` no se
+  resuelve.
+- **Cadencias y SLO:** fijar frecuencias por clase de fuente y alinear timeout de modelo, timeout
+  HTTP de Oracle, límites Celery y lease. El ejemplo productivo de Oracle usa 210 s y Signal permite
+  hasta 300 s en tasks largas; el valor definitivo requiere benchmark con fallback.
+- **Noticias de actores:** definir fuente, desambiguación de entidad, fecha editorial y cobertura
+  antes de prometer un seguimiento periodístico; la búsqueda web nominal actual no basta.
+- **Asistente de informes:** decidir si todo encargo libre necesita aprobar su plan o si existe un
+  modo rápido restringido, y definir la retención/promoción de conversaciones a memoria canónica.
+- **Ramas:** reconciliar selectivamente `oracle-dev` sobre `master` antes de implementar. En Signal,
+  usar solo commits de `signal-dev`: el checkout cambió durante la auditoría y mantiene WIP local
+  concurrente que no puede considerarse contrato.
+
 ## Aislamiento de sesión en gates largos con Redis local
 
 - **Estado:** no reproducida tras limpiar Redis y repetir 528/528; mantener observación.
@@ -39,7 +75,6 @@
 
 - ¿Se migrará el frontend de la raíz a `apps/web` después de estabilizar `apps/api`?
 - ¿Se requieren roles custom en el primer release o solo roles de sistema extensibles?
-- ¿Se habilitará pgvector o bastará inicialmente PostgreSQL full-text?
 - ¿Se necesita OCR en P1 o queda fuera del alcance inicial?
 - ¿Se requiere MFA antes del primer release productivo?
 - Revisar en la fase 04 si los accesos runtime a tablas globales de identidad deben reducirse mediante funciones o servicios SQL más estrechos.
@@ -265,3 +300,16 @@
   cambio aislado del adapter local, ampliar corpus y medir el 27B, que no está instalado.
 - Pendiente fijar la ventana temporal por finalidad y evidencia. No se adopta automáticamente un
   corte de cuatro años como política de relevancia, expansión o retención.
+
+
+## Memoria Sol (MEMSOL) · abiertas no bloqueantes para MEMSOL-01
+
+- **Contrato Oracle↔opn_memory:** HTTP interno versionado vs paquete neutral consumido por host.
+  Provisional: HTTP/gateway Signal; sin SQL cruzado. Cerrar en ADR MEMSOL-01.
+- **DossierOffering:** dossier-scoped v1 vs catálogo tenant. Provisional: dossier-scoped.
+- **D-015 vs tasks cloud:** Signal ya opera subset OpenRouter; Oracle no elige proveedor. ADR
+  MEMSOL-01 debe superseder el lenguaje absoluto de "sin cloud" sin abrir cloud global.
+- **IntentRevision naming:** provisional `DossierIntentRevision` con estados
+  `draft|accepted|superseded|rejected`.
+- **pgvector:** no instalar; baseline PostgreSQL FTS/`pg_trgm` hasta eval MEMSOL-05/10.
+- **Producción / secretos / gasto:** bloqueados sin autorización de sesión (MEMSOL-11).
