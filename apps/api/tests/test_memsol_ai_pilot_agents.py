@@ -77,3 +77,47 @@ def test_report_custom_brief_plan_schema_fixture() -> None:
     )
     assert plan.version == "custom_brief_plan.v1"
     assert len(plan.sections) == 2
+
+
+def test_titan_quirks_coerced_for_memsol_outputs() -> None:
+    """Titan often emits confidence as 0–1 float and notes as a string."""
+    answer = DossierQuestionAnswerOutput.model_validate(
+        {
+            "answer_text": "Resumen con evidencia autorizada.",
+            "citations": [],
+            "facts": [],
+            "inferences": [
+                {
+                    "statement": "Inferencia local.",
+                    "reasoning_summary": "Coercion de confianza.",
+                    "confidence": 0.85,
+                    "evidence_ids": [],
+                }
+            ],
+            "recommendations": [],
+            "confidence": 0.7,
+            "open_questions": [],
+            "warnings": [],
+        }
+    )
+    assert answer.confidence == 70
+    assert answer.inferences[0].confidence == 85
+
+    plan = ReportCustomBriefPlanOutput.model_validate(
+        {
+            "version": "custom_brief_plan.v1",
+            "audience": "equipo",
+            "scope": "piloto",
+            "period": "sin fijar",
+            "sections": [{"id": "a", "title": "A", "required": True}],
+            "formats": "JSON",
+            "notes": "nota unica del modelo",
+            "confidence": 0.9,
+            "open_questions": [],
+            "warnings": "aviso",
+        }
+    )
+    assert plan.confidence == 90
+    assert plan.notes == ["nota unica del modelo"]
+    assert plan.formats == ["JSON"]
+    assert plan.warnings == ["aviso"]
