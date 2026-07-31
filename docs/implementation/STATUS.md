@@ -26,6 +26,10 @@ Interfaz canónica: `CANONICAL_UI=vector`
   entre afirmación y hecho, actualización incremental, idempotencia por versión y recuperación
   híbrida. PostgreSQL full-text sigue siendo el baseline; embeddings/`pgvector` quedan sujetos a
   evaluación y no se introduce otro datastore.
+- Se generó el paquete ejecutable `SignalV2/memoria_sol` en el espacio compartido de producto: una
+  planificación maestra, checklist, matriz de dependencias, 12 prompts de implementación y 13
+  contratos de runtime IA. El paquete separa operaciones deterministas —scope, chunking, retrieval,
+  activación y jobs— de las tareas que sí requieren modelo, y no activa código ni configuración.
 - Documento de trabajo: [`docs/product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md`](../product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md).
 - Estado: plan inicial documentado; no se cambió esquema, API, runtime ni configuración.
 
