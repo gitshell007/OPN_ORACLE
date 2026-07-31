@@ -6,7 +6,7 @@
 
 - Última actualización: 2026-07-31 20:16 Europe/Madrid
 - Oracle worktree: `.worktrees/memsol` · `memsol/execution`
-- Oracle `origin/master` pre-commit residual UI: `5bee9cc` (workers) + UI/OpenAPI pending this commit
+- Oracle `origin/master`: **`faf95db`** (UI/OpenAPI/backfill + workers `5bee9cc`)
 - Signal `origin/main`: `f934ead` (MEMSOL-02 CAS/fencing, flags OFF)
 - Producción autorizada: **no**
 
@@ -31,7 +31,7 @@
 | MEMSOL-03…04 | complete | cfe88d1 / 04bdb8c | pass |
 | MEMSOL-05…07 | complete | 89e2e3d + workers 5bee9cc | pass |
 | Workers residual | complete | process_* + HANDLERS | pass |
-| UI/OpenAPI/client/backfill script | in_progress→complete this commit | — | UI unit pass; OpenAPI regenerated |
+| UI/OpenAPI/client/backfill script | complete | faf95db | UI unit pass; OpenAPI regenerated |
 | Integration full / Playwright | blocked_env / residual | evidence scratch | documented |
 | MEMSOL-11 | prepared | docs/implementation/memsol/MEMSOL_11_ROLLOUT_PREP.md | **no deploy** |
 
