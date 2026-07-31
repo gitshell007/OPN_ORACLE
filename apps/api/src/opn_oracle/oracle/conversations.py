@@ -548,3 +548,186 @@ def payload_digest_preview(payload: Mapping[str, Any]) -> str:
 
     encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def cancel_message(message: DossierMessage) -> DossierMessage:
+    """Cooperative cancel to a terminal status without inventing an answer."""
+
+    if message.status in MESSAGE_TERMINAL:
+        return message
+    if message.status == "queued":
+        transition_message_status(message, "cancelled")
+    else:
+        transition_message_status(message, "cancelled")
+    message.error_code = message.error_code or "cancelled"
+    message.error_message = message.error_message or "Cancelado por el operador o el sistema."
+    return message
+
+
+def process_dossier_question_answer(
+    session: Session,
+    payload: Mapping[str, Any],
+    job: BackgroundJob,
+    *,
+    memory_adapter: Any | None = None,
+) -> dict[str, Any]:
+    """Real job handler body: retrieve context (mock/disabled) and settle the message.
+
+    Never mutates IntentRevision or promotes memory facts. Uses no paid providers.
+    ``memory_adapter`` is injectable for tests; production resolves from Flask config.
+    """
+
+    tenant_id = require_tenant_id()
+    try:
+        message_id = uuid.UUID(str(payload["message_id"]))
+        conversation_id = uuid.UUID(str(payload["conversation_id"]))
+        dossier_id = uuid.UUID(str(payload["dossier_id"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ConversationError("Payload de pregunta incompleto o inválido.") from error
+
+    if job.cancel_requested:
+        message = get_message(
+            session,
+            message_id,
+            dossier_id=dossier_id,
+            conversation_id=conversation_id,
+        )
+        cancel_message(message)
+        session.flush()
+        return {
+            "message_id": str(message.id),
+            "status": message.status,
+            "cancelled": True,
+        }
+
+    message = get_message(
+        session,
+        message_id,
+        dossier_id=dossier_id,
+        conversation_id=conversation_id,
+    )
+    if message.tenant_id != tenant_id:
+        raise ConversationNotFound("Mensaje no encontrado.")
+    if message.status in MESSAGE_TERMINAL:
+        return {
+            "message_id": str(message.id),
+            "status": message.status,
+            "idempotent": True,
+        }
+    if message.status != "queued":
+        raise ConversationConflict(
+            f"El mensaje no puede procesarse desde el estado {message.status}."
+        )
+
+    adapter = memory_adapter
+    if adapter is None:
+        from opn_oracle.integrations.memory_context import (
+            MemoryContextDisabled,
+            get_memory_context_adapter,
+        )
+
+        try:
+            adapter = get_memory_context_adapter()
+        except Exception as error:  # pragma: no cover - defensive config
+            raise ConversationError("No se pudo resolver el adaptador de memoria.") from error
+    else:
+        from opn_oracle.integrations.memory_context import MemoryContextDisabled
+
+    scope_hint = {
+        "tenant_id": str(tenant_id),
+        "dossier_id": str(dossier_id),
+        "conversation_id": str(conversation_id),
+        "message_id": str(message_id),
+        "job_id": str(job.id),
+    }
+    try:
+        retrieval = adapter.retrieve(
+            scope_hint,
+            message.content_text,
+            "question",
+            20,
+        )
+        coverage = dict(retrieval.get("coverage_manifest") or {})
+        items = list(retrieval.get("items") or [])
+        policy = str(retrieval.get("policy_version") or "unknown")
+    except MemoryContextDisabled:
+        from opn_oracle.integrations.memory_context import empty_coverage_manifest
+
+        items = []
+        coverage = empty_coverage_manifest(requested=["memory.disabled"])
+        coverage["excluded"] = [{"source": "memory", "reason": "policy"}]
+        policy = "disabled"
+    except Exception as error:
+        mark_message_failed(
+            message,
+            error_code="memory_context_error",
+            error_message=str(error)[:500],
+        )
+        session.flush()
+        raise ConversationError(f"Fallo al recuperar contexto: {error}") from error
+
+    if job.cancel_requested:
+        cancel_message(message)
+        session.flush()
+        return {"message_id": str(message.id), "status": "cancelled", "cancelled": True}
+
+    # Deterministic grounded draft: no external LLM, no paid provider.
+    if items:
+        excerpts = []
+        for item in items[:5]:
+            text_bit = str(item.get("text") or "").strip()
+            if text_bit:
+                excerpts.append(text_bit[:400])
+        body = (
+            "Respuesta provisional a partir del contexto autorizado "
+            f"({len(items)} fragmentos, policy={policy}):\n\n"
+            + "\n".join(f"- {excerpt}" for excerpt in excerpts)
+        )
+        unknowns: list[str] = []
+    else:
+        body = (
+            "No hay evidencia suficiente en la memoria autorizada del expediente "
+            "para responder con citas. Reformula la pregunta o amplía las fuentes "
+            f"del expediente (policy={policy})."
+        )
+        unknowns = ["evidencia_en_memoria"]
+
+    apply_assistant_answer(
+        message,
+        answer_text=body,
+        answer_payload={
+            "policy_version": policy,
+            "item_count": len(items),
+            "unknowns": unknowns,
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "job_id": str(job.id),
+        },
+        coverage_manifest=coverage,
+    )
+    append_audit_event(
+        session,
+        action="dossier.conversation.message.answered",
+        resource_type="dossier_message",
+        resource_id=message.id,
+        dossier_id=dossier_id,
+        result="success",
+        correlation_id=job.correlation_id,
+        metadata={
+            "job_id": str(job.id),
+            "policy_version": policy,
+            "item_count": len(items),
+            "mutates_intent": False,
+            "mutates_memory_facts": False,
+        },
+    )
+    session.flush()
+    return {
+        "message_id": str(message.id),
+        "status": message.status,
+        "item_count": len(items),
+        "policy_version": policy,
+        "mutates_intent": False,
+        "mutates_memory_facts": False,
+    }

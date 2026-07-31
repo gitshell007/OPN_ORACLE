@@ -52,6 +52,17 @@ from opn_oracle.oracle.change_digest import process_weekly_change_digest
 from opn_oracle.oracle.competitive_procurement_report import (
     process_competitive_procurement_report,
 )
+from opn_oracle.oracle.conversations import (
+    ConversationConflict,
+    ConversationError,
+    ConversationNotFound,
+    process_dossier_question_answer,
+)
+from opn_oracle.oracle.custom_reports import (
+    CustomReportError,
+    CustomReportNotFound,
+    process_custom_brief_plan,
+)
 from opn_oracle.oracle.entity_dossier_report import process_entity_dossier_report
 from opn_oracle.oracle.investigations import process_investigation_run
 from opn_oracle.oracle.jobs import BackgroundJob, JobSchedule
@@ -397,6 +408,8 @@ HANDLERS: dict[str, Handler] = {
     "oracle.meeting_briefing.refresh": lambda payload, job: _refresh_meeting_briefing(payload, job),
     "oracle.weekly_change.refresh": lambda payload, job: _refresh_weekly_change(payload, job),
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
+    "oracle.dossier_question.answer": lambda payload, job: _answer_dossier_question(payload, job),
+    "oracle.report.custom_brief.plan": lambda payload, job: _plan_custom_brief(payload, job),
     "oracle.procurement_document_report.generate": (
         lambda payload, job: _generate_procurement_document_report(payload, job)
     ),
@@ -449,6 +462,34 @@ def _generate_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, A
         raise PermanentJobError(str(error)) from error
     except Exception as error:
         raise RetriableJobError("La generación de informe falló temporalmente.") from error
+
+
+def _answer_dossier_question(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """Settle Preguntar a Oracle without paid providers (MEMSOL residual workers)."""
+
+    try:
+        return process_dossier_question_answer(db.session, payload, job)
+    except CancelledJobError:
+        raise
+    except (ConversationNotFound, ConversationConflict, ConversationError) as error:
+        raise PermanentJobError(str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError("La respuesta a la pregunta falló temporalmente.") from error
+
+
+def _plan_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """Propose a custom report plan without report_writer or Signal."""
+
+    try:
+        return process_custom_brief_plan(db.session, payload, job)
+    except (CustomReportNotFound, CustomReportError) as error:
+        raise PermanentJobError(str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError("La planificación del brief falló temporalmente.") from error
 
 
 def _generate_procurement_document_report(

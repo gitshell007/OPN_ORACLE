@@ -249,3 +249,103 @@ def create_custom_report_brief(
         session.commit()
         publish_job(job)
     return report, job
+
+
+def process_custom_brief_plan(
+    session: Session,
+    payload: Mapping[str, Any],
+    job: BackgroundJob,
+) -> dict[str, Any]:
+    """Settle custom brief planning without Signal or report_writer.
+
+    Produces a revisable plan (plan_status=proposed). Does not mark the report ready
+    and does not generate full report sections.
+    """
+
+    tenant_id = require_tenant_id()
+    try:
+        report_id = uuid.UUID(str(payload["report_id"]))
+        dossier_id = uuid.UUID(str(payload["dossier_id"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise CustomReportError("Payload de brief incompleto o inválido.") from error
+
+    report = session.scalar(
+        select(Report).where(
+            Report.id == report_id,
+            Report.tenant_id == tenant_id,
+            Report.dossier_id == dossier_id,
+        )
+    )
+    if report is None:
+        raise CustomReportNotFound("Informe de brief no encontrado.")
+    if report.template_key != CUSTOM_BRIEF_TEMPLATE_KEY:
+        raise CustomReportError("El informe no es un brief de asistente personalizado.")
+
+    options = dict(report.options or {})
+    plan_status = str(options.get("plan_status") or "draft")
+    if plan_status == "proposed" and options.get("proposed_plan"):
+        return {
+            "report_id": str(report.id),
+            "plan_status": "proposed",
+            "idempotent": True,
+        }
+
+    if job.cancel_requested:
+        options["plan_status"] = "draft"
+        options["last_error"] = "cancelled"
+        report.options = options
+        report.error_code = "cancelled"
+        report.error_message = "Planificación cancelada."
+        session.flush()
+        return {"report_id": str(report.id), "plan_status": "draft", "cancelled": True}
+
+    brief = str(options.get("brief_request") or "").strip()
+    # Deterministic plan proposal (no LLM, no paid provider, no report_writer).
+    proposed_plan = {
+        "version": "custom_brief_plan.v1",
+        "audience": "equipo del expediente",
+        "scope": "derivado del brief del usuario; sujeto a revisión humana",
+        "period": "sin fijar — completar en aceptación",
+        "sections": [
+            {"id": "executive", "title": "Resumen ejecutivo", "required": True},
+            {"id": "evidence", "title": "Evidencias y fuentes", "required": True},
+            {"id": "risks", "title": "Riesgos e incertidumbres", "required": True},
+            {"id": "next_actions", "title": "Siguientes acciones", "required": True},
+        ],
+        "formats": ["html", "json"],
+        "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
+        "notes": [
+            "Plan propuesto automáticamente; requiere aceptación humana antes de redactar.",
+            "No se ha invocado report_writer ni proveedores de pago.",
+        ],
+        "job_id": str(job.id),
+    }
+    options["plan_status"] = "proposed"
+    options["proposed_plan"] = proposed_plan
+    options["mutates_intent"] = False
+    options["mutates_memory_facts"] = False
+    report.options = options
+    # Keep report.status=draft until a human accepts the plan (later phase).
+    report.status = "draft"
+    append_audit_event(
+        session,
+        action="report.custom_brief.plan_proposed",
+        resource_type="report",
+        resource_id=report.id,
+        dossier_id=dossier_id,
+        result="success",
+        correlation_id=job.correlation_id,
+        metadata={
+            "plan_status": "proposed",
+            "job_id": str(job.id),
+            "section_count": len(proposed_plan["sections"]),
+        },
+    )
+    session.flush()
+    return {
+        "report_id": str(report.id),
+        "plan_status": "proposed",
+        "section_count": len(proposed_plan["sections"]),
+        "mutates_intent": False,
+        "mutates_memory_facts": False,
+    }
