@@ -67,14 +67,24 @@ class ServerHealthReportTest(unittest.TestCase):
                     {"type": "Build cache", "size": "25.14GB", "reclaimable": "24.28GB (96%)"},
                 ]},
                 "snapshots": [{"path": "/var/backups/opn-oracle", "total_bytes": 235_000_000}],
+                "storage_usage": {
+                    "directories": [{"path": "/var/lib/docker", "size_bytes": 30_000_000_000}],
+                    "files": [{"path": "/var/lib/docker/volumes/data/pgdata", "size_bytes": 20_000_000_000}],
+                    "errors": [],
+                },
                 "errors": [],
             },
         }
         add_variations(capture, None)
         text = render_text({"captured_at_local": "2026-07-31 12:00 CEST", "targets": [capture]})
+        rendered = render_html({"captured_at_local": "2026-07-31 12:00 CEST", "targets": [capture]})
         self.assertIn("Docker: Images: 25.05GB", text)
         self.assertIn("Build cache: 25.14GB", text)
         self.assertIn("Snapshot /var/backups/opn-oracle", text)
+        self.assertIn("/var/lib/docker: 30.00 GB", text)
+        self.assertIn("/var/lib/docker/volumes/data/pgdata: 20.00 GB", text)
+        self.assertIn("Top 10 directorios por tamaño", rendered)
+        self.assertIn("/var/lib/docker/volumes/data/pgdata", rendered)
 
     def test_second_capture_contains_variation_against_first_capture(self) -> None:
         first = payload(disk_free=100, memory_available=200, database=1_000, tasks=4)

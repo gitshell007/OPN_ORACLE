@@ -209,6 +209,42 @@ def snapshot_metrics():
     return result
 
 
+def parse_storage_rows(raw):
+    rows = []
+    for line in raw.splitlines():
+        fields = line.strip().split(None, 1)
+        if len(fields) != 2:
+            continue
+        try:
+            rows.append({"path": fields[1], "size_bytes": int(fields[0])})
+        except ValueError:
+            continue
+    return rows
+
+
+def storage_usage_metrics():
+    result = {"directories": [], "files": [], "errors": []}
+    directories, error = run(
+        ["sh", "-c", "LC_ALL=C du -x -B1 -d 1 -- / 2>/dev/null | "
+         "awk '$2 != \"/\"' | sort -nr -k1,1 | head -n 10"],
+        timeout=180,
+    )
+    if error:
+        result["errors"].append(f"top directorios: {error}")
+    else:
+        result["directories"] = parse_storage_rows(directories or "")
+    files, error = run(
+        ["sh", "-c", "LC_ALL=C find / -xdev -type f -printf '%s\\t%p\\n' 2>/dev/null | "
+         "sort -nr -k1,1 | head -n 10"],
+        timeout=180,
+    )
+    if error:
+        result["errors"].append(f"top archivos: {error}")
+    else:
+        result["files"] = parse_storage_rows(files or "")
+    return result
+
+
 def psql_command(sql):
     mode = os.environ.get("MONITOR_DB_MODE", "none")
     if mode == "native":
@@ -371,6 +407,7 @@ def main():
         "load_1m": load[0],
         "memory": parse_meminfo(),
         "disk": {"mount": "/", "total_bytes": disk.total, "used_bytes": disk.used, "free_bytes": disk.free},
+        "storage_usage": storage_usage_metrics(),
         "services": service_metrics(),
         "database": database_metrics(),
         "tasks": task_metrics(),
@@ -383,6 +420,7 @@ def main():
         data["docker"] = docker_metrics()
     data["errors"].extend(data["database"].get("errors", []))
     data["errors"].extend(data["tasks"].get("errors", []))
+    data["errors"].extend(data["storage_usage"].get("errors", []))
     if data["openrouter_spend"]:
         data["errors"].extend(data["openrouter_spend"].get("errors", []))
     data["errors"].extend(data["docker"].get("errors", []) if data["docker"] else [])
@@ -502,6 +540,7 @@ def collect_target(target: dict[str, Any], monitor: dict[str, Any]) -> dict[str,
     known_hosts = str(monitor.get("ssh_known_hosts_file", "/etc/ssh/ssh_known_hosts"))
     ssh_user = str(monitor.get("ssh_user", "root"))
     timeout = int(monitor.get("ssh_connect_timeout_seconds", 10))
+    command_timeout = int(monitor.get("ssh_command_timeout_seconds", 180))
     remote_env = target_env(target, int(monitor.get("window_hours", 24)))
     remote_command = "env " + " ".join(f"{key}={shlex.quote(value)}" for key, value in remote_env.items()) + " python3 -"
     command = [
@@ -515,7 +554,7 @@ def collect_target(target: dict[str, Any], monitor: dict[str, Any]) -> dict[str,
     try:
         result = subprocess.run(
             command, input=REMOTE_COLLECTOR, text=True, capture_output=True,
-            timeout=max(timeout + 30, 60), check=False,
+            timeout=max(timeout + 30, command_timeout), check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"id": target.get("id", host), "label": target.get("label", host), "host": host,
@@ -548,12 +587,25 @@ def normalized_metrics(capture: dict[str, Any]) -> dict[str, Any]:
         }
     snapshot_sizes = {item.get("path"): item.get("total_bytes") for item in data.get("snapshots", [])}
     openrouter = data.get("openrouter_spend") or {}
+    storage = data.get("storage_usage") or {}
+    storage_directories = {
+        item.get("path"): item.get("size_bytes")
+        for item in storage.get("directories", [])
+        if item.get("path")
+    }
+    storage_files = {
+        item.get("path"): item.get("size_bytes")
+        for item in storage.get("files", [])
+        if item.get("path")
+    }
     return {
         "disk_free_bytes": data.get("disk", {}).get("free_bytes"),
         "memory_available_bytes": data.get("memory", {}).get("available_bytes"),
         "database_total_bytes": sum(item.get("size_bytes", 0) or 0 for item in databases),
         "tasks_total": sum(item.get("count", 0) or 0 for item in tasks),
         "openrouter_spend_usd": openrouter.get("total_usd"),
+        "storage_directories": storage_directories,
+        "storage_files": storage_files,
         "docker_sizes": docker_sizes,
         "snapshot_sizes": snapshot_sizes,
     }
@@ -581,6 +633,14 @@ def add_variations(current: dict[str, Any], previous: dict[str, Any] | None) -> 
     current["variation"]["snapshot_sizes"] = {
         path: percentage_change(value, previous_metrics.get("snapshot_sizes", {}).get(path))
         for path, value in current_metrics["snapshot_sizes"].items()
+    }
+    current["variation"]["storage_directories"] = {
+        path: percentage_change(value, previous_metrics.get("storage_directories", {}).get(path))
+        for path, value in current_metrics["storage_directories"].items()
+    }
+    current["variation"]["storage_files"] = {
+        path: percentage_change(value, previous_metrics.get("storage_files", {}).get(path))
+        for path, value in current_metrics["storage_files"].items()
     }
 
 
@@ -652,6 +712,29 @@ def openrouter_detail_lines(capture: dict[str, Any]) -> list[str]:
     return lines
 
 
+def storage_usage(capture: dict[str, Any]) -> dict[str, Any]:
+    storage = capture.get("data", {}).get("storage_usage")
+    return storage if isinstance(storage, dict) else {}
+
+
+def storage_detail_lines(capture: dict[str, Any]) -> list[str]:
+    storage = storage_usage(capture)
+    if not storage:
+        return []
+    variation = capture.get("variation", {})
+    lines = ["  Almacenamiento · top 10 directorios por tamaño"]
+    for item in storage.get("directories", []):
+        path = item.get("path")
+        change = variation.get("storage_directories", {}).get(path)
+        lines.append(f"    {path}: {format_bytes(item.get('size_bytes'))} ({format_pct(change)})")
+    lines.append("  Almacenamiento · top 10 archivos por tamaño")
+    for item in storage.get("files", []):
+        path = item.get("path")
+        change = variation.get("storage_files", {}).get(path)
+        lines.append(f"    {path}: {format_bytes(item.get('size_bytes'))} ({format_pct(change)})")
+    return lines
+
+
 def render_text(report: dict[str, Any]) -> str:
     lines = [
         f"Resumen diario de servidores OPN · {report['captured_at_local']}",
@@ -696,6 +779,7 @@ def render_text(report: dict[str, Any]) -> str:
         if data.get("tasks", {}).get("rows"):
             lines.append("  Tareas: " + "; ".join(f"{row['source']}/{row['status']}/{row['kind']}={format_count(row['count'])}" for row in data["tasks"]["rows"]))
         lines.extend(openrouter_detail_lines(capture))
+        lines.extend(storage_detail_lines(capture))
         if data.get("docker"):
             lines.append("  Docker: " + "; ".join(docker_summary(capture))
                          if docker_summary(capture) else "  Docker: sin datos")
@@ -797,6 +881,15 @@ def render_html(report: dict[str, Any]) -> str:
             f"<div class='detail-row'><span>{esc(snapshot.get('path'))}</span><strong>{esc(format_bytes(snapshot.get('total_bytes')))} <em class='{change_class(variation.get('snapshot_sizes', {}).get(snapshot.get('path')))}'>{esc(format_pct(variation.get('snapshot_sizes', {}).get(snapshot.get('path'))))}</em></strong></div>"
             for snapshot in data.get("snapshots", [])
         )
+        storage = storage_usage(capture)
+        storage_directory_rows = "".join(
+            f"<div class='detail-row'><span>{esc(item.get('path'))}</span><strong>{esc(format_bytes(item.get('size_bytes')))} <em class='{change_class(variation.get('storage_directories', {}).get(item.get('path')))}'>{esc(format_pct(variation.get('storage_directories', {}).get(item.get('path'))))}</em></strong></div>"
+            for item in storage.get("directories", [])
+        )
+        storage_file_rows = "".join(
+            f"<div class='detail-row'><span>{esc(item.get('path'))}</span><strong>{esc(format_bytes(item.get('size_bytes')))} <em class='{change_class(variation.get('storage_files', {}).get(item.get('path')))}'>{esc(format_pct(variation.get('storage_files', {}).get(item.get('path'))))}</em></strong></div>"
+            for item in storage.get("files", [])
+        )
         extras = ""
         if service_chips:
             extras += f"<div class='detail-block'><div class='detail-label'>Servicios</div><div class='chips'>{service_chips}</div></div>"
@@ -807,6 +900,10 @@ def render_html(report: dict[str, Any]) -> str:
             extras += f"<div class='detail-block'><div class='detail-label'>Docker · espacio explícito · {len(data['docker'].get('containers', []))} contenedores activos</div><div class='chips'>{docker_chips or chip('Sin datos')}</div></div>"
         if snapshot_rows:
             extras += f"<div class='detail-block'><div class='detail-label'>Snapshots / copias</div><div class='detail-list'>{snapshot_rows}</div></div>"
+        if storage_directory_rows:
+            extras += f"<div class='detail-block'><div class='detail-label'>Top 10 directorios por tamaño</div><div class='detail-list'>{storage_directory_rows}</div></div>"
+        if storage_file_rows:
+            extras += f"<div class='detail-block'><div class='detail-label'>Top 10 archivos por tamaño</div><div class='detail-list'>{storage_file_rows}</div></div>"
         if data.get("errors"):
             extras += f"<div class='alert'>{'; '.join(esc(item) for item in data['errors'])}</div>"
         server_cards.append(f"""

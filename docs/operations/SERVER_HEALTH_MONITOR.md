@@ -3,6 +3,8 @@
 El monitor genera un informe diario para info@opnconsultoria.com con:
 
 - espacio libre de /, memoria disponible y estado de los servicios;
+- top 10 de directorios y top 10 de archivos por tamaño en el sistema de archivos raíz de cada host,
+  con variación por ruta cuando existe en la captura anterior;
 - tamaño de todas las bases PostgreSQL visibles en cada instancia;
 - ejecuciones de tareas de las últimas 24 horas, agrupadas por estado y tipo;
 - porcentaje de variación frente a la captura diaria anterior;
@@ -56,7 +58,10 @@ se desplaza horizontalmente dentro de su propia caja sin ensanchar el correo com
   cuando su propietario sea un UID de contenedor no resuelto en el host; no se conceden capacidades
   de administración, red o ejecución privilegiada adicionales.
 - El recolector solo ejecuta consultas de lectura (df, /proc, systemctl is-active, psql SELECT,
-  docker ps/system df, du).
+  docker ps/system df, du, find).
+- El ranking de almacenamiento usa `du -x` y `find -xdev`: permanece en el sistema de archivos raíz,
+  no cruza montajes externos y tiene timeout ampliado a 180 segundos para el host Oracle por sus
+  volúmenes Docker/containerd.
 - No se imprimen secretos ni payloads de negocio. La respuesta de errores de Graph se generaliza.
 - La primera captura no muestra porcentajes porque no existe baseline; desde la segunda sí.
 - “Tareas ejecutadas” significa trabajos persistidos por cada aplicación: background_jobs,

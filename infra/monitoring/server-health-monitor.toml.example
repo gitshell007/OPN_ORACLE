@@ -5,6 +5,7 @@
 timezone = "Europe/Madrid"
 window_hours = 24
 ssh_user = "root"
+ssh_command_timeout_seconds = 180
 ssh_key_file = "/etc/opn-server-monitor/secrets/id_ed25519"
 ssh_known_hosts_file = "/etc/opn-server-monitor/known_hosts"
 state_file = "/var/lib/opn-server-monitor/state.json"
