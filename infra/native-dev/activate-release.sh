@@ -50,8 +50,7 @@ set +a
 export PATH="${RELEASE_DIR}/apps/api/.venv/bin:/usr/local/bin:${PATH}"
 export PYTHONPATH="${RELEASE_DIR}/apps/api/src"
 
-# Export secret files into env for Flask if app reads env after _FILE resolution
-# The app resolves *_FILE at runtime; ensure files exist.
+# The app resolves *_FILE at runtime; just ensure the secret files exist.
 for f in oracle_secret_key oracle_database_url oracle_database_migration_url \
   oracle_redis_url oracle_session_redis_url oracle_ratelimit_redis_url \
   oracle_celery_broker_url oracle_celery_result_url oracle_integration_encryption_keys; do
@@ -71,17 +70,11 @@ sudo -u opn-oracle env \
     set -a
     source /etc/opn-oracle-dev/oracle.env
     set +a
-    # Materialize secret env vars from files for CLI without printing
-    for var in SECRET_KEY DATABASE_URL DATABASE_MIGRATION_URL REDIS_URL SESSION_REDIS_URL \
-      RATELIMIT_STORAGE_URL CELERY_BROKER_URL CELERY_RESULT_BACKEND INTEGRATION_ENCRYPTION_KEYS; do
-      file_var="${var}_FILE"
-      eval "fp=\${$file_var:-}"
-      if [[ -n "$fp" && -f "$fp" ]]; then
-        export "$var"="$(tr -d "\n" < "$fp")"
-      fi
-    done
+    # Do NOT materialize secrets from *_FILE here: config.py resolves them at
+    # runtime and raises ConfigError if both X and X_FILE are set.
     cd /opt/opn-oracle/current/apps/api
-    uv run flask --app opn_oracle.wsgi:app db upgrade
+    # Call the venv flask directly; uv lives in /usr/local/bin, outside this PATH.
+    .venv/bin/flask --app opn_oracle.wsgi:app db upgrade
   '
 migrate_rc=$?
 set -e

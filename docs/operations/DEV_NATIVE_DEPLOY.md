@@ -103,6 +103,17 @@ Rutas:
 
 Ver `infra/native-dev/`.
 
+### Activación de release y migración
+
+`activate-release.sh <release-id>` hace el swap del symlink `current`, migra y reinicia servicios:
+
+- La migración corre como `opn-oracle` con `set -a; source /etc/opn-oracle-dev/oracle.env`
+  y `.venv/bin/flask --app opn_oracle.wsgi:app db upgrade` desde `current/apps/api`.
+  No usar `uv run`: `uv` está en `/usr/local/bin`, fuera del PATH restringido de ese paso.
+- No materializar secretos `*_FILE` en variables de entorno: `opn_oracle/config.py`
+  los resuelve en runtime y lanza ConfigError si `X` y `X_FILE` están definidos a la vez.
+- Tras migrar: `systemctl restart opn-oracle-api opn-oracle-web opn-oracle-worker opn-oracle-beat`.
+
 ## Rollback
 
 1. **Código:** `ln -sfn /opt/opn-oracle/releases/<prev> /opt/opn-oracle/current` y
