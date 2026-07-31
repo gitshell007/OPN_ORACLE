@@ -6,7 +6,7 @@
 
 - Última actualización: 2026-07-31 20:16 Europe/Madrid
 - Oracle worktree: `.worktrees/memsol` · `memsol/execution`
-- Oracle `origin/master`: measured tip after durable-task fix (see Git section)
+- Oracle `origin/master`: **9c1860b** durable-task registration (9c1860b6e8af07091519e16536e205a90fb6dc64)
 - Signal `origin/main`: `f934ead` (MEMSOL-02 CAS/fencing, flags OFF)
 - Producción autorizada: **no**
 
