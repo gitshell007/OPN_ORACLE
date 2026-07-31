@@ -4,6 +4,18 @@ Actualizado: 2026-07-31
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## MEMSOL-03 · IntentRevision Oracle expand (2026-07-31)
+
+- Modelos: `DossierIntentRevision`, `IntelligenceRequirement`, `DossierOffering`;
+  `StrategicDossier.current_intent_revision_id` nullable.
+- Migración expand-only `20260731_0027` (tablas + índice único parcial un `accepted` por
+  expediente + RLS). Sin backfill de `profile_config` en este paso.
+- Servicio `oracle/intent.py`: draft/update (row_version), accept (supersede + current pointer),
+  reject. **Accept no crea monitores Signal ni recursos externos.**
+- API `/api/v1/dossiers/{id}/intent|intent/drafts|requirements|offerings` + OpenAPI tipado.
+- Tests unitarios lifecycle (11 passed). Integración Postgres + backfill contado: siguiente.
+- Worktree `memsol/execution`. Siguiente: backfill profile_config → IntentRevision o MEMSOL-04.
+
 ## MEMSOL-01 · Contrato de intención y memoria (2026-07-31)
 
 - ADR-0009 aceptada: `DossierIntentRevision`, requirements, offerings dossier-scoped, provenance,

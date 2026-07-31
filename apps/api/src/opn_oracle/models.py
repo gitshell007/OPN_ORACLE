@@ -11,6 +11,7 @@ from opn_oracle.ai.models import AI_MODELS
 from opn_oracle.documents.models import DOCUMENT_MODELS
 from opn_oracle.extensions import Base
 from opn_oracle.integrations.models import INTEGRATION_MODELS
+from opn_oracle.oracle.intent import INTENT_MODELS
 from opn_oracle.oracle.investigations import INVESTIGATION_MODELS
 from opn_oracle.oracle.jobs import JOB_MODELS
 from opn_oracle.oracle.links import LINK_MODELS
@@ -82,6 +83,7 @@ MODEL_REGISTRY = (
     *BACKUP_MODELS,
     *INTEGRATION_MODELS,
     *ORACLE_MODELS,
+    *INTENT_MODELS,
     *INVESTIGATION_MODELS,
     *PROCUREMENT_SEARCH_PROFILE_MODELS,
     *PROCUREMENT_SEARCH_WATCH_MODELS,

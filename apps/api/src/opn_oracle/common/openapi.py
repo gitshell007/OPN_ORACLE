@@ -38,6 +38,12 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
         ("/api/v1/tenant-admin/members", "post"): "InviteMemberInput",
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): "MembershipPatchInput",
         ("/api/v1/tenant-admin/members/{member_id}/roles", "patch"): "RolesInput",
+        ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): "IntentDraftCreateInput",
+        ("/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}", "patch"): (
+            "IntentDraftPatchInput"
+        ),
+        ("/api/v1/dossiers/{dossier_id}/requirements", "post"): "IntelligenceRequirementInput",
+        ("/api/v1/dossiers/{dossier_id}/offerings", "post"): "DossierOfferingInput",
     }
     public = {
         "/health/live",
@@ -295,6 +301,39 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
         ("/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote", "post"): (
             "201",
             "ProcurementPromotionResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/intent", "get"): ("200", "IntentOverviewResponse"),
+        ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): (
+            "201",
+            "IntentRevisionResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}", "patch"): (
+            "200",
+            "IntentRevisionResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept", "post"): (
+            "200",
+            "IntentRevisionResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject", "post"): (
+            "200",
+            "IntentRevisionResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/requirements", "get"): (
+            "200",
+            "IntelligenceRequirementListResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/requirements", "post"): (
+            "201",
+            "IntelligenceRequirementResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/offerings", "get"): (
+            "200",
+            "DossierOfferingListResponse",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/offerings", "post"): (
+            "201",
+            "DossierOfferingResponse",
         ),
         ("/api/v1/jobs", "get"): ("200", "JobListResponse"),
         ("/api/v1/jobs/{job_id}", "get"): ("200", "JobResponse"),
@@ -817,6 +856,23 @@ def _declare_oracle_operation(
         return
     if "/oracle-summary" in path:
         _declare_oracle_summary_operation(path, method, operation, problem_content)
+        return
+    if any(
+        marker in path
+        for marker in (
+            "/intent",
+            "/requirements",
+            "/offerings",
+        )
+    ):
+        # MEMSOL-03 owns these paths via APIFlask + typed_responses / request_schemas.
+        operation.setdefault("responses", {}).setdefault(
+            "404", _problem("Expediente o revisión no encontrado", problem_content)
+        )
+        if method in {"post", "patch"}:
+            operation.setdefault("responses", {}).setdefault(
+                "409", _problem("Conflicto de versión o estado", problem_content)
+            )
         return
     if "/actor-candidates" in path:
         if method == "post":
@@ -1719,6 +1775,241 @@ def _oracle_schemas() -> dict[str, Any]:
             "properties": {
                 "deleted_ids": {"type": "array", "items": uuid},
                 "deleted_count": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+        },
+        "IntentSourceRef": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["kind", "ref"],
+            "properties": {
+                "kind": {"type": "string", "minLength": 1, "maxLength": 120},
+                "ref": {"type": "string", "minLength": 1, "maxLength": 500},
+                "label": {"type": "string", "maxLength": 300},
+            },
+        },
+        "IntentDraftCreateInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["schema_key", "schema_version", "request_text"],
+            "properties": {
+                "schema_key": {
+                    "type": "string",
+                    "enum": [
+                        "market",
+                        "procurement",
+                        "research",
+                        "competitive-intelligence",
+                        "custom",
+                    ],
+                },
+                "schema_version": {
+                    "type": "string",
+                    "pattern": "^v[0-9]+$",
+                },
+                "request_text": {"type": "string", "minLength": 1, "maxLength": 20000},
+                "structured_spec": json_object,
+                "source_refs": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {"$ref": "#/components/schemas/IntentSourceRef"},
+                },
+            },
+        },
+        "IntentDraftPatchInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["expected_row_version"],
+            "properties": {
+                "expected_row_version": {"type": "integer", "minimum": 1},
+                "schema_key": {
+                    "type": "string",
+                    "enum": [
+                        "market",
+                        "procurement",
+                        "research",
+                        "competitive-intelligence",
+                        "custom",
+                    ],
+                },
+                "schema_version": {
+                    "type": "string",
+                    "pattern": "^v[0-9]+$",
+                },
+                "request_text": {"type": "string", "minLength": 1, "maxLength": 20000},
+                "structured_spec": json_object,
+                "source_refs": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {"$ref": "#/components/schemas/IntentSourceRef"},
+                },
+            },
+        },
+        "IntentRevisionResponse": resource(
+            {
+                "dossier_id": uuid,
+                "version": version,
+                "schema_key": {
+                    "type": "string",
+                    "enum": [
+                        "market",
+                        "procurement",
+                        "research",
+                        "competitive-intelligence",
+                        "custom",
+                    ],
+                },
+                "schema_version": string,
+                "request_text": string,
+                "structured_spec": json_object,
+                "status": {
+                    "type": "string",
+                    "enum": ["draft", "accepted", "superseded", "rejected"],
+                },
+                "content_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                },
+                "source_refs": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/IntentSourceRef"},
+                },
+                "proposed_by_user_id": nullable_uuid,
+                "accepted_by_user_id": nullable_uuid,
+                "accepted_at": {"type": "string", "format": "date-time", "nullable": True},
+                "row_version": version,
+            },
+            [
+                "id",
+                "tenant_id",
+                "dossier_id",
+                "version",
+                "schema_key",
+                "schema_version",
+                "request_text",
+                "structured_spec",
+                "status",
+                "content_hash",
+                "source_refs",
+                "row_version",
+            ],
+        ),
+        "IntentOverviewResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["current", "revisions"],
+            "properties": {
+                "current": {
+                    "nullable": True,
+                    "allOf": [{"$ref": "#/components/schemas/IntentRevisionResponse"}],
+                },
+                "revisions": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/IntentRevisionResponse"},
+                },
+            },
+        },
+        "IntelligenceRequirementInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["class", "question"],
+            "properties": {
+                "class": {
+                    "type": "string",
+                    "enum": [
+                        "market_scan",
+                        "competitive_watch",
+                        "procurement_fit",
+                        "actor_monitor",
+                        "research_question",
+                        "risk_watch",
+                        "custom",
+                    ],
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "critical"],
+                },
+                "question": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "decision_to_support": {"type": "string", "maxLength": 2000},
+                "scope": json_object,
+                "exclusions": json_object,
+                "success_criteria": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {"type": "string", "maxLength": 500},
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "paused", "needs_review", "retired"],
+                },
+                "alignment_state": {
+                    "type": "string",
+                    "enum": ["aligned", "needs_review", "overridden"],
+                },
+                "intent_revision_id": nullable_uuid,
+            },
+        },
+        "IntelligenceRequirementResponse": resource(
+            {
+                "dossier_id": uuid,
+                "intent_revision_id": nullable_uuid,
+                "class": string,
+                "priority": string,
+                "question": string,
+                "decision_to_support": string,
+                "scope": json_object,
+                "exclusions": json_object,
+                "success_criteria": string_array,
+                "status": string,
+                "alignment_state": string,
+            },
+            ["id", "tenant_id", "dossier_id", "class", "priority", "question", "status"],
+        ),
+        "IntelligenceRequirementListResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["items"],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/IntelligenceRequirementResponse"},
+                }
+            },
+        },
+        "DossierOfferingInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 300},
+                "aliases": string_array,
+                "taxonomies": json_object,
+                "description": {"type": "string", "maxLength": 5000},
+                "status": {"type": "string", "enum": ["active", "retired"]},
+                "intent_revision_id": nullable_uuid,
+            },
+        },
+        "DossierOfferingResponse": resource(
+            {
+                "dossier_id": uuid,
+                "intent_revision_id": nullable_uuid,
+                "name": string,
+                "aliases": string_array,
+                "taxonomies": json_object,
+                "description": string,
+                "status": string,
+            },
+            ["id", "tenant_id", "dossier_id", "name", "status"],
+        ),
+        "DossierOfferingListResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["items"],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/DossierOfferingResponse"},
+                }
             },
         },
         "SignalReviewInput": {
