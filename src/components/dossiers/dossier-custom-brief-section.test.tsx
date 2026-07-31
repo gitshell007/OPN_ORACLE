@@ -21,9 +21,9 @@ vi.mock("@oracle/api-client", () => ({
 vi.mock("@/components/ui/async-action-button", () => ({
   AsyncActionButton: ({
     children,
-    busy: _busy,
+    loading: _loading,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean }) => (
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean }) => (
     <button type="submit" {...props}>
       {children}
     </button>

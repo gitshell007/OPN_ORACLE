@@ -236,7 +236,7 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
           <AsyncActionButton
             type="submit"
             className="vector-primary"
-            busy={busy}
+            loading={busy}
             disabled={busy || !question.trim()}
           >
             <Send size={15} /> Enviar pregunta
