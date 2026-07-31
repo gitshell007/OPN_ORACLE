@@ -2,14 +2,18 @@
 
 Actualizado: 2026-07-31
 
-## Memoria Sol · smoke Celery `ai` en Oracle Dev (2026-07-31 21:40)
+## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 
-- Release Dev activo: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
-- Migraciones Dev: **0027 + 0028** aplicadas; head `20260731_0028`.
-- Tasks worker: `oracle.dossier_question.answer` y `oracle.report.custom_brief.plan` en cola `ai`.
-- E2E real: pregunta 202→worker→succeeded; brief plan proposed; cancel con If-Match→cancelled.
-- Tenant sintético `memsol-celery-smoke` (no datos de clientes). AI flags OFF.
-- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`. Producción **no** desplegada.
+- Release Dev: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
+- Migraciones: head `20260731_0028`.
+- Re-medida run_tag **`20260731T194745Z`** con transcript HTTP completo:
+  - pregunta job `c6293b76-…` queue `ai` → succeeded
+  - brief job `9c538ca6-…` → plan proposed
+  - permanent_fail job `ad6d0d67-…` → failed/permanent_failure
+  - cancel job `edbee997-…` → 428 sin If-Match · 202 cancelled · 409 retry
+- Vitest Actividad+Ask+Brief: **7 passed**. Playwright MEMSOL: **not run** (blocked log).
+- Producción: **no** desplegada · **no lista**.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
 ## Memoria Sol · verificación final con Postgres real (2026-07-31)
 
