@@ -16,6 +16,15 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - Tests unitarios lifecycle (11 passed). Integración Postgres + backfill contado: siguiente.
 - Worktree `memsol/execution`. Siguiente: backfill profile_config → IntentRevision o MEMSOL-04.
 
+## MEMSOL-04 · Read model Actividad (2026-07-31)
+
+- `GET /api/v1/dossiers/{id}/activity` agrega intención, watchlists, monitores Signal,
+  vigilancias de licitación ligadas por artefacto y jobs recientes.
+- Estados de producto normalizados (prepared/active/paused/pending/running/retrying/
+  needs_attention/finished). Sin autoactivación ni llamadas a Signal en el read model.
+- Tests unitarios de mapeo de estados. UI Vector y commands pause/resume quedan
+  ampliables; el contrato HTTP del panel ya está disponible.
+
 ## MEMSOL-01 · Contrato de intención y memoria (2026-07-31)
 
 - ADR-0009 aceptada: `DossierIntentRevision`, requirements, offerings dossier-scoped, provenance,

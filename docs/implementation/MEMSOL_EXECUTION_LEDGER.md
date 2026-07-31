@@ -19,9 +19,9 @@
 |---|---|---|---|---|---|
 | MEMSOL-00 | complete | 50a3b8a | 06fbdd6 | pass | matrix + geo global + tests/mutación |
 | MEMSOL-01 | complete | pending_push | 06fbdd6 | pass | ADR-0009 + schemas |
-| MEMSOL-02 | pending | | | | |
-| MEMSOL-03 | pending | | | | |
-| MEMSOL-04 | pending | | | | |
+| MEMSOL-02 | complete | n/a | 86c1f74 | pass | CAS/fencing branch memsol/02 |
+| MEMSOL-03 | complete | cfe88d1 | 06fbdd6 | pass | IntentRevision API |
+| MEMSOL-04 | complete | pending | 86c1f74 | pass | activity read model |
 | MEMSOL-05 | pending | | | | |
 | MEMSOL-06 | pending | | | | |
 | MEMSOL-07 | pending | | | | |
