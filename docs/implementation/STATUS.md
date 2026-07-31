@@ -1,8 +1,36 @@
 # Estado de implementación de OPN Oracle
 
 Actualizado: 2026-07-31
-Rama observada: `master`  
+Rama observada: `master` / `memsol/execution`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## MEMSOL-05 · MemoryContextAdapter Oracle (2026-07-31)
+
+- `integrations/memory_context.py`: Protocol `MemoryContextAdapter`, `MockMemoryContextAdapter`
+  (items vacíos + `coverage_manifest.v1` válido), `DisabledMemoryContextAdapter` (fail closed),
+  stub HTTP no activado.
+- Config: `MEMORY_CONTEXT_MODE=disabled|mock|http` (default **disabled**), base URL HTTPS en http,
+  timeout. Cableado en `Settings`, `compose.prod.yml`, `oracle.env.example` (+ native-dev).
+- Tests unitarios de forma del manifiesto y modos. Sin llamadas reales a Signal.
+
+## MEMSOL-06 · Preguntar a Oracle durable (2026-07-31)
+
+- Modelos `DossierConversation` / `DossierMessage` tenant+dossier scoped; estados
+  conversation `open|archived`, message `queued→running→succeeded|failed|cancelled`.
+- Migración expand-only `20260731_0028` (+ RLS). Registro en `MODEL_REGISTRY`.
+- Servicio: create conversation; enqueue message **persiste la pregunta antes** del
+  `BackgroundJob` (`oracle.dossier_question.answer`, sin publish al broker en accept).
+- HTTP: `POST .../conversations` 201, `POST .../messages` **202** `{job_id,message_id}`,
+  `GET .../messages/{id}`. La respuesta **no** muta intent ni promueve hechos de memoria.
+- Worker de respuesta IA y retrieve de memoria en el job: diferidos.
+
+## MEMSOL-07 · Custom report brief mínimo (2026-07-31)
+
+- Reutiliza `Report` con `template_key=custom_assistant_brief`, `options.brief_request` y
+  `options.plan_status` (`draft|proposed|accepted`). Status de informe `draft`.
+- `POST .../reports/custom` → **202** con Report + `BackgroundJob`
+  `oracle.report.custom_brief.plan` pending (sin publish; **no** toca `report_writer`).
+- Sin llamadas a Signal. Plan accept / planner task: diferidos.
 
 ## MEMSOL-03 · IntentRevision Oracle expand (2026-07-31)
 

@@ -6,7 +6,7 @@
 ## Identidad de ejecución
 
 - Inicio Europe/Madrid: 2026-07-31 19:21:27 Europe/Madrid
-- Última actualización: 2026-07-31 ~19:27 Europe/Madrid
+- Última actualización: 2026-07-31 (MEMSOL-05/06/07 Oracle)
 - Agente/sesión: Grok Build · Memoria Sol master goal
 - Oracle repo/rama/SHA inicial: `master@35b2e94` · `oracle-dev@eb61173` · worktree `memsol/execution`
 - Signal repo/rama/SHA inicial: `main@60a5782` · `signal-dev@06fbdd6` (sin cambios de código)
@@ -22,9 +22,9 @@
 | MEMSOL-02 | complete | n/a | 86c1f74 | pass | CAS/fencing branch memsol/02 |
 | MEMSOL-03 | complete | cfe88d1 | 06fbdd6 | pass | IntentRevision API |
 | MEMSOL-04 | complete | pending | 86c1f74 | pass | activity read model |
-| MEMSOL-05 | pending | | | | |
-| MEMSOL-06 | pending | | | | |
-| MEMSOL-07 | pending | | | | |
+| MEMSOL-05 | complete | pending | 86c1f74 | pass | MemoryContextAdapter mock + config |
+| MEMSOL-06 | complete | pending | 86c1f74 | pass | Q&A durable 202 + migration 0028 |
+| MEMSOL-07 | complete | pending | 86c1f74 | pass | custom brief Report+job pending |
 | MEMSOL-08 | pending | | | | |
 | MEMSOL-09 | pending | | | | |
 | MEMSOL-10 | pending | | | | |
@@ -97,3 +97,23 @@ Ninguno global. CI remoto del SHA y suite integración completa quedan como ries
 - Gate: validación JSON + diff --check + coherencia con modelos existentes (BackgroundJob statuses reutilizados).
 - Handoff MEMSOL-02: Signal isolation/CAS/flags; no editar OpenAPI Oracle.
 - Handoff MEMSOL-03: migraciones IntentRevision contra ADR-0009; worktree Oracle.
+
+## Fase cerrada · MEMSOL-05 (Oracle partial)
+
+- `MemoryContextAdapter` + mock/disabled/http stub; config fail closed.
+- Tests: `pytest tests/test_memory_context.py --no-cov` (parte de 23 con 06/07).
+- Signal HTTP retrieve real: diferido (contrato remoto MEMSOL-02/05).
+- Sin deploy.
+
+## Fase cerrada · MEMSOL-06
+
+- `DossierConversation`/`DossierMessage` + migración `20260731_0028` + API 202 accept.
+- Enqueue no publica Celery ni llama memoria/Signal/IA externa.
+- Answer path no muta intent ni facts. Worker answer: diferido.
+- Tests state machine + accept path.
+
+## Fase cerrada · MEMSOL-07
+
+- Custom brief sobre `Report` + job `oracle.report.custom_brief.plan` pending.
+- No cambia `report_writer`. Sin Signal. Plan accept/planner: diferido.
+- Handoff MEMSOL-08: resiliencia/worker answer/plan; no activar memoria real sin flags.

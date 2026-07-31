@@ -217,6 +217,9 @@ class Settings:
     export_ttl_hours: int
     backup_storage_path: str
     backup_retention_days: int
+    memory_context_mode: str
+    memory_context_base_url: str
+    memory_context_timeout_seconds: float
 
     @classmethod
     def load(cls, overrides: Mapping[str, Any] | None = None) -> Settings:
@@ -539,6 +542,13 @@ class Settings:
                 name="BACKUP_RETENTION_DAYS",
                 minimum=1,
             ),
+            # MEMSOL-05: Oracle → opn_memory retrieval. Default disabled (fail closed).
+            memory_context_mode=str(values.get("MEMORY_CONTEXT_MODE", "disabled")).lower(),
+            memory_context_base_url=str(values.get("MEMORY_CONTEXT_BASE_URL", "")),
+            memory_context_timeout_seconds=_as_float(
+                values.get("MEMORY_CONTEXT_TIMEOUT_SECONDS", 10.0),
+                name="MEMORY_CONTEXT_TIMEOUT_SECONDS",
+            ),
         )
         settings.validate()
         return settings
@@ -572,6 +582,12 @@ class Settings:
                 )
         if self.signal_avanza_mode not in {"mock", "http"}:
             raise ConfigError("SIGNAL_AVANZA_MODE debe ser mock o http.")
+        if self.memory_context_mode not in {"disabled", "mock", "http"}:
+            raise ConfigError("MEMORY_CONTEXT_MODE debe ser disabled, mock o http.")
+        if self.memory_context_mode == "http" and not self.memory_context_base_url.startswith(
+            "https://"
+        ):
+            raise ConfigError("MEMORY_CONTEXT_BASE_URL debe usar HTTPS en modo http.")
         if self.ai_mode not in {"disabled", "mock", "ollama", "signal"}:
             raise ConfigError("AI_MODE solo admite disabled, mock, ollama o signal.")
         if self.ai_mode == "ollama":
