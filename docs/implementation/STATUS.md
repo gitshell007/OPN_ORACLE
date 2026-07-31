@@ -4,6 +4,26 @@ Actualizado: 2026-07-31
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## Plan inicial de intención, memoria, vigilancia e informes (2026-07-31)
+
+- Se auditó sin cambiar de rama la divergencia Oracle `master...oracle-dev`: 7 commits exclusivos
+  en `master`, 6 en `oracle-dev` y 26 ficheros afectados por el trabajo de intake de Mercado desde
+  el ancestro. `market.v1` es reutilizable, pero no debe integrarse sin corregir el límite UE-27,
+  el prefill efímero y las rutas que pueden evitar una aceptación durable del intake.
+- Se auditó Signal `origin/main...origin/signal-dev` y se revalidó al moverse la rama durante la
+  revisión. El cierre queda en `60a5782...f32fed6`: Signal Dev prueba Gemini 3.1 Flash Lite con
+  fallback 3.5 Flash Lite en tres tasks OpenRouter de Oracle, mientras producción/main conserva la
+  política anterior. El checkout local sigue recibiendo WIP concurrente y no se modificó.
+- Se propone que Oracle sea autoridad de una intención aceptada y versionada, requisitos de
+  inteligencia, memoria de negocio, jobs e informes; Signal seguirá siendo autoridad de fuentes,
+  monitores y política de proveedor/modelo/fallback.
+- El roadmap se divide en reconciliación, intención v1, Actividad/cadencias, memoria recuperable,
+  preguntas persistentes, asistente de informes, fuentes a escala y operación. La activación del
+  `opn_memory` experimental queda bloqueada hasta demostrar aislamiento por consumidor/tenant y un
+  ciclo de vida recuperable para sus análisis.
+- Documento de trabajo: [`docs/product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md`](../product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md).
+- Estado: plan inicial documentado; no se cambió esquema, API, runtime ni configuración.
+
 ## Monitor diario de infraestructura (2026-07-31)
 
 - Auditoría read-only ejecutada con `root` sobre `advisor`, `risk`, `oracle`, `signal`,

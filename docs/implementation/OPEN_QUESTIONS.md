@@ -1,5 +1,35 @@
 # Preguntas abiertas
 
+## Intención, memoria, vigilancia e informes por expediente
+
+- **Tipo Investigación:** confirmar si será tipo visible de expediente además de conservar
+  `InvestigationRun` como capacidad transversal. Recomendación inicial: ambas cosas, con un
+  `research.v1` compartido y sin duplicar el motor de ejecución.
+- **Licitaciones y ayudas:** decidir si comparten `procurement.v1` con subtipo explícito o si deben
+  separarse en la UX y el dominio. No reutilizar `tender_or_grant` en Signal hasta que su contrato
+  de monitor lo admita de forma real.
+- **Memoria probatoria:** acordar si `opn_memory` se consume por API interna versionada o por un
+  paquete de puertos compartido. Es gate P0 demostrar scope por consumer/tenant, retirar defaults
+  de piloto y completar CAS, heartbeat, cancelación y recuperación de analysis requests antes de
+  habilitarlo en producción.
+- **Revisión de intención:** confirmar que una nueva revisión no altera automatizaciones en curso
+  y que estas quedan `needs_review` hasta una decisión humana.
+- **Política IA:** resolver la tensión entre D-015, que mantiene proveedor/modelo en Signal y trata
+  OpenRouter como sujeto a gate, y las tasks actuales que ya lo usan. Hay que fijar clasificación,
+  presupuesto, kill switch, errores recuperables y si se autoriza fallback cruzado
+  OpenRouter→Ollama. Un contract test debe demostrar también que una task `enabled=false` no se
+  resuelve.
+- **Cadencias y SLO:** fijar frecuencias por clase de fuente y alinear timeout de modelo, timeout
+  HTTP de Oracle, límites Celery y lease. El ejemplo productivo de Oracle usa 210 s y Signal permite
+  hasta 300 s en tasks largas; el valor definitivo requiere benchmark con fallback.
+- **Noticias de actores:** definir fuente, desambiguación de entidad, fecha editorial y cobertura
+  antes de prometer un seguimiento periodístico; la búsqueda web nominal actual no basta.
+- **Asistente de informes:** decidir si todo encargo libre necesita aprobar su plan o si existe un
+  modo rápido restringido, y definir la retención/promoción de conversaciones a memoria canónica.
+- **Ramas:** reconciliar selectivamente `oracle-dev` sobre `master` antes de implementar. En Signal,
+  usar solo commits de `signal-dev`: el checkout cambió durante la auditoría y mantiene WIP local
+  concurrente que no puede considerarse contrato.
+
 ## Aislamiento de sesión en gates largos con Redis local
 
 - **Estado:** no reproducida tras limpiar Redis y repetir 528/528; mantener observación.
