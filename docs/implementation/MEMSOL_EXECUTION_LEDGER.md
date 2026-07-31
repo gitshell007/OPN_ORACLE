@@ -127,11 +127,23 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 | **Playwright/a11y MEMSOL tabs** | **complete** | `memsol-dossier-tabs.spec.ts` | **3 passed** desktop |
 | MEMSOL-11 prod | prepared | MEMSOL_11_ROLLOUT_PREP.md | **no deploy** · **not ready** |
 
+## Gate UI cancel/retry Preguntar + Informe libre (2026-07-31)
+
+| Check | Resultado |
+|---|---|
+| Wiring | `JobProgress allowActions` en `dossier-ask-section` + `dossier-custom-brief-section` |
+| API | `POST /api/v1/jobs/{id}/cancel\|retry` + If-Match (sin rutas nuevas) |
+| Unit UI | vitest ask+brief+job-progress **12 passed** (`memsol_cancel_retry_unit.txt`) |
+| Unit lifecycle | `tests/test_memsol_job_controls.py` **5 passed** (`memsol_cancel_retry_http.txt`) |
+| Playwright | `memsol-dossier-tabs.spec.ts` **4 passed** incl. Cancelar/Reintentar + historial |
+| Worker real | smoke Dev previo (run_tag 20260731T194745Z) sigue como evidencia independiente |
+| Signal pilot prep | `MEMSOL_SIGNAL_PILOT_PREP.md` + `signal_pilot.env.example` · flags **OFF** · no activado |
+
 ## Residual explícito
 
-1. Cancel/retry **no** expuestos en UI de Preguntar/Informe libre (solo poll «Actualizar»); residual de producto, no de cobertura browser.
-2. Matriz Playwright **mobile** de tabs MEMSOL omitida a propósito (misma suite desktop).
-3. Producción: **no** autorizada; flags MEMORY/AI OFF; **no declarar lista**.
+1. Matriz Playwright **mobile** de tabs MEMSOL omitida a propósito.
+2. Cancel en E2E eager usa stub de estado de job para ventana de click; lifecycle real validado en unit `request_cancel`/`prepare_retry` + smoke Dev worker.
+3. Producción: **no** autorizada; flags MEMORY/AI OFF; piloto Signal **no** activado; **no declarar lista**.
 
 ## Handoff
 

@@ -2,11 +2,17 @@
 
 Actualizado: 2026-07-31
 
+## Memoria Sol · Cancel/Reintentar UI Vector (2026-07-31 22:45)
+
+- `JobProgress` con Cancelar/Reintentar (If-Match) en Preguntar e Informe libre.
+- Vitest 12 + pytest job controls 5 + Playwright **4 passed** (desktop).
+- Piloto Signal preparado en `docs/implementation/memsol/MEMSOL_SIGNAL_PILOT_PREP.md` con `MEMORY_ENGINE_ENABLED=0` por defecto — **no activado**.
+- Producción **no** lista.
+
 ## Memoria Sol · Playwright residual browser (2026-07-31 22:27)
 
 - Spec real: `tests/e2e/memsol-dossier-tabs.spec.ts` contra stack E2E auth (Postgres+Redis+gunicorn+Next).
-- **3 passed** desktop: carga/empty/error Actividad; 202+eager terminal+reload Preguntar e Informe libre; viewer 403 UI; UUID ajeno; axe AA en las tres rutas.
-- Cancel/retry no en UI (documentado). Producción **no** lista.
+- Desktop: Actividad/Preguntar/Informe libre + negativos + cancel/retry UX.
 - Backfill dry-run Dev medido: 16 dossiers · 0 profile_config · would_create **0** (no apply).
 
 ## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)

@@ -10,6 +10,7 @@ import { FilePlus2, RefreshCw } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { JobProgress } from "@/components/reporting/job-progress";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 
 const STORAGE_PREFIX = "oracle:dossier-brief:";
@@ -258,10 +259,20 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
               <dd>{PLAN_LABEL[planStatus ?? ""] ?? planStatus ?? "—"}</dd>
             </div>
           </dl>
-          {detail?.brief_request ? (
+          {detail?.brief_request || brief ? (
             <p>
-              <strong>Encargo:</strong> {detail.brief_request}
+              <strong>Encargo:</strong> {detail?.brief_request || brief}
             </p>
+          ) : null}
+          {(accepted.job_id || detail?.background_job_id) ? (
+            <JobProgress
+              jobId={String(accepted.job_id || detail?.background_job_id)}
+              label="Planificación del brief"
+              allowActions
+              onTerminal={() => {
+                void pollBrief(accepted.report_id);
+              }}
+            />
           ) : null}
           {planStatus === "proposed" && sections.length > 0 ? (
             <div>

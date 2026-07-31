@@ -37,7 +37,9 @@
 | Permanent fail controlado | **pass** job `ad6d0d67-…` → `failed`/`permanent_failure` |
 | Cancel 428 + If-Match 202 + retry 409 | **pass** job `edbee997-…` (HTTP transcripts en scratch) |
 | Flags AI/MEMORY | OFF / disabled en Dev |
-| Playwright Actividad/Preguntar/Informe libre | **pass** `memsol-dossier-tabs.spec.ts` **3/3** desktop (E2E local eager; no prod) |
+| Playwright Actividad/Preguntar/Informe libre | **pass** `memsol-dossier-tabs.spec.ts` **4/4** desktop (incl. cancel/retry UX) |
+| Cancel/Reintentar UI | **pass** JobProgress + unit lifecycle; If-Match obligatorio |
+| Piloto Signal prep | documentado OFF (`MEMSOL_SIGNAL_PILOT_PREP.md`); **no activado** |
 | Producción | **no desplegada** · **not ready** |
 
 

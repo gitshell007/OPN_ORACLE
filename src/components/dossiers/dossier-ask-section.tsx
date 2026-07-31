@@ -10,6 +10,7 @@ import { MessageSquare, RefreshCw, Send } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { JobProgress } from "@/components/reporting/job-progress";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 
 const STORAGE_PREFIX = "oracle:dossier-ask:";
@@ -278,6 +279,18 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
             <p>
               <strong>Pregunta:</strong> {message.content_text}
             </p>
+            {message.background_job_id ? (
+              <JobProgress
+                jobId={message.background_job_id}
+                label="Trabajo de respuesta"
+                allowActions
+                onTerminal={() => {
+                  if (conversation && pendingMessageId) {
+                    void pollMessage(conversation.id, pendingMessageId);
+                  }
+                }}
+              />
+            ) : null}
             {message.status === "succeeded" ? (
               <div>
                 <strong>Respuesta</strong>
@@ -285,6 +298,9 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
                   {String(message.answer_payload?.text ?? "Sin texto")}
                 </pre>
               </div>
+            ) : null}
+            {message.status === "cancelled" ? (
+              <p role="status">La pregunta fue cancelada. El texto se conserva en el historial.</p>
             ) : null}
             {message.error_message ? (
               <p role="alert">Error: {message.error_message}</p>

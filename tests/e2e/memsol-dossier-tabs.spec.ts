@@ -354,4 +354,227 @@ test.describe("MEMSOL dossier tabs (Actividad / Preguntar / Informe libre)", () 
       0,
     );
   });
+
+  test("Preguntar: Cancelar y Reintentar en JobProgress (If-Match) + historial", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === "mobile",
+      "Controles de job MEMSOL se cubren en escritorio.",
+    );
+    await loginAs(page, OWNER, "Asterion E2E", testInfo, 5);
+    const dossierId = await createDossier(page, `MEMSOL cancel-retry ${Date.now()}`);
+    const questionText = "Pregunta controlada para cancel/retry E2E";
+
+    // Eager settles jobs in ms; stub GET job state so Cancelar is visible, then
+    // POST cancel/retry hit real UI handlers (versioned). Real lifecycle proven
+    // by unit tests of request_cancel/prepare_retry + prior Dev worker smoke.
+    let jobId = "pending";
+    let jobVersion = 1;
+    let jobStatus: "queued" | "cancelled" | "failed" | "queued_retry" = "queued";
+
+    await page.route("**/api/v1/jobs/**", async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const idMatch = url.match(/\/api\/v1\/jobs\/([0-9a-f-]+)/i);
+      const id = idMatch?.[1] ?? jobId;
+      if (req.method() === "GET" && !url.includes("/cancel") && !url.includes("/retry")) {
+        const status =
+          jobStatus === "queued_retry"
+            ? "queued"
+            : jobStatus === "cancelled"
+              ? "cancelled"
+              : jobStatus === "failed"
+                ? "failed"
+                : "queued";
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { ETag: `W/"${jobVersion}"` },
+          body: JSON.stringify({
+            id,
+            tenant_id: "00000000-0000-4000-8000-000000000001",
+            job_type: "oracle.dossier_question.answer",
+            queue: "ai",
+            status,
+            progress: status === "queued" || status === "queued_retry" ? 0 : 100,
+            stage:
+              status === "cancelled"
+                ? "cancelled"
+                : status === "failed"
+                  ? "failed"
+                  : status === "queued_retry"
+                    ? "manual_retry"
+                    : "queued",
+            attempts: 0,
+            max_attempts: 3,
+            retryable: status === "failed",
+            cancel_requested: status === "cancelled",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            version: jobVersion,
+            error_message: status === "failed" ? "fallo controlado E2E" : null,
+          }),
+        });
+        return;
+      }
+      if (req.method() === "POST" && url.includes("/cancel")) {
+        const ifMatch = req.headers()["if-match"] || "";
+        if (!ifMatch) {
+          await route.fulfill({
+            status: 428,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              title: "Precondición",
+              detail: "If-Match es obligatorio.",
+              status: 428,
+              code: "precondition_required",
+            }),
+          });
+          return;
+        }
+        jobStatus = "cancelled";
+        jobVersion += 1;
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          headers: { ETag: `W/"${jobVersion}"` },
+          body: JSON.stringify({
+            id,
+            tenant_id: "00000000-0000-4000-8000-000000000001",
+            job_type: "oracle.dossier_question.answer",
+            queue: "ai",
+            status: "cancelled",
+            progress: 0,
+            stage: "cancelled",
+            attempts: 0,
+            max_attempts: 3,
+            retryable: false,
+            cancel_requested: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            version: jobVersion,
+          }),
+        });
+        return;
+      }
+      if (req.method() === "POST" && url.includes("/retry")) {
+        jobStatus = "queued_retry";
+        jobVersion += 1;
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          headers: { ETag: `W/"${jobVersion}"` },
+          body: JSON.stringify({
+            id,
+            tenant_id: "00000000-0000-4000-8000-000000000001",
+            job_type: "oracle.dossier_question.answer",
+            queue: "ai",
+            status: "queued",
+            progress: 0,
+            stage: "manual_retry",
+            attempts: 0,
+            max_attempts: 3,
+            retryable: true,
+            cancel_requested: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            version: jobVersion,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.route(`**/api/v1/dossiers/${dossierId}/conversations/**/messages**`, async (route) => {
+      const req = route.request();
+      if (req.method() === "POST") {
+        await route.continue();
+        return;
+      }
+      if (req.method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: "msg-e2e",
+            conversation_id: "conv-e2e",
+            dossier_id: dossierId,
+            role: "user",
+            status:
+              jobStatus === "cancelled"
+                ? "cancelled"
+                : jobStatus === "failed"
+                  ? "failed"
+                  : "queued",
+            sequence: 1,
+            content_text: questionText,
+            background_job_id: jobId === "pending" ? "00000000-0000-4000-8000-0000000000ab" : jobId,
+            error_message: jobStatus === "failed" ? "fallo controlado E2E" : null,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/app/dossiers/${dossierId}/ask`);
+    await expect(page.getByRole("heading", { name: "Preguntar a Oracle" })).toBeVisible({
+      timeout: 20000,
+    });
+
+    const askResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/v1/dossiers/${dossierId}/conversations/`) &&
+        response.url().includes("/messages") &&
+        response.request().method() === "POST",
+      { timeout: 30000 },
+    );
+    await page.getByLabel("Tu pregunta").fill(questionText);
+    await page.getByRole("button", { name: "Enviar pregunta" }).click();
+    const askResponse = await askResponsePromise;
+    // May be 202 from real API before our message GET stub takes over
+    if (askResponse.status() === 202) {
+      const body = (await askResponse.json()) as { job_id: string; message_id: string };
+      jobId = body.job_id || jobId;
+    } else {
+      jobId = "00000000-0000-4000-8000-0000000000ab";
+    }
+
+    // Force rehydrate with stubbed queued job
+    jobStatus = "queued";
+    await page.evaluate(
+      ([id, jid, q]) => {
+        sessionStorage.setItem(
+          `oracle:dossier-ask:${id}`,
+          JSON.stringify({ conversationId: "conv-e2e", messageId: "msg-e2e", title: q }),
+        );
+      },
+      [dossierId, jobId, questionText] as const,
+    );
+    await page.reload();
+    await expect(page.getByText(questionText)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("job-cancel")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("job-retry")).toHaveCount(0);
+
+    await page.getByTestId("job-cancel").click();
+    await expect(page.getByTestId("job-progress-cancelled")).toBeVisible({
+      timeout: 15000,
+    });
+    // History preserved
+    await expect(page.getByText(questionText)).toBeVisible();
+
+    // Switch to failed+retryable for Reintentar
+    jobStatus = "failed";
+    jobVersion += 1;
+    await page.reload();
+    await expect(page.getByTestId("job-retry")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("job-cancel")).toHaveCount(0);
+    await page.getByTestId("job-retry").click();
+    await expect(page.getByText(/Reintentando|Trabajo de respuesta|manual_retry|queued/i)).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByText(questionText)).toBeVisible();
+  });
 });

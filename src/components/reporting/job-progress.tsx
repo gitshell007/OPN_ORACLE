@@ -61,6 +61,8 @@ export function JobProgress({
                 duration: 8000,
                 closeButton: true,
               });
+            if (next.status === "cancelled")
+              toast.message("Proceso cancelado", { id: toastId, duration: 4000 });
           }
           callback.current?.(next);
           return;
@@ -122,10 +124,17 @@ export function JobProgress({
     );
 
   const progress = Math.round(job?.progress ?? 0);
+  const statusLabel = job?.cancel_requested && !terminal.has(job.status)
+    ? "Cancelando…"
+    : job?.status === "retrying" || job?.stage === "manual_retry"
+      ? "Reintentando…"
+      : job?.stage
+        ? productStatusLabel(job.stage)
+        : label;
   return (
-    <div className="job-progress" aria-live="polite">
+    <div className="job-progress" data-testid="job-progress" aria-live="polite">
       <div>
-        <span>{job?.stage ? productStatusLabel(job.stage) : label}</span>
+        <span data-testid="job-progress-status">{statusLabel}</span>
         <b>{progress}%</b>
       </div>
       <div
@@ -139,20 +148,35 @@ export function JobProgress({
         <span style={{ width: `${progress}%` }} />
       </div>
       {job?.status === "failed" && (
-        <small role="alert">
+        <small role="alert" data-testid="job-progress-error">
           {job.error_message || "El proceso terminó con un error controlado."}
         </small>
       )}
+      {job?.status === "cancelled" && (
+        <small data-testid="job-progress-cancelled">Cancelado.</small>
+      )}
       {allowActions && job && (
-        <div className="job-progress-actions">
+        <div className="job-progress-actions" data-testid="job-progress-actions">
           {job.status === "failed" && job.retryable && (
-            <AsyncActionButton className="" loading={mutating} onClick={() => void mutate("retry")}>
+            <AsyncActionButton
+              className=""
+              loading={mutating}
+              disabled={mutating}
+              data-testid="job-retry"
+              onClick={() => void mutate("retry")}
+            >
               <RotateCcw size={12} /> Reintentar
             </AsyncActionButton>
           )}
           {["queued", "running", "retrying"].includes(job.status) &&
             !job.cancel_requested && (
-              <AsyncActionButton className="" loading={mutating} onClick={() => void mutate("cancel")}>
+              <AsyncActionButton
+                className=""
+                loading={mutating}
+                disabled={mutating}
+                data-testid="job-cancel"
+                onClick={() => void mutate("cancel")}
+              >
                 <Square size={11} /> Cancelar
               </AsyncActionButton>
             )}

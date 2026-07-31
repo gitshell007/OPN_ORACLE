@@ -68,4 +68,23 @@ describe("JobProgress", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(mocks.cancel).toHaveBeenCalledWith("job-1", 3));
   });
+
+  it("oculta Cancelar si ya hay cancel_requested y muestra Cancelando", async () => {
+    mocks.get.mockResolvedValue({
+      ...job,
+      status: "running",
+      cancel_requested: true,
+      retryable: false,
+    });
+    render(<JobProgress jobId="job-1" allowActions />);
+    expect(await screen.findByText("Cancelando…")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Cancelar" })).toBeNull();
+  });
+
+  it("no muestra Reintentar si failed no es retryable", async () => {
+    mocks.get.mockResolvedValue({ ...job, status: "failed", retryable: false });
+    render(<JobProgress jobId="job-1" allowActions />);
+    await screen.findByText("El documento necesita revisión.");
+    expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
+  });
 });
