@@ -219,7 +219,7 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
           <AsyncActionButton
             type="submit"
             className="vector-primary"
-            busy={busy}
+            loading={busy}
             disabled={busy || !brief.trim()}
           >
             <FilePlus2 size={15} /> Crear brief y planificar
