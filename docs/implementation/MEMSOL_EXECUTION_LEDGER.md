@@ -176,3 +176,16 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 | Prod | **no** tocada |
 
 **Residual:** Oracle API hotpatch en release `20260731T192559Z-native-96250a4` (no full rebuild immutable); AI_MODE=signal solo tenant sintético `memsol-celery-smoke` (+ kill_switch en opn-consultoria). Pilot limited to synthetic consumer 61.
+
+### Gap-fix skeptic (2026-07-31 ~23:48 Europe/Madrid)
+
+| Item | Evidencia |
+|---|---|
+| Ask con citas | evidence sintético `2e358274-…` · citation+facts con ese id · message `dda458e1-…` succeeded · reload match |
+| Usage ask | ai_usage_logs id **4460** ollama/qwen3.5:9b in=1578 out tokens, duration_ms=93582 |
+| Brief proposed | GET `/reports/custom/{id}` 200 · plan_status=proposed · usage id **4458** report_custom_brief_plan ollama/qwen3.5:9b |
+| OpenRouter | count=**0** consumer 61 |
+| MEMORY | `MEMORY_ENGINE_ENABLED=0` post-apply |
+| Kill switch | disable → 403 consumer_ai_disabled · usage delta 0 · re-enable limited |
+| Prompt/schema | v1 · DossierQuestionAnswerOutput / ReportCustomBriefPlanOutput · sha en scratch versions |
+
