@@ -31,12 +31,13 @@
 |---|---|
 | Host / canal | `oracle-dev` · `/etc/opn-oracle-dev` · release `96250a4` |
 | Migraciones 0027/0028 | **aplicadas** (head `20260731_0028`) |
-| Worker `-Q …,ai,…` | **active**; tasks MEMSOL registradas |
-| Pregunta durable 202→Celery→terminal | **pass** job `e866fc53-…` queue `ai` |
-| Custom brief plan | **pass** job `9c48b575-…` plan_status `proposed` |
-| Cancel controlado + If-Match | **pass** job `dfed02aa-…` → `cancelled` (retry 409 esperado) |
-| Flags AI/MEMORY | OFF / disabled en Dev |
-| Producción | **no desplegada** |
+| Worker `-Q …,ai,…` | **active**; tasks MEMSOL registradas; inspect **pong** |
+| Pregunta durable 202→Celery→terminal | **pass** job `24696b29-…` queue `ai` · message `abbb9f77-…` succeeded |
+| Custom brief plan | **pass** job `0b6ddf17-…` report `4cf98009-…` plan_status `proposed` |
+| Fail permanente controlado | **pass** job `17591fdb-…` → `failed` (`PermanentJobError`) |
+| Cancel controlado + If-Match | **pass** job `a9fd2d90-…` → **202** `cancelled` |
+| Flags AI/MEMORY | OFF / disabled en Dev (sin LLM de pago) |
+| Producción | **no desplegada** · **no lista** |
 
 ## Abort / rollback
 
