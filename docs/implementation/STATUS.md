@@ -21,6 +21,13 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - La primera captura real dejó la línea base; desde la próxima ejecución se mostrarán los
   porcentajes de variación frente a ese estado. Se verificó el acceso de la clave dedicada a los
   seis hosts y se incluyen los datos Docker/snapshots solicitados para Oracle.
+- Ampliación desplegada en la release `20260731-d4afd77`: el correo incorpora gasto OpenRouter
+  de las últimas 24 horas, resumen y detalle por modelo/tarea/proyecto, tokens, errores y
+  variación. La ejecución real del 2026-07-31 registró `0.055862 USD` en 16 solicitudes; al
+  ser el primer informe con esta métrica, su variación figura como `n/d` y quedará disponible
+  frente a la próxima captura.
+- HTML premium validado con viewport de 430 px: ancho renderizado 430 px sin overflow horizontal;
+  las tarjetas se apilan y el detalle OpenRouter mantiene su scroll interno.
 
 ## Despliegue nativo oracle-dev (2026-07-28)
 
