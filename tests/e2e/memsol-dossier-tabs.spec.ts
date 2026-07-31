@@ -1,7 +1,9 @@
 /**
  * MEMSOL browser residual: Actividad, Preguntar a Oracle, Informe libre.
  * Real login + HTTP against the auth E2E stack (APP_ENV=test → Celery eager).
- * Does not mock section components. Cancel/retry are not exposed in UI (residual).
+ * Does not mock section components. Cancel/retry use real POSTs + If-Match on
+ * jobs seeded by seed_memsol_job_controls_e2e.py (never published → stay
+ * queued/failed long enough for the control buttons).
  */
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -225,7 +227,8 @@ test.describe("MEMSOL dossier tabs (Actividad / Preguntar / Informe libre)", () 
       page.getByText(/cobertura suficiente en el expediente/i),
     ).toBeVisible();
     await expectWcagAA(page, `/app/dossiers/${dossierId}/ask`);
-    // Cancel/retry not in UI — residual only (Actualizar present).
+    // Happy-path settles under eager Celery; Cancelar/Reintentar are covered in
+    // the dedicated "Cancelar y Reintentar reales" test with seeded jobs.
     await expect(page.getByRole("button", { name: /Actualizar/i })).toBeVisible();
 
     // --- Informe libre ---

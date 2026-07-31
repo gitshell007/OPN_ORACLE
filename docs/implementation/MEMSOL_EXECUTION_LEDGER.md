@@ -140,6 +140,15 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 | Worker real | smoke Dev previo (run_tag 20260731T194745Z) evidencia independiente |
 | Signal pilot prep | `MEMSOL_SIGNAL_PILOT_PREP.md` limpio + `signal_pilot.env.example` · flags **OFF** · no activado |
 
+### Re-verificación post-skeptic (2026-07-31 ~23:01 Europe/Madrid)
+
+| Check | Resultado medido |
+|---|---|
+| pollEpoch | `job-progress.tsx` L34/L93/L118; vitest «reanuda el poll tras reintento no terminal» |
+| HTTP Flask | **11 passed** en 0.47s — rutas reales `client.post` 428/409/202/403/404 |
+| Playwright desktop | **4 passed** (35.8s) incl. cancel 202 + retry 202 reales (sin `route.fulfill` en cancel/retry) |
+| Pilot prep | markdown limpio (sin shell garbage); defaults OFF; **no** activado |
+
 ## Residual explícito
 
 1. Matriz Playwright **mobile** de tabs MEMSOL omitida a propósito.
