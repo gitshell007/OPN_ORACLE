@@ -633,3 +633,38 @@ Siempre informa:
 
 Evita “todo funciona” sin evidencias concretas. Nombra gates solo cuando se hayan ejecutado todos
 sus comandos: “Ruff correcto” exige `ruff check` y `ruff format --check`.
+
+## 22. Sistema vivo de planificación y desarrollo
+
+El estado estructurado de producto y desarrollo vive en `docs/development/oracle-roadmap.json`.
+El HTML `docs/development/oracle-development-dashboard.html` es un artefacto generado y nunca la
+fuente de verdad. Antes de iniciar una tarea, lee el roadmap, identifica el `id` de la funcionalidad
+que vas a tocar y comprueba sus dependencias, criterios de aceptación, riesgos y evidencias.
+
+Para cualquier cambio relevante de Oracle:
+
+1. Trabaja exclusivamente sobre el ID elegido; si el alcance cambia, justifícalo en el historial.
+2. Distingue `proposed`, `approved`, `in_progress`, `implemented`, `validated` y `deployed`.
+   `implemented` significa código realizado; `validated` exige criterios y pruebas superados;
+   `deployed` exige evidencia real del despliegue.
+3. No marques una funcionalidad como terminada con criterios, pruebas, permisos, tenant isolation,
+   migraciones o evidencias pendientes.
+4. Actualiza el elemento del roadmap, `oracle-progress.md` y las decisiones significativas en
+   `oracle-decisions.md`; enlaza solo archivos, migraciones y pruebas que existan.
+5. Ejecuta las pruebas correspondientes y registra el comando y su resultado. No inventes resultados,
+   archivos, funcionalidades ni cobertura.
+6. Regenera el dashboard con:
+
+   ```bash
+   python3 scripts/generate-development-dashboard.py
+   ```
+
+   Usa `--check` para validar sin escribir. El generador debe fallar con datos inválidos y no debe
+   sobrescribir el HTML anterior si la validación no pasa.
+7. Revisa el diff, conserva cambios ajenos del árbol compartido y deja `STATUS.md` coherente con la
+   evidencia actual. No uses el dashboard para autorizar acciones ni para sustituir controles Flask.
+
+Las nuevas ideas se registran como `proposed` o `needs_definition` después de buscar duplicidades,
+definir usuarios, dependencias, riesgos y criterios de aceptación. No se implementan por inferencia.
+La auditoría y el dashboard deben conservar separados lo comprobado, parcialmente comprobado,
+propuesto y desconocido, especialmente para Signal, IA, fuentes externas y despliegues.
