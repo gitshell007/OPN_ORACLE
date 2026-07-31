@@ -23,6 +23,7 @@ vi.mock("@oracle/api-client", () => ({
 vi.mock("@/components/ui/async-action-button", () => ({
   AsyncActionButton: ({
     children,
+    busy: _busy,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean }) => (
     <button type="submit" {...props}>
@@ -64,6 +65,7 @@ describe("DossierAskSection", () => {
     });
 
     render(<DossierAskSection dossierId="d1" />);
+    await waitFor(() => expect(screen.getByLabelText("Tu pregunta")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("Tu pregunta"), {
       target: { value: "¿Qué sabemos?" },
     });
@@ -72,5 +74,36 @@ describe("DossierAskSection", () => {
     await waitFor(() => expect(enqueueMessage).toHaveBeenCalled());
     expect(createConversation).toHaveBeenCalledWith("d1", { title: "Preguntar a Oracle" });
     await waitFor(() => expect(screen.getByText("Respuesta de prueba")).toBeInTheDocument());
+    const stored = JSON.parse(sessionStorage.getItem("oracle:dossier-ask:d1") ?? "{}");
+    expect(stored.conversationId).toBe("c1");
+    expect(stored.messageId).toBe("m1");
+  });
+
+  it("rehidrata message y reanuda poll al recargar desde sessionStorage", async () => {
+    sessionStorage.setItem(
+      "oracle:dossier-ask:d1",
+      JSON.stringify({ conversationId: "c-reload", messageId: "m-reload" }),
+    );
+    getMessage.mockResolvedValue({
+      id: "m-reload",
+      conversation_id: "c-reload",
+      dossier_id: "d1",
+      role: "user",
+      status: "succeeded",
+      sequence: 1,
+      content_text: "Pregunta restaurada",
+      answer_payload: { text: "Respuesta restaurada", mutates_intent: false },
+    });
+
+    render(<DossierAskSection dossierId="d1" />);
+
+    await waitFor(() =>
+      expect(getMessage).toHaveBeenCalledWith("d1", "c-reload", "m-reload"),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Respuesta restaurada")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Pregunta restaurada/)).toBeInTheDocument();
+    expect(createConversation).not.toHaveBeenCalled();
   });
 });

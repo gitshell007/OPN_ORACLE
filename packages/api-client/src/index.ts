@@ -78,6 +78,7 @@ export type {
   ActorAliasCandidate,
   ProcurementDocumentReportResponse,
   CustomBriefAccepted,
+  CustomBriefDetail,
   DossierActivityItem,
   DossierActivityResponse,
   DossierConversation,

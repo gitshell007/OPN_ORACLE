@@ -2784,6 +2784,27 @@ export interface CustomBriefAccepted {
   report?: Record<string, unknown>;
 }
 
+export interface CustomBriefDetail {
+  id: string;
+  tenant_id: string;
+  dossier_id: string;
+  title: string;
+  status: string;
+  report_type: string;
+  template_key: string;
+  template_version: string;
+  generation_version: number;
+  brief_request: string;
+  plan_status: string;
+  proposed_plan?: Record<string, unknown> | null;
+  background_job_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  requested_by_user_id: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 const dossierActivity = {
   get: (dossierId: string, query?: { kind?: string; limit?: number; offset?: number }) => {
     const params = new URLSearchParams();
@@ -2824,6 +2845,10 @@ const customBriefs = {
     request<CustomBriefAccepted>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom`,
       { method: "POST", body: input, idempotencyKey },
+    ),
+  get: (dossierId: string, reportId: string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}`,
     ),
 };
 

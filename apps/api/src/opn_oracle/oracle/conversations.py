@@ -363,10 +363,11 @@ def enqueue_user_message(
     request_id: str | None = None,
     publish: bool = False,
 ) -> tuple[DossierMessage, BackgroundJob]:
-    """Persist the user question first, then stage a BackgroundJob (no external calls).
+    """Persist the user question first, then stage a BackgroundJob.
 
-    ``publish=False`` keeps the job durable without contacting Celery/broker.
-    Worker execution of the answer task is a later MEMSOL step; accept path stays local.
+    HTTP routes commit then call ``publish_job`` so Celery can run
+    ``oracle.dossier_question.answer``. Pass ``publish=True`` to commit+publish
+    inside this helper (tests usually keep publish=False and commit themselves).
     """
 
     if not 8 <= len(idempotency_key) <= 200:

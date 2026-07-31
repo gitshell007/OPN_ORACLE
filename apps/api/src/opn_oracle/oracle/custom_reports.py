@@ -85,13 +85,38 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "generation_version": report.generation_version,
         "brief_request": str(options.get("brief_request") or ""),
         "plan_status": str(options.get("plan_status") or "draft"),
+        "proposed_plan": options.get("proposed_plan"),
         "background_job_id": (
             str(report.background_job_id) if report.background_job_id is not None else None
         ),
+        "error_code": getattr(report, "error_code", None),
+        "error_message": getattr(report, "error_message", None),
         "requested_by_user_id": str(report.requested_by_user_id),
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
     }
+
+
+def get_custom_brief(
+    session: Session,
+    *,
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> Report:
+    """Load a custom brief report for the current tenant/dossier."""
+
+    tenant_id = require_tenant_id()
+    report = session.scalar(
+        select(Report).where(
+            Report.id == report_id,
+            Report.tenant_id == tenant_id,
+            Report.dossier_id == dossier_id,
+            Report.template_key == CUSTOM_BRIEF_TEMPLATE_KEY,
+        )
+    )
+    if report is None:
+        raise CustomReportNotFound("Informe de brief no encontrado.")
+    return report
 
 
 def create_custom_report_brief(

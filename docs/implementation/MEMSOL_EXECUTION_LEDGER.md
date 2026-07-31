@@ -52,3 +52,11 @@
 
 - No producción. Kill switches memory OFF.
 - Signal main ya contiene MEMSOL-02; no activar MEMORY_ENGINE_ENABLED sin autorización.
+
+## Skeptic fixes (2026-07-31 20:23 Europe/Madrid)
+
+- Ask UI: sessionStorage guarda conversationId+messageId; on mount GET message y reanuda poll.
+- Brief UI: customBriefs.get + poll plan_status; GET `/reports/custom/{report_id}`; reload rehidrata.
+- Routes: commit + `publish_job(job)` para pregunta y brief (HANDLERS cableados a Celery).
+- Tests: ask reload (2), brief create/poll/reload/error (3), route publish structural (1).
+- Evidence: `{SCRATCH}/memsol_ui_reload_tests.txt`, `memsol_publish_tests.txt`.

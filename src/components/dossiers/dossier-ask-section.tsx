@@ -7,15 +7,41 @@ import {
   type DossierMessage,
 } from "@oracle/api-client";
 import { MessageSquare, RefreshCw, Send } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 
 const STORAGE_PREFIX = "oracle:dossier-ask:";
 
+type AskSession = {
+  conversationId: string;
+  messageId: string | null;
+  title?: string;
+};
+
 function storageKey(dossierId: string): string {
-  return `${STORAGE_PREFIX}${dossierId}:conversation`;
+  return `${STORAGE_PREFIX}${dossierId}`;
+}
+
+function readSession(dossierId: string): AskSession | null {
+  try {
+    const raw = sessionStorage.getItem(storageKey(dossierId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AskSession;
+    if (parsed?.conversationId) return parsed;
+  } catch {
+    // sessionStorage is convenience; API is durable.
+  }
+  return null;
+}
+
+function writeSession(dossierId: string, session: AskSession): void {
+  try {
+    sessionStorage.setItem(storageKey(dossierId), JSON.stringify(session));
+  } catch {
+    // optional
+  }
 }
 
 export function DossierAskSection({ dossierId }: { dossierId: string }) {
@@ -25,18 +51,15 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
   const [message, setMessage] = useState<DossierMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [hydrating, setHydrating] = useState(true);
+  const pollTimer = useRef<number | null>(null);
 
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(storageKey(dossierId));
-      if (raw) {
-        const parsed = JSON.parse(raw) as DossierConversation;
-        if (parsed?.id) setConversation(parsed);
-      }
-    } catch {
-      // sessionStorage is convenience only; durable state is the API.
+  const stopPoll = useCallback(() => {
+    if (pollTimer.current != null) {
+      window.clearTimeout(pollTimer.current);
+      pollTimer.current = null;
     }
-  }, [dossierId]);
+  }, []);
 
   const pollMessage = useCallback(
     async (conversationId: string, messageId: string) => {
@@ -47,8 +70,19 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
           messageId,
         );
         setMessage(current);
+        setPendingMessageId(messageId);
+        writeSession(dossierId, {
+          conversationId,
+          messageId,
+          title: "Preguntar a Oracle",
+        });
         if (["queued", "running"].includes(current.status)) {
-          window.setTimeout(() => void pollMessage(conversationId, messageId), 2000);
+          stopPoll();
+          pollTimer.current = window.setTimeout(() => {
+            void pollMessage(conversationId, messageId);
+          }, 2000);
+        } else {
+          stopPoll();
         }
       } catch (reason) {
         setError(
@@ -58,8 +92,52 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
         );
       }
     },
-    [dossierId],
+    [dossierId, stopPoll],
   );
+
+  // Reload-safe rehydrate: conversation + last message from sessionStorage → GET API
+  useEffect(() => {
+    let cancelled = false;
+    const kickoff = window.setTimeout(() => {
+      void (async () => {
+        setHydrating(true);
+        const stored = readSession(dossierId);
+        if (!stored?.conversationId) {
+          if (!cancelled) setHydrating(false);
+          return;
+        }
+        setConversation({
+          id: stored.conversationId,
+          dossier_id: dossierId,
+          status: "open",
+          title: stored.title ?? "Preguntar a Oracle",
+        });
+        if (stored.messageId) {
+          setPendingMessageId(stored.messageId);
+          try {
+            const current = await api.dossierConversations.getMessage(
+              dossierId,
+              stored.conversationId,
+              stored.messageId,
+            );
+            if (cancelled) return;
+            setMessage(current);
+            if (["queued", "running"].includes(current.status)) {
+              void pollMessage(stored.conversationId, stored.messageId);
+            }
+          } catch {
+            // Stale session entry; keep UI usable for a new question.
+          }
+        }
+        if (!cancelled) setHydrating(false);
+      })();
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(kickoff);
+      stopPoll();
+    };
+  }, [dossierId, pollMessage, stopPoll]);
 
   async function ensureConversation(): Promise<DossierConversation> {
     if (conversation) return conversation;
@@ -67,11 +145,11 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
       title: "Preguntar a Oracle",
     });
     setConversation(created);
-    try {
-      sessionStorage.setItem(storageKey(dossierId), JSON.stringify(created));
-    } catch {
-      // optional
-    }
+    writeSession(dossierId, {
+      conversationId: created.id,
+      messageId: pendingMessageId,
+      title: created.title,
+    });
     return created;
   }
 
@@ -90,6 +168,11 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
         idempotencyKey(`ask-${dossierId}-${Date.now()}`),
       );
       setPendingMessageId(accepted.message_id);
+      writeSession(dossierId, {
+        conversationId: thread.id,
+        messageId: accepted.message_id,
+        title: thread.title,
+      });
       setQuestion("");
       toast.success("Pregunta registrada", {
         description: "La respuesta se generará en segundo plano (202).",
@@ -106,6 +189,16 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
     }
   }
 
+  if (hydrating) {
+    return (
+      <div className="dossier-loading" role="status" aria-label="Restaurando conversación">
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  }
+
   return (
     <div className="dossier-section-page">
       <header className="vector-panel">
@@ -114,7 +207,7 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
           <h1>Preguntar a Oracle</h1>
           <p>
             La pregunta se persiste antes de encolar el job. No modifica la intención ni los
-            hechos de memoria.
+            hechos de memoria. Tras recargar se recupera el último mensaje desde la API.
           </p>
         </div>
       </header>
@@ -165,7 +258,10 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
           ) : null}
         </header>
         {!message ? (
-          <p>Aún no hay respuestas en esta sesión. Tras enviar, el estado se conserva al recargar si el mensaje existe en API.</p>
+          <p>
+            Aún no hay respuestas. Tras enviar, el estado se conserva al recargar mediante
+            la conversación y el message_id guardados y un GET a la API.
+          </p>
         ) : (
           <article className="ask-result">
             <p>

@@ -30,6 +30,7 @@ from opn_oracle.oracle.custom_reports import (
     CustomReportError,
     CustomReportNotFound,
     create_custom_report_brief,
+    get_custom_brief,
     serialize_custom_brief,
 )
 from opn_oracle.oracle.models import StrategicDossier
@@ -99,6 +100,27 @@ class CustomBriefAcceptedSchema(Schema):
     plan_status = String(required=True)
     status = String(required=True)
     report = Dict(keys=String(), values=Raw(), required=True)
+
+
+class CustomBriefDetailSchema(Schema):
+    id = String(required=True)
+    tenant_id = String(required=True)
+    dossier_id = String(required=True)
+    title = String(required=True)
+    status = String(required=True)
+    report_type = String(required=True)
+    template_key = String(required=True)
+    template_version = String(required=True)
+    generation_version = Integer(required=True)
+    brief_request = String(required=True)
+    plan_status = String(required=True)
+    proposed_plan = Dict(keys=String(), values=Raw(), allow_none=True)
+    background_job_id = String(allow_none=True)
+    error_code = String(allow_none=True)
+    error_message = String(allow_none=True)
+    requested_by_user_id = String(required=True)
+    created_at = String(allow_none=True)
+    updated_at = String(allow_none=True)
 
 
 def _problem(
@@ -185,7 +207,11 @@ def enqueue_conversation_message(
             request_id=getattr(g, "request_id", None),
             publish=False,
         )
+        # Persist first, then publish so Celery can run the real HANDLER.
         db.session.commit()
+        from opn_oracle.jobs.service import publish_job
+
+        publish_job(job)
     except ConversationNotFound as error:
         db.session.rollback()
         return _problem(404, detail=str(error), code="not_found")
@@ -252,6 +278,9 @@ def create_custom_report(
             publish=False,
         )
         db.session.commit()
+        from opn_oracle.jobs.service import publish_job
+
+        publish_job(job)
     except CustomReportNotFound as error:
         db.session.rollback()
         return _problem(404, detail=str(error), code="not_found")
@@ -270,3 +299,26 @@ def create_custom_report(
         "status": report.status,
         "report": body,
     }, 202
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>")
+@require_permission("report.read")
+@bp.output(CustomBriefDetailSchema)
+@limiter.limit("60/minute")
+def get_custom_report_brief(
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> dict[str, Any] | Response:
+    """Poll custom brief plan_status / proposed_plan after 202 create."""
+
+    if _dossier_or_404(dossier_id, write=False) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    try:
+        report = get_custom_brief(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+        )
+    except CustomReportNotFound as error:
+        return _problem(404, detail=str(error), code="not_found")
+    return serialize_custom_brief(report)

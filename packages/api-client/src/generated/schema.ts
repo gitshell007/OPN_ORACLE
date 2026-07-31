@@ -10601,6 +10601,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/reports/custom/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll custom brief plan_status / proposed_plan after 202 create. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                    report_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReportResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/requirements": {
         parameters: {
             query?: never;
@@ -29659,6 +29752,28 @@ export interface components {
         };
         CustomBriefCreate: {
             brief_request: string;
+        };
+        CustomBriefDetail: {
+            background_job_id?: string | null;
+            brief_request: string;
+            created_at?: string | null;
+            dossier_id: string;
+            error_code?: string | null;
+            error_message?: string | null;
+            generation_version: number;
+            id: string;
+            plan_status: string;
+            proposed_plan?: {
+                [key: string]: unknown;
+            } | null;
+            report_type: string;
+            requested_by_user_id: string;
+            status: string;
+            template_key: string;
+            template_version: string;
+            tenant_id: string;
+            title: string;
+            updated_at?: string | null;
         };
         DecisionResource: {
             content?: components["schemas"]["JsonObject"];

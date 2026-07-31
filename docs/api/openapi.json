@@ -2125,6 +2125,87 @@
         ],
         "type": "object"
       },
+      "CustomBriefDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "background_job_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "brief_request": {
+            "type": "string"
+          },
+          "created_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "error_code": {
+            "nullable": true,
+            "type": "string"
+          },
+          "error_message": {
+            "nullable": true,
+            "type": "string"
+          },
+          "generation_version": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "plan_status": {
+            "type": "string"
+          },
+          "proposed_plan": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "report_type": {
+            "type": "string"
+          },
+          "requested_by_user_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "template_key": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_request",
+          "dossier_id",
+          "generation_version",
+          "id",
+          "plan_status",
+          "report_type",
+          "requested_by_user_id",
+          "status",
+          "template_key",
+          "template_version",
+          "tenant_id",
+          "title"
+        ],
+        "type": "object"
+      },
       "DecisionResource": {
         "additionalProperties": false,
         "properties": {
@@ -24512,6 +24593,109 @@
           }
         ],
         "summary": "Create Custom Report",
+        "tags": [
+          "Conversaciones e informes personalizados"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/reports/custom/{report_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Poll custom brief plan_status / proposed_plan after 202 create.",
         "tags": [
           "Conversaciones e informes personalizados"
         ]
