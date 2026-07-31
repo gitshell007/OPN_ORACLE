@@ -25,6 +25,19 @@
 | Abort criteria | error rate > umbral / coste / aislamiento |
 | Rollback owner | TBD |
 
+## Smoke Oracle Dev (evidencia 2026-07-31 · no es autorización de prod)
+
+| Check | Estado medido |
+|---|---|
+| Host / canal | `oracle-dev` · `/etc/opn-oracle-dev` · release `96250a4` |
+| Migraciones 0027/0028 | **aplicadas** (head `20260731_0028`) |
+| Worker `-Q …,ai,…` | **active**; tasks MEMSOL registradas |
+| Pregunta durable 202→Celery→terminal | **pass** job `e866fc53-…` queue `ai` |
+| Custom brief plan | **pass** job `9c48b575-…` plan_status `proposed` |
+| Cancel controlado + If-Match | **pass** job `dfed02aa-…` → `cancelled` (retry 409 esperado) |
+| Flags AI/MEMORY | OFF / disabled en Dev |
+| Producción | **no desplegada** |
+
 ## Abort / rollback
 
 - Desactivar `MEMORY_ENGINE_ENABLED` y tasks nuevas (`enabled=false`)

@@ -2,6 +2,15 @@
 
 Actualizado: 2026-07-31
 
+## Memoria Sol · smoke Celery `ai` en Oracle Dev (2026-07-31 21:40)
+
+- Release Dev activo: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
+- Migraciones Dev: **0027 + 0028** aplicadas; head `20260731_0028`.
+- Tasks worker: `oracle.dossier_question.answer` y `oracle.report.custom_brief.plan` en cola `ai`.
+- E2E real: pregunta 202→worker→succeeded; brief plan proposed; cancel con If-Match→cancelled.
+- Tenant sintético `memsol-celery-smoke` (no datos de clientes). AI flags OFF.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`. Producción **no** desplegada.
+
 ## Memoria Sol · verificación final con Postgres real (2026-07-31)
 
 - oracle_test migrado a `20260731_0028`; backfill dry-run midió 0 dossiers/0 revisiones.
@@ -31,22 +40,6 @@ Actualizado: 2026-07-31
 
 Rama observada: `master` / `memsol/execution`  
 Interfaz canónica: `CANONICAL_UI=vector`
-
-## Sistema vivo de planificación (2026-07-31)
-
-- Se creó `docs/development/oracle-roadmap.json` como fuente estructurada de estado, dependencias,
-  criterios, evidencias y próximos trabajos; el dashboard HTML es un artefacto generado.
-- Auditoría inicial: 10 módulos y 31 funcionalidades, con estados separados entre implementado,
-  validado, desplegado, en revisión, bloqueado y diferido. No se desarrolló nueva funcionalidad de
-  negocio en esta fase.
-- El snapshot de auditoría se tomó en `oracle-dev`; el commit de gobernanza se integró en `master`
-  sin incluir cambios funcionales ajenos de otras sesiones.
-- Comprobaciones realizadas: `python3 scripts/generate-development-dashboard.py --check`, generación
-  determinista del HTML, parser HTML estándar, sintaxis JavaScript y protección contra sobrescritura
-  con roadmap inválido. La inspección visual mediante navegador integrado no se pudo ejecutar porque
-  la política del navegador bloquea abrir `file://`; no se sorteó esa restricción.
-- Fuente y uso: `docs/development/oracle-architecture.md`, `oracle-decisions.md` y
-  `oracle-progress.md`. Regenerar con `python3 scripts/generate-development-dashboard.py`.
 
 ## MEMSOL-05 · MemoryContextAdapter Oracle (2026-07-31)
 
