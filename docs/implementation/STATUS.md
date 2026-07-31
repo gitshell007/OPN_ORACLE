@@ -1,8 +1,19 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-28
+Actualizado: 2026-07-31
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
+
+## Monitor diario de infraestructura (2026-07-31)
+
+- Auditoría read-only ejecutada con `root` sobre `advisor`, `risk`, `oracle`, `signal`,
+  `signal-dev` y `oracle-dev`. Se confirma PostgreSQL nativo en Advisor/Risk/Oracle Dev,
+  Docker en Oracle/Signal/Signal Dev y Celery/systemd en las seis superficies.
+- DNS observado: `signal-dev.opnconsultoria.com` es el nombre válido; la variante escrita sin
+  la `n` (`signal-dev.opconsultoria.com`) no resuelve.
+- Se implementa un monitor externo con almacenamiento de histórico local, variación diaria,
+  correo Graph y timer systemd. La activación en hosts requiere una clave SSH dedicada y se
+  deja fuera del repositorio cualquier secreto, contraseña o clave privada.
 
 ## Despliegue nativo oracle-dev (2026-07-28)
 
