@@ -75,8 +75,9 @@ Host: `oracle-dev.opnconsultoria.com` / `159.195.216.33` · env `/etc/opn-oracle
 | Integration multitenancy+jobs | **46 passed** |
 | Integration HTTP MEMSOL | **3 passed** |
 | Migrations oracle_test | **20260731_0028 head** |
-| Playwright browser | residual (suite no invocada en Dev UI aún) |
-| Production | **not deployed** |
+| UI vitest Actividad/Ask/Brief | **7 passed** (post-Celery gate) |
+| Playwright browser MEMSOL tabs | residual / blocked (no dedicated specs; suite is phase12/smoke) |
+| Production | **not deployed** · **not ready** |
 
 ## Estado global
 
@@ -89,14 +90,15 @@ Host: `oracle-dev.opnconsultoria.com` / `159.195.216.33` · env `/etc/opn-oracle
 | OpenAPI/TS/backfill script | complete | faf95db+ | pass |
 | Integration HTTP MEMSOL | complete | a2e19a1 | 3 HTTP pass |
 | **Oracle Dev Celery `ai` smoke** | **complete** | release **96250a4** | **pass** (question+brief+cancel) |
-| Playwright/a11y full | residual | — | not run |
-| MEMSOL-11 prod | prepared | MEMSOL_11_ROLLOUT_PREP.md | **no deploy** |
+| UI vitest Actividad/Ask/Brief | complete | 7 tests | **pass** |
+| Playwright/a11y MEMSOL tabs | residual | memsol_playwright_blocked.txt | no dedicated specs |
+| MEMSOL-11 prod | prepared | MEMSOL_11_ROLLOUT_PREP.md | **no deploy** · **not ready** |
 
 ## Residual explícito
 
-1. Playwright E2E browser (Actividad / Preguntar / Informe libre) — siguiente si entorno UI listo.
-2. Full a11y automated scan.
-3. Producción: **no** autorizada; flags MEMORY/AI OFF.
+1. Playwright E2E browser dedicado a pestañas Actividad / Preguntar / Informe libre (no existe en `tests/e2e/`; suite actual es phase12/smoke/a11y shell).
+2. Full a11y automated scan de esas pestañas.
+3. Producción: **no** autorizada; flags MEMORY/AI OFF; **no declarar lista**.
 
 ## Handoff
 

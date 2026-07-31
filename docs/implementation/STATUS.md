@@ -12,7 +12,8 @@ Actualizado: 2026-07-31
   - brief `0b6ddf17-…` 202→worker→**succeeded**, plan_status **proposed**;
   - fail controlado `17591fdb-…` → **failed** (`PermanentJobError`);
   - cancel `a9fd2d90-…` + If-Match → **202 cancelled**.
-- AI flags OFF / disabled (sin proveedores de pago). Producción **no** desplegada.
+- AI flags OFF / disabled (sin proveedores de pago). Producción **no** desplegada ni lista.
+- UI post-gate: vitest Actividad/Ask/Brief **7 passed**; Playwright dedicado a esas pestañas residual (sin specs).
 - Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
 ## Memoria Sol · verificación final con Postgres real (2026-07-31)
