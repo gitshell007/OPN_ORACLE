@@ -2,6 +2,15 @@
 
 Actualizado: 2026-07-31
 
+## Memoria Sol · verificación final con Postgres real (2026-07-31)
+
+- oracle_test migrado a `20260731_0028`; backfill dry-run midió 0 dossiers/0 revisiones.
+- Integration: multitenancy+jobs 46 pass; HTTP MEMSOL intent/activity/ask/brief 3 pass.
+- Unit baseline 56 pass; Signal lifecycle 8 pass; UI vitest 7 pass; Celery durable-task mutation OK.
+- MEMSOL-11 preparado; producción no desplegada.
+
+
+
 ## Memoria Sol · residuales cerrados con evidencia (2026-07-31 20:16)
 
 - Re-verificados tests baseline Oracle (43/43) y Signal lifecycle (8/8; 49 en main-base).
