@@ -22,9 +22,9 @@
 | MEMSOL-02 | complete | n/a | 86c1f74 | pass | CAS/fencing branch memsol/02 |
 | MEMSOL-03 | complete | cfe88d1 | 06fbdd6 | pass | IntentRevision API |
 | MEMSOL-04 | complete | pending | 86c1f74 | pass | activity read model |
-| MEMSOL-05 | complete | pending | 86c1f74 | pass | MemoryContextAdapter mock + config |
-| MEMSOL-06 | complete | pending | 86c1f74 | pass | Q&A durable 202 + migration 0028 |
-| MEMSOL-07 | complete | pending | 86c1f74 | pass | custom brief Report+job pending |
+| MEMSOL-05 | complete | 89e2e3d | 86c1f74 | pass | MemoryContextAdapter mock + config |
+| MEMSOL-06 | complete | 89e2e3d | 86c1f74 | pass | Q&A durable 202 + migration 0028 |
+| MEMSOL-07 | complete | 89e2e3d | 86c1f74 | pass | custom brief Report+job pending |
 | MEMSOL-08 | pending | | | | |
 | MEMSOL-09 | pending | | | | |
 | MEMSOL-10 | pending | | | | |
