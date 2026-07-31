@@ -1057,6 +1057,8 @@ dossier_summary_refresh = _durable_task("oracle.dossier_summary.refresh")
 meeting_briefing_refresh = _durable_task("oracle.meeting_briefing.refresh")
 weekly_change_refresh = _durable_task("oracle.weekly_change.refresh")
 report_generate = _durable_task("oracle.report.generate")
+dossier_question_answer = _durable_task("oracle.dossier_question.answer")
+report_custom_brief_plan = _durable_task("oracle.report.custom_brief.plan")
 procurement_document_report_generate = _durable_task("oracle.procurement_document_report.generate")
 competitive_procurement_report_generate = _durable_task(
     "oracle.competitive_procurement_report.generate"

@@ -6,7 +6,7 @@
 
 - Última actualización: 2026-07-31 20:16 Europe/Madrid
 - Oracle worktree: `.worktrees/memsol` · `memsol/execution`
-- Oracle `origin/master`: **`faf95db`** (UI/OpenAPI/backfill + workers `5bee9cc`)
+- Oracle `origin/master`: measured tip after durable-task fix (see Git section)
 - Signal `origin/main`: `f934ead` (MEMSOL-02 CAS/fencing, flags OFF)
 - Producción autorizada: **no**
 
@@ -60,3 +60,12 @@
 - Routes: commit + `publish_job(job)` para pregunta y brief (HANDLERS cableados a Celery).
 - Tests: ask reload (2), brief create/poll/reload/error (3), route publish structural (1).
 - Evidence: `{SCRATCH}/memsol_ui_reload_tests.txt`, `memsol_publish_tests.txt`.
+
+## Celery durable-task registration (skeptic 2026-07-31)
+
+- Bug: HANDLERS + TASK_QUEUES had `oracle.dossier_question.answer` and
+  `oracle.report.custom_brief.plan` but no `_durable_task()` → celery.tasks KeyError
+  on publish_claimed_job → jobs stuck `publish_pending`.
+- Fix: register both via `_durable_task`; TASK_ROUTES `oracle.dossier_question.*` → ai.
+- Tests: `test_memsol_celery_registration.py` asserts job_type in celery.tasks and
+  publish_claimed_job.apply_async; mutation removing _durable_task lines fails registration test.
