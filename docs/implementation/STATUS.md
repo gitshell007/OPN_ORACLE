@@ -28,6 +28,12 @@ Interfaz canónica: `CANONICAL_UI=vector`
   frente a la próxima captura.
 - HTML premium validado con viewport de 430 px: ancho renderizado 430 px sin overflow horizontal;
   las tarjetas se apilan y el detalle OpenRouter mantiene su scroll interno.
+- Ranking de almacenamiento desplegado en `20260731-8484ab4`: cada host aporta 10 directorios y
+  10 archivos más grandes, con tamaño y variación por ruta. La ejecución real terminó en `success`,
+  envió el correo y persistió `10/10` entradas sin errores en los seis servidores. El escaneo tarda
+  hasta ~90 segundos en Oracle por `containerd`/Docker; el timeout SSH del monitor es 180 segundos.
+- El timer sigue habilitado y activo: ejecución diaria a las 08:00 Europe/Madrid con dispersión de
+  hasta 10 minutos; la siguiente ejecución observada por systemd es 08:00 local.
 
 ## Despliegue nativo oracle-dev (2026-07-28)
 
