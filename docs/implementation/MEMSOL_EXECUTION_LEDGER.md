@@ -6,7 +6,7 @@
 
 - Última actualización: 2026-07-31 20:35 Europe/Madrid
 - Oracle worktree: `.worktrees/memsol` · `memsol/execution`
-- Oracle tip (pre-commit integration test): see Git after push
+- Oracle origin/master tip: **a2e19a1**
 - Signal `origin/main`: `f934ead` (MEMSOL-02, flags OFF)
 - Producción autorizada: **no**
 
