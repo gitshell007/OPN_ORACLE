@@ -189,3 +189,19 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 | Kill switch | disable → 403 consumer_ai_disabled · usage delta 0 · re-enable limited |
 | Prompt/schema | v1 · DossierQuestionAnswerOutput / ReportCustomBriefPlanOutput · sha en scratch versions |
 
+## Gate fallback Ollama→Titan controlado (2026-08-01 ~00:21 Europe/Madrid)
+
+| Check | Resultado |
+|---|---|
+| Consumer | `opn-oracle-memsol-pilot` id **61** (solo Dev) |
+| Método fail primario | model `qwen3.5:9b-MEMSOL-FALLBACK-GATE-DOES-NOT-EXIST` + `fallback_on_status=[404,408,429]` (reversible) |
+| dossier_question_answer | HTTP 200 · **ollama_titan/qwen3.6:27b** · `fallback_used=true` · usage **4461** · in=1699 out=110 · 110149 ms · cost null |
+| report_custom_brief_plan | HTTP 200 · **ollama_titan/qwen3.6:27b** · `fallback_used=true` · usage **4462** · in=1798 out=308 · 129218 ms · cost null |
+| OpenRouter | **0** filas consumer 61 |
+| Logger shape | 1 fila final por run (provider efectivo titan + fallback_used); primario intermedio no se inserta como fila |
+| Kill switch | disable → 403 `consumer_ai_disabled` · usage delta **0** |
+| Restore | per_task models `qwen3.5:9b` · fallback_on_status `[429]` bit-for-bit vs backup |
+| MEMORY | `MEMORY_ENGINE_ENABLED=0` |
+
+**Rollback:** `var/memsol_fallback_config_backup.json` en Signal Dev; ya reaplicado en restore del gate.
+

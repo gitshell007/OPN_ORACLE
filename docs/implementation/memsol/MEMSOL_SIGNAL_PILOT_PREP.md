@@ -83,3 +83,12 @@ Ver `signal_pilot.env.example` en este directorio (todos los flags a 0).
 - Kill switch: deshabilitar `ConsumerAISettings.enabled` del consumer 61 (403 `consumer_ai_disabled`).
 - Rollback Oracle: restaurar `/etc/opn-oracle-dev/oracle.env.bak-memsol-ai-*` y backup hotpatch en `/var/backups/opn-oracle-dev/memsol-ai-hotpatch-*`.
 - **No activar MEMORY.** **No prod.**
+
+## Fallback Ollama→Titan (gate 2026-08-01)
+
+1. Backup `ConsumerAISettings` del consumer sintético.
+2. Temporal (solo id 61): primary model inexistente + `fallback_on_status` con 404.
+3. `POST /api/v1/ai/run` por task key → titan real.
+4. Kill switch: `enabled=false` → 403; re-enable + restore backup.
+5. No OpenRouter. No prod. MEMORY off.
+
