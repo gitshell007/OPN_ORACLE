@@ -7586,3 +7586,24 @@ html[data-font-scale="small"] .workspace-chip strong {
   margin: 0;
   font-size: 12px;
 }
+.eu-country-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.eu-country-custom input {
+  width: 8rem;
+  text-transform: uppercase;
+}
+.eu-country-custom button {
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  background: var(--va-soft);
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.eu-country-error {
+  color: var(--va-danger);
+}

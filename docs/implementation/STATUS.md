@@ -4,6 +4,23 @@ Actualizado: 2026-07-31
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## MEMSOL-00 · Auditoría y reconciliación (2026-07-31)
+
+- Worktree aislado `memsol/execution` desde `master@35b2e94`; WIP de `oracle-dev` y Signal
+  inventariado y **excluido** del staging.
+- Merge limpio `oracle-dev@eb61173` → master (intake `market.v1`, documentos dev, UI inventario,
+  scripts nativos) sobre la base operativa de master (monitor infra + plan Memoria Sol).
+- Geografía: se elimina la restricción UE-27 de `_geography_codes`; se valida ISO 3166-1 alpha-2
+  global. UI de países con presets UE+extra y alta libre por código ISO. Tests unitarios +
+  mutación (UE-only tumba 2 tests) y vitest del selector (5/5).
+- Prefill `sessionStorage` de monitor de Mercado queda documentado como UX efímera; la verdad
+  durable es `profile_config` + API. Starter no crea monitores Signal remotos.
+- Matriz contractual: `docs/implementation/MEMSOL_CONTRACT_MATRIX_2026-07-31.md`.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
+- Signal: sin cambios de código; `main@60a5782` / `signal-dev@06fbdd6`; orden de integración
+  documentado; `opn_memory` flags OFF; WIP local no tocado.
+- Siguiente: MEMSOL-01 (ADR y contratos de intención/memoria).
+
 ## Plan inicial de intención, memoria, vigilancia e informes (2026-07-31)
 
 - Se auditó sin cambiar de rama la divergencia Oracle `master...oracle-dev`: 7 commits exclusivos

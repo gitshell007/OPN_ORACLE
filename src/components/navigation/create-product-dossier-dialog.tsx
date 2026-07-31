@@ -217,6 +217,8 @@ export function CreateProductDossierDialog({
       });
       if (isMarket) {
         try {
+          // Prefill efímero de UX: no es memoria durable ni sustituye profile_config.
+          // Si sessionStorage no está disponible, el expediente ya está creado con el perfil.
           sessionStorage.setItem(
             `oracle:wizard-prefill:${dossier.id}:monitor`,
             JSON.stringify({
@@ -393,10 +395,10 @@ export function CreateProductDossierDialog({
                 <label className="field"><span>Sector</span><input value={sectors} onChange={(event) => setSectors(event.target.value)} placeholder="Ej. almacenamiento energético" /></label>
                 <label className="field"><span>Segmentos</span><input value={segments} onChange={(event) => setSegments(event.target.value)} placeholder="Separados por comas" /></label>
                 <EuCountryMultiSelect
-                  label="Países objetivo (UE)"
+                  label="Países objetivo"
                   value={marketCountries}
                   onChange={changeMarketCountries}
-                  hint="España y Alemania son los mercados prioritarios ahora mismo; puedes cambiar la selección."
+                  hint="Ámbito global: España y Alemania van preseleccionados; puedes añadir cualquier país ISO-2 (p. ej. US, MX, JP)."
                 />
                 <label className="field">
                   <span>Idiomas de la vigilancia</span>

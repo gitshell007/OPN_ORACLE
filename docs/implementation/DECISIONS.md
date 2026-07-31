@@ -1547,3 +1547,22 @@ deberá versionarse un flujo de copia/materialización separado.
   capacidades actuales sin migración de RBAC. El precio deliberado es que un rol custom con
   `task.write` pero sin `report.generate` no accede todavía al catálogo; ese caso requiere una
   decisión explícita de producto en vez de una autorización implícita por unión de permisos.
+
+
+## D-088 — Geografía de expediente global (ISO-2), no UE-27
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-31
+- **Contexto:** el intake `market.v1` de `oracle-dev` validaba `geography` solo contra los 27
+  códigos de la UE, contradiciendo la regla de producto de Oracle (transversal/global) y el
+  checklist Memoria Sol. La lista UE es útil como preset de UX, no como frontera de dominio.
+- **Decisión:** `_geography_codes` acepta cualquier código ISO 3166-1 alpha-2 bien formado
+  (máximo 50), sin catálogo cerrado de estados. La UI ofrece presets UE + mercados frecuentes y
+  permite añadir códigos ISO no listados. `sessionStorage` del prefill de vigilancia de Mercado
+  es transporte efímero de UX y no sustituye `profile_config` ni crea monitores remotos.
+- **Alternativas:** mantener UE-27 (rechazado); catálogo mundial exhaustivo en backend (coste de
+  mantenimiento sin beneficio de aislamiento); validar solo en UI (insuficiente).
+- **Consecuencias:** un expediente puede acotar ES+US+MX sin error 422. Los presets UE siguen
+  prioritarios (ES/DE). MEMSOL-01/03 versionarán la intención formal; este cambio desbloquea la
+  reconciliación de `market.v1` en `master`.
+- **Prompt:** MEMSOL-00

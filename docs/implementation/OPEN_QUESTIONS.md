@@ -300,3 +300,16 @@
   cambio aislado del adapter local, ampliar corpus y medir el 27B, que no está instalado.
 - Pendiente fijar la ventana temporal por finalidad y evidencia. No se adopta automáticamente un
   corte de cuatro años como política de relevancia, expansión o retención.
+
+
+## Memoria Sol (MEMSOL) · abiertas no bloqueantes para MEMSOL-01
+
+- **Contrato Oracle↔opn_memory:** HTTP interno versionado vs paquete neutral consumido por host.
+  Provisional: HTTP/gateway Signal; sin SQL cruzado. Cerrar en ADR MEMSOL-01.
+- **DossierOffering:** dossier-scoped v1 vs catálogo tenant. Provisional: dossier-scoped.
+- **D-015 vs tasks cloud:** Signal ya opera subset OpenRouter; Oracle no elige proveedor. ADR
+  MEMSOL-01 debe superseder el lenguaje absoluto de "sin cloud" sin abrir cloud global.
+- **IntentRevision naming:** provisional `DossierIntentRevision` con estados
+  `draft|accepted|superseded|rejected`.
+- **pgvector:** no instalar; baseline PostgreSQL FTS/`pg_trgm` hasta eval MEMSOL-05/10.
+- **Producción / secretos / gasto:** bloqueados sin autorización de sesión (MEMSOL-11).

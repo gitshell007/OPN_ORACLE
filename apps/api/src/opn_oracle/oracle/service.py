@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any, cast
@@ -82,7 +83,8 @@ DOSSIER_TYPES = frozenset(
         "custom",
     }
 )
-# ISO 3166-1 alpha-2 de los 27 estados miembros de la UE (ámbito actual del producto).
+# Preset de conveniencia (UE-27). El dominio es global: la validación admite
+# cualquier código ISO 3166-1 alpha-2, no solo este conjunto.
 EU_COUNTRY_CODES = frozenset(
     {
         "AT",
@@ -114,6 +116,9 @@ EU_COUNTRY_CODES = frozenset(
         "SK",
     }
 )
+# Formato ISO 3166-1 alpha-2. No se valida contra un catálogo cerrado de estados
+# para no hardcodear regiones ni bloquear mercados fuera de la UE.
+_ISO_ALPHA2 = re.compile(r"^[A-Z]{2}$")
 DOSSIER_TRANSITIONS = {
     "draft": frozenset({"active", "archived"}),
     "active": frozenset({"paused", "archived"}),
@@ -225,12 +230,13 @@ def _profile_strings(value: Any, field: str, *, limit: int = 30) -> list[str]:
 
 
 def _geography_codes(value: Any) -> list[str]:
-    codes = [item.upper() for item in _profile_strings(value, "geography", limit=27)]
-    invalid = sorted(code for code in codes if code not in EU_COUNTRY_CODES)
+    """Normaliza códigos de geografía a ISO 3166-1 alpha-2 (ámbito global)."""
+    codes = [item.upper() for item in _profile_strings(value, "geography", limit=50)]
+    invalid = sorted(code for code in codes if not _ISO_ALPHA2.fullmatch(code))
     if invalid:
         raise DomainValidationError(
-            "geography solo admite códigos ISO-2 de países de la UE; no válidos: "
-            + ", ".join(invalid)
+            "geography solo admite códigos ISO 3166-1 alpha-2 (p. ej. ES, DE, US, MX); "
+            "no válidos: " + ", ".join(invalid)
         )
     return codes
 
