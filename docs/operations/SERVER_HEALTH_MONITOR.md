@@ -43,6 +43,9 @@ Persistent=true permite recuperar una ejecución perdida tras reiniciar el host.
 ## Seguridad y límites
 
 - La clave de monitorización es dedicada; no se reutiliza una clave de aplicación.
+- El servicio conserva únicamente `CAP_DAC_READ_SEARCH` para poder leer el secreto Graph existente
+  cuando su propietario sea un UID de contenedor no resuelto en el host; no se conceden capacidades
+  de administración, red o ejecución privilegiada adicionales.
 - El recolector solo ejecuta consultas de lectura (df, /proc, systemctl is-active, psql SELECT,
   docker ps/system df, du).
 - No se imprimen secretos ni payloads de negocio. La respuesta de errores de Graph se generaliza.
