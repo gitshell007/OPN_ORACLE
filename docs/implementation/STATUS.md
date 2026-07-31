@@ -26,10 +26,15 @@ Interfaz canónica: `CANONICAL_UI=vector`
   entre afirmación y hecho, actualización incremental, idempotencia por versión y recuperación
   híbrida. PostgreSQL full-text sigue siendo el baseline; embeddings/`pgvector` quedan sujetos a
   evaluación y no se introduce otro datastore.
-- Se generó el paquete ejecutable `SignalV2/memoria_sol` en el espacio compartido de producto: una
-  planificación maestra, checklist, matriz de dependencias, 12 prompts de implementación y 13
-  contratos de runtime IA. El paquete separa operaciones deterministas —scope, chunking, retrieval,
-  activación y jobs— de las tareas que sí requieren modelo, y no activa código ni configuración.
+- Se regeneró el paquete ejecutable `SignalV2/memoria_sol` tras contrastarlo con
+  `SignalV2/memoria_luna`: contiene planificación, checklist, matriz, 12 prompts de implementación,
+  17 contratos de runtime IA y un arranque continuo para Grok Build con `/goal`, objetivo maestro y
+  ledger reanudable. Se adoptaron como propuestas opcionales la clasificación de fuentes, detección
+  de contradicciones, planificación de acciones y diagnóstico de calidad; scope, chunking,
+  recuperación/selección final, activación, mantenimiento y jobs siguen siendo deterministas.
+- La ejecución autónoma termina en MEMSOL-10 con MEMSOL-11 preparado salvo autorización explícita de
+  producción. El paquete no concede acceso a secretos, gasto externo, despliegues ni operaciones
+  destructivas, y no activa código ni configuración por el mero hecho de entregarlo a Grok Build.
 - Documento de trabajo: [`docs/product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md`](../product/DOSSIER_INTENT_MEMORY_AUTOMATION_REPORTING_PLAN.md).
 - Estado: plan inicial documentado; no se cambió esquema, API, runtime ni configuración.
 
