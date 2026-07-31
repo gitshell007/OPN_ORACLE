@@ -2,18 +2,17 @@
 
 Actualizado: 2026-07-31
 
-## Memoria Sol · smoke Celery `ai` en Oracle Dev (2026-07-31 21:36 re-verificación)
+## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 
-- Release Dev activo: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
-- Migraciones Dev: **0027 + 0028** aplicadas; head `20260731_0028` (sin re-migrate).
-- Worker consume cola **`ai`**; inspect ping OK; Redis/DB healthy en `/health/ready`.
-- E2E real (tenant `memsol-celery-smoke`, run `20260731T193646Z`):
-  - pregunta `24696b29-…` 202→worker→**succeeded** (queue `ai`);
-  - brief `0b6ddf17-…` 202→worker→**succeeded**, plan_status **proposed**;
-  - fail controlado `17591fdb-…` → **failed** (`PermanentJobError`);
-  - cancel `a9fd2d90-…` + If-Match → **202 cancelled**.
-- AI flags OFF / disabled (sin proveedores de pago). Producción **no** desplegada ni lista.
-- UI post-gate: vitest Actividad/Ask/Brief **7 passed**; Playwright dedicado a esas pestañas residual (sin specs).
+- Release Dev: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
+- Migraciones: head `20260731_0028`.
+- Re-medida run_tag **`20260731T194745Z`** con transcript HTTP completo:
+  - pregunta job `c6293b76-…` queue `ai` → succeeded
+  - brief job `9c538ca6-…` → plan proposed
+  - permanent_fail job `ad6d0d67-…` → failed/permanent_failure
+  - cancel job `edbee997-…` → 428 sin If-Match · 202 cancelled · 409 retry
+- Vitest Actividad+Ask+Brief: **7 passed**. Playwright MEMSOL: **not run** (blocked log).
+- Producción: **no** desplegada · **no lista**.
 - Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
 ## Memoria Sol · verificación final con Postgres real (2026-07-31)
