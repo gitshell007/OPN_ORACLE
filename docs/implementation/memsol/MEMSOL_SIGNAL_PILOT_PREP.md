@@ -73,3 +73,13 @@ Ver `signal_pilot.env.example` en este directorio (todos los flags a 0).
 | Consumer sintético creado | **no** |
 | Flags ON en cualquier entorno | **no** |
 | Deploy prod | **no** |
+
+## Piloto IA real ejecutado (2026-07-31)
+
+- Consumer: `opn-oracle-memsol-pilot` (Signal Dev id 61).
+- Tasks: `dossier_question_answer`, `report_custom_brief_plan` (Ollama qwen3.5:9b → Titan qwen3.6:27b).
+- Oracle Dev: `AI_MODE=signal`, tenant `memsol-celery-smoke`, `MEMORY_ENGINE_ENABLED=0` en Signal.
+- Evidencia en host: `/var/lib/opn-oracle-dev/memsol_ai_pilot_20260731T213008Z/`.
+- Kill switch: deshabilitar `ConsumerAISettings.enabled` del consumer 61 (403 `consumer_ai_disabled`).
+- Rollback Oracle: restaurar `/etc/opn-oracle-dev/oracle.env.bak-memsol-ai-*` y backup hotpatch en `/var/backups/opn-oracle-dev/memsol-ai-hotpatch-*`.
+- **No activar MEMORY.** **No prod.**

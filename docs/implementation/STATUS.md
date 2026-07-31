@@ -1,5 +1,13 @@
 # Estado de implementación de OPN Oracle
 
+## Memoria Sol · Piloto IA real Oracle+Signal Dev (2026-07-31 23:40)
+
+- Task keys Signal `dossier_question_answer` / `report_custom_brief_plan` (Ollama→Titan, sin cloud).
+- Consumer sintético `opn-oracle-memsol-pilot` id 61; MEMORY_ENGINE_ENABLED=0.
+- Ask + Brief E2E reales (Celery no-eager, Signal, Ollama); cancel/retry + titan fallback medidos.
+- Kill switch consumer_ai_disabled 403 probado. Producción no tocada. Hotpatch Oracle Dev.
+
+
 Actualizado: 2026-07-31
 
 ## Memoria Sol · Cancel/Reintentar UI Vector (2026-07-31 23:02)

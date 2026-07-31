@@ -159,3 +159,20 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 - No producción, no `MEMORY_ENGINE_ENABLED`, no secretos en evidencia.
 - Dev release: `20260731T192559Z-native-96250a4` · SHA `96250a40d7944864de1980b70019a0443bfe7fbb`.
 - Rollback Dev: activate previous `20260731T095958Z-native-eb61173`.
+
+
+## Gate real AI pilot Oracle Dev + Signal Dev (2026-07-31 ~23:40 Europe/Madrid)
+
+| Check | Resultado |
+|---|---|
+| RO audit | Oracle Dev `96250a4` + hotpatch `082a3c9` handlers; Signal Dev `e0a4a2d` |
+| Task keys Signal | `dossier_question_answer`, `report_custom_brief_plan` · consumer `opn-oracle-memsol-pilot` id **61** · ollama/`qwen3.5:9b` → titan/`qwen3.6:27b` · openrouter **0** filas |
+| Ask E2E | HTTP 202 job `b1079e3e-…` → Signal 200×2 → message **succeeded** artifact `3e9c2076-…` · provider_path=signal |
+| Brief E2E | HTTP 202 job `522d984b-…` → plan_status **proposed** · job succeeded |
+| Cancel/retry | cancel queued → **cancelled** v2; sin If-Match **428**; retry failed → **queued** |
+| Fallback Titan | primary model inexistente → `ollama_titan`/`qwen3.6:27b` `fallback_used=true` (usage 4459) |
+| Kill switch | `consumer_ai_disabled` → HTTP **403**; consumer re-enabled limited |
+| MEMORY | Signal `MEMORY_ENGINE_ENABLED=0` durante piloto |
+| Prod | **no** tocada |
+
+**Residual:** Oracle API hotpatch en release `20260731T192559Z-native-96250a4` (no full rebuild immutable); AI_MODE=signal solo tenant sintético `memsol-celery-smoke` (+ kill_switch en opn-consultoria). Pilot limited to synthetic consumer 61.
