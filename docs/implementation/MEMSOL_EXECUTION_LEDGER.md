@@ -74,7 +74,21 @@ Host: `oracle-dev.opnconsultoria.com` / `v2202607388167489673` · env `/etc/opn-
 - `http_cancel_without_if_match.json` · `http_cancel_with_if_match.json` · `http_retry_cancelled.json` · `http_get_permanent_fail_job.json`
 - `memsol_worker_tasks.log`
 - `ui_vitest_activity_ask_brief.txt` (**7 passed**: activity 2 + ask 2 + brief 3)
-- `memsol_playwright_blocked.txt` (Playwright **no** ejecutado; sin specs MEMSOL; `@playwright` ausente)
+- `tests/e2e/memsol-dossier-tabs.spec.ts` · `memsol_playwright_memsol.txt` · `memsol_playwright_assertions.txt` · `memsol_playwright_a11y.txt` (**3 passed** desktop)
+
+## Gate Playwright MEMSOL tabs (2026-07-31 · E2E local auth stack)
+
+| Check | Resultado |
+|---|---|
+| Spec | `tests/e2e/memsol-dossier-tabs.spec.ts` |
+| Entorno | `scripts/run-auth-e2e-api.sh` + Next :3000 · seed `owner@`/`viewer@oracle-e2e.test` · `APP_ENV=test` → Celery **eager** · AI disabled |
+| Actividad | load + empty (GET fulfill) + error UUID + axe AA |
+| Preguntar | POST **202** → eager `succeeded` → reload + axe; cancel/retry **no** en UI (residual) |
+| Informe libre | POST **202** → plan **proposed** → reload + error POST abort + axe |
+| Permiso negativo | viewer sin `ai.execute` → **Acceso restringido** en `/ask` |
+| Tenant negativo | UUID ajeno → **Actividad no disponible** sin leak |
+| Consola | sin pageerror; console limpia (filtro HMR/abort) |
+| Comando medido | `npx playwright test tests/e2e/memsol-dossier-tabs.spec.ts --project=desktop` → **3 passed (27.4s)** |
 
 ## Suite local previa (no re-ejecutada en este tip)
 
@@ -95,13 +109,13 @@ Host: `oracle-dev.opnconsultoria.com` / `v2202607388167489673` · env `/etc/opn-
 | UI loading/poll fix | complete | 96250a4 | pass |
 | **Oracle Dev Celery `ai` smoke** | **complete** | run **20260731T194745Z** / release **96250a4** | **pass** |
 | UI vitest Actividad/Ask/Brief | complete | **7 passed** | pass (component) |
-| Playwright/a11y MEMSOL tabs | residual | `memsol_playwright_blocked.txt` | **not run** |
+| **Playwright/a11y MEMSOL tabs** | **complete** | `memsol-dossier-tabs.spec.ts` | **3 passed** desktop |
 | MEMSOL-11 prod | prepared | MEMSOL_11_ROLLOUT_PREP.md | **no deploy** · **not ready** |
 
 ## Residual explícito
 
-1. Playwright E2E de pestañas Actividad / Preguntar / Informe libre: **no hay specs**; Playwright no instalado en worktree.
-2. a11y automatizado de esas pestañas: no ejecutado.
+1. Cancel/retry **no** expuestos en UI de Preguntar/Informe libre (solo poll «Actualizar»); residual de producto, no de cobertura browser.
+2. Matriz Playwright **mobile** de tabs MEMSOL omitida a propósito (misma suite desktop).
 3. Producción: **no** autorizada; flags MEMORY/AI OFF; **no declarar lista**.
 
 ## Handoff

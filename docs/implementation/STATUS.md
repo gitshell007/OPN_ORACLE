@@ -2,6 +2,12 @@
 
 Actualizado: 2026-07-31
 
+## Memoria Sol · Playwright residual browser (2026-07-31 22:27)
+
+- Spec real: `tests/e2e/memsol-dossier-tabs.spec.ts` contra stack E2E auth (Postgres+Redis+gunicorn+Next).
+- **3 passed** desktop: carga/empty/error Actividad; 202+eager terminal+reload Preguntar e Informe libre; viewer 403 UI; UUID ajeno; axe AA en las tres rutas.
+- Cancel/retry no en UI (documentado). Producción **no** lista.
+
 ## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 
 - Release Dev: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
@@ -11,7 +17,8 @@ Actualizado: 2026-07-31
   - brief job `9c538ca6-…` → plan proposed
   - permanent_fail job `ad6d0d67-…` → failed/permanent_failure
   - cancel job `edbee997-…` → 428 sin If-Match · 202 cancelled · 409 retry
-- Vitest Actividad+Ask+Brief: **7 passed**. Playwright MEMSOL: **not run** (blocked log).
+- Vitest Actividad+Ask+Brief: **7 passed**.
+- Playwright MEMSOL tabs: **`tests/e2e/memsol-dossier-tabs.spec.ts` → 3 passed** (desktop; Actividad/Preguntar/Informe libre + negativos + a11y axe).
 - Producción: **no** desplegada · **no lista**.
 - Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
