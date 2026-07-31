@@ -14,6 +14,13 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - Se implementa un monitor externo con almacenamiento de histórico local, variación diaria,
   correo Graph y timer systemd. La activación en hosts requiere una clave SSH dedicada y se
   deja fuera del repositorio cualquier secreto, contraseña o clave privada.
+- Activado en `oracle.opnconsultoria.com`: release `20260731-3ad0177`, timer
+  `opn-server-health-report.timer` habilitado/activo, ejecución diaria a las 08:00 Europe/Madrid
+  con hasta diez minutos de dispersión. La ejecución manual del 2026-07-31 terminó con estado
+  systemd `success` y el journal confirma `Correo enviado a info@opnconsultoria.com`.
+- La primera captura real dejó la línea base; desde la próxima ejecución se mostrarán los
+  porcentajes de variación frente a ese estado. Se verificó el acceso de la clave dedicada a los
+  seis hosts y se incluyen los datos Docker/snapshots solicitados para Oracle.
 
 ## Despliegue nativo oracle-dev (2026-07-28)
 
