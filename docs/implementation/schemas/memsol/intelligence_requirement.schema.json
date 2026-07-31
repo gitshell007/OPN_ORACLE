@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IntelligenceRequirement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "class",
+    "priority",
+    "question",
+    "status"
+  ],
+  "properties": {
+    "class": {
+      "type": "string",
+      "enum": [
+        "market_scan",
+        "competitive_watch",
+        "procurement_fit",
+        "actor_monitor",
+        "research_question",
+        "risk_watch",
+        "custom"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "decision_to_support": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "scope": {
+      "type": "object"
+    },
+    "exclusions": {
+      "type": "object"
+    },
+    "success_criteria": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "needs_review",
+        "retired"
+      ]
+    },
+    "alignment_state": {
+      "type": "string",
+      "enum": [
+        "aligned",
+        "needs_review",
+        "overridden"
+      ]
+    }
+  }
+}

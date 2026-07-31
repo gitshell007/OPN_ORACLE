@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionProvenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "effective_scope_hash",
+    "origin",
+    "alignment_state"
+  ],
+  "properties": {
+    "intent_revision_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "requirement_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "offering_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "effective_scope_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "origin": {
+      "type": "string",
+      "enum": [
+        "user",
+        "intake",
+        "assistant",
+        "signal",
+        "system"
+      ]
+    },
+    "confirmed_by_user_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "manual_overrides": {
+      "type": "object"
+    },
+    "alignment_state": {
+      "type": "string",
+      "enum": [
+        "aligned",
+        "needs_review",
+        "overridden"
+      ]
+    }
+  }
+}

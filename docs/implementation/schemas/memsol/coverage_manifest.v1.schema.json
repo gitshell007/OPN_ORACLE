@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oracle.opnconsultoria.com/schemas/memsol/coverage_manifest.v1.schema.json",
+  "title": "coverage_manifest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "requested",
+    "consulted",
+    "failed",
+    "excluded",
+    "used",
+    "truncated"
+  ],
+  "properties": {
+    "version": {
+      "const": "coverage_manifest.v1"
+    },
+    "requested": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "consulted": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "error_code"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "excluded": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "reason"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "acl",
+              "classification",
+              "budget",
+              "stale",
+              "policy",
+              "other"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "used": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "truncation_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cutoff_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "token_budget": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "token_used_estimate": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

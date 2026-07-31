@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oracle.opnconsultoria.com/schemas/memsol/memory_retrieval_response.schema.json",
+  "title": "MemoryRetrievalResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "request_id",
+    "items",
+    "coverage_manifest"
+  ],
+  "properties": {
+    "api_version": {
+      "type": "string"
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "text",
+          "classification"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fact",
+              "observation",
+              "chunk",
+              "summary",
+              "signal",
+              "evidence"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ]
+          },
+          "occurred_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "coverage_manifest": {
+      "$ref": "coverage_manifest.v1.schema.json"
+    }
+  }
+}

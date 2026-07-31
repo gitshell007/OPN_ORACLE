@@ -1,0 +1,21 @@
+{
+  "schema_key": "market",
+  "schema_version": "v1",
+  "request_text": "Evaluar entrada al mercado de almacenamiento en ES y US",
+  "structured_spec": {
+    "own_offer": "Integración de BESS",
+    "decision_to_make": "Entrar o no en 12 meses",
+    "competitors": [
+      {
+        "name": "Rival A"
+      }
+    ],
+    "geographies": [
+      "ES",
+      "US"
+    ]
+  },
+  "status": "accepted",
+  "source_refs": [],
+  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

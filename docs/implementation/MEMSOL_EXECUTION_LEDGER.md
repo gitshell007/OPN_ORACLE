@@ -17,8 +17,8 @@
 
 | Fase | Estado | Oracle SHA | Signal SHA | Gate | Evidencia/riesgo |
 |---|---|---|---|---|---|
-| MEMSOL-00 | complete | (post-push) | 06fbdd6 | pass | matrix + geo global + tests/mutación |
-| MEMSOL-01 | pending | | | | |
+| MEMSOL-00 | complete | 50a3b8a | 06fbdd6 | pass | matrix + geo global + tests/mutación |
+| MEMSOL-01 | complete | pending_push | 06fbdd6 | pass | ADR-0009 + schemas |
 | MEMSOL-02 | pending | | | | |
 | MEMSOL-03 | pending | | | | |
 | MEMSOL-04 | pending | | | | |
@@ -88,3 +88,12 @@ Ninguno global. CI remoto del SHA y suite integración completa quedan como ries
 - Entregar ADR + schemas de `DossierIntentRevision`, requirements, offerings, coverage_manifest, state machines.
 - No activar `opn_memory`; no UI de chat/informes nuevos.
 - Congelar inputs: Oracle post-MEMSOL-00 SHA; Signal `06fbdd6` inventario.
+
+
+## Fase cerrada · MEMSOL-01
+
+- ADR-0009 + D-089, schemas JSON (7), migration matrix, OpenAPI proposal.
+- Sin código runtime ni migraciones Alembic.
+- Gate: validación JSON + diff --check + coherencia con modelos existentes (BackgroundJob statuses reutilizados).
+- Handoff MEMSOL-02: Signal isolation/CAS/flags; no editar OpenAPI Oracle.
+- Handoff MEMSOL-03: migraciones IntentRevision contra ADR-0009; worktree Oracle.

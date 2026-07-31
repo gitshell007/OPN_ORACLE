@@ -1,0 +1,35 @@
+{
+  "version": "coverage_manifest.v1",
+  "requested": [
+    "intent",
+    "facts",
+    "signals"
+  ],
+  "consulted": [
+    "intent",
+    "facts"
+  ],
+  "failed": [
+    {
+      "source": "web_search",
+      "error_code": "provider_timeout"
+    }
+  ],
+  "excluded": [
+    {
+      "source": "raw_email",
+      "reason": "classification"
+    }
+  ],
+  "used": [
+    "intent",
+    "facts"
+  ],
+  "truncated": true,
+  "truncation_notes": [
+    "omitted 12 low-score chunks"
+  ],
+  "cutoff_at": "2026-07-31T12:00:00Z",
+  "token_budget": 4000,
+  "token_used_estimate": 3800
+}

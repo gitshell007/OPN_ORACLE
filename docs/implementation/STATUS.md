@@ -4,6 +4,14 @@ Actualizado: 2026-07-31
 Rama observada: `master`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
+## MEMSOL-01 · Contrato de intención y memoria (2026-07-31)
+
+- ADR-0009 aceptada: `DossierIntentRevision`, requirements, offerings dossier-scoped, provenance,
+  `needs_review`, HTTP Oracle↔opn_memory, coverage_manifest, state machines, D-015 aclarado.
+- Schemas JSON en `docs/implementation/schemas/memsol/` (+ ejemplos validados como JSON).
+- Sin migraciones ni activación de memoria. Siguiente: MEMSOL-02 (Signal) y MEMSOL-03 (Oracle)
+  en paralelo aislado.
+
 ## MEMSOL-00 · Auditoría y reconciliación (2026-07-31)
 
 - Worktree aislado `memsol/execution` desde `master@35b2e94`; WIP de `oracle-dev` y Signal

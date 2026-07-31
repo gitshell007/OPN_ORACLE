@@ -1566,3 +1566,19 @@ deberá versionarse un flujo de copia/materialización separado.
   prioritarios (ES/DE). MEMSOL-01/03 versionarán la intención formal; este cambio desbloquea la
   reconciliación de `market.v1` en `master`.
 - **Prompt:** MEMSOL-00
+
+
+## D-089 — ADR-0009 intención, memoria y automatización (MEMSOL-01)
+
+- **Estado:** accepted
+- **Fecha:** 2026-07-31
+- **Contexto:** hace falta un contrato de dominio antes de migraciones de IntentRevision y del
+  endurecimiento de `opn_memory`.
+- **Decisión:** se acepta `docs/architecture/0009-dossier-intent-memory-automation.md`.
+  `DossierIntentRevision` con lifecycle draft/accepted/superseded/rejected; requirements y
+  offerings dossier-scoped; provenance y `needs_review`; Oracle↔memoria por HTTP versionado;
+  coverage_manifest + snapshots; IA solo por task_key (D-015 aclarado); sin pgvector ni
+  autoactivación.
+- **Consecuencias:** MEMSOL-02/03 implementan contra este contrato; schemas en
+  `docs/implementation/schemas/memsol/`.
+- **Prompt:** MEMSOL-01
