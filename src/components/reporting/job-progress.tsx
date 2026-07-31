@@ -30,6 +30,8 @@ export function JobProgress({
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState(false);
   const [mutating, setMutating] = useState(false);
+  /** Bumps after cancel/retry leave a non-terminal status so the poll loop restarts. */
+  const [pollEpoch, setPollEpoch] = useState(0);
   const callback = useRef(onTerminal);
   const announcedTerminal = useRef<string | null>(null);
   const toastId = `job-progress:${jobId}`;
@@ -88,7 +90,7 @@ export function JobProgress({
       active = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [jobId, toastId]);
+  }, [jobId, toastId, pollEpoch]);
 
   const mutate = async (action: "retry" | "cancel") => {
     if (!job) return;
@@ -105,6 +107,16 @@ export function JobProgress({
         id: toastId,
         duration: 4000,
       });
+      if (terminal.has(next.status)) {
+        // Immediate terminal (e.g. cancel while queued) — notify domain consumers.
+        announcedTerminal.current = `${next.id}:${next.status}`;
+        if (next.status === "cancelled")
+          toast.message("Proceso cancelado", { id: toastId, duration: 4000 });
+        callback.current?.(next);
+      } else {
+        // Non-terminal (retry → queued, cooperative cancel while running): restart poll.
+        setPollEpoch((epoch) => epoch + 1);
+      }
     } catch (reason) {
       toast.error(
         reason instanceof ApiError

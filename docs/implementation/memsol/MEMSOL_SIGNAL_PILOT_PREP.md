@@ -61,6 +61,10 @@ Kill switch de producto (además de flags):
 4. Conservar filas DB (no drop).
 5. Borrar o desactivar consumer sintético si ya no se usa.
 
+## Scaffold de entorno
+
+Ver `signal_pilot.env.example` en este directorio (todos los flags a 0).
+
 ## Estado actual
 
 | Item | Estado |
@@ -69,29 +73,3 @@ Kill switch de producto (además de flags):
 | Consumer sintético creado | **no** |
 | Flags ON en cualquier entorno | **no** |
 | Deploy prod | **no** |
-EOF
-
-# Also add env example scaffold in Oracle for reference (no secrets)
-mkdir -p /Users/gitshellmini/PycharmProjects/OPN_ORACLE/.worktrees/oracle-dev-memsol-smoke/docs/implementation/memsol
-cat > /Users/gitshellmini/PycharmProjects/OPN_ORACLE/.worktrees/oracle-dev-memsol-smoke/docs/implementation/memsol/signal_pilot.env.example <<'EOF'
-# Scaffold only — copy to Signal Dev settings.env fragment. All OFF.
-# Consumer slug suggestion: opn-oracle-memsol-pilot
-MEMORY_ENGINE_ENABLED=0
-MEMORY_INGESTION_ENABLED=0
-MEMORY_EXTRACTION_ENABLED=0
-MEMORY_ANALYST_ENABLED=0
-MEMORY_SUMMARIES_ENABLED=0
-MEMORY_REFRESH_ENABLED=0
-MEMORY_REFRESH_ALLOW_LLM=0
-EOF
-
-SCRATCH="/var/folders/bk/s_sj4yz93_31tvsxq9z35t4h0000gn/T/grok-goal-cc1d3fd0d388/implementer"
-cat > "$SCRATCH/memsol_signal_pilot_prep.txt" <<'EOF'
-# Signal pilot prep paths
-docs/implementation/memsol/MEMSOL_SIGNAL_PILOT_PREP.md
-docs/implementation/memsol/signal_pilot.env.example
-defaults: MEMORY_ENGINE_ENABLED=0 (and related OFF)
-activation: not performed
-prod: not deployed
-EOF
-cat "$SCRATCH/memsol_signal_pilot_prep.txt"

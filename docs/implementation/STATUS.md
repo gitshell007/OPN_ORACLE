@@ -2,11 +2,11 @@
 
 Actualizado: 2026-07-31
 
-## Memoria Sol · Cancel/Reintentar UI Vector (2026-07-31 22:45)
+## Memoria Sol · Cancel/Reintentar UI Vector (2026-07-31 22:57)
 
-- `JobProgress` con Cancelar/Reintentar (If-Match) en Preguntar e Informe libre.
-- Vitest 12 + pytest job controls 5 + Playwright **4 passed** (desktop).
-- Piloto Signal preparado en `docs/implementation/memsol/MEMSOL_SIGNAL_PILOT_PREP.md` con `MEMORY_ENGINE_ENABLED=0` por defecto — **no activado**.
+- `JobProgress` con Cancelar/Reintentar (If-Match) + **reinicio de poll** tras retry no terminal.
+- Vitest **13** + Flask HTTP **11** (428/409/202/403/404) + Playwright **4** con POST cancel/retry **reales** (jobs seeded no publicados).
+- Piloto Signal: `MEMSOL_SIGNAL_PILOT_PREP.md` limpio; `MEMORY_ENGINE_ENABLED=0`; **no activado**.
 - Producción **no** lista.
 
 ## Memoria Sol · Playwright residual browser (2026-07-31 22:27)

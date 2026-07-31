@@ -72,6 +72,8 @@ else
   TENANT_ID=$(psql "$DB_NAME" -Atqc "SELECT id FROM tenants WHERE slug = 'asterion-e2e'")
 fi
 uv run flask --app opn_oracle.wsgi:app seed-oracle-demo --tenant-id "$TENANT_ID" >/dev/null
+# MEMSOL cancel/retry fixtures: queued + failed jobs never published to broker
+uv run python tests/seed_memsol_job_controls_e2e.py >/dev/null
 export DATABASE_URL="$RUNTIME_URL"
 uv run gunicorn --bind 127.0.0.1:5001 --workers 1 --access-logfile /dev/null opn_oracle.wsgi:app &
 SERVER_PID=$!

@@ -14,7 +14,12 @@ vi.mock("@oracle/api-client", () => ({
   api: { jobs: { get: mocks.get, retry: mocks.retry, cancel: mocks.cancel } },
 }));
 vi.mock("sonner", () => ({
-  toast: { success: mocks.success, error: mocks.error, dismiss: vi.fn() },
+  toast: {
+    success: mocks.success,
+    error: mocks.error,
+    message: vi.fn(),
+    dismiss: vi.fn(),
+  },
 }));
 
 import { JobProgress } from "./job-progress";
@@ -67,6 +72,45 @@ describe("JobProgress", () => {
     render(<JobProgress jobId="job-1" allowActions />);
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(mocks.cancel).toHaveBeenCalledWith("job-1", 3));
+  });
+
+  it("reanuda el poll tras reintento no terminal hasta éxito", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mocks.get
+      .mockResolvedValueOnce({ ...job, status: "failed", retryable: true, version: 3 })
+      .mockResolvedValueOnce({
+        ...job,
+        status: "queued",
+        stage: "manual_retry",
+        progress: 0,
+        version: 4,
+        retryable: true,
+      })
+      .mockResolvedValue({
+        ...job,
+        status: "succeeded",
+        progress: 100,
+        version: 5,
+        retryable: false,
+      });
+    mocks.retry.mockResolvedValue({
+      ...job,
+      status: "queued",
+      stage: "manual_retry",
+      progress: 0,
+      version: 4,
+    });
+    const onTerminal = vi.fn();
+    render(<JobProgress jobId="job-1" allowActions onTerminal={onTerminal} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(mocks.retry).toHaveBeenCalledWith("job-1", 3));
+    // Poll loop restarted: GET after mutate
+    await vi.advanceTimersByTimeAsync(3000);
+    await waitFor(() => expect(mocks.get.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await vi.advanceTimersByTimeAsync(3000);
+    await waitFor(() => expect(onTerminal).toHaveBeenCalled());
+    expect(onTerminal.mock.calls.at(-1)?.[0]?.status).toBe("succeeded");
+    vi.useRealTimers();
   });
 
   it("oculta Cancelar si ya hay cancel_requested y muestra Cancelando", async () => {

@@ -133,17 +133,17 @@ Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no i
 |---|---|
 | Wiring | `JobProgress allowActions` en `dossier-ask-section` + `dossier-custom-brief-section` |
 | API | `POST /api/v1/jobs/{id}/cancel\|retry` + If-Match (sin rutas nuevas) |
-| Unit UI | vitest ask+brief+job-progress **12 passed** (`memsol_cancel_retry_unit.txt`) |
-| Unit lifecycle | `tests/test_memsol_job_controls.py` **5 passed** (`memsol_cancel_retry_http.txt`) |
-| Playwright | `memsol-dossier-tabs.spec.ts` **4 passed** incl. Cancelar/Reintentar + historial |
-| Worker real | smoke Dev previo (run_tag 20260731T194745Z) sigue como evidencia independiente |
-| Signal pilot prep | `MEMSOL_SIGNAL_PILOT_PREP.md` + `signal_pilot.env.example` · flags **OFF** · no activado |
+| Unit UI | vitest ask+brief+job-progress **13 passed** (`memsol_cancel_retry_unit.txt`) incl. poll restart tras retry |
+| HTTP Flask | `tests/test_memsol_job_controls.py` **11 passed** (`memsol_cancel_retry_http.txt`): 428/409/202 cancel+retry MEMSOL types + 403/404 |
+| Playwright | `memsol-dossier-tabs.spec.ts` **4 passed**; cancel/retry POSTs **reales** sobre jobs seeded no publicados |
+| JobProgress | pollEpoch reinicia poll tras retry/cancel no terminal |
+| Worker real | smoke Dev previo (run_tag 20260731T194745Z) evidencia independiente |
+| Signal pilot prep | `MEMSOL_SIGNAL_PILOT_PREP.md` limpio + `signal_pilot.env.example` · flags **OFF** · no activado |
 
 ## Residual explícito
 
 1. Matriz Playwright **mobile** de tabs MEMSOL omitida a propósito.
-2. Cancel en E2E eager usa stub de estado de job para ventana de click; lifecycle real validado en unit `request_cancel`/`prepare_retry` + smoke Dev worker.
-3. Producción: **no** autorizada; flags MEMORY/AI OFF; piloto Signal **no** activado; **no declarar lista**.
+2. Producción: **no** autorizada; flags MEMORY/AI OFF; piloto Signal **no** activado; **no declarar lista**.
 
 ## Handoff
 
