@@ -35,8 +35,9 @@ vi.mock("sonner", () => ({ toast: { success: mocks.success } }));
 vi.mock("@/components/auth/auth-boundary", () => ({
   PermissionGate: ({ children }: { children: React.ReactNode }) => children,
 }));
+const navState = vi.hoisted(() => ({ search: "" }));
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navState.search),
 }));
 
 import { DossierSettingsSection } from "./dossier-settings-section";
@@ -62,6 +63,8 @@ const dossier = {
 describe("DossierSettingsSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navState.search = "";
+    sessionStorage.clear();
     mocks.get.mockResolvedValue(dossier);
     mocks.connections.mockResolvedValue({
       items: [
@@ -153,5 +156,73 @@ describe("DossierSettingsSection", () => {
         retention_days: 90,
       }),
     );
+  });
+
+  it("permite crear un monitor sin consulta si hay palabras clave o entidades", async () => {
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+
+    await screen.findByRole("heading", { name: "Nueva vigilancia" });
+    expect(screen.getByText("Redes y foros")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Nombre de la vigilancia"), {
+      target: { value: "Radar de mercado" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Competidores y entidades/), {
+      target: { value: "Compañía Gamma" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear vigilancia" }));
+
+    await waitFor(() =>
+      expect(mocks.createMonitor).toHaveBeenCalledWith(
+        "dossier-1",
+        expect.objectContaining({
+          query: "",
+          entities: [{ type: "company", name: "Compañía Gamma" }],
+        }),
+      ),
+    );
+  });
+
+  it("rechaza un monitor sin consulta, palabras clave ni entidades", async () => {
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+
+    await screen.findByRole("heading", { name: "Nueva vigilancia" });
+    fireEvent.change(screen.getByLabelText("Nombre de la vigilancia"), {
+      target: { value: "Radar vacío" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear vigilancia" }));
+
+    expect(
+      await screen.findByText(/Define al menos una consulta, palabras clave o entidades/),
+    ).toBeInTheDocument();
+    expect(mocks.createMonitor).not.toHaveBeenCalled();
+  });
+
+  it("aplica el prefill del intake incluyendo las entidades", async () => {
+    navState.search = "wizard_prefill=monitor";
+    sessionStorage.setItem(
+      "oracle:wizard-prefill:dossier-1:monitor",
+      JSON.stringify({
+        name: "Radar de mercado: Almacenamiento",
+        query: "",
+        keywords: ["almacenamiento energético"],
+        entities: ["Compañía Gamma", "Regulador Energía"],
+        languages: ["es", "de"],
+        geographies: ["ES", "DE"],
+        source_types: ["news", "company_signal", "regulatory_signal", "official_publication"],
+        cadence: "daily",
+      }),
+    );
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Nombre de la vigilancia")).toHaveValue(
+        "Radar de mercado: Almacenamiento",
+      ),
+    );
+    expect(screen.getByLabelText(/^Competidores y entidades/)).toHaveValue(
+      "Compañía Gamma, Regulador Energía",
+    );
+    expect(screen.getByRole("button", { name: "Quitar Alemania" })).toBeInTheDocument();
+    expect(sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor")).toBeNull();
   });
 });

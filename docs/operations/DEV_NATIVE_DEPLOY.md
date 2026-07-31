@@ -2,7 +2,23 @@
 
 **Host:** `oracle-dev.opnconsultoria.com` → `159.195.216.33`  
 **Modelo:** sin Docker para Oracle; systemd + PostgreSQL/Redis/Nginx nativos.  
-**Fecha de arranque:** 2026-07-28
+**Fecha de arranque:** 2026-07-28  
+
+## Rama de despliegue
+
+| Campo | Valor |
+|---|---|
+| Checkout local canónico | `/Users/gitshellmini/PycharmProjects/OPN_ORACLE` |
+| Rama a desplegar en el host | `oracle-dev` |
+| Remoto | `origin` → `gitshell007/OPN_ORACLE` |
+| URL del entorno | `https://oracle-dev.opnconsultoria.com` |
+
+Reglas:
+
+- Los releases inmutables del host se construyen desde un **SHA de `oracle-dev`**, no desde `master` a ciegas.
+- `master` puede avanzar con trabajo no listo para el entorno dev compartido; `oracle-dev` es la línea que el servidor debe ejecutar.
+- Tras mergear a `oracle-dev`, construir release con el SHA exacto y CI aceptable, y activar con symlink `current`.
+- No hacer `git pull` in-place sobre `/opt/opn-oracle/current`.
 
 ## Fingerprint SSH validado
 
@@ -86,6 +102,17 @@ Rutas:
 ## Scripts versionados
 
 Ver `infra/native-dev/`.
+
+### Activación de release y migración
+
+`activate-release.sh <release-id>` hace el swap del symlink `current`, migra y reinicia servicios:
+
+- La migración corre como `opn-oracle` con `set -a; source /etc/opn-oracle-dev/oracle.env`
+  y `.venv/bin/flask --app opn_oracle.wsgi:app db upgrade` desde `current/apps/api`.
+  No usar `uv run`: `uv` está en `/usr/local/bin`, fuera del PATH restringido de ese paso.
+- No materializar secretos `*_FILE` en variables de entorno: `opn_oracle/config.py`
+  los resuelve en runtime y lanza ConfigError si `X` y `X_FILE` están definidos a la vez.
+- Tras migrar: `systemctl restart opn-oracle-api opn-oracle-web opn-oracle-worker opn-oracle-beat`.
 
 ## Rollback
 

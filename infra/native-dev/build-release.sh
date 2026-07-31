@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build immutable native release on the host from a verified git SHA.
+# Deploy channel for https://oracle-dev.opnconsultoria.com is branch oracle-dev.
 # Usage: build-release.sh <git-sha>
+# Optional: ORACLE_DEPLOY_BRANCH=oracle-dev (default) — fetched before checkout.
 set -euo pipefail
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -9,6 +11,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 SHA="${1:?git sha required}"
+DEPLOY_BRANCH="${ORACLE_DEPLOY_BRANCH:-oracle-dev}"
 SHORT="$(printf '%s' "$SHA" | cut -c1-7)"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 RELEASE_ID="${TS}-native-${SHORT}"
@@ -26,6 +29,8 @@ if [[ ! -d "$REPO_DIR/.git" ]]; then
   git clone --filter=blob:none git@github.com:gitshell007/OPN_ORACLE.git "$REPO_DIR"
 fi
 git -C "$REPO_DIR" fetch --all --tags --prune
+# Prefer the deploy branch tip history; still pin the exact SHA for immutability.
+git -C "$REPO_DIR" fetch origin "+refs/heads/${DEPLOY_BRANCH}:refs/remotes/origin/${DEPLOY_BRANCH}" 2>/dev/null || true
 git -C "$REPO_DIR" checkout --force "$SHA"
 git -C "$REPO_DIR" reset --hard "$SHA"
 ACTUAL="$(git -C "$REPO_DIR" rev-parse HEAD)"
@@ -34,7 +39,17 @@ if [[ "$ACTUAL" != "$SHA" && "$ACTUAL" != "$(git -C "$REPO_DIR" rev-parse "$SHA"
   exit 1
 fi
 ACTUAL="$(git -C "$REPO_DIR" rev-parse HEAD)"
-echo "Building release $RELEASE_ID from $ACTUAL"
+# Soft guard: warn if SHA is not an ancestor of origin/oracle-dev (still allow explicit override).
+if git -C "$REPO_DIR" rev-parse --verify "origin/${DEPLOY_BRANCH}" >/dev/null 2>&1; then
+  if ! git -C "$REPO_DIR" merge-base --is-ancestor "$ACTUAL" "origin/${DEPLOY_BRANCH}"; then
+    if [[ "${ORACLE_ALLOW_OFF_BRANCH_SHA:-0}" != "1" ]]; then
+      echo "ERROR: SHA $ACTUAL is not on origin/${DEPLOY_BRANCH}. Set ORACLE_ALLOW_OFF_BRANCH_SHA=1 to override." >&2
+      exit 1
+    fi
+    echo "WARNING: SHA $ACTUAL is not on origin/${DEPLOY_BRANCH} (override enabled)" >&2
+  fi
+fi
+echo "Building release $RELEASE_ID from $ACTUAL (branch channel: ${DEPLOY_BRANCH})"
 
 # Clean worktree artifacts that must not enter release
 rm -rf "$REPO_DIR/node_modules" "$REPO_DIR/apps/api/.venv" "$REPO_DIR/.next" \

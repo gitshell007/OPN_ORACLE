@@ -122,6 +122,20 @@ def test_production_documents_fail_closed_without_s3_and_scanner() -> None:
     }
     with pytest.raises(ConfigError, match="DOCUMENT_STORAGE_BACKEND"):
         Settings.load(base)
+    # Shared-dev escape: local backend only when DOCUMENT_ALLOW_LOCAL_BACKEND=true.
+    # Real production must not set that flag.
+    local_dev = Settings.load(
+        {
+            **base,
+            "RLS_ENABLED": True,
+            "DOCUMENT_STORAGE_BACKEND": "local",
+            "DOCUMENT_ALLOW_LOCAL_BACKEND": True,
+            "DOCUMENT_ALLOW_OFFICIAL_UNSCANNED": True,
+            "DOCUMENT_SCANNER_MODE": "noop",
+        }
+    )
+    assert local_dev.document_storage_backend == "local"
+    assert local_dev.document_allow_local_backend is True
     s3_ready = {
         **base,
         "RLS_ENABLED": True,

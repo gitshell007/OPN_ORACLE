@@ -5483,8 +5483,26 @@ html[data-font-scale="small"] .workspace-chip strong {
 
 .dossier-inventory-table .selection-column {
   width: 48px;
-  padding-right: 4px;
+  min-width: 48px;
+  padding: 0;
   text-align: center;
+  vertical-align: middle;
+}
+
+/* Toda la primera columna es hit target de selección (no de navegación). */
+.dossier-inventory-table tbody .selection-column .selection-cell-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.dossier-inventory-table tbody .selection-column input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
 }
 
 .dossier-inventory-table input[type="checkbox"],
@@ -7488,4 +7506,83 @@ html[data-font-scale="small"] .workspace-chip strong {
   .investigation-metrics {
     grid-template-columns: 1fr;
   }
+}
+
+/* Intake de Mercado: wizard y selector de países UE */
+.market-wizard-progress {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--va-border);
+  border-left: 3px solid var(--va-primary);
+  border-radius: 10px;
+  background: var(--va-soft);
+  padding: 10px 14px;
+}
+.market-wizard-progress p {
+  margin: 0;
+  color: var(--va-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.competitive-review dl div.full {
+  grid-column: 1 / -1;
+}
+.eu-country-select {
+  display: grid;
+  gap: 8px;
+}
+.eu-country-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.eu-country-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--va-border);
+  border-radius: 999px;
+  background: var(--va-soft);
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.eu-country-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--va-border);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--va-panel);
+}
+.eu-country-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.eu-country-options label:hover {
+  background: var(--va-soft);
+}
+.eu-country-options label.priority {
+  font-weight: 700;
+}
+.eu-country-options label small {
+  color: var(--va-muted);
+  margin-left: auto;
+}
+.eu-country-empty {
+  grid-column: 1 / -1;
+  color: var(--va-muted);
+  margin: 0;
+  font-size: 12px;
 }

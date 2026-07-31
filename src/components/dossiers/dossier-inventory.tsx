@@ -500,7 +500,26 @@ export function DossierInventory() {
                         if (isActivationKey(event)) router.push(`/app/dossiers/${item.id}`);
                       }}
                     >
-                      <td className="selection-column"><input type="checkbox" checked={selected.includes(item.id)} onChange={() => toggleSelected(item.id)} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} aria-label={`Seleccionar ${item.title}`} /></td>
+                      <td
+                        className="selection-column"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        {/*
+                          Label a ancho/alto de celda: un clic en cualquier punto de la
+                          primera columna marca/desmarca, sin navegar al expediente.
+                        */}
+                        <label className="selection-cell-hit">
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(item.id)}
+                            onChange={() => toggleSelected(item.id)}
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                            aria-label={`Seleccionar ${item.title}`}
+                          />
+                        </label>
+                      </td>
                       <td className="sticky-name"><Link href={`/app/dossiers/${item.id}`} onClick={(event) => event.stopPropagation()}><strong>{item.title}</strong><small>{item.strategic_goal || "Objetivo por completar"}</small></Link></td>
                       {show("type") && <td>{TYPE_LABELS[item.dossier_type] ?? item.dossier_type}</td>}
                       {show("health") && <td><strong>{score(item.health_score)}</strong><small> / 100</small></td>}

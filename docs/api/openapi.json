@@ -859,6 +859,7 @@
         "properties": {
           "buyer_norm": {
             "default": "",
+            "nullable": true,
             "type": "string"
           },
           "cache_hit": {
@@ -869,6 +870,7 @@
           },
           "company_norm": {
             "default": "",
+            "nullable": true,
             "type": "string"
           },
           "items": {
@@ -2346,7 +2348,14 @@
             "type": "string"
           },
           "profile_config": {
-            "$ref": "#/components/schemas/CompetitiveProfileInput"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompetitiveProfileInput"
+              },
+              {
+                "$ref": "#/components/schemas/MarketProfileInput"
+              }
+            ]
           },
           "scoring_config": {
             "$ref": "#/components/schemas/JsonObject"
@@ -2400,12 +2409,40 @@
           "description": {
             "type": "string"
           },
+          "geography": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "owner_user_id": {
             "format": "uuid",
             "type": "string"
           },
+          "profile_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompetitiveProfileInput"
+              },
+              {
+                "$ref": "#/components/schemas/MarketProfileInput"
+              }
+            ]
+          },
           "scoring_config": {
             "$ref": "#/components/schemas/JsonObject"
+          },
+          "sectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "status": {
             "enum": [
@@ -2686,12 +2723,40 @@
           "description": {
             "type": "string"
           },
+          "geography": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "owner_user_id": {
             "format": "uuid",
             "type": "string"
           },
+          "profile_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompetitiveProfileInput"
+              },
+              {
+                "$ref": "#/components/schemas/MarketProfileInput"
+              }
+            ]
+          },
           "scoring_config": {
             "$ref": "#/components/schemas/JsonObject"
+          },
+          "sectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "status": {
             "enum": [
@@ -4471,6 +4536,87 @@
         "required": [
           "session_id",
           "requires_tenant_selection"
+        ],
+        "type": "object"
+      },
+      "MarketProfileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "barriers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "competitors": {
+            "items": {
+              "$ref": "#/components/schemas/CompetitiveCompetitorInput"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "decision_to_make": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "horizon": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "own_offer": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "partners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "regulators": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "segments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "success_indicators": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_buyers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "own_offer",
+          "decision_to_make",
+          "competitors"
         ],
         "type": "object"
       },
@@ -36461,6 +36607,73 @@
         "summary": "Watches Review Items",
         "tags": [
           "Vigilancia incremental de licitaciones"
+        ]
+      }
+    },
+    "/api/v1/procurement/analytics": {
+      "get": {
+        "description": "Same aggregation as the platform superadmin view: shared Signal open-tender\nsample, not tenant-private data. Rate-limited because sampling hits Signal.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcurementAnalyticsResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "PLACSP market snapshot (open-tender sample) for tenant users with opportunity.read.",
+        "tags": [
+          "Contrataci\u00f3n p\u00fablica"
         ]
       }
     },

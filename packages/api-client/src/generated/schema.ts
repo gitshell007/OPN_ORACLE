@@ -20791,6 +20791,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procurement/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * PLACSP market snapshot (open-tender sample) for tenant users with opportunity.read.
+         * @description Same aggregation as the platform superadmin view: shared Signal open-tender
+         *     sample, not tenant-private data. Rate-limited because sampling hits Signal.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProcurementAnalyticsResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/procurement/awards": {
         parameters: {
             query?: never;
@@ -27965,11 +28041,11 @@ export interface components {
         };
         AwardsResponse: {
             /** @default  */
-            buyer_norm: string;
+            buyer_norm: string | null;
             cache_hit: boolean;
             cached_seconds: number;
             /** @default  */
-            company_norm: string;
+            company_norm: string | null;
             items: {
                 [key: string]: unknown;
             }[];
@@ -28342,7 +28418,7 @@ export interface components {
             languages?: string[];
             /** Format: uuid */
             owner_user_id?: string;
-            profile_config?: components["schemas"]["CompetitiveProfileInput"];
+            profile_config?: components["schemas"]["CompetitiveProfileInput"] | components["schemas"]["MarketProfileInput"];
             scoring_config?: components["schemas"]["JsonObject"];
             sectors?: string[];
             strategic_goal?: string;
@@ -28356,9 +28432,13 @@ export interface components {
         };
         DossierPatchInput: {
             description?: string;
+            geography?: string[];
+            languages?: string[];
             /** Format: uuid */
             owner_user_id?: string;
+            profile_config?: components["schemas"]["CompetitiveProfileInput"] | components["schemas"]["MarketProfileInput"];
             scoring_config?: components["schemas"]["JsonObject"];
+            sectors?: string[];
             /** @enum {string} */
             status?: "draft" | "active" | "paused" | "archived";
             strategic_goal?: string;
@@ -28440,9 +28520,13 @@ export interface components {
         };
         DossierWriteInput: {
             description?: string;
+            geography?: string[];
+            languages?: string[];
             /** Format: uuid */
             owner_user_id?: string;
+            profile_config?: components["schemas"]["CompetitiveProfileInput"] | components["schemas"]["MarketProfileInput"];
             scoring_config?: components["schemas"]["JsonObject"];
+            sectors?: string[];
             /** @enum {string} */
             status?: "draft" | "active" | "paused" | "archived";
             strategic_goal?: string;
@@ -28953,6 +29037,20 @@ export interface components {
             requires_tenant_selection: boolean;
             /** Format: uuid */
             session_id: string;
+        };
+        MarketProfileInput: {
+            barriers?: string[];
+            channels?: string[];
+            competitors: components["schemas"]["CompetitiveCompetitorInput"][];
+            decision_to_make: string;
+            horizon?: string;
+            keywords?: string[];
+            own_offer: string;
+            partners?: string[];
+            regulators?: string[];
+            segments?: string[];
+            success_indicators?: string[];
+            target_buyers?: string[];
         };
         MeResponse: {
             /** Format: uuid */

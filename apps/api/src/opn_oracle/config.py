@@ -200,6 +200,7 @@ class Settings:
     document_tenant_quota_bytes: int
     document_scanner_mode: str
     document_allow_official_unscanned: bool
+    document_allow_local_backend: bool
     document_clamav_host: str
     document_clamav_port: int
     document_clamav_timeout_seconds: float
@@ -495,6 +496,10 @@ class Settings:
             document_allow_official_unscanned=_as_bool(
                 values.get("DOCUMENT_ALLOW_OFFICIAL_UNSCANNED", False)
             ),
+            # Shared-dev hosts only (e.g. oracle-dev). Real production must leave false.
+            document_allow_local_backend=_as_bool(
+                values.get("DOCUMENT_ALLOW_LOCAL_BACKEND", False)
+            ),
             document_clamav_host=str(values.get("DOCUMENT_CLAMAV_HOST", "")),
             document_clamav_port=_as_int(
                 values.get("DOCUMENT_CLAMAV_PORT", 3310),
@@ -673,7 +678,11 @@ class Settings:
             missing.append("backend de correo smtp o graph completamente configurado")
         if self.celery_task_always_eager:
             missing.append("CELERY_TASK_ALWAYS_EAGER=false")
-        if self.documents_enabled and self.document_storage_backend != "s3":
+        if (
+            self.documents_enabled
+            and self.document_storage_backend != "s3"
+            and not self.document_allow_local_backend
+        ):
             missing.append("DOCUMENT_STORAGE_BACKEND=s3")
         if (
             self.documents_enabled

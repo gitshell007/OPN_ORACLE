@@ -67,6 +67,15 @@ def document_available_for_citation(document: Document) -> bool:
         return False
     if document.scan_status == "clean":
         return True
+    # Shared-dev hosts with local storage + noop scanner produce
+    # scan_status=not_configured. Allow download/citation only when the
+    # explicit DOCUMENT_ALLOW_LOCAL_BACKEND escape is set (never on real prod).
+    if (
+        document.scan_status == "not_configured"
+        and current_app.config.get("DOCUMENT_SCANNER_MODE") == "noop"
+        and bool(current_app.config.get("DOCUMENT_ALLOW_LOCAL_BACKEND", False))
+    ):
+        return True
     return (
         official_unscanned_document_allowed(document)
         and official_unscanned_acceptance(document) is not None
