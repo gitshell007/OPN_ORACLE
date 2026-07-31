@@ -7,6 +7,7 @@ Actualizado: 2026-07-31
 - Spec real: `tests/e2e/memsol-dossier-tabs.spec.ts` contra stack E2E auth (Postgres+Redis+gunicorn+Next).
 - **3 passed** desktop: carga/empty/error Actividad; 202+eager terminal+reload Preguntar e Informe libre; viewer 403 UI; UUID ajeno; axe AA en las tres rutas.
 - Cancel/retry no en UI (documentado). Producción **no** lista.
+- Backfill dry-run Dev medido: 16 dossiers · 0 profile_config · would_create **0** (no apply).
 
 ## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 

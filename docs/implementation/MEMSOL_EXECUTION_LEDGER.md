@@ -90,6 +90,21 @@ Host: `oracle-dev.opnconsultoria.com` / `v2202607388167489673` · env `/etc/opn-
 | Consola | sin pageerror; console limpia (filtro HMR/abort) |
 | Comando medido | `npx playwright test tests/e2e/memsol-dossier-tabs.spec.ts --project=desktop` → **3 passed (27.4s)** |
 
+## Backfill dry-run (Oracle Dev `opn_oracle_dev` · 2026-07-31)
+
+Comando: `scripts/memsol_backfill_intent_revisions.py --dry-run` (migrator URL, no apply).
+
+| Métrica | Valor medido |
+|---|---|
+| strategic_dossiers | **16** |
+| with_nonempty_profile_config | **0** |
+| dossier_intent_revisions | **0** |
+| would_create | **0** |
+| skipped_empty_profile | **16** |
+| psql crosscheck | dossiers=16 · revisions=0 · with_profile=0 |
+
+Evidencia: `memsol_backfill_dry_run.json` · ceros son conteos de consulta, no inventados.
+
 ## Suite local previa (no re-ejecutada en este tip)
 
 | Claim | Resultado (sesión anterior documentada) |
