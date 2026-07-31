@@ -1,6 +1,14 @@
 # Estado de implementación de OPN Oracle
 
 Actualizado: 2026-07-31
+
+## Memoria Sol · cierre de desarrollo (2026-07-31)
+
+- MEMSOL-00…07 implementados en `master` (intent, activity, memory adapter, Q&A, brief).
+- MEMSOL-02 en Signal rama `memsol/02-memory-hardening@86c1f74` (flags OFF; sin merge main).
+- MEMSOL-08…10 documentados; UAT/E2E residual. MEMSOL-11 preparado sin deploy.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
+
 Rama observada: `master` / `memsol/execution`  
 Interfaz canónica: `CANONICAL_UI=vector`
 
