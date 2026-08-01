@@ -53,6 +53,8 @@
   - OpenAPI anuncia ops no operativas sin `x-status` → **cerrado**
   - suite Signal 8 fallos preexistentes → **cerrado** (PR higiene #8 / `03adaf8`)
   - mutaciones A–J RED→restore GREEN → **cerrado**
+  - CI Oracle hang (timeout 35 min) → **cerrado** (deadlock mutación J / advisory lock PG;
+    PR#13; run 30716269096 **success** 867 passed / 84% cov / 310 s)
 - Migración expand `20260801_mem_cred`: upgrade/downgrade en PG de prueba solo; **no** Dev/Prod.
 
 NO_ROLLBACK y beat drift permanecen abiertos (fuera de alcance MDEV-01).
@@ -64,11 +66,13 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 
 | Item | Valor |
 |---|---|
-| Oracle `origin/master` tip | `77a2fd5c2064e385e67d5b4b3c264b6fdc13aad9` |
+| Oracle `origin/master` tip | `7163b353f72b37d675d8f00163f25fb77b2eb246` (CI mutation lockfix PR#13) |
+| Oracle REWORK-2 content | `77a2fd5c2064e385e67d5b4b3c264b6fdc13aad9` (PR#11) |
 | Signal `origin/main` tip | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` |
 | Signal hygiene | `03adaf84cb3f76858b65b833a38c4cf2091e2d54` (PR#8) |
 | Signal contract/security | PR#9 squash → tip above |
-| Oracle fail-closed/docs | PR#11 squash → tip above |
+| Oracle fail-closed/docs | PR#11 |
+| Oracle CI hang fix | PR#13 → tip `7163b35`; CI run **30716269096** success |
 | Bundle content_set | `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4` |
 | Bases pre-REWORK-2 | Oracle `5c2177d` · Signal `ac3c753` · prior bundle `2865ae3d…` |
 
