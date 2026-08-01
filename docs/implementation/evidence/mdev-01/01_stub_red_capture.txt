@@ -1,0 +1,4 @@
+# MDEV-01 stub RED capture (restored; not committed as failing test)
+Signal TestClient retrieve with engine ON + tenant allow + memory:read returns items=[].
+Asserting len(items)>0 FAILS on current stub (documented in test_red_stub_cannot_satisfy_nonempty_items_invariant).
+Green suite keeps honest coverage_manifest.truncation_notes instead of xfail.

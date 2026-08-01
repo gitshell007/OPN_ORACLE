@@ -313,3 +313,9 @@
   `draft|accepted|superseded|rejected`.
 - **pgvector:** no instalar; baseline PostgreSQL FTS/`pg_trgm` hasta eval MEMSOL-05/10.
 - **Producción / secretos / gasto:** bloqueados sin autorización de sesión (MEMSOL-11).
+
+## MDEV-01 · abiertas (no bloquean contrato)
+
+- ¿Nombre final del consumer Dev (`opn-oracle-dev`) y lista exacta de tenants canario? (MDEV-10)
+- Procedimiento NO_ROLLBACK Signal Dev (MDEV-10)
+- Cuenta real de aceptación UAT (MDEV-11)

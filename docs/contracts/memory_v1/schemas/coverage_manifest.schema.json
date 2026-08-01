@@ -1,0 +1,94 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/coverage_manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "consulted": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cutoff_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "excluded": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "failed": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "retryable"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "requested": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "token_budget": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "token_used_estimate": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "truncation_notes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "used": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "version": {
+      "const": "coverage_manifest.v1"
+    }
+  },
+  "required": [
+    "version",
+    "requested",
+    "consulted",
+    "failed",
+    "excluded",
+    "used",
+    "truncated",
+    "truncation_notes",
+    "cutoff_at",
+    "token_budget",
+    "token_used_estimate"
+  ],
+  "title": "CoverageManifestV1",
+  "type": "object"
+}

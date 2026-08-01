@@ -1,0 +1,18 @@
+{
+  "classifications_allowed": [
+    "public",
+    "internal"
+  ],
+  "cutoff_at": null,
+  "dossier_id": "11111111-1111-4111-8111-111111111111",
+  "etag": "W/\"dmp-1\"",
+  "kinds_allowed": [
+    "fact",
+    "chunk",
+    "summary"
+  ],
+  "mode": "disabled",
+  "provenance": "tenant_default",
+  "schema_version": "dossier_memory_profile.v1",
+  "token_budget": 4000
+}

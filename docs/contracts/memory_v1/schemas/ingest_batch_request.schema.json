@@ -1,0 +1,81 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/ingest_batch_request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dossier_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "maxLength": 200,
+      "minLength": 8,
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "classification": {
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ],
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 500000,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "intent_metadata",
+              "document",
+              "chunk",
+              "evidence",
+              "signal"
+            ],
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "occurred_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source_ref",
+          "content",
+          "checksum"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "dossier_id",
+    "items",
+    "idempotency_key"
+  ],
+  "title": "MemoryIngestBatchRequest",
+  "type": "object"
+}

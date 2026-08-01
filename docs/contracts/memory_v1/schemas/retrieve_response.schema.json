@@ -1,0 +1,58 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/retrieve_response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "memory.v1"
+    },
+    "coverage_manifest": {
+      "$ref": "coverage_manifest.schema.json"
+    },
+    "items": {
+      "items": {
+        "$ref": "retrieval_item.schema.json"
+      },
+      "type": "array"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "request_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scope": {
+      "$ref": "memory_scope.schema.json"
+    },
+    "watermark": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "api_version",
+    "request_id",
+    "scope",
+    "items",
+    "coverage_manifest",
+    "query",
+    "purpose",
+    "limit"
+  ],
+  "title": "MemoryRetrieveResponse",
+  "type": "object"
+}

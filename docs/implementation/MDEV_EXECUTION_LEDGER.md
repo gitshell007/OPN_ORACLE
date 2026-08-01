@@ -12,6 +12,12 @@
 - Roadmap idea: `ORC-MEM-001` (status `approved`)
 - Informe bilateral: `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`
 - Evidencia durable: `docs/implementation/evidence/mdev-00/`
+- **Codex decision MDEV-00: PASS MDEV-00** (autoriza MDEV-01)
+- SHA master con MDEV-00: `a834034396bc129f08a6997b3af27a87a33ec263`
+- PR#7 + CI `30706386596` registrados
+- Contrato memory.v1 bundle: `docs/contracts/memory_v1/` content_set `792f267db0ac33277d74e019fafb30844db0337b1ef4e62cf0457bbfa7f6ff91`
+- Riesgos abiertos heredados: **NO_ROLLBACK**, beat drift (no resueltos en MDEV-01)
+- `APPROVED_EXTERNAL_SPEND` / `APPROVED_CLOUD_DATA_POLICY`: vacíos
 
 ### Commits e integración (rellenar al cerrar push/PR)
 
@@ -20,7 +26,7 @@
 | Rama de trabajo rework | `mdev/00-baseline-rework` |
 | Commit de contenido (docs/ledger/evidence) | `0f06376150da7692746cc596f1dd03bbf067605b` |
 | Tip de la rama tras push | `0f06376150da7692746cc596f1dd03bbf067605b` |
-| SHA final integrado en `origin/master` | `e5468b296c68085dd72c0dd210f0e25368d9c098` |
+| SHA final integrado en `origin/master` | `a834034396bc129f08a6997b3af27a87a33ec263` |
 | PR | [#6](https://github.com/gitshell007/OPN_ORACLE/pull/6) |
 | CI run MDEV-00 | [30705985882](https://github.com/gitshell007/OPN_ORACLE/actions/runs/30705985882) (all SUCCESS) |
 | Rama histórica (no reescribir) | `mdev/00-baseline-ledger` @ `020a784` |
@@ -47,8 +53,8 @@
 
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
-| MDEV-00 | candidate_pass | **pending** | `e5468b296c68085dd72c0dd210f0e25368d9c098` | n/a (sin commit Signal) | PR#6 + evidence/mdev-00/ |
-| MDEV-01 | pending | pending | | | |
+| MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
+| MDEV-01 | in_progress | pending | (this branch) | (signal mdev/01) | contracts memory.v1 |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
@@ -61,6 +67,13 @@
 | MDEV-11 | pending | pending | | | |
 
 ## Contratos congelados
+
+- Bundle MDEV-01: `docs/contracts/memory_v1/` (schemas+fixtures+error_catalog)
+- `content_set_sha256` bilateral: `792f267db0ac33277d74e019fafb30844db0337b1ef4e62cf0457bbfa7f6ff91`
+- Scope productivo: `c:<consumer>|t:<tenant>` + product oracle + scope_type dossier + scope_id UUID
+- Modes Oracle: disabled|shadow|augment; host switch prevalece
+- Credencial por tenant en IntegrationConnection; scopes memory:read/write
+- Citabilidad: materializar Evidence Oracle antes del LLM
 
 - API memory version: `memory.v1` en código `main`; **ausente** en SHA Dev `db9fd37` (HTTP 404)
 - Ingestion / retrieval / coverage schema hashes: pendientes MDEV-01

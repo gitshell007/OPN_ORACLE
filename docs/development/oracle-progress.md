@@ -5,6 +5,20 @@ Este historial es complementario al `history` de cada funcionalidad en
 con el comando real o con el archivo que las contiene.
 
 
+
+## 2026-08-01  — ORC-MEM-001 / MDEV-01 contracts
+
+- Funcionalidad: ORC-MEM-001.
+- Trabajo: contratos memory.v1 bilaterales (schemas, fixtures, error catalog, ADR,
+  OpenAPI proposal, migration matrix, precedence, credential-per-tenant, UX ES),
+  módulo `memory_contract_v1.py`, tests contract, citabilidad y degradación.
+- Archivos: `docs/contracts/memory_v1/**`, `apps/api/src/opn_oracle/integrations/memory_contract_v1.py`,
+  `apps/api/tests/test_memory_v1_contract.py`, ledger/STATUS/roadmap.
+- Migraciones: ninguna aplicada.
+- Pruebas: pytest test_memory_v1_contract + test_memory_context (18 passed combined prior).
+- Riesgos: NO_ROLLBACK / beat drift heredados.
+- Estado: approved → in_progress (contratos congelados; runtime en MDEV-02+).
+
 ## 2026-08-01  — ORC-MEM-001 / MDEV-00 rework
 
 - Funcionalidad: ORC-MEM-001 — Memoria dual Oracle↔Signal (Dev).

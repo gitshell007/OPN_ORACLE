@@ -1,0 +1,20 @@
+{
+  "checksum": "sha256:deadbeef",
+  "classification": "internal",
+  "contradiction_evidence_refs": [],
+  "factual_status": "confirmed",
+  "id": "fact_opaque_001",
+  "kind": "fact",
+  "locator": "chunk:3#p2",
+  "occurred_at": "2026-01-15T00:00:00Z",
+  "policy_version": "consumer_memory_settings.v1",
+  "rank_explanation": "lexical+recency",
+  "received_at": "2026-01-16T12:00:00Z",
+  "score": 0.91,
+  "source_ref": "src:doc:abc",
+  "support_evidence_refs": [
+    "ev:1"
+  ],
+  "text": "La licencia ambiental vence el 2027-03-01.",
+  "watermark": "wm:2026-08-01T00:00:00Z"
+}

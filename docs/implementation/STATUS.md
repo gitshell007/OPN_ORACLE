@@ -1,8 +1,20 @@
 # Estado de implementación de OPN Oracle
 
 Actualizado: 2026-08-01
-Rama de trabajo MDEV-00 rework: `mdev/00-baseline-rework` (base `origin/master@402fc29`)
-Interfaz canónica: `CANONICAL_UI=vector`
+Rama MDEV-01: `mdev/01-contract-config` (base master `a834034`)
+
+## MDEV-01 · Contrato y configuración (en curso → entrega)
+
+- Codex **PASS MDEV-00**; MDEV-01 autorizado.
+- Bundle contractual `docs/contracts/memory_v1/` idéntico a Signal
+  (content_set `792f267d…`).
+- Scope dossier canónico, modos disabled/shadow/augment, errores, citabilidad,
+  credencial por tenant, matriz expand/contract, precedence y UX ES documentados.
+- Tests: `apps/api/tests/test_memory_v1_contract.py` (+ memory_context).
+- Flags OFF; sin migraciones Dev; sin deploy; sin OpenRouter/cloud.
+- Riesgos abiertos: NO_ROLLBACK Signal Dev, beat drift.
+
+---
 
 ## MDEV-00 rework · Auditoría entornos y baseline (2026-08-01)
 
