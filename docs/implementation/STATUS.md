@@ -2,6 +2,29 @@
 
 Actualizado: 2026-08-01
 
+## Workflow completo de expediente · candidata validada (2026-08-01)
+
+- La creación desde Vector marca de forma explícita el formulario humano como intención aceptada y
+  materializa, en la misma transacción, su requisito activo y la oferta propia. La API conserva el
+  comportamiento opt-in mediante `accept_creation_intent=false` por defecto.
+- Actividad muestra memoria, necesidad de inteligencia y oferta; Preguntar e Informe libre
+  rehidratan el mismo contrato versionado ya desplegado por Memoria Sol.
+- Desde el detalle de un actor/competidor se prepara una vigilancia diaria con el actor como entidad;
+  la pantalla de Configuración mantiene el gate humano antes de publicarla en Signal.
+- El Compose productivo incorpora ClamAV fijado por digest y variables completas para habilitar una
+  UAT documental local durable, escaneada y reversible. El backend local es una excepción de UAT;
+  S3 compatible sigue siendo el destino estable.
+- Signal producción tiene consumer tenant-scoped y conexión Oracle activa. Política Ask/Brief:
+  `ollama/qwen3.5:9b` → `ollama_titan/qwen3.6:27b`; OpenRouter no se usa en esas task keys.
+- Gate local: backend **858 passed**, cobertura **84.13%**; frontend **286 passed**; Ruff,
+  `ruff format --check`, mypy, TypeScript, OpenAPI/client, build y Compose productivo correctos;
+  `npm audit --omit=dev` informa 0 vulnerabilidades.
+- Mutaciones medidas: quitar la materialización de intención tumba el test HTTP de mercado; quitar
+  la navegación actor→monitor tumba Vitest; negar el escape local gobernado tumba el test de
+  configuración documental. Las tres mutaciones se restauraron y sus pruebas volvieron a verde.
+- Estado de esta entrada: candidata validada; el despliegue y el canario autenticado se registran en
+  una entrada posterior, no se infieren desde los tests.
+
 ## Memoria Sol · intención aceptada en contexto IA (2026-08-01)
 
 - Producción está en `20260801T095500Z-quick-36fbed6`, migraciones `0027/0028`, HTTPS,

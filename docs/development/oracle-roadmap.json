@@ -384,7 +384,7 @@
       "related_migrations": ["apps/api/migrations/versions/20260710_0003_auth_security.py"],
       "related_tests": ["apps/api/tests/test_auth_security.py", "apps/api/tests/test_integration_auth.py", "src/lib/auth/api-transport.test.ts", "tests/e2e/accessibility-security.spec.ts"],
       "implementation_evidence": [{"type": "test", "path": "apps/api/tests/test_auth_security.py", "claim": "Controles de auth, CSRF y sesión.", "confidence": "high"}, {"type": "file", "path": "apps/api/src/opn_oracle/auth/runtime.py", "claim": "Rotación, CSRF y revocación server-side.", "confidence": "high"}],
-      "related_decisions": ["ORC-ADR-0002", "ORC-ADR-0004"],
+      "related_decisions": ["ORC-ADR-0002", "ORC-ADR-0004", "ORC-ADR-0009"],
       "comments": "La activación productiva debe conservar configuración segura de cookie y Redis.",
       "next_action": "Mantener pruebas E2E de sesión expirada, revocada y cambio de tenant.",
       "created_at": "2026-07-31",
@@ -460,7 +460,7 @@
       "created_at": "2026-07-31",
       "updated_at": "2026-08-01",
       "completed_at": "2026-07-31",
-      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "validated", "summary": "Dominio, API, UI y pruebas existentes comprobados."}, {"date": "2026-08-01", "from": "validated", "to": "validated", "summary": "El contexto IA de Preguntar e Informe libre incorpora intención aceptada, requisitos y oferta con manifiesto trazable."}]
+      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "validated", "summary": "Dominio, API, UI y pruebas existentes comprobados."}, {"date": "2026-08-01", "from": "validated", "to": "validated", "summary": "El contexto IA de Preguntar e Informe libre incorpora intención aceptada, requisitos y oferta con manifiesto trazable."}, {"date": "2026-08-01", "from": "validated", "to": "validated", "summary": "La creación Vector materializa intake humano aceptado y el gate completo pasa 858 tests con PostgreSQL/Redis."}]
     },
     {
       "id": "ORC-DOS-002",
@@ -705,7 +705,7 @@
       "created_at": "2026-07-31",
       "updated_at": "2026-07-31",
       "completed_at": null,
-      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "implemented", "summary": "Modelo, rutas, tareas y pruebas observados; activación operativa pendiente."}]
+      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "implemented", "summary": "Modelo, rutas, tareas y pruebas observados; activación operativa pendiente."}, {"date": "2026-08-01", "from": "implemented", "to": "implemented", "summary": "Compose y configuración incorporan piloto UAT local durable con ClamAV fijado por digest; falta smoke productivo."}]
     },
     {
       "id": "ORC-AI-001",
@@ -804,13 +804,13 @@
       "related_migrations": ["apps/api/migrations/versions/20260710_0004_oracle_core.py", "apps/api/migrations/versions/20260712_0015_actor_candidate_reviews.py"],
       "related_tests": ["apps/api/tests/test_entity_intel.py", "src/components/entity-intel/entity-graph-v2.test.tsx", "src/components/dossiers/dossier-intelligence-section.test.tsx"],
       "implementation_evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/oracle/links.py", "claim": "Enlaces con evidencia para actores y relaciones.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_entity_intel.py", "claim": "Entidad/grafo y permisos tienen cobertura de test.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/67_GRAFO_DE_ENTIDAD_LEGIBLE_FILTRABLE_Y_ENFOCABLE.md", "claim": "Grafo legible y enfocable documentado.", "confidence": "high"}],
-      "related_decisions": ["ORC-ADR-0003", "ORC-ADR-0004"],
+      "related_decisions": ["ORC-ADR-0003", "ORC-ADR-0004", "ORC-ADR-0009"],
       "comments": "La resolución de identidad empresarial profunda queda separada en ORC-ACT-002 y ORC-INV-001.",
       "next_action": "Mantener el grafo como superficie de contexto, no como sustituto de evidencia.",
       "created_at": "2026-07-31",
       "updated_at": "2026-07-31",
       "completed_at": "2026-07-31",
-      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "validated", "summary": "Modelos, links, graph UI y pruebas de legibilidad auditados."}]
+      "history": [{"date": "2026-07-31", "from": "in_progress", "to": "validated", "summary": "Modelos, links, graph UI y pruebas de legibilidad auditados."}, {"date": "2026-08-01", "from": "validated", "to": "validated", "summary": "El detalle del actor prepara un monitor revisable con entidad y cadencia preconfiguradas."}]
     },
     {
       "id": "ORC-ACT-002",
