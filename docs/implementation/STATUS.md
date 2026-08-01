@@ -2,6 +2,18 @@
 
 Actualizado: 2026-08-01
 
+## Memoria Sol · intención aceptada en contexto IA (2026-08-01)
+
+- Producción está en `20260801T095500Z-quick-36fbed6`, migraciones `0027/0028`, HTTPS,
+  API, web, worker y beat sanos; Signal local-only tiene las dos task keys habilitadas.
+- El primer canario real detectó que `build_context()` no incorporaba la revisión de intención
+  aceptada aunque conversación e informe quedaban vinculados a ella.
+- El contexto incluye ahora intención aceptada, requisitos activos y ofertas activas asociadas; el
+  manifiesto fija IDs y `intent_content_hash` para auditoría y caché determinista.
+- Test HTTP+PostgreSQL focal: **3 passed** con `--no-cov`. Mutación `accepted→rejected` en la
+  selección de intención tumba el test focal. Pendiente: CI completo, despliegue del hotfix y
+  repetición del canario Ask/Brief hasta terminal real.
+
 ## Memoria Sol · release candidate coverage gate (2026-08-01)
 
 - Rama: `release/memsol-local-only` (PR #1).
@@ -9,8 +21,7 @@ Actualizado: 2026-08-01
 - Añadidos tests de comportamiento: `tests/test_memsol_conversations_service.py` (conversaciones, brief, cancel/retry jobs).
 - Corrección MockLLMProvider para schema estricto de `report_custom_brief_plan`; contrato OpenAPI intent PATCH body; teardown integración a head 0028.
 - Mutación: invertir `can_transition_message(queued→running)` tumba `test_message_transition_matrix_and_illegal`.
-- Producción: **no** tocada · **no** deploy · Signal **no** modificado.
-- Pendiente: CI remoto PR verde; deploy canario solo con autorización explícita.
+- Histórico del gate previo: en ese momento producción aún no se había tocado.
 
 ## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 
