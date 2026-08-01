@@ -111,3 +111,13 @@ en `docs/architecture/`; este archivo reúne solo las que afectan directamente a
 - Consecuencias: Actividad puede mostrar memoria aceptada desde el primer render; Ask/Brief reciben el mismo contexto versionado; la vigilancia sigue siendo opt-in y auditable.
 - Funcionalidades afectadas: ORC-DOS-001, ORC-ACT-001, ORC-SIG-001.
 - Archivos afectados: `apps/api/src/opn_oracle/oracle/service.py`, `src/components/navigation/create-product-dossier-dialog.tsx`, `src/components/dossiers/dossier-activity-section.tsx`, `src/components/dossiers/dossier-work-section.tsx`.
+
+## ORC-ADR-0010 — Base limpia master/main y límites Dev (2026-08-01)
+
+- **Contexto:** Ramas Dev divergen; Signal Dev carece de rollback formal; pack MDEV debe fallar cerrado si se altera.
+- **Decisiones:**
+  1. Toda implementación MDEV parte de `origin/master` (Oracle) y `origin/main` (Signal) en worktrees limpios.
+  2. Commits Dev se clasifican adoptar|descartar|reimplementar; `d3804ba` se descarta (merge hacia Dev).
+  3. Signal Dev update actual **no** constituye rollback verificable → blocker **NO_ROLLBACK** para MDEV-10.
+  4. Mutación de integridad del pack se prueba solo en copia temporal.
+- **Evidencia:** `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`, `docs/implementation/evidence/mdev-00/`.

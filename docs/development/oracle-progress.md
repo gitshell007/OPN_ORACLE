@@ -4,6 +4,22 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+
+## 2026-08-01  — ORC-MEM-001 / MDEV-00 rework
+
+- Funcionalidad: ORC-MEM-001 — Memoria dual Oracle↔Signal (Dev).
+- Trabajo realizado: REWORK MDEV-00 — roadmap con diff mínimo, ledger corregido (sin
+  autorreferencia), censo 8 Oracle + 9 Signal incl. d3804ba, evidencia RO durable bajo
+  docs/implementation/evidence/mdev-00/, mutación pack BLOCKED_PACK_INTEGRITY, deploy Signal
+  NO_ROLLBACK, beat drift, PR/integración master según AGENTS.
+- Archivos: ledger, bilateral, evidence/*, STATUS, roadmap (patch), progress, decisions, dashboard.
+- Migraciones: ninguna.
+- Pruebas: pack verify; pytest memory_context 9; signal focused 31; dashboard --check.
+- Resultado: baseline documentado; integración en master vía PR (ver Gate Packet).
+- Riesgos: NO_ROLLBACK Signal Dev; memory 404 en Dev; lifecycle pendiente.
+- Pendiente: PASS Codex; MDEV-01 solo tras master con ledger.
+- Estado: `approved` (idea; no implemented).
+
 ## 2026-08-01 — ORC-SIG-001 y ORC-EVID-001 · producción validada
 
 - Oracle desplegado en `20260801T114127Z-quick-b0a80eb` tras backup+restore aislado; health HTTPS,

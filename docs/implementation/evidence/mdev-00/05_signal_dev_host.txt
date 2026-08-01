@@ -1,0 +1,168 @@
+# Signal Dev RO audit (via oracle-dev jump)
+captured_at=2026-08-01 17:24:48 Europe/Madrid
+$ hostname; hostname -I; date
+v2202607388167489649
+159.195.216.184 172.17.0.1 172.18.0.1 2a0a:4cc0:c3:2db:689d:feff:fe55:b603
+Sat Aug  1 17:24:49 CEST 2026
+$ systemctl is-active; is-enabled beat
+active
+active
+active
+enabled
+enabled
+disabled
+$ systemctl show beat ActiveState UnitFileState
+ActiveState=active
+SubState=running
+UnitFileState=disabled
+$ ss -lntp | head -15
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      4096       127.0.0.1:5433      0.0.0.0:*    users:(("docker-proxy",pid=5151,fd=8))
+LISTEN 0      511          0.0.0.0:443       0.0.0.0:*    users:(("nginx",pid=13375,fd=21),("nginx",pid=13374,fd=21),("nginx",pid=13373,fd=21),("nginx",pid=13371,fd=21),("nginx",pid=2931,fd=21))
+LISTEN 0      128          0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=859,fd=6))
+LISTEN 0      511          0.0.0.0:80        0.0.0.0:*    users:(("nginx",pid=13375,fd=5),("nginx",pid=13374,fd=5),("nginx",pid=13373,fd=5),("nginx",pid=13371,fd=5),("nginx",pid=2931,fd=5))
+LISTEN 0      2048       127.0.0.1:8010      0.0.0.0:*    users:(("python3",pid=2465553,fd=3),("python3",pid=2465552,fd=3),("uvicorn",pid=2465546,fd=3))
+LISTEN 0      4096       127.0.0.1:6380      0.0.0.0:*    users:(("docker-proxy",pid=5175,fd=8))
+LISTEN 0      511             [::]:443          [::]:*    users:(("nginx",pid=13375,fd=22),("nginx",pid=13374,fd=22),("nginx",pid=13373,fd=22),("nginx",pid=13371,fd=22),("nginx",pid=2931,fd=22))
+LISTEN 0      128             [::]:22           [::]:*    users:(("sshd",pid=859,fd=7))
+LISTEN 0      511             [::]:80           [::]:*    users:(("nginx",pid=13375,fd=6),("nginx",pid=13374,fd=6),("nginx",pid=13373,fd=6),("nginx",pid=13371,fd=6),("nginx",pid=2931,fd=6))
+$ git rev-parse HEAD; branch
+db9fd379b44f0057a877d7a098356fd9bdcf6bc1
+signal-dev
+## signal-dev...origin/signal-dev
+$ curl healthz memory
+{"status":"ok","service":"opn_signal","version":"0.1.0"}
+{"detail":"Not Found"}
+{"detail":"Not Found"}
+$ memory flags
+MEMORY_ENGINE_ENABLED=0
+MEMORY_ANALYST_ENABLED=0
+MEMORY_SUMMARIES_ENABLED=0
+MEMORY_INGESTION_ENABLED=0
+MEMORY_EXTRACTION_ENABLED=0
+MEMORY_CONSOLIDATION_ENABLED=0
+MEMORY_CELERY_QUEUE=memory
+MEMORY_REFRESH_ENABLED=0
+MEMORY_REFRESH_SECONDS=21600
+MEMORY_REFRESH_ALLOW_LLM=0
+MEMORY_TARGET_ENTITIES=ITURRI,IBERDROLA
+MEMORY_PROBE_ENABLED=1
+MEMORY_PROBE_SECONDS=2700
+MEMORY_PROBE_MISSING_ENTITY=ZZZ_NO_ENTITY_XYZ_999
+MEMORY_PROBE_BASE_URL=***REDACTED***
+MEMORY_REFRESH_ENTITY_INGEST=0
+$ cat signal-dev-update.sh
+#!/usr/bin/env bash
+set -Eeuo pipefail
+# Guard: only operate on development paths/services
+INSTALL_DIR=/opt/apps/opn_signal_dev
+BRANCH="${1:-develop}"
+if [[ "$(hostname -I)" == *"178.105.143.191"* ]]; then
+  echo "REFUSING: this host looks like production IP"; exit 2
+fi
+if [[ "$INSTALL_DIR" != *"_dev"* ]]; then
+  echo "REFUSING: install dir must be development"; exit 2
+fi
+cd "$INSTALL_DIR"
+git fetch --all --prune
+git checkout "$BRANCH"
+git pull --ff-only origin "$BRANCH"
+source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+systemctl restart opn-signal-dev-api opn-signal-dev-worker
+# beat stays stopped unless explicitly started
+systemctl is-active opn-signal-dev-api opn-signal-dev-worker
+curl -fsS --retry 12 --retry-delay 2 --retry-connrefused http://127.0.0.1:8010/healthz
+echo
+git rev-parse HEAD
+$ NO CURRENT/PREVIOUS?
+ls: cannot access '/opt/apps/opn_signal_dev/CURRENT*': No such file or directory
+ls: cannot access '/opt/apps/opn_signal_dev/PREVIOUS*': No such file or directory
+/usr/local/sbin/signal-dev-backup-pg.sh
+/usr/local/sbin/signal-dev-set-openrouter-key.sh
+/usr/local/sbin/signal-dev-update.sh
+$ worker/beat status excerpts
+● opn-signal-dev-worker.service - OPN SIGNAL DEV - Celery worker
+     Loaded: loaded (/etc/systemd/system/opn-signal-dev-worker.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-07-31 23:25:42 CEST; 17h ago
+ Invocation: 8dd1b2d2f74741c8b69506f293da8f82
+   Main PID: 2412931 (celery)
+      Tasks: 2 (limit: 9466)
+     Memory: 177.2M (max: 2G, available: 1.8G, peak: 263.9M)
+        CPU: 3min 39.793s
+     CGroup: /system.slice/opn-signal-dev-worker.service
+             ├─2412931 /opt/apps/opn_signal_dev/.venv/bin/python3 /opt/apps/opn_signal_dev/.venv/bin/celery -A celery_app worker --loglevel=INFO -Q celery,memory --concurrency=1
+             └─2903931 /opt/apps/opn_signal_dev/.venv/bin/python3 /opt/apps/opn_signal_dev/.venv/bin/celery -A celery_app worker --loglevel=INFO -Q celery,memory --concurrency=1
+
+Aug 01 17:22:02 v2202607388167489649 opn-signal-dev-worker[2903931]: [2026-08-01 17:22:02,936: INFO/ForkPoolWorker-9] HTTP Request: GET https://www.boe.es/datosabiertos/api/boe/sumario/20260801 "HTTP/1.1 200 OK"
+Aug 01 17:22:03 v2202607388167489649 opn-signal-dev-worker[2903931]: [2026-08-01 17:22:03,151: INFO/ForkPoolWorker-9] HTTP Request: GET https://www.boe.es/diario_boe/xml.php?id=BOE-A-2026-16824 "HTTP/1.1 200 OK"
+Aug 01 17:22:03 v2202607388167489649 opn-signal-dev-worker[2903931]: [2026-08-01 17:22:03,230: INFO/ForkPoolWorker-9] HTTP Request: GET https://www.boe.es/diario_boe/xml.php?id=BOE-B-2026-25864 "HTTP/1.1 200 OK"
+Aug 01 17:22:03 v2202607388167489649 opn-signal-dev-worker[2903931]: [2026-08-01 17:22:03,281: INFO/ForkPoolWorker-9] HTTP Request: GET https://www.boe.es/diario_boe/xml.php?id=BOE-B-2026-25865 "HTTP/1.1 200 OK"
+Aug 01 17:22:03 v2202607388167489649 opn-signal-dev-worker[2903931]: [2026-08-01 17:22:03,323: INFO/ForkPoolWorker-9] HTTP Request: GET https://www.boe.es/datosabiertos/api/boe/sumario/20260731 "HTTP/1.1 200 OK"
+Aug 01 17:22:03 v2202607388167489649 opn-signal-dev-worker[2903931]: [2026-08-01 17:22:03,416: INFO/ForkPoolWorker-9] HTTP Request: GET https://www.boe.es/diario_boe/xml.php?id=BOE-A-2026-16733 "HTTP/1.1 200 OK"
+● opn-signal-dev-beat.service - OPN SIGNAL DEV - Celery beat (DISABLED by default policy after data restore)
+     Loaded: loaded (/etc/systemd/system/opn-signal-dev-beat.service; disabled; preset: enabled)
+     Active: active (running) since Fri 2026-07-31 02:22:57 CEST; 1 day 15h ago
+ Invocation: a418525e69bd41de940c59a1f90deed4
+   Main PID: 1818587 (celery)
+      Tasks: 1 (limit: 9466)
+     Memory: 79M (max: 512M, available: 432.9M, peak: 79.3M)
+        CPU: 12.374s
+     CGroup: /system.slice/opn-signal-dev-beat.service
+             └─1818587 /opt/apps/opn_signal_dev/.venv/bin/python3 /opt/apps/opn_signal_dev/.venv/bin/celery -A celery_app beat --loglevel=INFO
+
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,192: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-oracle-webhooks (opn_signal.deliver_oracle_webhooks)
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,198: INFO/MainProcess] Scheduler: Sending due task opn-signal-run-scope-collection (opn_signal.run_scope_collection_jobs)
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+Aug 01 17:17:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:17:00,192: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-oracle-webhooks (opn_signal.deliver_oracle_webhooks)
+Aug 01 17:17:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:17:00,198: INFO/MainProcess] Scheduler: Sending due task opn-signal-run-scope-collection (opn_signal.run_scope_collection_jobs)
+Aug 01 17:17:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:17:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+Aug 01 17:22:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:22:00,147: INFO/MainProcess] Scheduler: Sending due task opn-signal-probe-connectors (opn_signal.probe_connectors)
+$ celery queues from unit
+ExecStart=/opt/apps/opn_signal_dev/.venv/bin/celery -A celery_app worker --loglevel=INFO -Q celery,memory --concurrency=1
+ExecStart=/opt/apps/opn_signal_dev/.venv/bin/celery -A celery_app beat --loglevel=INFO
+WantedBy=multi-user.target
+$ beat journal sample
+Aug 01 17:02:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:02:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+Aug 01 17:07:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:07:00,192: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-oracle-webhooks (opn_signal.deliver_oracle_webhooks)
+Aug 01 17:07:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:07:00,198: INFO/MainProcess] Scheduler: Sending due task opn-signal-run-scope-collection (opn_signal.run_scope_collection_jobs)
+Aug 01 17:07:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:07:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,147: INFO/MainProcess] Scheduler: Sending due task opn-signal-probe-connectors (opn_signal.probe_connectors)
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,192: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-oracle-webhooks (opn_signal.deliver_oracle_webhooks)
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,198: INFO/MainProcess] Scheduler: Sending due task opn-signal-run-scope-collection (opn_signal.run_scope_collection_jobs)
+Aug 01 17:12:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:12:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+Aug 01 17:17:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:17:00,192: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-oracle-webhooks (opn_signal.deliver_oracle_webhooks)
+Aug 01 17:17:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:17:00,198: INFO/MainProcess] Scheduler: Sending due task opn-signal-run-scope-collection (opn_signal.run_scope_collection_jobs)
+Aug 01 17:17:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:17:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+Aug 01 17:22:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:22:00,147: INFO/MainProcess] Scheduler: Sending due task opn-signal-probe-connectors (opn_signal.probe_connectors)
+Aug 01 17:22:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:22:00,192: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-oracle-webhooks (opn_signal.deliver_oracle_webhooks)
+Aug 01 17:22:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:22:00,198: INFO/MainProcess] Scheduler: Sending due task opn-signal-run-scope-collection (opn_signal.run_scope_collection_jobs)
+Aug 01 17:22:00 v2202607388167489649 opn-signal-dev-beat[1818587]: [2026-08-01 17:22:00,202: INFO/MainProcess] Scheduler: Sending due task opn-signal-deliver-webhooks (opn_signal.deliver_webhooks)
+$ DB alembic + memory counts + consumers redacted
+db_host postgresql+psycopg://***@127.0.0.1:5433/opn_signal_dev_db
+alembic_host [('20260801_ai_usage_attempts',)]
+alembic_memory [('20260731_mem_areq',)]
+count memory.memory_sources 11857
+count memory.memory_chunks 11857
+count memory.memory_observations 48955
+count memory.memory_facts 15925
+count memory.memory_conflicts 418
+count memory.memory_summaries 241
+count memory.memory_analysis_requests 4
+count memory.memory_jobs 3
+scope sources [('c:pilot|t:phase2', 'pilot', 'phase2', 11857)]
+consumers [(1, 'opn-nexus', True), (2, 'opn-risk-advisor', True), (3, 'opn-core', True), (4, 'sentinel-prod-auto', True), (5, 'opn-evaluator', True), (11, 'opn-risk-advisor-totalenergies', True), (14, 'opn-oracle', True), (47, 'opn-signal-dev-structured', True), (55, 'mem-flip-http2-qllulJOtn8', True), (59, 'mode-a-synthetic-probe', True), (61, 'opn-oracle-memsol-pilot', True)]
+oracle_pilot_ai_settings [(14, 'opn-oracle', 'has_row', datetime.datetime(2026, 7, 31, 14, 25, 54, 500164)), (55, 'mem-flip-http2-qllulJOtn8', 'no_row', None), (59, 'mode-a-synthetic-probe', 'has_row', datetime.datetime(2026, 7, 31, 3, 24, 39, 381912)), (61, 'opn-oracle-memsol-pilot', 'has_row', datetime.datetime(2026, 7, 31, 23, 13, 44, 616348))]
+$ test -f app/api/v1/memory.py
+NO_MEMORY_API
+$ backups
+total 6440604
+drwx------ 4 root root       4096 Jul 31 23:25 .
+drwxr-xr-x 3 root root       4096 Jul 29 00:00 ..
+drwxr-xr-x 2 root root       4096 Jul 31 23:20 memsol-ai-pilot-20260731T232044
+-rw------- 1 root root 1720029579 Jul 29 03:18 opn_signal_dev_20260729T011501Z.dump
+-rw------- 1 root root 1574920080 Jul 30 03:17 opn_signal_dev_20260730T011501Z.dump
+-rw------- 1 root root 1583237895 Jul 31 03:17 opn_signal_dev_20260731T011501Z.dump
+-rw------- 1 root root 1716952228 Jul 28 10:24 signal_prod_for_dev_20260728T082008Z.dump
+drwxr-xr-x 7 root root       4096 Jul 31 23:25 wip-stash-20260731T232539

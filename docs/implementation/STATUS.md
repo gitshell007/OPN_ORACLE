@@ -1,6 +1,26 @@
 # Estado de implementación de OPN Oracle
 
 Actualizado: 2026-08-01
+Rama de trabajo MDEV-00 rework: `mdev/00-baseline-rework` (base `origin/master@402fc29`)
+Interfaz canónica: `CANONICAL_UI=vector`
+
+## MDEV-00 rework · Auditoría entornos y baseline (2026-08-01)
+
+- Pack `memoria_dev_v2` `2026-08-01.4` integridad **MATCH** 27/27; mutación en copia →
+  `BLOCKED_PACK_INTEGRITY`; canónico revalidado.
+- Ledger: `docs/implementation/MDEV_EXECUTION_LEDGER.md`.
+- Bilateral: `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`.
+- Evidencia: `docs/implementation/evidence/mdev-00/`.
+- Roadmap `ORC-MEM-001` approved (diff mínimo; progress 74%/mod 56%; sin `updated_at:null` en módulo).
+- Oracle Dev `96250a4` / Alembic `20260731_0028`; Signal Dev `db9fd37`; memory pilot only;
+  `/memory/v1` 404 en Dev; Http adapter stub; beat Signal disabled+active drift;
+  **NO_ROLLBACK** Signal Dev blocker MDEV-10.
+- Commits Dev: Oracle 8/8 (incl. `d3804ba` descartar), Signal 9/9 clasificados.
+- Suites completas **no** re-ejecutadas; focales 9+31 passed.
+- Codex decision: **pending**. No auto-PASS.
+- Histórico `mdev/00-baseline-ledger` conservado; roots compartidos no tocados.
+
+---
 
 ## Workflow Memoria Sol · desplegado y validado en producción (2026-08-01)
 
@@ -129,7 +149,7 @@ Actualizado: 2026-08-01
 - MEMSOL-08…10 documentados; UAT/E2E residual. MEMSOL-11 preparado sin deploy.
 - Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
-Rama observada: `master` / `memsol/execution`  
+Rama observada: `master` / `memsol/execution`
 Interfaz canónica: `CANONICAL_UI=vector`
 
 ## Sistema vivo de planificación (2026-07-31)
