@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 CONTRACT_DIR = Path(__file__).resolve().parents[5] / "docs" / "contracts" / "memory_v1"
-# Path: apps/api/src/opn_oracle/integrations -> parents[5] is repo root? 
+# Path: apps/api/src/opn_oracle/integrations -> parents[5] is repo root?
 # integrations=0, opn_oracle=1, src=2, api=3, apps=4, root=5. Yes.
 
 API_VERSION = "memory.v1"
