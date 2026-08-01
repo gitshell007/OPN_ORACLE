@@ -1,8 +1,8 @@
 {
-  "content_set_sha256": "2865ae3d06c722547ef787c6046e4e4c55523e5457efb994e23f92452caff2ea",
+  "content_set_sha256": "e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4",
   "contract_version": "memory.v1",
   "files": {
-    "error_catalog.json": "4d41b31a2a2a1c0b7826782dd6590130112946c45e8408f78debc8358e82911e",
+    "error_catalog.json": "4741da07c97e37932065263468aea7439e7bb0ed8090c932b1f844e9847be2ce",
     "fixtures/citability_materialized_evidence.json": "169d30e23a3a9444d1c192da993c91324e9bcd9ccff9a39b8d767efd5e1ff75c",
     "fixtures/consumer_memory_settings_example.json": "728870efc55156f57f77f454ee56185e31fdb0d78069290bfd1f3ad56547fa2a",
     "fixtures/dossier_memory_profile_example.json": "a4613f36a7173c5431acbdce37be5d6b564b214e15214248f2077e959bd830b6",
@@ -12,7 +12,7 @@
     "fixtures/same_source_two_dossiers.json": "bcf780dfafba1224579e2e880e53cd2af1e68f97c433fe85e82d5e9364c1713b",
     "fixtures/scope_dossier_a.json": "26c1af3048bfd87aae391a18cebc9a2912326cd78caa6f60b9b8990def4fd5b1",
     "fixtures/scope_dossier_b.json": "ddeebe0a74b826fe54cd902c7723846f75884f65136e413295e8c19343ea7b2d",
-    "openapi.memory.v1.json": "c0d1678f067e8b999a661c84e87a75def83fa1071a0bc171faf1c592c8aa4360",
+    "openapi.memory.v1.json": "fa37f2096d2b181ded70c780886f804bcad1be502b329383248253a5156660d7",
     "schemas/analysis_request.schema.json": "ee3c4ea8b81da770629b530b0ef593e609581709b9295bd4836d21a04f2de3a1",
     "schemas/analysis_request_status.schema.json": "e15e8838377267e395ef96e3b31814c92e666a5f73dc3affabefcfd1d36fd3a7",
     "schemas/consumer_memory_settings.schema.json": "b280b3a110e259fcc4cdb34e6c763032002e016b0966d617ab41b1c05e2ef938",
@@ -34,5 +34,6 @@
   },
   "hash_algorithm": "sha256",
   "package": "memory_v1_contract",
-  "schema_bundle_version": "2026-08-01.mdev01.rework"
+  "schema_bundle_version": "2026-08-01.mdev01.rework2",
+  "bundle_id": "2026-08-01.mdev01.rework2"
 }

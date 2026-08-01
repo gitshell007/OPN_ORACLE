@@ -1,49 +1,53 @@
-# Credencial 1:1 consumer + external_tenant (MDEV-01)
+# Credencial 1:1 consumer + external_tenant (MDEV-01 REWORK-2)
 
 ## Modelo congelado: `ConsumerTenantCredential`
 
-Tabla (expand, no aplicada en hosts en MDEV-01): `consumer_tenant_credentials`
+Tabla (expand, **no** aplicada en hosts en MDEV-01): `consumer_tenant_credentials`
 
 | Campo | Tipo | Regla |
 |---|---|---|
 | id | PK | |
 | consumer_id | FK consumers | |
 | external_tenant_id | string | tenant Oracle externo |
-| key_hash | sha256 hex | única con consumer+tenant |
+| key_hash | sha256 hex | **globalmente único** (auth busca solo por hash) |
 | fingerprint | prefix | no secreto |
-| scopes | JSON list | p.ej. memory:read, memory:write, ai:run |
-| status | active\|revoked\|expired | |
-| valid_from | datetime | |
-| expires_at | datetime nullable | |
-| revoked_at | datetime nullable | |
+| scopes | JSON list | p.ej. memory:read, memory:write — **vacío deniega** (no hereda consumer) |
+| status | active\|revoked\|expired | fail-closed; solo `active` autentica |
+| valid_from | datetime | futuro → rechazada |
+| expires_at | datetime nullable | pasado → rechazada |
+| revoked_at | datetime nullable | no null → rechazada |
 | last_used_at | datetime nullable | |
 | created_at / updated_at | datetime | |
 
-### Constraints e índices
+### Constraints e índices (política A — rotación atómica sin overlap)
 
+- **Unique global** `key_hash` (`uq_ctc_key_hash_global`) — la autenticación resuelve solo por hash.
 - Unique `(consumer_id, external_tenant_id, key_hash)`
 - Index `(key_hash)`
 - Index `(consumer_id, external_tenant_id, status)`
-- Invariante de negocio: como máximo **una credencial active** por `(consumer_id, external_tenant_id)` (enforce en servicio de rotación; índice parcial en Postgres en migración).
+- PostgreSQL partial unique `uq_ctc_one_active_per_tenant` on `(consumer_id, external_tenant_id) WHERE status = 'active'`
 
-### Rotación y overlap
+**No hay overlap de keys activas.** El índice parcial lo impide; no documentar ventanas con dos `active`.
 
-1. Emitir nueva key → insertar fila active con nuevo hash.
-2. Periodo de overlap opcional: dos filas active temporalmente solo durante ventana de rotación documentada, luego revocar la anterior (`status=revoked`, `revoked_at=now`).
-3. Revocación de tenant A no toca filas de tenant B.
+### Rotación (política A)
+
+1. Revocar la credencial activa del tenant (`status=revoked`, `revoked_at=now`).
+2. Insertar la nueva fila `active` con nuevo `key_hash`.
+3. No existen dos filas `active` concurrentes para el mismo `(consumer_id, external_tenant_id)`.
+4. Revocación de tenant A **no** toca filas de tenant B.
 
 ### Compatibilidad legacy `consumers.api_key_hash`
 
-- Legacy: una key por consumer sin bind de tenant.
-- Memory v1 productiva para Oracle: **requiere** `ConsumerTenantCredential` tenant-bound.
-- Path legacy en memory solo se usa si no hay credencial tenant-bound y se documenta como deprecado; allowlist `connector_policy.allowed_external_tenant_ids` sigue fail-closed.
-- Retirada de `api_key_hash` como único secret: fase posterior (contract en matriz); no se borra en MDEV-01.
+- Legacy: una key por consumer sin bind de tenant — **sigue válida** en endpoints Signal no-memory (jobs, signals, ai/run, etc.).
+- Memory v1 productiva (`/api/v1/memory/v1/*`): **exige** `ConsumerTenantCredential`.
+- Una key legacy en memory.v1 devuelve `tenant_bound_credential_required` (401, catálogo congelado).
+- No se borra `api_key_hash` en MDEV-01.
 
 ### Oracle
 
 - Guarda el secreto **una sola vez**, cifrado, en `IntegrationConnection` del tenant.
 - La misma credencial tenant-bound sirve memory + monitores/señales + `/ai/run` según scopes.
-- No hay “y/o”: el binding es **exactamente** 1 credencial activa → 1 external_tenant_id.
+- Binding exacto: 1 credencial activa → 1 `external_tenant_id`.
 
 ### Recuentos a medir antes de aplicar migración (MDEV-02/10)
 

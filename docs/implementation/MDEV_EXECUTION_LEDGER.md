@@ -37,22 +37,23 @@
 **Regla:** no hay autorreferencia circular al SHA del propio ledger dentro del mismo commit de contenido. El tip y el SHA de master se registran **después** del push/merge. MDEV-01 debe partir de `origin/master` **cuando ya contenga** este ledger (post-merge). Codex decision permanece `pending` hasta revisión humana.
 
 
-## REWORK MDEV-01 (Codex)
+## REWORK MDEV-01 (Codex) → REWORK-2
 
-- Veredicto Codex: **REWORK MDEV-01** (no auto-PASS).
-- Bundle rework content_set: ver `docs/contracts/memory_v1/CONTRACT_MANIFEST.json`.
-- Bloqueantes del dictamen y cierre:
-  - error envelope HTTP incompatible → **cerrado** (JSONResponse raíz error_envelope)
-  - validación extra no estricta → **cerrado** (extra=forbid + Draft 2020-12)
-  - scopes/capabilities inconsistentes → **cerrado** (`connector_policy.scopes` canónico)
-  - credencial tenant-bound sin cerrar → **cerrado** (`ConsumerTenantCredential` + docs/migración expand)
-  - dossier sin autorización → **cerrado** (`ConsumerMemoryDossierGrant`)
-  - matriz HTTP y A/B incompleta → **cerrado** (tests 401/403/404/409/413/422/503 + A/B)
-  - OpenAPI no ejecutable → **cerrado** (`openapi.memory.v1.json` validado)
-  - coverage tautológica → **cerrado** (`coverage_from_failure` / assert_not_disguised)
-  - mutaciones y RED no válidos → **cerrado** (`test_memory_v1_mutations` A–F + RED stub)
-  - suite Signal completa → ver evidencia suite en Gate Packet
-  - documentación incoherente → ledger/STATUS/progress/matrix actualizados
+- Veredicto Codex: **REWORK MDEV-01** (segunda corrección / REWORK-2; no auto-PASS).
+- Bases integradas REWORK-2: Oracle `5c2177d`, Signal `ac3c753` + higiene main `03adaf8`.
+- Bundle REWORK-2 content_set: `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`
+  (`schema_bundle_version` `2026-08-01.mdev01.rework2`).
+- Bloqueantes REWORK-2:
+  - key legacy multitenant en memory.v1 → **cerrado** (`tenant_bound_credential_required`)
+  - analysis en diccionario de proceso → **cerrado** (`get_analysis_request` / `request_cancel` durables)
+  - matriz HTTP sin 429 real / envelope incompleto → **cerrado** (parametrizada + mutación I)
+  - host mode desconocido puede elevar a augment → **cerrado** (fail-closed + mutación J)
+  - rotación documentada con overlap vs índice → **cerrado** (política **A** atómica; doc alineada)
+  - `key_hash` no globalmente único → **cerrado** (`uq_ctc_key_hash_global`)
+  - OpenAPI anuncia ops no operativas sin `x-status` → **cerrado**
+  - suite Signal 8 fallos preexistentes → **cerrado** (PR higiene #8 / `03adaf8`)
+  - mutaciones A–J RED→restore GREEN → **cerrado**
+- Migración expand `20260801_mem_cred`: upgrade/downgrade en PG de prueba solo; **no** Dev/Prod.
 
 NO_ROLLBACK y beat drift permanecen abiertos (fuera de alcance MDEV-01).
 APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
@@ -79,7 +80,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
 | MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
-| MDEV-01 | candidate_pass (rework) | **pending** | (pending push) | (pending push) | rework contract |
+| MDEV-01 | candidate_pass (REWORK-2) | **pending** | (pending push) | (pending push) | REWORK-2 security/durability/green |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
@@ -93,11 +94,11 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 
 ## Contratos congelados
 
-- Bundle MDEV-01: `docs/contracts/memory_v1/` (schemas+fixtures+error_catalog)
-- `content_set_sha256` bilateral: `792f267db0ac33277d74e019fafb30844db0337b1ef4e62cf0457bbfa7f6ff91`
+- Bundle MDEV-01 REWORK-2: `docs/contracts/memory_v1/` (schemas+fixtures+error_catalog)
+- `content_set_sha256` bilateral: `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`
 - Scope productivo: `c:<consumer>|t:<tenant>` + product oracle + scope_type dossier + scope_id UUID
-- Modes Oracle: disabled|shadow|augment; host switch prevalece
-- Credencial por tenant en IntegrationConnection; scopes memory:read/write
+- Modes Oracle: disabled|shadow|augment; host switch prevalece; host mode inválido → disabled
+- Credencial tenant-bound obligatoria en memory.v1; scopes vacíos deniegan; política rotación A
 - Citabilidad: materializar Evidence Oracle antes del LLM
 
 - API memory version: `memory.v1` en código `main`; **ausente** en SHA Dev `db9fd37` (HTTP 404)

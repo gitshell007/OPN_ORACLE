@@ -128,6 +128,9 @@ def test_settings_rejects_invalid_memory_mode_and_http_without_https() -> None:
     }
     with pytest.raises(ConfigError):
         Settings.load({**base, "MEMORY_CONTEXT_MODE": "live"})
+    for bad in ("shadow", "augment", "typo", "live"):
+        with pytest.raises(ConfigError):
+            Settings.load({**base, "MEMORY_CONTEXT_MODE": bad})
     with pytest.raises(ConfigError):
         Settings.load(
             {
@@ -143,6 +146,11 @@ def test_settings_rejects_invalid_memory_mode_and_http_without_https() -> None:
         }
     )
     assert settings.memory_context_mode == "mock"
+    # empty / whitespace normalize to disabled (fail closed, never shadow/augment)
+    empty = Settings.load({**base, "MEMORY_CONTEXT_MODE": ""})
+    assert empty.memory_context_mode == "disabled"
+    ws = Settings.load({**base, "MEMORY_CONTEXT_MODE": "  "})
+    assert ws.memory_context_mode == "disabled"
 
 
 def test_retrieval_response_shape_is_stable() -> None:

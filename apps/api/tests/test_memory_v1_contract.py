@@ -79,6 +79,41 @@ def test_modes_and_citability() -> None:
     assert llm_allowlist_from_citations([cit]) == ["ev1"]
 
 
+def test_host_mode_unknown_typo_never_augment_or_shadow() -> None:
+    """Fail-closed: empty/typo/shadow/augment as HOST mode must resolve disabled."""
+    for host in ("", "  ", "typo", "shadow", "augment", "live", "httpx"):
+        eff = resolve_effective_mode(
+            host_memory_context_mode=host,
+            connection_healthy=True,
+            tenant_mode="augment",
+            dossier_mode="augment",
+        )
+        assert eff.mode == "disabled", host
+        assert not should_call_signal(eff.mode)
+        assert not should_inject_into_llm(eff.mode)
+    # mock stays disabled path
+    mock_eff = resolve_effective_mode(
+        host_memory_context_mode="mock",
+        connection_healthy=True,
+        tenant_mode="augment",
+    )
+    assert mock_eff.mode == "disabled"
+    # only http + healthy may elevate
+    http_eff = resolve_effective_mode(
+        host_memory_context_mode="http",
+        connection_healthy=True,
+        tenant_mode="augment",
+    )
+    assert http_eff.mode == "augment"
+    # master connection switch prevails
+    down = resolve_effective_mode(
+        host_memory_context_mode="http",
+        connection_healthy=False,
+        tenant_mode="augment",
+    )
+    assert down.mode == "disabled"
+
+
 def test_coverage_failure_not_empty_success() -> None:
     cov = coverage_from_failure(
         requested=["retrieval"],

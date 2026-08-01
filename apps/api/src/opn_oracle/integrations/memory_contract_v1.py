@@ -99,10 +99,22 @@ def resolve_effective_mode(
     tenant_mode: OracleMemoryMode,
     dossier_mode: OracleMemoryMode | None = None,
 ) -> EffectiveMemoryMode:
-    host = (host_memory_context_mode or "disabled").lower()
+    """Fail-closed host gate.
+
+    Only host mode ``http`` may elevate to tenant/dossier shadow|augment.
+    Unknown, empty, typo, or host-level ``shadow``/``augment`` resolve to
+    **disabled** — never shadow/augment. ``disabled``/``mock`` stay disabled.
+    Master switch (caller) still prevails via connection_healthy=False.
+    """
+    host = str(host_memory_context_mode or "").strip().lower() or "disabled"
     if host in {"disabled", "mock"} or not connection_healthy:
         return EffectiveMemoryMode(
             "disabled", "host_or_connection", host, connection_healthy, tenant_mode, dossier_mode
+        )
+    if host != "http":
+        # typo / unknown / accidental shadow|augment as host mode → disabled
+        return EffectiveMemoryMode(
+            "disabled", "host_invalid", host, connection_healthy, tenant_mode, dossier_mode
         )
     mode: OracleMemoryMode = dossier_mode or tenant_mode
     return EffectiveMemoryMode(
