@@ -1,7 +1,17 @@
 # Estado de implementación de OPN Oracle
 
 Actualizado: 2026-08-01
-Rama MDEV-01: `mdev/01-contract-config` (base master `a834034`)
+Rama: `mdev/01-rework-contract`
+
+## MDEV-01 REWORK · cierre real contrato memory.v1
+
+- Codex emitió REWORK; rework cierra bloqueantes contractuales (envelope, scopes,
+  credencial 1:1, dossier grant, OpenAPI 3.1, coverage, mutaciones A–F).
+- Bundle en `docs/contracts/memory_v1/` (paridad Signal).
+- Sin deploy, sin migraciones en hosts, flags OFF, sin cloud.
+- NO_ROLLBACK / beat drift siguen abiertos.
+
+---
 
 ## MDEV-01 · Contrato y configuración (en curso → entrega)
 

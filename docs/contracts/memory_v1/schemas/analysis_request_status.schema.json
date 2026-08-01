@@ -1,0 +1,28 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/analysis_request_status.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "memory_scope.schema.json"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "scope"
+  ],
+  "type": "object"
+}

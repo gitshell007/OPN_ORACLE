@@ -1,0 +1,34 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/scope_status.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authorized": {
+      "type": "boolean"
+    },
+    "scope": {
+      "$ref": "memory_scope.schema.json"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "pending",
+        "revoked"
+      ],
+      "type": "string"
+    },
+    "watermark": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "scope",
+    "status",
+    "authorized",
+    "watermark"
+  ],
+  "type": "object"
+}

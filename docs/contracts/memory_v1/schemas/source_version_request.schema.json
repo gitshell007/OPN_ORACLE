@@ -1,0 +1,22 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/source_version_request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checksum": {
+      "type": "string"
+    },
+    "content": {
+      "maxLength": 500000,
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "content",
+    "checksum"
+  ],
+  "type": "object"
+}

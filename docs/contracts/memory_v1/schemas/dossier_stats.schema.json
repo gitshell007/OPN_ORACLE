@@ -1,0 +1,32 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/dossier_stats.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "type": "object"
+    },
+    "coverage_summary": {
+      "$ref": "coverage_manifest.schema.json"
+    },
+    "scope": {
+      "$ref": "memory_scope.schema.json"
+    },
+    "watermark": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "scope",
+    "counts",
+    "coverage_summary",
+    "watermark"
+  ],
+  "type": "object"
+}
