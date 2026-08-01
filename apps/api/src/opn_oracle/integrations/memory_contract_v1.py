@@ -225,7 +225,7 @@ def degradation_policy(mode: OracleMemoryMode, error_code: str) -> dict[str, Any
         }
     return {
         "call_signal": True,
-        "inject": False if retryable or error_code else True,
+        "inject": not (retryable or error_code),
         "audit": True,
         "retryable": retryable,
         "on_error": "degrade_to_oracle_memory_mark_coverage_failed",
