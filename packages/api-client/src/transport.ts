@@ -145,7 +145,7 @@ interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
   retry?: boolean;
-  ifMatch?: number;
+  ifMatch?: number | string;
   idempotencyKey?: string;
 }
 
@@ -163,8 +163,13 @@ async function request<T>(
       const id = requestId();
       if (id) headers.set("X-Request-ID", id);
       if (mutation) headers.set("X-CSRF-Token", csrfToken ?? "");
-      if (options.ifMatch !== undefined)
-        headers.set("If-Match", `W/"${options.ifMatch}"`);
+      if (options.ifMatch !== undefined) {
+        const match =
+          typeof options.ifMatch === "string"
+            ? options.ifMatch
+            : `W/"${options.ifMatch}"`;
+        headers.set("If-Match", match);
+      }
       if (options.idempotencyKey)
         headers.set("Idempotency-Key", options.idempotencyKey);
       const multipart =
@@ -2883,6 +2888,71 @@ const customBriefs = {
     ),
 };
 
+
+export type DossierMemoryProfile = {
+  id: string | null;
+  tenant_id: string;
+  dossier_id: string;
+  connection_id: string | null;
+  mode: "disabled" | "shadow" | "augment";
+  mode_label_es?: string;
+  version: number;
+  etag: string;
+  sources: string[];
+  kinds: string[];
+  classifications_allowed: string[];
+  token_budget: number;
+  limit: number;
+  status: string;
+  provenance: string;
+  last_test_at: string | null;
+  last_test_status: string | null;
+  last_error: string | null;
+  last_coverage: Record<string, unknown> | null;
+  updated_at: string | null;
+  persisted?: boolean;
+  publisher_reliable?: boolean;
+  actions_reliable?: boolean;
+  capability?: Record<string, unknown>;
+};
+
+const dossierMemory = {
+  getProfile: (dossierId: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile`,
+    ),
+  getEffective: (dossierId: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/effective`,
+    ),
+  putProfile: (
+    dossierId: string,
+    input: Partial<DossierMemoryProfile> & { mode: DossierMemoryProfile["mode"] },
+    etag: string,
+  ) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile`,
+      {
+        method: "PUT",
+        body: input,
+        ifMatch: etag,
+      },
+    ),
+  testConnection: (dossierId: string) =>
+    request<{
+      ok: boolean;
+      status: string;
+      synthetic?: boolean;
+      publisher_reliable?: boolean;
+      message?: string;
+    }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/test-connection`,
+      { method: "POST" },
+    ),
+  capability: () => request<Record<string, unknown>>("/api/v1/memory/capability"),
+};
+
+
 export const api = {
   auth,
   tenantAdmin,
@@ -2890,6 +2960,7 @@ export const api = {
   platform,
   jobs,
   signalAvanza,
+  dossierMemory,
   dossiers,
   oracleSummary,
   dossierCompletionWizard,

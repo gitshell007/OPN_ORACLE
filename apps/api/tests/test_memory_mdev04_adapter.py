@@ -368,3 +368,104 @@ def test_mutation_strip_tenant_mismatch_red():
         assert red.returncode != 0, red.stdout + red.stderr
     finally:
         path.write_text(original)
+
+
+def test_strict_api_version_rejects_prefix_only():
+    transport = MockTransport(
+        default=(
+            200,
+            {"content-type": "application/json"},
+            b'{"api_version":"memory.retrieve.v1","items":[]}',
+        )
+    )
+    client = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url="http://localhost:9999",
+            api_token="k",
+            require_https=False,
+            allowed_hosts=frozenset({"localhost"}),
+        ),
+        transport,
+    )
+    with pytest.raises(MemoryHttpError) as ei:
+        client.retrieve(
+            external_tenant_id="t",
+            dossier_id="11111111-1111-4111-8111-111111111111",
+            query="q",
+        )
+    assert ei.value.code == "unsupported_api_version"
+
+
+def test_dns_rebind_blocked_on_request():
+    transport = MockTransport(
+        resolve_override={"localhost": ["169.254.1.1"]},  # link-local
+    )
+    # construction may pass with default resolve; force override at request
+    client = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url="http://localhost:9999",
+            api_token="k",
+            require_https=False,
+            allowed_hosts=frozenset({"localhost"}),
+        ),
+        transport,
+    )
+    # for localhost, link-local is blocked by rebind check when host is localhost?
+    # Our rule: localhost only allows loopback/private. link-local fails.
+    with pytest.raises(MemoryHttpError) as ei:
+        client.retrieve(
+            external_tenant_id="t",
+            dossier_id="11111111-1111-4111-8111-111111111111",
+            query="q",
+        )
+    assert ei.value.code in {"ssrf_rebind", "ssrf_blocked"}
+
+
+def test_retry_on_503_then_success():
+    class Flaky(MockTransport):
+        def __init__(self):
+            super().__init__()
+            self.n = 0
+
+        def request(self, method, url, *, headers, json_body, timeout):
+            self.n += 1
+            if self.n == 1:
+                return 503, {"content-type": "application/json"}, b"{}"
+            body = {
+                "api_version": "memory.v1",
+                "items": [],
+                "coverage_manifest": {
+                    "version": "coverage_manifest.v1",
+                    "requested": [],
+                    "consulted": [],
+                    "failed": [],
+                    "excluded": [],
+                    "used": [],
+                    "truncated": False,
+                    "truncation_notes": [],
+                    "cutoff_at": None,
+                    "token_budget": 0,
+                    "token_used_estimate": 0,
+                },
+            }
+            return 200, {"content-type": "application/json"}, json.dumps(body).encode()
+
+    transport = Flaky()
+    client = SignalMemoryHttpClient(
+        MemoryClientConfig(
+            base_url="http://localhost:9999",
+            api_token="k",
+            require_https=False,
+            allowed_hosts=frozenset({"localhost"}),
+            max_retries=2,
+            deadline_seconds=10,
+        ),
+        transport,
+    )
+    out = client.retrieve(
+        external_tenant_id="t",
+        dossier_id="11111111-1111-4111-8111-111111111111",
+        query="q",
+    )
+    assert out["api_version"] == "memory.v1"
+    assert transport.n >= 2

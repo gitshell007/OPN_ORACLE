@@ -227,12 +227,7 @@ class DossierMemoryProfile(TenantDomainMixin, Base):
 
     __tablename__ = "dossier_memory_profiles"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id",
-            "dossier_id",
-            "connection_id",
-            name="uq_dossier_memory_profile_scope",
-        ),
+        # Unique via PG index NULLS NOT DISTINCT uq_dmp_scope_nulls (migration 0029)
         ForeignKeyConstraint(
             ("tenant_id",),
             ("tenants.id",),

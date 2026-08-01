@@ -7,6 +7,7 @@ Publisher debt (RACE-MDEV02-003 / DB-MDEV02-001): capability degraded; reindex n
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from collections.abc import Mapping
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -224,14 +225,16 @@ class HttpMemoryContextAdapter:
             client, external_tenant = self._resolve_client(scope)
             if bound_tenant and external_tenant != bound_tenant:
                 raise MemoryContextError("credential_tenant_mismatch")
+            import hashlib as _hl
+
             self.calls.append(
                 {
-                    "query": query[:200],
+                    "query_sha256": _hl.sha256(query.encode()).hexdigest()[:16],
+                    "query_len": len(query),
                     "purpose": purpose,
                     "limit": limit,
                     "dossier_id": dossier_id,
                     "external_tenant_id": external_tenant,
-                    # never log token
                 }
             )
             result = client.retrieve(
@@ -300,7 +303,25 @@ class HttpMemoryContextAdapter:
             "watermark": result.get("watermark"),
             "request_id": result.get("request_id"),
         }
-        # shadow: keep items out of prompt path (caller uses inject flag)
+        try:
+            from flask import has_app_context
+
+            if has_app_context() and scope.get("tenant_id") and mode != "disabled":
+                tid = uuid.UUID(str(scope["tenant_id"]))
+                did = uuid.UUID(str(dossier_id))
+                cid = uuid.UUID(str(scope["connection_id"])) if scope.get("connection_id") else None
+                persist_retrieval_snapshot(
+                    tenant_id=tid,
+                    dossier_id=did,
+                    connection_id=cid,
+                    mode=mode,
+                    correlation_id=str(result.get("request_id") or uuid.uuid4()),
+                    snapshot=self.last_snapshot,
+                    intent_revision_hash=str(scope.get("intent_revision_hash") or "") or None,
+                )
+        except Exception:
+            pass
+
         if mode == "shadow":
             out = dict(result)
             out["items_for_prompt"] = []
@@ -392,3 +413,54 @@ def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str,
             "Reindex/analyze not reliable."
         ),
     }
+
+
+def persist_retrieval_snapshot(
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    connection_id: uuid.UUID | None,
+    mode: str,
+    correlation_id: str,
+    snapshot: dict[str, Any],
+    intent_revision_hash: str | None = None,
+) -> None:
+    """Write immutable MemoryRetrievalSnapshot. No raw unlimited query/prompt."""
+    from opn_oracle.extensions import db
+    from opn_oracle.integrations.models import MemoryRetrievalSnapshot
+
+    if mode == "disabled":
+        return
+    payload = {
+        "mode": mode,
+        "failed": bool(snapshot.get("failed")),
+        "inject_into_llm": bool(snapshot.get("inject_into_llm")),
+        "items": list(snapshot.get("items") or [])[:50],
+        "items_observed": snapshot.get("items_observed"),
+        "coverage": snapshot.get("coverage"),
+        "watermark": snapshot.get("watermark"),
+        "request_id": snapshot.get("request_id"),
+        "intent_revision_hash": intent_revision_hash,
+        "policy_version": "memory.v1",
+        "schema": "memory.v1",
+        "publisher_degraded": True,
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    if len(raw) > 200_000:
+        payload["items"] = payload["items"][:10]
+        raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ctx_hash = hashlib.sha256(raw).digest()
+    row = MemoryRetrievalSnapshot(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        connection_id=connection_id,
+        mode=mode,
+        correlation_id=correlation_id[:80],
+        context_hash=ctx_hash,
+        payload=payload,
+        created_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+        updated_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+    )
+    db.session.add(row)
+    db.session.commit()

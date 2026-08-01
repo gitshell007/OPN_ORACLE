@@ -40,8 +40,8 @@ from opn_oracle.documents.storage import LocalObjectStorage, S3ObjectStorage
 from opn_oracle.extensions import db, init_extensions
 from opn_oracle.integrations.crypto import IntegrationKeyring
 from opn_oracle.integrations.entity_intel_routes import bp as entity_intel_bp
-from opn_oracle.integrations.procurement_routes import bp as procurement_bp
 from opn_oracle.integrations.memory_routes import bp as memory_settings_bp
+from opn_oracle.integrations.procurement_routes import bp as procurement_bp
 from opn_oracle.integrations.routes import bp as signal_integrations_bp
 from opn_oracle.integrations.signal_avanza import MockSignalAvanzaAdapter
 from opn_oracle.integrations.webhooks import bp as signal_webhooks_bp

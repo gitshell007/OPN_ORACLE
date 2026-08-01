@@ -8,6 +8,7 @@ import {
   type SignalConnection,
   type SignalMonitor,
   type SignalMonitorSourceType,
+  type DossierMemoryProfile,
 } from "@oracle/api-client";
 import { Archive, CirclePlus, PauseCircle, PlayCircle, RefreshCw, Save } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -71,6 +72,9 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [monitorsUnavailable, setMonitorsUnavailable] = useState(false);
+  const [memoryProfile, setMemoryProfile] = useState<DossierMemoryProfile | null>(null);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +101,13 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
       setMonitors(monitorResult.value.data);
       setMonitorsUnavailable(!monitorResult.available);
       setConnections(activeConnections);
+      try {
+        const mem = await api.dossierMemory.getEffective(dossierId);
+        setMemoryProfile(mem);
+        setMemoryError(null);
+      } catch (reason) {
+        setMemoryError(errorText(reason, "No se pudo cargar la memoria del expediente."));
+      }
       setMonitorForm((current) =>
         current.connection_id && activeConnections.some((item) => item.id === current.connection_id)
           ? current
@@ -272,6 +283,48 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
     }
   }
 
+  async function saveMemoryProfile() {
+    if (!memoryProfile?.etag) return;
+    setMemoryBusy(true);
+    try {
+      const updated = await api.dossierMemory.putProfile(
+        dossierId,
+        { mode: memoryProfile.mode },
+        memoryProfile.etag,
+      );
+      setMemoryProfile(updated);
+      setMemoryError(null);
+      toast.success("Memoria del expediente actualizada");
+    } catch (reason) {
+      setMemoryError(errorText(reason, "No se pudo guardar la memoria del expediente."));
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
+
+  async function testMemoryConnection() {
+    setMemoryBusy(true);
+    try {
+      const result = await api.dossierMemory.testConnection(dossierId);
+      if (result.ok) {
+        toast.success(
+          result.synthetic
+            ? "Prueba sintética (mock) correcta"
+            : "Conexión de memoria correcta",
+        );
+      } else {
+        toast.error(result.message || `Prueba fallida: ${result.status}`);
+      }
+      const mem = await api.dossierMemory.getEffective(dossierId);
+      setMemoryProfile(mem);
+      setMemoryError(null);
+    } catch (reason) {
+      setMemoryError(errorText(reason, "No se pudo probar la conexión de memoria."));
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
+
   if (loading) return <p className="global-inventory-state" role="status">Cargando configuración…</p>;
   if (!dossier) return <div className="inline-error" role="alert">{error || "Expediente no disponible."}<button onClick={() => void load()}>Reintentar</button></div>;
   const archived = dossier.status === "archived";
@@ -320,6 +373,104 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
           </form>
         </PermissionGate>}
         {monitorsUnavailable ? <p className="reporting-hint">No puedes consultar las vigilancias con tus permisos actuales; el resto de la configuración sigue disponible.</p> : monitors.length ? <div className="monitor-settings-list">{monitors.map((item) => <article key={item.id}><div><strong>{item.name || "Vigilancia sin nombre"}</strong><span className={`status ${item.status}`}>{productStatusLabel(item.status)}</span><p>{item.last_error || `Conexión: ${connections.find((connection) => connection.id === item.connection_id)?.name || item.provider} · Última sincronización: ${item.last_synced_at ? new Date(item.last_synced_at).toLocaleString("es-ES") : "pendiente"}`}</p></div><PermissionGate permission="signal.review"><div>{item.status === "paused" ? <AsyncActionButton className="" loading={busy} onClick={() => void actOnMonitor(item, "resume")}><PlayCircle size={14} /> Reanudar</AsyncActionButton> : <AsyncActionButton className="" loading={busy} onClick={() => void actOnMonitor(item, "pause")}><PauseCircle size={14} /> Pausar</AsyncActionButton>}<AsyncActionButton className="" loading={busy} onClick={() => void actOnMonitor(item, "sync")}><RefreshCw size={14} /> Sincronizar</AsyncActionButton></div></PermissionGate></article>)}</div> : <p className="reporting-hint">Todavía no hay vigilancias configuradas para este expediente.</p>}<button className="vector-secondary" onClick={() => void load()}><RefreshCw size={14} /> Actualizar</button></section>
+      <section className="settings-section" data-testid="dossier-memory-settings">
+        <header>
+          <h2>Memoria del expediente</h2>
+          <p>Controla si Signal aporta contexto de memoria a este expediente. No se muestran secretos, proveedores ni modelos.</p>
+        </header>
+        {memoryError && (
+          <div className="inline-error" role="alert">
+            {memoryError}
+            <button type="button" onClick={() => setMemoryError(null)}>
+              Cerrar
+            </button>
+          </div>
+        )}
+        {!memoryProfile ? (
+          <p className="reporting-hint" role="status">
+            Configuración de memoria no disponible.
+          </p>
+        ) : (
+          <PermissionGate
+            permission="dossier.write"
+            fallback={
+              <p className="reporting-hint">
+                Memoria en modo lectura. Estado:{" "}
+                {memoryProfile.mode === "disabled"
+                  ? "Desactivada"
+                  : memoryProfile.mode === "shadow"
+                    ? "Solo observar"
+                    : "Usar para responder"}
+                {memoryProfile.last_test_status
+                  ? ` · Última prueba: ${memoryProfile.last_test_status}`
+                  : ""}
+                {memoryProfile.publisher_reliable === false ? " · Degradado" : ""}
+              </p>
+            }
+          >
+            <form
+              className="dossier-memory-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveMemoryProfile();
+              }}
+            >
+              <label className="field">
+                <span>Modo</span>
+                <select
+                  value={memoryProfile.mode}
+                  disabled={memoryBusy || archived}
+                  onChange={(event) =>
+                    setMemoryProfile({
+                      ...memoryProfile,
+                      mode: event.target.value as DossierMemoryProfile["mode"],
+                    })
+                  }
+                >
+                  <option value="disabled">Desactivada</option>
+                  <option value="shadow">Solo observar</option>
+                  <option value="augment">Usar para responder</option>
+                </select>
+              </label>
+              <p className="reporting-hint" role="status">
+                Versión {memoryProfile.version}
+                {memoryProfile.persisted === false ? " · defaults no persistidos" : ""}
+                {memoryProfile.last_test_status
+                  ? ` · Última prueba: ${memoryProfile.last_test_status}`
+                  : " · Sin prueba reciente"}
+                {memoryProfile.last_error ? ` · Error: ${memoryProfile.last_error}` : ""}
+                {memoryProfile.publisher_reliable === false || memoryProfile.actions_reliable === false
+                  ? " · Banner: servicio degradado"
+                  : ""}
+              </p>
+              {memoryProfile.last_coverage && (
+                <pre className="reporting-hint" style={{ whiteSpace: "pre-wrap" }}>
+                  Cobertura: {JSON.stringify(memoryProfile.last_coverage)}
+                </pre>
+              )}
+              <div className="settings-actions">
+                <AsyncActionButton
+                  className="vector-primary"
+                  type="submit"
+                  disabled={archived}
+                  loading={memoryBusy}
+                >
+                  <Save size={15} /> Guardar memoria
+                </AsyncActionButton>
+                <AsyncActionButton
+                  className="vector-secondary"
+                  type="button"
+                  disabled={archived || memoryProfile.mode === "disabled"}
+                  loading={memoryBusy}
+                  onClick={() => void testMemoryConnection()}
+                >
+                  <RefreshCw size={14} /> Probar conexión
+                </AsyncActionButton>
+              </div>
+            </form>
+          </PermissionGate>
+        )}
+      </section>
       {!archived && <PermissionGate permission="dossier.archive"><section className="settings-section destructive-zone"><header><h2>Archivar expediente</h2><p>Quedará en modo lectura y conservará toda su trazabilidad.</p></header><label className="field"><span>Escribe «{dossier.title}» para confirmar</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><AsyncActionButton className="vector-danger" disabled={confirmation !== dossier.title} loading={busy} onClick={() => void archive()}><Archive size={15} /> Archivar</AsyncActionButton></section></PermissionGate>}
     </div>
   );

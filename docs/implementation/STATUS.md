@@ -4373,3 +4373,16 @@ Verificación posterior: punteros, `ORACLE_RELEASE` e imágenes de los seis serv
 liveness, readiness, login HTTPS, Celery ping, beat único y smoke público correctos. La evidencia
 del backup y restore queda bajo el backup local de producción; el recibo off-host sigue siendo
 recomendado, no gate estricto activo.
+
+## MDEV-04 REWORK-1 (2026-08-02)
+- candidate_verdict: implemented_with_debt (REWORK attempt 1)
+- branch: mdev/04-oracle-adapter-settings · PR Oracle #16
+- test-connection: real Httpx unless MEMORY_CONTEXT_TEST_TRANSPORT / mock mode (synthetic flagged)
+- GET profile/effective: no silent create; ephemeral defaults + persisted=false
+- unique scope: uq_dmp_scope_nulls NULLS NOT DISTINCT
+- strict memory.v1 validation; SSRF rebind per-request; retry 408/429/5xx
+- snapshot writer persist_retrieval_snapshot in retrieve path; shadow returns zero items
+- TS client dossierMemory + UI section Memoria in dossier settings
+- unit tests test_memory_mdev04_adapter.py: 17 passed
+- residual debt: Flask/PG two-tenant HTTP, migration roundtrip PG, OpenAPI regen full, Playwright/Vitest axe, Celery cancel, full suite+CI green
+

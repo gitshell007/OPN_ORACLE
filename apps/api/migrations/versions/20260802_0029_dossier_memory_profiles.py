@@ -40,21 +40,26 @@ def upgrade() -> None:
         sa.Column("last_coverage", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE", name="fk_dmp_tenant"),
+        sa.ForeignKeyConstraint(
+            ["tenant_id"], ["tenants.id"], ondelete="CASCADE", name="fk_dmp_tenant"
+        ),
         sa.ForeignKeyConstraint(
             ["connection_id", "tenant_id"],
             ["integration_connections.id", "integration_connections.tenant_id"],
             ondelete="SET NULL",
             name="fk_dmp_connection_tenant",
         ),
-        sa.UniqueConstraint(
-            "tenant_id", "dossier_id", "connection_id", name="uq_dossier_memory_profile_scope"
-        ),
         sa.CheckConstraint("mode IN ('disabled','shadow','augment')", name="dmp_mode_valid"),
         sa.CheckConstraint("version >= 1", name="dmp_version_positive"),
         sa.CheckConstraint("jsonb_typeof(profile_config) = 'object'", name="dmp_config_object"),
     )
     op.create_index("ix_dmp_tenant_dossier", "dossier_memory_profiles", ["tenant_id", "dossier_id"])
+    # PostgreSQL: treat NULL connection_id as equal for uniqueness (no duplicate defaults)
+    op.execute(
+        "CREATE UNIQUE INDEX uq_dmp_scope_nulls "
+        "ON dossier_memory_profiles (tenant_id, dossier_id, connection_id) "
+        "NULLS NOT DISTINCT"
+    )
 
     op.create_table(
         "memory_retrieval_snapshots",
@@ -70,7 +75,9 @@ def upgrade() -> None:
         sa.Column("usage_log_id", sa.String(length=80), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE", name="fk_mrs_tenant"),
+        sa.ForeignKeyConstraint(
+            ["tenant_id"], ["tenants.id"], ondelete="CASCADE", name="fk_mrs_tenant"
+        ),
         sa.CheckConstraint("jsonb_typeof(payload) = 'object'", name="mrs_payload_object"),
         sa.CheckConstraint("octet_length(context_hash) = 32", name="mrs_hash_length"),
     )
@@ -82,5 +89,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_mrs_tenant_dossier", table_name="memory_retrieval_snapshots")
     op.drop_table("memory_retrieval_snapshots")
+    op.execute("DROP INDEX IF EXISTS uq_dmp_scope_nulls")
     op.drop_index("ix_dmp_tenant_dossier", table_name="dossier_memory_profiles")
     op.drop_table("dossier_memory_profiles")
