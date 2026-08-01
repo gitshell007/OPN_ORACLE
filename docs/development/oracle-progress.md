@@ -4,6 +4,25 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — ORC-DOS-001, ORC-ACT-001, ORC-SIG-001 y ORC-EVID-001 · candidata de workflow completo
+
+- Trabajo realizado: la creación UI acepta y versiona su intake; Actividad lo hace visible; el
+  detalle de competidor prepara una vigilancia revisable; el runtime productivo recibe una opción
+  UAT de documentos locales durables con ClamAV fijado por digest.
+- Contratos: OpenAPI y cliente TypeScript regenerados; no hay migración nueva. La aceptación humana
+  es opt-in en API y no autoactiva monitores.
+- Pruebas ejecutadas: backend completo con PostgreSQL+Redis **858 passed**, cobertura **84.13%**;
+  frontend completo **286 passed**; Ruff check/formato, mypy, ESLint sin errores, TypeScript, build,
+  cliente OpenAPI y Compose productivo correctos. Audit productivo npm: 0 vulnerabilidades.
+- Mutaciones: se retiraron, una por una, la materialización de intención, la navegación al monitor y
+  el escape de storage local; cayeron respectivamente el test HTTP de mercado, el test UI del actor
+  y el test de configuración documental. Todo fue restaurado y revalidado.
+- Riesgo explícito: el volumen local de documentos es solo para esta UAT de servidor único; antes de
+  escalar hay que migrar objetos a S3 compatible y verificar restore. OpenRouter queda fuera de Ask
+  y Brief porque el primario/fallback local ya está validado y no necesita gasto cloud.
+- Estado anterior/nuevo: las funcionalidades conservan su estado hasta completar despliegue y
+  canario real; la candidata de código sí está validada.
+
 ## 2026-08-01 — ORC-DOS-001 · MEMSOL desplegado y canario local-only
 
 - Release producción: `20260801T101526Z-quick-0331ae5`; commit de aplicación `0331ae5`.

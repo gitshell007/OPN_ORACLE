@@ -3826,6 +3826,7 @@ def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(
             "type": "tender_or_grant",
             "strategic_goal": "Presentar una propuesta sólida antes del plazo.",
             "create_starter_profile": True,
+            "accept_creation_intent": True,
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )
@@ -3946,6 +3947,7 @@ def test_market_dossier_intake_materialises_editable_context(
             "type": "market",
             "strategic_goal": "Decidir antes de diciembre si entramos y mediante qué canal.",
             "create_starter_profile": True,
+            "accept_creation_intent": True,
             "geography": ["es", "DE"],
             "sectors": ["almacenamiento energético"],
             "languages": ["ES", "de"],
@@ -4010,6 +4012,24 @@ def test_market_dossier_intake_materialises_editable_context(
     assert {"type": "company", "name": "Regulador Energía"} in config["entities"]
     assert "utility scale" in config["keywords"]
     assert "licitación pública" in config["keywords"]
+
+    activity_response = client.get(f"/api/v1/dossiers/{dossier_id}/activity")
+    assert activity_response.status_code == 200, activity_response.get_json()
+    activity = activity_response.get_json()
+    assert activity["intent"]["status"] == "accepted"
+    assert activity["intent"]["schema_key"] == "market"
+    assert activity["intent"]["structured_spec"]["origin"] == "human_reviewed_creation_form"
+    assert activity["intent"]["structured_spec"]["profile"]["own_offer"] == (
+        "Integración de sistemas de baterías"
+    )
+    assert len(activity["requirements"]) == 1
+    assert activity["requirements"][0]["class"] == "market_scan"
+    assert activity["requirements"][0]["priority"] == "high"
+    assert activity["requirements"][0]["status"] == "active"
+    assert activity["requirements"][0]["alignment_state"] == "aligned"
+    assert activity["requirements"][0]["intent_revision_id"] == activity["intent"]["id"]
+    assert activity["offerings"][0]["name"] == "Integración de sistemas de baterías"
+    assert activity["offerings"][0]["intent_revision_id"] == activity["intent"]["id"]
 
     patched = client.patch(
         f"/api/v1/dossiers/{dossier_id}",

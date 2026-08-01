@@ -29854,6 +29854,7 @@ export interface components {
             deleted_ids: string[];
         };
         DossierCreateInput: {
+            accept_creation_intent?: boolean;
             collaborator_user_ids?: string[];
             create_starter_profile?: boolean;
             description?: string;

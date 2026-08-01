@@ -25,9 +25,37 @@ describe("DossierActivitySection", () => {
   it("carga el read model y muestra filas", async () => {
     getActivity.mockResolvedValue({
       dossier_id: "d1",
-      intent: { schema_key: "market" },
-      requirements: [],
-      offerings: [],
+      intent: {
+        id: "intent-1",
+        version: 1,
+        schema_key: "market",
+        schema_version: "v1",
+        request_text: "Objetivo: entrar en almacenamiento energético.",
+        structured_spec: {},
+        status: "accepted",
+        content_hash: "hash",
+      },
+      requirements: [
+        {
+          id: "requirement-1",
+          intent_revision_id: "intent-1",
+          class: "market_scan",
+          priority: "high",
+          question: "¿Qué competidores y oportunidades debemos seguir?",
+          decision_to_support: "Entrar o no",
+          status: "active",
+          alignment_state: "aligned",
+        },
+      ],
+      offerings: [
+        {
+          id: "offering-1",
+          intent_revision_id: "intent-1",
+          name: "Integración de baterías",
+          description: "Oferta propia",
+          status: "active",
+        },
+      ],
       summary: { total: 1, by_state: { active: 1 }, by_kind: { signal_monitor: 1 } },
       items: [
         {
@@ -46,6 +74,10 @@ describe("DossierActivitySection", () => {
     await waitFor(() => expect(screen.getByText("Radar ES")).toBeInTheDocument());
     expect(getActivity).toHaveBeenCalledWith("d1", { limit: 100, offset: 0 });
     expect(screen.getAllByText("Activo").length).toBeGreaterThan(0);
+    expect(screen.getByText("Memoria aceptada · versión 1")).toBeVisible();
+    expect(screen.getByText("Objetivo: entrar en almacenamiento energético.")).toBeVisible();
+    expect(screen.getByText("¿Qué competidores y oportunidades debemos seguir?")).toBeVisible();
+    expect(screen.getByText("Integración de baterías")).toBeVisible();
   });
 
   it("muestra error recuperable", async () => {

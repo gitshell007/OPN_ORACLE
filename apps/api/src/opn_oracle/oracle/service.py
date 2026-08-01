@@ -15,6 +15,12 @@ from sqlalchemy.orm import Session
 
 from opn_oracle.ai.models import AIArtifact, AIContextEvidence, AIHumanReview
 from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, actor_canonical_key, clean_labels
+from opn_oracle.oracle.intent import (
+    DossierIntentRevision,
+    DossierOffering,
+    IntelligenceRequirement,
+    compute_intent_content_hash,
+)
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.links import (
     DossierCollaborator,
@@ -382,6 +388,9 @@ def create_dossier(
     create_starter_profile = payload.get("create_starter_profile", False)
     if not isinstance(create_starter_profile, bool):
         raise DomainValidationError("create_starter_profile debe ser booleano.")
+    accept_creation_intent = payload.get("accept_creation_intent", False)
+    if not isinstance(accept_creation_intent, bool):
+        raise DomainValidationError("accept_creation_intent debe ser booleano.")
     initial_status = str(payload.get("initial_status", "draft"))
     if initial_status not in {"draft", "active"}:
         raise DomainValidationError("initial_status solo admite draft o active.")
@@ -413,6 +422,8 @@ def create_dossier(
             _apply_competitive_profile(session, dossier, actor_id=actor_id)
         elif dossier_type == "market" and profile_config:
             _apply_market_profile(session, dossier, actor_id=actor_id)
+    if accept_creation_intent:
+        _apply_human_reviewed_creation_intent(session, dossier, actor_id=actor_id)
     collaborators = payload.get("collaborator_user_ids", [])
     if not isinstance(collaborators, list):
         raise DomainValidationError("collaborator_user_ids debe ser una lista.")
@@ -441,6 +452,142 @@ def create_dossier(
     )
     session.commit()
     return dossier
+
+
+def _apply_human_reviewed_creation_intent(
+    session: Session,
+    dossier: StrategicDossier,
+    *,
+    actor_id: uuid.UUID,
+) -> None:
+    """Persist the dossier creation form as accepted, versioned intake memory.
+
+    Clicking ``Crear expediente`` is the human acceptance boundary: this is not an
+    LLM proposal and it never activates a monitor.  The accepted revision, bounded
+    intelligence need and own offering are created in the dossier transaction so a
+    newly-created dossier can immediately rehydrate the same context in Ask/Brief.
+    """
+
+    schema_key_by_type = {
+        "market": "market",
+        "competitive_intelligence": "competitive-intelligence",
+        "tender_or_grant": "procurement",
+        "risk_watch": "research",
+        "technology": "research",
+    }
+    requirement_class_by_type = {
+        "market": "market_scan",
+        "competitive_intelligence": "competitive_watch",
+        "tender_or_grant": "procurement_fit",
+        "risk_watch": "risk_watch",
+        "technology": "research_question",
+    }
+    schema_key = schema_key_by_type.get(dossier.dossier_type, "custom")
+    requirement_class = requirement_class_by_type.get(dossier.dossier_type, "custom")
+    request_text = (
+        "\n\n".join(
+            part
+            for part in (
+                f"Objetivo: {dossier.strategic_goal.strip()}"
+                if dossier.strategic_goal.strip()
+                else "",
+                f"Contexto: {dossier.description.strip()}" if dossier.description.strip() else "",
+            )
+            if part
+        )
+        or f"Expediente: {dossier.title}"
+    )
+    structured_spec = {
+        "origin": "human_reviewed_creation_form",
+        "dossier_type": dossier.dossier_type,
+        "title": dossier.title,
+        "strategic_goal": dossier.strategic_goal,
+        "geography": list(dossier.geography or []),
+        "sectors": list(dossier.sectors or []),
+        "languages": list(dossier.languages or []),
+        "profile": dict(dossier.profile_config or {}),
+    }
+    content_hash = compute_intent_content_hash(
+        schema_key=schema_key,
+        schema_version="v1",
+        request_text=request_text,
+        structured_spec=structured_spec,
+    )
+    now = datetime.now(UTC)
+    revision = DossierIntentRevision(
+        tenant_id=dossier.tenant_id,
+        dossier_id=dossier.id,
+        version=1,
+        schema_key=schema_key,
+        schema_version="v1",
+        request_text=request_text,
+        structured_spec=structured_spec,
+        status="accepted",
+        content_hash=content_hash,
+        source_refs=[
+            {
+                "kind": "dossier_creation",
+                "ref": "human-reviewed-form",
+                "label": "Formulario revisado por el usuario",
+            }
+        ],
+        proposed_by_user_id=actor_id,
+        accepted_by_user_id=actor_id,
+        accepted_at=now,
+        row_version=1,
+    )
+    session.add(revision)
+    session.flush()
+    dossier.current_intent_revision_id = revision.id
+    requirement = IntelligenceRequirement(
+        tenant_id=dossier.tenant_id,
+        dossier_id=dossier.id,
+        intent_revision_id=revision.id,
+        requirement_class=requirement_class,
+        priority="high",
+        question=(dossier.strategic_goal.strip() or f"¿Qué debemos conocer sobre {dossier.title}?")[
+            :2000
+        ],
+        decision_to_support=str((dossier.profile_config or {}).get("decision_to_make", ""))[:2000],
+        scope={
+            "geography": list(dossier.geography or []),
+            "sectors": list(dossier.sectors or []),
+        },
+        exclusions={},
+        success_criteria=list((dossier.profile_config or {}).get("success_indicators", []))[:20],
+        status="active",
+        alignment_state="aligned",
+    )
+    session.add(requirement)
+    own_offer = str((dossier.profile_config or {}).get("own_offer", "")).strip()
+    if own_offer:
+        session.add(
+            DossierOffering(
+                tenant_id=dossier.tenant_id,
+                dossier_id=dossier.id,
+                intent_revision_id=revision.id,
+                name=own_offer[:300],
+                aliases=[],
+                taxonomies={"sectors": list(dossier.sectors or [])},
+                description=own_offer[:5000],
+                status="active",
+            )
+        )
+    append_audit_event(
+        session,
+        action="intent.accepted_at_creation",
+        resource_type="dossier_intent_revision",
+        resource_id=revision.id,
+        dossier_id=dossier.id,
+        result="success",
+        metadata={
+            "version": revision.version,
+            "schema_key": schema_key,
+            "content_hash": content_hash,
+            "human_reviewed": True,
+            "monitors_created": False,
+        },
+    )
 
 
 def _apply_starter_profile(session: Session, dossier: StrategicDossier) -> None:

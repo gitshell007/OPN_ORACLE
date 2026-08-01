@@ -2490,6 +2490,9 @@
       "DossierCreateInput": {
         "additionalProperties": false,
         "properties": {
+          "accept_creation_intent": {
+            "type": "boolean"
+          },
           "collaborator_user_ids": {
             "items": {
               "format": "uuid",

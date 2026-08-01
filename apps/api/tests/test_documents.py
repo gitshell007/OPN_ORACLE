@@ -122,8 +122,8 @@ def test_production_documents_fail_closed_without_s3_and_scanner() -> None:
     }
     with pytest.raises(ConfigError, match="DOCUMENT_STORAGE_BACKEND"):
         Settings.load(base)
-    # Shared-dev escape: local backend only when DOCUMENT_ALLOW_LOCAL_BACKEND=true.
-    # Real production must not set that flag.
+    # Explicit escape: local backend only when DOCUMENT_ALLOW_LOCAL_BACKEND=true.
+    # Stable production uses S3; a bounded UAT may combine it with a real scanner below.
     local_dev = Settings.load(
         {
             **base,
@@ -136,6 +136,19 @@ def test_production_documents_fail_closed_without_s3_and_scanner() -> None:
     )
     assert local_dev.document_storage_backend == "local"
     assert local_dev.document_allow_local_backend is True
+    local_uat_scanned = Settings.load(
+        {
+            **base,
+            "RLS_ENABLED": True,
+            "DOCUMENT_STORAGE_BACKEND": "local",
+            "DOCUMENT_ALLOW_LOCAL_BACKEND": True,
+            "DOCUMENT_SCANNER_MODE": "clamav",
+            "DOCUMENT_CLAMAV_HOST": "clamav",
+        }
+    )
+    assert local_uat_scanned.documents_enabled is True
+    assert local_uat_scanned.document_scanner_mode == "clamav"
+    assert local_uat_scanned.document_clamav_host == "clamav"
     s3_ready = {
         **base,
         "RLS_ENABLED": True,

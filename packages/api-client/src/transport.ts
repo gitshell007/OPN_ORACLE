@@ -2738,11 +2738,42 @@ export interface DossierActivityItem {
   target?: Record<string, unknown>;
 }
 
+export interface DossierIntentRevision {
+  id: string;
+  version: number;
+  schema_key: string;
+  schema_version: string;
+  request_text: string;
+  structured_spec: Record<string, unknown>;
+  status: string;
+  content_hash: string;
+  accepted_at?: string | null;
+}
+
+export interface DossierIntelligenceRequirement {
+  id: string;
+  intent_revision_id?: string | null;
+  class: string;
+  priority: string;
+  question: string;
+  decision_to_support: string;
+  status: string;
+  alignment_state: string;
+}
+
+export interface DossierOffering {
+  id: string;
+  intent_revision_id?: string | null;
+  name: string;
+  description: string;
+  status: string;
+}
+
 export interface DossierActivityResponse {
   dossier_id: string;
-  intent: Record<string, unknown> | null;
-  requirements: unknown[];
-  offerings: unknown[];
+  intent: DossierIntentRevision | null;
+  requirements: DossierIntelligenceRequirement[];
+  offerings: DossierOffering[];
   summary: {
     total: number;
     by_state: Record<string, number>;
