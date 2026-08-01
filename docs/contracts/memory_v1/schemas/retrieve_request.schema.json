@@ -1,0 +1,72 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/retrieve_request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "classifications": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cutoff_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dossier_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "kinds": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "limit": {
+      "default": 20,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "purpose": {
+      "default": "question",
+      "enum": [
+        "question",
+        "report",
+        "summary",
+        "wizard",
+        "activity"
+      ],
+      "type": "string"
+    },
+    "query": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source_types": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "token_budget": {
+      "default": 4000,
+      "maximum": 128000,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "query",
+    "dossier_id"
+  ],
+  "title": "MemoryRetrieveRequest",
+  "type": "object"
+}

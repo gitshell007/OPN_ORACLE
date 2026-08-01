@@ -7,7 +7,7 @@
     "version": "audit-2026-08-01-mdev00",
     "created_at": "2026-07-31",
     "updated_at": "2026-08-01",
-    "progress_percent": 74,
+    "progress_percent": 75,
     "business_objectives": [
       "Convertir señales y documentación dispersas en acciones estratégicas trazables.",
       "Dar continuidad a la memoria de expedientes, actores, reuniones y decisiones.",
@@ -145,7 +145,7 @@
       "name": "Documentos, evidencias e IA",
       "description": "Carga segura, parsing, chunks, evidencia citable, proveedores IA, auditoría y revisión humana.",
       "status": "under_review",
-      "progress_percent": 56,
+      "progress_percent": 60,
       "dependencies": ["ORC-MOD-002", "ORC-MOD-003"],
       "risks": ["No validar outputs IA o documentos sin scanner/retención puede introducir riesgo de confianza."],
       "feature_ids": ["ORC-EVID-001", "ORC-AI-001", "ORC-INV-001", "ORC-MEM-001"],
@@ -1311,9 +1311,9 @@
       "business_objective": "Permitir que un expediente Oracle Dev recupere hechos consolidados de Signal y los use con degradación controlada, sin tocar producción.",
       "user_value": "Preguntas e informes con citas de memoria factual real; control administrativo del consumer Oracle Dev; modos shadow/augment operativos.",
       "user_types": ["analista", "admin_tenant", "operaciones", "producto"],
-      "status": "approved",
+      "status": "in_progress",
       "priority": "P0",
-      "progress_percent": 5,
+      "progress_percent": 20,
       "complexity": "XL",
       "technical_risk": "high",
       "dependencies": ["ORC-AI-001", "ORC-EVID-001", "ORC-SIG-001", "ORC-DOS-001", "ORC-REP-001", "ORC-OPS-001", "ORC-QA-003"],
@@ -1360,7 +1360,10 @@
       "related_files": [
         "docs/implementation/MDEV_EXECUTION_LEDGER.md",
         "docs/implementation/MDEV_00_BASELINE_BILATERAL.md",
-        "apps/api/src/opn_oracle/integrations/memory_context.py"
+        "apps/api/src/opn_oracle/integrations/memory_context.py",
+        "docs/contracts/memory_v1/CONTRACT_MANIFEST.json",
+        "apps/api/src/opn_oracle/integrations/memory_contract_v1.py",
+        "apps/api/tests/test_memory_v1_contract.py"
       ],
       "related_migrations": [],
       "related_tests": ["apps/api/tests/test_memory_context.py"],
@@ -1370,11 +1373,11 @@
       ],
       "related_decisions": ["ORC-ADR-0010"],
       "comments": "Aprobado como idea de programa memoria_dev_v2 (MDEV-00..11). No implementar fuera de fases autorizadas. Status máximo en MDEV-00: approved.",
-      "next_action": "Tras PASS Codex de MDEV-00, ejecutar MDEV-01 (contratos y configuración) desde origin/master que contenga este ledger.",
+      "next_action": "Tras PASS Codex de MDEV-01, implementar Signal memory core (MDEV-02).",
       "created_at": "2026-08-01",
       "updated_at": "2026-08-01",
       "completed_at": null,
-      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}]
+      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}, {"date": "2026-08-01", "from": "approved", "to": "in_progress", "summary": "MDEV-01 congela contratos memory.v1 bilaterales."}]
     }
   ],
   "dependencies": [

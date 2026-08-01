@@ -1,0 +1,31 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/analysis_request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "type": "object"
+    },
+    "dossier_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "entity_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "intent": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "dossier_id",
+    "intent"
+  ],
+  "title": "MemoryAnalysisRequestCreate",
+  "type": "object"
+}

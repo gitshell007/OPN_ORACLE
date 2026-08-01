@@ -1,0 +1,31 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/memory_scope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "product_code": {
+      "const": "oracle",
+      "type": "string"
+    },
+    "scope_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "scope_type": {
+      "const": "dossier",
+      "type": "string"
+    },
+    "tenant_key": {
+      "pattern": "^c:[^|]+\\|t:[^|]+$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tenant_key",
+    "product_code",
+    "scope_type",
+    "scope_id"
+  ],
+  "title": "MemoryScope",
+  "type": "object"
+}

@@ -1,0 +1,111 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/retrieval_item.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checksum": {
+      "type": "string"
+    },
+    "classification": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "type": "string"
+    },
+    "contradiction_evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "factual_status": {
+      "enum": [
+        "candidate",
+        "confirmed",
+        "disputed",
+        "contradicted",
+        "n_a"
+      ],
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "fact",
+        "chunk",
+        "summary",
+        "observation",
+        "conflict",
+        "entity"
+      ],
+      "type": "string"
+    },
+    "locator": {
+      "type": "string"
+    },
+    "occurred_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "rank_explanation": {
+      "type": "string"
+    },
+    "received_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "score": {
+      "type": "number"
+    },
+    "source_ref": {
+      "type": "string"
+    },
+    "support_evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "text": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "watermark": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "text",
+    "score",
+    "rank_explanation",
+    "source_ref",
+    "checksum",
+    "locator",
+    "classification",
+    "occurred_at",
+    "received_at",
+    "factual_status",
+    "support_evidence_refs",
+    "contradiction_evidence_refs",
+    "policy_version",
+    "watermark"
+  ],
+  "title": "MemoryRetrievalItem",
+  "type": "object"
+}

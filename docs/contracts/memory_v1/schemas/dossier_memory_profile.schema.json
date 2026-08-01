@@ -1,0 +1,63 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/dossier_memory_profile.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "classifications_allowed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cutoff_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dossier_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "etag": {
+      "type": "string"
+    },
+    "kinds_allowed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "disabled",
+        "shadow",
+        "augment"
+      ],
+      "type": "string"
+    },
+    "provenance": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "dossier_memory_profile.v1"
+    },
+    "token_budget": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "etag",
+    "dossier_id",
+    "mode",
+    "token_budget",
+    "classifications_allowed",
+    "kinds_allowed",
+    "cutoff_at",
+    "provenance"
+  ],
+  "title": "DossierMemoryProfile",
+  "type": "object"
+}
