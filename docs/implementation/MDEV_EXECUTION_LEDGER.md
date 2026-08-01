@@ -32,7 +32,7 @@
 
 | Fase | Grok candidate | Codex decision | SHA Oracle | SHA Signal | Gate Packet |
 |---|---|---|---|---|---|
-| MDEV-00 | candidate_pass | pending | `mdev/00-baseline-ledger` (docs) | n/a (sin commit Signal) | este ledger + bilateral |
+| MDEV-00 | candidate_pass | pending | `dc25e3f` (`mdev/00-baseline-ledger`) | n/a (sin commit Signal) | este ledger + bilateral |
 | MDEV-01 | pending | pending | | | |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
