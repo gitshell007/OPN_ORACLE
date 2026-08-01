@@ -16,14 +16,14 @@ class StrictModel(BaseModel):
 
 
 def _coerce_confidence_0_100(value: Any) -> Any:
-    """Models often emit 0.0–1.0 floats; Oracle schemas store 0–100 ints."""
+    """Models often emit 0.0-1.0 floats; Oracle schemas store 0-100 ints."""
     if isinstance(value, bool) or value is None:
         return value
     if isinstance(value, (int, float)):
         number = float(value)
         if 0.0 <= number <= 1.0:
-            return int(round(number * 100))
-        return max(0, min(100, int(round(number))))
+            return round(number * 100)
+        return max(0, min(100, round(number)))
     if isinstance(value, str):
         text = value.strip().replace("%", "")
         try:
@@ -31,8 +31,8 @@ def _coerce_confidence_0_100(value: Any) -> Any:
         except ValueError:
             return value
         if 0.0 <= number <= 1.0:
-            return int(round(number * 100))
-        return max(0, min(100, int(round(number))))
+            return round(number * 100)
+        return max(0, min(100, round(number)))
     return value
 
 

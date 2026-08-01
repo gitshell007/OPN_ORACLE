@@ -80,7 +80,7 @@ def test_report_custom_brief_plan_schema_fixture() -> None:
 
 
 def test_titan_quirks_coerced_for_memsol_outputs() -> None:
-    """Titan often emits confidence as 0–1 float and notes as a string."""
+    """Titan often emits confidence as a 0-1 float and notes as a string."""
     answer = DossierQuestionAnswerOutput.model_validate(
         {
             "answer_text": "Resumen con evidencia autorizada.",

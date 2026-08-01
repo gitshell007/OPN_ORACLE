@@ -60,7 +60,8 @@ PURPOSES = {
         "Proponer un plan de búsqueda de licitaciones revisable sin ejecutar ni aceptar búsquedas."
     ),
     "dossier_question_answer": (
-        "Responder una pregunta de expediente con citas a evidencia autorizada (Preguntar a Oracle)."
+        "Responder una pregunta de expediente con citas a evidencia autorizada "
+        "(Preguntar a Oracle)."
     ),
     "report_custom_brief_plan": (
         "Proponer un plan revisable de Informe libre sin redactar el informe completo."

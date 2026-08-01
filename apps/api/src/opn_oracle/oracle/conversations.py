@@ -667,7 +667,11 @@ def process_dossier_question_answer(
         session.flush()
         raise ConversationError(f"Fallo al recuperar contexto: {error}") from error
 
-    if job.cancel_requested:
+    # A cancellation may arrive while the memory adapter is retrieving context.
+    # Reload the durable job flag before starting the model call.
+    session.refresh(job, attribute_names=["cancel_requested"])
+    cancel_requested_after_retrieval = bool(job.cancel_requested)
+    if cancel_requested_after_retrieval:
         cancel_message(message)
         session.flush()
         return {"message_id": str(message.id), "status": "cancelled", "cancelled": True}
@@ -790,9 +794,9 @@ def _answer_via_signal(
 ) -> dict[str, Any]:
     """Call Signal task_key dossier_question_answer via execute_agent (no model hardcode)."""
 
+    from opn_oracle.ai.context import build_context
     from opn_oracle.ai.models import AIArtifact
     from opn_oracle.ai.service import execute_agent
-    from opn_oracle.ai.context import build_context
 
     result = execute_agent(
         agent="dossier_question_answer",
