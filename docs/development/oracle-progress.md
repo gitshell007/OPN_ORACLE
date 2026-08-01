@@ -176,3 +176,9 @@ con el comando real o con el archivo que las contiene.
 - Trabajo pendiente: Resolver los diez próximos puntos recomendados en el dashboard.
 - Estado anterior: `proposed`.
 - Estado nuevo: `validated`.
+
+## 2026-08-01  — ORC-MEM-001 / PASS MDEV-01
+
+- Codex: PASS MDEV-01; NEXT_PHASE_AUTHORIZED=MDEV-02_ONLY.
+- Refs Oracle 1581fbb / Signal 996c6f3 / bundle e4431048 / CI 30716269096.
+- Implementación MDEV-02 solo en Signal.

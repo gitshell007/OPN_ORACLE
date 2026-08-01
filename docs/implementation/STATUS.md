@@ -3,7 +3,23 @@
 Actualizado: 2026-08-01
 Rama: `mdev/01-rework2`
 
-## MDEV-01 REWORK-2 · seguridad, durabilidad y gate verde (en revisión Codex)
+## MDEV-01 · **PASS Codex** (2026-08-01)
+
+- Codex decision: **PASS MDEV-01**.
+- `NEXT_PHASE_AUTHORIZED=MDEV-02_ONLY` (solo MDEV-02; no MDEV-03 ni deploy).
+- Refs autorizadas:
+  - Oracle `origin/master`: `1581fbbd7afc6621738475914e9e6e97aa0940ab`
+  - Signal `origin/main`: `996c6f38dc359df4e5ae76cc9c26a3032bf621c9`
+  - Bundle memory.v1: `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`
+  - Oracle CI: run `30716269096` success · 867 passed · cobertura 84%
+  - Signal: 855 passed + migración PostgreSQL separada 1 passed
+- Riesgos abiertos (heredados): **NO_ROLLBACK**, beat drift Signal Dev.
+- Código de producto Oracle: **sin cambios** en este registro.
+- Implementación MDEV-02: exclusivamente en Signal.
+
+---
+
+## MDEV-01 REWORK-2 · cerrado (PASS Codex; histórico REWORK-2)
 
 - Bases: Oracle `5c2177d`→master **`7163b35`** (CI fix), Signal `ac3c753`+higiene
   `03adaf8`→main `996c6f3`; bundle

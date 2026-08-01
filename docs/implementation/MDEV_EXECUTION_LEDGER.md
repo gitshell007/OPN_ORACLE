@@ -60,6 +60,21 @@
 NO_ROLLBACK y beat drift permanecen abiertos (fuera de alcance MDEV-01).
 APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 
+## Codex decision · PASS MDEV-01 (2026-08-01)
+
+- Veredicto Codex: **PASS MDEV-01**.
+- `NEXT_PHASE_AUTHORIZED=MDEV-02_ONLY`.
+- Refs:
+  - Oracle master: `1581fbbd7afc6621738475914e9e6e97aa0940ab`
+  - Signal main: `996c6f38dc359df4e5ae76cc9c26a3032bf621c9`
+  - Bundle content_set: `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`
+  - Oracle CI: https://github.com/gitshell007/OPN_ORACLE/actions/runs/30716269096 · success · 867 passed · 84%
+  - Signal suite: 855 passed + migración PG separada 1 passed
+- Política credencial vigente (MDEV-01): **A** rotación atómica sin overlap; `key_hash` global unique.
+- Abiertos: NO_ROLLBACK; beat drift Signal Dev.
+- MDEV-02 se implementa **solo en Signal**; este commit no cambia producto Oracle.
+
+
 
 
 ### REWORK-2 integration SHAs (post-merge)
@@ -97,7 +112,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
 | MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
-| MDEV-01 | candidate_pass (REWORK-2) | **pending** | `7163b353f72b37d675d8f00163f25fb77b2eb246` | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` (hygiene `03adaf84`) | PR Oracle#11+#13 Signal#9+#8; CI 30716269096 867p/84% |
+| MDEV-01 | candidate_pass (REWORK-2) | **PASS MDEV-01** | `1581fbbd7afc6621738475914e9e6e97aa0940ab` | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` | CI 30716269096 867p/84%; bundle e4431048; NEXT=MDEV-02_ONLY |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
