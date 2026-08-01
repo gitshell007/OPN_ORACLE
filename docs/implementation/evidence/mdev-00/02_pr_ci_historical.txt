@@ -1,0 +1,15 @@
+# PRs and CI census
+captured_at=2026-08-01 17:23:57 Europe/Madrid
+## Oracle historical PRs (not MDEV-00)
+5	docs: record Memoria Sol production validation	codex/memsol-prod-evidence	MERGED	2026-08-01T12:02:33Z
+4	fix(signal): reconcile keyword-only monitor responses	codex/signal-monitor-null-query	MERGED	2026-08-01T11:30:33Z
+3	feat(workflow): expediente completo con memoria, Signal y documentos	codex/oracle-complete-workflow	MERGED	2026-08-01T10:59:17Z
+2	fix(ai): include accepted dossier intent in governed context	codex/memsol-policy-hotfix	MERGED	2026-08-01T10:04:58Z
+1	feat(memsol): conectar Preguntar e Informe libre con Signal	release/memsol-local-only	MERGED	2026-08-01T00:33:37Z
+## Signal historical PRs
+5	chore(packaging): ignore editable-install metadata	codex/loopback-postgres	MERGED	2026-08-01T11:57:05Z
+4	fix(infra): bind Signal PostgreSQL to loopback	codex/loopback-postgres	MERGED	2026-08-01T11:50:13Z
+3	fix(deploy): empaquetar opn_memory e preflight de backup	fix/signal-release-packaging	MERGED	2026-08-01T09:25:50Z
+2	feat(ai): habilitar tareas MEMSOL local-only auditables	release/memsol-local-only	MERGED	2026-08-01T00:33:35Z
+1	feat(search): cache web search results	codex/search-result-cache	MERGED	2026-07-16T18:34:37Z
+## Note: MDEV-00 PR CI will be recorded after open/merge in 09_integration.txt

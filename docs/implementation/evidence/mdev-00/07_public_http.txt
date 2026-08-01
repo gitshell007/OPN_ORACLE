@@ -1,0 +1,15 @@
+# Public HTTP probes
+captured_at=2026-08-01 17:25:12 Europe/Madrid
+$ curl -sS https://signal-dev.opnconsultoria.com/healthz
+{"status":"ok","service":"opn_signal","version":"0.1.0"}
+$ curl memory health
+{"detail":"Not Found"}
+$ curl oracle health/ready via path that worked
+http_code=403
+<html>
+<head><title>403 Forbidden</title></head>
+<body>
+<center><h1>403 Forbidden</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>

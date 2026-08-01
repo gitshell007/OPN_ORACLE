@@ -1,0 +1,12 @@
+# Signal consumers and task policies (redacted; no API keys)
+captured_at=2026-08-01 17:25:56 Europe/Madrid
+consumers: (1,opn-nexus),(2,opn-risk-advisor),(3,opn-core),(4,sentinel-prod-auto),(5,opn-evaluator),(11,opn-risk-advisor-totalenergies),(14,opn-oracle),(47,opn-signal-dev-structured),(55,mem-flip-http2-*),(59,mode-a-synthetic-probe),(61,opn-oracle-memsol-pilot)
+NOTE: no opn-oracle-dev consumer yet
+tenant allowlists: not exposed as separate table in this audit; memory pilot scope is c:pilot|t:phase2 only (not tenant dossier). MEMORY_CONTEXT tenant allowlist N/A (disabled).
+## AI task policies (provider/model only)
+consumer_id=14 slug=opn-oracle n_tasks=16 keys=[cheap_batch_processing, competitive_procurement_intelligence, dossier_completion_wizard, dossier_situation_summary, entity_dossier_intelligence, event_analysis, evidence_reviewer, generic_chat, meeting_briefing, report_writer, signal_quality_gate, signal_triage, source_suggestion, tender_search_wizard, tender_summary, weekly_change]
+  sample: ollama/qwen2.5:7b-instruct + ollama_titan fallbacks; some tasks openrouter/google/gemini-*-flash-lite
+consumer_id=61 slug=opn-oracle-memsol-pilot n_tasks=2 keys=[dossier_question_answer, report_custom_brief_plan]
+  both ollama/qwen3.5:9b fallback ollama_titan/qwen3.6:27b timeout=180 json_mode=true
+consumer_id=59 slug=mode-a-synthetic-probe n_tasks=1 keys=[memory_extraction] ollama/qwen2.5:7b
+No secrets printed. WEB_SEARCH_PAID_ALLOWED_CONSUMER_IDS empty on host.

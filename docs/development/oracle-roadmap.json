@@ -4,10 +4,10 @@
     "id": "ORC-PROJ-001",
     "name": "OPN Oracle",
     "description": "Plataforma de inteligencia estratégica que convierte cada expediente importante en un radar vivo de señales, oportunidades, riesgos, actores, reuniones, decisiones e informes trazables.",
-    "version": "audit-2026-07-31",
+    "version": "audit-2026-08-01-mdev00",
     "created_at": "2026-07-31",
-    "updated_at": "2026-07-31",
-    "progress_percent": 75,
+    "updated_at": "2026-08-01",
+    "progress_percent": 74,
     "business_objectives": [
       "Convertir señales y documentación dispersas en acciones estratégicas trazables.",
       "Dar continuidad a la memoria de expedientes, actores, reuniones y decisiones.",
@@ -145,10 +145,10 @@
       "name": "Documentos, evidencias e IA",
       "description": "Carga segura, parsing, chunks, evidencia citable, proveedores IA, auditoría y revisión humana.",
       "status": "under_review",
-      "progress_percent": 64,
+      "progress_percent": 56,
       "dependencies": ["ORC-MOD-002", "ORC-MOD-003"],
       "risks": ["No validar outputs IA o documentos sin scanner/retención puede introducir riesgo de confianza."],
-      "feature_ids": ["ORC-EVID-001", "ORC-AI-001", "ORC-INV-001"],
+      "feature_ids": ["ORC-EVID-001", "ORC-AI-001", "ORC-INV-001", "ORC-MEM-001"],
       "readiness": "Media-baja: implementación amplia, con configuración de producción y cobertura aún abiertas."
     },
     {
@@ -1301,6 +1301,80 @@
       "updated_at": "2026-07-31",
       "completed_at": "2026-07-28",
       "history": [{"date": "2026-07-28", "from": "under_review", "to": "deployed", "summary": "Activación nativa y runbooks observados en oracle-dev."}]
+    },
+    {
+      "id": "ORC-MEM-001",
+      "module_id": "ORC-MOD-005",
+      "title": "Memoria dual Oracle↔Signal (Dev)",
+      "description": "Integrar la memoria estructurada de Oracle con el motor factual opn_memory de Signal en los entornos Dev (oracle-dev ↔ signal-dev): modos disabled/shadow/augment, ingesta bilateral, retrieval tenant-safe, Control Center en Signal y uso en Preguntar/Informes/Vigilancias con citas reales.",
+      "problem": "Hoy Ask/Brief ya usan Signal para gobierno de IA, pero el retrieval de memoria factual es stub en ambos lados y el corpus piloto de Signal no está acotado por tenant/expediente.",
+      "business_objective": "Permitir que un expediente Oracle Dev recupere hechos consolidados de Signal y los use con degradación controlada, sin tocar producción.",
+      "user_value": "Preguntas e informes con citas de memoria factual real; control administrativo del consumer Oracle Dev; modos shadow/augment operativos.",
+      "user_types": ["analista", "admin_tenant", "operaciones", "producto"],
+      "status": "approved",
+      "priority": "P0",
+      "progress_percent": 5,
+      "complexity": "XL",
+      "technical_risk": "high",
+      "dependencies": ["ORC-AI-001", "ORC-EVID-001", "ORC-SIG-001", "ORC-DOS-001", "ORC-REP-001", "ORC-OPS-001", "ORC-QA-003"],
+      "blockers": [],
+      "acceptance_criteria": [
+        {"id": "AC-1", "text": "Signal Dev expone retrieve real con items de scope tenant/expediente y filtra antes del retrieval.", "status": "pending"},
+        {"id": "AC-2", "text": "Oracle HttpMemoryContextAdapter opera en HTTPS contra Signal Dev con modos disabled/shadow/augment.", "status": "pending"},
+        {"id": "AC-3", "text": "UAT real en oracle-dev: documento+vigilancia+pregunta+informe con citas y sin fugas cross-tenant.", "status": "pending"},
+        {"id": "AC-4", "text": "Consumer dedicado opn-oracle-dev (no reutilizar prod) y flags de host/consumer sin secretos en git.", "status": "pending"},
+        {"id": "AC-5", "text": "Producción permanece fuera de alcance; ledger MDEV marca DEV_DUAL_MEMORY_READY solo tras MDEV-11.", "status": "pending"}
+      ],
+      "functional_requirements": [
+        "Contratos de ingesta/retrieval/coverage versionados entre hosts.",
+        "Config precedencia host > consumer > tenant documentada.",
+        "Control Center de memoria por consumer en Signal admin.",
+        "Adapter Oracle + settings tenant/connection mode.",
+        "Ask, vigilancias/actividad e informes usan memoria con degradación visible."
+      ],
+      "non_functional_requirements": [
+        "Sin SQL cruzado entre servidores.",
+        "Timeouts y kill-switch; local-only por defecto.",
+        "Migraciones con upgrade/downgrade o justificación."
+      ],
+      "security_requirements": [
+        "Tenant isolation pre-retrieval; sin API keys en logs/commits.",
+        "Cloud/OpenRouter bloqueado sin APPROVED_EXTERNAL_SPEND y política de datos."
+      ],
+      "multi_tenant_requirements": [
+        "Scope formula consumer+tenant (+dossier cuando aplique); corpus piloto no es productivo."
+      ],
+      "audit_requirements": [
+        "ai_usage_logs/attempts, admin_audit_logs, ledger MDEV y evidencia UAT."
+      ],
+      "impact": {
+        "frontend": "Settings memoria tenant; Ask/Brief/Actividad con cobertura y degradación.",
+        "backend": "HttpMemoryContextAdapter real; jobs de ingesta/contexto.",
+        "database": "Migraciones Oracle/Signal memory según fases MDEV.",
+        "celery": "Colas ai/documents/memory y workers Dev.",
+        "redis": "Sin fuente de verdad de memoria.",
+        "signal": "opn_memory core, retrieve, consumer settings, admin MCC.",
+        "reports": "Informes con citas de memory pack.",
+        "permissions": "Opt-in tenant canario y RBAC existentes."
+      },
+      "related_files": [
+        "docs/implementation/MDEV_EXECUTION_LEDGER.md",
+        "docs/implementation/MDEV_00_BASELINE_BILATERAL.md",
+        "apps/api/src/opn_oracle/integrations/memory_context.py"
+      ],
+      "related_migrations": [],
+      "related_tests": ["apps/api/tests/test_memory_context.py"],
+      "implementation_evidence": [
+        {"type": "audit", "path": "docs/implementation/MDEV_00_BASELINE_BILATERAL.md", "claim": "Baseline Dev dual medido 2026-08-01; stubs y corpus piloto confirmados.", "confidence": "high"},
+        {"type": "file", "path": "docs/implementation/MDEV_EXECUTION_LEDGER.md", "claim": "Ledger MDEV creado; fases pendientes de PASS Codex.", "confidence": "high"}
+      ],
+      "related_decisions": ["ORC-ADR-0010"],
+      "comments": "Aprobado como idea de programa memoria_dev_v2 (MDEV-00..11). No implementar fuera de fases autorizadas. Status máximo en MDEV-00: approved.",
+      "next_action": "Tras PASS Codex de MDEV-00, ejecutar MDEV-01 (contratos y configuración) desde origin/master que contenga este ledger.",
+      "created_at": "2026-08-01",
+      "updated_at": "2026-08-01",
+      "completed_at": null,
+      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}]
     }
   ],
   "dependencies": [
@@ -1316,6 +1390,9 @@
     {"id": "ORC-EDGE-010", "from": "ORC-AI-001", "to": "ORC-REP-001", "kind": "quality_gate", "label": "El revisor condiciona informes largos."},
     {"id": "ORC-EDGE-011", "from": "ORC-UX-002", "to": "ORC-GOV-002", "kind": "precedes", "label": "Vector debe migrarse antes de retirar Horizon."},
     {"id": "ORC-EDGE-012", "from": "ORC-QA-001", "to": "ORC-QA-003", "kind": "gates", "label": "CI verde es gate de release."},
-    {"id": "ORC-EDGE-013", "from": "ORC-QA-002", "to": "ORC-QA-003", "kind": "protects", "label": "Backup/restore protege migración y rollback."}
+    {"id": "ORC-EDGE-013", "from": "ORC-QA-002", "to": "ORC-QA-003", "kind": "protects", "label": "Backup/restore protege migración y rollback."},
+    {"id": "ORC-EDGE-MEM-001", "from": "ORC-SIG-001", "to": "ORC-MEM-001", "kind": "enables", "label": "El contrato Signal es prerequisito del transporte de memoria factual."},
+    {"id": "ORC-EDGE-MEM-002", "from": "ORC-EVID-001", "to": "ORC-MEM-001", "kind": "enables", "label": "Documentos Oracle alimentan la ingesta hacia Signal memory."},
+    {"id": "ORC-EDGE-MEM-003", "from": "ORC-MEM-001", "to": "ORC-AI-001", "kind": "enables", "label": "La memoria factual enriquece outputs IA con citas auditables."}
   ]
 }

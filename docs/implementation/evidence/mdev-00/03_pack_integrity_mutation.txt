@@ -1,0 +1,21 @@
+# Pack integrity + BLOCKED_PACK_INTEGRITY mutation
+captured_at=2026-08-01 17:24:38 Europe/Madrid
+canonical_pack=/Users/gitshellmini/Library/CloudStorage/OneDrive-opnconsultoriacom/DESARROLLO_PRODUCTOS/OPN_SIGNAL/SignalV2/memoria_sol/memoria_dev_v2
+version 2026-08-01.4
+expected_content_set 687505b44447c625aae8c4f5c23d01841ac6bc58bc29eac5d84d4a7d65ada164
+file_count 27
+canonical_per_file_mismatches 0
+canonical_content_set 687505b44447c625aae8c4f5c23d01841ac6bc58bc29eac5d84d4a7d65ada164
+canonical_MATCH True
+canonical_files_ok 27/27
+temp_copy /var/folders/bk/s_sj4yz93_31tvsxq9z35t4h0000gn/T/mdev00_pack_mut_5wa3gmf1
+mutated_per_file_mismatches 1
+mutated_mismatch_paths ['README.md']
+mutated_content_set d51da616780b78ba06204b4c48cabb3299d4a452aa2c0a770015cb9d7685a4fe
+mutated_MATCH False
+VERDICT=BLOCKED_PACK_INTEGRITY
+temp_copy_removed True
+post_canonical_per_file_mismatches 0
+post_canonical_content_set 687505b44447c625aae8c4f5c23d01841ac6bc58bc29eac5d84d4a7d65ada164
+post_canonical_MATCH True
+post_canonical_files_ok 27/27

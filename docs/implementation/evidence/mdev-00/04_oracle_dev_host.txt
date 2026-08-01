@@ -1,0 +1,167 @@
+# Oracle Dev RO audit
+captured_at=2026-08-01 17:24:38 Europe/Madrid
+$ hostname; hostname -I; date
+v2202607388167489673
+159.195.216.33 2a0a:4cc0:c3:86d:1849:27ff:fec3:e8a7
+Sat Aug  1 17:24:39 CEST 2026
+$ systemctl is-active opn-oracle-api opn-oracle-web opn-oracle-worker opn-oracle-beat
+active
+active
+active
+active
+$ ss -lntp | head -20
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      2048       127.0.0.1:8010      0.0.0.0:*    users:(("gunicorn",pid=251141,fd=6),("gunicorn",pid=251140,fd=6),("gunicorn",pid=251137,fd=6))
+LISTEN 0      128          0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=883,fd=6))
+LISTEN 0      511          0.0.0.0:80        0.0.0.0:*    users:(("nginx",pid=13824,fd=5),("nginx",pid=13823,fd=5),("nginx",pid=13822,fd=5),("nginx",pid=13821,fd=5),("nginx",pid=7704,fd=5))
+LISTEN 0      511          0.0.0.0:443       0.0.0.0:*    users:(("nginx",pid=13824,fd=14),("nginx",pid=13823,fd=14),("nginx",pid=13822,fd=14),("nginx",pid=13821,fd=14),("nginx",pid=7704,fd=14))
+LISTEN 0      511        127.0.0.1:3010      0.0.0.0:*    users:(("next-server (v1",pid=240727,fd=21))
+LISTEN 0      511        127.0.0.1:6379      0.0.0.0:*    users:(("redis-server",pid=10843,fd=8))
+LISTEN 0      200        127.0.0.1:5432      0.0.0.0:*    users:(("postgres",pid=10675,fd=7))
+LISTEN 0      128             [::]:22           [::]:*    users:(("sshd",pid=883,fd=7))
+LISTEN 0      511             [::]:80           [::]:*    users:(("nginx",pid=13824,fd=6),("nginx",pid=13823,fd=6),("nginx",pid=13822,fd=6),("nginx",pid=13821,fd=6),("nginx",pid=7704,fd=6))
+LISTEN 0      511             [::]:443          [::]:*    users:(("nginx",pid=13824,fd=27),("nginx",pid=13823,fd=27),("nginx",pid=13822,fd=27),("nginx",pid=13821,fd=27),("nginx",pid=7704,fd=27))
+LISTEN 0      511            [::1]:6379         [::]:*    users:(("redis-server",pid=10843,fd=9))
+LISTEN 0      200            [::1]:5432         [::]:*    users:(("postgres",pid=10675,fd=6))
+$ cat /opt/opn-oracle/CURRENT_RELEASE PREVIOUS; readlink -f /opt/opn-oracle/current; cat /opt/opn-oracle/current/RELEASE_GIT_SHA
+20260731T192559Z-native-96250a4
+
+20260731T095958Z-native-eb61173
+
+/opt/opn-oracle/releases/20260731T192559Z-native-96250a4
+96250a40d7944864de1980b70019a0443bfe7fbb
+
+$ curl health/ready and meta
+{"dependencies":{"database":{"status":"ok"},"redis":{"status":"ok"}},"status":"ok"}
+
+{"capabilities":["health"],"environment":"production","name":"OPN Oracle API","release":"20260731T192559Z-native-96250a4","version":"0.1.0"}
+
+$ flags AI/MEMORY/SIGNAL (redacted)
+ORACLE_RELEASE=20260731T192559Z-native-96250a4
+SIGNAL_AVANZA_ENABLED=false
+SIGNAL_AVANZA_MODE=mock
+SIGNAL_AVANZA_CONTRACT_CONFIRMED=false
+SIGNAL_AVANZA_ALLOWED_HOSTS=
+SIGNAL_AVANZA_BASE_URL=***REDACTED***
+SIGNAL_AVANZA_API_VERSION=2026-07-01
+AI_ENABLED=true
+AI_MODE=signal
+AI_DEFAULT_MODEL=mock-oracle-v1
+SIGNAL_AI_ALLOWED_HOSTS=signal-dev.opnconsultoria.com
+DOCUMENT_STORAGE_BACKEND=local
+DOCUMENT_LOCAL_ROOT=/var/lib/opn-oracle-dev/document-storage
+DOCUMENT_SCANNER_MODE=noop
+DOCUMENT_ALLOW_OFFICIAL_UNSCANNED=true
+DOCUMENT_ALLOW_LOCAL_BACKEND=true
+DOCUMENT_MAX_BYTES=26214400
+MEMORY_CONTEXT present?
+0
+$ celery inspect registered (worker)
+Error: No nodes replied within time constraint
+->  oracle-dev@v2202607388167489673: OK
+    * {'name': 'default', 'exchange': {'name': 'default', 'type': 'direct', 'arguments': None, 'durable': True, 'passive': False, 'auto_delete': False, 'delivery_mode': None, 'no_declare': False}, 'routing_key': 'default', 'queue_arguments': None, 'binding_arguments': None, 'consumer_arguments': None, 'durable': True, 'exclusive': False, 'auto_delete': False, 'no_ack': False, 'alias': None, 'bindings': [], 'no_declare': None, 'expires': None, 'message_ttl': None, 'max_length': None, 'max_length_bytes': None, 'max_priority': None}
+    * {'name': 'signals', 'exchange': {'name': 'default', 'type': 'direct', 'arguments': None, 'durable': True, 'passive': False, 'auto_delete': False, 'delivery_mode': None, 'no_declare': False}, 'routing_key': 'default', 'queue_arguments': None, 'binding_arguments': None, 'consumer_arguments': None, 'durable': True, 'exclusive': False, 'auto_delete': False, 'no_ack': False, 'alias': None, 'bindings': [], 'no_declare': None, 'expires': None, 'message_ttl': None, 'max_length': None, 'max_length_bytes': None, 'max_priority': None}
+    * {'name': 'ai', 'exchange': {'name': 'default', 'type': 'direct', 'arguments': None, 'durable': True, 'passive': False, 'auto_delete': False, 'delivery_mode': None, 'no_declare': False}, 'routing_key': 'default', 'queue_arguments': None, 'binding_arguments': None, 'consumer_arguments': None, 'durable': True, 'exclusive': False, 'auto_delete': False, 'no_ack': False, 'alias': None, 'bindings': [], 'no_declare': None, 'expires': None, 'message_ttl': None, 'max_length': None, 'max_length_bytes': None, 'max_priority': None}
+    * {'name': 'documents', 'exchange': {'name': 'default', 'type': 'direct', 'arguments': None, 'durable': True, 'passive': False, 'auto_delete': False, 'delivery_mode': None, 'no_declare': False}, 'routing_key': 'default', 'queue_arguments': None, 'binding_arguments': None, 'consumer_arguments': None, 'durable': True, 'exclusive': False, 'auto_delete': False, 'no_ack': False, 'alias': None, 'bindings': [], 'no_declare': None, 'expires': None, 'message_ttl': None, 'max_length': None, 'max_length_bytes': None, 'max_priority': None}
+    * {'name': 'notifications', 'exchange': {'name': 'default', 'type': 'direct', 'arguments': None, 'durable': True, 'passive': False, 'auto_delete': False, 'delivery_mode': None, 'no_declare': False}, 'routing_key': 'default', 'queue_arguments': None, 'binding_arguments': None, 'consumer_arguments': None, 'durable': True, 'exclusive': False, 'auto_delete': False, 'no_ack': False, 'alias': None, 'bindings': [], 'no_declare': None, 'expires': None, 'message_ttl': None, 'max_length': None, 'max_length_bytes': None, 'max_priority': None}
+    * {'name': 'maintenance', 'exchange': {'name': 'default', 'type': 'direct', 'arguments': None, 'durable': True, 'passive': False, 'auto_delete': False, 'delivery_mode': None, 'no_declare': False}, 'routing_key': 'default', 'queue_arguments': None, 'binding_arguments': None, 'consumer_arguments': None, 'durable': True, 'exclusive': False, 'auto_delete': False, 'no_ack': False, 'alias': None, 'bindings': [], 'no_declare': None, 'expires': None, 'message_ttl': None, 'max_length': None, 'max_length_bytes': None, 'max_priority': None}
+
+1 node online.
+$ systemctl cat worker ExecStart line
+WorkingDirectory=/opt/opn-oracle/current/apps/api
+EnvironmentFile=/etc/opn-oracle-dev/oracle.env
+ExecStart=/opt/opn-oracle/current/apps/api/.venv/bin/celery \
+$ beat schedule sample from journal
+Aug 01 17:21:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:21:12,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:21:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:21:42,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:21:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:21:42,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:21:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:21:42,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:22:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:12,096: INFO/MainProcess] Scheduler: Sending due task dispatch-due-jobs (maintenance.dispatch_due_jobs)
+Aug 01 17:22:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:12,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:22:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:12,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:22:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:12,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:22:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:42,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:22:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:42,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:22:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:22:42,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:23:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:12,096: INFO/MainProcess] Scheduler: Sending due task dispatch-due-jobs (maintenance.dispatch_due_jobs)
+Aug 01 17:23:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:12,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:23:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:12,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:23:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:12,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:23:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:42,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:23:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:42,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:23:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:23:42,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:24:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:12,097: INFO/MainProcess] Scheduler: Sending due task dispatch-due-jobs (maintenance.dispatch_due_jobs)
+Aug 01 17:24:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:12,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:24:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:12,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:24:12 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:12,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+Aug 01 17:24:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:42,251: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-inbox (maintenance.signal_reconcile_inbox)
+Aug 01 17:24:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:42,263: INFO/MainProcess] Scheduler: Sending due task reconcile-signal-outbox (maintenance.signal_reconcile_outbox)
+Aug 01 17:24:42 v2202607388167489673 opn-oracle-beat[245759]: [2026-08-01 17:24:42,270: INFO/MainProcess] Scheduler: Sending due task dispatch-queued-jobs (maintenance.dispatch_queued_jobs)
+$ alembic + counts via migrator
+alembic [('20260731_0028',)]
+count strategic_dossiers 17
+count documents 7
+count document_chunks 162
+count dossier_conversations 9
+count dossier_messages 11
+count signal_monitors 6
+count signals 32
+count reports 39
+count tenants 4
+count users 6
+$ HttpMemory stub runtime
+disabled: Recuperación de memoria desactivada.
+http_stub: El adaptador HTTP de memoria aún no está habilitado en este despliegue.
+$ deploy scripts head
+#!/usr/bin/env bash
+# Activate an immutable release: symlink, migrate once, restart services.
+# Usage: activate-release.sh <release-id>
+set -euo pipefail
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "must run as root" >&2
+  exit 1
+fi
+
+RELEASE_ID="${1:?release-id required}"
+RELEASE_DIR="/opt/opn-oracle/releases/${RELEASE_ID}"
+CURRENT="/opt/opn-oracle/current"
+ENV_FILE="/etc/opn-oracle-dev/oracle.env"
+SECRETS="/etc/opn-oracle-dev/secrets"
+
+[[ -d "$RELEASE_DIR" ]] || { echo "missing $RELEASE_DIR" >&2; exit 1; }
+[[ -f "$ENV_FILE" ]] || { echo "missing $ENV_FILE" >&2; exit 1; }
+
+PREV=""
+if [[ -L "$CURRENT" ]]; then
+  PREV="$(readlink -f "$CURRENT" || true)"
+fi
+
+# Point env ORACLE_RELEASE / APP_VERSION / RELEASE
+#!/usr/bin/env bash
+# Build immutable native release on the host from a verified git SHA.
+# Deploy channel for https://oracle-dev.opnconsultoria.com is branch oracle-dev.
+# Usage: build-release.sh <git-sha>
+# Optional: ORACLE_DEPLOY_BRANCH=oracle-dev (default) — fetched before checkout.
+set -euo pipefail
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "must run as root" >&2
+  exit 1
+fi
+
+SHA="${1:?git sha required}"
+DEPLOY_BRANCH="${ORACLE_DEPLOY_BRANCH:-oracle-dev}"
+SHORT="$(printf '%s' "$SHA" | cut -c1-7)"
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+RELEASE_ID="${TS}-native-${SHORT}"
+BUILD_ROOT="/opt/src/oracle-build"
+REPO_DIR="${BUILD_ROOT}/repo"
+RELEASE_DIR="/opt/opn-oracle/releases/${RELEASE_ID}"
+$ backups ls
+host-audit
+imports
+memsol-ai-hotpatch-20260731T232804
+memsol-ai-pilot-20260731T232041
+nginx
+pg

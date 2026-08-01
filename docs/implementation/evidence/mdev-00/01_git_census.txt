@@ -1,0 +1,44 @@
+# MDEV-00 git census transcript
+captured_at=2026-08-01 17:23:55 Europe/Madrid
+
+## Oracle
+$ git fetch --all --prune
+origin/master=402fc2955eb73b135c2b2f0bc9567f8d68f84142
+origin/oracle-dev=81475d0e24fd51078aee6a05d4a7a403ab1e34e6
+$ git rev-list --left-right --count origin/master...origin/oracle-dev
+22	8
+master_only=22
+odev_only_all=8
+odev_only_no_merges=7
+$ git log --oneline origin/master..origin/oracle-dev
+81475d0 docs(memsol): re-verificación Celery Dev con transcripts HTTP
+1a29387 docs(memsol): vitest UI 7 pass y residual Playwright honesto
+3202221 docs(memsol): evidencia gate Celery ai en Oracle Dev (re-verificación)
+4f0011b docs(memsol): ledger smoke Celery ai en Oracle Dev
+96250a4 fix(ui): AsyncActionButton loading prop en Ask/Brief
+6098d57 fix(ui): poll con ref para lint React Compiler en Ask/Brief
+d3804ba merge(master): integrar Memoria Sol en canal oracle-dev para smoke Dev
+6a2b103 docs(governance): add living Oracle roadmap dashboard
+$ git merge-base origin/master origin/oracle-dev
+e896f504b2d26b4e808c2c9ee25f93ef6707f9dc
+$ git log -1 --format='%H %P %s' d3804ba
+d3804bafc409ec81cc850317eb7655fd67f00e45 6a2b103ee080380686e2520f7343f7ac84a5c209 e896f504b2d26b4e808c2c9ee25f93ef6707f9dc merge(master): integrar Memoria Sol en canal oracle-dev para smoke Dev
+d3804ba ancestor of master? no
+
+## Signal
+origin/main=8973a096811f46648e86c2656ace216069e7f80d
+origin/signal-dev=db9fd379b44f0057a877d7a098356fd9bdcf6bc1
+main_only=19
+sdev_only=9
+$ git log --oneline origin/main..origin/signal-dev
+db9fd37 fix(ai): error_code null en intentos IA con éxito HTTP
+eafa61b feat(ai): observabilidad por intento en fallback Ollama→Titan
+1e8e0cc test(ai): elegibilidad fallback técnico 5xx/404 para gate MEMSOL
+e0a4a2d feat(ai): task keys MEMSOL dossier_question_answer y report_custom_brief_plan
+06fbdd6 feat(usage): retención de contabilidad IA/búsqueda — agregados permanentes, payloads 7d, query 90d, detalle 180d
+f32fed6 feat(oracle): auditoría migración OpenRouter 3.1 flash-lite + harness F0–F4
+64c3ab3 fix(ai): ollama_titan con base /v1 usa OpenAI-compat (evita llm_http_404)
+8d26ccf fix(admin): retirar el ghost osint_web_result del mapa de recomendaciones
+681ad88 fix(prod): hotfixes del release 06b4b1e portados — purge batch 5k y shm 256mb
+$ git merge-base origin/main origin/signal-dev
+3b378c9c1061a27d463cfe317b4dda70d1f7c1e7
