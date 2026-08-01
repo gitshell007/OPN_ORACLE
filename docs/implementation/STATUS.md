@@ -11,8 +11,15 @@ Actualizado: 2026-08-01
 - El contexto incluye ahora intención aceptada, requisitos activos y ofertas activas asociadas; el
   manifiesto fija IDs y `intent_content_hash` para auditoría y caché determinista.
 - Test HTTP+PostgreSQL focal: **3 passed** con `--no-cov`. Mutación `accepted→rejected` en la
-  selección de intención tumba el test focal. Pendiente: CI completo, despliegue del hotfix y
-  repetición del canario Ask/Brief hasta terminal real.
+  selección de intención tumba el test focal. CI `30695007903` verde en backend, contrato,
+  Playwright y seguridad/SBOM.
+- Desplegado en producción como `20260801T101526Z-quick-0331ae5` (commit `0331ae5`), sin migración
+  nueva. Health interno/público, coherencia de imágenes y Celery: correctos.
+- Canario HTTP real `20260801T102101Z`: Ask `succeeded` (1.032 caracteres) e Informe libre
+  `proposed` (8 secciones) en 84,175 s. Ambos snapshots fijan la misma intención aceptada, su hash,
+  un requisito y una oferta. Signal: `ollama/qwen3.5:9b`, usos 4854/4855, OpenRouter 0 y
+  `MEMORY_ENGINE_ENABLED=0`. Los dos tenants canario quedaron suspendidos con usuarios deshabilitados
+  y kill switches activados.
 
 ## Memoria Sol · release candidate coverage gate (2026-08-01)
 

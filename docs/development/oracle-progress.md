@@ -4,6 +4,21 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — ORC-DOS-001 · MEMSOL desplegado y canario local-only
+
+- Release producción: `20260801T101526Z-quick-0331ae5`; commit de aplicación `0331ae5`.
+- Gate: CI `30695007903` completo verde; control de release, HTTPS/readiness, Redis/PostgreSQL,
+  worker y beat correctos. Sin migración nueva sobre el head `0028`.
+- Canario HTTP real: intención aceptada + requisito + oferta → Preguntar `succeeded` con respuesta
+  persistida de 1.032 caracteres → Informe libre `proposed` con 8 secciones. Duración total 84,175 s.
+- Auditoría: ambos snapshots contienen `intent_revision_id`, `intent_content_hash`, un requisito y
+  una oferta; Oracle y Signal registran `ollama/qwen3.5:9b`. OpenRouter 0 para las task keys MEMSOL y
+  memory engine Signal apagado.
+- Incidencia de rollout: el primer intento de activación detuvo el stack al no poder leer Redis los
+  bind mounts de un release preparado con permisos demasiado restrictivos. Se igualaron los permisos
+  al release precedente, Redis recuperó health y el forward-deploy oficial finalizó coherente.
+- Higiene: ambos tenants canario, usuarios, membresías y políticas IA quedaron suspendidos/apagados.
+
 ## 2026-08-01 — ORC-DOS-001 · memoria de intención en Ask/Brief
 
 - Funcionalidad: ORC-DOS-001 — expediente, intención y contexto durable.
