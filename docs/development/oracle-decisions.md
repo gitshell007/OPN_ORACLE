@@ -111,3 +111,14 @@ en `docs/architecture/`; este archivo reúne solo las que afectan directamente a
 - Consecuencias: Actividad puede mostrar memoria aceptada desde el primer render; Ask/Brief reciben el mismo contexto versionado; la vigilancia sigue siendo opt-in y auditable.
 - Funcionalidades afectadas: ORC-DOS-001, ORC-ACT-001, ORC-SIG-001.
 - Archivos afectados: `apps/api/src/opn_oracle/oracle/service.py`, `src/components/navigation/create-product-dossier-dialog.tsx`, `src/components/dossiers/dossier-activity-section.tsx`, `src/components/dossiers/dossier-work-section.tsx`.
+
+## ORC-DEC-MDEV-00 — Base limpia master/main para memoria dual (2026-08-01)
+
+- **Contexto:** Ramas `oracle-dev` y `signal-dev` divergen de principales y no deben usarse
+  como base de merge ciego para MDEV.
+- **Decisión:** Toda implementación MDEV parte de `origin/master` (Oracle) y `origin/main`
+  (Signal) en worktrees limpios; commits Dev únicos se adoptan selectivamente.
+- **Consecuencias:** El SHA desplegado en Dev puede quedar atrás hasta MDEV-10; el corpus
+  piloto no se trata como memoria de tenant.
+- **Evidencia:** `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`.
+

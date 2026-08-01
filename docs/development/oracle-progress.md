@@ -4,6 +4,28 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+
+## 2026-08-01  — ORC-MEM-001 / MDEV-00
+
+- Funcionalidad: ORC-MEM-001 — Memoria dual Oracle↔Signal (Dev).
+- Trabajo realizado: Auditoría read-only dual (oracle-dev + signal-dev), censo git,
+  clasificación de commits Dev, descubrimiento de deploy/rollback, baselines de tests
+  focalizados, integridad pack memoria_dev_v2, ledger y baseline bilateral.
+- Archivos modificados: `docs/implementation/MDEV_EXECUTION_LEDGER.md`,
+  `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`, `docs/implementation/STATUS.md`,
+  `docs/development/oracle-roadmap.json`, `docs/development/oracle-progress.md`,
+  `docs/development/oracle-development-dashboard.html`, `docs/development/oracle-decisions.md`.
+- Migraciones: Ninguna.
+- Pruebas ejecutadas: pack SHA recompute MATCH; Oracle `pytest .../test_memory_context.py --no-cov` (9 passed);
+  Signal focused memory/ai (31 passed); dashboard `generate-development-dashboard.py --check`.
+- Resultado: Baseline Dev reconciliado; stubs confirmados; bases limpias master/main definidas;
+  idea ORC-MEM-001 approved.
+- Riesgos detectados: Signal Dev sin router memory; lifecycle memory pendiente; corpus solo pilot;
+  signal-dev-update sin packaging opn_memory; SSH directo flaky (jump vía oracle-dev).
+- Trabajo pendiente: PASS Codex MDEV-00; luego MDEV-01 contratos (sin autoavance).
+- Estado anterior: (nuevo).
+- Estado nuevo: `approved`.
+
 ## 2026-08-01 — ORC-SIG-001 y ORC-EVID-001 · producción validada
 
 - Oracle desplegado en `20260801T114127Z-quick-b0a80eb` tras backup+restore aislado; health HTTPS,

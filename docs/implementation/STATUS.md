@@ -1,6 +1,29 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-08-01
+Actualizado: 2026-08-01  
+Rama observada: `master` @ `402fc29` (+ worktree docs `mdev/00-baseline-ledger`)  
+Interfaz canónica: `CANONICAL_UI=vector`
+
+## MDEV-00 · Auditoría entornos y baseline reconciliado (2026-08-01)
+
+- Pack `memoria_dev_v2` `2026-08-01.4` integridad **MATCH**
+  (`content_set_sha256=687505b44447c625aae8c4f5c23d01841ac6bc58bc29eac5d84d4a7d65ada164`).
+- Ledger: `docs/implementation/MDEV_EXECUTION_LEDGER.md`.
+- Informe bilateral: `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`.
+- Oracle Dev: release `20260731T192559Z-native-96250a4` / SHA `96250a4`,
+  Alembic `20260731_0028`, `AI_MODE=signal` → Signal Dev, `MEMORY_CONTEXT` default
+  `disabled`, Http adapter stub no operativo.
+- Signal Dev: `db9fd37`, flags memory OFF, host alembic `20260801_ai_usage_attempts`,
+  memory alembic `20260731_mem_areq` (falta lifecycle), corpus piloto
+  11857/48955/15925 bajo `c:pilot|t:phase2`, `/memory/v1` **404** en el SHA
+  desplegado (router solo en `main`).
+- Bases candidatas: Oracle `origin/master@402fc29`, Signal `origin/main@8973a09`.
+- Roadmap: idea **ORC-MEM-001** (`approved`) memoria dual Dev.
+- Roots compartidos con WIP ajeno **no modificados**.
+- **No** se desplegó ni se ejecutó MDEV-01.
+- Candidate: `candidate_pass` → espera `PASS MDEV-00` de Codex.
+
+---
 
 ## Workflow Memoria Sol · desplegado y validado en producción (2026-08-01)
 
