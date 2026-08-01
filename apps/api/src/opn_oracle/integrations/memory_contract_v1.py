@@ -12,7 +12,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 CONTRACT_DIR = Path(__file__).resolve().parents[5] / "docs" / "contracts" / "memory_v1"
 # Path: apps/api/src/opn_oracle/integrations -> parents[5] is repo root?
@@ -35,15 +35,18 @@ def contract_root() -> Path:
 
 
 def load_manifest() -> dict[str, Any]:
-    return json.loads((contract_root() / "CONTRACT_MANIFEST.json").read_text(encoding="utf-8"))
+    raw = json.loads((contract_root() / "CONTRACT_MANIFEST.json").read_text(encoding="utf-8"))
+    return cast(dict[str, Any], raw)
 
 
 def load_fixture(name: str) -> dict[str, Any]:
-    return json.loads((contract_root() / "fixtures" / name).read_text(encoding="utf-8"))
+    raw = json.loads((contract_root() / "fixtures" / name).read_text(encoding="utf-8"))
+    return cast(dict[str, Any], raw)
 
 
 def load_error_catalog() -> dict[str, Any]:
-    return json.loads((contract_root() / "error_catalog.json").read_text(encoding="utf-8"))
+    raw = json.loads((contract_root() / "error_catalog.json").read_text(encoding="utf-8"))
+    return cast(dict[str, Any], raw)
 
 
 def verify_contract_hashes() -> str:
