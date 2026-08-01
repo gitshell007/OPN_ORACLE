@@ -168,7 +168,9 @@ def test_get_profile_returns_ephemeral_without_commit(
 
 @pytest.mark.unit
 def test_put_requires_if_match_428(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
@@ -185,7 +187,9 @@ def test_put_requires_if_match_428(app: Any, client: Any, monkeypatch: pytest.Mo
 
 @pytest.mark.unit
 def test_put_stale_etag_409(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
@@ -209,7 +213,9 @@ def test_put_stale_etag_409(app: Any, client: Any, monkeypatch: pytest.MonkeyPat
 def test_put_creates_profile_and_returns_etag(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
@@ -241,7 +247,9 @@ def test_put_creates_profile_and_returns_etag(
 
 @pytest.mark.unit
 def test_put_invalid_mode_422(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
@@ -313,7 +321,9 @@ def test_test_connection_synthetic_via_hook(
     app.config["MEMORY_CONTEXT_MODE"] = "http"
     app.config["MEMORY_CONTEXT_TEST_TRANSPORT"] = transport
 
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
@@ -371,7 +381,9 @@ def test_test_connection_upstream_error_not_ok(
     app.config["MEMORY_CONTEXT_MODE"] = "http"
     app.config.pop("MEMORY_CONTEXT_TEST_TRANSPORT", None)
 
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
@@ -465,7 +477,9 @@ def test_persist_snapshot_from_retrieve_result_no_swallow() -> None:
 def test_put_updates_existing_profile(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read", "dossier.write"})) as (
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
         _user,
         tenant_id,
     ):
