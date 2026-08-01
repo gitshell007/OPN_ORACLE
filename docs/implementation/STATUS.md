@@ -4400,3 +4400,10 @@ recomendado, no gate estricto activo.
 - RLS FORCE + tenant_isolation policy + oracle_app grants on dossier_memory_profiles / memory_retrieval_snapshots
 - mutation subprocess strips ORACLE_RUN_INTEGRATION/TEST_* URLs + --no-cov (mutation-J pattern)
 - residual: full PG HTTP e2e, OpenAPI, Playwright, coverage gate, CI conclusion
+
+## MDEV-05 provisional bilateral ingest (2026-08-02)
+- branch mdev/05-bilateral-ingest from 304ea27 (MDEV-04 tip), integrated after 55e9320 on mdev/06
+- memory_outbox.py: envelopes + stage_outbox; flag MEMORY_BILATERAL_OUTBOX_ENABLED default OFF
+- GET /dossiers/{id}/memory/outbox safe status
+- unit tests test_memory_mdev05_outbox.py
+- inherited debt MDEV-02/03/04; no deploy
