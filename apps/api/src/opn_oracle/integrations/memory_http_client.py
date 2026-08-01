@@ -90,7 +90,7 @@ class MockTransport:
             for k, v in headers.items()
         }
         # never store full query text — hash only
-        qhash = None
+        body_log: dict[str, Any] | None
         if isinstance(json_body, dict) and "query" in json_body:
             import hashlib
 
@@ -98,7 +98,7 @@ class MockTransport:
             qhash = hashlib.sha256(q.encode()).hexdigest()[:16]
             body_log = {**json_body, "query": f"sha256:{qhash}:len={len(q)}"}
         else:
-            body_log = json_body
+            body_log = dict(json_body) if isinstance(json_body, dict) else None
         self.calls.append(
             {
                 "method": method,
@@ -140,7 +140,7 @@ def _resolve_host_ips(hostname: str, override: dict[str, list[str]] | None = Non
     ips: list[str] = []
     for info in infos:
         ip = info[4][0]
-        if ip not in ips:
+        if isinstance(ip, str) and ip not in ips:
             ips.append(ip)
     return ips
 

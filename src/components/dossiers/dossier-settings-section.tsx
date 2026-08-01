@@ -289,7 +289,14 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
     try {
       const updated = await api.dossierMemory.putProfile(
         dossierId,
-        { mode: memoryProfile.mode },
+        {
+          mode: memoryProfile.mode,
+          sources: memoryProfile.sources,
+          kinds: memoryProfile.kinds,
+          classifications_allowed: memoryProfile.classifications_allowed,
+          token_budget: memoryProfile.token_budget,
+          limit: memoryProfile.limit,
+        },
         memoryProfile.etag,
       );
       setMemoryProfile(updated);
@@ -448,6 +455,86 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
                   Cobertura: {JSON.stringify(memoryProfile.last_coverage)}
                 </pre>
               )}
+              <label className="field">
+                <span>Límite de resultados</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={memoryProfile.limit}
+                  disabled={memoryBusy || archived}
+                  onChange={(event) =>
+                    setMemoryProfile({
+                      ...memoryProfile,
+                      limit: Number(event.target.value) || 1,
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>Presupuesto de tokens</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={128000}
+                  value={memoryProfile.token_budget}
+                  disabled={memoryBusy || archived}
+                  onChange={(event) =>
+                    setMemoryProfile({
+                      ...memoryProfile,
+                      token_budget: Number(event.target.value) || 0,
+                    })
+                  }
+                />
+              </label>
+              <label className="field full">
+                <span>Fuentes (coma)</span>
+                <input
+                  value={(memoryProfile.sources || []).join(", ")}
+                  disabled={memoryBusy || archived}
+                  onChange={(event) =>
+                    setMemoryProfile({
+                      ...memoryProfile,
+                      sources: event.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </label>
+              <label className="field full">
+                <span>Kinds (coma)</span>
+                <input
+                  value={(memoryProfile.kinds || []).join(", ")}
+                  disabled={memoryBusy || archived}
+                  onChange={(event) =>
+                    setMemoryProfile({
+                      ...memoryProfile,
+                      kinds: event.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </label>
+              <label className="field full">
+                <span>Clasificaciones permitidas (coma)</span>
+                <input
+                  value={(memoryProfile.classifications_allowed || []).join(", ")}
+                  disabled={memoryBusy || archived}
+                  onChange={(event) =>
+                    setMemoryProfile({
+                      ...memoryProfile,
+                      classifications_allowed: event.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </label>
               <div className="settings-actions">
                 <AsyncActionButton
                   className="vector-primary"

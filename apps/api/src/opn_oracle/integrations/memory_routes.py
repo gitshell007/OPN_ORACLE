@@ -1,4 +1,4 @@
-"""Flask BFF for dossier memory profile / health / test (MDEV-04 REWORK)."""
+"""Flask BFF for dossier memory profile / health / test (MDEV-04 REWORK-2)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,16 @@ from apiflask import APIBlueprint
 from flask import current_app, g, jsonify, request
 from flask_login import current_user
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db
 from opn_oracle.integrations.memory_context import capability_payload
 from opn_oracle.integrations.memory_http_client import (
+    ALLOWED_CLASSIFICATIONS,
+    ALLOWED_KINDS,
+    ALLOWED_SOURCES,
     HttpxTransport,
     MemoryHttpError,
     MockTransport,
@@ -37,8 +41,13 @@ from opn_oracle.platform.models import IntegrationConnection
 bp = APIBlueprint("memory_settings", __name__, url_prefix="/api/v1")
 
 
+def _session() -> Session:
+    # Flask-SQLAlchemy scoped_session is Session-compatible at runtime.
+    return db.session()
+
+
 def _tenant_id() -> uuid.UUID:
-    return uuid.UUID(str(g.tenant_id))
+    return uuid.UUID(str(g.active_tenant_id))
 
 
 def _etag(version: int, cfg: dict[str, Any]) -> str:
@@ -47,11 +56,11 @@ def _etag(version: int, cfg: dict[str, Any]) -> str:
 
 
 def _validate_connection_for_tenant(
-    tenant_id: uuid.UUID, connection_id: uuid.UUID | None
+    session: Session, tenant_id: uuid.UUID, connection_id: uuid.UUID | None
 ) -> IntegrationConnection | None:
     if connection_id is None:
         return None
-    conn = db.session.get(IntegrationConnection, connection_id)
+    conn = session.get(IntegrationConnection, connection_id)
     if (
         conn is None
         or conn.tenant_id != tenant_id
@@ -63,7 +72,11 @@ def _validate_connection_for_tenant(
 
 
 def _load_profile(
-    *, tenant_id: uuid.UUID, dossier_id: uuid.UUID, connection_id: uuid.UUID | None
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    connection_id: uuid.UUID | None,
 ) -> DossierMemoryProfile | None:
     q = select(DossierMemoryProfile).where(
         DossierMemoryProfile.tenant_id == tenant_id,
@@ -73,7 +86,7 @@ def _load_profile(
         q = q.where(DossierMemoryProfile.connection_id.is_(None))
     else:
         q = q.where(DossierMemoryProfile.connection_id == connection_id)
-    return db.session.scalar(q)
+    return session.scalar(q)
 
 
 def _effective_defaults(
@@ -108,26 +121,40 @@ def _effective_defaults(
     }
 
 
-@bp.get("/dossiers/<uuid:dossier_id>/memory/profile")
-@require_permission("dossier:read")
-def get_memory_profile(dossier_id: uuid.UUID):
-    """Read profile. Does NOT create/commit rows (no GET side effects)."""
+def _load_accessible_dossier(
+    session: Session, dossier_id: uuid.UUID, *, write: bool
+) -> StrategicDossier | None:
     tenant_id = _tenant_id()
-    dossier = db.session.get(StrategicDossier, dossier_id)
-    if (
-        dossier is None
-        or dossier.tenant_id != tenant_id
-        or not dossier_accessible(dossier, current_user)
-    ):
-        return problem_response(404, "not_found", "Expediente no encontrado.")
+    dossier = session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == tenant_id,
+        )
+    )
+    if dossier is None or not dossier_accessible(session, dossier, current_user.id, write=write):
+        return None
+    return dossier
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/memory/profile")
+@require_permission("dossier.read")
+def get_memory_profile(dossier_id: uuid.UUID) -> Any:
+    """Read profile. Does NOT create/commit rows (no GET side effects)."""
+    session = _session()
+    dossier = _load_accessible_dossier(session, dossier_id, write=False)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
+    tenant_id = dossier.tenant_id
     conn_id = request.args.get("connection_id")
     connection_uuid = uuid.UUID(conn_id) if conn_id else None
     if (
         connection_uuid is not None
-        and _validate_connection_for_tenant(tenant_id, connection_uuid) is None
+        and _validate_connection_for_tenant(session, tenant_id, connection_uuid) is None
     ):
-        return problem_response(404, "not_found", "Conexión no encontrada.")
-    row = _load_profile(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid)
+        return problem_response(404, detail="Conexión no encontrada.", code="connection_not_found")
+    row = _load_profile(
+        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
+    )
     if row is None:
         body = _effective_defaults(
             tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
@@ -143,50 +170,45 @@ def get_memory_profile(dossier_id: uuid.UUID):
 
 
 @bp.put("/dossiers/<uuid:dossier_id>/memory/profile")
-@require_permission("dossier:write")
-def put_memory_profile(dossier_id: uuid.UUID):
-    tenant_id = _tenant_id()
-    dossier = db.session.get(StrategicDossier, dossier_id)
-    if (
-        dossier is None
-        or dossier.tenant_id != tenant_id
-        or not dossier_accessible(dossier, current_user)
-    ):
-        return problem_response(404, "not_found", "Expediente no encontrado.")
+@require_permission("dossier.write")
+def put_memory_profile(dossier_id: uuid.UUID) -> Any:
+    session = _session()
+    dossier = _load_accessible_dossier(session, dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
+    tenant_id = dossier.tenant_id
 
     if_match = request.headers.get("If-Match") or request.headers.get("if-match")
     if not if_match:
-        return problem_response(428, "precondition_required", "If-Match ETag required.")
+        return problem_response(428, detail="If-Match ETag required.", code="precondition_required")
 
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
-        return problem_response(422, "schema_validation_failed", "body must be object.")
+        return problem_response(422, detail="body must be object.", code="schema_validation_failed")
 
     conn_id = payload.get("connection_id")
     connection_uuid = uuid.UUID(str(conn_id)) if conn_id else None
     if (
         connection_uuid is not None
-        and _validate_connection_for_tenant(tenant_id, connection_uuid) is None
+        and _validate_connection_for_tenant(session, tenant_id, connection_uuid) is None
     ):
-        return problem_response(404, "not_found", "Conexión no encontrada.")
+        return problem_response(404, detail="Conexión no encontrada.", code="connection_not_found")
 
-    row = _load_profile(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid)
+    row = _load_profile(
+        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
+    )
     ephemeral = _effective_defaults(
         tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
     )
     current_etag = row.etag if row is not None else ephemeral["etag"]
     if str(if_match) != str(current_etag):
-        return problem_response(409, "etag_conflict", "ETag mismatch; reload and retry.")
+        return problem_response(
+            409, detail="ETag mismatch; reload and retry.", code="etag_conflict"
+        )
 
     mode = str(payload.get("mode") or (row.mode if row else "disabled")).strip().lower()
     if mode not in {"disabled", "shadow", "augment"}:
-        return problem_response(422, "schema_validation_failed", "invalid mode.")
-
-    from opn_oracle.integrations.memory_http_client import (
-        ALLOWED_CLASSIFICATIONS,
-        ALLOWED_KINDS,
-        ALLOWED_SOURCES,
-    )
+        return problem_response(422, detail="invalid mode.", code="schema_validation_failed")
 
     cfg = dict((row.profile_config if row else None) or default_profile_payload())
     cfg["mode"] = mode
@@ -197,13 +219,17 @@ def put_memory_profile(dossier_id: uuid.UUID):
     ):
         if key in payload:
             if not isinstance(payload[key], list):
-                return problem_response(422, "schema_validation_failed", f"{key} must be list.")
-            cleaned = []
+                return problem_response(
+                    422, detail=f"{key} must be list.", code="schema_validation_failed"
+                )
+            cleaned: list[str] = []
             for x in payload[key]:
                 s = str(x)
                 if s not in allowed:
                     return problem_response(
-                        422, "schema_validation_failed", f"{key} value not allowed."
+                        422,
+                        detail=f"{key} value not allowed.",
+                        code="schema_validation_failed",
                     )
                 cleaned.append(s)
             cfg[key] = cleaned
@@ -214,7 +240,9 @@ def put_memory_profile(dossier_id: uuid.UUID):
                 raise ValueError
             cfg["token_budget"] = tb
         except (TypeError, ValueError):
-            return problem_response(422, "schema_validation_failed", "invalid token_budget.")
+            return problem_response(
+                422, detail="invalid token_budget.", code="schema_validation_failed"
+            )
     if "limit" in payload:
         try:
             lim = int(payload["limit"])
@@ -222,7 +250,7 @@ def put_memory_profile(dossier_id: uuid.UUID):
                 raise ValueError
             cfg["limit"] = lim
         except (TypeError, ValueError):
-            return problem_response(422, "schema_validation_failed", "invalid limit.")
+            return problem_response(422, detail="invalid limit.", code="schema_validation_failed")
 
     before = {
         "etag": current_etag,
@@ -248,15 +276,20 @@ def put_memory_profile(dossier_id: uuid.UUID):
         row.profile_config = cfg
         row.etag = _etag(row.version, cfg)
         row.updated_at = datetime.now(UTC)
-    db.session.add(row)
+    session.add(row)
     append_audit_event(
-        action="dossier_memory_profile_update",
-        entity_type="dossier_memory_profile",
-        entity_id=str(row.id),
-        before=before,
-        after={"etag": row.etag, "mode": row.mode, "version": row.version},
+        session,
+        action="dossier.memory_profile.update",
+        resource_type="dossier_memory_profile",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "before": before,
+            "after": {"etag": row.etag, "mode": row.mode, "version": row.version},
+        },
     )
-    db.session.commit()
+    session.commit()
     body = profile_to_public(row)
     body["persisted"] = True
     r = jsonify(body)
@@ -265,17 +298,14 @@ def put_memory_profile(dossier_id: uuid.UUID):
 
 
 @bp.get("/dossiers/<uuid:dossier_id>/memory/effective")
-@require_permission("dossier:read")
-def memory_effective(dossier_id: uuid.UUID):
-    tenant_id = _tenant_id()
-    dossier = db.session.get(StrategicDossier, dossier_id)
-    if (
-        dossier is None
-        or dossier.tenant_id != tenant_id
-        or not dossier_accessible(dossier, current_user)
-    ):
-        return problem_response(404, "not_found", "Expediente no encontrado.")
-    row = _load_profile(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
+@require_permission("dossier.read")
+def memory_effective(dossier_id: uuid.UUID) -> Any:
+    session = _session()
+    dossier = _load_accessible_dossier(session, dossier_id, write=False)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
+    tenant_id = dossier.tenant_id
+    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
     if row is None:
         pub = _effective_defaults(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
@@ -289,8 +319,8 @@ def memory_effective(dossier_id: uuid.UUID):
 
 
 @bp.get("/memory/capability")
-@require_permission("dossier:read")
-def memory_capability():
+@require_permission("dossier.read")
+def memory_capability() -> Any:
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
     return jsonify(
         capability_payload(host_mode=host_mode, connection_healthy=host_mode in {"http", "mock"})
@@ -298,19 +328,16 @@ def memory_capability():
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/memory/test-connection")
-@require_permission("dossier:write")
-def memory_test_connection(dossier_id: uuid.UUID):
-    """Test connection. Never uses MockTransport unless MEMORY_CONTEXT_TEST_TRANSPORT is set."""
-    tenant_id = _tenant_id()
-    dossier = db.session.get(StrategicDossier, dossier_id)
-    if (
-        dossier is None
-        or dossier.tenant_id != tenant_id
-        or not dossier_accessible(dossier, current_user)
-    ):
-        return problem_response(404, "not_found", "Expediente no encontrado.")
+@require_permission("dossier.write")
+def memory_test_connection(dossier_id: uuid.UUID) -> Any:
+    """Test connection. MockTransport only via MEMORY_CONTEXT_TEST_TRANSPORT or mock mode."""
+    session = _session()
+    dossier = _load_accessible_dossier(session, dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
+    tenant_id = dossier.tenant_id
 
-    row = _load_profile(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
+    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
 
     if host_mode == "disabled":
@@ -318,7 +345,7 @@ def memory_test_connection(dossier_id: uuid.UUID):
             row.last_test_at = datetime.now(UTC)
             row.last_test_status = "host_disabled"
             row.last_error = "MEMORY_CONTEXT_MODE=disabled"
-            db.session.commit()
+            session.commit()
         return jsonify(
             {
                 "ok": False,
@@ -330,8 +357,7 @@ def memory_test_connection(dossier_id: uuid.UUID):
         )
 
     try:
-        conn = resolve_signal_memory_connection(db.session, tenant_id=tenant_id)
-        # Transport selection: only explicit test hook injects mock
+        conn = resolve_signal_memory_connection(session, tenant_id=tenant_id)
         test_transport = current_app.config.get("MEMORY_CONTEXT_TEST_TRANSPORT")
         synthetic = False
         if test_transport is not None:
@@ -360,7 +386,7 @@ def memory_test_connection(dossier_id: uuid.UUID):
                 "publisher_degraded": True,
                 "synthetic": synthetic,
             }
-            db.session.commit()
+            session.commit()
         return jsonify(
             {
                 "ok": True,
@@ -380,5 +406,16 @@ def memory_test_connection(dossier_id: uuid.UUID):
             row.last_test_at = datetime.now(UTC)
             row.last_test_status = "error"
             row.last_error = f"{exc.code}:{exc.message}"[:500]
-            db.session.commit()
-        return problem_response(502 if exc.retryable else 400, exc.code, exc.message)
+            session.commit()
+        return problem_response(
+            502 if exc.retryable else 400,
+            detail=exc.message,
+            code=exc.code,
+        )
+    except Exception as exc:  # connection_conflict / missing secret etc.
+        if row is not None:
+            row.last_test_at = datetime.now(UTC)
+            row.last_test_status = "error"
+            row.last_error = str(exc)[:500]
+            session.commit()
+        return problem_response(400, detail=str(exc), code="memory_connection_error")

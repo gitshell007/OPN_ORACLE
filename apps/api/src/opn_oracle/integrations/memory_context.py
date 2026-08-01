@@ -174,8 +174,9 @@ class HttpMemoryContextAdapter:
         tenant_uuid = uuid.UUID(str(tenant_id))
         preferred = scope.get("connection_id")
         preferred_uuid = uuid.UUID(str(preferred)) if preferred else None
+        session = db.session()
         conn = resolve_signal_memory_connection(
-            db.session, tenant_id=tenant_uuid, preferred_connection_id=preferred_uuid
+            session, tenant_id=tenant_uuid, preferred_connection_id=preferred_uuid
         )
         transport = self.transport
         if transport is None:
@@ -303,35 +304,31 @@ class HttpMemoryContextAdapter:
             "watermark": result.get("watermark"),
             "request_id": result.get("request_id"),
         }
-        try:
-            from flask import has_app_context
-
-            if has_app_context() and scope.get("tenant_id") and mode != "disabled":
-                tid = uuid.UUID(str(scope["tenant_id"]))
-                did = uuid.UUID(str(dossier_id))
-                cid = uuid.UUID(str(scope["connection_id"])) if scope.get("connection_id") else None
-                persist_retrieval_snapshot(
-                    tenant_id=tid,
-                    dossier_id=did,
-                    connection_id=cid,
-                    mode=mode,
-                    correlation_id=str(result.get("request_id") or uuid.uuid4()),
-                    snapshot=self.last_snapshot,
-                    intent_revision_hash=str(scope.get("intent_revision_hash") or "") or None,
-                )
-        except Exception:
-            pass
+        # Snapshot material is returned; orchestrator persists via Session (no silent swallow).
+        out_common = {
+            "snapshot": self.last_snapshot,
+            "snapshot_meta": {
+                "tenant_id": str(scope.get("tenant_id") or ""),
+                "dossier_id": dossier_id,
+                "connection_id": str(scope.get("connection_id") or "") or None,
+                "mode": mode,
+                "correlation_id": str(result.get("request_id") or uuid.uuid4()),
+                "intent_revision_hash": str(scope.get("intent_revision_hash") or "") or None,
+            },
+            "publisher_degraded": True,
+        }
 
         if mode == "shadow":
             out = dict(result)
+            out.update(out_common)
             out["items_for_prompt"] = []
             out["items_observed"] = items
             out["shadow"] = True
             return out
         out = dict(result)
+        out.update(out_common)
         out["items_for_prompt"] = items if inject else []
         out["augment"] = inject
-        out["publisher_degraded"] = True  # honest: MDEV-02 debt
         return out
 
 
@@ -416,6 +413,7 @@ def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str,
 
 
 def persist_retrieval_snapshot(
+    session: Any,
     *,
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
@@ -424,18 +422,21 @@ def persist_retrieval_snapshot(
     correlation_id: str,
     snapshot: dict[str, Any],
     intent_revision_hash: str | None = None,
-) -> None:
-    """Write immutable MemoryRetrievalSnapshot. No raw unlimited query/prompt."""
-    from opn_oracle.extensions import db
+) -> uuid.UUID | None:
+    """Write immutable MemoryRetrievalSnapshot on caller session. No silent swallow, no commit."""
+    from datetime import UTC, datetime
+
     from opn_oracle.integrations.models import MemoryRetrievalSnapshot
 
     if mode == "disabled":
-        return
-    payload = {
+        return None
+    raw_items = snapshot.get("items") or []
+    items_list: list[Any] = list(raw_items) if isinstance(raw_items, list) else []
+    payload: dict[str, Any] = {
         "mode": mode,
         "failed": bool(snapshot.get("failed")),
         "inject_into_llm": bool(snapshot.get("inject_into_llm")),
-        "items": list(snapshot.get("items") or [])[:50],
+        "items": items_list[:50],
         "items_observed": snapshot.get("items_observed"),
         "coverage": snapshot.get("coverage"),
         "watermark": snapshot.get("watermark"),
@@ -447,11 +448,12 @@ def persist_retrieval_snapshot(
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     if len(raw) > 200_000:
-        payload["items"] = payload["items"][:10]
+        payload["items"] = list(payload["items"])[:10]
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ctx_hash = hashlib.sha256(raw).digest()
+    row_id = uuid.uuid4()
     row = MemoryRetrievalSnapshot(
-        id=uuid.uuid4(),
+        id=row_id,
         tenant_id=tenant_id,
         dossier_id=dossier_id,
         connection_id=connection_id,
@@ -459,8 +461,40 @@ def persist_retrieval_snapshot(
         correlation_id=correlation_id[:80],
         context_hash=ctx_hash,
         payload=payload,
-        created_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
-        updated_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
-    db.session.add(row)
-    db.session.commit()
+    session.add(row)
+    # Caller commits UoW; failures must propagate to job/coverage.failed.
+    return row_id
+
+
+def persist_snapshot_from_retrieve_result(
+    session: Any, result: Mapping[str, Any]
+) -> uuid.UUID | None:
+    """Orchestrator helper: persist snapshot_meta returned by HttpMemoryContextAdapter.retrieve."""
+    meta = result.get("snapshot_meta")
+    snap = result.get("snapshot")
+    if not isinstance(meta, Mapping) or not isinstance(snap, Mapping):
+        return None
+    mode = str(meta.get("mode") or "disabled")
+    if mode == "disabled":
+        return None
+    tid = meta.get("tenant_id")
+    did = meta.get("dossier_id")
+    if not tid or not did:
+        raise MemoryContextError("snapshot_meta missing tenant/dossier")
+    cid_raw = meta.get("connection_id")
+    connection_id = uuid.UUID(str(cid_raw)) if cid_raw else None
+    return persist_retrieval_snapshot(
+        session,
+        tenant_id=uuid.UUID(str(tid)),
+        dossier_id=uuid.UUID(str(did)),
+        connection_id=connection_id,
+        mode=mode,
+        correlation_id=str(meta.get("correlation_id") or uuid.uuid4()),
+        snapshot=dict(snap),
+        intent_revision_hash=(
+            str(meta["intent_revision_hash"]) if meta.get("intent_revision_hash") else None
+        ),
+    )

@@ -227,12 +227,17 @@ class DossierMemoryProfile(TenantDomainMixin, Base):
 
     __tablename__ = "dossier_memory_profiles"
     __table_args__ = (
-        # Unique via PG index NULLS NOT DISTINCT uq_dmp_scope_nulls (migration 0029)
         ForeignKeyConstraint(
             ("tenant_id",),
             ("tenants.id",),
             ondelete="CASCADE",
             name="fk_dmp_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_dmp_dossier_tenant",
         ),
         ForeignKeyConstraint(
             ("connection_id", "tenant_id"),
@@ -247,6 +252,15 @@ class DossierMemoryProfile(TenantDomainMixin, Base):
         CheckConstraint("version >= 1", name="dmp_version_positive"),
         CheckConstraint("jsonb_typeof(profile_config) = 'object'", name="dmp_config_object"),
         Index("ix_dmp_tenant_dossier", "tenant_id", "dossier_id"),
+        # Treat NULL connection_id as equal (one default profile per dossier)
+        Index(
+            "uq_dmp_scope_nulls",
+            "tenant_id",
+            "dossier_id",
+            "connection_id",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
     )
 
     dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -271,6 +285,12 @@ class MemoryRetrievalSnapshot(TenantDomainMixin, Base):
             ("tenants.id",),
             ondelete="CASCADE",
             name="fk_mrs_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_mrs_dossier_tenant",
         ),
         Index("ix_mrs_tenant_dossier", "tenant_id", "dossier_id"),
         CheckConstraint("jsonb_typeof(payload) = 'object'", name="mrs_payload_object"),

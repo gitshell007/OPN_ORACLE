@@ -4386,3 +4386,12 @@ recomendado, no gate estricto activo.
 - unit tests test_memory_mdev04_adapter.py: 17 passed
 - residual debt: Flask/PG two-tenant HTTP, migration roundtrip PG, OpenAPI regen full, Playwright/Vitest axe, Celery cancel, full suite+CI green
 
+## MDEV-04 REWORK-2 (2026-08-02)
+- commit on mdev/04-oracle-adapter-settings PR #16
+- Fixed real API signatures: dossier_accessible(session,dossier,user_id,write=), problem_response keyword-only, append_audit_event resource_* 
+- Permissions: dossier.read / dossier.write (dot form)
+- Snapshot: no except-pass; persist_retrieval_snapshot(session) no internal commit; orchestrator helper persist_snapshot_from_retrieve_result
+- Model/migration: Index uq_dmp_scope_nulls postgresql_nulls_not_distinct=True; dossier tenant-scoped FKs
+- HTTP unit tests: test_memory_mdev04_http.py (client get/put/post) + adapter tests → 30 passed
+- TS export DossierMemoryProfile; UI Memoria filters (sources/kinds/classifications/limit/token_budget)
+- Residual debt: PG multi-tenant integration, OpenAPI regen, Playwright/Vitest, full suite/CI, Celery cancel, schema freeze full memory.v1

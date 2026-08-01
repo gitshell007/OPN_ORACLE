@@ -44,6 +44,12 @@ def upgrade() -> None:
             ["tenant_id"], ["tenants.id"], ondelete="CASCADE", name="fk_dmp_tenant"
         ),
         sa.ForeignKeyConstraint(
+            ["dossier_id", "tenant_id"],
+            ["strategic_dossiers.id", "strategic_dossiers.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_dmp_dossier_tenant",
+        ),
+        sa.ForeignKeyConstraint(
             ["connection_id", "tenant_id"],
             ["integration_connections.id", "integration_connections.tenant_id"],
             ondelete="SET NULL",
@@ -54,11 +60,12 @@ def upgrade() -> None:
         sa.CheckConstraint("jsonb_typeof(profile_config) = 'object'", name="dmp_config_object"),
     )
     op.create_index("ix_dmp_tenant_dossier", "dossier_memory_profiles", ["tenant_id", "dossier_id"])
-    # PostgreSQL: treat NULL connection_id as equal for uniqueness (no duplicate defaults)
-    op.execute(
-        "CREATE UNIQUE INDEX uq_dmp_scope_nulls "
-        "ON dossier_memory_profiles (tenant_id, dossier_id, connection_id) "
-        "NULLS NOT DISTINCT"
+    op.create_index(
+        "uq_dmp_scope_nulls",
+        "dossier_memory_profiles",
+        ["tenant_id", "dossier_id", "connection_id"],
+        unique=True,
+        postgresql_nulls_not_distinct=True,
     )
 
     op.create_table(
@@ -78,6 +85,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["tenant_id"], ["tenants.id"], ondelete="CASCADE", name="fk_mrs_tenant"
         ),
+        sa.ForeignKeyConstraint(
+            ["dossier_id", "tenant_id"],
+            ["strategic_dossiers.id", "strategic_dossiers.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_mrs_dossier_tenant",
+        ),
         sa.CheckConstraint("jsonb_typeof(payload) = 'object'", name="mrs_payload_object"),
         sa.CheckConstraint("octet_length(context_hash) = 32", name="mrs_hash_length"),
     )
@@ -89,6 +102,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_mrs_tenant_dossier", table_name="memory_retrieval_snapshots")
     op.drop_table("memory_retrieval_snapshots")
-    op.execute("DROP INDEX IF EXISTS uq_dmp_scope_nulls")
+    op.drop_index(
+        "uq_dmp_scope_nulls",
+        table_name="dossier_memory_profiles",
+        postgresql_nulls_not_distinct=True,
+    )
     op.drop_index("ix_dmp_tenant_dossier", table_name="dossier_memory_profiles")
     op.drop_table("dossier_memory_profiles")
