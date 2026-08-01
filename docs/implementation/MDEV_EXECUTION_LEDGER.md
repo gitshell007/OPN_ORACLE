@@ -36,6 +36,28 @@
 
 **Regla:** no hay autorreferencia circular al SHA del propio ledger dentro del mismo commit de contenido. El tip y el SHA de master se registran **después** del push/merge. MDEV-01 debe partir de `origin/master` **cuando ya contenga** este ledger (post-merge). Codex decision permanece `pending` hasta revisión humana.
 
+
+## REWORK MDEV-01 (Codex)
+
+- Veredicto Codex: **REWORK MDEV-01** (no auto-PASS).
+- Bundle rework content_set: ver `docs/contracts/memory_v1/CONTRACT_MANIFEST.json`.
+- Bloqueantes del dictamen y cierre:
+  - error envelope HTTP incompatible → **cerrado** (JSONResponse raíz error_envelope)
+  - validación extra no estricta → **cerrado** (extra=forbid + Draft 2020-12)
+  - scopes/capabilities inconsistentes → **cerrado** (`connector_policy.scopes` canónico)
+  - credencial tenant-bound sin cerrar → **cerrado** (`ConsumerTenantCredential` + docs/migración expand)
+  - dossier sin autorización → **cerrado** (`ConsumerMemoryDossierGrant`)
+  - matriz HTTP y A/B incompleta → **cerrado** (tests 401/403/404/409/413/422/503 + A/B)
+  - OpenAPI no ejecutable → **cerrado** (`openapi.memory.v1.json` validado)
+  - coverage tautológica → **cerrado** (`coverage_from_failure` / assert_not_disguised)
+  - mutaciones y RED no válidos → **cerrado** (`test_memory_v1_mutations` A–F + RED stub)
+  - suite Signal completa → ver evidencia suite en Gate Packet
+  - documentación incoherente → ledger/STATUS/progress/matrix actualizados
+
+NO_ROLLBACK y beat drift permanecen abiertos (fuera de alcance MDEV-01).
+APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
+
+
 ## Baselines
 
 | Repo/entorno | Branch/ref | SHA | Migración | Estado Git | Capturado |
@@ -57,7 +79,7 @@
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
 | MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
-| MDEV-01 | candidate_pass | pending | `407c05fb6825f6f0989f608b04dc27d59ec70da4` | `519740e30e9d2858d8709286e87de1dbc22bf01d` | PR Oracle#8 CI 30709333094; Signal#6 |
+| MDEV-01 | candidate_pass (rework) | **pending** | (pending push) | (pending push) | rework contract |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
@@ -79,11 +101,11 @@
 - Citabilidad: materializar Evidence Oracle antes del LLM
 
 - API memory version: `memory.v1` en código `main`; **ausente** en SHA Dev `db9fd37` (HTTP 404)
-- Ingestion / retrieval / coverage schema hashes: pendientes MDEV-01
+- Ingestion / retrieval / coverage: congelados en docs/contracts/memory_v1 (REWORK)
 - Retrieve stub (`main`): `items=[]` con nota pack builder pendiente
 - Scope formula: `tenant_key` + `product_code` + `scope_type` + `scope_id`
 - Pilot actual: `tenant_key=c:pilot|t:phase2`, `scope_type=pilot`, `scope_id=phase2`, `product_code=signal`
-- Config precedence version: pendiente MDEV-01
+- Config precedence: docs/contracts/memory_v1/CONFIG_PRECEDENCE.md
 
 ## Configuración Dev efectiva (sin secretos)
 

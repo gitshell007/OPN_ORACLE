@@ -6,6 +6,15 @@ con el comando real o con el archivo que las contiene.
 
 
 
+
+## 2026-08-01  — ORC-MEM-001 / MDEV-01 REWORK
+
+- Trabajo: cierre real del contrato bilateral memory.v1 tras REWORK Codex.
+- Archivos: docs/contracts/memory_v1/**, memory_contract_v1.py, tests, ledger/STATUS.
+- Pruebas: contract + openapi structural; Signal mutations A–F.
+- Riesgos heredados: NO_ROLLBACK, beat drift.
+- Estado: in_progress (validated contractual tests; runtime pack still stub).
+
 ## 2026-08-01  — ORC-MEM-001 / MDEV-01 contracts
 
 - Funcionalidad: ORC-MEM-001.

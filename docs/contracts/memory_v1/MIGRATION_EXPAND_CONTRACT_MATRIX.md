@@ -1,28 +1,23 @@
-# Matriz expand/contract · memoria dual (plan MDEV-01; no aplicar en Dev)
+# Matriz expand/contract · memory dual (MDEV-01 REWORK)
 
-## Principio
+No se aplica ninguna migración en hosts Dev/Prod en MDEV-01.
 
-- Expand: columnas/tablas nuevas nullable o con default seguro; código dual-write/read.
-- Contract: retirar campos solo tras deploy que deja de leerlos.
-- Backfill: job idempotente con recuentos pre/post y downgrade documentado.
+## Signal expand (propuesto MDEV-02)
 
-## Signal
+| Cambio | Expand | Backfill | Recuentos pre | Downgrade |
+|---|---|---|---|---|
+| `consumer_tenant_credentials` | CREATE TABLE nullable-free | 0 rows | consumers N; credentials 0 | DROP TABLE |
+| partial unique active per consumer+tenant | CREATE UNIQUE INDEX ... WHERE status='active' | n/a | 0 | DROP INDEX |
+| `consumer_memory_dossier_grants` | CREATE TABLE | 0 rows | grants 0 | DROP TABLE |
+| optional deprecate sole use of `consumers.api_key_hash` for memory | dual-read | n/a | credentials active by tenant | keep column |
 
-| Cambio | Fase | Expand | Contract | Backfill | Recuentos |
-|---|---|---|---|---|---|
-| `consumer_memory_settings` table o JSON versionado | MDEV-02/03 | crear tabla + etag | n/a | default OFF para todos | consumers, settings rows |
-| `api_credentials.bound_external_tenant_id` | MDEV-02 | columna nullable | require non-null | bind keys existentes 1:1 o revocar | credentials |
-| memory sources multi-scope links | MDEV-05 | rows por scope | n/a | re-scope pilot→dossier en UAT sintético | sources by scope |
-| alembic `20260731_mem_lifecycle` en Dev | MDEV-10 | upgrade | downgrade script | 0 rows affected expected | alembic_version_memory |
+## Oracle expand (MDEV-04)
 
-## Oracle
+| Cambio | Expand | Backfill | Recuentos | Downgrade |
+|---|---|---|---|---|
+| IntegrationConnection provider `signal-memory` | filas nuevas | 0 | connections | delete rows |
+| tenant memory mode disabled\|shadow\|augment | columna/default disabled | all disabled | tenants | drop column later |
 
-| Cambio | Fase | Expand | Contract | Backfill | Recuentos |
-|---|---|---|---|---|---|
-| tenant memory mode + IntegrationConnection signal-memory | MDEV-04 | columns/settings | n/a | default disabled | tenants, connections |
-| dossier_memory_profiles | MDEV-04 | tabla etag | n/a | none | profiles |
-| evidence materialization from signal items | MDEV-05/06 | evidence rows | n/a | on-demand | evidence |
+## Contract phase later
 
-## No en MDEV-01
-
-No se aplican migraciones en Dev ni se activan flags.
+Retirar path legacy memory sin tenant-bound solo cuando recuento de credenciales active cubra todos los tenants Oracle Dev canarios.
