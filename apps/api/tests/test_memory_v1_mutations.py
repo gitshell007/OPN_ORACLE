@@ -1,4 +1,9 @@
-"""Mutación J (Oracle): host mode desconocido no puede elevar a augment."""
+"""Mutación J (Oracle): host mode desconocido no puede elevar a augment.
+
+El pytest hijo NO debe heredar ORACLE_RUN_INTEGRATION / TEST_*_URL: con
+ORACLE_RUN_INTEGRATION=1 el padre retiene un advisory lock PostgreSQL en
+pytest_sessionstart y el hijo se auto-deadlockea al intentar el mismo lock.
+"""
 
 from __future__ import annotations
 
@@ -7,23 +12,52 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]  # repo root (apps/api/tests → ../../..)
-# worktree root is parents[3] from apps/api/tests/file → apps/api/tests → apps/api → apps → repo
-# Actually: file at apps/api/tests/test_... → parents[0]=tests, [1]=api, [2]=apps, [3]=repo
+ROOT = Path(__file__).resolve().parents[3]  # repo root
 CONTRACT = ROOT / "apps/api/src/opn_oracle/integrations/memory_contract_v1.py"
 PY = sys.executable
 
+# Integration env vars that arm conftest advisory lock / real DB session.
+_CHILD_STRIP_ENV = (
+    "ORACLE_RUN_INTEGRATION",
+    "TEST_DATABASE_URL",
+    "TEST_RUNTIME_DATABASE_URL",
+    "TEST_REDIS_URL",
+)
+
+_CHILD_TIMEOUT_S = 60
+
 
 def _run(node: str) -> subprocess.CompletedProcess[str]:
+    """Run a unit nodeid in a child pytest without integration lock/DB env."""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "apps/api/src")
-    return subprocess.run(
-        [PY, "-m", "pytest", "-q", "--tb=line", "--no-cov", node],
-        cwd=str(ROOT / "apps/api"),
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    for key in _CHILD_STRIP_ENV:
+        env.pop(key, None)
+    try:
+        return subprocess.run(
+            [PY, "-m", "pytest", "-q", "--tb=line", "--no-cov", node],
+            cwd=str(ROOT / "apps/api"),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=_CHILD_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        out = _stream_to_text(exc.stdout)
+        err = _stream_to_text(exc.stderr)
+        raise AssertionError(
+            f"child pytest timed out after {_CHILD_TIMEOUT_S}s for {node}\n"
+            f"stdout:\n{out}\nstderr:\n{err}\n"
+            "(likely inherited ORACLE_RUN_INTEGRATION / DB URLs → advisory lock deadlock)"
+        ) from exc
+
+
+def _stream_to_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def test_mutation_J_unknown_host_mode_allows_augment():
