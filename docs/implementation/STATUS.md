@@ -13,8 +13,9 @@ Actualizado: 2026-08-01
   ClamAV `clean`, dos chunks, búsqueda real y evidencia creada desde un fragmento.
 - Preguntar a Oracle: dos jobs durables succeeded por Signal. La segunda respuesta persistió una
   cita y tres hechos autorizados; usage Signal 4857 usó `ollama/qwen3.5:9b`, sin fallback y coste 0.
-- Monitor diario: el create 201 idempotente se reconcilió como delivered, quedó `active/active` con
-  external id y una sincronización real terminó el 2026-08-01 a las 13:44 Europe/Madrid.
+- Monitor diario: el create 201 idempotente se reconcilió como delivered, quedó `active/active`,
+  su ejecución Signal produjo cuatro señales y Oracle vinculó las cuatro al expediente; la
+  sincronización real terminó el 2026-08-01 a las 13:44 Europe/Madrid.
 - Signal producción quedó en `8973a09`: PostgreSQL ya solo publica `127.0.0.1:5433`; backup
   `/var/backups/opn-signal/pre-loopback-20260801T1152Z.dump` verificado, servicios y health sanos.
 - Residual aceptado para esta UAT: documentos usan volumen local durable; migrar a S3 compatible

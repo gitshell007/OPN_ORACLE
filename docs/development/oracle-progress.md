@@ -9,7 +9,8 @@ con el comando real o con el archivo que las contiene.
 - Oracle desplegado en `20260801T114127Z-quick-b0a80eb` tras backup+restore aislado; health HTTPS,
   Celery, ClamAV y coherencia del release correctos.
 - Canario: memoria de intake aceptada visible tras recarga; documento `ready/clean` con dos chunks y
-  evidencia; pregunta durable con una cita y tres hechos; monitor Signal `active/active` y sync real.
+  evidencia; pregunta durable con una cita y tres hechos; monitor Signal `active/active`, cuatro
+  señales producidas/vinculadas y sync real.
 - Signal `8973a09`: consumer 14 local-first (`qwen3.5:9b→qwen3.6:27b`), PostgreSQL ligado solo a
   loopback y servicios/health activos. Las dos preguntas medidas costaron 0 y no usaron fallback.
 - Estado anterior/nuevo: `ORC-SIG-001 implemented→deployed`; `ORC-EVID-001 implemented→deployed`.
