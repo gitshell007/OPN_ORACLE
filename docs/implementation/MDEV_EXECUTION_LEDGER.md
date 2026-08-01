@@ -18,11 +18,11 @@
 | Rol | Valor |
 |---|---|
 | Rama de trabajo rework | `mdev/00-baseline-rework` |
-| Commit de contenido (docs/ledger/evidence) | *(se anota en Gate Packet al commitear)* |
-| Tip de la rama tras push | *(Gate Packet)* |
-| SHA final integrado en `origin/master` | *(tras merge PR; vacío = no integrado)* |
-| PR | *(número URL)* |
-| CI run MDEV-00 | *(id/URL del run del PR; no confundir con CI histórico MEMSOL)* |
+| Commit de contenido (docs/ledger/evidence) | `0f06376150da7692746cc596f1dd03bbf067605b` |
+| Tip de la rama tras push | `0f06376150da7692746cc596f1dd03bbf067605b` |
+| SHA final integrado en `origin/master` | `e5468b296c68085dd72c0dd210f0e25368d9c098` |
+| PR | [#6](https://github.com/gitshell007/OPN_ORACLE/pull/6) |
+| CI run MDEV-00 | [30705985882](https://github.com/gitshell007/OPN_ORACLE/actions/runs/30705985882) (all SUCCESS) |
 | Rama histórica (no reescribir) | `mdev/00-baseline-ledger` @ `020a784` |
 
 **Regla:** no hay autorreferencia circular al SHA del propio ledger dentro del mismo commit de contenido. El tip y el SHA de master se registran **después** del push/merge. MDEV-01 debe partir de `origin/master` **cuando ya contenga** este ledger (post-merge). Codex decision permanece `pending` hasta revisión humana.
@@ -31,7 +31,7 @@
 
 | Repo/entorno | Branch/ref | SHA | Migración | Estado Git | Capturado |
 |---|---|---|---|---|---|
-| Oracle source | `origin/master` | `402fc2955eb73b135c2b2f0bc9567f8d68f84142` | head código incluye `20260731_0028` | remoto limpio; root local dirty ajeno | 2026-08-01 rework |
+| Oracle source | `origin/master` | `e5468b296c68085dd72c0dd210f0e25368d9c098` | head código incluye `20260731_0028` | remoto limpio; root local dirty ajeno | 2026-08-01 rework |
 | Oracle Dev | release `20260731T192559Z-native-96250a4` | `96250a40d7944864de1980b70019a0443bfe7fbb` | DB `20260731_0028` | api/web/worker/beat active | 2026-08-01 |
 | Signal source | `origin/main` | `8973a096811f46648e86c2656ace216069e7f80d` | host head `20260801_ai_usage_attempts`; memory código `20260731_mem_lifecycle` | remoto limpio; root local dirty ajeno | 2026-08-01 |
 | Signal Dev | `origin/signal-dev` desplegado | `db9fd379b44f0057a877d7a098356fd9bdcf6bc1` | host `20260801_ai_usage_attempts`; memory `20260731_mem_areq` | api/worker active; beat **active** con unit **disabled** (drift) | 2026-08-01 |
@@ -47,7 +47,7 @@
 
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
-| MDEV-00 | candidate_pass *(si master integra)* / candidate_fail *(si no)* | **pending** | pendiente merge | n/a (sin commit Signal) | este ledger + `evidence/mdev-00/` |
+| MDEV-00 | candidate_pass | **pending** | `e5468b296c68085dd72c0dd210f0e25368d9c098` | n/a (sin commit Signal) | PR#6 + evidence/mdev-00/ |
 | MDEV-01 | pending | pending | | | |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
