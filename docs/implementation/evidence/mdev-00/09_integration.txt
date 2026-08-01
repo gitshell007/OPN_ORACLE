@@ -1,0 +1,9 @@
+# MDEV-00 integration
+captured_at=2026-08-01 17:38:36 Europe/Madrid
+content_commit=0f06376150da7692746cc596f1dd03bbf067605b
+branch=mdev/00-baseline-rework
+pr=https://github.com/gitshell007/OPN_ORACLE/pull/6
+ci_run=https://github.com/gitshell007/OPN_ORACLE/actions/runs/30705985882
+ci_jobs=Frontend and contract SUCCESS; Backend migrations integration SUCCESS; Frontend E2E SUCCESS; Security images SBOM SUCCESS
+origin_master=e5468b296c68085dd72c0dd210f0e25368d9c098
+historical_branch_preserved=mdev/00-baseline-ledger@020a784
