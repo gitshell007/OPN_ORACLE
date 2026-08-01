@@ -101,6 +101,20 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - Tests unitarios lifecycle (11 passed). Integración Postgres + backfill contado: siguiente.
 - Worktree `memsol/execution`. Siguiente: backfill profile_config → IntentRevision o MEMSOL-04.
 
+## Gate E2E procurement y accesibilidad (2026-08-01)
+
+- Corregido el control E2E de la vigilancia opcional para usar su rol ARIA real
+  `switch`, sin cambiar la semántica ni la persistencia del wizard.
+- El selector desplazable de países recibe foco de teclado y las casillas de
+  selección de expediente miden al menos 24 px; Axe deja de señalar ambas
+  violaciones.
+- Evidencia: `npm run test -- --run src/components/ui/eu-country-multiselect.test.tsx
+  src/components/procurement/procurement-search-wizard.test.tsx` → 26 passed;
+  `npx playwright test tests/e2e/procurement-wizard.spec.ts
+  tests/e2e/accessibility-security.spec.ts --project=desktop --project=mobile`
+  → 9 passed, 1 skipped.
+- Pendiente: CI integral del candidato y smoke autenticado posterior al release.
+
 ## MEMSOL-04 · Read model Actividad (2026-07-31)
 
 - `GET /api/v1/dossiers/{id}/activity` agrega intención, watchlists, monitores Signal,

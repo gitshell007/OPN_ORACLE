@@ -4,6 +4,19 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — ORC-PROC-002 y ORC-UX-003
+
+- Funcionalidades: ORC-PROC-002 — Wizard de búsqueda multisector y CPV; ORC-UX-003 — Calidad UX, accesibilidad y responsive.
+- Trabajo realizado: Se corrigió el E2E para que compruebe el interruptor ARIA real de vigilancia opcional, se hizo accesible por teclado la región desplazable de países y se elevó el área directa de selección de expedientes a 24 px.
+- Archivos modificados: `tests/e2e/procurement-wizard.spec.ts`, `src/components/ui/eu-country-multiselect.tsx`, `src/components/ui/eu-country-multiselect.test.tsx`, `src/styles/concept-a.css`, `docs/development/oracle-roadmap.json`.
+- Migraciones: Ninguna.
+- Pruebas ejecutadas: `npm run test -- --run src/components/ui/eu-country-multiselect.test.tsx src/components/procurement/procurement-search-wizard.test.tsx` (26 passed); `npx playwright test tests/e2e/procurement-wizard.spec.ts tests/e2e/accessibility-security.spec.ts --project=desktop --project=mobile` (9 passed, 1 skipped).
+- Resultado: El gate E2E observado en rojo queda reproducido y corregido para ambos viewports; Axe no informa violaciones en las rutas cubiertas.
+- Riesgos detectados: Quedan criterios parciales de ORC-UX-003 y la validación completa de CI/producción.
+- Trabajo pendiente: Esperar CI del candidato y hacer smoke autenticado tras el release local-only.
+- Estado anterior: `under_review`.
+- Estado nuevo: `under_review`.
+
 ## 2026-07-31  — ORC-GOV-001
 
 - Funcionalidad: ORC-GOV-001 — Sistema vivo de planificación y desarrollo.

@@ -11,6 +11,7 @@ describe("EuCountryMultiSelect", () => {
     render(<EuCountryMultiSelect label="Países" value={["ES", "DE"]} onChange={vi.fn()} />);
 
     const group = screen.getByRole("group", { name: "Países" });
+    expect(group).toHaveAttribute("tabindex", "0");
     const checkboxes = within(group).getAllByRole("checkbox");
     expect(checkboxes).toHaveLength(PRESET_COUNTRIES.length);
     const names = within(group)
