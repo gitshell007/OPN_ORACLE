@@ -2,7 +2,27 @@
 
 Actualizado: 2026-08-01
 
-## Hotfix contrato monitor Oracle→Signal · candidata (2026-08-01)
+## Workflow Memoria Sol · desplegado y validado en producción (2026-08-01)
+
+- Release Oracle activo: `20260801T114127Z-quick-b0a80eb` (árbol idéntico al commit validado
+  `769d98f` y merge `b0a80eb`). Backup lógico y restore aislado precedieron la activación;
+  liveness, readiness, HTTPS, Celery, ClamAV y coherencia de imágenes quedaron correctos.
+- Canario autenticado: expediente de Mercado creado con intención v1 aceptada, necesidad y oferta;
+  CATL quedó vinculado como competidor y la actividad mostró esa memoria tras recargar.
+- Documento sintético: job `d6900167-32dc-401b-a0c2-3688e38171c5` succeeded, estado `ready`,
+  ClamAV `clean`, dos chunks, búsqueda real y evidencia creada desde un fragmento.
+- Preguntar a Oracle: dos jobs durables succeeded por Signal. La segunda respuesta persistió una
+  cita y tres hechos autorizados; usage Signal 4857 usó `ollama/qwen3.5:9b`, sin fallback y coste 0.
+- Monitor diario: el create 201 idempotente se reconcilió como delivered, quedó `active/active`,
+  su ejecución Signal produjo cuatro señales y Oracle vinculó las cuatro al expediente; la
+  sincronización real terminó el 2026-08-01 a las 13:44 Europe/Madrid.
+- Signal producción quedó en `8973a09`: PostgreSQL ya solo publica `127.0.0.1:5433`; backup
+  `/var/backups/opn-signal/pre-loopback-20260801T1152Z.dump` verificado, servicios y health sanos.
+- Residual aceptado para esta UAT: documentos usan volumen local durable; migrar a S3 compatible
+  antes de escalar horizontalmente. El motor MEMORY de Signal permanece apagado: la memoria
+  autoritativa actual es la intención aceptada de Oracle. OpenRouter no se usa en Ask/Brief.
+
+## Hotfix contrato monitor Oracle→Signal · desplegado (2026-08-01)
 
 - El canario autenticado creó el expediente de mercado, intención aceptada, actor CATL y monitor
   diario con la conexión `Signal producción`. Signal respondió **201 Created**, pero devolvió
@@ -15,10 +35,10 @@ Actualizado: 2026-08-01
 - Tests focales de contrato+HTTP: **16 passed**; suite backend completa con PostgreSQL y Redis:
   **859 passed**, cobertura **84.15%**. Las mutaciones sin normalizador y con el alias obsoleto
   reproducen respectivamente el `ValidationError` y el readiness falso; restauradas.
-- Estado: candidata de hotfix; el monitor canario no se presenta como sano hasta desplegar, reconciliar
-  el `201` idempotente y completar una sincronización real.
+- Estado: desplegado. El `201` se reconcilió idempotentemente y la sincronización real terminó con
+  monitor `active/active`, sin error y con cursor/fecha persistidos.
 
-## Workflow completo de expediente · candidata validada (2026-08-01)
+## Workflow completo de expediente · candidata validada (histórico previo al deploy, 2026-08-01)
 
 - La creación desde Vector marca de forma explícita el formulario humano como intención aceptada y
   materializa, en la misma transacción, su requisito activo y la oferta propia. La API conserva el

@@ -4,6 +4,18 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — ORC-SIG-001 y ORC-EVID-001 · producción validada
+
+- Oracle desplegado en `20260801T114127Z-quick-b0a80eb` tras backup+restore aislado; health HTTPS,
+  Celery, ClamAV y coherencia del release correctos.
+- Canario: memoria de intake aceptada visible tras recarga; documento `ready/clean` con dos chunks y
+  evidencia; pregunta durable con una cita y tres hechos; monitor Signal `active/active`, cuatro
+  señales producidas/vinculadas y sync real.
+- Signal `8973a09`: consumer 14 local-first (`qwen3.5:9b→qwen3.6:27b`), PostgreSQL ligado solo a
+  loopback y servicios/health activos. Las dos preguntas medidas costaron 0 y no usaron fallback.
+- Estado anterior/nuevo: `ORC-SIG-001 implemented→deployed`; `ORC-EVID-001 implemented→deployed`.
+- Deuda explícita: sustituir el volumen documental local de UAT por S3 compatible antes de escalar.
+
 ## 2026-08-01 — ORC-SIG-001 · reconciliación de `query=null` en respuesta de monitor
 
 - Canario real: `POST /api/v1/oracle/monitors` devolvió 201 en Signal y persistió un monitor activo,
@@ -14,7 +26,7 @@ con el comando real o con el archivo que las contiene.
 - Pruebas: contrato+HTTP **16 passed**; backend completo con PostgreSQL+Redis **859 passed** y
   cobertura **84.15%**; Ruff y mypy correctos. Las mutaciones reproducen tanto el `ValidationError`
   como el falso negativo de Signal.
-- Estado anterior/nuevo: `implemented→implemented` hasta repetir create/sync sobre producción.
+- Estado anterior/nuevo: `implemented→deployed`; create idempotente reconciliado y sync productivo.
 
 ## 2026-08-01 — ORC-DOS-001, ORC-ACT-001, ORC-SIG-001 y ORC-EVID-001 · candidata de workflow completo
 
