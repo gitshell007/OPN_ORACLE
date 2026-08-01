@@ -18,6 +18,9 @@
 - Contrato memory.v1 bundle: `docs/contracts/memory_v1/` content_set `792f267db0ac33277d74e019fafb30844db0337b1ef4e62cf0457bbfa7f6ff91`
 - Riesgos abiertos heredados: **NO_ROLLBACK**, beat drift (no resueltos en MDEV-01)
 - `APPROVED_EXTERNAL_SPEND` / `APPROVED_CLOUD_DATA_POLICY`: vacíos
+- MDEV-01 content Oracle tip pre-merge: `5c18b92`; merge master `407c05f`
+- MDEV-01 content Signal: `e6fae27`; merge main `519740e`
+- Oracle CI MDEV-01: https://github.com/gitshell007/OPN_ORACLE/actions/runs/30709333094
 
 ### Commits e integración (rellenar al cerrar push/PR)
 
@@ -54,7 +57,7 @@
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
 | MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
-| MDEV-01 | in_progress | pending | (this branch) | (signal mdev/01) | contracts memory.v1 |
+| MDEV-01 | candidate_pass | pending | `407c05fb6825f6f0989f608b04dc27d59ec70da4` | `519740e30e9d2858d8709286e87de1dbc22bf01d` | PR Oracle#8 CI 30709333094; Signal#6 |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
