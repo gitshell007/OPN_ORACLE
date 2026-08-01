@@ -178,6 +178,7 @@ def multitenant_database() -> Iterator[tuple[Engine, Engine, SeededTenants]]:
     migrator.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 def _set_tenant(connection: object, tenant_id: uuid.UUID) -> None:

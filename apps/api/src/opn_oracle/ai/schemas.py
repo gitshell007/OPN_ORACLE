@@ -5,14 +5,43 @@ from __future__ import annotations
 from datetime import date as CalendarDate
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+def _coerce_confidence_0_100(value: Any) -> Any:
+    """Models often emit 0.0-1.0 floats; Oracle schemas store 0-100 ints."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if 0.0 <= number <= 1.0:
+            return round(number * 100)
+        return max(0, min(100, round(number)))
+    if isinstance(value, str):
+        text = value.strip().replace("%", "")
+        try:
+            number = float(text)
+        except ValueError:
+            return value
+        if 0.0 <= number <= 1.0:
+            return round(number * 100)
+        return max(0, min(100, round(number)))
+    return value
+
+
+def _coerce_str_list(value: Any) -> Any:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    return value
 
 
 class Fact(StrictModel):
@@ -563,6 +592,74 @@ class TenderSearchWizardOutput(StrictModel):
     discarded_reasons: dict[str, int] = Field(default_factory=dict)
 
 
+class DossierQuestionCitation(StrictModel):
+    evidence_id: str = Field(min_length=1, max_length=80)
+    quote: str = Field(default="", max_length=500)
+
+
+class DossierQuestionAnswerOutput(AgentOutput):
+    """Respuesta a Preguntar a Oracle con citas acotadas a evidence_ids permitidos."""
+
+    answer_text: str = Field(min_length=1, max_length=8000)
+    citations: list[DossierQuestionCitation] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_model_quirks(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        if "confidence" in payload:
+            payload["confidence"] = _coerce_confidence_0_100(payload["confidence"])
+        inferences = payload.get("inferences")
+        if isinstance(inferences, list):
+            fixed: list[Any] = []
+            for item in inferences:
+                if isinstance(item, dict) and "confidence" in item:
+                    row = dict(item)
+                    row["confidence"] = _coerce_confidence_0_100(row["confidence"])
+                    fixed.append(row)
+                else:
+                    fixed.append(item)
+            payload["inferences"] = fixed
+        return payload
+
+
+class CustomBriefPlanSection(StrictModel):
+    id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200)
+    required: bool = True
+    notes: str = Field(default="", max_length=500)
+
+
+class ReportCustomBriefPlanOutput(StrictModel):
+    """Plan revisable de Informe libre (no redacta el informe completo)."""
+
+    version: Literal["custom_brief_plan.v1"] = "custom_brief_plan.v1"
+    audience: str = Field(min_length=1, max_length=200)
+    scope: str = Field(min_length=1, max_length=1000)
+    period: str = Field(default="sin fijar", max_length=200)
+    sections: list[CustomBriefPlanSection] = Field(min_length=1, max_length=12)
+    formats: list[str] = Field(default_factory=lambda: ["html", "json"], max_length=5)
+    notes: list[str] = Field(default_factory=list, max_length=10)
+    confidence: int = Field(ge=0, le=100)
+    open_questions: list[str] = Field(default_factory=list, max_length=10)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_model_quirks(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        if "confidence" in payload:
+            payload["confidence"] = _coerce_confidence_0_100(payload["confidence"])
+        for key in ("notes", "open_questions", "warnings", "formats"):
+            if key in payload:
+                payload[key] = _coerce_str_list(payload[key])
+        return payload
+
+
 AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
@@ -580,4 +677,6 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "dossier_situation_summary": DossierSituationSummaryOutput,
     "dossier_completion_wizard": DossierCompletionWizardOutput,
     "tender_search_wizard": TenderSearchWizardOutput,
+    "dossier_question_answer": DossierQuestionAnswerOutput,
+    "report_custom_brief_plan": ReportCustomBriefPlanOutput,
 }

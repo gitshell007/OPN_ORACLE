@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.test_integration_oracle_domain import _client, _create_dossier, _csrf
+
 # Pull oracle_stack fixture from the domain integration module.
 pytest_plugins = ("tests.test_integration_oracle_domain",)
-
-from tests.test_integration_oracle_domain import _client, _create_dossier, _csrf
 
 pytestmark = pytest.mark.integration
 

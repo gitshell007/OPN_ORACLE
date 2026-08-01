@@ -173,8 +173,7 @@ def build_dossier_activity(
                     "intent_revision_id": cfg.get("intent_revision_id"),
                     "requirement_id": cfg.get("requirement_id"),
                     "alignment_state": cfg.get("alignment_state")
-                    or (cfg.get("requires_review")
-                    and "needs_review")
+                    or (cfg.get("requires_review") and "needs_review")
                     or "aligned",
                     "provider_ref": None,
                     "target": {

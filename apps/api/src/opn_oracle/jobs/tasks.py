@@ -468,7 +468,7 @@ def _answer_dossier_question(payload: dict[str, Any], job: BackgroundJob) -> dic
     """Settle Preguntar a Oracle without paid providers (MEMSOL residual workers)."""
 
     try:
-        return process_dossier_question_answer(db.session, payload, job)
+        return process_dossier_question_answer(db.session(), payload, job)
     except CancelledJobError:
         raise
     except (ConversationNotFound, ConversationConflict, ConversationError) as error:
@@ -483,7 +483,7 @@ def _plan_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str,
     """Propose a custom report plan without report_writer or Signal."""
 
     try:
-        return process_custom_brief_plan(db.session, payload, job)
+        return process_custom_brief_plan(db.session(), payload, job)
     except (CustomReportNotFound, CustomReportError) as error:
         raise PermanentJobError(str(error)) from error
     except (KeyError, ValueError) as error:

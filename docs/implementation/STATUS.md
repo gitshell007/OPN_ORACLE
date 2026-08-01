@@ -1,6 +1,16 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-31
+Actualizado: 2026-08-01
+
+## Memoria Sol · release candidate coverage gate (2026-08-01)
+
+- Rama: `release/memsol-local-only` (PR #1).
+- Gate local: **858 passed**, cobertura **84.01%** (≥84), ruff limpio en tests MEMSOL nuevos.
+- Añadidos tests de comportamiento: `tests/test_memsol_conversations_service.py` (conversaciones, brief, cancel/retry jobs).
+- Corrección MockLLMProvider para schema estricto de `report_custom_brief_plan`; contrato OpenAPI intent PATCH body; teardown integración a head 0028.
+- Mutación: invertir `can_transition_message(queued→running)` tumba `test_message_transition_matrix_and_illegal`.
+- Producción: **no** tocada · **no** deploy · Signal **no** modificado.
+- Pendiente: CI remoto PR verde; deploy canario solo con autorización explícita.
 
 ## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 
@@ -100,6 +110,20 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - API `/api/v1/dossiers/{id}/intent|intent/drafts|requirements|offerings` + OpenAPI tipado.
 - Tests unitarios lifecycle (11 passed). Integración Postgres + backfill contado: siguiente.
 - Worktree `memsol/execution`. Siguiente: backfill profile_config → IntentRevision o MEMSOL-04.
+
+## Gate E2E procurement y accesibilidad (2026-08-01)
+
+- Corregido el control E2E de la vigilancia opcional para usar su rol ARIA real
+  `switch`, sin cambiar la semántica ni la persistencia del wizard.
+- El selector desplazable de países recibe foco de teclado y las casillas de
+  selección de expediente miden al menos 24 px; Axe deja de señalar ambas
+  violaciones.
+- Evidencia: `npm run test -- --run src/components/ui/eu-country-multiselect.test.tsx
+  src/components/procurement/procurement-search-wizard.test.tsx` → 26 passed;
+  `npx playwright test tests/e2e/procurement-wizard.spec.ts
+  tests/e2e/accessibility-security.spec.ts --project=desktop --project=mobile`
+  → 9 passed, 1 skipped.
+- Pendiente: CI integral del candidato y smoke autenticado posterior al release.
 
 ## MEMSOL-04 · Read model Actividad (2026-07-31)
 

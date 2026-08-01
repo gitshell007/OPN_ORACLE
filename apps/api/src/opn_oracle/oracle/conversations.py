@@ -667,36 +667,64 @@ def process_dossier_question_answer(
         session.flush()
         raise ConversationError(f"Fallo al recuperar contexto: {error}") from error
 
-    if job.cancel_requested:
+    # A cancellation may arrive while the memory adapter is retrieving context.
+    # Reload the durable job flag before starting the model call.
+    session.refresh(job, attribute_names=["cancel_requested"])
+    cancel_requested_after_retrieval = bool(job.cancel_requested)
+    if cancel_requested_after_retrieval:
         cancel_message(message)
         session.flush()
         return {"message_id": str(message.id), "status": "cancelled", "cancelled": True}
 
-    # Deterministic grounded draft: no external LLM, no paid provider.
-    if items:
-        excerpts = []
-        for item in items[:5]:
-            text_bit = str(item.get("text") or "").strip()
-            if text_bit:
-                excerpts.append(text_bit[:400])
-        body = (
-            "Respuesta provisional a partir del contexto autorizado "
-            f"({len(items)} fragmentos, policy={policy}):\n\n"
-            + "\n".join(f"- {excerpt}" for excerpt in excerpts)
-        )
-        unknowns: list[str] = []
-    else:
-        body = (
-            "No hay evidencia suficiente en la memoria autorizada del expediente "
-            "para responder con citas. Reformula la pregunta o amplía las fuentes "
-            f"del expediente (policy={policy})."
-        )
-        unknowns = ["evidencia_en_memoria"]
+    signal_meta: dict[str, Any] = {}
+    body: str
+    unknowns: list[str] = []
+    answer_payload: dict[str, Any]
 
-    apply_assistant_answer(
-        message,
-        answer_text=body,
-        answer_payload={
+    if _signal_ai_enabled():
+        try:
+            signal_result = _answer_via_signal(
+                session,
+                job=job,
+                dossier_id=dossier_id,
+                message=message,
+                memory_items=items,
+                coverage=coverage,
+                memory_policy=policy,
+            )
+            body = str(signal_result["answer_text"])
+            answer_payload = dict(signal_result["answer_payload"])
+            signal_meta = dict(signal_result.get("meta") or {})
+        except Exception as error:
+            mark_message_failed(
+                message,
+                error_code="signal_ai_error",
+                error_message=str(error)[:500],
+            )
+            session.flush()
+            raise ConversationError(f"Fallo IA gobernada (Signal): {error}") from error
+    else:
+        # Deterministic grounded draft: no external LLM (tests / AI disabled).
+        if items:
+            excerpts = []
+            for item in items[:5]:
+                text_bit = str(item.get("text") or "").strip()
+                if text_bit:
+                    excerpts.append(text_bit[:400])
+            body = (
+                "Respuesta provisional a partir del contexto autorizado "
+                f"({len(items)} fragmentos, policy={policy}):\n\n"
+                + "\n".join(f"- {excerpt}" for excerpt in excerpts)
+            )
+            unknowns = []
+        else:
+            body = (
+                "No hay evidencia suficiente en la memoria autorizada del expediente "
+                "para responder con citas. Reformula la pregunta o amplía las fuentes "
+                f"del expediente (policy={policy})."
+            )
+            unknowns = ["evidencia_en_memoria"]
+        answer_payload = {
             "policy_version": policy,
             "item_count": len(items),
             "unknowns": unknowns,
@@ -704,7 +732,13 @@ def process_dossier_question_answer(
             "inferences": [],
             "recommendations": [],
             "job_id": str(job.id),
-        },
+            "provider_path": "deterministic",
+        }
+
+    apply_assistant_answer(
+        message,
+        answer_text=body,
+        answer_payload=answer_payload,
         coverage_manifest=coverage,
     )
     append_audit_event(
@@ -721,6 +755,7 @@ def process_dossier_question_answer(
             "item_count": len(items),
             "mutates_intent": False,
             "mutates_memory_facts": False,
+            **signal_meta,
         },
     )
     session.flush()
@@ -731,4 +766,83 @@ def process_dossier_question_answer(
         "policy_version": policy,
         "mutates_intent": False,
         "mutates_memory_facts": False,
+        **signal_meta,
+    }
+
+
+def _signal_ai_enabled() -> bool:
+    try:
+        from flask import current_app
+
+        return bool(
+            current_app.config.get("AI_ENABLED")
+            and str(current_app.config.get("AI_MODE") or "").lower() == "signal"
+        )
+    except Exception:
+        return False
+
+
+def _answer_via_signal(
+    session: Session,
+    *,
+    job: BackgroundJob,
+    dossier_id: uuid.UUID,
+    message: DossierMessage,
+    memory_items: list[Any],
+    coverage: Mapping[str, Any],
+    memory_policy: str,
+) -> dict[str, Any]:
+    """Call Signal task_key dossier_question_answer via execute_agent (no model hardcode)."""
+
+    from opn_oracle.ai.context import build_context
+    from opn_oracle.ai.models import AIArtifact
+    from opn_oracle.ai.service import execute_agent
+
+    result = execute_agent(
+        agent="dossier_question_answer",
+        dossier_id=dossier_id,
+        job=job,
+        context_factory=lambda max_tokens: build_context(dossier_id, max_tokens=max_tokens),
+        supplemental_context={
+            "question": message.content_text,
+            "memory_items": memory_items[:20],
+            "memory_policy": memory_policy,
+            "coverage_manifest": dict(coverage),
+        },
+        target_type="dossier_message",
+        target_id=message.id,
+    )
+    artifact = session.get(AIArtifact, uuid.UUID(str(result["artifact_id"])))
+    if artifact is None or not isinstance(artifact.output, dict):
+        raise ConversationError("Artefacto de respuesta IA no disponible.")
+    output = dict(artifact.output)
+    answer_text = str(output.get("answer_text") or "").strip()
+    if not answer_text:
+        raise ConversationError("La respuesta IA no incluye answer_text.")
+    return {
+        "answer_text": answer_text,
+        "answer_payload": {
+            "policy_version": memory_policy,
+            "item_count": len(memory_items),
+            "unknowns": list(output.get("open_questions") or []),
+            "facts": output.get("facts") or [],
+            "inferences": output.get("inferences") or [],
+            "recommendations": output.get("recommendations") or [],
+            "citations": output.get("citations") or [],
+            "confidence": output.get("confidence"),
+            "warnings": output.get("warnings") or [],
+            "job_id": str(job.id),
+            "artifact_id": str(artifact.id),
+            "audit_log_id": str(result.get("audit_log_id") or ""),
+            "provider_path": "signal",
+            "task_key": "dossier_question_answer",
+            "signal_provider": getattr(artifact, "provider", None)
+            or (artifact.output or {}).get("provider"),
+            "signal_model": getattr(artifact, "model", None),
+        },
+        "meta": {
+            "artifact_id": str(artifact.id),
+            "task_key": "dossier_question_answer",
+            "provider_path": "signal",
+        },
     }

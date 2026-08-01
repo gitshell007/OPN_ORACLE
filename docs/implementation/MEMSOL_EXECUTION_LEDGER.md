@@ -109,3 +109,10 @@ Host: `oracle-dev.opnconsultoria.com` / `v2202607388167489673` · env `/etc/opn-
 - No producción, no `MEMORY_ENGINE_ENABLED`, no secretos en evidencia.
 - Dev release: `20260731T192559Z-native-96250a4` · SHA `96250a40d7944864de1980b70019a0443bfe7fbb`.
 - Rollback Dev: activate previous `20260731T095958Z-native-eb61173`.
+
+
+## Release candidate memsol-local-only (integración master + Signal wiring)
+
+- Cableado `082a3c9`: Preguntar/Informe libre → Signal task_keys `dossier_question_answer` / `report_custom_brief_plan`.
+- Coerción Titan en `schemas.py` (confidence 0–1→0–100; notes/formats string→list) + tests.
+- Migraciones 0027/0028 ya en master; no deploy prod en este candidato.

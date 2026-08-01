@@ -264,6 +264,7 @@ def oracle_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
     cleanup_engine.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 def test_global_product_read_models_enforce_dossier_scope(
@@ -4054,7 +4055,8 @@ def test_market_dossier_intake_materialises_editable_context(
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )
-    assert outside_eu.status_code == 422
+    assert outside_eu.status_code == 201, outside_eu.get_json()
+    assert outside_eu.get_json()["geography"] == ["US"]
 
 
 def test_dossier_crud_filters_concurrency_archive_and_idor(

@@ -697,8 +697,37 @@ class MockLLMProvider:
                 "period_end": datetime(2026, 1, 8, tzinfo=UTC),
                 "coverage_summary": "Cobertura mock.",
             },
+            "dossier_question_answer": {
+                "answer_text": "Respuesta sintética sujeta a revisión humana.",
+                "citations": (
+                    [{"evidence_id": str(evidence[0]), "quote": "Fragmento mock."}]
+                    if evidence
+                    else []
+                ),
+            },
+            "report_custom_brief_plan": {
+                "version": "custom_brief_plan.v1",
+                "audience": "equipo del expediente",
+                "scope": "plan mock revisable",
+                "period": "sin fijar",
+                "sections": [
+                    {"id": "executive", "title": "Resumen ejecutivo", "required": True},
+                    {"id": "evidence", "title": "Evidencias y fuentes", "required": True},
+                    {"id": "risks", "title": "Riesgos e incertidumbres", "required": True},
+                    {"id": "next_actions", "title": "Siguientes acciones", "required": True},
+                ],
+                "formats": ["html", "json"],
+                "notes": ["Plan mock; requiere aceptación humana."],
+                "confidence": confidence,
+            },
         }
-        output = schema.model_validate(base | extras[request.agent])
+        # El plan de informe no comparte el contrato común de hechos, inferencias
+        # y recomendaciones. Mezclar esos campos produciría un output inválido
+        # para el schema estricto del task durable.
+        payload = extras[request.agent]
+        if request.agent != "report_custom_brief_plan":
+            payload = base | payload
+        output = schema.model_validate(payload)
         fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
         return LLMResult(
             output,

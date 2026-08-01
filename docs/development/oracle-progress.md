@@ -4,6 +4,32 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — MEMSOL release/memsol-local-only coverage gate
+
+- Funcionalidad: Memoria Sol (Preguntar / Informe libre / intent) — candidata de release.
+- Trabajo realizado: Suite de tests de comportamiento sobre conversations/custom_reports/jobs cancel-retry; corrección MockLLMProvider para schema estricto de brief; contrato OpenAPI intent; fixtures de integración reponen Alembic head 0028.
+- Archivos modificados: `apps/api/tests/test_memsol_conversations_service.py` (nuevo), `apps/api/src/opn_oracle/ai/provider.py`, `apps/api/tests/test_contract.py`, `apps/api/tests/test_dossier_intent.py`, `apps/api/tests/test_memsol_workers.py`, fixtures integration teardown, `docs/implementation/STATUS.md`.
+- Migraciones: ninguna nueva (0027/0028 ya en rama).
+- Pruebas ejecutadas: `uv run pytest -q` con Postgres+Redis (`ORACLE_RUN_INTEGRATION=1`) → **858 passed**, cobertura **84.01%**; ruff en tests MEMSOL.
+- Resultado: Gate local de cobertura superado sin bajar umbral.
+- Riesgos detectados: CI remoto aún por verificar; producción sin deploy.
+- Trabajo pendiente: CI PR #1 verde; autorización de canario prod.
+- Estado anterior: under_review.
+- Estado nuevo: under_review (candidato listo localmente).
+
+## 2026-08-01 — ORC-PROC-002 y ORC-UX-003
+
+- Funcionalidades: ORC-PROC-002 — Wizard de búsqueda multisector y CPV; ORC-UX-003 — Calidad UX, accesibilidad y responsive.
+- Trabajo realizado: Se corrigió el E2E para que compruebe el interruptor ARIA real de vigilancia opcional, se hizo accesible por teclado la región desplazable de países y se elevó el área directa de selección de expedientes a 24 px.
+- Archivos modificados: `tests/e2e/procurement-wizard.spec.ts`, `src/components/ui/eu-country-multiselect.tsx`, `src/components/ui/eu-country-multiselect.test.tsx`, `src/styles/concept-a.css`, `docs/development/oracle-roadmap.json`.
+- Migraciones: Ninguna.
+- Pruebas ejecutadas: `npm run test -- --run src/components/ui/eu-country-multiselect.test.tsx src/components/procurement/procurement-search-wizard.test.tsx` (26 passed); `npx playwright test tests/e2e/procurement-wizard.spec.ts tests/e2e/accessibility-security.spec.ts --project=desktop --project=mobile` (9 passed, 1 skipped).
+- Resultado: El gate E2E observado en rojo queda reproducido y corregido para ambos viewports; Axe no informa violaciones en las rutas cubiertas.
+- Riesgos detectados: Quedan criterios parciales de ORC-UX-003 y la validación completa de CI/producción.
+- Trabajo pendiente: Esperar CI del candidato y hacer smoke autenticado tras el release local-only.
+- Estado anterior: `under_review`.
+- Estado nuevo: `under_review`.
+
 ## 2026-07-31  — ORC-GOV-001
 
 - Funcionalidad: ORC-GOV-001 — Sistema vivo de planificación y desarrollo.

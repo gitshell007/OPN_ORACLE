@@ -5501,6 +5501,8 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 
 .dossier-inventory-table tbody .selection-column input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
   margin: 0;
   cursor: pointer;
 }
