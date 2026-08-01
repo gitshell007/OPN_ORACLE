@@ -15,6 +15,11 @@ from sqlalchemy import func, select
 
 from opn_oracle.ai.models import AIArtifact
 from opn_oracle.extensions import db
+from opn_oracle.oracle.intent import (
+    DossierIntentRevision,
+    DossierOffering,
+    IntelligenceRequirement,
+)
 from opn_oracle.oracle.links import EvidenceDossier, MeetingActor
 from opn_oracle.oracle.models import (
     Actor,
@@ -400,6 +405,52 @@ def build_context(
     )
     if dossier is None:
         raise ValueError("Expediente no disponible.")
+    accepted_intent = (
+        db.session.scalar(
+            select(DossierIntentRevision).where(
+                DossierIntentRevision.id == dossier.current_intent_revision_id,
+                DossierIntentRevision.tenant_id == tenant_id,
+                DossierIntentRevision.dossier_id == dossier_id,
+                DossierIntentRevision.status == "accepted",
+            )
+        )
+        if dossier.current_intent_revision_id is not None
+        else None
+    )
+    requirements = (
+        list(
+            db.session.scalars(
+                select(IntelligenceRequirement)
+                .where(
+                    IntelligenceRequirement.tenant_id == tenant_id,
+                    IntelligenceRequirement.dossier_id == dossier_id,
+                    IntelligenceRequirement.intent_revision_id == accepted_intent.id,
+                    IntelligenceRequirement.status == "active",
+                )
+                .order_by(IntelligenceRequirement.priority, IntelligenceRequirement.created_at)
+                .limit(25)
+            )
+        )
+        if accepted_intent is not None
+        else []
+    )
+    offerings = (
+        list(
+            db.session.scalars(
+                select(DossierOffering)
+                .where(
+                    DossierOffering.tenant_id == tenant_id,
+                    DossierOffering.dossier_id == dossier_id,
+                    DossierOffering.intent_revision_id == accepted_intent.id,
+                    DossierOffering.status == "active",
+                )
+                .order_by(DossierOffering.created_at)
+                .limit(25)
+            )
+        )
+        if accepted_intent is not None
+        else []
+    )
     evidence_ids = select(EvidenceDossier.evidence_id).where(
         EvidenceDossier.tenant_id == tenant_id, EvidenceDossier.dossier_id == dossier_id
     )
@@ -479,6 +530,42 @@ def build_context(
             "languages": list(dossier.languages),
             "profile": _profile_summary(dossier),
         },
+        "accepted_intent": (
+            {
+                "id": str(accepted_intent.id),
+                "version": accepted_intent.version,
+                "schema_key": accepted_intent.schema_key,
+                "schema_version": accepted_intent.schema_version,
+                "request_text": accepted_intent.request_text,
+                "structured_spec": dict(accepted_intent.structured_spec or {}),
+                "content_hash": accepted_intent.content_hash,
+            }
+            if accepted_intent is not None
+            else None
+        ),
+        "intelligence_requirements": [
+            {
+                "id": str(item.id),
+                "class": item.requirement_class,
+                "priority": item.priority,
+                "question": item.question,
+                "decision_to_support": item.decision_to_support,
+                "scope": dict(item.scope or {}),
+                "exclusions": dict(item.exclusions or {}),
+                "success_criteria": list(item.success_criteria or []),
+            }
+            for item in requirements
+        ],
+        "offerings": [
+            {
+                "id": str(item.id),
+                "name": item.name,
+                "aliases": list(item.aliases or []),
+                "taxonomies": dict(item.taxonomies or {}),
+                "description": item.description,
+            }
+            for item in offerings
+        ],
         "objectives": [{"id": str(item.id), "title": item.title} for item in objectives],
         "hypotheses": [
             {"id": str(item.id), "statement": item.statement, "status": item.status}
@@ -496,6 +583,12 @@ def build_context(
     encoded = _canonical(payload)
     manifest = {
         "dossier_id": str(dossier_id),
+        "intent_revision_id": str(accepted_intent.id) if accepted_intent is not None else None,
+        "intent_content_hash": accepted_intent.content_hash
+        if accepted_intent is not None
+        else None,
+        "requirement_ids": [str(item.id) for item in requirements],
+        "offering_ids": [str(item.id) for item in offerings],
         "objective_ids": [str(item.id) for item in objectives],
         "hypothesis_ids": [str(item.id) for item in hypotheses],
         "evidence_ids": [str(item.id) for item in selected],

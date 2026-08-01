@@ -4,6 +4,19 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — ORC-DOS-001 · memoria de intención en Ask/Brief
+
+- Funcionalidad: ORC-DOS-001 — expediente, intención y contexto durable.
+- Trabajo realizado: `build_context()` incorpora la revisión aceptada, requisitos activos y oferta
+  activa ligada a esa revisión; el manifiesto conserva IDs y hash del contenido aceptado.
+- Pruebas: MEMSOL HTTP/PostgreSQL **3 passed** con `--no-cov`; ruff y mypy correctos en paths
+  tocados. La ejecución focal con cobertura global falló únicamente el umbral agregado (3 tests no
+  representan la suite), no los tests. Mutación de estado `accepted→rejected`: el test focal falla.
+- Producción observada antes del hotfix: release `20260801T095500Z-quick-36fbed6`, 0027/0028 y
+  servicios sanos. Primer canario: ambos jobs recibidos por Celery y fallidos antes de Signal porque
+  el tenant sintético conservaba el cierre `public`; identidad suspendida y política apagada.
+- Estado anterior/nuevo: validated → validated; falta desplegar este hotfix y repetir canario real.
+
 ## 2026-08-01 — MEMSOL release/memsol-local-only coverage gate
 
 - Funcionalidad: Memoria Sol (Preguntar / Informe libre / intent) — candidata de release.

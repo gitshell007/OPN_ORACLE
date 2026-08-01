@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+from opn_oracle.ai.context import build_context
+from opn_oracle.tenants.context import TenantContext, tenant_context
 from tests.test_integration_oracle_domain import _client, _create_dossier, _csrf
 
 # Pull oracle_stack fixture from the domain integration module.
@@ -46,6 +48,29 @@ def test_intent_draft_accept_and_activity_http(
     assert accept.status_code == 200, accept.get_json()
     assert accept.get_json()["status"] == "accepted"
 
+    requirement = client.post(
+        f"/api/v1/dossiers/{dossier_id}/requirements",
+        json={
+            "class": "market_scan",
+            "priority": "high",
+            "question": "¿Qué oportunidades cumplen el alcance aceptado?",
+            "decision_to_support": "Priorizar entrada",
+            "intent_revision_id": revision_id,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert requirement.status_code == 201, requirement.get_json()
+    offering = client.post(
+        f"/api/v1/dossiers/{dossier_id}/offerings",
+        json={
+            "name": "Oferta industrial sintética",
+            "description": "Capacidad que debe contrastarse con el mercado.",
+            "intent_revision_id": revision_id,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert offering.status_code == 201, offering.get_json()
+
     activity = client.get(f"/api/v1/dossiers/{dossier_id}/activity")
     assert activity.status_code == 200, activity.get_json()
     payload = activity.get_json()
@@ -54,6 +79,21 @@ def test_intent_draft_accept_and_activity_http(
     assert payload["intent"]["status"] == "accepted"
     assert "items" in payload
     assert "summary" in payload
+
+    app, ids, _ = oracle_stack
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        context = build_context(uuid.UUID(dossier_id), max_tokens=8_000)
+    assert context.payload["accepted_intent"]["id"] == revision_id
+    assert (
+        "entrar o no" in context.payload["accepted_intent"]["structured_spec"]["decision_to_make"]
+    )
+    assert context.payload["intelligence_requirements"][0]["id"] == requirement.get_json()["id"]
+    assert context.payload["offerings"][0]["id"] == offering.get_json()["id"]
+    assert context.manifest["intent_revision_id"] == revision_id
+    assert context.manifest["intent_content_hash"] == body["content_hash"]
 
     # Unknown dossier id → 404 (not leak)
     foreign = client.get(f"/api/v1/dossiers/{uuid.uuid4()}/activity")
