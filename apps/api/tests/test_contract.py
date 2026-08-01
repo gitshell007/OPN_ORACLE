@@ -465,14 +465,10 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         bodyless_monitor_action = (
             method == "post" and path == "/api/v1/signal-monitors/{monitor_id}/{action}"
         )
-        bodyless_intent_action = (
-            method == "post"
-            and path
-            in {
-                "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept",
-                "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject",
-            }
-        )
+        bodyless_intent_action = method == "post" and path in {
+            "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept",
+            "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject",
+        }
         if (
             method in {"post", "put", "patch"}
             and not path.endswith("/archive")
