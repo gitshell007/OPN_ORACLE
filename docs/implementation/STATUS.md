@@ -5,7 +5,8 @@ Rama: `mdev/01-rework2`
 
 ## MDEV-01 REWORK-2 · seguridad, durabilidad y gate verde (en revisión Codex)
 
-- Bases: Oracle `5c2177d`→master `77a2fd5`, Signal `ac3c753`+higiene `03adaf8`→main `996c6f3`; bundle
+- Bases: Oracle `5c2177d`→master **`7163b35`** (CI fix), Signal `ac3c753`+higiene
+  `03adaf8`→main `996c6f3`; bundle
   content_set `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`.
 - Signal memory.v1: **sin** fallback legacy (`tenant_bound_credential_required`);
   scopes vacíos de credencial deniegan; analysis GET/cancel **durables** vía
@@ -14,6 +15,11 @@ Rama: `mdev/01-rework2`
   active por tenant); OpenAPI `x-status: proposed` alineado con capabilities.
 - Oracle: host `MEMORY_CONTEXT_MODE` desconocido/typo/shadow/augment → **disabled**
   o `ConfigError` (nunca eleva a shadow/augment); mutación J RED→GREEN.
+- **CI Oracle verde** PR#13 run
+  [30716269096](https://github.com/gitshell007/OPN_ORACLE/actions/runs/30716269096):
+  **867 passed** en 310 s, cobertura **84%**. Causa del hang: mutación J heredaba
+  `ORACLE_RUN_INTEGRATION` y se auto-deadlockeaba en advisory lock PG; hijo sin
+  env de integración + timeout 60 s; CI `pytest -vv --durations=40`.
 - Suite Signal completa 0 fallos tras higiene PR#8; migración expand no aplicada
   en hosts (solo DB de prueba). Flags OFF; sin MDEV-02 core; sin deploy.
 - NO_ROLLBACK / beat drift siguen abiertos. Codex decision: **pending**.

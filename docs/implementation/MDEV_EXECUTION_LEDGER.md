@@ -93,7 +93,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
 | MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
-| MDEV-01 | candidate_pass (REWORK-2) | **pending** | `77a2fd5c2064e385e67d5b4b3c264b6fdc13aad9` | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` (hygiene `03adaf84`) | PR Oracle#11 Signal#9+#8 |
+| MDEV-01 | candidate_pass (REWORK-2) | **pending** | `7163b353f72b37d675d8f00163f25fb77b2eb246` | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` (hygiene `03adaf84`) | PR Oracle#11+#13 Signal#9+#8; CI 30716269096 867p/84% |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
