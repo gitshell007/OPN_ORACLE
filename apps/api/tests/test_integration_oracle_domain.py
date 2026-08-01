@@ -82,6 +82,7 @@ from opn_oracle.oracle.links import (
     ReportEvidence,
 )
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Report, StrategicDossier
+from opn_oracle.platform.models import IntegrationConnection
 from opn_oracle.reporting.models import (
     DataExport,
     Notification,
@@ -3932,6 +3933,51 @@ def test_competitive_intelligence_creation_is_active_specific_and_honest(
         headers={"X-CSRF-Token": _csrf(client)},
     )
     assert invalid.status_code == 422
+
+
+def test_competitive_readiness_recognises_canonical_signal_connection(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    connection_id = uuid.uuid4()
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        db.session.add(
+            IntegrationConnection(
+                id=connection_id,
+                tenant_id=ids["tenant_a"],
+                provider="signal-avanza",
+                name="readiness-contract",
+                status="active",
+                adapter_mode="mock",
+            )
+        )
+        db.session.commit()
+
+    try:
+        response = _client(oracle_stack).get("/api/v1/dossiers/competitive-intelligence/readiness")
+        assert response.status_code == 200, response.get_json()
+        signal_check = next(
+            item for item in response.get_json()["checks"] if item["key"] == "signal"
+        )
+        assert signal_check == {
+            "key": "signal",
+            "ready": True,
+            "label": "Signal Avanza",
+            "detail": "La conexión de la organización está activa.",
+            "action_href": "/app/admin/integrations/signal-avanza",
+        }
+    finally:
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+        ):
+            connection = db.session.get(IntegrationConnection, connection_id)
+            if connection is not None:
+                db.session.delete(connection)
+                db.session.commit()
 
 
 def test_market_dossier_intake_materialises_editable_context(
