@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 API_VERSION = "memory.v1"
 _TENANT_KEY_RE = re.compile(r"^c:[^|]+\|t:[^|]+$")
@@ -31,15 +31,24 @@ def contract_root() -> Path:
 
 
 def load_manifest() -> dict[str, Any]:
-    return cast(dict[str, Any], json.loads((contract_root() / "CONTRACT_MANIFEST.json").read_text(encoding="utf-8")))
+    return cast(
+        dict[str, Any],
+        json.loads((contract_root() / "CONTRACT_MANIFEST.json").read_text(encoding="utf-8")),
+    )
 
 
 def load_fixture(name: str) -> dict[str, Any]:
-    return cast(dict[str, Any], json.loads((contract_root() / "fixtures" / name).read_text(encoding="utf-8")))
+    return cast(
+        dict[str, Any],
+        json.loads((contract_root() / "fixtures" / name).read_text(encoding="utf-8")),
+    )
 
 
 def load_error_catalog() -> dict[str, Any]:
-    return cast(dict[str, Any], json.loads((contract_root() / "error_catalog.json").read_text(encoding="utf-8")))
+    return cast(
+        dict[str, Any],
+        json.loads((contract_root() / "error_catalog.json").read_text(encoding="utf-8")),
+    )
 
 
 def verify_contract_hashes() -> str:
@@ -58,7 +67,9 @@ def verify_contract_hashes() -> str:
     return cs
 
 
-def build_scope(*, consumer_id: int | str, external_tenant_id: str, dossier_id: str) -> dict[str, str]:
+def build_scope(
+    *, consumer_id: int | str, external_tenant_id: str, dossier_id: str
+) -> dict[str, str]:
     dossier = str(uuid.UUID(str(dossier_id)))
     tenant_key = f"c:{str(consumer_id).strip()}|t:{str(external_tenant_id).strip()}"
     if not _TENANT_KEY_RE.match(tenant_key):
@@ -90,7 +101,9 @@ def resolve_effective_mode(
 ) -> EffectiveMemoryMode:
     host = (host_memory_context_mode or "disabled").lower()
     if host in {"disabled", "mock"} or not connection_healthy:
-        return EffectiveMemoryMode("disabled", "host_or_connection", host, connection_healthy, tenant_mode, dossier_mode)
+        return EffectiveMemoryMode(
+            "disabled", "host_or_connection", host, connection_healthy, tenant_mode, dossier_mode
+        )
     mode: OracleMemoryMode = dossier_mode or tenant_mode
     return EffectiveMemoryMode(
         mode,
@@ -133,7 +146,16 @@ def materialize_signal_item_to_evidence(
     dossier_id: str,
     evidence_id: str | None = None,
 ) -> MaterializedCitation:
-    required = ["id", "text", "source_ref", "checksum", "locator", "classification", "policy_version", "watermark"]
+    required = [
+        "id",
+        "text",
+        "source_ref",
+        "checksum",
+        "locator",
+        "classification",
+        "policy_version",
+        "watermark",
+    ]
     for k in required:
         if k not in item or item[k] in (None, ""):
             raise ValueError(f"retrieval item missing {k}")
@@ -212,7 +234,9 @@ class TenantCredentialBinding:
     revoked: bool = False
 
 
-def rotate_binding(existing: TenantCredentialBinding, *, new_connection_id: str) -> TenantCredentialBinding:
+def rotate_binding(
+    existing: TenantCredentialBinding, *, new_connection_id: str
+) -> TenantCredentialBinding:
     if existing.revoked:
         raise ValueError("cannot rotate revoked binding")
     return TenantCredentialBinding(
@@ -256,7 +280,9 @@ class CoverageManifestV1(StrictModel):
     token_used_estimate: int = 0
 
 
-def coverage_from_failure(*, requested: list[str], code: str, retryable: bool, detail: str | None = None) -> CoverageManifestV1:
+def coverage_from_failure(
+    *, requested: list[str], code: str, retryable: bool, detail: str | None = None
+) -> CoverageManifestV1:
     return CoverageManifestV1(
         requested=list(requested),
         failed=[CoverageFailedEntry(code=code, retryable=retryable, detail=detail)],
