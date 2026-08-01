@@ -1040,7 +1040,7 @@ def competitive_intelligence_readiness() -> dict[str, Any]:
     connection = db.session.scalar(
         select(IntegrationConnection).where(
             IntegrationConnection.tenant_id == g.active_tenant_id,
-            IntegrationConnection.provider == "signal_avanza",
+            IntegrationConnection.provider == "signal-avanza",
             IntegrationConnection.status == "active",
         )
     )

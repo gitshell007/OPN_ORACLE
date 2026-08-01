@@ -4,6 +4,18 @@ Este historial es complementario al `history` de cada funcionalidad en
 `oracle-roadmap.json`. Se registran snapshots y cambios significativos; las pruebas se nombran
 con el comando real o con el archivo que las contiene.
 
+## 2026-08-01 — ORC-SIG-001 · reconciliación de `query=null` en respuesta de monitor
+
+- Canario real: `POST /api/v1/oracle/monitors` devolvió 201 en Signal y persistió un monitor activo,
+  pero Oracle rechazó la respuesta porque Signal representa como `null` la consulta vacía de una
+  vigilancia basada en keywords/entidades.
+- Corrección: el modelo de respuesta `ProviderMonitor` normaliza `null→""`; el modelo de request y
+  su invariante de alcance no se relajan. Readiness usa el provider canónico `signal-avanza`.
+- Pruebas: contrato+HTTP **16 passed**; backend completo con PostgreSQL+Redis **859 passed** y
+  cobertura **84.15%**; Ruff y mypy correctos. Las mutaciones reproducen tanto el `ValidationError`
+  como el falso negativo de Signal.
+- Estado anterior/nuevo: `implemented→implemented` hasta repetir create/sync sobre producción.
+
 ## 2026-08-01 — ORC-DOS-001, ORC-ACT-001, ORC-SIG-001 y ORC-EVID-001 · candidata de workflow completo
 
 - Trabajo realizado: la creación UI acepta y versiona su intake; Actividad lo hace visible; el

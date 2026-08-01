@@ -2,6 +2,22 @@
 
 Actualizado: 2026-08-01
 
+## Hotfix contrato monitor Oracle→Signal · candidata (2026-08-01)
+
+- El canario autenticado creó el expediente de mercado, intención aceptada, actor CATL y monitor
+  diario con la conexión `Signal producción`. Signal respondió **201 Created**, pero devolvió
+  `query=null` porque la vigilancia se definió mediante keywords/entidades; Oracle exigía `string`
+  en la respuesta y clasificó erróneamente el éxito como `permanent_failure`.
+- `ProviderMonitor` normaliza exclusivamente el `query` opcional de respuesta a cadena vacía. El
+  request `MonitorSpec` conserva su validación y sigue exigiendo query, keywords o entities.
+- El mismo canario mostró un falso negativo de readiness: la ruta buscaba el alias obsoleto
+  `signal_avanza`, mientras que el provider canónico es `signal-avanza` y sí estaba activo.
+- Tests focales de contrato+HTTP: **16 passed**; suite backend completa con PostgreSQL y Redis:
+  **859 passed**, cobertura **84.15%**. Las mutaciones sin normalizador y con el alias obsoleto
+  reproducen respectivamente el `ValidationError` y el readiness falso; restauradas.
+- Estado: candidata de hotfix; el monitor canario no se presenta como sano hasta desplegar, reconciliar
+  el `201` idempotente y completar una sincronización real.
+
 ## Workflow completo de expediente · candidata validada (2026-08-01)
 
 - La creación desde Vector marca de forma explícita el formulario humano como intención aceptada y
