@@ -4395,3 +4395,10 @@ recomendado, no gate estricto activo.
 - HTTP unit tests: test_memory_mdev04_http.py (client get/put/post) + adapter tests → 30 passed
 - TS export DossierMemoryProfile; UI Memoria filters (sources/kinds/classifications/limit/token_budget)
 - Residual debt: PG multi-tenant integration, OpenAPI regen, Playwright/Vitest, full suite/CI, Celery cancel, schema freeze full memory.v1
+
+## MDEV-05 provisional bilateral ingest (2026-08-02)
+- branch mdev/05-bilateral-ingest from 304ea27 (MDEV-04 tip)
+- memory_outbox.py: envelopes + stage_outbox; flag MEMORY_BILATERAL_OUTBOX_ENABLED default OFF
+- GET /dossiers/{id}/memory/outbox safe status
+- unit tests test_memory_mdev05_outbox.py
+- inherited debt MDEV-02/03/04; no deploy

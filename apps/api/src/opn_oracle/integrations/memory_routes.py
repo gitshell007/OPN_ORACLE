@@ -419,3 +419,26 @@ def memory_test_connection(dossier_id: uuid.UUID) -> Any:
             row.last_error = str(exc)[:500]
             session.commit()
         return problem_response(400, detail=str(exc), code="memory_connection_error")
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/memory/outbox")
+@require_permission("dossier.read")
+def memory_outbox_activity(dossier_id: uuid.UUID) -> Any:
+    """Safe outbox status for bilateral memory events (no payload secrets)."""
+    from opn_oracle.integrations.memory_outbox import list_memory_outbox_safe
+
+    session = _session()
+    dossier = _load_accessible_dossier(session, dossier_id, write=False)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
+    items = list_memory_outbox_safe(tenant_id=dossier.tenant_id, dossier_id=dossier_id)
+    return jsonify(
+        {
+            "dossier_id": str(dossier_id),
+            "items": items,
+            "publisher_degraded": True,
+            "bilateral_outbox_enabled": __import__(
+                "opn_oracle.integrations.memory_outbox", fromlist=["bilateral_outbox_enabled"]
+            ).bilateral_outbox_enabled(),
+        }
+    )
