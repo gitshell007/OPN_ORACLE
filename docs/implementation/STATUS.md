@@ -5,7 +5,7 @@ Rama: `mdev/01-rework2`
 
 ## MDEV-01 REWORK-2 · seguridad, durabilidad y gate verde (en revisión Codex)
 
-- Bases: Oracle `5c2177d`, Signal `ac3c753` + higiene `03adaf8`; bundle
+- Bases: Oracle `5c2177d`→master `77a2fd5`, Signal `ac3c753`+higiene `03adaf8`→main `996c6f3`; bundle
   content_set `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`.
 - Signal memory.v1: **sin** fallback legacy (`tenant_bound_credential_required`);
   scopes vacíos de credencial deniegan; analysis GET/cancel **durables** vía

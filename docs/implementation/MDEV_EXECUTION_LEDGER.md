@@ -59,6 +59,19 @@ NO_ROLLBACK y beat drift permanecen abiertos (fuera de alcance MDEV-01).
 APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 
 
+
+### REWORK-2 integration SHAs (post-merge)
+
+| Item | Valor |
+|---|---|
+| Oracle `origin/master` tip | `77a2fd5c2064e385e67d5b4b3c264b6fdc13aad9` |
+| Signal `origin/main` tip | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` |
+| Signal hygiene | `03adaf84cb3f76858b65b833a38c4cf2091e2d54` (PR#8) |
+| Signal contract/security | PR#9 squash → tip above |
+| Oracle fail-closed/docs | PR#11 squash → tip above |
+| Bundle content_set | `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4` |
+| Bases pre-REWORK-2 | Oracle `5c2177d` · Signal `ac3c753` · prior bundle `2865ae3d…` |
+
 ## Baselines
 
 | Repo/entorno | Branch/ref | SHA | Migración | Estado Git | Capturado |
@@ -80,7 +93,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | Fase | Grok candidate | Codex decision | SHA Oracle (master final) | SHA Signal | Gate Packet / evidencia |
 |---|---|---|---|---|---|
 | MDEV-00 | candidate_pass | **PASS MDEV-00** | `a834034396bc129f08a6997b3af27a87a33ec263` | n/a | PR#6/#7 + CI 30705985882/30706386596 |
-| MDEV-01 | candidate_pass (REWORK-2) | **pending** | (pending push) | (pending push) | REWORK-2 security/durability/green |
+| MDEV-01 | candidate_pass (REWORK-2) | **pending** | `77a2fd5c2064e385e67d5b4b3c264b6fdc13aad9` | `996c6f38dc359df4e5ae76cc9c26a3032bf621c9` (hygiene `03adaf84`) | PR Oracle#11 Signal#9+#8 |
 | MDEV-02 | pending | pending | | | |
 | MDEV-03 | pending | pending | | | |
 | MDEV-04 | pending | pending | | | |
