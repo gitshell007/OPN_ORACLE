@@ -43,17 +43,21 @@ def _run(node: str) -> subprocess.CompletedProcess[str]:
             timeout=_CHILD_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired as exc:
-        out = (exc.stdout or b"") if isinstance(exc.stdout, (bytes, bytearray)) else (exc.stdout or "")
-        err = (exc.stderr or b"") if isinstance(exc.stderr, (bytes, bytearray)) else (exc.stderr or "")
-        if isinstance(out, bytes):
-            out = out.decode("utf-8", errors="replace")
-        if isinstance(err, bytes):
-            err = err.decode("utf-8", errors="replace")
+        out = _stream_to_text(exc.stdout)
+        err = _stream_to_text(exc.stderr)
         raise AssertionError(
             f"child pytest timed out after {_CHILD_TIMEOUT_S}s for {node}\n"
             f"stdout:\n{out}\nstderr:\n{err}\n"
             "(likely inherited ORACLE_RUN_INTEGRATION / DB URLs → advisory lock deadlock)"
         ) from exc
+
+
+def _stream_to_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def test_mutation_J_unknown_host_mode_allows_augment():
