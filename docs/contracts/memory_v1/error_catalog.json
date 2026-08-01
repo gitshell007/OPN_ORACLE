@@ -11,6 +11,11 @@
       "retryable": false
     },
     {
+      "error_code": "tenant_bound_credential_required",
+      "http_status": 401,
+      "retryable": false
+    },
+    {
       "error_code": "memory_scope_forbidden",
       "http_status": 403,
       "retryable": false

@@ -543,7 +543,10 @@ class Settings:
                 minimum=1,
             ),
             # MEMSOL-05: Oracle → opn_memory retrieval. Default disabled (fail closed).
-            memory_context_mode=str(values.get("MEMORY_CONTEXT_MODE", "disabled")).lower(),
+            memory_context_mode=str(values.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
+            .strip()
+            .lower()
+            or "disabled",
             memory_context_base_url=str(values.get("MEMORY_CONTEXT_BASE_URL", "")),
             memory_context_timeout_seconds=_as_float(
                 values.get("MEMORY_CONTEXT_TIMEOUT_SECONDS", 10.0),
@@ -582,8 +585,13 @@ class Settings:
                 )
         if self.signal_avanza_mode not in {"mock", "http"}:
             raise ConfigError("SIGNAL_AVANZA_MODE debe ser mock o http.")
+        # Fail-closed: empty/typo/shadow/augment as host mode are invalid configuration.
+        # Never silently map unknown host modes to shadow/augment.
         if self.memory_context_mode not in {"disabled", "mock", "http"}:
-            raise ConfigError("MEMORY_CONTEXT_MODE debe ser disabled, mock o http.")
+            raise ConfigError(
+                "MEMORY_CONTEXT_MODE debe ser disabled, mock o http "
+                f"(recibido {self.memory_context_mode!r}; fail-closed)."
+            )
         if self.memory_context_mode == "http" and not self.memory_context_base_url.startswith(
             "https://"
         ):

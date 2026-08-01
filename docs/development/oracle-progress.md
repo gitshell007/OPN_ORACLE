@@ -7,13 +7,24 @@ con el comando real o con el archivo que las contiene.
 
 
 
+## 2026-08-01  — ORC-MEM-001 / MDEV-01 REWORK-2
+
+- Trabajo: cierre seguridad/durabilidad/gate verde (legacy key ban, analysis durable,
+  HTTP 429+envelope matrix, host mode fail-closed, rotación A, OpenAPI proposed,
+  Signal suite green vía higiene).
+- Bundle content_set `e4431048…`; bases Oracle `5c2177d` / Signal `ac3c753`+`03adaf8`.
+- Pruebas: test_memory_v1_contract/mutations (Signal A–I, Oracle J); migración PG test;
+  suite Signal completa 0 fallos; ruff format/check en cambios Oracle.
+- Riesgos heredados: NO_ROLLBACK, beat drift. NEXT_PHASE_AUTHORIZED=false.
+- Estado: in_progress (awaiting_codex_review).
+
 ## 2026-08-01  — ORC-MEM-001 / MDEV-01 REWORK
 
 - Trabajo: cierre real del contrato bilateral memory.v1 tras REWORK Codex.
 - Archivos: docs/contracts/memory_v1/**, memory_contract_v1.py, tests, ledger/STATUS.
 - Pruebas: contract + openapi structural; Signal mutations A–F.
 - Riesgos heredados: NO_ROLLBACK, beat drift.
-- Estado: in_progress (validated contractual tests; runtime pack still stub).
+- Estado: superseded by REWORK-2.
 
 ## 2026-08-01  — ORC-MEM-001 / MDEV-01 contracts
 

@@ -1366,18 +1366,24 @@
         "apps/api/tests/test_memory_v1_contract.py"
       ],
       "related_migrations": [],
-      "related_tests": ["apps/api/tests/test_memory_context.py"],
+      "related_tests": [
+        "apps/api/tests/test_memory_context.py",
+        "apps/api/tests/test_memory_v1_contract.py",
+        "apps/api/tests/test_memory_v1_mutations.py"
+      ],
       "implementation_evidence": [
         {"type": "audit", "path": "docs/implementation/MDEV_00_BASELINE_BILATERAL.md", "claim": "Baseline Dev dual medido 2026-08-01; stubs y corpus piloto confirmados.", "confidence": "high"},
-        {"type": "file", "path": "docs/implementation/MDEV_EXECUTION_LEDGER.md", "claim": "Ledger MDEV creado; fases pendientes de PASS Codex.", "confidence": "high"}
+        {"type": "file", "path": "docs/implementation/MDEV_EXECUTION_LEDGER.md", "claim": "Ledger MDEV-01 REWORK-2 actualizado; pending Codex review.", "confidence": "high"},
+        {"type": "contract", "path": "docs/contracts/memory_v1/CONTRACT_MANIFEST.json", "claim": "REWORK-2 bundle content_set e4431048…; legacy key ban; durable analysis; host fail-closed.", "confidence": "high"},
+        {"type": "note", "path": "docs/contracts/memory_v1/CONTRACT_MANIFEST.json", "claim": "Signal REWORK-2: test_memory_v1_contract/mutations + tenant credentials migration expand (not applied on hosts).", "confidence": "high"}
       ],
       "related_decisions": ["ORC-ADR-0010"],
       "comments": "Aprobado como idea de programa memoria_dev_v2 (MDEV-00..11). No implementar fuera de fases autorizadas. Status máximo en MDEV-00: approved.",
-      "next_action": "Tras PASS Codex de MDEV-01, implementar Signal memory core (MDEV-02).",
+      "next_action": "Awaiting Codex review of MDEV-01 REWORK-2 Gate Packet. NEXT_PHASE_AUTHORIZED=false.",
       "created_at": "2026-08-01",
       "updated_at": "2026-08-01",
       "completed_at": null,
-      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}, {"date": "2026-08-01", "from": "approved", "to": "in_progress", "summary": "MDEV-01 congela contratos memory.v1 bilaterales."}]
+      "history": [{"date": "2026-08-01", "from": "idea", "to": "approved", "summary": "Idea registrada en MDEV-00 tras auditoría dual Dev; sin equivalente previo en roadmap."}, {"date": "2026-08-01", "from": "approved", "to": "in_progress", "summary": "MDEV-01 congela contratos memory.v1 bilaterales."}, {"date": "2026-08-01", "from": "in_progress", "to": "in_progress", "summary": "MDEV-01 REWORK-2: seguridad credencial, host fail-closed, bundle e4431048."}]
     }
   ],
   "dependencies": [

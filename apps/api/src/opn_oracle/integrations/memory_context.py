@@ -167,20 +167,29 @@ def build_memory_context_adapter(
     base_url: str = "",
     timeout_seconds: float = 10.0,
 ) -> MemoryContextAdapter:
-    normalized = str(mode or "disabled").strip().lower()
+    """Build adapter. Unknown/empty/typo never become http/shadow/augment."""
+    normalized = str(mode or "disabled").strip().lower() or "disabled"
     if normalized == "disabled":
         return DisabledMemoryContextAdapter()
     if normalized == "mock":
         return MockMemoryContextAdapter()
     if normalized == "http":
         return HttpMemoryContextAdapter(base_url=base_url, timeout_seconds=timeout_seconds)
-    raise MemoryContextError("MEMORY_CONTEXT_MODE debe ser disabled, mock o http.")
+    raise MemoryContextError(
+        "MEMORY_CONTEXT_MODE debe ser disabled, mock o http "
+        f"(recibido {normalized!r}; fail-closed, never shadow/augment)."
+    )
 
 
 def get_memory_context_adapter() -> MemoryContextAdapter:
     """Resolve adapter from Flask config (defaults fail closed)."""
 
-    mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled")).lower()
+    mode = (
+        str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled").strip().lower()
+    )
+    if mode not in {"disabled", "mock", "http"}:
+        # Fail closed to disabled rather than raising at request time for typos in runtime config
+        mode = "disabled"
     base_url = str(current_app.config.get("MEMORY_CONTEXT_BASE_URL", "") or "")
     timeout = float(current_app.config.get("MEMORY_CONTEXT_TIMEOUT_SECONDS", 10.0) or 10.0)
     return build_memory_context_adapter(mode, base_url=base_url, timeout_seconds=timeout)

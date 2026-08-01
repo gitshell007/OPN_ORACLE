@@ -1152,7 +1152,8 @@
               }
             }
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/scopes/{dossier_id}": {
@@ -1211,7 +1212,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/ingest": {
@@ -1277,7 +1279,8 @@
               }
             }
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/sources/{source_id}/versions": {
@@ -1352,7 +1355,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/sources/{source_id}/tombstone": {
@@ -1427,7 +1431,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/retrieve": {
@@ -1549,7 +1554,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/analysis-requests": {
@@ -1615,7 +1621,8 @@
               }
             }
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/analysis-requests/{analysis_request_id}": {
@@ -1804,7 +1811,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/consumer-settings": {
@@ -1857,7 +1865,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       },
       "put": {
         "operationId": "memoryConsumerSettingsPut",
@@ -1921,7 +1930,8 @@
               }
             }
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/memory/v1/dossiers/{dossier_id}/profile": {
@@ -1979,7 +1989,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       },
       "put": {
         "operationId": "memoryDossierProfilePut",
@@ -2048,7 +2059,8 @@
           "503": {
             "$ref": "#/components/responses/MemoryError"
           }
-        }
+        },
+        "x-status": "proposed"
       }
     },
     "/oracle-bff/v1/tenants/current/memory/settings": {

@@ -1,28 +1,22 @@
 # Estado de implementación de OPN Oracle
 
 Actualizado: 2026-08-01
-Rama: `mdev/01-rework-contract`
+Rama: `mdev/01-rework2`
 
-## MDEV-01 REWORK · cierre real contrato memory.v1
+## MDEV-01 REWORK-2 · seguridad, durabilidad y gate verde (en revisión Codex)
 
-- Codex emitió REWORK; rework cierra bloqueantes contractuales (envelope, scopes,
-  credencial 1:1, dossier grant, OpenAPI 3.1, coverage, mutaciones A–F).
-- Bundle en `docs/contracts/memory_v1/` (paridad Signal).
-- Sin deploy, sin migraciones en hosts, flags OFF, sin cloud.
-- NO_ROLLBACK / beat drift siguen abiertos.
-
----
-
-## MDEV-01 · Contrato y configuración (en curso → entrega)
-
-- Codex **PASS MDEV-00**; MDEV-01 autorizado.
-- Bundle contractual `docs/contracts/memory_v1/` idéntico a Signal
-  (content_set `792f267d…`).
-- Scope dossier canónico, modos disabled/shadow/augment, errores, citabilidad,
-  credencial por tenant, matriz expand/contract, precedence y UX ES documentados.
-- Tests: `apps/api/tests/test_memory_v1_contract.py` (+ memory_context).
-- Flags OFF; sin migraciones Dev; sin deploy; sin OpenRouter/cloud.
-- Riesgos abiertos: NO_ROLLBACK Signal Dev, beat drift.
+- Bases: Oracle `5c2177d`, Signal `ac3c753` + higiene `03adaf8`; bundle
+  content_set `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`.
+- Signal memory.v1: **sin** fallback legacy (`tenant_bound_credential_required`);
+  scopes vacíos de credencial deniegan; analysis GET/cancel **durables** vía
+  opn_memory; matriz HTTP 401/403/404/409/413/422/429/503 + mutaciones A–I;
+  rotación política **A** (sin overlap; `key_hash` global unique + partial unique
+  active por tenant); OpenAPI `x-status: proposed` alineado con capabilities.
+- Oracle: host `MEMORY_CONTEXT_MODE` desconocido/typo/shadow/augment → **disabled**
+  o `ConfigError` (nunca eleva a shadow/augment); mutación J RED→GREEN.
+- Suite Signal completa 0 fallos tras higiene PR#8; migración expand no aplicada
+  en hosts (solo DB de prueba). Flags OFF; sin MDEV-02 core; sin deploy.
+- NO_ROLLBACK / beat drift siguen abiertos. Codex decision: **pending**.
 
 ---
 
