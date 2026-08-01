@@ -465,11 +465,20 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         bodyless_monitor_action = (
             method == "post" and path == "/api/v1/signal-monitors/{monitor_id}/{action}"
         )
+        bodyless_intent_action = (
+            method == "post"
+            and path
+            in {
+                "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept",
+                "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject",
+            }
+        )
         if (
             method in {"post", "put", "patch"}
             and not path.endswith("/archive")
             and not bodyless_m2m_put
             and not bodyless_monitor_action
+            and not bodyless_intent_action
         ):
             body_schema = (
                 operation.get("requestBody", {})
@@ -481,14 +490,19 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
             _assert_closed_schema_tree(body_schema, schemas, set())
 
         if method == "patch":
+            intent_draft_path = "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}"
+            body_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+            write_schema = schemas[body_ref.removeprefix("#/components/schemas/")]
+            if path == intent_draft_path:
+                assert "expected_row_version" in write_schema["properties"], (path, method)
+                assert "expected_row_version" in write_schema["required"], (path, method)
+                continue
             if_match = [
                 parameter
                 for parameter in operation["parameters"]
                 if parameter["in"] == "header" and parameter["name"] == "If-Match"
             ]
             assert len(if_match) == 1, (path, method)
-            body_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
-            write_schema = schemas[body_ref.removeprefix("#/components/schemas/")]
             assert "version" in write_schema["properties"], (path, method)
 
     collaborator_delete = spec["paths"]["/api/v1/dossiers/{dossier_id}/collaborators/{user_id}"][

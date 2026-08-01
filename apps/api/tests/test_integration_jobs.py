@@ -224,6 +224,7 @@ def jobs_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID]]]:
     migrator.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 def _wait_job(app: Any, ids: dict[str, uuid.UUID], job_id: uuid.UUID, status: str) -> BackgroundJob:

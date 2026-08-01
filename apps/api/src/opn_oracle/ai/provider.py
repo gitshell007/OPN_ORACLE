@@ -721,7 +721,13 @@ class MockLLMProvider:
                 "confidence": confidence,
             },
         }
-        output = schema.model_validate(base | extras[request.agent])
+        # El plan de informe no comparte el contrato común de hechos, inferencias
+        # y recomendaciones. Mezclar esos campos produciría un output inválido
+        # para el schema estricto del task durable.
+        payload = extras[request.agent]
+        if request.agent != "report_custom_brief_plan":
+            payload = base | payload
+        output = schema.model_validate(payload)
         fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
         return LLMResult(
             output,

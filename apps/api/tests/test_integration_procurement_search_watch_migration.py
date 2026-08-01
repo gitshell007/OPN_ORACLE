@@ -122,3 +122,4 @@ def test_procurement_search_watch_0024_up_down_up_and_rls() -> None:
     migrator.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)

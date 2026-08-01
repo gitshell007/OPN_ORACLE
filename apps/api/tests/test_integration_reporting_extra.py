@@ -203,6 +203,7 @@ def reporting_stack(
     migrator.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 @pytest.fixture(autouse=True)
