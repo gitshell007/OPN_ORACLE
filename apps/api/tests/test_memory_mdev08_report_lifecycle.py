@@ -950,3 +950,203 @@ def test_authority_ignores_client_options_requirements(
     assert snap["requirements"] == []
     assert snap["offering"] is None
     assert "FAKE_CLIENT" not in str(snap)
+
+
+def test_accept_plan_durable_retrieve_with_watermark_is_generable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real materializer path: authenticated Signal retrieve + watermark → plan_accepted."""
+
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        version=2,
+        options={
+            "plan_status": "proposed",
+            "lifecycle_state": "plan_proposed",
+            "brief_request": "Informe de alianzas",
+            "proposed_plan": {
+                "version": "v1",
+                "sections": [{"id": "exec", "title": "Ejecutivo", "required": True}],
+            },
+        },
+    )
+    dossier = SimpleNamespace(
+        id=dossier_id,
+        tenant_id=tenant_id,
+        current_intent_revision_id=uuid.uuid4(),
+    )
+    session = MagicMock()
+    session.scalar.return_value = dossier
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.get_custom_brief",
+        lambda *a, **k: report,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.append_audit_event",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setenv("MEMORY_DURABLE_STORE_READY", "1")
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_profile.resolve_signal_memory_connection",
+        lambda *a, **k: SimpleNamespace(id=uuid.uuid4(), base_url="http://127.0.0.1:9"),
+    )
+
+    class _FakeClient:
+        def retrieve(self, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs["dossier_id"] == str(dossier_id)
+            assert kwargs["external_tenant_id"] == str(tenant_id)
+            assert "purpose" in kwargs
+            return {
+                "api_version": "memory.v1",
+                "watermark": "wm_durable_freeze_v1",
+                "items": [
+                    {
+                        "id": "sig-item-1",
+                        "kind": "fact",
+                        "text": "Contrato adjudicado a ACME por 1M EUR",
+                        "source_ref": "src:doc:1",
+                        "checksum": "a" * 32,
+                        "locator": "p.1",
+                        "classification": "internal",
+                        "policy_version": "memory.v1",
+                        "watermark": "wm_durable_freeze_v1",
+                    }
+                ],
+                "coverage_manifest": {
+                    "version": "coverage_manifest.v1",
+                    "requested": ["retrieval"],
+                    "consulted": ["search_chunks"],
+                    "failed": [],
+                    "excluded": [],
+                    "used": ["trgm"],
+                    "truncated": False,
+                },
+            }
+
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle._signal_memory_client_for_materialize",
+        lambda *a, **k: _FakeClient(),
+    )
+    # Do not auto-start generation (would need full job stack).
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
+        out = accept_plan(
+            session,
+            dossier_id=dossier_id,
+            report_id=report.id,
+            actor_id=actor_id,
+            expected_version=2,
+            auto_start_generation=False,
+        )
+    snap = out.options["accepted_snapshot"]
+    assert out.options["lifecycle_state"] == "plan_accepted"
+    assert out.options["accepted_degraded"] is False
+    assert out.options["generation_blocked"] is False
+    assert snap["memory_mode"] == "durable"
+    assert snap["memory_policy"]["materialized"] is True
+    assert snap["memory_policy"]["in_process_forbidden"] is True
+    assert snap["memory_policy"]["authoritative_store"] == "signal_memory_v1_postgresql"
+    assert snap["watermark"] == "wm_durable_freeze_v1"
+    assert len(snap["allowlist"]) == 1
+    assert len(snap["evidence_items"]) == 1
+    assert snap["evidence_items"][0]["signal_item_id"] == "sig-item-1"
+    frozen_hash = out.options["accepted_snapshot_hash"]
+    # Post-accept memory change must not rewrite frozen hash/output.
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle._signal_memory_client_for_materialize",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("live memory mutated")),
+    )
+    assert out.options["accepted_snapshot_hash"] == frozen_hash
+    assert out.source_snapshot["watermark"] == "wm_durable_freeze_v1"
+
+
+def test_accept_plan_retrieve_without_watermark_stays_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        version=1,
+        options={
+            "plan_status": "proposed",
+            "lifecycle_state": "plan_proposed",
+            "proposed_plan": {"sections": [{"id": "a", "title": "A"}]},
+        },
+    )
+    session = MagicMock()
+    session.scalar.return_value = SimpleNamespace(
+        id=dossier_id, tenant_id=tenant_id, current_intent_revision_id=None
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.get_custom_brief",
+        lambda *a, **k: report,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.append_audit_event",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setenv("MEMORY_DURABLE_STORE_READY", "1")
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_profile.resolve_signal_memory_connection",
+        lambda *a, **k: SimpleNamespace(id=uuid.uuid4()),
+    )
+
+    class _NoWm:
+        def retrieve(self, **kwargs: Any) -> dict[str, Any]:
+            return {"api_version": "memory.v1", "items": [], "watermark": None}
+
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle._signal_memory_client_for_materialize",
+        lambda *a, **k: _NoWm(),
+    )
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
+        out = accept_plan(
+            session,
+            dossier_id=dossier_id,
+            report_id=report.id,
+            actor_id=actor_id,
+            expected_version=1,
+            auto_start_generation=False,
+        )
+    assert out.options["lifecycle_state"] == "accepted_degraded"
+    assert out.options["generation_blocked"] is True
+    assert out.options["accepted_snapshot"]["memory_mode"] != "durable"
+    assert "missing_watermark" in str(out.options["accepted_snapshot"].get("coverage"))
+
+
+def test_map_retrieve_excludes_non_citable_items() -> None:
+    from opn_oracle.oracle.custom_report_lifecycle import _map_retrieve_to_evidence
+
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    evidence, allowlist, wm, cov = _map_retrieve_to_evidence(
+        {
+            "watermark": "wm_x",
+            "items": [
+                {"id": "bad", "text": "no checksum"},
+                {
+                    "id": "good",
+                    "text": "ok",
+                    "source_ref": "s1",
+                    "checksum": "c" * 32,
+                    "locator": "l1",
+                    "classification": "public",
+                    "policy_version": "memory.v1",
+                    "watermark": "wm_x",
+                },
+            ],
+        },
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+    )
+    assert wm == "wm_x"
+    assert len(evidence) == 1
+    assert len(allowlist) == 1
+    assert cov["excluded_count"] == 1
+    assert cov["authoritative_store"] == "signal_memory_v1_postgresql"

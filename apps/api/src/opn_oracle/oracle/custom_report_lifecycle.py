@@ -114,16 +114,122 @@ def _memory_durable_flag() -> bool:
         }
 
 
+def _build_materialize_transport() -> Any:
+    """Default HTTP transport for durable materialize reads. Tests may monkeypatch."""
+
+    from opn_oracle.integrations.memory_http_client import HttpxTransport
+
+    return HttpxTransport()
+
+
+def _signal_memory_client_for_materialize(session: Session, connection: Any) -> Any:
+    """Authenticated Signal memory client for freeze reads (no in-process store)."""
+
+    from opn_oracle.integrations.memory_profile import build_client_for_connection
+
+    require_https = os.getenv("MEMORY_MATERIALIZE_REQUIRE_HTTPS", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return build_client_for_connection(
+        connection,
+        transport=_build_materialize_transport(),
+        require_https=require_https,
+    )
+
+
+def _map_retrieve_to_evidence(
+    response: Mapping[str, Any],
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+) -> tuple[list[dict[str, Any]], list[str], str | None, dict[str, Any]]:
+    """Map a contractual memory.v1 retrieve payload into freeze evidence + allowlist.
+
+    Empty items with a durable watermark is a valid materialized read (no invent).
+    Items missing required citability fields are excluded, never invented.
+    """
+
+    from opn_oracle.integrations.memory_contract_v1 import materialize_signal_item_to_evidence
+
+    raw_items = response.get("items") if isinstance(response, Mapping) else None
+    items = list(raw_items) if isinstance(raw_items, list) else []
+    watermark_raw = response.get("watermark") if isinstance(response, Mapping) else None
+    watermark = str(watermark_raw).strip() if watermark_raw not in (None, "") else None
+    coverage_manifest = (
+        dict(response.get("coverage_manifest") or {}) if isinstance(response, Mapping) else {}
+    )
+    evidence_items: list[dict[str, Any]] = []
+    allowlist: list[str] = []
+    excluded: list[dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            excluded.append({"reason": "item_not_object"})
+            continue
+        try:
+            # Ensure required citability fields for materialize_signal_item_to_evidence.
+            item = dict(raw)
+            if "policy_version" not in item or item["policy_version"] in (None, ""):
+                item["policy_version"] = "memory.v1"
+            if ("watermark" not in item or item["watermark"] in (None, "")) and watermark:
+                item["watermark"] = watermark
+            citation = materialize_signal_item_to_evidence(
+                item,
+                tenant_id=str(tenant_id),
+                dossier_id=str(dossier_id),
+            )
+            ev = {
+                "evidence_id": citation.oracle_evidence_id,
+                "signal_item_id": citation.signal_item_id,
+                "source_ref": citation.source_ref,
+                "checksum": citation.checksum,
+                "exact_excerpt": citation.exact_excerpt,
+                "classification": citation.classification,
+                "locator": citation.locator,
+                "occurred_at": citation.occurred_at,
+                "policy_version": citation.policy_version,
+                "watermark": citation.watermark,
+                "tenant_id": citation.tenant_id,
+                "dossier_id": citation.dossier_id,
+            }
+            evidence_items.append(ev)
+            allowlist.append(citation.oracle_evidence_id)
+        except Exception as exc:
+            excluded.append(
+                {
+                    "signal_item_id": str(raw.get("id") or ""),
+                    "reason": f"not_citable:{exc}",
+                }
+            )
+    coverage = {
+        "evidence_count": len(evidence_items),
+        "durable": bool(watermark),
+        "excluded_count": len(excluded),
+        "excluded": excluded[:50],
+        "coverage_manifest": {
+            "version": coverage_manifest.get("version"),
+            "failed": list(coverage_manifest.get("failed") or [])[:20],
+            "used": list(coverage_manifest.get("used") or [])[:20],
+            "truncated": bool(coverage_manifest.get("truncated")),
+        },
+        "source_status": "signal_memory_v1_postgresql",
+        "authoritative_store": "signal_memory_v1_postgresql",
+    }
+    return evidence_items, allowlist, watermark, coverage
+
+
 def _materialize_durable_memory(
     session: Session,
     *,
     dossier: StrategicDossier,
 ) -> dict[str, Any]:
-    """Attempt a real durable-memory materialization via configured adapter/profile.
+    """Attempt a real durable-memory materialization via authenticated Signal retrieve.
 
-    Never uses the in-process store. Without successful materialization of Evidence
-    (or an explicit empty durable read with watermark), returns disabled/degraded.
-    Declaring memory_mode=durable requires evidence materialization, not just a flag.
+    Never uses the in-process store. Authority is a contractual memory.v1 read scoped
+    to tenant+dossier (PostgreSQL-backed on Signal). Flag alone is never sufficient.
+    Empty durable read with watermark is allowed; missing watermark → degraded.
     """
 
     flag_on = _memory_durable_flag()
@@ -153,19 +259,15 @@ def _materialize_durable_memory(
     if not flag_on:
         return empty
 
-    # Flag is on, but MDEV-05 is not PASS: require a real materialization hook.
-    # Without a productive durable backend that returns Evidence + watermark,
-    # refuse to declare durable (SNAP-MDEV08-004).
+    # Flag is on: require real connection + authenticated retrieve with watermark.
     try:
         from opn_oracle.integrations.memory_profile import resolve_signal_memory_connection
         from opn_oracle.tenants.context import require_tenant_id
 
         tenant_id = require_tenant_id()
-        # Presence of a connection alone is not materialization.
         try:
-            resolve_signal_memory_connection(session, tenant_id=tenant_id)
+            connection = resolve_signal_memory_connection(session, tenant_id=tenant_id)
         except Exception:
-            # No connection — degraded.
             out = dict(empty)
             out["memory_degraded_reason"] = (
                 "DUR-MDEV05-001: flag MEMORY_DURABLE_STORE_READY sin conexión "
@@ -177,32 +279,108 @@ def _materialize_durable_memory(
                 "gaps": ["flag_without_materialized_evidence"],
                 "note": "flag alone insufficient for durable claim",
             }
+            out["memory_policy"] = {
+                **dict(empty["memory_policy"]),
+                "flag_was_set": True,
+            }
             return out
     except Exception:
-        pass
+        out = dict(empty)
+        out["memory_policy"] = {**dict(empty["memory_policy"]), "flag_was_set": True}
+        return out
 
-    # No productive materializer in this phase (MDEV-05 debt). Never invent Evidence.
-    del dossier  # reserved for future materialize(dossier) call
-    out = dict(empty)
-    out["memory_degraded_reason"] = (
-        "DUR-MDEV05-001: store durable marcado ready pero sin materialización real "
-        "de Evidence/watermark; snapshot disabled/degraded (fail-closed)"
+    # Real durable read via Signal memory.v1 (adapter contractual autenticado).
+    try:
+        client = _signal_memory_client_for_materialize(session, connection)
+        query = (
+            f"custom_report_freeze dossier={dossier.id} "
+            f"intent={getattr(dossier, 'current_intent_revision_id', '') or ''}"
+        )
+        response = client.retrieve(
+            external_tenant_id=str(tenant_id),
+            dossier_id=str(dossier.id),
+            query=query,
+            purpose="report",
+            limit=50,
+            token_budget=4000,
+            correlation_id=f"ora_freeze_{uuid.uuid4().hex[:12]}",
+        )
+    except Exception as exc:
+        out = dict(empty)
+        out["memory_degraded_reason"] = (
+            f"DUR-MDEV08: lectura durable Signal falló ({type(exc).__name__}: {exc}); "
+            "snapshot disabled/degraded (fail-closed, sin store in-process)"
+        )
+        out["coverage"] = {
+            "evidence_count": 0,
+            "durable": False,
+            "gaps": ["signal_retrieve_failed", "DUR-MDEV08"],
+            "error_type": type(exc).__name__,
+        }
+        out["memory_policy"] = {
+            "mode": "disabled",
+            "authoritative_store": None,
+            "in_process_forbidden": True,
+            "materialized": False,
+            "flag_alone_insufficient": True,
+            "flag_was_set": True,
+            "retrieve_attempted": True,
+        }
+        return out
+
+    evidence_items, allowlist, watermark, coverage = _map_retrieve_to_evidence(
+        response if isinstance(response, Mapping) else {},
+        tenant_id=tenant_id,
+        dossier_id=dossier.id,
     )
-    out["coverage"] = {
-        "evidence_count": 0,
-        "durable": False,
-        "gaps": ["no_materialized_evidence", "DUR-MDEV05-001"],
-        "note": "durable path reserved; retrieval materialization pending MDEV-05 PASS",
+    if not watermark:
+        out = dict(empty)
+        out["memory_degraded_reason"] = (
+            "DUR-MDEV08: retrieve Signal sin watermark durable; no se declara "
+            "memory_mode=durable (fail-closed)"
+        )
+        out["evidence_items"] = []
+        out["allowlist"] = []
+        out["coverage"] = {
+            "evidence_count": 0,
+            "durable": False,
+            "gaps": ["missing_watermark", "DUR-MDEV08"],
+            "retrieve_items_seen": len(evidence_items),
+        }
+        out["memory_policy"] = {
+            "mode": "disabled",
+            "authoritative_store": None,
+            "in_process_forbidden": True,
+            "materialized": False,
+            "flag_alone_insufficient": True,
+            "flag_was_set": True,
+            "retrieve_attempted": True,
+            "watermark_required": True,
+        }
+        return out
+
+    # Durable claim: authenticated retrieve + watermark. Empty allowlist is OK.
+    return {
+        "memory_mode": "durable",
+        "memory_degraded": False,
+        "memory_degraded_reason": None,
+        "evidence_items": evidence_items,
+        "allowlist": allowlist,
+        "watermark": watermark,
+        "coverage": coverage,
+        "memory_policy": {
+            "mode": "durable",
+            "authoritative_store": "signal_memory_v1_postgresql",
+            "in_process_forbidden": True,
+            "materialized": True,
+            "flag_alone_insufficient": True,
+            "flag_was_set": True,
+            "empty_allowlist_ok": True,
+            "source": "signal_retrieve_authenticated",
+            "tenant_scoped": True,
+            "dossier_scoped": True,
+        },
     }
-    out["memory_policy"] = {
-        "mode": "disabled",
-        "authoritative_store": None,
-        "in_process_forbidden": True,
-        "materialized": False,
-        "flag_alone_insufficient": True,
-        "flag_was_set": True,
-    }
-    return out
 
 
 def _lifecycle_of(report: Report) -> str:

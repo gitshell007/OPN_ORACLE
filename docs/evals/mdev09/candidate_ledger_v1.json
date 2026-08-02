@@ -59,8 +59,8 @@
     }
   },
   "baseline": {
-    "status": "unavailable_degraded",
-    "reason": "durable memory blocked (MDEV-05/08)"
+    "status": "partial_materializer_available",
+    "reason": "Oracle materializer reads Signal memory.v1 (PG-backed) with watermark; full productive E2E Celery path still provisional; baseline quality floors remain reserved"
   },
   "policy_default": "local_only",
   "pgvector_adopted": false,
@@ -82,5 +82,55 @@
       "lease_formula": "CELERY_TASK_TIME_LIMIT + 60",
       "provider_attempt_budget_aligned": 240.0
     }
-  }
+  },
+  "policy_by_task": {
+    "dossier_question_answer": {
+      "primary": "ollama",
+      "fallback": "ollama_local_or_deny_degraded",
+      "fallback_policy": "deny_if_no_local_model",
+      "cloud": "denied_without_double_opt_in",
+      "local_only_default": true,
+      "synthetic_factual_fallback": false
+    },
+    "report_custom_brief_plan": {
+      "primary": "ollama",
+      "fallback": "ollama_local_or_deny_degraded",
+      "fallback_policy": "deny_if_no_local_model",
+      "cloud": "denied_without_double_opt_in",
+      "local_only_default": true,
+      "synthetic_factual_fallback": false
+    },
+    "report_custom_writer": {
+      "primary": "ollama",
+      "fallback": "ollama_local_or_deny_degraded",
+      "fallback_policy": "deny_if_no_local_model",
+      "cloud": "denied_without_double_opt_in",
+      "local_only_default": true,
+      "synthetic_factual_fallback": false
+    },
+    "report_custom_review": {
+      "primary": "ollama",
+      "fallback": "ollama_local_or_deny_degraded",
+      "fallback_policy": "deny_if_no_local_model",
+      "cloud": "denied_without_double_opt_in",
+      "local_only_default": true,
+      "synthetic_factual_fallback": false
+    },
+    "eval_corpus_grounded": {
+      "primary": "ollama",
+      "fallback": "deny_degraded",
+      "fallback_policy": "deny_no_synthetic",
+      "cloud": "denied",
+      "local_only_default": true,
+      "synthetic_factual_fallback": false
+    },
+    "security_local_gate": {
+      "primary": "deterministic_rules",
+      "fallback": "deny_policy",
+      "cloud": "denied",
+      "local_only_default": true,
+      "synthetic_factual_fallback": false
+    }
+  },
+  "policy_notes": "MDEV-08 fourth attempt: removed fallback_deterministic for Ask/Report; fallback is local ollama when validated or deny_degraded; never synthetic factual."
 }
