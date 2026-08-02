@@ -17,6 +17,7 @@ export function ProductProcurementStats() {
     <ProcurementStatsView
       loadAnalytics={loadAnalytics}
       eyebrow="Inteligencia · Mercado PLACSP"
+      title="Estadísticas mercado"
       description="Rankings de mercado de licitaciones abiertas (CPV, organismos, regiones, tramos de importe). La muestra es compartida del registro PLACSP vía Signal; no son datos privados de tu organización."
     />
   );

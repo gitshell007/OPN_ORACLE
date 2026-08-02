@@ -17,6 +17,7 @@ export function PlatformProcurementStats() {
     <ProcurementStatsView
       loadAnalytics={loadAnalytics}
       eyebrow="Plataforma · Superadmin"
+      title="Estadísticas licitaciones"
       description="Vista de mercado PLACSP para operadores de plataforma: inventario del registro Signal y rankings sobre una muestra acotada de licitaciones abiertas."
     />
   );

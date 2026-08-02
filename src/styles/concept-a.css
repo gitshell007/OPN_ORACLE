@@ -116,6 +116,11 @@
 .global-inventory-table table { width: 100%; border-collapse: collapse; }
 .global-inventory-table th, .global-inventory-table td { padding: 11px 13px; border-bottom: 1px solid var(--va-border); text-align: left; vertical-align: top; }
 .global-inventory-table th { color: var(--va-muted); background: var(--va-soft); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.global-inventory-table th:last-child,
+.global-inventory-table td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .global-inventory-table td strong, .global-inventory-table td small { display: block; }
 .global-inventory-table td small { margin-top: 4px; color: var(--va-muted); font-size: 11px; }
 .global-inventory-table a { color: var(--va-primary); font-weight: 650; }
@@ -2692,14 +2697,21 @@
   color: #53657a;
   margin-bottom: 6px;
 }
-.page-heading h1 {
+.page-heading h1,
+.page-heading .page-title {
   font-size: 26px;
   letter-spacing: -0.025em;
   margin-bottom: 5px;
+  font-weight: 700;
+  color: var(--va-text);
 }
 .page-heading p {
   color: var(--va-muted);
   margin: 0;
+}
+/* Título de área (admin shell) no es h1: evita doble heading por pantalla */
+.page-heading > div > p.page-title + p {
+  color: var(--va-muted);
 }
 .portfolio-health {
   display: grid;
@@ -5561,6 +5573,12 @@ html[data-font-scale="small"] .workspace-chip strong {
   white-space: nowrap;
 }
 
+.dossier-inventory-table th.numeric-col,
+.dossier-inventory-table td.numeric-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .dossier-inventory-table td > strong + small {
   color: var(--va-muted);
 }
@@ -6026,7 +6044,8 @@ html[data-font-scale="small"] .workspace-chip strong {
     margin-left: auto;
   }
   .vector-content {
-    padding: 17px 12px 72px;
+    /* Gutter mínimo en móvil: evita texto a sangre sin inventar un contenedor nuevo */
+    padding: 17px 16px 72px;
   }
   .page-heading {
     display: block;

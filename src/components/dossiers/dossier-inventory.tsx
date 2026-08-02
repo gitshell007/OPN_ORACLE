@@ -479,9 +479,9 @@ export function DossierInventory() {
                       <button onClick={() => toggleSort("title")}>Expediente <SortIcon active={query.sort === "title" || query.sort === "-title"} descending={query.sort === "-title"} /></button>
                     </th>
                     {show("type") && <th>Tipo</th>}
-                    {show("health") && <th aria-sort={query.sort === "health_score" ? "ascending" : query.sort === "-health_score" ? "descending" : "none"}><button onClick={() => toggleSort("health_score")}>Salud <SortIcon active={query.sort === "health_score" || query.sort === "-health_score"} descending={query.sort === "-health_score"} /></button></th>}
-                    {show("opportunity") && <th aria-sort={query.sort === "opportunity_score" ? "ascending" : query.sort === "-opportunity_score" ? "descending" : "none"}><button onClick={() => toggleSort("opportunity_score")}>Oportunidad <SortIcon active={query.sort === "opportunity_score" || query.sort === "-opportunity_score"} descending={query.sort === "-opportunity_score"} /></button></th>}
-                    {show("risk") && <th aria-sort={query.sort === "risk_score" ? "ascending" : query.sort === "-risk_score" ? "descending" : "none"}><button onClick={() => toggleSort("risk_score")}>Riesgo <SortIcon active={query.sort === "risk_score" || query.sort === "-risk_score"} descending={query.sort === "-risk_score"} /></button></th>}
+                    {show("health") && <th className="numeric-col" aria-sort={query.sort === "health_score" ? "ascending" : query.sort === "-health_score" ? "descending" : "none"}><button onClick={() => toggleSort("health_score")}>Salud <SortIcon active={query.sort === "health_score" || query.sort === "-health_score"} descending={query.sort === "-health_score"} /></button></th>}
+                    {show("opportunity") && <th className="numeric-col" aria-sort={query.sort === "opportunity_score" ? "ascending" : query.sort === "-opportunity_score" ? "descending" : "none"}><button onClick={() => toggleSort("opportunity_score")}>Oportunidad <SortIcon active={query.sort === "opportunity_score" || query.sort === "-opportunity_score"} descending={query.sort === "-opportunity_score"} /></button></th>}
+                    {show("risk") && <th className="numeric-col" aria-sort={query.sort === "risk_score" ? "ascending" : query.sort === "-risk_score" ? "descending" : "none"}><button onClick={() => toggleSort("risk_score")}>Riesgo <SortIcon active={query.sort === "risk_score" || query.sort === "-risk_score"} descending={query.sort === "-risk_score"} /></button></th>}
                     <th aria-sort={query.sort === "status" ? "ascending" : query.sort === "-status" ? "descending" : "none"}><button onClick={() => toggleSort("status")}>Estado <SortIcon active={query.sort === "status" || query.sort === "-status"} descending={query.sort === "-status"} /></button></th>
                     {show("owner") && <th>Propietario</th>}
                     {show("updated") && <th aria-sort={query.sort === "updated_at" ? "ascending" : query.sort === "-updated_at" ? "descending" : "none"}><button onClick={() => toggleSort("updated_at")}>Actualizado <SortIcon active={query.sort === "updated_at" || query.sort === "-updated_at"} descending={query.sort === "-updated_at"} /></button></th>}
@@ -522,9 +522,9 @@ export function DossierInventory() {
                       </td>
                       <td className="sticky-name"><Link href={`/app/dossiers/${item.id}`} onClick={(event) => event.stopPropagation()}><strong>{item.title}</strong><small>{item.strategic_goal || "Objetivo por completar"}</small></Link></td>
                       {show("type") && <td>{TYPE_LABELS[item.dossier_type] ?? item.dossier_type}</td>}
-                      {show("health") && <td><strong>{score(item.health_score)}</strong><small> / 100</small></td>}
-                      {show("opportunity") && <td><strong>{score(item.opportunity_score)}</strong><small> / 100</small></td>}
-                      {show("risk") && <td><strong>{score(item.risk_score)}</strong><small> / 100</small></td>}
+                      {show("health") && <td className="numeric-col"><strong>{score(item.health_score)}</strong><small> / 100</small></td>}
+                      {show("opportunity") && <td className="numeric-col"><strong>{score(item.opportunity_score)}</strong><small> / 100</small></td>}
+                      {show("risk") && <td className="numeric-col"><strong>{score(item.risk_score)}</strong><small> / 100</small></td>}
                       <td><span className={`status-badge status-${item.status}`}>{STATUS_LABELS[item.status] ?? item.status}</span></td>
                       {show("owner") && <td>{ownerLabel(item)}</td>}
                       {show("updated") && <td>{dateLabel(item.updated_at)}</td>}

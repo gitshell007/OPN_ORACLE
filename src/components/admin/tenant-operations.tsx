@@ -123,14 +123,14 @@ export function TenantJobs() {
         {loading ? <p role="status">Cargando procesos…</p> : (
           <div className="table-scroll">
             <table className="admin-table">
-              <thead><tr><th>Proceso</th><th>Estado</th><th>Progreso</th><th>Intentos</th></tr></thead>
+              <thead><tr><th>Proceso</th><th>Estado</th><th>Progreso</th><th className="numeric-col">Intentos</th></tr></thead>
               <tbody>
                 {items.map((job) => (
                   <tr key={job.id}>
                     <td><strong>{productJobTypeLabel(job.job_type)}</strong><small>{productQueueLabel(job.queue)} · {job.id}</small></td>
                     <td><span className={`status ${job.status}`}>{productStatusLabel(job.status)}</span></td>
                     <td><JobProgress jobId={job.id} label={productStatusLabel(job.stage)} allowActions onTerminal={() => void load()} /></td>
-                    <td>{job.attempts ?? 0} / {job.max_attempts ?? 1}</td>
+                    <td className="numeric-col">{job.attempts ?? 0} / {job.max_attempts ?? 1}</td>
                   </tr>
                 ))}
                 {!items.length && <tr><td colSpan={4}>No hay procesos para este filtro.</td></tr>}

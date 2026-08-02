@@ -140,7 +140,7 @@ export function MembersAdmin() {
       <header className="admin-heading">
         <div>
           <p className="eyebrow">Administración de organización</p>
-          <h1>Miembros y roles</h1>
+          <h1>Miembros</h1>
           <p>
             Gestiona el acceso a la organización activa. Cada cambio de permisos
             se valida y queda registrado de forma segura.
@@ -480,7 +480,7 @@ export function TenantAudit() {
       <header className="admin-heading">
         <div>
           <p className="eyebrow">Administración de organización</p>
-          <h1>Auditoría y actividad</h1>
+          <h1>Auditoría</h1>
           <p>
             Registro de eventos, detalle técnico de IA y procesos en segundo plano de la
             organización activa.

@@ -664,7 +664,7 @@ export function ReportLibrary({
           <span className="section-kicker">
             {dossierId ? "Expediente · resultados trazables" : "Cartera · resultados trazables"}
           </span>
-          <h1>{dossierId ? "Informes del expediente" : "Biblioteca de informes"}</h1>
+          <h1>{dossierId ? "Informes del expediente" : "Informes"}</h1>
           <p>
             Versiones auditables con hechos, inferencias, recomendaciones,
             citas y artefactos inmutables.

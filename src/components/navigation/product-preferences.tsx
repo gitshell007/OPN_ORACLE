@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
+import { SettingsHeader } from "@/components/auth/account-security";
 import { useAuth } from "@/components/auth/auth-provider";
 
 type Density = "compact" | "balanced" | "comfortable";
@@ -18,6 +20,7 @@ function applyFontScale(value: FontScale) {
 }
 
 export function ProductPreferences() {
+  const pathname = usePathname();
   const userId = useAuth().identity!.user.id;
   const densityKey = `oracle:ui:density:${userId}`;
   const navigationKey = `oracle:nav:compact:${userId}`;
@@ -25,6 +28,7 @@ export function ProductPreferences() {
   const [density, setDensity] = useState<Density>("balanced");
   const [compact, setCompact] = useState(false);
   const [fontScale, setFontScale] = useState<FontScale>("medium");
+  const showAccountTabs = pathname.startsWith("/app/account");
 
   useEffect(() => {
     const kickoff = window.setTimeout(() => {
@@ -72,7 +76,7 @@ export function ProductPreferences() {
       <section className="page-heading">
         <div>
           <div className="eyebrow">Preferencias personales</div>
-          <h1>Apariencia y navegación</h1>
+          <h1>Preferencias</h1>
           <p>
             Estas opciones se guardan únicamente en este dispositivo. El idioma,
             la zona horaria y la accesibilidad avanzada estarán disponibles en
@@ -80,6 +84,7 @@ export function ProductPreferences() {
           </p>
         </div>
       </section>
+      {showAccountTabs && <SettingsHeader active="preferences" />}
       <section className="settings-section">
         <header>
           <h2>Tamaño de fuente</h2>

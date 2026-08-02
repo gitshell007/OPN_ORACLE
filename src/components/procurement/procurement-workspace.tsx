@@ -905,7 +905,7 @@ export function ProcurementWorkspace() {
       <section className="page-heading">
         <div>
           <div className="eyebrow">Contratación pública</div>
-          <h1>Licitaciones PLACSP</h1>
+          <h1>Licitaciones</h1>
           <p>
             Busca oportunidades públicas, resume pliegos y fija referencias
             citables a expedientes estratégicos.
