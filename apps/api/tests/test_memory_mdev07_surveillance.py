@@ -6,10 +6,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
+from opn_oracle.integrations.surveillance_signal_adapter import (
+    publish_surveillance_scope,
+)
 from opn_oracle.oracle.surveillance import (
     ACTION_TYPES,
     CADENCES,
@@ -22,10 +24,6 @@ from opn_oracle.oracle.surveillance import (
     is_due,
     serialize_action,
 )
-from opn_oracle.integrations.surveillance_signal_adapter import (
-    publish_surveillance_scope,
-)
-
 
 # ---------------------------------------------------------------------------
 # Pure cadence
@@ -33,7 +31,7 @@ from opn_oracle.integrations.surveillance_signal_adapter import (
 
 
 def test_cadences_include_product_set() -> None:
-    assert CADENCES == frozenset({"manual", "hourly", "daily", "weekly"})
+    assert frozenset({"manual", "hourly", "daily", "weekly"}) == CADENCES
     assert "news_mentions" in ACTION_TYPES
     assert "no_follow" in ACTION_TYPES
     assert "offering_tenders" in ACTION_TYPES
@@ -514,8 +512,8 @@ def test_if_match_precondition() -> None:
 def test_http_confirm_requires_write_permission(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from contextlib import contextmanager
     from collections.abc import Iterator
+    from contextlib import contextmanager
 
     from flask import g
 
@@ -577,8 +575,8 @@ def test_http_confirm_requires_write_permission(
 def test_http_pause_requires_if_match(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from contextlib import contextmanager
     from collections.abc import Iterator
+    from contextlib import contextmanager
 
     from flask import g
 
@@ -644,8 +642,8 @@ def test_http_pause_requires_if_match(
 def test_http_confirm_happy_path(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from contextlib import contextmanager
     from collections.abc import Iterator
+    from contextlib import contextmanager
 
     from flask import g
 

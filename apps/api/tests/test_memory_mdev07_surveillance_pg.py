@@ -191,10 +191,15 @@ def test_pg_tenant_isolation_confirm_semantics_and_needs_review() -> None:
                 text(
                     "INSERT INTO tenants(id, slug, name, status, locale, timezone, settings, "
                     "created_at, updated_at) VALUES ("
-                    ":id, :slug, :name, 'active', 'es-ES', 'Europe/Madrid', '{}'::jsonb, now(), now()"
+                    ":id, :slug, :name, 'active', 'es-ES', 'Europe/Madrid', "
+                    "'{}'::jsonb, now(), now()"
                     ") ON CONFLICT DO NOTHING"
                 ),
-                {"id": tid, "slug": f"mdev07-{name.lower()}-{tid.hex[:8]}", "name": f"MDEV07 {name}"},
+                {
+                    "id": tid,
+                    "slug": f"mdev07-{name.lower()}-{tid.hex[:8]}",
+                    "name": f"MDEV07 {name}",
+                },
             )
         # Drop FK temporarily if present to allow isolation test without full dossier graph
         conn.execute(

@@ -2866,15 +2866,26 @@ export interface CustomBriefDetail {
   template_key: string;
   template_version: string;
   generation_version: number;
+  version?: number;
+  etag?: string;
   brief_request: string;
   plan_status: string;
+  lifecycle_state?: string;
   proposed_plan?: Record<string, unknown> | null;
+  accepted_plan?: Record<string, unknown> | null;
+  accepted_snapshot_hash?: string | null;
+  memory_degraded?: boolean;
+  memory_degraded_reason?: string | null;
+  coverage?: Record<string, unknown> | null;
+  ready_artifact?: Record<string, unknown> | null;
+  downloadable?: boolean;
   background_job_id?: string | null;
   error_code?: string | null;
   error_message?: string | null;
   requested_by_user_id: string;
   created_at?: string | null;
   updated_at?: string | null;
+  ready_at?: string | null;
 }
 
 const dossierActivity = {
@@ -2944,6 +2955,48 @@ const customBriefs = {
     request<CustomBriefDetail>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}`,
     ),
+  acceptPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    body: { proposed_plan?: Record<string, unknown>; start_generation?: boolean } = {},
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/accept`,
+      { method: "POST", body, ifMatch },
+    ),
+  editPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    proposed_plan: Record<string, unknown>,
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/edit`,
+      { method: "POST", body: { proposed_plan }, ifMatch },
+    ),
+  rejectPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    reason = "",
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/reject`,
+      { method: "POST", body: { reason }, ifMatch },
+    ),
+  cancel: (dossierId: string, reportId: string, ifMatch: number | string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/cancel`,
+      { method: "POST", body: {}, ifMatch },
+    ),
+  retry: (dossierId: string, reportId: string, ifMatch: number | string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/retry`,
+      { method: "POST", body: {}, ifMatch },
+    ),
+  downloadUrl: (dossierId: string, reportId: string) =>
+    `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/download`,
 };
 
 

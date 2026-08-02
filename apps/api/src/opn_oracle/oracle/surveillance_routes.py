@@ -6,7 +6,8 @@ import uuid
 from typing import Any
 
 from apiflask import APIBlueprint, Schema
-from apiflask.fields import Boolean, Dict, List, String, UUID as FieldUUID
+from apiflask.fields import UUID as FieldUUID
+from apiflask.fields import Boolean, Dict, List, String
 from flask import Response, request
 from flask_login import current_user
 from marshmallow import validate

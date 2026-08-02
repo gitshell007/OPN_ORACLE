@@ -58,6 +58,10 @@ from opn_oracle.oracle.conversations import (
     ConversationNotFound,
     process_dossier_question_answer,
 )
+from opn_oracle.oracle.custom_report_lifecycle import (
+    process_custom_brief_review,
+    process_custom_brief_write,
+)
 from opn_oracle.oracle.custom_reports import (
     CustomReportError,
     CustomReportNotFound,
@@ -410,6 +414,8 @@ HANDLERS: dict[str, Handler] = {
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
     "oracle.dossier_question.answer": lambda payload, job: _answer_dossier_question(payload, job),
     "oracle.report.custom_brief.plan": lambda payload, job: _plan_custom_brief(payload, job),
+    "oracle.report.custom_brief.write": lambda payload, job: _write_custom_brief(payload, job),
+    "oracle.report.custom_brief.review": lambda payload, job: _review_custom_brief(payload, job),
     "oracle.procurement_document_report.generate": (
         lambda payload, job: _generate_procurement_document_report(payload, job)
     ),
@@ -501,6 +507,32 @@ def _plan_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str,
         raise PermanentJobError(str(error)) from error
     except Exception as error:
         raise RetriableJobError("La planificación del brief falló temporalmente.") from error
+
+
+def _write_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """MDEV-08 writer using frozen accepted_snapshot."""
+
+    try:
+        return process_custom_brief_write(db.session(), payload, job)
+    except (CustomReportNotFound, CustomReportError) as error:
+        raise PermanentJobError(str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError("La redacción del informe falló temporalmente.") from error
+
+
+def _review_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """MDEV-08 review + atomic ready artifact."""
+
+    try:
+        return process_custom_brief_review(db.session(), payload, job)
+    except (CustomReportNotFound, CustomReportError) as error:
+        raise PermanentJobError(str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError("La revisión del informe falló temporalmente.") from error
 
 
 def _generate_procurement_document_report(
@@ -1070,6 +1102,8 @@ weekly_change_refresh = _durable_task("oracle.weekly_change.refresh")
 report_generate = _durable_task("oracle.report.generate")
 dossier_question_answer = _durable_task("oracle.dossier_question.answer")
 report_custom_brief_plan = _durable_task("oracle.report.custom_brief.plan")
+report_custom_brief_write = _durable_task("oracle.report.custom_brief.write")
+report_custom_brief_review = _durable_task("oracle.report.custom_brief.review")
 procurement_document_report_generate = _durable_task("oracle.procurement_document_report.generate")
 competitive_procurement_report_generate = _durable_task(
     "oracle.competitive_procurement_report.generate"

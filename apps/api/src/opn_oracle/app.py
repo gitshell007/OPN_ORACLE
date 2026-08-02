@@ -48,7 +48,6 @@ from opn_oracle.integrations.webhooks import bp as signal_webhooks_bp
 from opn_oracle.jobs.routes import bp as jobs_bp
 from opn_oracle.notifications.email import CaptureEmailSender, GraphEmailSender, SMTPEmailSender
 from opn_oracle.oracle.activity_routes import bp as dossier_activity_bp
-from opn_oracle.oracle.surveillance_routes import bp as dossier_surveillance_bp
 from opn_oracle.oracle.conversation_routes import bp as dossier_conversations_bp
 from opn_oracle.oracle.intent_routes import bp as dossier_intent_bp
 from opn_oracle.oracle.investigation_routes import bp as investigations_bp
@@ -60,6 +59,7 @@ from opn_oracle.oracle.procurement_search_profile_routes import (
 )
 from opn_oracle.oracle.procurement_search_watch_routes import bp as procurement_search_watches_bp
 from opn_oracle.oracle.routes import bp as oracle_bp
+from opn_oracle.oracle.surveillance_routes import bp as dossier_surveillance_bp
 from opn_oracle.platform.backup_routes import bp as platform_backups_bp
 from opn_oracle.platform.routes import bp as platform_bp
 from opn_oracle.reporting.rendering import DisabledPDFRenderer, WeasyPrintPDFRenderer

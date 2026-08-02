@@ -17,12 +17,12 @@ from opn_oracle.oracle.investigations import INVESTIGATION_MODELS
 from opn_oracle.oracle.jobs import JOB_MODELS
 from opn_oracle.oracle.links import LINK_MODELS
 from opn_oracle.oracle.models import ORACLE_MODELS
-from opn_oracle.oracle.surveillance import DossierSurveillanceAction  # noqa: F401
 from opn_oracle.oracle.procurement_search_feedback import (
     PROCUREMENT_SEARCH_FEEDBACK_MODELS,
 )
 from opn_oracle.oracle.procurement_search_profiles import PROCUREMENT_SEARCH_PROFILE_MODELS
 from opn_oracle.oracle.procurement_search_watch import PROCUREMENT_SEARCH_WATCH_MODELS
+from opn_oracle.oracle.surveillance import DossierSurveillanceAction  # noqa: F401
 from opn_oracle.platform.backups import BACKUP_MODELS
 from opn_oracle.platform.models import (
     ApiCredential,

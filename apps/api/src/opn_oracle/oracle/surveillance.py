@@ -392,11 +392,11 @@ def count_jobs_for_actor_surveillance(
     count = 0
     for job in jobs:
         payload = job.payload if isinstance(getattr(job, "payload", None), dict) else {}
-        if str(payload.get("surveillance_action_id") or "") in action_ids:
-            count += 1
-        elif str(payload.get("actor_id") or "") == str(actor_id) and str(
-            payload.get("kind") or ""
-        ).startswith("surveillance"):
+        action_hit = str(payload.get("surveillance_action_id") or "") in action_ids
+        actor_id_match = str(payload.get("actor_id") or "") == str(actor_id)
+        kind = str(payload.get("kind") or "")
+        actor_hit = actor_id_match and kind.startswith("surveillance")
+        if action_hit or actor_hit:
             count += 1
     return count
 
@@ -676,7 +676,9 @@ def confirm_surveillance_action(
         # MDEV-05 debt: do not pretend durable remote activation.
         if create_backend_resources and action_type != "no_follow":
             existing.degraded = True
-            existing.degraded_reason = "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
+            existing.degraded_reason = (
+                "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
+            )
         append_audit_event(
             session,
             action="surveillance.confirmed.idempotent",
@@ -842,7 +844,12 @@ def resume_action(
         dossier_id=action.dossier_id,
         result="success",
         request_id=request_id,
-        metadata={"version": action.row_version, "next_run_at": action.next_run_at.isoformat() if action.next_run_at else None},
+        metadata={
+            "version": action.row_version,
+            "next_run_at": (
+                action.next_run_at.isoformat() if action.next_run_at else None
+            ),
+        },
     )
     session.commit()
     return action
@@ -1057,15 +1064,11 @@ def mark_actions_needs_review_for_superseded_intent(
         # Mark when linked to previous revision OR any non-new revision.
         if action.intent_revision_id == new_revision_id:
             continue
-        if (
-            action.intent_revision_id == previous_revision_id
-            or action.intent_revision_id is not None
-            or action.intent_revision_id is None
-        ):
-            if action.alignment_state != "needs_review":
-                action.alignment_state = "needs_review"
-                action.row_version += 1
-                marked += 1
+        # Any prior or unset revision must enter needs_review on new intent accept.
+        if action.alignment_state != "needs_review":
+            action.alignment_state = "needs_review"
+            action.row_version += 1
+            marked += 1
     return marked
 
 

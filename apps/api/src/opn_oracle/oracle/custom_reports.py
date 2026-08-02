@@ -73,6 +73,12 @@ def _load_dossier(session: Session, dossier_id: uuid.UUID) -> StrategicDossier:
 
 def serialize_custom_brief(report: Report) -> dict[str, Any]:
     options = dict(report.options or {})
+    try:
+        from opn_oracle.oracle.custom_report_lifecycle import serialize_lifecycle
+
+        life = serialize_lifecycle(report)
+    except Exception:
+        life = {}
     return {
         "id": str(report.id),
         "tenant_id": str(report.tenant_id),
@@ -83,9 +89,21 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "template_key": report.template_key,
         "template_version": report.template_version,
         "generation_version": report.generation_version,
+        "version": getattr(report, "version", 1),
+        "etag": f'W/"{getattr(report, "version", 1)}"',
         "brief_request": str(options.get("brief_request") or ""),
         "plan_status": str(options.get("plan_status") or "draft"),
+        "lifecycle_state": life.get("lifecycle_state")
+        or str(options.get("lifecycle_state") or "brief_draft"),
         "proposed_plan": options.get("proposed_plan"),
+        "accepted_plan": options.get("accepted_plan"),
+        "accepted_snapshot_hash": options.get("accepted_snapshot_hash")
+        or life.get("accepted_snapshot_hash"),
+        "memory_degraded": bool(options.get("memory_degraded", False)),
+        "memory_degraded_reason": options.get("memory_degraded_reason"),
+        "coverage": options.get("coverage") or life.get("coverage"),
+        "ready_artifact": options.get("ready_artifact"),
+        "downloadable": bool(life.get("downloadable")),
         "background_job_id": (
             str(report.background_job_id) if report.background_job_id is not None else None
         ),
@@ -94,6 +112,11 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "requested_by_user_id": str(report.requested_by_user_id),
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+        "ready_at": (
+            report.ready_at.isoformat()
+            if getattr(report, "ready_at", None)
+            else None
+        ),
     }
 
 
@@ -187,6 +210,7 @@ def create_custom_report_brief(
     options = {
         "brief_request": brief,
         "plan_status": "draft",
+        "lifecycle_state": "brief_draft",
         "classification": "internal",
         "confidentiality_label": "Uso interno",
         "assistant_kind": "custom_report_brief",
@@ -365,6 +389,7 @@ def process_custom_brief_plan(
             "provider_path": "deterministic",
         }
     options["plan_status"] = "proposed"
+    options["lifecycle_state"] = "plan_proposed"
     options["proposed_plan"] = proposed_plan
     options["mutates_intent"] = False
     options["mutates_memory_facts"] = False

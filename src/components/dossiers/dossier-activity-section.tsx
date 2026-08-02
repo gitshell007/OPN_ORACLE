@@ -111,7 +111,7 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
         credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
-          "Idempotency-Key": `align-${decision}-${item.id}-${Date.now()}`,
+          "Idempotency-Key": `align-${decision}-${item.id}-${crypto.randomUUID()}`,
           "If-Match": `W/"${version || 1}"`,
         },
       });
