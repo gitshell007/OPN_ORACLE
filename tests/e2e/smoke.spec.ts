@@ -156,7 +156,7 @@ test("login real abre Vector canónico, navegación, sesiones y administración 
   await expect(page.getByText("Este dispositivo")).toBeVisible();
   await page.goto("/app/admin/members");
   await expect(
-    page.getByRole("heading", { name: "Miembros y roles" }),
+    page.getByRole("heading", { name: "Miembros" }),
   ).toBeVisible();
   await expect(page.getByText("owner@oracle-e2e.test")).toBeVisible();
   await page.goto("/app");
@@ -237,7 +237,7 @@ test("Vector F11 abre informes, notificaciones, preferencias y exportaciones", a
   await page.getByRole("button", { name: "Entrar en Oracle" }).click();
   await expect(page).toHaveURL(/\/app\/reports$/);
   await expect(
-    page.getByRole("heading", { name: "Biblioteca de informes" }),
+    page.getByRole("heading", { name: "Informes", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Aún no hay informes")).toBeVisible();
   // El 401 de /auth/me previo al login y el 409 de selección de tenant son
@@ -255,12 +255,12 @@ test("Vector F11 abre informes, notificaciones, preferencias y exportaciones", a
   await expect(page.getByText("No hay notificaciones activas.")).toBeVisible();
   await page.goto("/app/notifications");
   await expect(
-    page.getByRole("heading", { name: "Centro de notificaciones" }),
+    page.getByRole("heading", { name: "Notificaciones", exact: true }),
   ).toBeVisible();
   await noOverflow();
   await page.goto("/app/account/notifications");
   await expect(
-    page.getByRole("heading", { name: "Preferencias de notificación" }),
+    page.getByRole("heading", { name: "Notificaciones", exact: true }),
   ).toBeVisible();
   await noOverflow();
   await page.goto("/app/exports");
@@ -389,7 +389,7 @@ test("Vector F11 abre informes, notificaciones, preferencias y exportaciones", a
         await page.goto(path);
         if (path === "/app/reports")
           await expect(
-            page.getByRole("heading", { name: "Biblioteca de informes" }),
+            page.getByRole("heading", { name: "Informes", exact: true }),
           ).toBeVisible();
         if (path === "/app/exports")
           await expect(page.getByText("Aún no hay exportaciones")).toBeVisible();

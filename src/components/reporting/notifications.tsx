@@ -18,9 +18,10 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { SettingsHeader } from "@/components/auth/account-security";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   formatDateTime,
@@ -268,7 +269,7 @@ export function NotificationCenter({
       <header className="page-heading">
         <div>
           <span className="section-kicker">Bandeja personal · {unread} sin leer</span>
-          <h1>Centro de notificaciones</h1>
+          <h1>Notificaciones</h1>
           <p>Eventos persistentes y accionables; los toasts no sustituyen esta bandeja.</p>
         </div>
         <div className="report-library-actions">
@@ -369,6 +370,8 @@ function formFor(row?: NotificationPreference): PreferenceForm {
 }
 
 export function NotificationPreferences() {
+  const pathname = usePathname();
+  const showAccountTabs = pathname.startsWith("/app/account");
   const [rows, setRows] = useState<NotificationPreference[]>([]);
   const [type, setType] = useState("*");
   const [form, setForm] = useState<PreferenceForm>(defaultForm);
@@ -446,10 +449,11 @@ export function NotificationPreferences() {
       <header className="page-heading">
         <div>
           <span className="section-kicker">Cuenta · canales y digests</span>
-          <h1>Preferencias de notificación</h1>
+          <h1>Notificaciones</h1>
           <p>Controla frecuencia, canal, severidad mínima y horas silenciosas.</p>
         </div>
       </header>
+      {showAccountTabs && <SettingsHeader active="notifications" />}
       {loading ? (
         <div className="reporting-loading" role="status">Cargando preferencias…</div>
       ) : (

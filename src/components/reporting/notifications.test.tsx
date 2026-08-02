@@ -36,6 +36,7 @@ vi.mock("@oracle/api-client", () => {
 });
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
+  usePathname: () => "/app/account/notifications",
 }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },

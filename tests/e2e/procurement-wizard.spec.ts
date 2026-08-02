@@ -511,7 +511,7 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   await loginOwner(page, testInfo);
 
   await expect(
-    page.getByRole("heading", { name: "Licitaciones PLACSP" }),
+    page.getByRole("heading", { name: "Licitaciones", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Buscar con Oracle" }).click();
   await expect(

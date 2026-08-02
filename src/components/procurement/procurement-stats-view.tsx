@@ -296,12 +296,15 @@ function AnalyticsProgressModal({
 export type ProcurementStatsViewProps = {
   loadAnalytics: (params: ProcurementAnalyticsParams) => Promise<ProcurementAnalyticsPayload>;
   eyebrow: string;
+  /** Debe coincidir con la etiqueta de navegación del contexto (producto o plataforma). */
+  title?: string;
   description?: string;
 };
 
 export function ProcurementStatsView({
   loadAnalytics,
   eyebrow,
+  title = "Estadísticas de licitaciones",
   description = "Vista de mercado PLACSP: inventario del registro Signal y rankings sobre una muestra acotada de licitaciones abiertas. Elige tamaño de muestra, top-N y criterio de ordenación.",
 }: ProcurementStatsViewProps) {
   const [data, setData] = useState<ProcurementAnalyticsPayload | null>(null);
@@ -484,7 +487,7 @@ export function ProcurementStatsView({
       <header className="admin-heading">
         <div>
           <p className="eyebrow">{eyebrow}</p>
-          <h1>Estadísticas de licitaciones</h1>
+          <h1>{title}</h1>
           <p>{description}</p>
         </div>
         <button
