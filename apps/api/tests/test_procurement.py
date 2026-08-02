@@ -716,7 +716,10 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
     ]
     extract = procurement_items.procurement_evidence_extract(snapshot)
     assert "Lotes: 2" in extract
-    assert "Importe total adjudicado: 5000.00" in extract
+    assert (
+        "Importe total adjudicado (sin clasificación base/IVA en origen): 5000.00"
+        in extract
+    )
 
 
 @pytest.mark.unit

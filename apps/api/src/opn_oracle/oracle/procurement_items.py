@@ -470,16 +470,19 @@ def procurement_evidence_extract(snapshot: dict[str, Any]) -> str:
             f"Órgano: {snapshot.get('buyer') or 'No indicado'}. "
             f"Lotes: {len(entries) or snapshot.get('total') or 'No indicado'}. "
             f"Adjudicatarios: {winner_summary}. "
-            "Importe total adjudicado: "
+            "Importe total adjudicado (sin clasificación base/IVA en origen): "
             f"{_money_text(total_amount)}. "
             f"CPV: {', '.join(_normalize_cpv(snapshot.get('cpv'))) or 'No indicado'}."
         )
     amount = snapshot.get("amount")
     deadline = snapshot.get("deadline")
+    # Signal/PLACSP publica un único campo `amount` sin indicar si es base de
+    # licitación o IVA incluido. No inventamos la etiqueta: el consumidor debe
+    # contrastar con el pliego hasta que el productor exponga ambos importes.
     return (
         f"Licitación PLACSP {snapshot.get('folder_id')}: {snapshot.get('title') or 'Sin título'}. "
         f"Órgano: {snapshot.get('buyer') or 'No indicado'}. "
-        f"Importe: {_money_text(amount)}. "
+        f"Importe publicado (campo amount PLACSP, sin clasificar base/IVA): {_money_text(amount)}. "
         f"Deadline: {deadline or 'No indicado'}. "
         f"Estado: {snapshot.get('status') or 'No indicado'}. "
         f"CPV: {', '.join(_normalize_cpv(snapshot.get('cpv'))) or 'No indicado'}."

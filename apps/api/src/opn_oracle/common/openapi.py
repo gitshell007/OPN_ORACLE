@@ -298,6 +298,14 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "200",
             "CompetitiveReadinessResponse",
         ),
+        ("/api/v1/dossiers/{dossier_id}/procurement", "post"): (
+            "201",
+            "ProcurementItemResource",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/procurement", "get"): (
+            "200",
+            "ProcurementItemListResponse",
+        ),
         ("/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote", "post"): (
             "201",
             "ProcurementPromotionResponse",
@@ -448,6 +456,74 @@ def _response_schemas() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "properties": {},
+        },
+        "ProcurementPinInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["kind", "folder_id"],
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["tender", "award"],
+                    "description": (
+                        "Tipo de ítem PLACSP a fijar. El manejador exige exactamente "
+                        "'tender' o 'award'."
+                    ),
+                },
+                "folder_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240,
+                    "description": (
+                        "Identificador de expediente PLACSP. Obligatorio; máximo 240 "
+                        "caracteres tras strip."
+                    ),
+                },
+            },
+        },
+        "ProcurementItemResource": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "id",
+                "tenant_id",
+                "dossier_id",
+                "kind",
+                "folder_id",
+                "snapshot",
+                "evidence_id",
+                "created_at",
+                "updated_at",
+            ],
+            "properties": {
+                "id": uuid,
+                "tenant_id": uuid,
+                "dossier_id": uuid,
+                "kind": {"type": "string", "enum": ["tender", "award"]},
+                "folder_id": {"type": "string"},
+                "snapshot": {"$ref": "#/components/schemas/JsonObject"},
+                "source_url": {"type": "string", "nullable": True},
+                "evidence_id": uuid,
+                "pinned_by_user_id": {"type": "string", "format": "uuid", "nullable": True},
+                "linked_opportunity_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": True,
+                },
+                "created_at": {"type": "string", "format": "date-time"},
+                "updated_at": {"type": "string", "format": "date-time"},
+            },
+        },
+        "ProcurementItemListResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["data"],
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/ProcurementItemResource"},
+                }
+            },
         },
         "MembershipIdResponse": {
             "type": "object",
@@ -959,6 +1035,8 @@ def _declare_oracle_operation(
             schema = "DossierPatchInput"
         elif path.endswith("/review"):
             schema = "SignalReviewInput"
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement" and method == "post":
+            schema = "ProcurementPinInput"
         elif path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
             schema = "ProcurementPromoteInput"
         elif path.endswith("/promote"):
@@ -1073,6 +1151,10 @@ def _declare_oracle_operation(
             response = {"$ref": "#/components/schemas/LinkMutationResponse"}
         elif path == "/api/v1/dossiers/bulk-delete":
             response = {"$ref": "#/components/schemas/DossierBulkDeleteResponse"}
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement" and method == "post":
+            response = {"$ref": "#/components/schemas/ProcurementItemResource"}
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement" and method == "get":
+            response = {"$ref": "#/components/schemas/ProcurementItemListResponse"}
         elif path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
             response = {"$ref": "#/components/schemas/ProcurementPromotionResponse"}
         elif path.endswith("/promote"):
@@ -1113,6 +1195,17 @@ def _declare_oracle_operation(
                     "content": {
                         "application/json": {
                             "schema": {"$ref": "#/components/schemas/ActorResource"}
+                        }
+                    },
+                }
+            if path == "/api/v1/dossiers/{dossier_id}/procurement":
+                operation["responses"]["200"] = {
+                    "description": "Ítem de contratación ya fijado (idempotente)",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProcurementItemResource"
+                            }
                         }
                     },
                 }
