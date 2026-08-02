@@ -260,6 +260,19 @@ def external_tenant_from_connection(connection: IntegrationConnection) -> str:
     ).strip()
 
 
+def _normalize_checksum(value: Any, *, origin: str, text: str) -> str:
+    """Coerce chunk checksum to a hex string ≤64 chars (Signal memory_sources limit)."""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).hex()[:64]
+    if value is None:
+        return _sha({"o": origin, "t": text})[:64]
+    s = str(value).strip()
+    # Guard against str(bytes) → "b'…'" representations
+    if s.startswith("b'") or s.startswith('b"') or len(s) > 64 or not s:
+        return _sha({"o": origin, "t": text})[:64]
+    return s[:64]
+
+
 def items_from_document_chunks(
     chunks: list[Any],
     *,
@@ -276,19 +289,15 @@ def items_from_document_chunks(
             :MAX_TEXT
         ]
         origin = str(getattr(ch, "id", None) or f"{document_id}:{getattr(ch, 'sequence', 0)}")
-        locator_obj = getattr(ch, "locator", None)
-        if isinstance(locator_obj, dict):
-            locator = (
-                f"oracle://doc/{document_id}/v/{version_id}/seq/{getattr(ch, 'sequence', 0)}"
-            )
-        else:
-            locator = f"oracle://doc/{document_id}/v/{version_id}/seq/{getattr(ch, 'sequence', 0)}"
+        locator = f"oracle://doc/{document_id}/v/{version_id}/seq/{getattr(ch, 'sequence', 0)}"
         items.append(
             {
-                "origin_id": origin,
+                "origin_id": origin[:120],
                 "title": (title or f"document {document_id}")[:300],
                 "text": text,
-                "checksum": str(getattr(ch, "checksum", None) or _sha({"o": origin, "t": text})),
+                "checksum": _normalize_checksum(
+                    getattr(ch, "checksum", None), origin=origin, text=text
+                ),
                 "kind": "chunk",
                 "parser_version": parser_version[:40],
                 "chunker_version": chunker_version[:40],
@@ -416,20 +425,26 @@ def publish_memory_bilateral_envelope(
 
     # 1) Durable materialization first (sources/chunks/extract jobs in Signal BD).
     if dual_write_durable:
+        durable_items: list[dict[str, Any]] = []
+        for it in envelope.get("items") or []:
+            if not isinstance(it, dict):
+                continue
+            origin = str(it.get("origin_id") or "")[:120]
+            text = str(it.get("text") or "")[:MAX_TEXT]
+            durable_items.append(
+                {
+                    "origin_id": origin,
+                    "title": str(it.get("title") or "")[:300],
+                    "text": text,
+                    "checksum": _normalize_checksum(
+                        it.get("checksum"), origin=origin, text=text
+                    ),
+                    "source_type": str(it.get("source_type") or "document")[:40],
+                }
+            )
         durable_body = {
             "dossier_id": dossier_id,
-            "items": [
-                {
-                    "origin_id": it.get("origin_id"),
-                    "title": it.get("title"),
-                    "text": it.get("text"),
-                    "checksum": it.get("checksum"),
-                    "kind": it.get("kind") or "chunk",
-                    "source_type": it.get("source_type") or "document",
-                }
-                for it in (envelope.get("items") or [])
-                if isinstance(it, dict)
-            ],
+            "items": durable_items,
         }
         try:
             d_status, d_body = client.post_json(

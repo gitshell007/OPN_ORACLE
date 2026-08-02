@@ -267,3 +267,23 @@ def test_rt08_prompt_contract_requires_empty_arrays() -> None:
 
     cat = load_contractual_runtime_catalog()
     assert cat["RT-08"]["prompt_version"] == "1.0.1"
+
+
+def test_normalize_checksum_from_bytes() -> None:
+    from opn_oracle.integrations.memory_outbox import _normalize_checksum, items_from_document_chunks
+    import uuid
+
+    class Chunk:
+        id = uuid.uuid4()
+        sequence = 0
+        text_content = "hola"
+        checksum = b"\x01\x02\x03\x04"
+        locator = {}
+
+    items = items_from_document_chunks(
+        [Chunk()], document_id=uuid.uuid4(), version_id=uuid.uuid4(), title="t"
+    )
+    assert items[0]["checksum"] == "01020304"
+    assert len(items[0]["checksum"]) <= 64
+    # bad str(bytes) form
+    assert len(_normalize_checksum("b'\\x01\\x02'", origin="o", text="t")) == 64
