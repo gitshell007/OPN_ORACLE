@@ -25,7 +25,7 @@ _SIGNAL_VERIFIED_MANIFESTS: dict[str, dict[str, str]] = {
     "RT-09": {
         "task_key": "report_custom_writer",
         "runtime_id": "RT-09",
-        "prompt_sha256": "191c4001f896b4860dd36a02c173e9abde59a7ab0a1774a6b438ca817b8268e8",
+        "prompt_sha256": "39b0397fe5e91678e7bb152213b4a4b9fa3dbbb75c1e77af2cf55c1c0d633973",
         "schema_sha256": "e80bfa4f2e3bd211af6de9eb6d9840081bf93873b2c60cca164039cec4ff77c5",
         "prompt_version": "1.0.1",
         "schema_version": "custom_report_writer.v1",
