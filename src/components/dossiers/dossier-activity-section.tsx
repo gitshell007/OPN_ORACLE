@@ -8,6 +8,7 @@ import {
 } from "@oracle/api-client";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { PageHeader } from "@/components/ui/page-header";
 
 const STATE_LABEL: Record<string, string> = {
   prepared: "Preparado",
@@ -106,19 +107,16 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
 
   return (
     <div className="dossier-section-page">
-      <header className="vector-panel">
-        <div>
-          <span className="section-kicker">Vigilancias y trabajos</span>
-          <h1>Actividad del expediente</h1>
-          <p>
-            Vista consolidada de monitores, vigilancias, licitaciones y jobs. No activa
-            recolección por sí sola.
-          </p>
-        </div>
-        <button type="button" className="vector-secondary" onClick={() => void load()}>
-          <RefreshCw size={15} /> Actualizar
-        </button>
-      </header>
+      <PageHeader
+        eyebrow="Vigilancias y trabajos"
+        title="Actividad del expediente"
+        description="Vista consolidada de monitores, vigilancias, licitaciones y jobs. No activa recolección por sí sola."
+        actions={
+          <button type="button" className="vector-secondary" onClick={() => void load()}>
+            <RefreshCw size={15} /> Actualizar
+          </button>
+        }
+      />
 
       <section className="vector-panel" aria-label="Resumen de actividad">
         <dl className="placeholder-contract">

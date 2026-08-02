@@ -11,6 +11,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 const STORAGE_PREFIX = "oracle:dossier-ask:";
 
@@ -208,16 +209,11 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
 
   return (
     <div className="dossier-section-page">
-      <header className="vector-panel">
-        <div>
-          <span className="section-kicker">Asistente del expediente</span>
-          <h1>Preguntar a Oracle</h1>
-          <p>
-            La pregunta se persiste antes de encolar el job. No modifica la intención ni los
-            hechos de memoria. Tras recargar se recupera el último mensaje desde la API.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Asistente del expediente"
+        title="Preguntar a Oracle"
+        description="La pregunta se persiste antes de encolar el job. No modifica la intención ni los hechos de memoria. Tras recargar se recupera el último mensaje desde la API."
+      />
 
       <section className="vector-panel">
         <form onSubmit={(event) => void onSubmit(event)} className="stack-form">

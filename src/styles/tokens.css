@@ -43,4 +43,24 @@
   --font-ui:'Libre Franklin',system-ui,sans-serif;
   --font-editorial:'Spectral',Georgia,serif;
   --font-mono:'IBM Plex Mono',Consolas,monospace;
+
+  /* Layout v1.1 — escala de 4px. Antes no existía escala de espaciado ni
+     tipográfica: cada pantalla elegía sus píxeles a mano. */
+  --space-1:4px;  --space-2:8px;  --space-3:12px; --space-4:16px;
+  --space-5:20px; --space-6:24px; --space-7:32px; --space-8:48px;
+  --gutter:32px;      /* >=1024px */
+  --gutter-md:24px;   /* 641-1023px */
+  --gutter-sm:16px;   /* <=640px */
+  --content-max:1440px;
+  --page-bottom:72px;
+  /* Cabeceras: una sola escala; sustituye 25/26/28/29/18px dispersos. */
+  --text-h1:26px; --text-h1-lh:1.18; --text-h1-track:-0.025em;
+  --text-h2:18px; --text-body:14px; --text-meta:11px; --text-eyebrow:9px;
+  /* Navegación del expediente */
+  --nav-h:42px; --subnav-h:34px;
+  /* Gris de navegación inactiva. El anterior (#647286) medía 4.15:1 sobre
+     porcelain #efece6 — por debajo de AA (SV2-UI-A11Y). Este mide 5.28:1 en
+     ese mismo fondo y 6.22:1 sobre blanco. Verificado con
+     scripts/measure-contrast.mjs. */
+  --nav-muted:#556272;
 }

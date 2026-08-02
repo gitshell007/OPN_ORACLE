@@ -11,6 +11,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 const STORAGE_PREFIX = "oracle:dossier-brief:";
 
@@ -191,16 +192,11 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
 
   return (
     <div className="dossier-section-page">
-      <header className="vector-panel">
-        <div>
-          <span className="section-kicker">Asistente de informes</span>
-          <h1>Informe libre</h1>
-          <p>
-            Guarda el encargo como brief y encola la planificación. El plan propuesto se
-            muestra al asentar el worker; recargar restaura el informe desde la API.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Asistente de informes"
+        title="Informe libre"
+        description="Guarda el encargo como brief y encola la planificación. El plan propuesto se muestra al asentar el worker; recargar restaura el informe desde la API."
+      />
 
       <section className="vector-panel">
         <form onSubmit={(event) => void onSubmit(event)} className="stack-form">
