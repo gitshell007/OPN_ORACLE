@@ -4,6 +4,15 @@ Actualizado: 2026-08-01
 Rama: `mdev/01-rework2`
 
 
+## MDEV-06 REWORK-1 (2026-08-02)
+- branch `mdev/06-ask-dual-memory` · authority PG load (intent/requirements/offering/objectives/decisions/evidence)
+- durable Evidence+snapshot: no silent except; allowlist only persisted IDs; no synthetic://mock
+- fail-closed mode default disabled; mock→augment only under TESTING
+- CI: mypy unused-ignore fixed; DossierMessage.updated_at on client; RT-07 wired on Signal `/ai/run`
+- tests: unit/service + RT-07 HTTP; mig 0030 marked integration (needs TEST_DATABASE_URL)
+- debt: Celery worker real E2E, full PG mig roundtrip if no TEST_DATABASE_URL, OpenAPI regen, Playwright
+- no deploy / no merge / no production
+
 ## MDEV-06 provisional dual-memory ask (2026-08-02)
 - branch `mdev/06-ask-dual-memory` from published MDEV-04 tip `55e9320` + cherry-pick MDEV-05 `f20b0fb` (resolved STATUS)
 - vertical: persist→Celery→dual blocks→materialize Evidence/allowlist→input_manifest→deterministic/Signal task→poll

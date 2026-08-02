@@ -413,14 +413,56 @@ def test_process_memory_disabled_and_items_deterministic(monkeypatch: pytest.Mon
 
     message2 = _message(tenant_id, dossier_id, conversation_id, status="queued")
     monkeypatch.setattr(conv, "get_message", lambda *a, **k: message2)
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: {
+            "block": "oracle_authority",
+            "tenant_id": str(tenant_id),
+            "dossier_id": str(dossier_id),
+            "question": message2.content_text,
+            "intent": {},
+            "requirements": [],
+            "offering": {},
+            "objectives": [],
+            "decisions": [],
+            "oracle_evidence": [],
+            "untrusted_external": False,
+            "authority_loaded": False,
+            "intent_hash": "",
+        },
+    )
 
     class WithItems:
+        effective_mode = "augment"
+
         def retrieve(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {
-                "items": [{"text": "Hito de calidad aprobado el 2026-07-15"}],
+                "items": [
+                    {
+                        "id": "sig-hito-1",
+                        "text": "Hito de calidad aprobado el 2026-07-15",
+                        "source_ref": "signal://doc/hito#0",
+                        "checksum": "c" * 64,
+                        "locator": '{"page":1}',
+                        "classification": "internal",
+                        "policy_version": "memory.v1",
+                        "watermark": "wm-hito",
+                        "source_version": "v1",
+                        "tenant_id": str(tenant_id),
+                        "dossier_id": str(dossier_id),
+                    }
+                ],
                 "coverage_manifest": empty_coverage_manifest(requested=["memory.mock"]),
                 "policy_version": "mock.v1",
             }
+
+    def _persist(_session: Any, **kwargs: Any) -> list[str]:
+        return [c.oracle_evidence_id for c in kwargs.get("citations") or []]
+
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.persist_memory_signal_evidence",
+        _persist,
+    )
 
     with tenant_context(_ctx(tenant_id)):
         out2 = conv.process_dossier_question_answer(
@@ -432,6 +474,7 @@ def test_process_memory_disabled_and_items_deterministic(monkeypatch: pytest.Mon
             },
             job,
             memory_adapter=WithItems(),
+            memory_mode="augment",
         )
     assert out2["item_count"] == 1
     assert "Hito de calidad" in message2.answer_payload["text"]

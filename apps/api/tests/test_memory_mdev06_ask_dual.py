@@ -12,10 +12,12 @@ import pytest
 from opn_oracle.integrations.memory_ask_dual import (
     PERMANENT_ERROR_CODES,
     RETRYABLE_ERROR_CODES,
+    _normalize_retrieval_item,
     build_dual_ask_context,
     build_input_manifest,
     build_oracle_authority_block,
     classify_error_code,
+    load_oracle_authority_from_session,
     materialize_augment_items,
     validate_citations_allowlist,
 )
@@ -293,10 +295,27 @@ def test_process_answer_augment_injects_allowlist(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(conv, "get_message", lambda *a, **k: msg)
     monkeypatch.setattr(conv, "append_audit_event", lambda *a, **k: None)
     monkeypatch.setattr(conv, "_signal_ai_enabled", lambda: False)
-    # Avoid DB Evidence persistence path noise
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: build_oracle_authority_block(
+            dossier_id=str(dossier),
+            tenant_id=str(tenant),
+            question="¿Quién concentra el CPV?",
+            intent={"content_hash": "a" * 64, "status": "accepted"},
+            requirements=[{"id": "req-1", "question": "quién?"}],
+            objectives=[{"id": "obj-1", "title": "ganar"}],
+            decisions=[{"id": "dec-1", "title": "seguir"}],
+            oracle_evidence=[{"id": "ev-oracle-1", "source_kind": "document"}],
+        ),
+    )
+
+    def _persist(_session: Any, **kwargs: Any) -> list[str]:
+        citations = kwargs.get("citations") or []
+        return [c.oracle_evidence_id for c in citations]
+
     monkeypatch.setattr(
         "opn_oracle.integrations.memory_ask_dual.persist_memory_signal_evidence",
-        lambda *a, **k: [],
+        _persist,
     )
 
     with tenant_context(TenantContext(tenant_id=tenant, actor_id=uuid.uuid4())):
@@ -319,6 +338,8 @@ def test_process_answer_augment_injects_allowlist(monkeypatch: pytest.MonkeyPatc
     assert msg.status == "succeeded"
     assert msg.answer_payload.get("citations")
     assert msg.answer_payload["citations"][0]["evidence_id"] in result["allowed_evidence_ids"]
+    # Authority from loader must reach answer path (via dual / audit)
+    assert msg.answer_payload.get("input_manifest_hash")
 
 
 def test_process_answer_shadow_zero_injection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,6 +394,12 @@ def test_process_answer_shadow_zero_injection(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(conv, "get_message", lambda *a, **k: msg)
     monkeypatch.setattr(conv, "append_audit_event", lambda *a, **k: None)
     monkeypatch.setattr(conv, "_signal_ai_enabled", lambda: False)
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: build_oracle_authority_block(
+            dossier_id=str(dossier), tenant_id=str(tenant), question="pregunta shadow"
+        ),
+    )
 
     with tenant_context(TenantContext(tenant_id=tenant, actor_id=uuid.uuid4())):
         result = conv.process_dossier_question_answer(
@@ -436,6 +463,12 @@ def test_cancel_after_retrieval_no_late_publish(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(conv, "get_message", lambda *a, **k: msg)
     monkeypatch.setattr(conv, "_signal_ai_enabled", lambda: False)
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: build_oracle_authority_block(
+            dossier_id=str(dossier), tenant_id=str(tenant), question="q"
+        ),
+    )
 
     with tenant_context(TenantContext(tenant_id=tenant, actor_id=uuid.uuid4())):
         result = conv.process_dossier_question_answer(
@@ -452,3 +485,288 @@ def test_cancel_after_retrieval_no_late_publish(monkeypatch: pytest.MonkeyPatch)
 
     assert result.get("cancelled") is True
     assert msg.status == "cancelled"
+
+
+def test_normalize_excludes_synthetic_and_incomplete() -> None:
+    assert _normalize_retrieval_item({"text": "x"}) is None
+    assert (
+        _normalize_retrieval_item(
+            {
+                "id": "1",
+                "text": "hello",
+                "source_ref": "synthetic://mock/1",
+                "checksum": "a" * 64,
+                "locator": "{}",
+                "policy_version": "memory.v1",
+                "watermark": "wm",
+            }
+        )
+        is None
+    )
+    assert (
+        _normalize_retrieval_item(
+            {
+                "id": "1",
+                "text": "hello",
+                "source_ref": "signal://doc/1",
+                # no checksum/version
+                "locator": "{}",
+                "policy_version": "memory.v1",
+                "watermark": "wm",
+            }
+        )
+        is None
+    )
+    ok = _normalize_retrieval_item(_item())
+    assert ok is not None
+    assert ok["source_ref"].startswith("signal://")
+
+
+def test_default_mode_fail_closed_not_augment(monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant = uuid.uuid4()
+    dossier = uuid.uuid4()
+    conversation = uuid.uuid4()
+    message_id = uuid.uuid4()
+    item = _item(tenant_id=str(tenant), dossier_id=str(dossier))
+
+    class NoModeAdapter:
+        # no effective_mode attribute
+        def retrieve(self, *a: Any, **k: Any) -> dict[str, Any]:
+            return {
+                "items": [item],
+                "coverage_manifest": {"requested": ["q"], "used": [], "failed": [], "excluded": []},
+                "policy_version": "memory.v1",
+            }
+
+    msg = SimpleNamespace(
+        id=message_id,
+        tenant_id=tenant,
+        dossier_id=dossier,
+        conversation_id=conversation,
+        role="user",
+        status="queued",
+        content_text="q",
+        answer_payload={},
+        coverage_manifest={},
+        error_code=None,
+        error_message=None,
+        background_job_id=None,
+    )
+    job = SimpleNamespace(
+        id=uuid.uuid4(), cancel_requested=False, correlation_id="c", attempt_count=1
+    )
+    session = MagicMock()
+    session.refresh = MagicMock()
+    session.flush = MagicMock()
+    session.get = MagicMock(return_value=None)
+
+    monkeypatch.setattr(conv, "get_message", lambda *a, **k: msg)
+    monkeypatch.setattr(conv, "append_audit_event", lambda *a, **k: None)
+    monkeypatch.setattr(conv, "_signal_ai_enabled", lambda: False)
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: build_oracle_authority_block(
+            dossier_id=str(dossier), tenant_id=str(tenant), question="q"
+        ),
+    )
+    monkeypatch.delenv("TESTING", raising=False)
+
+    with tenant_context(TenantContext(tenant_id=tenant, actor_id=uuid.uuid4())):
+        result = conv.process_dossier_question_answer(
+            session,
+            {
+                "message_id": str(message_id),
+                "conversation_id": str(conversation),
+                "dossier_id": str(dossier),
+            },
+            job,  # type: ignore[arg-type]
+            memory_adapter=NoModeAdapter(),
+            memory_mode=None,
+        )
+
+    assert result["memory_mode"] == "disabled"
+    assert result["allowed_evidence_ids"] == []
+    assert result["item_count"] == 0
+
+
+def test_persist_failure_excludes_from_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant = uuid.uuid4()
+    dossier = uuid.uuid4()
+    conversation = uuid.uuid4()
+    message_id = uuid.uuid4()
+    item = _item(tenant_id=str(tenant), dossier_id=str(dossier))
+
+    class AugmentAdapter:
+        effective_mode = "augment"
+
+        def retrieve(self, *a: Any, **k: Any) -> dict[str, Any]:
+            return {
+                "items": [item],
+                "items_for_prompt": [item],
+                "coverage_manifest": {"requested": ["q"], "used": [], "failed": [], "excluded": []},
+                "policy_version": "memory.v1",
+            }
+
+    msg = SimpleNamespace(
+        id=message_id,
+        tenant_id=tenant,
+        dossier_id=dossier,
+        conversation_id=conversation,
+        role="user",
+        status="queued",
+        content_text="q",
+        answer_payload={},
+        coverage_manifest={},
+        error_code=None,
+        error_message=None,
+        background_job_id=None,
+    )
+    job = SimpleNamespace(
+        id=uuid.uuid4(), cancel_requested=False, correlation_id="c", attempt_count=1
+    )
+    session = MagicMock()
+    session.refresh = MagicMock()
+    session.flush = MagicMock()
+    session.get = MagicMock(return_value=None)
+
+    monkeypatch.setattr(conv, "get_message", lambda *a, **k: msg)
+    monkeypatch.setattr(conv, "append_audit_event", lambda *a, **k: None)
+    monkeypatch.setattr(conv, "_signal_ai_enabled", lambda: False)
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: build_oracle_authority_block(
+            dossier_id=str(dossier), tenant_id=str(tenant), question="q"
+        ),
+    )
+
+    def _boom(*a: Any, **k: Any) -> list[str]:
+        raise RuntimeError("constraint missing")
+
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.persist_memory_signal_evidence",
+        _boom,
+    )
+
+    with tenant_context(TenantContext(tenant_id=tenant, actor_id=uuid.uuid4())):
+        result = conv.process_dossier_question_answer(
+            session,
+            {
+                "message_id": str(message_id),
+                "conversation_id": str(conversation),
+                "dossier_id": str(dossier),
+            },
+            job,  # type: ignore[arg-type]
+            memory_adapter=AugmentAdapter(),
+            memory_mode="augment",
+        )
+
+    assert result["allowed_evidence_ids"] == []
+    assert result["item_count"] == 0
+    assert result.get("degraded") is True
+    assert msg.answer_payload.get("citations") == []
+
+
+def test_load_oracle_authority_scopes_tenant_dossier() -> None:
+    """Observable repository: only tenant A + dossier A rows enter the authority block."""
+
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    dossier_a = uuid.uuid4()
+    dossier_b = uuid.uuid4()
+    intent_id = uuid.uuid4()
+    req_id = uuid.uuid4()
+    obj_id = uuid.uuid4()
+    dec_id = uuid.uuid4()
+    ev_a = uuid.uuid4()
+    ev_b = uuid.uuid4()
+
+    dossier_row = SimpleNamespace(
+        id=dossier_a,
+        tenant_id=tenant_a,
+        current_intent_revision_id=intent_id,
+    )
+    intent_row = SimpleNamespace(
+        id=intent_id,
+        tenant_id=tenant_a,
+        dossier_id=dossier_a,
+        status="accepted",
+        version=1,
+        schema_key="procurement",
+        schema_version="v1",
+        request_text="comprar",
+        structured_spec={"cpv": ["35400000"]},
+        content_hash="b" * 64,
+    )
+    req_row = SimpleNamespace(
+        id=req_id,
+        requirement_class="market",
+        priority=1,
+        question="quién gana?",
+        decision_to_support="bid",
+        created_at=None,
+    )
+    obj_row = SimpleNamespace(id=obj_id, title="objetivo A", status="open", position=0)
+    dec_row = SimpleNamespace(
+        id=dec_id, title="decisión A", status="proposed", rationale="porque", updated_at=None
+    )
+    ev_row_a = SimpleNamespace(
+        id=ev_a,
+        source_kind="document",
+        extract="evidencia A",
+        classification="internal",
+        checksum=b"\x01" * 32,
+        created_at=None,
+    )
+    # Tenant B evidence must never appear even if session is confused.
+    _ = SimpleNamespace(id=ev_b, tenant_id=tenant_b, dossier_id=dossier_b)
+
+    calls: list[str] = []
+
+    class _Scalars:
+        def __init__(self, rows: list[Any]) -> None:
+            self._rows = rows
+
+        def __iter__(self):
+            return iter(self._rows)
+
+    class _Session:
+        def scalar(self, stmt: Any) -> Any:
+            sql = str(stmt)
+            calls.append("scalar:" + sql[:80])
+            if "strategic_dossiers" in sql or "StrategicDossier" in type(stmt).__name__:
+                return dossier_row
+            # Intent accepted only for tenant_a/dossier_a
+            return intent_row
+
+        def scalars(self, stmt: Any) -> Any:
+            sql = str(stmt)
+            calls.append("scalars:" + sql[:80])
+            if "IntelligenceRequirement" in sql or "intelligence_requirements" in sql:
+                return _Scalars([req_row])
+            if "DossierOffering" in sql or "dossier_offerings" in sql:
+                return _Scalars([])
+            if "DossierObjective" in sql or "dossier_objectives" in sql:
+                return _Scalars([obj_row])
+            if "Decision" in sql or "decisions" in sql:
+                return _Scalars([dec_row])
+            if "Evidence" in sql or "evidence" in sql:
+                return _Scalars([ev_row_a])
+            return _Scalars([])
+
+    block = load_oracle_authority_from_session(
+        _Session(),
+        tenant_id=tenant_a,
+        dossier_id=dossier_a,
+        question="¿quién?",
+    )
+    assert block["intent"]["content_hash"] == "b" * 64
+    assert block["intent_hash"] == "b" * 64
+    assert block["requirements"][0]["id"] == str(req_id)
+    assert block["objectives"][0]["id"] == str(obj_id)
+    assert block["decisions"][0]["id"] == str(dec_id)
+    assert block["oracle_evidence"][0]["id"] == str(ev_a)
+    assert str(ev_b) not in str(block)
+    assert str(tenant_b) not in str(block.get("oracle_evidence"))
+    assert str(dossier_b) not in str(block)
+    assert block["authority_loaded"] is True
+    assert calls  # session was exercised (not a pure mock of the builder)

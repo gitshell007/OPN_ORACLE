@@ -137,6 +137,7 @@ def build_oracle_authority_block(
     requirements: Sequence[Any] | None = None,
     offering: Mapping[str, Any] | None = None,
     objectives: Sequence[Any] | None = None,
+    decisions: Sequence[Mapping[str, Any]] | None = None,
     oracle_evidence: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Oracle decisional authority — never mixed into Signal factual items."""
@@ -147,20 +148,211 @@ def build_oracle_authority_block(
         "dossier_id": str(dossier_id),
         "question": str(question),
         "intent": dict(intent or {}),
+        "intent_hash": str(
+            (intent or {}).get("content_hash") or (intent or {}).get("intent_hash") or ""
+        ),
         "requirements": list(requirements or []),
         "offering": dict(offering or {}),
         "objectives": list(objectives or []),
+        "decisions": [dict(item) for item in (decisions or [])],
         "oracle_evidence": [dict(item) for item in (oracle_evidence or [])],
         "untrusted_external": False,
+        "authority_loaded": bool(
+            intent or requirements or offering or objectives or decisions or oracle_evidence
+        ),
     }
+
+
+def load_oracle_authority_from_session(
+    session: Any,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    question: str,
+) -> dict[str, Any]:
+    """Load tenant+dossier-scoped Oracle authority from PostgreSQL (no mocks).
+
+    Includes accepted IntentRevision + hash, requirements, offering, objectives,
+    decisions, and Evidence rows linked via EvidenceDossier for this dossier only.
+    Rows belonging to other tenants/dossiers are excluded by WHERE clauses.
+    """
+
+    from sqlalchemy import select
+
+    from opn_oracle.oracle.intent import (
+        DossierIntentRevision,
+        DossierOffering,
+        IntelligenceRequirement,
+    )
+    from opn_oracle.oracle.links import EvidenceDossier
+    from opn_oracle.oracle.models import Decision, DossierObjective, Evidence, StrategicDossier
+
+    dossier = session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == tenant_id,
+        )
+    )
+    if dossier is None:
+        return build_oracle_authority_block(
+            dossier_id=str(dossier_id),
+            tenant_id=str(tenant_id),
+            question=question,
+        )
+
+    accepted_intent = None
+    if dossier.current_intent_revision_id is not None:
+        accepted_intent = session.scalar(
+            select(DossierIntentRevision).where(
+                DossierIntentRevision.id == dossier.current_intent_revision_id,
+                DossierIntentRevision.tenant_id == tenant_id,
+                DossierIntentRevision.dossier_id == dossier_id,
+                DossierIntentRevision.status == "accepted",
+            )
+        )
+
+    intent_payload: dict[str, Any] = {}
+    if accepted_intent is not None:
+        intent_payload = {
+            "id": str(accepted_intent.id),
+            "version": accepted_intent.version,
+            "schema_key": accepted_intent.schema_key,
+            "schema_version": accepted_intent.schema_version,
+            "request_text": accepted_intent.request_text,
+            "structured_spec": dict(accepted_intent.structured_spec or {}),
+            "content_hash": accepted_intent.content_hash,
+            "intent_hash": accepted_intent.content_hash,
+            "status": accepted_intent.status,
+        }
+
+    requirements: list[dict[str, Any]] = []
+    offering_payload: dict[str, Any] = {}
+    if accepted_intent is not None:
+        req_rows = list(
+            session.scalars(
+                select(IntelligenceRequirement)
+                .where(
+                    IntelligenceRequirement.tenant_id == tenant_id,
+                    IntelligenceRequirement.dossier_id == dossier_id,
+                    IntelligenceRequirement.intent_revision_id == accepted_intent.id,
+                    IntelligenceRequirement.status == "active",
+                )
+                .order_by(IntelligenceRequirement.priority, IntelligenceRequirement.created_at)
+                .limit(25)
+            )
+        )
+        requirements = [
+            {
+                "id": str(item.id),
+                "class": item.requirement_class,
+                "priority": item.priority,
+                "question": item.question,
+                "decision_to_support": item.decision_to_support,
+            }
+            for item in req_rows
+        ]
+        offerings = list(
+            session.scalars(
+                select(DossierOffering)
+                .where(
+                    DossierOffering.tenant_id == tenant_id,
+                    DossierOffering.dossier_id == dossier_id,
+                    DossierOffering.intent_revision_id == accepted_intent.id,
+                    DossierOffering.status == "active",
+                )
+                .order_by(DossierOffering.created_at)
+                .limit(5)
+            )
+        )
+        if offerings:
+            first = offerings[0]
+            offering_payload = {
+                "id": str(first.id),
+                "name": first.name,
+                "aliases": list(first.aliases or []),
+                "description": first.description,
+                "all": [
+                    {"id": str(o.id), "name": o.name, "description": o.description}
+                    for o in offerings
+                ],
+            }
+
+    objectives = [
+        {"id": str(item.id), "title": item.title, "status": item.status}
+        for item in session.scalars(
+            select(DossierObjective)
+            .where(
+                DossierObjective.tenant_id == tenant_id,
+                DossierObjective.dossier_id == dossier_id,
+            )
+            .order_by(DossierObjective.position)
+            .limit(15)
+        )
+    ]
+
+    decisions = [
+        {
+            "id": str(item.id),
+            "title": item.title,
+            "status": item.status,
+            "rationale": (item.rationale or "")[:500],
+        }
+        for item in session.scalars(
+            select(Decision)
+            .where(
+                Decision.tenant_id == tenant_id,
+                Decision.dossier_id == dossier_id,
+            )
+            .order_by(Decision.updated_at.desc())
+            .limit(15)
+        )
+    ]
+
+    evidence_ids = select(EvidenceDossier.evidence_id).where(
+        EvidenceDossier.tenant_id == tenant_id,
+        EvidenceDossier.dossier_id == dossier_id,
+    )
+    oracle_evidence = [
+        {
+            "id": str(row.id),
+            "source_kind": row.source_kind,
+            "extract": (row.extract or "")[:1200],
+            "classification": row.classification,
+            "checksum": row.checksum.hex() if row.checksum else None,
+        }
+        for row in session.scalars(
+            select(Evidence)
+            .where(
+                Evidence.id.in_(evidence_ids),
+                Evidence.tenant_id == tenant_id,
+                Evidence.source_kind.in_(
+                    ("signal", "document", "procurement", "entity_intel", "memory_signal")
+                ),
+            )
+            .order_by(Evidence.created_at.desc())
+            .limit(40)
+        )
+    ]
+
+    return build_oracle_authority_block(
+        dossier_id=str(dossier_id),
+        tenant_id=str(tenant_id),
+        question=question,
+        intent=intent_payload,
+        requirements=requirements,
+        offering=offering_payload,
+        objectives=objectives,
+        decisions=decisions,
+        oracle_evidence=oracle_evidence,
+    )
 
 
 def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     """Normalize a Signal retrieval item; return None if not citable.
 
-    Synthetic source_ref/locator/id are only filled when text is present and the
-    producer omitted provenance (legacy mock/deterministic fixtures). Items with
-    empty text remain non-citable and are excluded.
+    Items without verifiable source_ref, version-or-checksum, extract/text and
+    locator are excluded. Runtime never invents synthetic://mock, checksum or
+    locator — fixtures must supply them explicitly.
     """
 
     text = str(raw.get("text") or raw.get("extract") or "").strip()
@@ -168,24 +360,32 @@ def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
     item_id = str(raw.get("id") or "").strip()
     if not item_id:
-        item_id = "syn-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        return None
     source_ref = str(raw.get("source_ref") or "").strip()
-    if not source_ref:
-        # Legacy mock items without provenance: synthetic ref, still allowlist-bound.
-        source_ref = f"synthetic://mock/{item_id}"
+    if not source_ref or source_ref.startswith("synthetic://"):
+        return None
     checksum = str(raw.get("checksum") or "").strip()
+    source_version = str(raw.get("source_version") or raw.get("version") or "").strip()
+    # Require verifiable version-or-checksum; never invent either at runtime.
+    if not checksum and not source_version:
+        return None
     if not checksum:
-        checksum = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        # Explicit version without separate checksum: use version string as checksum key.
+        checksum = source_version
     locator = raw.get("locator")
     if isinstance(locator, dict):
         locator_s = json.dumps(locator, sort_keys=True, separators=(",", ":"))
     else:
         locator_s = str(locator or "").strip()
     if not locator_s:
-        locator_s = json.dumps({"synthetic": True, "id": item_id}, sort_keys=True)
+        return None
     classification = str(raw.get("classification") or "internal").strip() or "internal"
     if classification not in {"public", "internal"}:
         classification = "internal"
+    policy_version = str(raw.get("policy_version") or "").strip()
+    watermark = str(raw.get("watermark") or "").strip()
+    if not policy_version or not watermark:
+        return None
     return {
         "id": item_id,
         "text": text[:8000],
@@ -193,9 +393,9 @@ def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
         "checksum": checksum,
         "locator": locator_s,
         "classification": classification,
-        "policy_version": str(raw.get("policy_version") or "memory.v1"),
-        "watermark": str(raw.get("watermark") or "wm-synthetic"),
-        "source_version": str(raw.get("source_version") or raw.get("version") or checksum),
+        "policy_version": policy_version,
+        "watermark": watermark,
+        "source_version": source_version or checksum,
         "kind": str(raw.get("kind") or "chunk"),
         "score": raw.get("score"),
         "occurred_at": raw.get("occurred_at"),
@@ -304,7 +504,7 @@ def build_signal_factual_block(
 ) -> dict[str, Any]:
     """Signal factual evidence block. Shadow always has zero injectable items."""
 
-    inject = should_inject_into_llm(mode)  # type: ignore[arg-type]
+    inject = should_inject_into_llm(mode)
     items_for_prompt: list[dict[str, Any]] = []
     if inject:
         for c in citations:

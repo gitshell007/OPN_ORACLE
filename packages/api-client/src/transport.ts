@@ -2811,6 +2811,8 @@ export interface DossierMessage {
   error_code?: string | null;
   error_message?: string | null;
   created_at?: string | null;
+  /** Present when API serializes TimestampMixin.updated_at (dossier messages). */
+  updated_at?: string | null;
 }
 
 export interface CustomBriefAccepted {
