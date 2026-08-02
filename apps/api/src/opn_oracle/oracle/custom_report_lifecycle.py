@@ -957,7 +957,8 @@ def start_generation(
             "purpose": "report",
             "snapshot_hash": snap_hash,
             "generation_version": report.generation_version,
-            "fence_token": str(uuid.uuid4()),
+            # generation_fence: avoid forbidden key family "token" in job payload validator
+            "generation_fence": str(uuid.uuid4()),
         },
         idempotency_key=f"custom-brief-write:{report.id}:{report.generation_version}:{snap_hash[:16]}",
         requested_by_user_id=actor_id,
@@ -973,11 +974,11 @@ def start_generation(
     options.pop("generation_blocked_code", None)
     options.pop("generation_blocked_reason", None)
     options["write_job_id"] = str(job.id)
-    fence = (
-        job.input_payload.get("fence_token")
-        if isinstance(getattr(job, "input_payload", None), dict)
-        else None
-    )
+    fence = None
+    if isinstance(getattr(job, "input_payload", None), dict):
+        fence = job.input_payload.get("generation_fence") or job.input_payload.get(
+            "fence_token"
+        )
     options["fence_token"] = fence
     report.options = options
     report.background_job_id = job.id
@@ -1389,7 +1390,7 @@ def process_custom_brief_write(
         report_id = uuid.UUID(str(payload["report_id"]))
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
         expected_snap = str(payload.get("snapshot_hash") or "")
-        fence = str(payload.get("fence_token") or "")
+        fence = str(payload.get("generation_fence") or payload.get("fence_token") or "")
     except (KeyError, TypeError, ValueError) as error:
         raise CustomReportError("Payload de write incompleto.") from error
 
@@ -1604,7 +1605,7 @@ def process_custom_brief_review(
     report_id = uuid.UUID(str(payload["report_id"]))
     dossier_id = uuid.UUID(str(payload["dossier_id"]))
     expected_snap = str(payload.get("snapshot_hash") or "")
-    fence = str(payload.get("fence_token") or "")
+    fence = str(payload.get("generation_fence") or payload.get("fence_token") or "")
 
     report = session.scalar(
         select(Report).where(

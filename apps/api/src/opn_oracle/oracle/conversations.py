@@ -653,7 +653,45 @@ def process_dossier_question_answer(
         except Exception as error:  # pragma: no cover - defensive config
             raise ConversationError("No se pudo resolver el adaptador de memoria.") from error
 
-    raw_mode = memory_mode or payload.get("memory_mode") or getattr(adapter, "effective_mode", None)
+    # SV2-AUG: resolve dossier DMP mode (canary) before adapter default (shadow).
+    # Product mechanism: DossierMemoryProfile.mode via PUT /memory/profile.
+    profile_mode = None
+    profile_cfg: dict[str, Any] = {}
+    if memory_mode is None and not (
+        isinstance(payload, Mapping) and payload.get("memory_mode")
+    ):
+        try:
+            from sqlalchemy import select as sa_select
+
+            from opn_oracle.integrations.models import DossierMemoryProfile
+
+            dmp_rows = list(
+                session.scalars(
+                    sa_select(DossierMemoryProfile).where(
+                        DossierMemoryProfile.tenant_id == tenant_id,
+                        DossierMemoryProfile.dossier_id == dossier_id,
+                    )
+                ).all()
+            )
+            # Prefer IC-bound profile (connection_id set) for canary dossier.
+            dmp_rows.sort(key=lambda r: 0 if getattr(r, "connection_id", None) else 1)
+            for row in dmp_rows:
+                cfg = dict(row.profile_config or {})
+                m = str(cfg.get("mode") or row.mode or "").strip().lower()
+                if m in {"disabled", "shadow", "augment"}:
+                    profile_mode = m
+                    profile_cfg = cfg
+                    break
+        except Exception:
+            profile_mode = None
+            profile_cfg = {}
+
+    raw_mode = (
+        memory_mode
+        or (payload.get("memory_mode") if isinstance(payload, Mapping) else None)
+        or profile_mode
+        or getattr(adapter, "effective_mode", None)
+    )
     # Fail-closed: missing/unknown mode is never augment. Productive default is disabled
     # unless the adapter/profile supplies a validated shadow|augment mode.
     # mock-inject is only allowed behind explicit TESTING (Flask testing or env).
@@ -699,6 +737,17 @@ def process_dossier_question_answer(
         "job_id": str(job.id),
         "mode": effective_mode,
     }
+    if profile_cfg:
+        if profile_cfg.get("token_budget") is not None:
+            scope_hint["token_budget"] = profile_cfg.get("token_budget")
+        if profile_cfg.get("kinds"):
+            scope_hint["kinds"] = list(profile_cfg.get("kinds") or [])
+        if profile_cfg.get("sources"):
+            scope_hint["sources"] = list(profile_cfg.get("sources") or [])
+        if profile_cfg.get("classifications_allowed"):
+            scope_hint["classifications_allowed"] = list(
+                profile_cfg.get("classifications_allowed") or []
+            )
     snapshot_id = None
     items_observed: list[Any] = []
     coverage: dict[str, Any] = {}

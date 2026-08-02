@@ -1177,6 +1177,15 @@ class SignalGovernedLLMProvider:
         allowed_evidence_ids = [
             str(item) for item in request.context.get("allowed_evidence_ids", [])
         ]
+        # SV2-AUG: execute_agent nests dual-memory allowlist under requested_scope
+        if not allowed_evidence_ids:
+            scope = request.context.get("requested_scope")
+            if isinstance(scope, dict):
+                allowed_evidence_ids = [
+                    str(item)
+                    for item in (scope.get("allowed_evidence_ids") or [])
+                    if str(item).strip()
+                ]
         allowed_evidence_json = json.dumps(
             allowed_evidence_ids, ensure_ascii=False, separators=(",", ":")
         )
@@ -1188,6 +1197,7 @@ class SignalGovernedLLMProvider:
         )
         body: dict[str, Any] = {
             "task_key": request.agent,
+            "allowed_evidence_ids": allowed_evidence_ids,
             "input": {
                 "messages": [
                     {
@@ -1208,6 +1218,12 @@ class SignalGovernedLLMProvider:
                 ],
                 "format": "json",
                 "max_output_tokens": request.max_output_tokens,
+                "allowed_evidence_ids": allowed_evidence_ids,
+                "requested_scope": (
+                    request.context.get("requested_scope")
+                    if isinstance(request.context.get("requested_scope"), dict)
+                    else {"allowed_evidence_ids": allowed_evidence_ids}
+                ),
             },
         }
         started = time.monotonic()

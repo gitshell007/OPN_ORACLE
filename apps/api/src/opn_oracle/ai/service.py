@@ -959,7 +959,16 @@ def execute_agent(
         db.session.commit()
         provider = provider_from_config(current_app.config)
         result = provider.generate_structured(request, prompt.schema)
-        validate_evidence(cast(AgentOutput, result.output), {item.id for item in context.evidence})
+        allowed_evidence = {item.id for item in context.evidence}
+        # SV2-AUG: dual-memory allowlist lives in supplemental_context, not only
+        # build_context oracle evidence rows.
+        if agent == "dossier_question_answer" and supplemental_context:
+            for raw_id in supplemental_context.get("allowed_evidence_ids") or []:
+                try:
+                    allowed_evidence.add(uuid.UUID(str(raw_id)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+        validate_evidence(cast(AgentOutput, result.output), allowed_evidence)
     except Exception as error:
         fail(error, active_attempt_id=attempt_id)
         raise
