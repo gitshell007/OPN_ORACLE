@@ -41,9 +41,9 @@ SIGNAL_VERIFIED_RUNTIMES: dict[str, dict[str, str]] = {
     "RT-10": {
         "task_key": "report_custom_review",
         "runtime_id": "RT-10",
-        "prompt_sha256": "fdb147e840d6639ddb941ee1a3a043818c913d481f543a6bf4c85a9298beb7ac",
+        "prompt_sha256": "5c8d6f60454013757605306e24d3e00fae7c1a204c77639a7e398821454c6d07",
         "schema_sha256": "921c5a06ec686f975de01b0bec0556857cc1c2b2cc9e8121240d94c412a44710",
-        "prompt_version": "1.0.0",
+        "prompt_version": "1.0.1",
         "schema_version": "custom_report_review.v1",
     },
     "RT-12": {
