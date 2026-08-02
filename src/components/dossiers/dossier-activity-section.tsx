@@ -47,9 +47,13 @@ function formatWhen(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
+  // Formato corto de una sola línea (evita 3 saltos en la columna estrecha).
   return new Intl.DateTimeFormat("es-ES", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(date);
 }
 
@@ -173,7 +177,7 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
         )}
       </section>
 
-      <section className="vector-panel" aria-label="Listado de actividad">
+      <section className="full-bleed vector-panel" aria-label="Listado de actividad">
         {items.length === 0 ? (
           <p>No hay vigilancias ni trabajos en este expediente.</p>
         ) : (
@@ -181,25 +185,25 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
             <table className="dense-table">
               <thead>
                 <tr>
-                  <th scope="col">Tipo</th>
-                  <th scope="col">Título</th>
-                  <th scope="col">Estado</th>
-                  <th scope="col">Cadencia</th>
-                  <th scope="col">Próximo / último</th>
-                  <th scope="col">Error</th>
+                  <th scope="col" className="dense-col-type">Tipo</th>
+                  <th scope="col" className="dense-col-title">Título</th>
+                  <th scope="col" className="dense-col-status">Estado</th>
+                  <th scope="col" className="dense-col-cadence">Cadencia</th>
+                  <th scope="col" className="dense-col-when">Próximo / último</th>
+                  <th scope="col" className="dense-col-error">Error</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
                   <tr key={`${item.kind}-${item.id}`}>
-                    <td>{KIND_LABEL[item.kind] ?? item.kind}</td>
-                    <td>
+                    <td className="dense-col-type">{KIND_LABEL[item.kind] ?? item.kind}</td>
+                    <td className="dense-col-title">
                       <strong>{item.title}</strong>
                       {item.alignment_state === "needs_review" ? (
                         <span className="status warning"> Revisión de alcance</span>
                       ) : null}
                     </td>
-                    <td>
+                    <td className="dense-col-status">
                       <span
                         className={
                           item.product_state === "needs_attention"
@@ -212,13 +216,12 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
                         {STATE_LABEL[item.product_state] ?? item.product_state}
                       </span>
                     </td>
-                    <td>{item.cadence ?? "—"}</td>
-                    <td>
+                    <td className="dense-col-cadence">{item.cadence ?? "—"}</td>
+                    <td className="dense-col-when">
                       {formatWhen(item.next_run_at)}
-                      <br />
                       <small>{formatWhen(item.last_success_at ?? item.last_attempt_at)}</small>
                     </td>
-                    <td>{item.last_error ?? "—"}</td>
+                    <td className="dense-col-error">{item.last_error ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -434,9 +434,9 @@ export function ExportCenter({
               <thead>
                 <tr>
                   <th>Dataset</th>
-                  <th>Estado</th>
-                  <th>Creada</th>
-                  <th>Tamaño</th>
+                  <th className="report-col-status">Estado</th>
+                  <th className="report-col-date">Creada</th>
+                  <th className="report-col-size">Tamaño</th>
                   <th><span className="sr-only">Acciones</span></th>
                 </tr>
               </thead>
@@ -447,7 +447,7 @@ export function ExportCenter({
                       <strong>{datasetLabel[item.dataset as ExportDataset] ?? item.dataset}</strong>
                       <small>{item.columns.length} columnas</small>
                     </td>
-                    <td>
+                    <td className="report-col-status">
                       <span className={`report-status ${item.status}`}>
                         {item.status === "ready" && <Check size={13} />}
                         {exportStatusLabel[item.status]}
@@ -461,8 +461,8 @@ export function ExportCenter({
                         />
                       )}
                     </td>
-                    <td>{formatDateTime(item.created_at)}</td>
-                    <td>{formatBytes(item.byte_size)}</td>
+                    <td className="report-col-date">{formatDateTime(item.created_at)}</td>
+                    <td className="report-col-size">{formatBytes(item.byte_size)}</td>
                     <td>
                       {item.status === "ready" && (
                         <button
