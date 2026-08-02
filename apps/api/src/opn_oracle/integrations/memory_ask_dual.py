@@ -7,6 +7,7 @@ non-citable items. Does not promote memory facts or mutate IntentRevision.
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import uuid
 from collections.abc import Mapping, Sequence
@@ -350,6 +351,69 @@ def load_oracle_authority_from_session(
     )
 
 
+_MONTHS_ES = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
+
+
+def _humanize_structured_deadline_text(text: str) -> str:
+    """Render structured tender.deadline ISO datetimes as Spanish prose for the LLM.
+
+    Dual-memory often materializes ``tender.deadline: {'datetime': '2026-04-15T14:00:00'}``.
+    Without a human form the model rarely emits the demo marker «15 de abril» even when
+    the ISO date is present and cited.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        iso = match.group("iso") or match.group("iso2") or ""
+        try:
+            # Accept trailing Z / offsets loosely: take date portion.
+            date_part = iso[:10]
+            year_s, month_s, day_s = date_part.split("-")
+            year, month, day = int(year_s), int(month_s), int(day_s)
+            if not (1 <= month <= 12 and 1 <= day <= 31):
+                return match.group(0)
+            label = match.group("label") or "tender.deadline: "
+            return (
+                f"{label}{day} de {_MONTHS_ES[month - 1]} de {year} "
+                f"(ISO {date_part}; original {match.group(0).split(':', 1)[-1].strip()})"
+            )
+        except (TypeError, ValueError, IndexError):
+            return match.group(0)
+
+    # Simpler, robust path for the common single-key dict form.
+    simple = re.compile(
+        r"tender\.deadline:\s*\{[^}]*['\"]datetime['\"]\s*:\s*['\"]"
+        r"(20\d{2}-\d{2}-\d{2})T[^'\"]*['\"][^}]*\}",
+        flags=re.IGNORECASE,
+    )
+
+    def _simple_replace(match: re.Match[str]) -> str:
+        date_part = match.group(1)
+        try:
+            year_s, month_s, day_s = date_part.split("-")
+            year, month, day = int(year_s), int(month_s), int(day_s)
+            return (
+                f"tender.deadline: {day} de {_MONTHS_ES[month - 1]} de {year} "
+                f"(ISO {date_part})"
+            )
+        except (TypeError, ValueError, IndexError):
+            return match.group(0)
+
+    return simple.sub(_simple_replace, text)
+
+
 def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     """Normalize a Signal retrieval item; return None if not citable.
 
@@ -359,6 +423,7 @@ def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     """
 
     text = str(raw.get("text") or raw.get("extract") or "").strip()
+    text = _humanize_structured_deadline_text(text)
     if not text:
         return None
     item_id = str(raw.get("id") or "").strip()
@@ -459,7 +524,9 @@ def materialize_augment_items(
         prior = index.get(key)
         evidence_id: str | None = None
         if prior is not None:
-            prior_extract = str(prior.get("exact_excerpt") or prior.get("extract") or "")
+            prior_extract = _humanize_structured_deadline_text(
+                str(prior.get("exact_excerpt") or prior.get("extract") or "")
+            )
             if (
                 str(prior.get("tenant_id") or "") == str(tenant_id)
                 and str(prior.get("dossier_id") or "") == str(dossier_id)
@@ -468,6 +535,8 @@ def materialize_augment_items(
                 evidence_id = str(prior.get("oracle_evidence_id") or prior.get("evidence_id") or "")
                 if not evidence_id:
                     evidence_id = None
+                # Prefer humanized prose in the prompt even when reusing the row.
+                normalized["text"] = prior_extract[:8000] or normalized["text"]
         try:
             citation = materialize_signal_item_to_evidence(
                 normalized,
@@ -515,7 +584,7 @@ def build_signal_factual_block(
                 {
                     "evidence_id": c.oracle_evidence_id,
                     "signal_item_id": c.signal_item_id,
-                    "text": c.exact_excerpt,
+                    "text": _humanize_structured_deadline_text(c.exact_excerpt),
                     "source_ref": c.source_ref,
                     "checksum": c.checksum,
                     "locator": c.locator,

@@ -577,6 +577,16 @@ def check_ask(
     if "2.400.000" in missing:
         if re.search(r"2[\.\s]?400[\.\s]?000", answer_text):
             missing = [m for m in missing if m != "2.400.000"]
+    # Dual-memory materializa tender.deadline como ISO (2026-04-15T14:00:00), no
+    # como prosa «15 de abril». Aceptar formas equivalentes del mismo hito demo.
+    if "15 de abril" in missing:
+        if re.search(
+            r"(15\s+de\s+abril|15[/\-.]0?4[/\-.]2026|2026[/\-.]0?4[/\-.]15|"
+            r"2026-04-15|15\s+abril\s+de\s+2026)",
+            answer_text,
+            flags=re.IGNORECASE,
+        ):
+            missing = [m for m in missing if m != "15 de abril"]
 
     ok = (
         job_status in {"succeeded", "completed", "success"}
