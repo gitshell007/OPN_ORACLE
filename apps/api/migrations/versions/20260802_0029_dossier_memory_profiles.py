@@ -17,6 +17,29 @@ down_revision: str | None = "20260731_0028"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+TABLES = (
+    "dossier_memory_profiles",
+    "memory_retrieval_snapshots",
+)
+
+
+def _enable_rls(table: str) -> None:
+    """Match canonical tenant-table pattern (ENABLE+FORCE RLS, policy, oracle_app grants)."""
+    op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+    op.execute(
+        f"CREATE POLICY tenant_isolation ON {table} "
+        "USING (tenant_id=oracle_current_tenant()) "
+        "WITH CHECK (tenant_id=oracle_current_tenant())"
+    )
+    op.execute(
+        f"""
+        DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='oracle_app') THEN
+          GRANT SELECT,INSERT,UPDATE,DELETE ON {table} TO oracle_app;
+        END IF; END $$
+        """
+    )
+
 
 def upgrade() -> None:
     op.create_table(
@@ -98,8 +121,14 @@ def upgrade() -> None:
         "ix_mrs_tenant_dossier", "memory_retrieval_snapshots", ["tenant_id", "dossier_id"]
     )
 
+    for table in TABLES:
+        _enable_rls(table)
+
 
 def downgrade() -> None:
+    # Policies/grants drop with table; explicit policy drop for safety if table remains.
+    for table in TABLES:
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
     op.drop_index("ix_mrs_tenant_dossier", table_name="memory_retrieval_snapshots")
     op.drop_table("memory_retrieval_snapshots")
     op.drop_index(

@@ -271,6 +271,48 @@ def test_build_adapter_unknown_mode_fail_closed():
         build_memory_context_adapter("shadow")  # host mode shadow invalid
 
 
+_CHILD_STRIP_ENV = (
+    "ORACLE_RUN_INTEGRATION",
+    "TEST_DATABASE_URL",
+    "TEST_RUNTIME_DATABASE_URL",
+    "TEST_REDIS_URL",
+)
+
+
+def _child_env() -> dict[str, str]:
+    """Unit child must not inherit integration advisory-lock / DB session env."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(API_ROOT / "src")
+    for key in _CHILD_STRIP_ENV:
+        env.pop(key, None)
+    return env
+
+
+def _run_child(node: str) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=line",
+                "--no-cov",
+                node,
+            ],
+            cwd=str(API_ROOT),
+            env=_child_env(),
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"child pytest timed out for {node} (likely inherited integration env)"
+        ) from exc
+
+
 def test_mutation_strip_allowlist_red():
     path = API_ROOT / "src/opn_oracle/integrations/memory_http_client.py"
     original = path.read_text()
@@ -280,24 +322,9 @@ def test_mutation_strip_allowlist_red():
         raise MemoryHttpError("ssrf_blocked", "host not in allowlist", retryable=False)"""
     assert old in original
     path.write_text(original.replace(old, new, 1))
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(API_ROOT / "src")
     try:
-        red = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "--tb=line",
-                "tests/test_memory_mdev04_adapter.py::test_ssrf_blocks_non_allowlisted_host",
-            ],
-            cwd=str(API_ROOT),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
+        red = _run_child(
+            "tests/test_memory_mdev04_adapter.py::test_ssrf_blocks_non_allowlisted_host"
         )
         assert red.returncode != 0, red.stdout + red.stderr
     finally:
@@ -313,25 +340,8 @@ def test_mutation_strip_mode_gate_red():
     return True  # MUTATION"""
     assert old in original
     path.write_text(original.replace(old, new, 1))
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(API_ROOT / "src")
     try:
-        red = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "--tb=line",
-                "tests/test_memory_mdev04_adapter.py::test_modes_contract",
-            ],
-            cwd=str(API_ROOT),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
+        red = _run_child("tests/test_memory_mdev04_adapter.py::test_modes_contract")
         assert red.returncode != 0, red.stdout + red.stderr
     finally:
         path.write_text(original)
@@ -346,24 +356,9 @@ def test_mutation_strip_tenant_mismatch_red():
             raise MemoryContextError("credential_tenant_mismatch")"""
     assert old in original
     path.write_text(original.replace(old, new, 1))
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(API_ROOT / "src")
     try:
-        red = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "--tb=line",
-                "tests/test_memory_mdev04_adapter.py::test_http_adapter_tenant_mismatch_before_retrieval",
-            ],
-            cwd=str(API_ROOT),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
+        red = _run_child(
+            "tests/test_memory_mdev04_adapter.py::test_http_adapter_tenant_mismatch_before_retrieval"
         )
         assert red.returncode != 0, red.stdout + red.stderr
     finally:
