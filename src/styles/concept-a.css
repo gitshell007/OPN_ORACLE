@@ -2701,8 +2701,11 @@
   padding: 4px;
 }
 .vector-content {
-  padding: 24px 26px 70px;
-  max-width: 1700px;
+  padding-block: var(--space-6) var(--page-bottom);
+  padding-inline: var(--gutter);
+  /* box-sizing:border-box es global, asi que el max-width incluye el padding:
+     hay que sumar los dos gutters para que la columna util sea --content-max. */
+  max-width: calc(var(--content-max) + var(--gutter) * 2);
   margin: 0 auto;
 }
 .page-heading {
@@ -5049,7 +5052,7 @@ html[data-font-scale="small"] .workspace-chip strong {
   font-size: 11px;
 }
 [data-density="compact"] .vector-content {
-  padding-top: 18px;
+  padding-top: var(--space-4);
 }
 [data-density="compact"] .dossier-table td {
   height: 43px;
@@ -5065,7 +5068,7 @@ html[data-font-scale="small"] .workspace-chip strong {
   height: 66px;
 }
 [data-density="comfortable"] .vector-content {
-  padding-top: 32px;
+  padding-top: var(--space-7);
 }
 [data-density="comfortable"] .attention-strip > div {
   padding-block: 19px;
@@ -6073,8 +6076,8 @@ html[data-font-scale="small"] .workspace-chip strong {
     margin-left: auto;
   }
   .vector-content {
-    /* Gutter mínimo en móvil: evita texto a sangre sin inventar un contenedor nuevo */
-    padding: 17px 16px 72px;
+    /* Gutter minimo en movil: evita texto a sangre sin inventar un contenedor nuevo */
+    padding: var(--space-4) var(--gutter) var(--page-bottom);
   }
   .page-heading {
     display: block;
@@ -7698,4 +7701,155 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 .eu-country-error {
   color: var(--va-danger);
+}
+
+
+/* ==========================================================================
+   SV2-UI · Sistema de layout y navegación del expediente
+   Los breakpoints van literales: @media no acepta var().
+   ========================================================================== */
+@media (max-width: 1023px) { :root { --gutter: var(--gutter-md); } }
+@media (max-width: 640px)  { :root { --gutter: var(--gutter-sm); } }
+
+/* Escotilla para tablas anchas que necesitan todo el ancho disponible. */
+.vector-content > .full-bleed {
+  width: calc(100% + var(--gutter) * 2);
+  margin-inline: calc(var(--gutter) * -1);
+}
+
+/* Ritmo vertical uniforme de las páginas del expediente. */
+.dossier-page,
+.dossier-section-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.dossier-page > .back-link { margin-bottom: 0; }
+.dossier-page > .dossier-header { margin-bottom: 0; }
+
+/* --- Cabecera única de página ------------------------------------------- */
+.opn-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.opn-page-header__text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.opn-page-header__eyebrow {
+  color: var(--nav-muted);
+  font-size: var(--text-eyebrow);
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.opn-page-header__title {
+  margin: 0;
+  color: var(--va-text);
+  font-size: var(--text-h1);
+  line-height: var(--text-h1-lh);
+  letter-spacing: var(--text-h1-track);
+  font-weight: 760;
+}
+.opn-page-header__description {
+  margin: 0;
+  max-width: 78ch;
+  color: var(--va-muted);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+.opn-page-header__meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  color: var(--va-muted); font-size: var(--text-meta);
+}
+.opn-page-header__actions {
+  display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto;
+}
+
+/* --- Navegación de primer nivel ----------------------------------------- */
+.dossier-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--va-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.dossier-nav::-webkit-scrollbar { display: none; }
+.dossier-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--nav-h);
+  padding: 0 var(--space-3);
+  border-bottom: 2px solid transparent;
+  color: var(--nav-muted);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.dossier-nav__item:hover { color: var(--va-text); }
+.dossier-nav__item[data-active="true"] {
+  color: var(--va-primary);
+  border-bottom-color: var(--va-primary);
+}
+.dossier-nav__item:focus-visible {
+  outline: 2px solid var(--va-primary);
+  outline-offset: -2px;
+  border-radius: 4px 4px 0 0;
+}
+.dossier-nav-row .dossier-nav { flex: 1 1 auto; min-width: 0; }
+.dossier-nav__utility {
+  display: flex; align-items: center; gap: var(--space-2);
+  flex: 0 0 auto; padding-bottom: var(--space-2);
+}
+
+/* --- Sub-navegación contextual ------------------------------------------ */
+.dossier-subnav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  width: max-content;
+  max-width: 100%;
+  margin: var(--space-4) 0 var(--space-5);
+  padding: var(--space-1);
+  border: 1px solid var(--va-border);
+  border-radius: var(--va-radius);
+  background: var(--va-soft);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dossier-subnav::-webkit-scrollbar { display: none; }
+.dossier-subnav a {
+  display: inline-flex;
+  align-items: center;
+  height: var(--subnav-h);
+  padding: 0 var(--space-3);
+  border-radius: 4px;
+  color: var(--nav-muted);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.dossier-subnav a:hover { color: var(--va-text); }
+.dossier-subnav a[aria-current="page"] {
+  background: var(--va-panel);
+  color: var(--va-primary);
+  box-shadow: 0 1px 2px #0b1a3312;
+}
+.dossier-subnav a:focus-visible {
+  outline: 2px solid var(--va-primary);
+  outline-offset: 1px;
 }
