@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { entityRoute } from "@/lib/entity-route";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
+import { PageHeader } from "@/components/ui/page-header";
 import { ExportMenu } from "./exports";
 import { JobProgress } from "./job-progress";
 import { ReportDrawer } from "./report-viewer";
@@ -658,29 +659,24 @@ export function ReportLibrary({
   };
 
   return (
-    <div className="reporting-page report-library">
-      <header className="page-heading">
-        <div>
-          <span className="section-kicker">
-            {dossierId ? "Expediente · resultados trazables" : "Cartera · resultados trazables"}
-          </span>
-          <h1>{dossierId ? "Informes del expediente" : "Informes"}</h1>
-          <p>
-            Versiones auditables con hechos, inferencias, recomendaciones,
-            citas y artefactos inmutables.
-          </p>
-        </div>
-        <div className="report-library-actions">
-          <PermissionGate permission="export.create">
-            <ExportMenu dataset="reports" dossierId={dossierId} routeBase={routeBase} />
-          </PermissionGate>
-          <PermissionGate permission="report.generate">
-            <HydratedActionButton className="vector-primary" onClick={() => setWizardOpen(true)}>
-              <FilePlus2 size={16} /> Generar informe
-            </HydratedActionButton>
-          </PermissionGate>
-        </div>
-      </header>
+    <div className="reporting-page report-library dossier-section-page">
+      <PageHeader
+        eyebrow={dossierId ? "Entregables" : "Cartera"}
+        title="Informes"
+        description="Versiones auditables con hechos, inferencias, recomendaciones, citas y artefactos inmutables."
+        actions={
+          <div className="report-library-actions">
+            <PermissionGate permission="export.create">
+              <ExportMenu dataset="reports" dossierId={dossierId} routeBase={routeBase} />
+            </PermissionGate>
+            <PermissionGate permission="report.generate">
+              <HydratedActionButton className="vector-primary" onClick={() => setWizardOpen(true)}>
+                <FilePlus2 size={16} /> Generar informe
+              </HydratedActionButton>
+            </PermissionGate>
+          </div>
+        }
+      />
 
       {pendingEntityJobs.length > 0 && (
         <section className="vector-panel entity-pending-panel" aria-labelledby="entity-pending-title">

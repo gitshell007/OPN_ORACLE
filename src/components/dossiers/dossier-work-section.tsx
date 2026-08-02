@@ -28,6 +28,7 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } f
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
+import { PageHeader } from "@/components/ui/page-header";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { productLinkedResourceLabel } from "@/lib/product-copy";
 import { DossierActorCandidates } from "./dossier-actor-candidates";
@@ -77,28 +78,28 @@ const ACTOR_TYPE_LABELS: Record<string, string> = {
 
 const COPY = {
   actors: {
-    eyebrow: "Mapa relacional",
+    eyebrow: "Análisis",
     title: "Actores",
     description: "Personas, organizaciones e instituciones vinculadas al contexto estratégico.",
     create: "Nuevo actor",
     permission: "actor.write",
   },
   meetings: {
-    eyebrow: "Preparación y seguimiento",
+    eyebrow: "Decisión",
     title: "Reuniones",
     description: "Agenda, objetivo, estado y preparación trazable de cada encuentro.",
     create: "Nueva reunión",
     permission: "meeting.write",
   },
   tasks: {
-    eyebrow: "Trabajo operativo",
+    eyebrow: "Decisión",
     title: "Tareas",
     description: "Siguientes acciones priorizadas y conectadas con el expediente.",
     create: "Nueva tarea",
     permission: "task.write",
   },
   decisions: {
-    eyebrow: "Trazabilidad humana",
+    eyebrow: "Decisión",
     title: "Decisiones",
     description: "Propuestas y decisiones explícitas, separadas de hechos e inferencias.",
     create: "Registrar propuesta",
@@ -652,20 +653,22 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   }
 
   return (
-    <section className="vector-panel intelligence-section work-section" aria-labelledby={`${kind}-title`}>
-      <header className="intelligence-heading">
-        <div>
-          <span className="section-kicker">{copy.eyebrow}</span>
-          <h1 id={`${kind}-title`}>{copy.title}</h1>
-          <p>{copy.description}</p>
-        </div>
-        <PermissionGate permission={copy.permission}>
-          <HydratedActionButton className="vector-primary" type="button" onClick={() => void openCreate()}>
-            <Plus size={15} /> {copy.create}
-          </HydratedActionButton>
-        </PermissionGate>
-      </header>
+    <div className="dossier-section-page">
+      <PageHeader
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
+        id={`${kind}-title`}
+        actions={
+          <PermissionGate permission={copy.permission}>
+            <HydratedActionButton className="vector-primary" type="button" onClick={() => void openCreate()}>
+              <Plus size={15} /> {copy.create}
+            </HydratedActionButton>
+          </PermissionGate>
+        }
+      />
 
+      <section className="vector-panel intelligence-section work-section" aria-labelledby={`${kind}-title`}>
       {kind === "actors" && (
         <div className="segmented actor-view-switch" role="group" aria-label="Vista de actores">
           <button type="button" aria-pressed={actorView === "linked"} onClick={() => setActorView("linked")}>Actores vinculados</button>
@@ -821,6 +824,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
           </div></>}
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
-    </section>
+      </section>
+    </div>
   );
 }
