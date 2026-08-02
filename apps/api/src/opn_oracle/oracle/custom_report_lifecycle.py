@@ -1231,6 +1231,11 @@ def _invoke_rt09_writer_via_signal(
             "nunca se consume result crudo.",
             errors={"validated_output": ["missing"]},
         )
+    # RT-09 v1.0.1: arrays opcionales en el schema → normalizar ausentes a []
+    # (mismo contrato que normalize_brief_plan_output para RT-08).
+    for _key in ("citations", "facts", "claims", "conflicts", "inferences", "recommendations"):
+        if not isinstance(validated.get(_key), list):
+            validated[_key] = []
     # Bind usage once (no double-charge).
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
     return {
