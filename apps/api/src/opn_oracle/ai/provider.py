@@ -1416,6 +1416,16 @@ class SignalGovernedLLMProvider:
             validated_output_sha256=vo_hash,
         )
 
+    def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Public governed boundary for Signal `/api/v1/ai/run`.
+
+        Preserves request_id/run_id, usage, attempts, provider, model and fallback
+        metadata for durable audit bindings. Product code must call this instead of
+        the private ``_run`` transport helper.
+        """
+
+        return self._run(body)
+
     def _run(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
             response = httpx.post(

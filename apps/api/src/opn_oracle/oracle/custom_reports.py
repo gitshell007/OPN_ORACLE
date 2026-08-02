@@ -13,6 +13,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select, text
@@ -23,6 +24,13 @@ from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.models import Report, StrategicDossier
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.tenants.context import require_tenant_id
+
+
+def _iso_or_none(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return None
+
 
 CUSTOM_BRIEF_TEMPLATE_KEY = "custom_assistant_brief"
 CUSTOM_BRIEF_TEMPLATE_VERSION = "v1"
@@ -112,7 +120,22 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "requested_by_user_id": str(report.requested_by_user_id),
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
-        "ready_at": (report.ready_at.isoformat() if getattr(report, "ready_at", None) else None),
+        "ready_at": _iso_or_none(getattr(report, "ready_at", None)),
+        "generation_blocked": bool(
+            life.get("generation_blocked") or options.get("generation_blocked")
+        ),
+        "generation_blocked_code": (
+            life.get("generation_blocked_code") or options.get("generation_blocked_code")
+        ),
+        "generation_blocked_reason": (
+            life.get("generation_blocked_reason") or options.get("generation_blocked_reason")
+        ),
+        "accepted_degraded": bool(
+            life.get("accepted_degraded")
+            or options.get("accepted_degraded")
+            or str(life.get("lifecycle_state") or options.get("lifecycle_state") or "")
+            == "accepted_degraded"
+        ),
     }
 
 

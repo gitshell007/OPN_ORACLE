@@ -2876,6 +2876,10 @@ export interface CustomBriefDetail {
   accepted_snapshot_hash?: string | null;
   memory_degraded?: boolean;
   memory_degraded_reason?: string | null;
+  accepted_degraded?: boolean;
+  generation_blocked?: boolean;
+  generation_blocked_code?: string | null;
+  generation_blocked_reason?: string | null;
   coverage?: Record<string, unknown> | null;
   ready_artifact?: Record<string, unknown> | null;
   downloadable?: boolean;

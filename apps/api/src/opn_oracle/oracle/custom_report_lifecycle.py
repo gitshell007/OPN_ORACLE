@@ -23,6 +23,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from opn_oracle.jobs.service import stage_job
+from opn_oracle.oracle.custom_report_runtime_catalog import (
+    RuntimeCatalogError,
+    resolve_frozen_runtime_hashes,
+)
 from opn_oracle.oracle.custom_reports import (
     CustomReportConflict,
     CustomReportError,
@@ -40,6 +44,7 @@ LIFECYCLE_STATES = frozenset(
         "brief_draft",
         "plan_proposed",
         "plan_accepted",
+        "accepted_degraded",
         "generating",
         "reviewing",
         "ready",
@@ -52,9 +57,18 @@ LIFECYCLE_STATES = frozenset(
 _TRANSITIONS: dict[str, frozenset[str]] = {
     "brief_draft": frozenset({"plan_proposed", "cancelled", "failed"}),
     "plan_proposed": frozenset(
-        {"plan_accepted", "plan_proposed", "brief_draft", "cancelled", "failed"}
+        {
+            "plan_accepted",
+            "accepted_degraded",
+            "plan_proposed",
+            "brief_draft",
+            "cancelled",
+            "failed",
+        }
     ),
     "plan_accepted": frozenset({"generating", "cancelled", "failed"}),
+    # accepted_degraded: plan frozen but productive generation blocked (memory debt)
+    "accepted_degraded": frozenset({"cancelled", "failed"}),
     "generating": frozenset({"reviewing", "failed", "cancelled"}),
     "reviewing": frozenset({"ready", "failed", "cancelled"}),
     "ready": frozenset(),  # immutable; new version = new report generation
@@ -231,6 +245,7 @@ def serialize_lifecycle(report: Report) -> dict[str, Any]:
     lifecycle = _lifecycle_of(report)
     accepted = options.get("accepted_snapshot")
     artifact = options.get("ready_artifact")
+    generation_blocked = bool(options.get("generation_blocked") or lifecycle == "accepted_degraded")
     return {
         "id": str(report.id),
         "tenant_id": str(report.tenant_id),
@@ -257,6 +272,12 @@ def serialize_lifecycle(report: Report) -> dict[str, Any]:
         "memory_mode": (accepted or {}).get("memory_mode") if isinstance(accepted, dict) else None,
         "memory_degraded": bool(options.get("memory_degraded", False)),
         "memory_degraded_reason": options.get("memory_degraded_reason"),
+        "accepted_degraded": bool(
+            options.get("accepted_degraded") or lifecycle == "accepted_degraded"
+        ),
+        "generation_blocked": generation_blocked,
+        "generation_blocked_code": options.get("generation_blocked_code"),
+        "generation_blocked_reason": options.get("generation_blocked_reason"),
         "coverage": options.get("coverage"),
         "ready_artifact": artifact,
         "downloadable": bool(
@@ -274,25 +295,133 @@ def serialize_lifecycle(report: Report) -> dict[str, Any]:
         "etag": f'W/"{report.version}"',
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
-        "ready_at": report.ready_at.isoformat() if report.ready_at else None,
+        "ready_at": report.ready_at.isoformat() if report.ready_at is not None else None,
     }
 
 
 def _frozen_runtime_hashes(options: dict[str, Any]) -> dict[str, str]:
-    """Freeze real RT-08/09/10 hashes; never null on a generating accepted snapshot."""
+    """Freeze RT-08/09/10 hashes from contractual catalog only — never invent SHA seeds."""
 
-    def _h(key: str, fallback_seed: str) -> str:
-        raw = options.get(key)
-        if isinstance(raw, str) and len(raw) == 64 and all(c in "0123456789abcdef" for c in raw):
-            return raw
-        # Stable deterministic placeholder hash from seed (not null) when assets
-        # were not yet mirrored into Oracle; Signal still owns the live gate.
-        return hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()
+    try:
+        return resolve_frozen_runtime_hashes(options)
+    except RuntimeCatalogError as exc:
+        raise CustomReportError(
+            str(exc),
+            errors={"runtime": [exc.code], "code": [exc.code]},
+        ) from exc
 
+
+def _productive_generation_allowed(
+    snap: Mapping[str, Any],
+) -> tuple[bool, str, str]:
+    """Gate for productive writer enqueue. Fail-closed when memory is not durable.
+
+    Returns (allowed, code, reason).
+    """
+
+    mode = str(snap.get("memory_mode") or "").strip()
+    raw_policy = snap.get("memory_policy")
+    policy: dict[str, Any] = raw_policy if isinstance(raw_policy, dict) else {}
+    materialized = bool(policy.get("materialized"))
+    watermark = snap.get("watermark")
+    if mode != "durable":
+        return (
+            False,
+            "memory_not_durable",
+            "memory_mode != durable; generación productiva bloqueada (DUR-MDEV05-001)",
+        )
+    if not materialized:
+        return (
+            False,
+            "memory_not_materialized",
+            "Evidence durable no materializada; no se encola writer",
+        )
+    if watermark in (None, "", {}):
+        return (
+            False,
+            "memory_watermark_missing",
+            "Falta watermark de memoria durable; generación bloqueada",
+        )
+    # Evidence may be empty only when policy explicitly materialised empty set.
+    # With watermark + materialized, empty allowlist is permitted (no invent).
+    _ = bool(policy.get("empty_allowlist_ok"))
+    # Runtime hashes must be present (contractual).
+    runtime = snap.get("runtime_sha256")
+    if not isinstance(runtime, dict):
+        return False, "runtime_hash_missing", "runtime_sha256 ausente en snapshot"
+    for role in ("plan", "writer", "review"):
+        value = runtime.get(role)
+        if not (
+            isinstance(value, str)
+            and len(value) == 64
+            and all(c in "0123456789abcdef" for c in value.lower())
+        ):
+            return (
+                False,
+                "runtime_hash_missing",
+                f"Hash runtime {role} ausente o no contractual en snapshot",
+            )
+    return True, "", ""
+
+
+def _load_authoritative_intent_context(
+    session: Session,
+    *,
+    dossier: StrategicDossier,
+) -> dict[str, Any]:
+    """Read requirements/offering/intent from accepted revision entities — never client options."""
+
+    from opn_oracle.oracle.intent import (
+        get_current_intent,
+        list_offerings,
+        list_requirements,
+        serialize_intent_revision,
+        serialize_offering,
+        serialize_requirement,
+    )
+
+    intent = None
+    intent_ser: dict[str, Any] | None = None
+    requirements: list[dict[str, Any]] = []
+    offerings: list[dict[str, Any]] = []
+    try:
+        intent = get_current_intent(session, dossier.id)
+        if intent is not None:
+            intent_ser = serialize_intent_revision(intent)
+    except Exception:
+        intent = None
+        intent_ser = None
+    try:
+        requirements = [serialize_requirement(r) for r in list_requirements(session, dossier.id)]
+    except Exception:
+        requirements = []
+    try:
+        offerings = [serialize_offering(o) for o in list_offerings(session, dossier.id)]
+    except Exception:
+        offerings = []
+    intent_revision_id = (
+        str(intent_ser["id"])
+        if isinstance(intent_ser, dict) and intent_ser.get("id")
+        else (
+            str(dossier.current_intent_revision_id)
+            if getattr(dossier, "current_intent_revision_id", None) is not None
+            else None
+        )
+    )
+    # Prefer offering linked to current intent; else first active; else None.
+    offering: dict[str, Any] | None = None
+    for item in offerings:
+        if intent_revision_id and str(item.get("intent_revision_id") or "") == intent_revision_id:
+            offering = item
+            break
+    if offering is None and offerings:
+        offering = offerings[0]
     return {
-        "plan": _h("plan_runtime_sha256", "RT-08:report_custom_brief_plan:v1"),
-        "writer": _h("writer_runtime_sha256", "RT-09:report_custom_writer:v1"),
-        "review": _h("review_runtime_sha256", "RT-10:report_custom_review:v1"),
+        "intent_revision_id": intent_revision_id,
+        "intent": intent_ser,
+        "requirements": requirements,
+        "offering": offering,
+        "source": "authoritative_entities",
     }
 
 
@@ -330,17 +459,13 @@ def _build_accepted_snapshot(
         "prompt_version": "1.0.0",
         "schema_version": "custom_report.v1",
         "runtime_sha256": runtime_hashes,
+        "catalog_source": "signal_verified_manifests_contractual_v1",
     }
     # SHA of frozen plan text for integrity
     plan_canonical = json.dumps(accepted_plan, sort_keys=True, separators=(",", ":"))
     plan_sha = hashlib.sha256(plan_canonical.encode("utf-8")).hexdigest()
-    intent_revision_id = (
-        str(dossier.current_intent_revision_id)
-        if getattr(dossier, "current_intent_revision_id", None) is not None
-        else None
-    )
-    requirements = options.get("requirements") or []
-    offering = options.get("offering")
+    # AUTHORITY-MDEV08-010: never trust report.options client fields for these.
+    authority = _load_authoritative_intent_context(session, dossier=dossier)
     snapshot = {
         "kind": "custom_assistant_accepted_v1",
         "frozen_at": datetime.now(UTC).isoformat(),
@@ -348,9 +473,11 @@ def _build_accepted_snapshot(
         "report_id": str(report.id),
         "generation_version": report.generation_version,
         "dossier_id": str(dossier.id),
-        "intent_revision_id": intent_revision_id,
-        "requirements": requirements,
-        "offering": offering,
+        "intent_revision_id": authority["intent_revision_id"],
+        "intent": authority["intent"],
+        "requirements": authority["requirements"],
+        "offering": authority["offering"],
+        "authority_source": authority["source"],
         "brief_request": brief,
         "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
         "accepted_plan": accepted_plan,
@@ -366,10 +493,15 @@ def _build_accepted_snapshot(
         "prompt_schema_runtime": prompt_versions,
         "runtime_sha256": runtime_hashes,
     }
-    # Guarantee no null runtime hash on accepted snapshot that can generate.
+    # Guarantee no null/synthetic runtime hash on accepted snapshot.
     for k, v in runtime_hashes.items():
-        if not v:
-            raise CustomReportError(f"runtime hash {k} no puede ser null en snapshot aceptado.")
+        if not (
+            isinstance(v, str) and len(v) == 64 and all(c in "0123456789abcdef" for c in v.lower())
+        ):
+            raise CustomReportError(
+                f"runtime hash {k} no contractual en snapshot aceptado.",
+                errors={"runtime": ["runtime_hash_missing"], "code": ["runtime_hash_missing"]},
+            )
     return snapshot
 
 
@@ -389,7 +521,12 @@ def accept_plan(
     report = get_custom_brief(session, dossier_id=dossier_id, report_id=report_id)
     _require_if_match(report, expected_version)
     current = _lifecycle_of(report)
-    _assert_transition(current, "plan_accepted")
+    # Target may be plan_accepted or accepted_degraded depending on generation gate.
+    if current not in {"plan_proposed"} and (
+        "plan_accepted" not in _TRANSITIONS.get(current, frozenset())
+        and "accepted_degraded" not in _TRANSITIONS.get(current, frozenset())
+    ):
+        raise IllegalTransition(f"Transición ilegal: {current} → plan_accepted.")
 
     options = dict(report.options or {})
     proposed = plan_override or options.get("proposed_plan")
@@ -421,8 +558,12 @@ def accept_plan(
     snap_hash = _sha256(snapshot)
     snap_hash_hex = snap_hash.hex()
 
+    gen_ok, gen_code, gen_reason = _productive_generation_allowed(snapshot)
+    target_state = "plan_accepted" if gen_ok else "accepted_degraded"
+    _assert_transition(current, target_state)
+
     options["plan_status"] = "accepted"
-    options["lifecycle_state"] = "plan_accepted"
+    options["lifecycle_state"] = target_state
     options["accepted_plan"] = accepted_plan
     options["accepted_snapshot"] = snapshot
     options["accepted_snapshot_hash"] = snap_hash_hex
@@ -433,6 +574,14 @@ def accept_plan(
             "DUR-MDEV05-001: memoria durable no disponible; flujo degraded, "
             "allowlist vacía, sin store in-process"
         )
+    options["accepted_degraded"] = not gen_ok
+    options["generation_blocked"] = not gen_ok
+    if gen_ok:
+        options.pop("generation_blocked_code", None)
+        options.pop("generation_blocked_reason", None)
+    else:
+        options["generation_blocked_code"] = gen_code
+        options["generation_blocked_reason"] = gen_reason
     # Freeze runtime hashes onto options for audit.
     options["runtime_sha256"] = snapshot.get("runtime_sha256")
     report.options = options
@@ -441,8 +590,8 @@ def accept_plan(
     report.snapshot_hash_algorithm = SNAPSHOT_HASH_ALG
     report.version = int(report.version) + 1
     report.status = "draft"
-    report.error_code = None
-    report.error_message = None
+    report.error_code = None if gen_ok else gen_code
+    report.error_message = None if gen_ok else gen_reason[:500]
 
     append_audit_event(
         session,
@@ -458,11 +607,15 @@ def accept_plan(
             "memory_degraded": options["memory_degraded"],
             "memory_mode": snapshot.get("memory_mode"),
             "generation_version": report.generation_version,
+            "lifecycle_state": target_state,
+            "generation_blocked": not gen_ok,
+            "generation_blocked_code": None if gen_ok else gen_code,
         },
     )
     session.flush()
 
-    if auto_start_generation:
+    # DISABLED-MDEV08-009: never auto-start writer when memory is not durable.
+    if auto_start_generation and gen_ok:
         return start_generation(
             session,
             dossier_id=dossier_id,
@@ -570,13 +723,51 @@ def start_generation(
     if current == "generating":
         # idempotent
         return report
-    _assert_transition(current, "generating")
     options = dict(report.options or {})
-    if not options.get("accepted_snapshot"):
+    snap = options.get("accepted_snapshot")
+    if not isinstance(snap, dict):
         raise CustomReportError(
             "Snapshot no congelado: acepte el plan antes de generar.",
-            errors={"snapshot": ["accepted_snapshot required"]},
+            errors={
+                "snapshot": ["accepted_snapshot required"],
+                "code": ["snapshot_missing"],
+            },
         )
+    # Repeat generation gate on every start/retry path (no route/job bypass).
+    gen_ok, gen_code, gen_reason = _productive_generation_allowed(snap)
+    if not gen_ok:
+        options["lifecycle_state"] = "accepted_degraded"
+        options["accepted_degraded"] = True
+        options["generation_blocked"] = True
+        options["generation_blocked_code"] = gen_code
+        options["generation_blocked_reason"] = gen_reason
+        options["plan_status"] = "accepted"
+        report.options = options
+        report.status = "draft"
+        report.error_code = gen_code
+        report.error_message = gen_reason[:500]
+        report.version = int(report.version) + 1
+        append_audit_event(
+            session,
+            action="report.custom_brief.generation_blocked",
+            resource_type="report",
+            resource_id=report.id,
+            dossier_id=dossier_id,
+            result="denied",
+            request_id=request_id,
+            metadata={
+                "code": gen_code,
+                "reason": gen_reason,
+                "version": report.version,
+                "from_state": current,
+            },
+        )
+        session.flush()
+        raise CustomReportError(
+            gen_reason,
+            errors={"generation": [gen_code], "code": [gen_code]},
+        )
+    _assert_transition(current, "generating")
     # Fence: bind job to snapshot hash
     snap_hash = str(options.get("accepted_snapshot_hash") or "")
     job = stage_job(
@@ -598,12 +789,22 @@ def start_generation(
         max_attempts=3,
     )
     options["lifecycle_state"] = "generating"
+    options["generation_blocked"] = False
+    options["accepted_degraded"] = False
+    options.pop("generation_blocked_code", None)
+    options.pop("generation_blocked_reason", None)
     options["write_job_id"] = str(job.id)
-    fence = job.payload.get("fence_token") if isinstance(job.payload, dict) else None
+    fence = (
+        job.input_payload.get("fence_token")
+        if isinstance(getattr(job, "input_payload", None), dict)
+        else None
+    )
     options["fence_token"] = fence
     report.options = options
     report.background_job_id = job.id
     report.status = "generating"
+    report.error_code = None
+    report.error_message = None
     report.version = int(report.version) + 1
     append_audit_event(
         session,
@@ -836,7 +1037,8 @@ def _invoke_rt09_writer_via_signal(
         },
     }
     try:
-        payload = provider._run(body)
+        # Public governed boundary — never call private _run from product code.
+        payload = provider.run_governed(body)
     except AIUnavailable as exc:
         raise CustomReportError(
             f"Signal no disponible para RT-09: {exc}",
@@ -858,6 +1060,8 @@ def _invoke_rt09_writer_via_signal(
         "provider": payload.get("provider"),
         "model": payload.get("model"),
         "run_id": payload.get("run_id") or payload.get("request_id"),
+        "request_id": payload.get("request_id"),
+        "fallback_used": payload.get("fallback_used"),
         "usage": usage,
         "attempts": payload.get("attempts"),
     }
@@ -908,7 +1112,7 @@ def _invoke_rt10_review_via_signal(
         },
     }
     try:
-        payload = provider._run(body)
+        payload = provider.run_governed(body)
     except AIUnavailable as exc:
         raise CustomReportError(
             f"Signal no disponible para RT-10: {exc}",
@@ -928,8 +1132,65 @@ def _invoke_rt10_review_via_signal(
         "provider": payload.get("provider"),
         "model": payload.get("model"),
         "run_id": payload.get("run_id") or payload.get("request_id"),
+        "request_id": payload.get("request_id"),
+        "fallback_used": payload.get("fallback_used"),
         "usage": usage,
         "attempts": payload.get("attempts"),
+    }
+
+
+def _bind_ai_usage_once(
+    session: Session,
+    *,
+    report: Report,
+    job: BackgroundJob,
+    phase: str,
+    task_key: str,
+    runtime_id: str,
+    signal_meta: Mapping[str, Any] | None,
+    snapshot_hash: str,
+) -> dict[str, Any]:
+    """Persist a durable idempotent usage binding (retry/replay keeps one row)."""
+
+    from opn_oracle.oracle.custom_report_usage import upsert_report_ai_usage_binding
+
+    meta = dict(signal_meta or {})
+    run_id = str(meta.get("run_id") or getattr(job, "id", "") or "")
+    binding = upsert_report_ai_usage_binding(
+        session,
+        tenant_id=require_tenant_id(),
+        report_id=report.id,
+        job_id=getattr(job, "id", None),
+        phase=phase,
+        task_key=task_key,
+        runtime_id=runtime_id,
+        run_id=run_id,
+        request_id=str(meta.get("request_id") or getattr(job, "request_id", "") or "") or None,
+        provider=str(meta.get("provider") or "unknown"),
+        model=str(meta.get("model") or "unknown"),
+        fallback_used=bool(meta.get("fallback_used", False)),
+        snapshot_hash=snapshot_hash,
+        usage=(dict(meta["usage"]) if isinstance(meta.get("usage"), dict) else {}),
+        attempts=meta.get("attempts"),
+        validated_output_sha256=(
+            str(meta.get("validated_output_sha256"))
+            if meta.get("validated_output_sha256")
+            else None
+        ),
+    )
+    return {
+        "id": str(binding.id),
+        "phase": phase,
+        "task_key": task_key,
+        "runtime_id": runtime_id,
+        "run_id": run_id,
+        "provider": binding.provider,
+        "model": binding.model,
+        "usage": meta.get("usage"),
+        "attempts": meta.get("attempts"),
+        "snapshot_hash": snapshot_hash,
+        "job_id": str(getattr(job, "id", "") or ""),
+        "binding_id": str(binding.id),
     }
 
 
@@ -984,25 +1245,24 @@ def process_custom_brief_write(
     if lifecycle == "ready":
         return {"report_id": str(report.id), "dropped": True, "reason": "already_ready"}
 
-    # Refuse productive generation if snapshot claims durable without materialization
-    # (should not happen after accept, but fence against mutation).
-    # Still allow empty-allowlist durable only if policy says materialized empty.
-    if (
-        snap.get("memory_mode") == "durable"
-        and not (snap.get("allowlist") or snap.get("evidence_items"))
-        and not (snap.get("memory_policy") or {}).get("materialized")
-    ):
+    # Defense in depth: worker must re-check productive generation gate.
+    gen_ok, gen_code, gen_reason = _productive_generation_allowed(snap)
+    if not gen_ok:
         options["lifecycle_state"] = "failed"
+        options["generation_blocked"] = True
+        options["generation_blocked_code"] = gen_code
+        options["generation_blocked_reason"] = gen_reason
         report.options = options
         report.status = "failed"
-        report.error_code = "snapshot_not_authoritative"
-        report.error_message = "Snapshot declara durable sin Evidence materializada; fail-closed."
+        report.error_code = gen_code
+        report.error_message = gen_reason[:500]
         report.version = int(report.version) + 1
         session.flush()
         return {
             "report_id": str(report.id),
             "failed": True,
-            "reason": "snapshot_not_authoritative",
+            "reason": gen_code,
+            "error": gen_reason[:300],
         }
 
     signal_meta: dict[str, Any] | None = None
@@ -1074,21 +1334,30 @@ def process_custom_brief_write(
     options["writer_validated_output_sha256"] = (signal_meta or {}).get("validated_output_sha256")
     options["writer_signal_meta"] = signal_meta
     options["lifecycle_state"] = "reviewing"
-    # Link usage once to report/job/snapshot.
-    options["ai_usage_bindings"] = [
-        {
-            "phase": "writer",
-            "task_key": "report_custom_writer",
-            "runtime_id": "RT-09",
-            "run_id": (signal_meta or {}).get("run_id"),
-            "provider": (signal_meta or {}).get("provider"),
-            "model": (signal_meta or {}).get("model"),
-            "usage": (signal_meta or {}).get("usage"),
-            "attempts": (signal_meta or {}).get("attempts"),
-            "snapshot_hash": current_hash,
-            "job_id": str(job.id),
-        }
+    # Durable idempotent usage binding (retry keeps one effective row).
+    writer_binding = _bind_ai_usage_once(
+        session,
+        report=report,
+        job=job,
+        phase="writer",
+        task_key="report_custom_writer",
+        runtime_id="RT-09",
+        signal_meta=signal_meta,
+        snapshot_hash=current_hash,
+    )
+    bindings = list(options.get("ai_usage_bindings") or [])
+    # Keep JSONB mirror in sync without duplicating phase+run_id.
+    bindings = [
+        b
+        for b in bindings
+        if not (
+            isinstance(b, dict)
+            and b.get("phase") == "writer"
+            and str(b.get("run_id") or "") == str(writer_binding.get("run_id") or "")
+        )
     ]
+    bindings.append(writer_binding)
+    options["ai_usage_bindings"] = bindings
     report.options = options
     report.status = "generating"
     report.version = int(report.version) + 1
@@ -1250,32 +1519,39 @@ def process_custom_brief_review(
     options["review_output"] = review_output
     options["review_validated_output_sha256"] = review_meta.get("validated_output_sha256")
     options["review_signal_meta"] = review_meta
-    bindings = list(options.get("ai_usage_bindings") or [])
-    bindings.append(
-        {
-            "phase": "review",
-            "task_key": "report_custom_review",
-            "runtime_id": "RT-10",
-            "run_id": review_meta.get("run_id"),
-            "provider": review_meta.get("provider"),
-            "model": review_meta.get("model"),
-            "usage": review_meta.get("usage"),
-            "attempts": review_meta.get("attempts"),
-            "snapshot_hash": current_hash,
-            "job_id": str(job.id),
-        }
+    review_binding = _bind_ai_usage_once(
+        session,
+        report=report,
+        job=job,
+        phase="review",
+        task_key="report_custom_review",
+        runtime_id="RT-10",
+        signal_meta=review_meta,
+        snapshot_hash=current_hash,
     )
+    bindings = list(options.get("ai_usage_bindings") or [])
+    bindings = [
+        b
+        for b in bindings
+        if not (
+            isinstance(b, dict)
+            and b.get("phase") == "review"
+            and str(b.get("run_id") or "") == str(review_binding.get("run_id") or "")
+        )
+    ]
+    bindings.append(review_binding)
     options["ai_usage_bindings"] = bindings
 
     approved = bool(review_output.get("approved")) and bool(review_output.get("citations_ok", True))
     if not approved:
+        issues_raw = review_output.get("issues")
+        issues_list: list[Any] = issues_raw if isinstance(issues_raw, list) else []
         options["lifecycle_state"] = "failed"
         report.options = options
         report.status = "failed"
         report.error_code = "review_rejected"
         report.error_message = (
-            "Revisión RT-10 no aprobó el borrador: "
-            + ", ".join(str(x) for x in (review_output.get("issues") or [])[:5])
+            "Revisión RT-10 no aprobó el borrador: " + ", ".join(str(x) for x in issues_list[:5])
         )[:500]
         report.version = int(report.version) + 1
         session.flush()

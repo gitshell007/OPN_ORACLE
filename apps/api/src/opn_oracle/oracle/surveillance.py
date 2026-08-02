@@ -391,7 +391,7 @@ def count_jobs_for_actor_surveillance(
     )
     count = 0
     for job in jobs:
-        payload = job.payload if isinstance(getattr(job, "payload", None), dict) else {}
+        payload = job.input_payload if isinstance(getattr(job, "input_payload", None), dict) else {}
         action_hit = str(payload.get("surveillance_action_id") or "") in action_ids
         actor_id_match = str(payload.get("actor_id") or "") == str(actor_id)
         kind = str(payload.get("kind") or "")

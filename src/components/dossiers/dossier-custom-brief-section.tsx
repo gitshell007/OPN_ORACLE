@@ -53,6 +53,7 @@ const LIFE_LABEL: Record<string, string> = {
   brief_draft: "Brief en borrador",
   plan_proposed: "Plan propuesto",
   plan_accepted: "Plan aceptado (snapshot congelado)",
+  accepted_degraded: "Plan aceptado (generación bloqueada)",
   generating: "Generando informe",
   reviewing: "Revisando",
   ready: "Listo para descargar",
@@ -336,9 +337,17 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
               <dd>{detail?.version ?? "—"}</dd>
             </div>
           </dl>
-          {detail?.memory_degraded ? (
+          {detail?.memory_degraded || detail?.accepted_degraded || detail?.generation_blocked ? (
             <p role="status" className="muted">
-              Degradado: {detail.memory_degraded_reason || "memoria durable no disponible (MDEV-05)"}
+              {detail?.generation_blocked
+                ? `Generación bloqueada (${detail.generation_blocked_code || "blocked"}): ${
+                    detail.generation_blocked_reason ||
+                    detail.memory_degraded_reason ||
+                    "memoria durable no disponible (MDEV-05)"
+                  }`
+                : `Degradado: ${
+                    detail.memory_degraded_reason || "memoria durable no disponible (MDEV-05)"
+                  }`}
             </p>
           ) : null}
           {detail?.accepted_snapshot_hash ? (

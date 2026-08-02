@@ -23,10 +23,38 @@ from opn_oracle.oracle.custom_report_lifecycle import (
     process_custom_brief_write,
     reject_plan,
     serialize_lifecycle,
+    start_generation,
     validate_citations_against_snapshot,
 )
-from opn_oracle.oracle.custom_reports import CustomReportConflict
+from opn_oracle.oracle.custom_report_runtime_catalog import (
+    RuntimeCatalogError,
+    resolve_frozen_runtime_hashes,
+)
+from opn_oracle.oracle.custom_reports import CustomReportConflict, CustomReportError
 from opn_oracle.tenants.context import TenantContext, tenant_context
+
+
+def _catalog_runtime_hashes() -> dict[str, str]:
+    return resolve_frozen_runtime_hashes({})
+
+
+def _durable_snap(**overrides: Any) -> dict[str, Any]:
+    base = {
+        "allowlist": [],
+        "evidence_items": [],
+        "memory_mode": "durable",
+        "memory_policy": {
+            "materialized": True,
+            "in_process_forbidden": True,
+            "empty_allowlist_ok": True,
+        },
+        "watermark": "wm-test-v1",
+        "accepted_plan": {"sections": [{"id": "a", "title": "Resumen"}]},
+        "coverage": {"evidence_count": 0, "durable": True},
+        "runtime_sha256": _catalog_runtime_hashes(),
+    }
+    base.update(overrides)
+    return base
 
 
 def _report(**kwargs: Any) -> SimpleNamespace:
@@ -148,8 +176,13 @@ def test_accept_plan_freezes_snapshot_and_degrades_without_durable(
             auto_start_generation=False,
         )
 
-    assert out.options["lifecycle_state"] == "plan_accepted"
+    # Disabled memory → accepted_degraded, generation blocked, no writer job.
+    assert out.options["lifecycle_state"] == "accepted_degraded"
     assert out.options["plan_status"] == "accepted"
+    assert out.options["generation_blocked"] is True
+    assert out.options["accepted_degraded"] is True
+    assert out.options["generation_blocked_code"] == "memory_not_durable"
+    assert out.background_job_id is None
     snap = out.options["accepted_snapshot"]
     assert snap["memory_mode"] == "disabled"
     assert snap["memory_policy"]["in_process_forbidden"] is True
@@ -157,6 +190,11 @@ def test_accept_plan_freezes_snapshot_and_degrades_without_durable(
     assert out.options["memory_degraded"] is True
     assert out.options["accepted_snapshot_hash"]
     assert out.version == 3
+    # Contractual runtime hashes (never synthetic seeds)
+    assert all(len(v) == 64 for v in snap["runtime_sha256"].values())
+    assert snap["runtime_sha256"] == _catalog_runtime_hashes()
+    # Authority source is entities, not client options
+    assert snap.get("authority_source") == "authoritative_entities"
     # Changing memory env later must not rewrite frozen hash
     frozen_hash = out.options["accepted_snapshot_hash"]
     monkeypatch.setenv("MEMORY_DURABLE_STORE_READY", "1")
@@ -223,20 +261,9 @@ def test_writer_uses_frozen_snapshot_not_live_memory(
 ) -> None:
     tenant_id = uuid.uuid4()
     dossier_id = uuid.uuid4()
-    snap = {
-        "allowlist": [],
-        "memory_mode": "disabled",
-        "memory_policy": {"materialized": False, "in_process_forbidden": True},
-        "accepted_plan": {
-            "sections": [{"id": "a", "title": "Resumen"}],
-        },
-        "coverage": {"evidence_count": 0},
-        "runtime_sha256": {
-            "plan": "a" * 64,
-            "writer": "b" * 64,
-            "review": "c" * 64,
-        },
-    }
+    snap = _durable_snap(
+        accepted_plan={"sections": [{"id": "a", "title": "Resumen"}]},
+    )
     snap_hash = hashlib.sha256(b"snap").hexdigest()
     report = _report(
         tenant_id=tenant_id,
@@ -261,7 +288,7 @@ def test_writer_uses_frozen_snapshot_not_live_memory(
     review_job_id = uuid.uuid4()
     monkeypatch.setattr(
         "opn_oracle.oracle.custom_report_lifecycle.stage_job",
-        lambda *a, **k: SimpleNamespace(id=review_job_id, payload=k.get("payload") or {}),
+        lambda *a, **k: SimpleNamespace(id=review_job_id, input_payload=k.get("payload") or {}),
     )
     monkeypatch.setenv("TESTING", "1")
     job = SimpleNamespace(
@@ -400,20 +427,17 @@ def test_snapshot_flag_alone_does_not_declare_durable(
     assert snap["memory_policy"].get("flag_alone_insufficient") is True
     assert snap["allowlist"] == []
     assert snap["evidence_items"] == []
-    # Runtime hashes never null
-    assert all(snap["runtime_sha256"].values())
+    # Runtime hashes contractual (catalog), never null/synthetic seed
+    assert snap["runtime_sha256"] == _catalog_runtime_hashes()
     assert out.options["memory_degraded"] is True
+    assert out.options["lifecycle_state"] == "accepted_degraded"
+    assert out.options["generation_blocked"] is True
 
 
 def test_writer_does_not_call_inline_review(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id = uuid.uuid4()
     dossier_id = uuid.uuid4()
-    snap = {
-        "allowlist": [],
-        "memory_mode": "disabled",
-        "accepted_plan": {"sections": [{"id": "a", "title": "A"}]},
-        "coverage": {},
-    }
+    snap = _durable_snap(accepted_plan={"sections": [{"id": "a", "title": "A"}]})
     snap_hash = "d" * 64
     report = _report(
         tenant_id=tenant_id,
@@ -445,7 +469,7 @@ def test_writer_does_not_call_inline_review(monkeypatch: pytest.MonkeyPatch) -> 
     )
     monkeypatch.setattr(
         "opn_oracle.oracle.custom_report_lifecycle.stage_job",
-        lambda *a, **k: SimpleNamespace(id=uuid.uuid4(), payload={}),
+        lambda *a, **k: SimpleNamespace(id=uuid.uuid4(), input_payload={}),
     )
     monkeypatch.setenv("TESTING", "1")
     job = SimpleNamespace(
@@ -481,11 +505,7 @@ def test_ready_requires_review_approval(monkeypatch: pytest.MonkeyPatch) -> None
         status="generating",
         options={
             "lifecycle_state": "reviewing",
-            "accepted_snapshot": {
-                "allowlist": [],
-                "memory_mode": "disabled",
-                "coverage": {},
-            },
+            "accepted_snapshot": _durable_snap(coverage={}),
             "accepted_snapshot_hash": snap_hash,
             "accepted_plan": {"sections": [{"title": "A"}]},
             "writer_output": {
@@ -615,3 +635,318 @@ def test_serialize_lifecycle_downloadable_flag() -> None:
     assert body["downloadable"] is True
     assert body["etag"] == 'W/"9"'
     assert CUSTOM_WRITE_JOB.startswith("oracle.report")
+
+
+def test_accept_auto_start_blocked_when_memory_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DISABLED-MDEV08-009: auto_start with memory disabled must not enqueue writer."""
+
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        version=2,
+        options={
+            "plan_status": "proposed",
+            "lifecycle_state": "plan_proposed",
+            "brief_request": "x",
+            "proposed_plan": {"sections": [{"id": "a", "title": "A", "required": True}]},
+        },
+    )
+    dossier = SimpleNamespace(id=dossier_id, tenant_id=tenant_id, current_intent_revision_id=None)
+    session = MagicMock()
+    session.scalar.return_value = dossier
+    staged: list[Any] = []
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.get_custom_brief",
+        lambda *a, **k: report,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.append_audit_event",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.stage_job",
+        lambda *a, **k: staged.append(k) or SimpleNamespace(id=uuid.uuid4(), input_payload={}),
+    )
+    monkeypatch.delenv("MEMORY_DURABLE_STORE_READY", raising=False)
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
+        out = accept_plan(
+            session,
+            dossier_id=dossier_id,
+            report_id=report.id,
+            actor_id=actor_id,
+            expected_version=2,
+            auto_start_generation=True,
+        )
+    assert staged == []
+    assert out.background_job_id is None
+    assert out.options["lifecycle_state"] == "accepted_degraded"
+    assert out.options["generation_blocked"] is True
+    assert out.status != "generating"
+
+
+def test_start_generation_bypass_fails_when_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    snap = {
+        "memory_mode": "disabled",
+        "memory_policy": {"materialized": False},
+        "watermark": None,
+        "allowlist": [],
+        "runtime_sha256": _catalog_runtime_hashes(),
+    }
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        version=3,
+        options={
+            "lifecycle_state": "accepted_degraded",
+            "plan_status": "accepted",
+            "accepted_snapshot": snap,
+            "accepted_snapshot_hash": "a" * 64,
+            "generation_blocked": True,
+            "generation_blocked_code": "memory_not_durable",
+        },
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.get_custom_brief",
+        lambda *a, **k: report,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.append_audit_event",
+        lambda *a, **k: None,
+    )
+    staged: list[Any] = []
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.stage_job",
+        lambda *a, **k: staged.append(1) or SimpleNamespace(id=uuid.uuid4(), input_payload={}),
+    )
+    with (
+        tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)),
+        pytest.raises(CustomReportError) as exc,
+    ):
+        start_generation(
+            MagicMock(),
+            dossier_id=dossier_id,
+            report_id=report.id,
+            actor_id=actor_id,
+            expected_version=3,
+        )
+    assert staged == []
+    assert "memory_not_durable" in str(exc.value.errors)
+
+
+def test_runtime_hash_mismatch_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HASH-MDEV08-008: synthetic/mismatched hash is never accepted."""
+
+    with pytest.raises(RuntimeCatalogError) as exc:
+        resolve_frozen_runtime_hashes({"plan_runtime_sha256": "0" * 64})
+    assert exc.value.code == "runtime_hash_mismatch"
+
+    # Missing catalog entry fails closed (mutation of catalog).
+    broken = {
+        "RT-09": {
+            "task_key": "report_custom_writer",
+            "runtime_id": "RT-09",
+            "prompt_sha256": "a" * 64,
+            "schema_sha256": "b" * 64,
+            "runtime_sha256": "c" * 64,
+        }
+    }
+    with pytest.raises(RuntimeCatalogError) as exc2:
+        resolve_frozen_runtime_hashes({}, catalog=broken)  # type: ignore[arg-type]
+    assert exc2.value.code == "runtime_manifest_missing"
+
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        version=1,
+        options={
+            "lifecycle_state": "plan_proposed",
+            "plan_status": "proposed",
+            "proposed_plan": {"sections": [{"title": "A"}]},
+            "plan_runtime_sha256": "f" * 64,  # mismatch vs catalog
+        },
+    )
+    dossier = SimpleNamespace(id=dossier_id, tenant_id=tenant_id, current_intent_revision_id=None)
+    session = MagicMock()
+    session.scalar.return_value = dossier
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.get_custom_brief",
+        lambda *a, **k: report,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.append_audit_event",
+        lambda *a, **k: None,
+    )
+    with (
+        tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)),
+        pytest.raises(CustomReportError) as err,
+    ):
+        accept_plan(
+            session,
+            dossier_id=dossier_id,
+            report_id=report.id,
+            actor_id=actor_id,
+            expected_version=1,
+            auto_start_generation=False,
+        )
+    assert "runtime_hash_mismatch" in str(err.value.errors)
+
+
+def test_writer_rejects_disabled_memory_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker re-checks gate: disabled memory cannot produce ready artifact."""
+
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    snap = {
+        "memory_mode": "disabled",
+        "memory_policy": {"materialized": False},
+        "watermark": None,
+        "allowlist": [],
+        "accepted_plan": {"sections": [{"title": "A"}]},
+        "runtime_sha256": _catalog_runtime_hashes(),
+    }
+    snap_hash = "b" * 64
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        status="generating",
+        options={
+            "lifecycle_state": "generating",
+            "accepted_snapshot": snap,
+            "accepted_snapshot_hash": snap_hash,
+            "fence_token": "f",
+        },
+    )
+    session = MagicMock()
+    session.scalar.return_value = report
+    monkeypatch.setenv("TESTING", "1")
+    job = SimpleNamespace(cancel_requested=False, correlation_id="c", id=uuid.uuid4())
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        result = process_custom_brief_write(
+            session,
+            {
+                "report_id": str(report.id),
+                "dossier_id": str(dossier_id),
+                "snapshot_hash": snap_hash,
+                "fence_token": "f",
+            },
+            job,
+        )
+    assert result.get("failed") is True
+    assert result.get("reason") == "memory_not_durable"
+    assert report.status == "failed"
+    assert get_downloadable_artifact(report) is None
+
+
+def test_usage_binding_retry_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry with same run_id keeps a single effective binding (KPI one row)."""
+
+    from opn_oracle.oracle.custom_report_usage import (
+        ReportAIUsageBinding,
+        upsert_report_ai_usage_binding,
+    )
+
+    tenant_id = uuid.uuid4()
+    report_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    rows: dict[tuple[str, str], ReportAIUsageBinding] = {}
+
+    class _Sess:
+        def scalar(self, _q):
+            return rows.get(("writer", "run-same"))
+
+        def add(self, row):
+            key = (row.phase, row.run_id)
+            if not getattr(row, "id", None):
+                row.id = uuid.uuid4()
+            rows[key] = row
+
+        def flush(self) -> None:
+            return None
+
+    session = _Sess()
+    ids: list[uuid.UUID] = []
+    for _ in range(3):
+        binding = upsert_report_ai_usage_binding(
+            session,  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            report_id=report_id,
+            job_id=job_id,
+            phase="writer",
+            task_key="report_custom_writer",
+            runtime_id="RT-09",
+            run_id="run-same",
+            request_id="req-1",
+            provider="testing",
+            model="deterministic",
+            fallback_used=False,
+            snapshot_hash="a" * 64,
+            usage={"input_tokens": 1, "output_tokens": 2},
+            attempts=1,
+            validated_output_sha256="b" * 64,
+        )
+        ids.append(binding.id)
+    assert len(rows) == 1
+    assert len(set(ids)) == 1
+
+
+def test_authority_ignores_client_options_requirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    report = _report(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        version=2,
+        options={
+            "plan_status": "proposed",
+            "lifecycle_state": "plan_proposed",
+            "brief_request": "x",
+            "proposed_plan": {"sections": [{"id": "a", "title": "A"}]},
+            # Client-supplied — must be ignored in snapshot
+            "requirements": [{"question": "FAKE_CLIENT_REQUIREMENT"}],
+            "offering": {"name": "FAKE_CLIENT_OFFERING"},
+        },
+    )
+    dossier = SimpleNamespace(id=dossier_id, tenant_id=tenant_id, current_intent_revision_id=None)
+    session = MagicMock()
+    session.scalar.return_value = dossier
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.get_custom_brief",
+        lambda *a, **k: report,
+    )
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_report_lifecycle.append_audit_event",
+        lambda *a, **k: None,
+    )
+    monkeypatch.delenv("MEMORY_DURABLE_STORE_READY", raising=False)
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
+        out = accept_plan(
+            session,
+            dossier_id=dossier_id,
+            report_id=report.id,
+            actor_id=actor_id,
+            expected_version=2,
+            auto_start_generation=False,
+        )
+    snap = out.options["accepted_snapshot"]
+    assert snap["authority_source"] == "authoritative_entities"
+    assert snap["requirements"] == []
+    assert snap["offering"] is None
+    assert "FAKE_CLIENT" not in str(snap)
