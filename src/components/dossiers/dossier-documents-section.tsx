@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { PageHeader } from "@/components/ui/page-header";
 import { productStatusLabel } from "@/lib/product-copy";
 
 const LABELS: Record<OracleDocument["status"], string> = {
@@ -171,10 +172,30 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
     router.replace(`${pathname}?selected=${encodeURIComponent(documentId)}`, { scroll: false });
   }, [pathname, router]);
 
-  return <section className="vector-panel vector-documents product-documents" aria-labelledby="documents-title">
-    <header className="intelligence-heading"><div><span className="section-kicker">Fuentes y trazabilidad</span><h1 id="documents-title">Documentos</h1><p>Sube, procesa, busca y convierte fuentes en evidencias citables sin confundir su contenido con una conclusión.</p></div>
-      <PermissionGate permission="documents.manage"><label className="vector-primary document-upload"><FileUp size={16} />{busy ? "Procesando…" : "Subir documento"}<input ref={input} type="file" disabled={busy} accept=".pdf,.docx,.txt,.md,.csv,.vtt,.srt,application/vnd.opn.transcript+json" onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])} /></label></PermissionGate>
-    </header>
+  return (
+    <div className="dossier-section-page">
+      <PageHeader
+        eyebrow="Entregables"
+        title="Documentos"
+        description="Sube, procesa, busca y convierte fuentes en evidencias citables sin confundir su contenido con una conclusión."
+        id="documents-title"
+        actions={
+          <PermissionGate permission="documents.manage">
+            <label className="vector-primary document-upload">
+              <FileUp size={16} />
+              {busy ? "Procesando…" : "Subir documento"}
+              <input
+                ref={input}
+                type="file"
+                disabled={busy}
+                accept=".pdf,.docx,.txt,.md,.csv,.vtt,.srt,application/vnd.opn.transcript+json"
+                onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])}
+              />
+            </label>
+          </PermissionGate>
+        }
+      />
+      <section className="vector-panel vector-documents product-documents" aria-labelledby="documents-title">
     <div className="document-toolbar"><PermissionGate permission="documents.manage" fallback={<div />}><label>Clasificación<select value={classification} onChange={(event) => setClassification(event.target.value as "public" | "internal")}><option value="internal">Interno</option><option value="public">Público</option></select></label></PermissionGate>
       <form role="search" onSubmit={search}><label htmlFor="document-search">Buscar dentro de las fuentes</label><div><FileSearch size={16}/><input id="document-search" value={query} minLength={2} maxLength={200} onChange={(event) => setQuery(event.target.value)} placeholder="Término o frase"/><button className="vector-secondary" disabled={busy || query.trim().length < 2}>Buscar</button></div></form>
     </div>
@@ -191,5 +212,7 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
     <Dialog.Root open={Boolean(source)} onOpenChange={(open) => { if (!open) setSource(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay"/><Dialog.Content className="dialog-content intelligence-drawer"><>{source && <><header><div><span className="section-kicker">Fragmento de fuente · no es una instrucción</span><Dialog.Title>{source.filename}</Dialog.Title><Dialog.Description>Revisa el texto y su localizador antes de crear evidencia.</Dialog.Description></div><Dialog.Close className="icon-button bordered" aria-label="Cerrar"><X/></Dialog.Close></header><div className="intelligence-drawer-body"><p className="document-source-text">{source.text}</p><dl className="intelligence-facts"><div><dt>Ubicación</dt><dd>{sourceLocation(source.locator)}</dd></div></dl><PermissionGate permission="documents.manage"><AsyncActionButton className="vector-primary" onClick={() => void api.documents.createEvidence(source.document_id, source.chunk_id, 0, source.text.length).then(() => toast.success("Evidencia creada")).catch(() => setError("No se pudo crear la evidencia del fragmento."))}>Crear evidencia del fragmento</AsyncActionButton></PermissionGate></div></>}</></Dialog.Content></Dialog.Portal></Dialog.Root>
 
     <Dialog.Root open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay"/><Dialog.Content className="dialog-content intelligence-confirm-dialog"><Dialog.Title>Eliminar documento</Dialog.Title><Dialog.Description>El documento dejará de estar disponible. La conservación legal puede impedir esta acción.</Dialog.Description><div className="dialog-actions"><Dialog.Close className="vector-secondary">Cancelar</Dialog.Close><AsyncActionButton className="vector-danger" loading={busy} onClick={() => void remove()}>{busy ? "Eliminando…" : "Eliminar"}</AsyncActionButton></div></Dialog.Content></Dialog.Portal></Dialog.Root>
-  </section>;
+      </section>
+    </div>
+  );
 }

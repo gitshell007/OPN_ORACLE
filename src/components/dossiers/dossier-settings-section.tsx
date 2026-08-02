@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EuCountryMultiSelect } from "@/components/ui/eu-country-multiselect";
+import { PageHeader } from "@/components/ui/page-header";
 import { productStatusLabel } from "@/lib/product-copy";
 
 const errorText = (reason: unknown, fallback: string) =>
@@ -342,8 +343,12 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
     archived: [["archived", "Archivado"]],
   };
   return (
-    <div className="dossier-settings-product">
-      <section className="page-heading"><div><div className="eyebrow">Gestión del expediente</div><h1>Configuración</h1><p>Define el objetivo, el estado, lo que quieres vigilar y cuándo archivarlo.</p></div></section>
+    <div className="dossier-settings-product dossier-section-page">
+      <PageHeader
+        eyebrow="Gestión del expediente"
+        title="Configuración"
+        description="Define el objetivo, el estado, lo que quieres vigilar y cuándo archivarlo."
+      />
       {error && <div className="inline-error" role="alert">{error}<button onClick={() => setError(null)}>Cerrar</button></div>}
       <PermissionGate permission="dossier.write" fallback={<p className="reporting-hint">Configuración en modo lectura por permisos.</p>}>
         <form className="settings-section dossier-settings-form" onSubmit={save}>
