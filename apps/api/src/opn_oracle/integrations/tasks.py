@@ -159,6 +159,27 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
                 connection.last_success_at = datetime.now(UTC)
                 connection.last_error = None
                 connection.status = "active"
+            elif str(event.event_type or "").startswith("memory.bilateral."):
+                from opn_oracle.integrations.memory_outbox import (
+                    publish_memory_bilateral_envelope,
+                )
+
+                payload = event.payload if isinstance(event.payload, dict) else {}
+                envelope = payload.get("envelope")
+                if not isinstance(envelope, dict):
+                    return _mark_permanent_outbox_failure(
+                        event_id=event_uuid,
+                        tenant_id=tenant_uuid,
+                        error_code="memory_envelope_missing",
+                    )
+                target = str(
+                    payload.get("target_path") or "/api/v1/memory/v1/ingest/bilateral"
+                )
+                publish_memory_bilateral_envelope(
+                    connection=connection,
+                    envelope=envelope,
+                    target_path=target,
+                )
             else:
                 raise ValueError("Tipo de evento outbox no soportado.")
         except SignalTemporaryError as exc:

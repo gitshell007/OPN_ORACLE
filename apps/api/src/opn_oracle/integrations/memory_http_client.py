@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 DEFAULT_ALLOWED_HOSTS = frozenset(
     {
         "signal.opnconsultoria.com",
+        "signal-dev.opnconsultoria.com",
         "localhost",
         "127.0.0.1",
         "host.docker.internal",
@@ -419,6 +420,67 @@ class SignalMemoryHttpClient:
         if not isinstance(data, dict):
             raise MemoryHttpError("invalid_json", "health not object", retryable=False)
         return data
+
+    def post_json(
+        self,
+        path: str,
+        *,
+        external_tenant_id: str,
+        dossier_id: str | None = None,
+        body: dict[str, Any],
+        correlation_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """Generic authenticated JSON POST for memory write paths (bilateral/durable ingest)."""
+        if not str(external_tenant_id or "").strip():
+            raise MemoryHttpError("tenant_required", "external tenant required", retryable=False)
+        if not path.startswith("/"):
+            path = f"/{path}"
+        corr = correlation_id or f"ora_w_{uuid.uuid4().hex[:16]}"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-API-Key": self.config.api_token,
+            "X-OPN-External-Tenant-ID": str(external_tenant_id).strip(),
+            "X-Request-ID": corr,
+            "X-Correlation-ID": corr,
+        }
+        if dossier_id:
+            headers["X-OPN-Dossier-ID"] = str(dossier_id)
+        if idempotency_key:
+            headers["Idempotency-Key"] = str(idempotency_key)[:200]
+        status, _hdrs, raw = self._request_with_retry(
+            "POST", path, headers=headers, json_body=body
+        )
+        if len(raw) > self.config.max_bytes:
+            raise MemoryHttpError("body_too_large", "response exceeds max bytes", retryable=False)
+        data: dict[str, Any]
+        if not raw:
+            data = {}
+        else:
+            try:
+                parsed = json.loads(raw.decode("utf-8"))
+            except Exception as exc:
+                raise MemoryHttpError("invalid_json", "response not JSON", retryable=False) from exc
+            data = parsed if isinstance(parsed, dict) else {"value": parsed}
+        if status >= 500:
+            raise MemoryHttpError(
+                "upstream_error",
+                f"memory write status={status}",
+                http_status=status,
+                retryable=True,
+            )
+        if status >= 400:
+            code = str(data.get("error_code") or data.get("code") or "upstream_error")
+            # bilateral flags OFF → 503 disabled: retryable until ops enable flags
+            retryable = status in {408, 425, 429, 503} or "disabled" in code
+            raise MemoryHttpError(
+                code,
+                f"memory write status={status}",
+                http_status=status,
+                retryable=retryable,
+            )
+        return status, data
 
 
 class HttpxTransport:

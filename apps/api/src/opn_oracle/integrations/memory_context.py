@@ -189,6 +189,19 @@ class HttpMemoryContextAdapter:
         # external tenant string is Oracle tenant slug/key from scope
         external = str(scope.get("external_tenant_id") or "").strip()
         if not external:
+            # Fallback from IC metadata (Ask/scope often omit header tenant).
+            meta = (
+                conn.connection_metadata
+                if isinstance(getattr(conn, "connection_metadata", None), dict)
+                else {}
+            )
+            external = str(
+                meta.get("external_tenant_id")
+                or meta.get("signal_external_tenant_id")
+                or conn.tenant_id
+                or ""
+            ).strip()
+        if not external:
             raise MemoryContextError("external_tenant_id required")
         return client, external
 

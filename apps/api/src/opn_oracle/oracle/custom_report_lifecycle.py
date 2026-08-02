@@ -634,7 +634,7 @@ def _build_accepted_snapshot(
         "runtime_plan": "RT-08",
         "runtime_writer": "RT-09",
         "runtime_review": "RT-10",
-        "prompt_version": "1.0.0",
+        "prompt_version": "1.0.1",
         "schema_version": "custom_report.v1",
         "runtime_sha256": runtime_hashes,
         "catalog_source": "signal_verified_manifests_contractual_v1",
