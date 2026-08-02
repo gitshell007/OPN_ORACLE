@@ -189,7 +189,7 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
       />
 
       <section className="vector-panel" aria-label="Resumen de actividad">
-        <dl className="placeholder-contract">
+        <dl className="placeholder-contract is-metrics">
           <div>
             <dt>Total</dt>
             <dd>{data.summary.total}</dd>

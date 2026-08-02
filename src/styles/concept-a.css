@@ -8007,3 +8007,24 @@ html[data-font-scale="small"] .workspace-chip strong {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+
+/* Tira de métricas: cifras cortas, no párrafos. La rejilla de dos columnas de
+   .placeholder-contract deja huérfano el último dato cuando son impares y gasta
+   media pantalla en cinco números. Modificador, no cambio global: esa clase la
+   comparten cuatro componentes con contenido largo. */
+.placeholder-contract.is-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.placeholder-contract.is-metrics > div {
+  padding: var(--space-3) var(--space-4);
+}
+.placeholder-contract.is-metrics dd {
+  margin-top: var(--space-1);
+  font-size: 22px;
+  font-weight: 720;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
