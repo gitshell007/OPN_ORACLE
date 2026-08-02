@@ -1,0 +1,53 @@
+ORACLE_RC 0
+ORACLE_ERR 
+TOKEN_META ['FP 8bae98b6558a9d95e71ab6e9aad503e6', 'SHA16 70a69b584cbbef9c']
+SIG_RC 0
+{"cms": {"enabled": true, "kill_switch": false, "version": 6, "etag": "W/\"cms-mdev10-v6\""}, "is_active": true}
+
+SIG_RC 0
+{"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+BEFORE {"cms": {"enabled": true, "kill_switch": false, "version": 6, "etag": "W/\"cms-mdev10-v6\""}, "is_active": true}
+ {"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+SANO retrieve 200
+SANO freeze 200 wm wm_338b875d3c21430b n 3 {'api_version': 'memory.v1', 'kind': 'materialized_freeze.v1', 'tenant_id': 'mdev10-canary-tenant', 'dossier_id': '726bfb3d-090e-470b-b343-596cf5604ed6', 'watermark': 'wm_338b875d3
+SANO effective 200 {'schema_version': 'consumer_memory_settings.v1', 'etag': 'W/"cms-mdev10-v6"', 'enabled': True, 'kill_switch': False, 'allowed_external_tenant_ids': [], 'stages': {'ingest': False, 'extract': False, 'consolidate': False, 'summaries': False, 'retrieve
+SET KILL
+SIG_RC 0
+{"enabled": true, "kill_switch": true, "version": 7, "etag": "W/\"cms-mdev11-v7-kill\""}
+
+{"enabled": true, "kill_switch": true, "version": 7, "etag": "W/\"cms-mdev11-v7-kill\""}
+
+SIG_RC 0
+{"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+COUNTS_KILL {"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+KILL ingest 503 consumer_memory_disabled {'error_code': 'consumer_memory_disabled', 'http_status': 503, 'retryable': False, 'message': 'consumer_memory_disabled'
+KILL retrieve 503 consumer_memory_disabled {'error_code': 'consumer_memory_disabled', 'http_status': 503, 'retryable': False, 'message': 'consumer_memory_disabled'
+KILL freeze 503 consumer_memory_disabled {'error_code': 'consumer_memory_disabled', 'http_status': 503, 'retryable': False, 'message': 'consumer_memory_disabled'
+SIG_RC 0
+{"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+COUNTS_AFTER_KILL {"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+RESTORE
+SIG_RC 0
+{"enabled": true, "kill_switch": false, "version": 8, "etag": "W/\"cms-mdev11-v8-restore\""}
+
+{"enabled": true, "kill_switch": false, "version": 8, "etag": "W/\"cms-mdev11-v8-restore\""}
+
+SIG_RC 0
+{"cms": {"enabled": true, "kill_switch": false, "version": 8, "etag": "W/\"cms-mdev11-v8-restore\""}, "is_active": true}
+
+AFTER CMS {"cms": {"enabled": true, "kill_switch": false, "version": 8, "etag": "W/\"cms-mdev11-v8-restore\""}, "is_active": true}
+
+RESTORE retrieve 200 None n 3 wm wm_338b875d3c21430b
+RESTORE freeze 200 None wm wm_338b875d3c21430b store signal_memory_v1_postgresql
+SIG_RC 0
+{"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+FINAL COUNTS {"memory_sources": 3, "memory_chunks": 3, "memory_observations": 2, "memory_facts": 0, "memory_summaries": 0, "memory_jobs": 0}
+
+DONE

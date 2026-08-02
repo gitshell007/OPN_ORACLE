@@ -1,0 +1,45 @@
+=== HOST ===
+v2202607388167489673
+v2202607388167489673.goodsrv.de
+159.195.216.33/22
+2026-08-02T07:24:34+02:00
+=== RELEASE ===
+total 36
+drwxr-x---  9 root opn-oracle 4096 Aug  2 06:10 .
+drwxr-x---  3 root opn-oracle 4096 Aug  2 06:10 ..
+drwxr-x--- 12 root opn-oracle 4096 Jul 28 11:02 20260728T085951Z-native-22a5a79
+drwxr-x--- 12 root opn-oracle 4096 Jul 30 14:13 20260730T121107Z-native-0d316eb
+drwxr-x--- 12 root opn-oracle 4096 Jul 30 14:13 20260730T130551Z-native-06ec3b0
+drwxr-x--- 12 root opn-oracle 4096 Jul 31 00:20 20260730T221717Z-native-e89ffb1
+drwxr-x--- 12 root opn-oracle 4096 Jul 31 12:02 20260731T095958Z-native-eb61173
+drwxr-x--- 12 root opn-oracle 4096 Jul 31 21:27 20260731T192559Z-native-96250a4
+drwxr-x--- 12 root opn-oracle 4096 Aug  2 06:10 20260802T040823Z-native-4b454e1
+lrwxrwxrwx 1 root root 56 Aug  2 06:10 /opt/opn-oracle/current -> /opt/opn-oracle/releases/20260802T040823Z-native-4b454e1
+/opt/opn-oracle/releases/20260802T040823Z-native-4b454e1
+CURRENT=/opt/opn-oracle/releases/20260802T040823Z-native-4b454e1
+FOUND /opt/opn-oracle/releases/20260802T040823Z-native-4b454e1
+total 2404
+drwxr-x--- 12 root opn-oracle    4096 Aug  2 06:10 .
+drwxr-x---  9 root opn-oracle    4096 Aug  2 06:10 ..
+-rw-r--r--  1 root opn-oracle     269 Jul 28 10:55 .dockerignore
+drwxr-x---  3 root opn-oracle    4096 Jul 28 10:55 .github
+-rw-r--r--  1 root opn-oracle    4965 Jul 28 10:55 .gitignore
+drwxr-x---  4 root opn-oracle    4096 Aug  2 06:10 .next
+-rw-r--r--  1 root opn-oracle   24669 Jul 28 10:55 01_IMPLEMENTATION_PLAN.md
+FOUND /opt/opn-oracle/current
+lrwxrwxrwx 1 root root 56 Aug  2 06:10 /opt/opn-oracle/current -> /opt/opn-oracle/releases/20260802T040823Z-native-4b454e1
+=== SERVICES ===
+active
+active
+active
+active
+=== HEALTH ===
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+=== IC / MEMORY (DB, no secrets) ===
+=== DONE ORACLE ===

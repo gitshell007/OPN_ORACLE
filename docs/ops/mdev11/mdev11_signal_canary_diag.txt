@@ -1,0 +1,27 @@
+TENANT_KEYS [{'tenant_key': 'c:64|t:mdev10-canary-tenant', 'n': 2}]
+SCOPES [{'tenant_key': 'c:64|t:mdev10-canary-tenant', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6', 'n': 2}]
+--- scope c:64|t:mdev10-canary-tenant 726bfb3d-090e-470b-b343-596cf5604ed6
+  memory_sources=2
+  memory_chunks=2
+  memory_observations=2
+  memory_facts=0
+  memory_summaries=0
+  memory_jobs=0
+  source_status [{'processing_status': 'chunked', 'n': 2}]
+  chunk_extract [{'extraction_status': 'done', 'n': 2}]
+  SRC {'id': 11858, 'source_type': 'document', 'title': 'MDEV10 canary synthetic source', 'processing_status': 'chunked', 'created_at': datetime.datetime(2026, 8, 2, 4, 34, 25, 31370, tzinfo=datetime.timezone.utc)}
+  SRC {'id': 11859, 'source_type': 'document', 'title': 'ACME Canary corporate profile source2', 'processing_status': 'chunked', 'created_at': datetime.datetime(2026, 8, 2, 5, 4, 46, 42706, tzinfo=datetime.timezone.utc)}
+  OBS {'observation_type': 'claim', 'predicate': 'claim.statement', 'v': '{"statement": "MDEV-10 canary durable smoke. Tenant mdev10-canary-tenant. Synthe', 'confidence': Decimal('0.550')}
+  OBS {'observation_type': 'claim', 'predicate': 'claim.statement', 'v': '{"statement": "ACME Canary Legal Entity S.L. is a Spanish company with CIF B1234', 'confidence': Decimal('0.550')}
+=== API ingest call sites ===
+packages/opn_memory/opn_memory/services/ingest.py:108:def ingest_origin_record(
+packages/opn_memory/opn_memory/services/ingest.py:114:    enqueue_extract_job: bool = False,
+packages/opn_memory/opn_memory/services/ingest.py:177:    if enqueue_extract_job:
+packages/opn_memory/opn_memory/services/ingest.py:194:def ingest_many(
+packages/opn_memory/opn_memory/services/ingest.py:203:        _, st = ingest_origin_record(
+820:            message=f"request persisted but enqueue failed: {err}",
+870:            enqueue=True,
+app/services/memory_host/extract.py:24:    if not force and (not settings.memory_engine_enabled or not settings.memory_extraction_enabled):
+app/config.py:130:    memory_extraction_enabled: bool = False
+packages/opn_memory/opn_memory/services/ingest.py:114:    enqueue_extract_job: bool = False,
+packages/opn_memory/opn_memory/services/ingest.py:177:    if enqueue_extract_job:
