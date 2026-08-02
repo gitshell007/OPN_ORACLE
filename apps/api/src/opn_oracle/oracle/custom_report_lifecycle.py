@@ -1555,7 +1555,9 @@ def process_custom_brief_write(
             "purpose": "report",
             "snapshot_hash": current_hash,
             "generation_version": report.generation_version,
-            "fence_token": fence or options.get("fence_token"),
+            # generation_fence: el validador de payloads prohíbe la familia "token"
+            # (mismo rename que el staging del write en 036).
+            "generation_fence": fence or options.get("fence_token"),
             "writer_job_id": str(job.id),
         },
         idempotency_key=(
