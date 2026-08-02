@@ -929,7 +929,8 @@ def process_dossier_question_answer(
                 "mode": effective_mode,
             },
         }
-        # Snapshot failures must not be silent: mark coverage and continue degraded.
+        # Snapshot failures must not be silent: mark coverage, rebuild effective
+        # coverage/manifest from what is actually durable, and continue degraded.
         try:
             snapshot_id = persist_snapshot_from_retrieve_result(session, enriched)
         except Exception as snap_error:
@@ -944,7 +945,24 @@ def process_dossier_question_answer(
                 }
             )
             coverage["failed"] = failed
-            dual = dc_replace(dual, coverage=coverage)
+            # Rebuild audit-grade input_manifest so it matches the effective
+            # allowlist + coverage (no half-linked snapshot IDs, no phantom evidence).
+            rebuilt_manifest, rebuilt_digest = build_input_manifest(
+                mode=typed_mode,
+                oracle_authority=dual.oracle_authority,
+                signal_factual=dual.signal_factual,
+                allowed_evidence_ids=list(dual.allowed_evidence_ids),
+                coverage=coverage,
+                memory_policy=policy,
+                job_id=str(job.id),
+                message_id=str(message.id),
+            )
+            dual = dc_replace(
+                dual,
+                coverage=coverage,
+                input_manifest=rebuilt_manifest,
+                input_manifest_hash=rebuilt_digest,
+            )
 
     # Cancellation after retrieval / before model (fencing).
     session.refresh(job, attribute_names=["cancel_requested"])

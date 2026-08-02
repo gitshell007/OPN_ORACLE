@@ -366,7 +366,7 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
                 </button>
                 {["queued", "running"].includes(message.status) &&
                 message.background_job_id ? (
-                  <button
+                  <AsyncActionButton
                     type="button"
                     className="vector-secondary"
                     onClick={() =>
@@ -382,7 +382,7 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
                     }
                   >
                     Cancelar
-                  </button>
+                  </AsyncActionButton>
                 ) : null}
               </div>
             ) : null}

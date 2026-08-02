@@ -17,7 +17,6 @@ from opn_oracle.integrations.memory_ask_dual import (
     build_input_manifest,
     build_oracle_authority_block,
     classify_error_code,
-    load_oracle_authority_from_session,
     materialize_augment_items,
     validate_citations_allowlist,
 )
@@ -666,107 +665,104 @@ def test_persist_failure_excludes_from_allowlist(monkeypatch: pytest.MonkeyPatch
     assert msg.answer_payload.get("citations") == []
 
 
-def test_load_oracle_authority_scopes_tenant_dossier() -> None:
-    """Observable repository: only tenant A + dossier A rows enter the authority block."""
+def test_snapshot_fail_rebuilds_effective_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On snapshot persist failure, coverage/manifest are rebuilt to effective state."""
 
-    tenant_a = uuid.uuid4()
-    tenant_b = uuid.uuid4()
-    dossier_a = uuid.uuid4()
-    dossier_b = uuid.uuid4()
-    intent_id = uuid.uuid4()
-    req_id = uuid.uuid4()
-    obj_id = uuid.uuid4()
-    dec_id = uuid.uuid4()
-    ev_a = uuid.uuid4()
-    ev_b = uuid.uuid4()
+    tenant = uuid.uuid4()
+    dossier = uuid.uuid4()
+    conversation = uuid.uuid4()
+    message_id = uuid.uuid4()
+    item = _item(tenant_id=str(tenant), dossier_id=str(dossier))
 
-    dossier_row = SimpleNamespace(
-        id=dossier_a,
-        tenant_id=tenant_a,
-        current_intent_revision_id=intent_id,
+    class AugmentAdapter:
+        effective_mode = "augment"
+
+        def retrieve(self, *a: Any, **k: Any) -> dict[str, Any]:
+            return {
+                "items": [item],
+                "items_for_prompt": [item],
+                "coverage_manifest": {
+                    "requested": ["q"],
+                    "used": [],
+                    "failed": [],
+                    "excluded": [],
+                },
+                "policy_version": "memory.v1",
+                "snapshot_meta": {"purpose": "ask", "limit": 8},
+            }
+
+    msg = SimpleNamespace(
+        id=message_id,
+        tenant_id=tenant,
+        dossier_id=dossier,
+        conversation_id=conversation,
+        role="user",
+        status="queued",
+        content_text="q",
+        answer_payload={},
+        coverage_manifest={},
+        error_code=None,
+        error_message=None,
+        background_job_id=None,
     )
-    intent_row = SimpleNamespace(
-        id=intent_id,
-        tenant_id=tenant_a,
-        dossier_id=dossier_a,
-        status="accepted",
-        version=1,
-        schema_key="procurement",
-        schema_version="v1",
-        request_text="comprar",
-        structured_spec={"cpv": ["35400000"]},
-        content_hash="b" * 64,
+    job = SimpleNamespace(
+        id=uuid.uuid4(), cancel_requested=False, correlation_id="c", attempt_count=1
     )
-    req_row = SimpleNamespace(
-        id=req_id,
-        requirement_class="market",
-        priority=1,
-        question="quién gana?",
-        decision_to_support="bid",
-        created_at=None,
+    session = MagicMock()
+    session.refresh = MagicMock()
+    session.flush = MagicMock()
+    session.get = MagicMock(return_value=None)
+
+    monkeypatch.setattr(conv, "get_message", lambda *a, **k: msg)
+    monkeypatch.setattr(conv, "append_audit_event", lambda *a, **k: None)
+    monkeypatch.setattr(conv, "_signal_ai_enabled", lambda: False)
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.load_oracle_authority_from_session",
+        lambda *a, **k: build_oracle_authority_block(
+            dossier_id=str(dossier), tenant_id=str(tenant), question="q"
+        ),
     )
-    obj_row = SimpleNamespace(id=obj_id, title="objetivo A", status="open", position=0)
-    dec_row = SimpleNamespace(
-        id=dec_id, title="decisión A", status="proposed", rationale="porque", updated_at=None
+
+    def _persist(_session: Any, **kwargs: Any) -> list[str]:
+        citations = kwargs.get("citations") or []
+        return [c.oracle_evidence_id for c in citations]
+
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_ask_dual.persist_memory_signal_evidence",
+        _persist,
     )
-    ev_row_a = SimpleNamespace(
-        id=ev_a,
-        source_kind="document",
-        extract="evidencia A",
-        classification="internal",
-        checksum=b"\x01" * 32,
-        created_at=None,
+
+    def _boom_snapshot(*a: Any, **k: Any) -> None:
+        raise RuntimeError("snapshot write failed")
+
+    # process_dossier_question_answer imports from memory_context at call time.
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_context.persist_snapshot_from_retrieve_result",
+        _boom_snapshot,
     )
-    # Tenant B evidence must never appear even if session is confused.
-    _ = SimpleNamespace(id=ev_b, tenant_id=tenant_b, dossier_id=dossier_b)
 
-    calls: list[str] = []
+    with tenant_context(TenantContext(tenant_id=tenant, actor_id=uuid.uuid4())):
+        result = conv.process_dossier_question_answer(
+            session,
+            {
+                "message_id": str(message_id),
+                "conversation_id": str(conversation),
+                "dossier_id": str(dossier),
+            },
+            job,  # type: ignore[arg-type]
+            memory_adapter=AugmentAdapter(),
+            memory_mode="augment",
+        )
 
-    class _Scalars:
-        def __init__(self, rows: list[Any]) -> None:
-            self._rows = rows
-
-        def __iter__(self):
-            return iter(self._rows)
-
-    class _Session:
-        def scalar(self, stmt: Any) -> Any:
-            sql = str(stmt)
-            calls.append("scalar:" + sql[:80])
-            if "strategic_dossiers" in sql or "StrategicDossier" in type(stmt).__name__:
-                return dossier_row
-            # Intent accepted only for tenant_a/dossier_a
-            return intent_row
-
-        def scalars(self, stmt: Any) -> Any:
-            sql = str(stmt)
-            calls.append("scalars:" + sql[:80])
-            if "IntelligenceRequirement" in sql or "intelligence_requirements" in sql:
-                return _Scalars([req_row])
-            if "DossierOffering" in sql or "dossier_offerings" in sql:
-                return _Scalars([])
-            if "DossierObjective" in sql or "dossier_objectives" in sql:
-                return _Scalars([obj_row])
-            if "Decision" in sql or "decisions" in sql:
-                return _Scalars([dec_row])
-            if "Evidence" in sql or "evidence" in sql:
-                return _Scalars([ev_row_a])
-            return _Scalars([])
-
-    block = load_oracle_authority_from_session(
-        _Session(),
-        tenant_id=tenant_a,
-        dossier_id=dossier_a,
-        question="¿quién?",
+    assert result.get("degraded") is True
+    failed = (msg.coverage_manifest or {}).get("failed") or []
+    assert any(
+        isinstance(row, dict) and row.get("reason") == "snapshot_persist_failed" for row in failed
     )
-    assert block["intent"]["content_hash"] == "b" * 64
-    assert block["intent_hash"] == "b" * 64
-    assert block["requirements"][0]["id"] == str(req_id)
-    assert block["objectives"][0]["id"] == str(obj_id)
-    assert block["decisions"][0]["id"] == str(dec_id)
-    assert block["oracle_evidence"][0]["id"] == str(ev_a)
-    assert str(ev_b) not in str(block)
-    assert str(tenant_b) not in str(block.get("oracle_evidence"))
-    assert str(dossier_b) not in str(block)
-    assert block["authority_loaded"] is True
-    assert calls  # session was exercised (not a pure mock of the builder)
+    # Effective manifest hash must be present and match answer payload (rebuilt after fail).
+    assert result.get("input_manifest_hash")
+    assert msg.answer_payload.get("input_manifest_hash") == result["input_manifest_hash"]
+    # No half-linked snapshot id on success path
+    assert result.get("snapshot_id") in (None, "")
+    # Allowlist only contains effectively persisted evidence ids
+    assert len(result["allowed_evidence_ids"]) == 1

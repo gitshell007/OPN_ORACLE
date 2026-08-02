@@ -16,11 +16,26 @@ pytestmark = pytest.mark.integration
 
 
 def _env() -> tuple[str, str, str]:
+    """Resolve canonical integration URLs; fail closed when integration is forced."""
+
     migration_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_MIGRATION_URL")
-    runtime_url = os.getenv("TEST_DATABASE_RUNTIME_URL") or os.getenv("DATABASE_URL")
-    redis_url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/15")
+    # Canonical CI/local var is TEST_RUNTIME_DATABASE_URL (not TEST_DATABASE_RUNTIME_URL).
+    runtime_url = (
+        os.getenv("TEST_RUNTIME_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or os.getenv("TEST_DATABASE_RUNTIME_URL")  # legacy typo — last resort only
+    )
+    redis_url = os.getenv("TEST_REDIS_URL") or os.getenv("REDIS_URL") or "redis://127.0.0.1:6379/15"
+    integration_forced = os.getenv("ORACLE_RUN_INTEGRATION") == "1"
     if not migration_url or not runtime_url:
-        pytest.skip("TEST_DATABASE_URL / DATABASE_URL required for migration 0030 roundtrip")
+        detail = (
+            "missing canonical DB URLs for migration 0030: need TEST_DATABASE_URL "
+            f"(got={'set' if migration_url else 'missing'}) and "
+            f"TEST_RUNTIME_DATABASE_URL (got={'set' if runtime_url else 'missing'})"
+        )
+        if integration_forced:
+            pytest.fail(detail)
+        pytest.skip(detail + " (set ORACLE_RUN_INTEGRATION=1 to fail instead of skip)")
     if migration_url.startswith("postgresql://"):
         migration_url = migration_url.replace("postgresql://", "postgresql+psycopg://", 1)
     if runtime_url.startswith("postgresql://"):
@@ -52,9 +67,10 @@ def test_memory_signal_0030_up_down_up_counts() -> None:
         # Minimal tenant for FK if required — evidence.tenant_id FK to tenants.
         connection.execute(
             text(
-                "INSERT INTO tenants(id, slug, name, status, created_at, updated_at) "
-                "VALUES (:id, :slug, 'MDEV06', 'active', now(), now()) "
-                "ON CONFLICT DO NOTHING"
+                "INSERT INTO tenants(id, slug, name, status, locale, timezone, settings, "
+                "created_at, updated_at) VALUES ("
+                ":id, :slug, 'MDEV06', 'active', 'es-ES', 'UTC', '{}'::jsonb, now(), now()"
+                ") ON CONFLICT DO NOTHING"
             ),
             {"id": tenant_id, "slug": f"mdev06-{tenant_id.hex[:8]}"},
         )

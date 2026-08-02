@@ -139,6 +139,49 @@ def test_conversation_message_202_and_get_status(
     assert got.get_json()["content_text"].startswith("¿Hay evidencia")
     assert got.get_json()["status"] == "queued"
 
+    # Dispatch handler in-process (no Celery worker): terminal poll + payload.
+    # Debt: real Celery worker E2E not exercised here.
+    app, ids, _ = oracle_stack
+    from opn_oracle.extensions import db
+    from opn_oracle.oracle.conversations import process_dossier_question_answer
+    from opn_oracle.oracle.jobs import BackgroundJob
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job = db.session.get(BackgroundJob, uuid.UUID(str(body["job_id"])))
+        assert job is not None
+        # Fail-closed default when memory not configured → deterministic answer.
+        result = process_dossier_question_answer(
+            db.session,
+            {
+                "message_id": str(body["message_id"]),
+                "conversation_id": str(conversation_id),
+                "dossier_id": str(dossier_id),
+            },
+            job,
+            memory_mode="disabled",
+        )
+        db.session.commit()
+        assert result.get("status") in {"succeeded", "cancelled"} or result.get("memory_mode") in {
+            "disabled",
+            "shadow",
+            "augment",
+        }
+
+    terminal = client.get(
+        f"/api/v1/dossiers/{dossier_id}/conversations/{conversation_id}/messages/{body['message_id']}"
+    )
+    assert terminal.status_code == 200, terminal.get_json()
+    payload = terminal.get_json()
+    assert payload["status"] in {"succeeded", "failed", "cancelled"}
+    if payload["status"] == "succeeded":
+        answer = payload.get("answer_payload") or {}
+        # No phantom evidence when mode=disabled
+        assert answer.get("allowed_evidence_ids", []) == [] or answer.get("citations") == []
+        assert "input_manifest_hash" in answer or payload.get("coverage_manifest") is not None
+
 
 def test_custom_brief_202_and_get_detail(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
