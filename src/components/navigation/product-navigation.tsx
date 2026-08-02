@@ -34,6 +34,11 @@ export function DossierNavigation({ dossierId }: { dossierId: string }) {
         // Destino estático: el primer hijo permitido del grupo. Sin memoria de
         // última visita, para que el enlace sea determinista en hidratación.
         const href = dossierTabHref(dossierId, sections[0]);
+        // Solo el destino de hoja lleva aria-current="page". Si el grupo tiene
+        // subnavegación, el ítem de primer nivel usa data-active y el subnav
+        // marca la página actual (evita el doble aria-current del antiguo
+        // <details>Más</details> y del default del grupo).
+        const isLeafGroup = sections.length < 2;
         return (
           <Link
             key={group.id}
@@ -41,7 +46,9 @@ export function DossierNavigation({ dossierId }: { dossierId: string }) {
             className="dossier-nav__item"
             data-testid={`dossier-nav-${group.id}`}
             data-active={activeGroup === group.id ? "true" : undefined}
-            aria-current={pathname === href ? "page" : undefined}
+            aria-current={
+              isLeafGroup && pathname === href ? "page" : undefined
+            }
           >
             {group.label}
           </Link>

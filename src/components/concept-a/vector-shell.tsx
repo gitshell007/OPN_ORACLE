@@ -304,13 +304,17 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                 const active =
                   pathname === href ||
                   (href !== "/app" && pathname.startsWith(`${href}/`));
+                // Solo la coincidencia exacta lleva aria-current="page". Los
+                // ancestros (p. ej. Expedientes dentro de /app/dossiers/:id/…)
+                // se marcan visualmente con .active; el marcador de página
+                // queda en la nav de sección (dossier-nav/subnav) o en la hoja.
                 return (
                   <Link
                     key={id}
                     href={href}
                     title={compact ? label : undefined}
                     aria-label={label}
-                    aria-current={active ? "page" : undefined}
+                    aria-current={pathname === href ? "page" : undefined}
                     className={active ? "active" : ""}
                     onClick={navigateFromMobile}
                   >
@@ -450,7 +454,10 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                 {crumb.href ? (
                   <Link href={crumb.href}>{crumb.label}</Link>
                 ) : (
-                  <strong aria-current="page">{crumb.label}</strong>
+                  // Sin aria-current aquí: la página actual ya se marca en la
+                  // navegación principal o en dossier-nav/subnav (un solo
+                  // aria-current="page" en el documento).
+                  <strong>{crumb.label}</strong>
                 )}
               </span>
             ))}
