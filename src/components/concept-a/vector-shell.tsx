@@ -454,10 +454,11 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                 {crumb.href ? (
                   <Link href={crumb.href}>{crumb.label}</Link>
                 ) : (
-                  // Sin aria-current aquí: la página actual ya se marca en la
-                  // navegación principal o en dossier-nav/subnav (un solo
-                  // aria-current="page" en el documento).
-                  <strong>{crumb.label}</strong>
+                  // `aria-current="page"` se declara POR LANDMARK, no una vez
+                  // por documento: el patrón de migas de pan de WAI-ARIA lo
+                  // exige en el último elemento. Lo que había que eliminar era
+                  // el duplicado dentro de una MISMA navegación.
+                  <strong aria-current="page">{crumb.label}</strong>
                 )}
               </span>
             ))}
