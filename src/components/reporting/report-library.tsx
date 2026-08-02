@@ -62,16 +62,21 @@ function SortableHeader({
   current,
   dir,
   onSort,
+  className,
 }: {
   label: string;
   sortKey: ReportSortKey;
   current: ReportSortKey;
   dir: "asc" | "desc";
   onSort: (key: ReportSortKey) => void;
+  className?: string;
 }) {
   const active = current === sortKey;
   return (
-    <th aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+    <th
+      className={className}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
       <button
         type="button"
         className={active ? "report-sort-button is-active" : "report-sort-button"}
@@ -823,9 +828,9 @@ export function ReportLibrary({
                   {!dossierId && (
                     <SortableHeader label="Expediente" sortKey="dossier" current={sortKey} dir={sortDir} onSort={toggleSort} />
                   )}
-                  <SortableHeader label="Estado" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortableHeader label="Versión" sortKey="version" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortableHeader label="Actualizado" sortKey="updated" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Estado" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} className="report-col-status" />
+                  <SortableHeader label="Versión" sortKey="version" current={sortKey} dir={sortDir} onSort={toggleSort} className="report-col-version" />
+                  <SortableHeader label="Actualizado" sortKey="updated" current={sortKey} dir={sortDir} onSort={toggleSort} className="report-col-date" />
                   <th><span className="sr-only">Abrir</span></th>
                 </tr>
               </thead>
@@ -855,7 +860,7 @@ export function ReportLibrary({
                       </button>
                     </td>
                     {!dossierId && <td>{dossierName.get(report.dossier_id) ?? "Expediente accesible"}</td>}
-                    <td>
+                    <td className="report-col-status">
                       <span className={`report-status ${report.status}`}>
                         {reportStatusLabel[report.status]}
                       </span>
@@ -863,8 +868,8 @@ export function ReportLibrary({
                         <JobProgress jobId={report.job_id} label="Generando informe" onTerminal={() => void load()} allowActions />
                       )}
                     </td>
-                    <td>g{report.generation_version} · r{report.version}</td>
-                    <td>
+                    <td className="report-col-version">g{report.generation_version} · r{report.version}</td>
+                    <td className="report-col-date">
                       <CalendarDays size={14} /> {formatDateTime(report.updated_at ?? report.created_at)}
                     </td>
                     <td>

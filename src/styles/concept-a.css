@@ -7711,8 +7711,12 @@ html[data-font-scale="small"] .workspace-chip strong {
 @media (max-width: 1023px) { :root { --gutter: var(--gutter-md); } }
 @media (max-width: 640px)  { :root { --gutter: var(--gutter-sm); } }
 
-/* Escotilla para tablas anchas que necesitan todo el ancho disponible. */
-.vector-content > .full-bleed {
+/* Escotilla para tablas anchas que necesitan todo el ancho disponible.
+   También en páginas de sección del expediente (no solo hijos directos de
+   .vector-content): la tabla de Actividad vive bajo .dossier-section-page. */
+.vector-content > .full-bleed,
+.dossier-section-page > .full-bleed,
+.dossier-page > .full-bleed {
   width: calc(100% + var(--gutter) * 2);
   margin-inline: calc(var(--gutter) * -1);
 }
@@ -7852,4 +7856,154 @@ html[data-font-scale="small"] .workspace-chip strong {
 .dossier-subnav a:focus-visible {
   outline: 2px solid var(--va-primary);
   outline-offset: 1px;
+}
+
+/* ==========================================================================
+   SV2-UI-TABLAS · Densidad y legibilidad de tablas del expediente
+   Patrón existente (work/intelligence/document/inventory): overflow wrap,
+   min-width, nowrap en columnas cortas y fechas, números a la derecha.
+   No se reduce el tamaño de fuente por debajo del que ya usa cada tabla.
+   ========================================================================== */
+
+/* Actividad: .dense-table / .table-wrap existían en el markup sin CSS. */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.dense-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+}
+.dense-table th,
+.dense-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--va-border);
+  text-align: left;
+  vertical-align: top;
+  color: #33475e;
+}
+.dense-table th {
+  background: #f6f8fb;
+  color: var(--va-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* Sin font-size en td: hereda el cuerpo (14px). Prohibido bajarlo. */
+.dense-table td strong,
+.dense-table td small {
+  display: block;
+}
+.dense-table td small {
+  margin-top: 3px;
+  color: var(--va-muted);
+}
+.dense-table .dense-col-type {
+  white-space: nowrap;
+  min-width: 7.5rem;
+}
+.dense-table .dense-col-title {
+  min-width: 14rem;
+}
+/* Separación clara entre Estado y Cadencia (antes ~4 px de gap efectivo). */
+.dense-table .dense-col-status,
+.dense-table .dense-col-cadence {
+  white-space: nowrap;
+  min-width: 8.5rem;
+  padding-inline: 16px;
+}
+.dense-table .dense-col-cadence {
+  min-width: 6.5rem;
+  border-left: 1px solid #e8edf3;
+}
+.dense-table .dense-col-when {
+  white-space: nowrap;
+  min-width: 10rem;
+}
+.dense-table .dense-col-when small {
+  white-space: nowrap;
+}
+.dense-table .dense-col-error {
+  min-width: 10rem;
+  max-width: 22rem;
+}
+.dense-table .dense-col-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.dense-table .status {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+/* Intelligence: columnas cortas y fechas no se parten; puntuación a la derecha. */
+.intelligence-table th:nth-child(2),
+.intelligence-table td:nth-child(2),
+.intelligence-table th:nth-child(4),
+.intelligence-table td:nth-child(4),
+.intelligence-table th:nth-child(5),
+.intelligence-table td:nth-child(5) {
+  white-space: nowrap;
+}
+.intelligence-table th:nth-child(3),
+.intelligence-table td:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.intelligence-table {
+  min-width: 920px;
+}
+
+/* Work / actores: estado y fechas en una línea; sin estrechar la fuente (11px). */
+.work-table th:nth-child(2),
+.work-table td:nth-child(2),
+.work-table th:nth-child(4),
+.work-table td:nth-child(4) {
+  white-space: nowrap;
+}
+.work-table td:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+}
+.actor-candidates-table th:nth-child(4),
+.actor-candidates-table td:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Documentos: tamaño numérico a la derecha; estado sin wrap. */
+.document-table th:nth-child(2),
+.document-table td:nth-child(2) {
+  white-space: nowrap;
+}
+.document-table th:nth-child(4),
+.document-table td:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.document-table th:nth-child(5),
+.document-table td:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Informes / exportaciones: fechas y métricas compactas (clases, no nth-child:
+   report-library inserta «Expediente» condicionalmente). */
+.report-table .report-col-date,
+.report-table .report-col-version,
+.report-table .report-col-size,
+.report-table .report-col-status {
+  white-space: nowrap;
+}
+.report-table .report-col-version,
+.report-table .report-col-size {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
