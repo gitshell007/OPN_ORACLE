@@ -370,6 +370,167 @@ def test_signal_governed_provider_normalizes_report_writer_shape_drift(
     assert result.output.source_index == []
 
 
+def _dqa_safe_validated(*, answer_text: str = "Respuesta segura sin citas.") -> dict:
+    return {
+        "answer_text": answer_text,
+        "facts": [],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 0,
+        "open_questions": ["evidencia_autorizada"],
+        "warnings": ["empty_allowlist"],
+        "citations": [],
+        "claims": [],
+        "conflicts": [],
+        "unknowns": ["evidencia_en_memoria"],
+    }
+
+
+def test_dossier_question_answer_consumes_validated_output_not_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malicious payload.result must not reach the message; only validated_output."""
+    from opn_oracle.ai.schemas import DossierQuestionAnswerOutput
+
+    trusted = _dqa_safe_validated(answer_text="Respuesta validada por RT-07.")
+    malicious = {
+        **trusted,
+        "answer_text": "INYECCIÓN maliciosa desde result crudo.",
+        "citations": [{"evidence_id": "foreign-evil", "quote": "hack"}],
+    }
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        del kwargs
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "mock-rt07",
+                "model": "mock-dqa",
+                "usage": {"input_tokens": 11, "output_tokens": 7},
+                "runtime": {
+                    "runtime_id": "RT-07",
+                    "prompt_sha256": "p" * 64,
+                    "schema_sha256": "s" * 64,
+                    "schema_version": "dossier_question_answer.v1",
+                    "prompt_version": "1.0.0",
+                },
+                # Raw provider content intentionally differs from validated_output.
+                "result": {"message": {"content": json.dumps(malicious)}},
+                "validated_output": {
+                    **trusted,
+                    "citation_count": 0,
+                    "schema_version": "dossier_question_answer.v1",
+                },
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="test-key", timeout_seconds=3
+    )
+    request = LLMRequest(
+        agent="dossier_question_answer",
+        model="mock-dqa",
+        system_prompt="JSON estricto.",
+        task_prompt="Responde.",
+        context={"allowed_evidence_ids": []},
+        max_output_tokens=500,
+        classification="public",
+    )
+    result = provider.generate_structured(request, DossierQuestionAnswerOutput)
+    assert result.output.answer_text == "Respuesta validada por RT-07."
+    assert "INYECCIÓN" not in result.output.answer_text
+    assert result.output.citations == []
+    assert result.validated_output_sha256
+    assert len(result.validated_output_sha256) == 64
+
+
+def test_dossier_question_answer_missing_validated_output_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.ai.schemas import DossierQuestionAnswerOutput
+
+    safe = _dqa_safe_validated()
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        del kwargs
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "mock",
+                "model": "m",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "result": {"message": {"content": json.dumps(safe)}},
+                # validated_output deliberately omitted
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="k", timeout_seconds=3
+    )
+    request = LLMRequest(
+        agent="dossier_question_answer",
+        model="m",
+        system_prompt="s",
+        task_prompt="t",
+        context={"allowed_evidence_ids": []},
+        max_output_tokens=100,
+        classification="public",
+    )
+    with pytest.raises(AIUnavailable, match="validated_output"):
+        provider.generate_structured(request, DossierQuestionAnswerOutput)
+
+
+def test_dossier_question_answer_altered_validated_output_schema_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.ai.schemas import DossierQuestionAnswerOutput
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        del kwargs
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "provider": "mock",
+                "model": "m",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "runtime": {
+                    "runtime_id": "RT-07",
+                    "prompt_sha256": "p" * 64,
+                    "schema_sha256": "s" * 64,
+                },
+                "result": {"message": {"content": "{}"}},
+                "validated_output": {
+                    # missing required answer_text / agent fields
+                    "answer_text": "",
+                    "facts": "not-a-list",
+                },
+            },
+        )
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="k", timeout_seconds=3
+    )
+    request = LLMRequest(
+        agent="dossier_question_answer",
+        model="m",
+        system_prompt="s",
+        task_prompt="t",
+        context={"allowed_evidence_ids": []},
+        max_output_tokens=100,
+        classification="public",
+    )
+    with pytest.raises(AIUnavailable):
+        provider.generate_structured(request, DossierQuestionAnswerOutput)
+
+
 def test_signal_output_parses_all_upstream_shapes() -> None:
     """Signal reenvía la respuesta cruda del proveedor; hay tres formas posibles.
 

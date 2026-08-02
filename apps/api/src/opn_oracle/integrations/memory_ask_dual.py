@@ -201,10 +201,13 @@ def load_oracle_authority_from_session(
         )
 
     accepted_intent = None
-    if dossier.current_intent_revision_id is not None:
+    # getattr: legacy/fixture dossiers (SimpleNamespace, partial ORM rows) may omit the
+    # column; real PG models always expose it. Never treat AttributeError as authority.
+    intent_revision_id = getattr(dossier, "current_intent_revision_id", None)
+    if intent_revision_id is not None:
         accepted_intent = session.scalar(
             select(DossierIntentRevision).where(
-                DossierIntentRevision.id == dossier.current_intent_revision_id,
+                DossierIntentRevision.id == intent_revision_id,
                 DossierIntentRevision.tenant_id == tenant_id,
                 DossierIntentRevision.dossier_id == dossier_id,
                 DossierIntentRevision.status == "accepted",
@@ -596,7 +599,11 @@ def validate_citations_allowlist(
     citations: Sequence[Mapping[str, Any]] | Sequence[Any],
     allowed_evidence_ids: Sequence[str],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Return (accepted_citations, rejected_ids). Precision must be 100% on allowlist."""
+    """Return (accepted_citations, rejected_ids). Precision must be 100% on allowlist.
+
+    Empty allowlist rejects every citation (zero Evidence permitted). Safe answers
+    with no citations return ``([], [])``.
+    """
 
     allowed = {str(x) for x in allowed_evidence_ids}
     accepted: list[dict[str, Any]] = []
@@ -611,6 +618,41 @@ def validate_citations_allowlist(
             continue
         accepted.append(dict(raw))
     return accepted, rejected
+
+
+def validate_material_evidence_allowlist(
+    material_items: Sequence[Mapping[str, Any]] | Sequence[Any] | None,
+    allowed_evidence_ids: Sequence[str],
+    *,
+    kind: str = "facts",
+) -> list[str]:
+    """Return unauthorized evidence refs in material facts/claims.
+
+    Empty allowlist rejects any non-empty material block (no assertions without
+    Evidence). Non-empty allowlist requires every evidence_id ∈ allowlist.
+    """
+
+    allowed = {str(x).strip() for x in allowed_evidence_ids if str(x).strip()}
+    rejected: list[str] = []
+    items = list(material_items or [])
+    if items and not allowed:
+        rejected.append(f"{kind}:empty_allowlist")
+        return rejected
+    for raw in items:
+        if not isinstance(raw, Mapping):
+            rejected.append(f"{kind}:<non-object>")
+            continue
+        eids = raw.get("evidence_ids")
+        if eids is None and raw.get("evidence_id") is not None:
+            eids = [raw.get("evidence_id")]
+        if not isinstance(eids, list) or not eids:
+            rejected.append(f"{kind}:missing_evidence")
+            continue
+        for eid in eids:
+            sid = str(eid or "").strip()
+            if not sid or sid not in allowed:
+                rejected.append(sid or f"{kind}:<missing>")
+    return rejected
 
 
 def link_snapshot_run_usage(

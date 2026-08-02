@@ -1003,15 +1003,26 @@ def process_dossier_question_answer(
             body = str(signal_result["answer_text"])
             answer_payload = dict(signal_result["answer_payload"])
             signal_meta = dict(signal_result.get("meta") or {})
-            # Allowlist 100%: strip illegal citations.
+            # Allowlist 100%: any foreign citation or material Evidence fails closed.
             accepted, rejected = validate_citations_allowlist(
                 list(answer_payload.get("citations") or []),
                 allowed_ids,
             )
-            answer_payload["citations"] = accepted
             if rejected:
-                answer_payload.setdefault("warnings", []).append(
-                    f"citations_rejected_not_in_allowlist:{len(rejected)}"
+                raise ConversationError(
+                    f"La respuesta citó evidence_ids fuera de allowlist ({len(rejected)})."
+                )
+            answer_payload["citations"] = accepted
+            from opn_oracle.integrations.memory_ask_dual import (
+                validate_material_evidence_allowlist as _v_material,
+            )
+
+            mat_bad = _v_material(
+                list(answer_payload.get("facts") or []), allowed_ids, kind="facts"
+            ) + _v_material(list(answer_payload.get("claims") or []), allowed_ids, kind="claims")
+            if mat_bad:
+                raise ConversationError(
+                    f"La respuesta incluye facts/claims con Evidence no permitida ({len(mat_bad)})."
                 )
         except Exception as error:
             mark_message_failed(
@@ -1251,22 +1262,40 @@ def _answer_via_signal(
     answer_text = str(output.get("answer_text") or "").strip()
     if not answer_text:
         raise ConversationError("La respuesta IA no incluye answer_text.")
+    from opn_oracle.integrations.memory_ask_dual import validate_material_evidence_allowlist
+
     raw_citations = list(output.get("citations") or [])
     accepted, rejected = validate_citations_allowlist(raw_citations, allowed)
-    if rejected and allowed:
-        # Schema/allowlist violation is permanent for this attempt content.
+    # Fail-closed: any rejected citation fails, including empty allowlist.
+    # Oracle must not depend solely on remote RT-07 for this local defense.
+    if rejected:
         raise ConversationError(
             f"La respuesta citó evidence_ids fuera de allowlist ({len(rejected)})."
         )
+    facts_out = list(output.get("facts") or [])
+    claims_out = list(output.get("claims") or [])
+    material_rejected = validate_material_evidence_allowlist(
+        facts_out, allowed, kind="facts"
+    ) + validate_material_evidence_allowlist(claims_out, allowed, kind="claims")
+    if material_rejected:
+        raise ConversationError(
+            "La respuesta incluye facts/claims con Evidence no permitida "
+            f"({len(material_rejected)})."
+        )
+    validated_hash = (
+        str(output.get("validated_output_sha256") or "").strip()
+        or str((artifact.output or {}).get("validated_output_sha256") or "").strip()
+        or None
+    )
     return {
         "answer_text": answer_text,
         "answer_payload": {
             "policy_version": memory_policy,
             "item_count": len(memory_items),
             "unknowns": list(output.get("open_questions") or output.get("unknowns") or []),
-            "claims": list(output.get("claims") or []),
+            "claims": claims_out,
             "conflicts": list(output.get("conflicts") or []),
-            "facts": output.get("facts") or [],
+            "facts": facts_out,
             "inferences": output.get("inferences") or [],
             "recommendations": output.get("recommendations") or [],
             "citations": accepted,
@@ -1284,11 +1313,13 @@ def _answer_via_signal(
             "signal_provider": getattr(artifact, "provider", None)
             or (artifact.output or {}).get("provider"),
             "signal_model": getattr(artifact, "model", None),
+            "validated_output_sha256": validated_hash,
         },
         "meta": {
             "artifact_id": str(artifact.id),
             "audit_log_id": str(result.get("audit_log_id") or ""),
             "task_key": "dossier_question_answer",
             "provider_path": "signal",
+            "validated_output_sha256": validated_hash,
         },
     }

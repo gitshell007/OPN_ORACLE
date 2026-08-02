@@ -17,8 +17,10 @@ from opn_oracle.integrations.memory_ask_dual import (
     build_input_manifest,
     build_oracle_authority_block,
     classify_error_code,
+    load_oracle_authority_from_session,
     materialize_augment_items,
     validate_citations_allowlist,
+    validate_material_evidence_allowlist,
 )
 from opn_oracle.integrations.memory_http_client import classify_http_error
 from opn_oracle.jobs.tasks import PermanentJobError, RetriableJobError, _answer_dossier_question
@@ -116,6 +118,184 @@ def test_allowlist_precision_100_rejects_foreign() -> None:
     )
     assert [c["evidence_id"] for c in accepted] == ["ev-1", "ev-2"]
     assert rejected == ["foreign"]
+
+
+def test_empty_allowlist_rejects_any_citation_and_material_facts() -> None:
+    """Oracle local defense must fail closed even when remote RT-07 is bypassed."""
+    accepted, rejected = validate_citations_allowlist(
+        [{"evidence_id": "anything", "quote": "x"}],
+        [],
+    )
+    assert accepted == []
+    assert rejected == ["anything"]
+    # Safe answer: zero citations → no rejects
+    accepted2, rejected2 = validate_citations_allowlist([], [])
+    assert accepted2 == [] and rejected2 == []
+    assert validate_material_evidence_allowlist(
+        [{"statement": "Hecho", "evidence_ids": ["ev-1"]}],
+        [],
+        kind="facts",
+    )
+    assert not validate_material_evidence_allowlist([], [], kind="facts")
+    assert validate_material_evidence_allowlist(
+        [{"statement": "Claim", "evidence_ids": ["foreign"]}],
+        ["ev-ok"],
+        kind="claims",
+    ) == ["foreign"]
+
+
+def test_load_oracle_authority_tolerates_legacy_dossier_without_intent_attr() -> None:
+    """Fixtures/SimpleNamespace without current_intent_revision_id must not crash."""
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    legacy = SimpleNamespace(id=dossier_id, tenant_id=tenant_id)  # no intent attr
+    session = MagicMock()
+    session.scalar.return_value = legacy
+    block = load_oracle_authority_from_session(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        question="¿legacy?",
+    )
+    assert block["block"] == "oracle_authority"
+    assert block["dossier_id"] == str(dossier_id)
+    assert block["intent"] == {}
+    assert block["authority_loaded"] is False
+
+
+def test_answer_via_signal_empty_allowlist_rejects_citations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.oracle.conversations import ConversationError, _answer_via_signal
+
+    artifact_id = uuid.uuid4()
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        provider="mock",
+        model="m",
+        output={
+            "answer_text": "Cita ilegal con allowlist vacía.",
+            "citations": [{"evidence_id": "foreign", "quote": "x"}],
+            "facts": [],
+            "claims": [],
+            "conflicts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 10,
+            "open_questions": [],
+            "warnings": [],
+        },
+    )
+    session = MagicMock()
+    session.get.return_value = artifact
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.execute_agent",
+        lambda **_k: {"artifact_id": str(artifact_id), "audit_log_id": "a"},
+    )
+    job = SimpleNamespace(id=uuid.uuid4(), cancel_requested=False)
+    with pytest.raises(ConversationError, match="allowlist"):
+        _answer_via_signal(
+            session,
+            job=job,  # type: ignore[arg-type]
+            dossier_id=uuid.uuid4(),
+            message=SimpleNamespace(id=uuid.uuid4(), content_text="q"),  # type: ignore[arg-type]
+            memory_items=[],
+            coverage={},
+            memory_policy="disabled",
+            allowed_evidence_ids=[],
+        )
+
+
+def test_answer_via_signal_empty_allowlist_rejects_material_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.oracle.conversations import ConversationError, _answer_via_signal
+
+    artifact_id = uuid.uuid4()
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        provider="mock",
+        model="m",
+        output={
+            "answer_text": "Afirmación material sin Evidence permitida.",
+            "citations": [],
+            "facts": [{"statement": "Hecho no permitido", "evidence_ids": ["ev-x"]}],
+            "claims": [],
+            "conflicts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 10,
+            "open_questions": [],
+            "warnings": [],
+        },
+    )
+    session = MagicMock()
+    session.get.return_value = artifact
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.execute_agent",
+        lambda **_k: {"artifact_id": str(artifact_id), "audit_log_id": "a"},
+    )
+    job = SimpleNamespace(id=uuid.uuid4(), cancel_requested=False)
+    with pytest.raises(ConversationError, match="facts/claims"):
+        _answer_via_signal(
+            session,
+            job=job,  # type: ignore[arg-type]
+            dossier_id=uuid.uuid4(),
+            message=SimpleNamespace(id=uuid.uuid4(), content_text="q"),  # type: ignore[arg-type]
+            memory_items=[],
+            coverage={},
+            memory_policy="disabled",
+            allowed_evidence_ids=[],
+        )
+
+
+def test_answer_via_signal_safe_answer_empty_allowlist_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.oracle.conversations import _answer_via_signal
+
+    artifact_id = uuid.uuid4()
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        provider="mock",
+        model="m",
+        output={
+            "answer_text": "Sin evidencia autorizada; no se afirman hechos materiales.",
+            "citations": [],
+            "facts": [],
+            "claims": [],
+            "conflicts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 0,
+            "open_questions": ["evidencia"],
+            "warnings": ["empty_allowlist"],
+            "validated_output_sha256": "b" * 64,
+        },
+    )
+    session = MagicMock()
+    session.get.return_value = artifact
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.execute_agent",
+        lambda **_k: {"artifact_id": str(artifact_id), "audit_log_id": "a"},
+    )
+    job = SimpleNamespace(id=uuid.uuid4(), cancel_requested=False)
+    result = _answer_via_signal(
+        session,
+        job=job,  # type: ignore[arg-type]
+        dossier_id=uuid.uuid4(),
+        message=SimpleNamespace(id=uuid.uuid4(), content_text="q"),  # type: ignore[arg-type]
+        memory_items=[],
+        coverage={},
+        memory_policy="disabled",
+        allowed_evidence_ids=[],
+    )
+    assert (
+        "evidencia autorizada" in result["answer_text"].lower()
+        or "sin evidencia" in result["answer_text"].lower()
+    )
+    assert result["answer_payload"]["citations"] == []
+    assert result["answer_payload"]["validated_output_sha256"] == "b" * 64
 
 
 def test_checksum_change_rematerializes_new_evidence_id() -> None:
