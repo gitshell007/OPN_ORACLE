@@ -647,6 +647,10 @@
   border-radius: 8px;
   padding: 0 10px;
 }
+.platform-toolbar label:focus-within {
+  border-color: var(--or-deep, #1c2f8f);
+  box-shadow: 0 0 0 3px #1c2f8f1c;
+}
 .platform-toolbar input {
   border: 0;
   outline: 0;
