@@ -78,6 +78,7 @@ def integration_app() -> Iterator[APIFlask]:
     yield app
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 def test_real_postgres_redis_readiness(integration_app: APIFlask) -> None:

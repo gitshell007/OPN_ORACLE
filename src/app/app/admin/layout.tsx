@@ -14,7 +14,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <section className="page-heading admin-heading">
         <div>
           <div className="eyebrow">Organización activa</div>
-          <h1>Administración</h1>
+          {/* Título de área (no h1): cada subpantalla aporta el único h1 = etiqueta de pestaña */}
+          <p className="page-title">Administración</p>
           <p>Configuración de la organización separada de las preferencias personales.</p>
         </div>
       </section>

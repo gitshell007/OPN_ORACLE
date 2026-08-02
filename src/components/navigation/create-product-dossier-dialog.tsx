@@ -178,6 +178,7 @@ export function CreateProductDossierDialog({
         strategic_goal: goal.trim(),
         description: description.trim(),
         create_starter_profile: createStarterProfile,
+        accept_creation_intent: true,
         initial_status:
           (type === "competitive_intelligence" || isMarket) && activeOnCreate ? "active" : "draft",
         ...(type === "competitive_intelligence" ? { profile_config: {

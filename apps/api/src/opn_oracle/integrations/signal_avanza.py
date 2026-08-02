@@ -116,6 +116,15 @@ class ProviderMonitor(MonitorSpec):
     subscription_id: str | None = None
     health: dict[str, Any]
 
+    @field_validator("query", mode="before")
+    @classmethod
+    def normalize_optional_query(cls, value: Any) -> Any:
+        # Signal persists an entity/keyword-only monitor with a NULL query and returns
+        # that value in its 201/GET payload. Oracle's domain keeps the equivalent
+        # representation as an empty string so a successful create is not mistaken
+        # for a permanent provider-contract failure.
+        return "" if value is None else value
+
 
 class SourceItem(BaseModel):
     model_config = ConfigDict(extra="allow", strict=False)

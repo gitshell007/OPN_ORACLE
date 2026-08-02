@@ -489,6 +489,8 @@ def generate(args: argparse.Namespace) -> int:
     progress = progress_path.read_text(encoding="utf-8")
     architecture = architecture_path.read_text(encoding="utf-8")
     rendered = render_html(prepared, decisions, progress, architecture)
+    # Fail-closed for `git diff --check`: never leave trailing whitespace on lines.
+    rendered = "\n".join(line.rstrip() for line in rendered.splitlines()) + "\n"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=output_path.parent, prefix=f".{output_path.name}.", delete=False) as handle:
         temporary = Path(handle.name)

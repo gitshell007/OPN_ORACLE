@@ -1,6 +1,183 @@
 # Estado de implementación de OPN Oracle
 
-Actualizado: 2026-07-31
+Actualizado: 2026-08-01
+Rama: `mdev/01-rework2`
+
+
+## MDEV-06 REWORK-1 (2026-08-02)
+- branch `mdev/06-ask-dual-memory` · authority PG load (intent/requirements/offering/objectives/decisions/evidence)
+- durable Evidence+snapshot: no silent except; allowlist only persisted IDs; no synthetic://mock
+- fail-closed mode default disabled; mock→augment only under TESTING
+- CI: mypy unused-ignore fixed; DossierMessage.updated_at on client; RT-07 wired on Signal `/ai/run`
+- tests: unit/service + RT-07 HTTP; mig 0030 marked integration (needs TEST_DATABASE_URL)
+- debt: Celery worker real E2E, full PG mig roundtrip if no TEST_DATABASE_URL, OpenAPI regen, Playwright
+- no deploy / no merge / no production
+
+## MDEV-06 provisional dual-memory ask (2026-08-02)
+- branch `mdev/06-ask-dual-memory` from published MDEV-04 tip `55e9320` + cherry-pick MDEV-05 `f20b0fb` (resolved STATUS)
+- vertical: persist→Celery→dual blocks→materialize Evidence/allowlist→input_manifest→deterministic/Signal task→poll
+- modes disabled/shadow/augment distinct; shadow injects 0; checksum rematerialize; tenant filter; retryable 408/429/5xx
+- migration `20260802_0030` source_kind=memory_signal; UI Vector citas/coverage/degradación/cancel
+- tests `test_memory_mdev06_ask_dual.py` + mutations allowlist/retryable/tenant/checksum
+- inherited debt MDEV-02/03/04/05 (in-process Signal store, no full PG/Celery E2E, no OpenRouter)
+- no deploy / no merge / no production
+
+## MDEV-01 · **PASS Codex** (2026-08-01)
+
+- Codex decision: **PASS MDEV-01**.
+- `NEXT_PHASE_AUTHORIZED=MDEV-02_ONLY` (solo MDEV-02; no MDEV-03 ni deploy).
+- Refs autorizadas:
+  - Oracle `origin/master`: `1581fbbd7afc6621738475914e9e6e97aa0940ab`
+  - Signal `origin/main`: `996c6f38dc359df4e5ae76cc9c26a3032bf621c9`
+  - Bundle memory.v1: `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`
+  - Oracle CI: run `30716269096` success · 867 passed · cobertura 84%
+  - Signal: 855 passed + migración PostgreSQL separada 1 passed
+- Riesgos abiertos (heredados): **NO_ROLLBACK**, beat drift Signal Dev.
+- Código de producto Oracle: **sin cambios** en este registro.
+- Implementación MDEV-02: exclusivamente en Signal.
+
+---
+
+## MDEV-01 REWORK-2 · cerrado (PASS Codex; histórico REWORK-2)
+
+- Bases: Oracle `5c2177d`→master **`7163b35`** (CI fix), Signal `ac3c753`+higiene
+  `03adaf8`→main `996c6f3`; bundle
+  content_set `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4`.
+- Signal memory.v1: **sin** fallback legacy (`tenant_bound_credential_required`);
+  scopes vacíos de credencial deniegan; analysis GET/cancel **durables** vía
+  opn_memory; matriz HTTP 401/403/404/409/413/422/429/503 + mutaciones A–I;
+  rotación política **A** (sin overlap; `key_hash` global unique + partial unique
+  active por tenant); OpenAPI `x-status: proposed` alineado con capabilities.
+- Oracle: host `MEMORY_CONTEXT_MODE` desconocido/typo/shadow/augment → **disabled**
+  o `ConfigError` (nunca eleva a shadow/augment); mutación J RED→GREEN.
+- **CI Oracle verde** PR#13 run
+  [30716269096](https://github.com/gitshell007/OPN_ORACLE/actions/runs/30716269096):
+  **867 passed** en 310 s, cobertura **84%**. Causa del hang: mutación J heredaba
+  `ORACLE_RUN_INTEGRATION` y se auto-deadlockeaba en advisory lock PG; hijo sin
+  env de integración + timeout 60 s; CI `pytest -vv --durations=40`.
+- Suite Signal completa 0 fallos tras higiene PR#8; migración expand no aplicada
+  en hosts (solo DB de prueba). Flags OFF; sin MDEV-02 core; sin deploy.
+- NO_ROLLBACK / beat drift siguen abiertos. Codex decision: **pending**.
+
+---
+
+## MDEV-00 rework · Auditoría entornos y baseline (2026-08-01)
+
+- Pack `memoria_dev_v2` `2026-08-01.4` integridad **MATCH** 27/27; mutación en copia →
+  `BLOCKED_PACK_INTEGRITY`; canónico revalidado.
+- Ledger: `docs/implementation/MDEV_EXECUTION_LEDGER.md`.
+- Bilateral: `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`.
+- Evidencia: `docs/implementation/evidence/mdev-00/`.
+- Roadmap `ORC-MEM-001` approved (diff mínimo; progress 74%/mod 56%; sin `updated_at:null` en módulo).
+- Oracle Dev `96250a4` / Alembic `20260731_0028`; Signal Dev `db9fd37`; memory pilot only;
+  `/memory/v1` 404 en Dev; Http adapter stub; beat Signal disabled+active drift;
+  **NO_ROLLBACK** Signal Dev blocker MDEV-10.
+- Commits Dev: Oracle 8/8 (incl. `d3804ba` descartar), Signal 9/9 clasificados.
+- Suites completas **no** re-ejecutadas; focales 9+31 passed.
+- Codex decision: **pending**. No auto-PASS.
+- Histórico `mdev/00-baseline-ledger` conservado; roots compartidos no tocados.
+
+---
+
+## Workflow Memoria Sol · desplegado y validado en producción (2026-08-01)
+
+- Release Oracle activo: `20260801T114127Z-quick-b0a80eb` (árbol idéntico al commit validado
+  `769d98f` y merge `b0a80eb`). Backup lógico y restore aislado precedieron la activación;
+  liveness, readiness, HTTPS, Celery, ClamAV y coherencia de imágenes quedaron correctos.
+- Canario autenticado: expediente de Mercado creado con intención v1 aceptada, necesidad y oferta;
+  CATL quedó vinculado como competidor y la actividad mostró esa memoria tras recargar.
+- Documento sintético: job `d6900167-32dc-401b-a0c2-3688e38171c5` succeeded, estado `ready`,
+  ClamAV `clean`, dos chunks, búsqueda real y evidencia creada desde un fragmento.
+- Preguntar a Oracle: dos jobs durables succeeded por Signal. La segunda respuesta persistió una
+  cita y tres hechos autorizados; usage Signal 4857 usó `ollama/qwen3.5:9b`, sin fallback y coste 0.
+- Monitor diario: el create 201 idempotente se reconcilió como delivered, quedó `active/active`,
+  su ejecución Signal produjo cuatro señales y Oracle vinculó las cuatro al expediente; la
+  sincronización real terminó el 2026-08-01 a las 13:44 Europe/Madrid.
+- Signal producción quedó en `8973a09`: PostgreSQL ya solo publica `127.0.0.1:5433`; backup
+  `/var/backups/opn-signal/pre-loopback-20260801T1152Z.dump` verificado, servicios y health sanos.
+- Residual aceptado para esta UAT: documentos usan volumen local durable; migrar a S3 compatible
+  antes de escalar horizontalmente. El motor MEMORY de Signal permanece apagado: la memoria
+  autoritativa actual es la intención aceptada de Oracle. OpenRouter no se usa en Ask/Brief.
+
+## Hotfix contrato monitor Oracle→Signal · desplegado (2026-08-01)
+
+- El canario autenticado creó el expediente de mercado, intención aceptada, actor CATL y monitor
+  diario con la conexión `Signal producción`. Signal respondió **201 Created**, pero devolvió
+  `query=null` porque la vigilancia se definió mediante keywords/entidades; Oracle exigía `string`
+  en la respuesta y clasificó erróneamente el éxito como `permanent_failure`.
+- `ProviderMonitor` normaliza exclusivamente el `query` opcional de respuesta a cadena vacía. El
+  request `MonitorSpec` conserva su validación y sigue exigiendo query, keywords o entities.
+- El mismo canario mostró un falso negativo de readiness: la ruta buscaba el alias obsoleto
+  `signal_avanza`, mientras que el provider canónico es `signal-avanza` y sí estaba activo.
+- Tests focales de contrato+HTTP: **16 passed**; suite backend completa con PostgreSQL y Redis:
+  **859 passed**, cobertura **84.15%**. Las mutaciones sin normalizador y con el alias obsoleto
+  reproducen respectivamente el `ValidationError` y el readiness falso; restauradas.
+- Estado: desplegado. El `201` se reconcilió idempotentemente y la sincronización real terminó con
+  monitor `active/active`, sin error y con cursor/fecha persistidos.
+
+## Workflow completo de expediente · candidata validada (histórico previo al deploy, 2026-08-01)
+
+- La creación desde Vector marca de forma explícita el formulario humano como intención aceptada y
+  materializa, en la misma transacción, su requisito activo y la oferta propia. La API conserva el
+  comportamiento opt-in mediante `accept_creation_intent=false` por defecto.
+- Actividad muestra memoria, necesidad de inteligencia y oferta; Preguntar e Informe libre
+  rehidratan el mismo contrato versionado ya desplegado por Memoria Sol.
+- Desde el detalle de un actor/competidor se prepara una vigilancia diaria con el actor como entidad;
+  la pantalla de Configuración mantiene el gate humano antes de publicarla en Signal.
+- El Compose productivo incorpora ClamAV fijado por digest y variables completas para habilitar una
+  UAT documental local durable, escaneada y reversible. El backend local es una excepción de UAT;
+  S3 compatible sigue siendo el destino estable.
+- Signal producción tiene consumer tenant-scoped y conexión Oracle activa. Política Ask/Brief:
+  `ollama/qwen3.5:9b` → `ollama_titan/qwen3.6:27b`; OpenRouter no se usa en esas task keys.
+- Gate local: backend **858 passed**, cobertura **84.13%**; frontend **286 passed**; Ruff,
+  `ruff format --check`, mypy, TypeScript, OpenAPI/client, build y Compose productivo correctos;
+  `npm audit --omit=dev` informa 0 vulnerabilidades.
+- Mutaciones medidas: quitar la materialización de intención tumba el test HTTP de mercado; quitar
+  la navegación actor→monitor tumba Vitest; negar el escape local gobernado tumba el test de
+  configuración documental. Las tres mutaciones se restauraron y sus pruebas volvieron a verde.
+- Estado de esta entrada: candidata validada; el despliegue y el canario autenticado se registran en
+  una entrada posterior, no se infieren desde los tests.
+
+## Memoria Sol · intención aceptada en contexto IA (2026-08-01)
+
+- Producción está en `20260801T095500Z-quick-36fbed6`, migraciones `0027/0028`, HTTPS,
+  API, web, worker y beat sanos; Signal local-only tiene las dos task keys habilitadas.
+- El primer canario real detectó que `build_context()` no incorporaba la revisión de intención
+  aceptada aunque conversación e informe quedaban vinculados a ella.
+- El contexto incluye ahora intención aceptada, requisitos activos y ofertas activas asociadas; el
+  manifiesto fija IDs y `intent_content_hash` para auditoría y caché determinista.
+- Test HTTP+PostgreSQL focal: **3 passed** con `--no-cov`. Mutación `accepted→rejected` en la
+  selección de intención tumba el test focal. CI `30695007903` verde en backend, contrato,
+  Playwright y seguridad/SBOM.
+- Desplegado en producción como `20260801T101526Z-quick-0331ae5` (commit `0331ae5`), sin migración
+  nueva. Health interno/público, coherencia de imágenes y Celery: correctos.
+- Canario HTTP real `20260801T102101Z`: Ask `succeeded` (1.032 caracteres) e Informe libre
+  `proposed` (8 secciones) en 84,175 s. Ambos snapshots fijan la misma intención aceptada, su hash,
+  un requisito y una oferta. Signal: `ollama/qwen3.5:9b`, usos 4854/4855, OpenRouter 0 y
+  `MEMORY_ENGINE_ENABLED=0`. Los dos tenants canario quedaron suspendidos con usuarios deshabilitados
+  y kill switches activados.
+
+## Memoria Sol · release candidate coverage gate (2026-08-01)
+
+- Rama: `release/memsol-local-only` (PR #1).
+- Gate local: **858 passed**, cobertura **84.01%** (≥84), ruff limpio en tests MEMSOL nuevos.
+- Añadidos tests de comportamiento: `tests/test_memsol_conversations_service.py` (conversaciones, brief, cancel/retry jobs).
+- Corrección MockLLMProvider para schema estricto de `report_custom_brief_plan`; contrato OpenAPI intent PATCH body; teardown integración a head 0028.
+- Mutación: invertir `can_transition_message(queued→running)` tumba `test_message_transition_matrix_and_illegal`.
+- Histórico del gate previo: en ese momento producción aún no se había tocado.
+
+## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
+
+- Release Dev: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
+- Migraciones: head `20260731_0028`.
+- Re-medida run_tag **`20260731T194745Z`** con transcript HTTP completo:
+  - pregunta job `c6293b76-…` queue `ai` → succeeded
+  - brief job `9c538ca6-…` → plan proposed
+  - permanent_fail job `ad6d0d67-…` → failed/permanent_failure
+  - cancel job `edbee997-…` → 428 sin If-Match · 202 cancelled · 409 retry
+- Vitest Actividad+Ask+Brief: **7 passed**. Playwright MEMSOL: **not run** (blocked log).
+- Producción: **no** desplegada · **no lista**.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
 ## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
 
@@ -42,7 +219,7 @@ Actualizado: 2026-07-31
 - MEMSOL-08…10 documentados; UAT/E2E residual. MEMSOL-11 preparado sin deploy.
 - Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
-Rama observada: `master` / `memsol/execution`  
+Rama observada: `master` / `memsol/execution`
 Interfaz canónica: `CANONICAL_UI=vector`
 
 ## MEMSOL-05 · MemoryContextAdapter Oracle (2026-07-31)
@@ -84,6 +261,20 @@ Interfaz canónica: `CANONICAL_UI=vector`
 - API `/api/v1/dossiers/{id}/intent|intent/drafts|requirements|offerings` + OpenAPI tipado.
 - Tests unitarios lifecycle (11 passed). Integración Postgres + backfill contado: siguiente.
 - Worktree `memsol/execution`. Siguiente: backfill profile_config → IntentRevision o MEMSOL-04.
+
+## Gate E2E procurement y accesibilidad (2026-08-01)
+
+- Corregido el control E2E de la vigilancia opcional para usar su rol ARIA real
+  `switch`, sin cambiar la semántica ni la persistencia del wizard.
+- El selector desplazable de países recibe foco de teclado y las casillas de
+  selección de expediente miden al menos 24 px; Axe deja de señalar ambas
+  violaciones.
+- Evidencia: `npm run test -- --run src/components/ui/eu-country-multiselect.test.tsx
+  src/components/procurement/procurement-search-wizard.test.tsx` → 26 passed;
+  `npx playwright test tests/e2e/procurement-wizard.spec.ts
+  tests/e2e/accessibility-security.spec.ts --project=desktop --project=mobile`
+  → 9 passed, 1 skipped.
+- Pendiente: CI integral del candidato y smoke autenticado posterior al release.
 
 ## MEMSOL-04 · Read model Actividad (2026-07-31)
 
@@ -4198,3 +4389,37 @@ Verificación posterior: punteros, `ORACLE_RELEASE` e imágenes de los seis serv
 liveness, readiness, login HTTPS, Celery ping, beat único y smoke público correctos. La evidencia
 del backup y restore queda bajo el backup local de producción; el recibo off-host sigue siendo
 recomendado, no gate estricto activo.
+
+## MDEV-04 REWORK-1 (2026-08-02)
+- candidate_verdict: implemented_with_debt (REWORK attempt 1)
+- branch: mdev/04-oracle-adapter-settings · PR Oracle #16
+- test-connection: real Httpx unless MEMORY_CONTEXT_TEST_TRANSPORT / mock mode (synthetic flagged)
+- GET profile/effective: no silent create; ephemeral defaults + persisted=false
+- unique scope: uq_dmp_scope_nulls NULLS NOT DISTINCT
+- strict memory.v1 validation; SSRF rebind per-request; retry 408/429/5xx
+- snapshot writer persist_retrieval_snapshot in retrieve path; shadow returns zero items
+- TS client dossierMemory + UI section Memoria in dossier settings
+- unit tests test_memory_mdev04_adapter.py: 17 passed
+- residual debt: Flask/PG two-tenant HTTP, migration roundtrip PG, OpenAPI regen full, Playwright/Vitest axe, Celery cancel, full suite+CI green
+
+## MDEV-04 REWORK-2 (2026-08-02)
+- commit on mdev/04-oracle-adapter-settings PR #16
+- Fixed real API signatures: dossier_accessible(session,dossier,user_id,write=), problem_response keyword-only, append_audit_event resource_*
+- Permissions: dossier.read / dossier.write (dot form)
+- Snapshot: no except-pass; persist_retrieval_snapshot(session) no internal commit; orchestrator helper persist_snapshot_from_retrieve_result
+- Model/migration: Index uq_dmp_scope_nulls postgresql_nulls_not_distinct=True; dossier tenant-scoped FKs
+- HTTP unit tests: test_memory_mdev04_http.py (client get/put/post) + adapter tests → 30 passed
+- TS export DossierMemoryProfile; UI Memoria filters (sources/kinds/classifications/limit/token_budget)
+- Residual debt: PG multi-tenant integration, OpenAPI regen, Playwright/Vitest, full suite/CI, Celery cancel, schema freeze full memory.v1
+
+## MDEV-04 attempt-4 (2026-08-02)
+- RLS FORCE + tenant_isolation policy + oracle_app grants on dossier_memory_profiles / memory_retrieval_snapshots
+- mutation subprocess strips ORACLE_RUN_INTEGRATION/TEST_* URLs + --no-cov (mutation-J pattern)
+- residual: full PG HTTP e2e, OpenAPI, Playwright, coverage gate, CI conclusion
+
+## MDEV-05 provisional bilateral ingest (2026-08-02)
+- branch mdev/05-bilateral-ingest from 304ea27 (MDEV-04 tip), integrated after 55e9320 on mdev/06
+- memory_outbox.py: envelopes + stage_outbox; flag MEMORY_BILATERAL_OUTBOX_ENABLED default OFF
+- GET /dossiers/{id}/memory/outbox safe status
+- unit tests test_memory_mdev05_outbox.py
+- inherited debt MDEV-02/03/04; no deploy

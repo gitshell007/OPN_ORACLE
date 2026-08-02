@@ -1,0 +1,33 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/error_envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error_code": {
+      "type": "string"
+    },
+    "http_status": {
+      "type": "integer"
+    },
+    "message": {
+      "type": "string"
+    },
+    "retryable": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "error_code",
+    "http_status",
+    "retryable",
+    "message"
+  ],
+  "title": "MemoryErrorEnvelope",
+  "type": "object"
+}

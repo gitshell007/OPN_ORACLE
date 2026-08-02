@@ -404,13 +404,21 @@
   justify-content: space-between;
   gap: 24px;
 }
-.admin-heading h1 {
+.admin-heading h1,
+.admin-heading .page-title {
   font-size: 29px;
   letter-spacing: -0.035em;
   margin-bottom: 7px;
+  font-weight: 700;
+  color: inherit;
 }
 .admin-heading p {
   color: #66758a;
+}
+.admin-table th.numeric-col,
+.admin-table td.numeric-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .admin-form-card,
 .admin-table-card {
@@ -638,6 +646,10 @@
   background: white;
   border-radius: 8px;
   padding: 0 10px;
+}
+.platform-toolbar label:focus-within {
+  border-color: var(--or-deep, #1c2f8f);
+  box-shadow: 0 0 0 3px #1c2f8f1c;
 }
 .platform-toolbar input {
   border: 0;

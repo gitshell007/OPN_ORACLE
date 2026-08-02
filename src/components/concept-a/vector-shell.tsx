@@ -304,13 +304,17 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                 const active =
                   pathname === href ||
                   (href !== "/app" && pathname.startsWith(`${href}/`));
+                // Solo la coincidencia exacta lleva aria-current="page". Los
+                // ancestros (p. ej. Expedientes dentro de /app/dossiers/:id/…)
+                // se marcan visualmente con .active; el marcador de página
+                // queda en la nav de sección (dossier-nav/subnav) o en la hoja.
                 return (
                   <Link
                     key={id}
                     href={href}
                     title={compact ? label : undefined}
                     aria-label={label}
-                    aria-current={active ? "page" : undefined}
+                    aria-current={pathname === href ? "page" : undefined}
                     className={active ? "active" : ""}
                     onClick={navigateFromMobile}
                   >
@@ -450,6 +454,10 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                 {crumb.href ? (
                   <Link href={crumb.href}>{crumb.label}</Link>
                 ) : (
+                  // `aria-current="page"` se declara POR LANDMARK, no una vez
+                  // por documento: el patrón de migas de pan de WAI-ARIA lo
+                  // exige en el último elemento. Lo que había que eliminar era
+                  // el duplicado dentro de una MISMA navegación.
                   <strong aria-current="page">{crumb.label}</strong>
                 )}
               </span>

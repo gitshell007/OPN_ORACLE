@@ -1,0 +1,16 @@
+# Suite comparison baseline 8973a09 vs MDEV-01 rework
+baseline_sha=8973a09
+candidate_sha=worktree mdev/01-rework-contract
+baseline: 8 failed, 804 passed (pytest -q)
+candidate: 8 failed, 828 passed (pytest -q)
+identical failures:
+  test_admin_consumers.py::test_consumer_capabilities_maps_signal_types_to_connectors
+  test_admin_consumers.py::test_consumer_product_preset_sets_editable_capabilities_and_ai
+  test_admin_ui_layout.py::test_consumer_subpages_share_consistent_subnav
+  test_connector_run_log_hygiene.py::test_admin_purge_writes_audit_and_requires_confirm
+  test_connector_run_log_hygiene.py::test_retention_aggregates_ok_then_deletes
+  test_usage_logs_retention.py::test_null_payloads_and_anonymize_query
+  test_web_search_chain.py::test_admin_route_saves_chain
+  test_web_search_chain_per_consumer.py::test_capabilities_save_preserves_scopes_and_sets_chain
+conclusion: PREEXISTING on origin/main tip 8973a09; NOT MDEV regressions.
+decision: leave outside MDEV-01 contract PR; document exception for candidate_pass gate.

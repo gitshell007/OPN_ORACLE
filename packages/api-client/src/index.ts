@@ -12,6 +12,7 @@ export type {
   SignalMonitorEntityInput,
   SignalMonitorSourceType,
 } from "./transport";
+export type { DossierMemoryProfile } from "./transport";
 export type { DocumentSearchResult, OracleDocument } from "./transport";
 export type { BackendDossier } from "./transport";
 export type { OracleSummaryCurrent, OracleSummaryVersion } from "./transport";
@@ -81,6 +82,10 @@ export type {
   CustomBriefDetail,
   DossierActivityItem,
   DossierActivityResponse,
+  SurveillanceAction,
+  DossierIntentRevision,
+  DossierIntelligenceRequirement,
+  DossierOffering,
   DossierConversation,
   DossierMessage,
   InvestigationClaim,

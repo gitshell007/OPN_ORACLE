@@ -69,11 +69,15 @@ x-app-environment: &app-environment
   # Techo GLOBAL de fuentes citables entre todos los tipos. Es la palanca que
   # evita el truncado del informe ("Invalid JSON: EOF") sin desplegar código.
   ENTITY_INTEL_MAX_EVIDENCE_SOURCES: ${ENTITY_INTEL_MAX_EVIDENCE_SOURCES:-45}
-  DOCUMENTS_ENABLED: "false"
-  DOCUMENT_STORAGE_BACKEND: local
-  DOCUMENT_LOCAL_ROOT: /var/lib/oracle-storage
-  DOCUMENT_SCANNER_MODE: noop
+  DOCUMENTS_ENABLED: ${DOCUMENTS_ENABLED:-false}
+  DOCUMENT_STORAGE_BACKEND: ${DOCUMENT_STORAGE_BACKEND:-local}
+  DOCUMENT_LOCAL_ROOT: ${DOCUMENT_LOCAL_ROOT:-/var/lib/oracle-storage}
+  DOCUMENT_SCANNER_MODE: ${DOCUMENT_SCANNER_MODE:-noop}
+  DOCUMENT_ALLOW_LOCAL_BACKEND: ${DOCUMENT_ALLOW_LOCAL_BACKEND:-false}
   DOCUMENT_ALLOW_OFFICIAL_UNSCANNED: ${DOCUMENT_ALLOW_OFFICIAL_UNSCANNED:-false}
+  DOCUMENT_CLAMAV_HOST: ${DOCUMENT_CLAMAV_HOST:-}
+  DOCUMENT_CLAMAV_PORT: ${DOCUMENT_CLAMAV_PORT:-3310}
+  DOCUMENT_CLAMAV_TIMEOUT_SECONDS: ${DOCUMENT_CLAMAV_TIMEOUT_SECONDS:-15}
   MEMORY_CONTEXT_MODE: ${MEMORY_CONTEXT_MODE:-disabled}
   MEMORY_CONTEXT_BASE_URL: ${MEMORY_CONTEXT_BASE_URL:-}
   MEMORY_CONTEXT_TIMEOUT_SECONDS: ${MEMORY_CONTEXT_TIMEOUT_SECONDS:-10}
@@ -175,6 +179,27 @@ services:
     networks:
       - oracle_internal
 
+  clamav:
+    image: clamav/clamav:1.4.5-debian13-slim@sha256:50296b62b23764b474be18310521f64a720524d69334ea5236aab5fac44ff993
+    restart: unless-stopped
+    volumes:
+      - oracle_clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    mem_limit: 1536m
+    mem_reservation: 768m
+    cpus: 1.00
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks:
+      - oracle_internal
+
   migrate:
     <<: *app-hardening
     profiles: [release]
@@ -229,6 +254,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
@@ -308,6 +335,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clamav:
+        condition: service_healthy
     command:
       - celery
       - -A
@@ -375,6 +404,7 @@ networks:
     internal: true
 
 volumes:
+  oracle_clamav_data:
   oracle_document_storage:
   oracle_postgres_data:
   oracle_redis_data:

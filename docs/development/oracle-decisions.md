@@ -99,3 +99,25 @@ en `docs/architecture/`; este archivo reúne solo las que afectan directamente a
 - Consecuencias: La UX y los informes deben comunicar límites y conservar el diagnóstico de cobertura.
 - Funcionalidades afectadas: ORC-PROC-004, ORC-INV-001, ORC-PROC-003.
 - Archivos afectados: `docs/development/oracle-roadmap.json`, `docs/implementation/STATUS.md`, `docs/implementation/spikes/77_investigation_protocol_v1_1.md`.
+
+## ORC-ADR-0009 — Crear un expediente acepta su intake, pero nunca activa vigilancia
+
+- Fecha: 2026-08-01
+- Estado: aceptada
+- Contexto: Preguntar, informes y acciones proactivas necesitan rehidratar lo que el usuario declaró al crear el expediente. Guardar solo `profile_config` dejaba el intake fuera del contrato versionado de memoria.
+- Decisión: La UI canónica envía `accept_creation_intent=true` al confirmar «Crear expediente». Oracle materializa en la misma transacción una revisión `accepted`, un requisito activo y, si existe, la oferta propia. La llamada API conserva `false` por defecto para que clientes de sistema no inventen aceptación humana. La creación no activa monitores: el usuario revisa entidades, fuentes y cadencia antes de publicar la vigilancia.
+- Motivo: Convertir una acción humana explícita en memoria durable sin confundir propuesta IA, aceptación y automatización proactiva.
+- Alternativas consideradas: Inferir la intención al preguntar; aceptar automáticamente cualquier intake API; crear y activar un monitor durante el alta.
+- Consecuencias: Actividad puede mostrar memoria aceptada desde el primer render; Ask/Brief reciben el mismo contexto versionado; la vigilancia sigue siendo opt-in y auditable.
+- Funcionalidades afectadas: ORC-DOS-001, ORC-ACT-001, ORC-SIG-001.
+- Archivos afectados: `apps/api/src/opn_oracle/oracle/service.py`, `src/components/navigation/create-product-dossier-dialog.tsx`, `src/components/dossiers/dossier-activity-section.tsx`, `src/components/dossiers/dossier-work-section.tsx`.
+
+## ORC-ADR-0010 — Base limpia master/main y límites Dev (2026-08-01)
+
+- **Contexto:** Ramas Dev divergen; Signal Dev carece de rollback formal; pack MDEV debe fallar cerrado si se altera.
+- **Decisiones:**
+  1. Toda implementación MDEV parte de `origin/master` (Oracle) y `origin/main` (Signal) en worktrees limpios.
+  2. Commits Dev se clasifican adoptar|descartar|reimplementar; `d3804ba` se descarta (merge hacia Dev).
+  3. Signal Dev update actual **no** constituye rollback verificable → blocker **NO_ROLLBACK** para MDEV-10.
+  4. Mutación de integridad del pack se prueba solo en copia temporal.
+- **Evidencia:** `docs/implementation/MDEV_00_BASELINE_BILATERAL.md`, `docs/implementation/evidence/mdev-00/`.

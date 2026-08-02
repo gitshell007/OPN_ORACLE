@@ -1,0 +1,30 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/ingest_batch_response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accepted": {
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "item_results": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "scope": {
+      "$ref": "memory_scope.schema.json"
+    }
+  },
+  "required": [
+    "accepted",
+    "idempotency_key",
+    "scope",
+    "item_results"
+  ],
+  "type": "object"
+}

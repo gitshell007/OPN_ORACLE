@@ -13,6 +13,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select, text
@@ -24,7 +25,43 @@ from opn_oracle.oracle.models import Report, StrategicDossier
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.tenants.context import require_tenant_id
 
+
+def _iso_or_none(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return None
+
+
 CUSTOM_BRIEF_TEMPLATE_KEY = "custom_assistant_brief"
+
+# RT-08 v1.0.2: optional semantic arrays — missing keys normalize to [].
+BRIEF_PLAN_OPTIONAL_ARRAY_KEYS: tuple[str, ...] = (
+    "facts",
+    "claims",
+    "conflicts",
+    "inferences",
+    "recommendations",
+)
+
+
+def normalize_brief_plan_output(plan: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize RT-08 plan: absent optional arrays become ``[]``; present arrays kept.
+
+    Does not invent sections or other required fields. Safe on non-dict input → {}.
+    """
+
+    if not isinstance(plan, dict):
+        out: dict[str, Any] = {}
+    else:
+        out = dict(plan)
+    for key in BRIEF_PLAN_OPTIONAL_ARRAY_KEYS:
+        if key not in out or out[key] is None:
+            out[key] = []
+        elif not isinstance(out[key], list):
+            out[key] = []
+    return out
+
+
 CUSTOM_BRIEF_TEMPLATE_VERSION = "v1"
 CUSTOM_BRIEF_REPORT_TYPE = "custom_assistant"
 CUSTOM_BRIEF_JOB = "oracle.report.custom_brief.plan"
@@ -73,6 +110,12 @@ def _load_dossier(session: Session, dossier_id: uuid.UUID) -> StrategicDossier:
 
 def serialize_custom_brief(report: Report) -> dict[str, Any]:
     options = dict(report.options or {})
+    try:
+        from opn_oracle.oracle.custom_report_lifecycle import serialize_lifecycle
+
+        life = serialize_lifecycle(report)
+    except Exception:
+        life = {}
     return {
         "id": str(report.id),
         "tenant_id": str(report.tenant_id),
@@ -83,9 +126,21 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "template_key": report.template_key,
         "template_version": report.template_version,
         "generation_version": report.generation_version,
+        "version": getattr(report, "version", 1),
+        "etag": f'W/"{getattr(report, "version", 1)}"',
         "brief_request": str(options.get("brief_request") or ""),
         "plan_status": str(options.get("plan_status") or "draft"),
+        "lifecycle_state": life.get("lifecycle_state")
+        or str(options.get("lifecycle_state") or "brief_draft"),
         "proposed_plan": options.get("proposed_plan"),
+        "accepted_plan": options.get("accepted_plan"),
+        "accepted_snapshot_hash": options.get("accepted_snapshot_hash")
+        or life.get("accepted_snapshot_hash"),
+        "memory_degraded": bool(options.get("memory_degraded", False)),
+        "memory_degraded_reason": options.get("memory_degraded_reason"),
+        "coverage": options.get("coverage") or life.get("coverage"),
+        "ready_artifact": options.get("ready_artifact"),
+        "downloadable": bool(life.get("downloadable")),
         "background_job_id": (
             str(report.background_job_id) if report.background_job_id is not None else None
         ),
@@ -94,6 +149,22 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "requested_by_user_id": str(report.requested_by_user_id),
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+        "ready_at": _iso_or_none(getattr(report, "ready_at", None)),
+        "generation_blocked": bool(
+            life.get("generation_blocked") or options.get("generation_blocked")
+        ),
+        "generation_blocked_code": (
+            life.get("generation_blocked_code") or options.get("generation_blocked_code")
+        ),
+        "generation_blocked_reason": (
+            life.get("generation_blocked_reason") or options.get("generation_blocked_reason")
+        ),
+        "accepted_degraded": bool(
+            life.get("accepted_degraded")
+            or options.get("accepted_degraded")
+            or str(life.get("lifecycle_state") or options.get("lifecycle_state") or "")
+            == "accepted_degraded"
+        ),
     }
 
 
@@ -187,6 +258,7 @@ def create_custom_report_brief(
     options = {
         "brief_request": brief,
         "plan_status": "draft",
+        "lifecycle_state": "brief_draft",
         "classification": "internal",
         "confidentiality_label": "Uso interno",
         "assistant_kind": "custom_report_brief",
@@ -325,28 +397,48 @@ def process_custom_brief_plan(
         return {"report_id": str(report.id), "plan_status": "draft", "cancelled": True}
 
     brief = str(options.get("brief_request") or "").strip()
-    # Deterministic plan proposal (no LLM, no paid provider, no report_writer).
-    proposed_plan = {
-        "version": "custom_brief_plan.v1",
-        "audience": "equipo del expediente",
-        "scope": "derivado del brief del usuario; sujeto a revisión humana",
-        "period": "sin fijar — completar en aceptación",
-        "sections": [
-            {"id": "executive", "title": "Resumen ejecutivo", "required": True},
-            {"id": "evidence", "title": "Evidencias y fuentes", "required": True},
-            {"id": "risks", "title": "Riesgos e incertidumbres", "required": True},
-            {"id": "next_actions", "title": "Siguientes acciones", "required": True},
-        ],
-        "formats": ["html", "json"],
-        "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
-        "notes": [
-            "Plan propuesto automáticamente; requiere aceptación humana antes de redactar.",
-            "No se ha invocado report_writer ni proveedores de pago.",
-        ],
-        "job_id": str(job.id),
-    }
+    signal_meta: dict[str, Any] = {}
+    if _signal_ai_enabled():
+        try:
+            proposed_plan, signal_meta = _plan_via_signal(
+                session,
+                job=job,
+                dossier_id=dossier_id,
+                report=report,
+                brief=brief,
+            )
+        except Exception as error:
+            options["last_error"] = str(error)[:500]
+            report.options = options
+            report.error_code = "signal_ai_error"
+            report.error_message = str(error)[:500]
+            session.flush()
+            raise CustomReportError(f"Fallo IA gobernada (Signal): {error}") from error
+    else:
+        # Deterministic plan proposal (no LLM) — tests / AI disabled.
+        proposed_plan = {
+            "version": "custom_brief_plan.v1",
+            "audience": "equipo del expediente",
+            "scope": "derivado del brief del usuario; sujeto a revisión humana",
+            "period": "sin fijar — completar en aceptación",
+            "sections": [
+                {"id": "executive", "title": "Resumen ejecutivo", "required": True},
+                {"id": "evidence", "title": "Evidencias y fuentes", "required": True},
+                {"id": "risks", "title": "Riesgos e incertidumbres", "required": True},
+                {"id": "next_actions", "title": "Siguientes acciones", "required": True},
+            ],
+            "formats": ["html", "json"],
+            "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
+            "notes": [
+                "Plan propuesto automáticamente; requiere aceptación humana antes de redactar.",
+                "No se ha invocado report_writer ni proveedores de pago.",
+            ],
+            "job_id": str(job.id),
+            "provider_path": "deterministic",
+        }
     options["plan_status"] = "proposed"
-    options["proposed_plan"] = proposed_plan
+    options["lifecycle_state"] = "plan_proposed"
+    options["proposed_plan"] = normalize_brief_plan_output(proposed_plan)
     options["mutates_intent"] = False
     options["mutates_memory_facts"] = False
     report.options = options
@@ -364,6 +456,7 @@ def process_custom_brief_plan(
             "plan_status": "proposed",
             "job_id": str(job.id),
             "section_count": len(proposed_plan["sections"]),
+            **signal_meta,
         },
     )
     session.flush()
@@ -373,4 +466,80 @@ def process_custom_brief_plan(
         "section_count": len(proposed_plan["sections"]),
         "mutates_intent": False,
         "mutates_memory_facts": False,
+        **signal_meta,
     }
+
+
+def _signal_ai_enabled() -> bool:
+    try:
+        from flask import current_app
+
+        return bool(
+            current_app.config.get("AI_ENABLED")
+            and str(current_app.config.get("AI_MODE") or "").lower() == "signal"
+        )
+    except Exception:
+        return False
+
+
+def _plan_via_signal(
+    session: Session,
+    *,
+    job: BackgroundJob,
+    dossier_id: uuid.UUID,
+    report: Report,
+    brief: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Call Signal task_key report_custom_brief_plan via execute_agent (no model hardcode)."""
+
+    from opn_oracle.ai.context import build_context
+    from opn_oracle.ai.models import AIArtifact
+    from opn_oracle.ai.service import execute_agent
+
+    result = execute_agent(
+        agent="report_custom_brief_plan",
+        dossier_id=dossier_id,
+        job=job,
+        context_factory=lambda max_tokens: build_context(dossier_id, max_tokens=max_tokens),
+        supplemental_context={"brief_request": brief, "report_id": str(report.id)},
+        target_type="report",
+        target_id=report.id,
+    )
+    artifact = session.get(AIArtifact, uuid.UUID(str(result["artifact_id"])))
+    if artifact is None or not isinstance(artifact.output, dict):
+        raise CustomReportError("Artefacto de plan IA no disponible.")
+    output = dict(artifact.output)
+    sections = output.get("sections") or []
+    if not isinstance(sections, list) or not sections:
+        raise CustomReportError("El plan IA no incluye sections.")
+    proposed_plan = normalize_brief_plan_output(
+        {
+            "version": str(output.get("version") or "custom_brief_plan.v1"),
+            "audience": str(output.get("audience") or "equipo del expediente"),
+            "scope": str(output.get("scope") or ""),
+            "period": str(output.get("period") or "sin fijar"),
+            "sections": sections,
+            "formats": list(output.get("formats") or ["html", "json"]),
+            "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
+            "notes": list(output.get("notes") or []),
+            "open_questions": list(output.get("open_questions") or []),
+            "warnings": list(output.get("warnings") or []),
+            "facts": output.get("facts"),
+            "claims": output.get("claims"),
+            "conflicts": output.get("conflicts"),
+            "inferences": output.get("inferences"),
+            "recommendations": output.get("recommendations"),
+            "confidence": output.get("confidence"),
+            "job_id": str(job.id),
+            "artifact_id": str(artifact.id),
+            "audit_log_id": str(result.get("audit_log_id") or ""),
+            "provider_path": "signal",
+            "task_key": "report_custom_brief_plan",
+        }
+    )
+    meta = {
+        "artifact_id": str(artifact.id),
+        "task_key": "report_custom_brief_plan",
+        "provider_path": "signal",
+    }
+    return proposed_plan, meta

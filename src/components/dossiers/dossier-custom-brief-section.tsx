@@ -11,6 +11,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 const STORAGE_PREFIX = "oracle:dossier-brief:";
 
@@ -49,6 +50,18 @@ const PLAN_LABEL: Record<string, string> = {
   accepted: "Plan aceptado",
 };
 
+const LIFE_LABEL: Record<string, string> = {
+  brief_draft: "Brief en borrador",
+  plan_proposed: "Plan propuesto",
+  plan_accepted: "Plan aceptado (snapshot congelado)",
+  accepted_degraded: "Plan aceptado (generación bloqueada)",
+  generating: "Generando informe",
+  reviewing: "Revisando",
+  ready: "Listo para descargar",
+  failed: "Fallido",
+  cancelled: "Cancelado",
+};
+
 export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) {
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
@@ -85,7 +98,13 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
           reportId: current.id,
           jobId: current.background_job_id,
         });
-        if (current.plan_status === "draft" && !current.error_code) {
+        const life = current.lifecycle_state || current.plan_status;
+        const inFlight =
+          (!current.error_code && current.plan_status === "draft") ||
+          life === "generating" ||
+          life === "reviewing" ||
+          life === "plan_accepted";
+        if (inFlight && life !== "ready" && life !== "failed" && life !== "cancelled") {
           stopPoll();
           pollTimer.current = window.setTimeout(() => {
             void pollBriefRef.current?.(reportId);
@@ -154,7 +173,7 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
       const result = await api.customBriefs.create(
         dossierId,
         { brief_request: text },
-        idempotencyKey(`brief-${dossierId}-${Date.now()}`),
+        idempotencyKey(`brief-${dossierId}-${crypto.randomUUID()}`),
       );
       setAccepted(result);
       writeSession(dossierId, {
@@ -189,18 +208,70 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
   const planStatus = detail?.plan_status ?? accepted?.plan_status ?? null;
   const sections = (detail?.proposed_plan?.sections as Array<{ title?: string }> | undefined) ?? [];
 
+  async function withVersion(
+    action: (version: number) => Promise<CustomBriefDetail>,
+  ) {
+    if (!detail?.id) return;
+    const version = detail.version ?? 1;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await action(version);
+      setDetail(next);
+      setAccepted((prev) =>
+        prev
+          ? { ...prev, plan_status: next.plan_status, report_id: next.id }
+          : {
+              job_id: next.background_job_id ?? "",
+              report_id: next.id,
+              plan_status: next.plan_status,
+              report: next as unknown as Record<string, unknown>,
+            },
+      );
+      writeSession(dossierId, {
+        reportId: next.id,
+        jobId: next.background_job_id,
+      });
+      const life = next.lifecycle_state || next.plan_status;
+      if (
+        life === "generating" ||
+        life === "reviewing" ||
+        life === "plan_accepted" ||
+        (next.plan_status === "draft" && !next.error_code)
+      ) {
+        void pollBrief(next.id);
+      }
+      toast.success("Informe actualizado");
+    } catch (reason) {
+      setError(
+        reason instanceof ApiError
+          ? reason.problem.detail
+          : "No se pudo actualizar el informe.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const life =
+    detail?.lifecycle_state ||
+    (planStatus === "proposed"
+      ? "plan_proposed"
+      : planStatus === "accepted"
+        ? "plan_accepted"
+        : planStatus === "draft"
+          ? "brief_draft"
+          : planStatus || "");
+
+
+
   return (
     <div className="dossier-section-page">
-      <header className="vector-panel">
-        <div>
-          <span className="section-kicker">Asistente de informes</span>
-          <h1>Informe libre</h1>
-          <p>
-            Guarda el encargo como brief y encola la planificación. El plan propuesto se
-            muestra al asentar el worker; recargar restaura el informe desde la API.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Asistente de informes"
+        title="Informe libre"
+        description="Guarda el encargo como brief y encola la planificación. El plan propuesto se muestra al asentar el worker; recargar restaura el informe desde la API."
+      />
 
       <section className="vector-panel">
         <form onSubmit={(event) => void onSubmit(event)} className="stack-form">
@@ -235,7 +306,7 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
       {accepted ? (
         <section className="vector-panel" aria-live="polite">
           <header>
-            <h2>Estado del brief</h2>
+            <h2>Estado del informe</h2>
             <button
               type="button"
               className="vector-secondary"
@@ -254,10 +325,32 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
               <dd>{accepted.job_id || detail?.background_job_id || "—"}</dd>
             </div>
             <div>
-              <dt>Plan</dt>
-              <dd>{PLAN_LABEL[planStatus ?? ""] ?? planStatus ?? "—"}</dd>
+              <dt>Ciclo de vida</dt>
+              <dd>{LIFE_LABEL[life] ?? life ?? PLAN_LABEL[planStatus ?? ""] ?? planStatus ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Versión</dt>
+              <dd>{detail?.version ?? "—"}</dd>
             </div>
           </dl>
+          {detail?.memory_degraded || detail?.accepted_degraded || detail?.generation_blocked ? (
+            <p role="status" className="muted">
+              {detail?.generation_blocked
+                ? `Generación bloqueada (${detail.generation_blocked_code || "blocked"}): ${
+                    detail.generation_blocked_reason ||
+                    detail.memory_degraded_reason ||
+                    "memoria durable no disponible (MDEV-05)"
+                  }`
+                : `Degradado: ${
+                    detail.memory_degraded_reason || "memoria durable no disponible (MDEV-05)"
+                  }`}
+            </p>
+          ) : null}
+          {detail?.accepted_snapshot_hash ? (
+            <p className="muted">
+              Snapshot: <code>{detail.accepted_snapshot_hash.slice(0, 16)}…</code>
+            </p>
+          ) : null}
           {detail?.brief_request ? (
             <p>
               <strong>Encargo:</strong> {detail.brief_request}
@@ -273,12 +366,93 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
                   </li>
                 ))}
               </ul>
+              <p className="muted">
+                Acepte o rechace el plan. La aceptación congela el snapshot; no hay autoaceptación.
+              </p>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <AsyncActionButton
+                  type="button"
+                  className="vector-primary"
+                  loading={busy}
+                  disabled={busy}
+                  onClick={() =>
+                    void withVersion((v) =>
+                      api.customBriefs.acceptPlan(dossierId, detail!.id, v, {
+                        start_generation: true,
+                      }),
+                    )
+                  }
+                >
+                  Aceptar plan y generar
+                </AsyncActionButton>
+                <AsyncActionButton
+                  type="button"
+                  className="vector-secondary"
+                  loading={busy}
+                  disabled={busy}
+                  onClick={() =>
+                    void withVersion((v) =>
+                      api.customBriefs.rejectPlan(
+                        dossierId,
+                        detail!.id,
+                        v,
+                        "rechazado en UI",
+                      ),
+                    )
+                  }
+                >
+                  Rechazar plan
+                </AsyncActionButton>
+              </div>
             </div>
-          ) : planStatus === "draft" ? (
-            <p>Planificando… el estado se actualizará sin recargar (o al pulsar Actualizar).</p>
+          ) : planStatus === "draft" || life === "generating" || life === "reviewing" ? (
+            <p>
+              {life === "generating" || life === "reviewing"
+                ? "Generando/revisando… el estado se conserva al recargar."
+                : "Planificando… el estado se actualizará sin recargar (o al pulsar Actualizar)."}
+            </p>
           ) : null}
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+            {life === "generating" || life === "reviewing" || life === "plan_accepted" ? (
+              <AsyncActionButton
+                type="button"
+                className="vector-secondary"
+                loading={busy}
+                disabled={busy}
+                onClick={() =>
+                  void withVersion((v) => api.customBriefs.cancel(dossierId, detail!.id, v))
+                }
+              >
+                Cancelar
+              </AsyncActionButton>
+            ) : null}
+            {life === "failed" ? (
+              <AsyncActionButton
+                type="button"
+                className="vector-primary"
+                loading={busy}
+                disabled={busy}
+                onClick={() =>
+                  void withVersion((v) => api.customBriefs.retry(dossierId, detail!.id, v))
+                }
+              >
+                Reintentar
+              </AsyncActionButton>
+            ) : null}
+            {detail?.downloadable ? (
+              <a
+                className="vector-primary"
+                href={api.customBriefs.downloadUrl(dossierId, detail.id)}
+                download
+              >
+                Descargar artefacto
+              </a>
+            ) : null}
+          </div>
           {detail?.error_message ? (
-            <p role="alert">Error: {detail.error_message}</p>
+            <p role="alert">
+              Error: {detail.error_code}: {detail.error_message}
+            </p>
           ) : null}
         </section>
       ) : null}

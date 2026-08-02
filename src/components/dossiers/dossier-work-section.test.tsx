@@ -22,13 +22,14 @@ const mocks = vi.hoisted(() => ({
   decisionCreate: vi.fn(),
   decisionUpdate: vi.fn(),
   replace: vi.fn(),
+  push: vi.fn(),
   params: new URLSearchParams(),
   success: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/app/dossiers/dossier-1/tasks",
-  useRouter: () => ({ replace: mocks.replace }),
+  useRouter: () => ({ replace: mocks.replace, push: mocks.push }),
   useSearchParams: () => mocks.params,
 }));
 
@@ -80,6 +81,7 @@ import { DossierWorkSection } from "./dossier-work-section";
 describe("DossierWorkSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     mocks.params = new URLSearchParams();
     mocks.tasksList.mockResolvedValue({
       data: [{
@@ -270,6 +272,45 @@ describe("DossierWorkSection", () => {
       influence: 50,
       relevance_to_dossier: 50,
     }));
+  });
+
+  it("prepara una vigilancia revisable desde el detalle de un competidor", async () => {
+    mocks.params = new URLSearchParams("selected=link-1");
+    mocks.actorLinks.mockResolvedValue({
+      data: [{
+        id: "link-1",
+        actor_id: "actor-1",
+        dossier_id: "dossier-1",
+        tenant_id: "tenant-1",
+        roles: ["competidor"],
+        influence: 50,
+        relevance_to_dossier: 50,
+        version: 1,
+        updated_at: "2026-07-11T09:00:00Z",
+      }],
+      meta: { page: 1, size: 100, total: 1 },
+    });
+    mocks.actorList.mockResolvedValue({
+      data: [{
+        id: "actor-1",
+        tenant_id: "tenant-1",
+        canonical_name: "CATL",
+        actor_type: "organization",
+        metadata: {},
+        provenance: { source: "manual" },
+      }],
+      meta: { page: 1, size: 100, total: 1 },
+    });
+    render(<DossierWorkSection dossierId="dossier-1" kind="actors" />);
+
+    const detail = await screen.findByRole("dialog", { name: "CATL" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Preparar vigilancia del actor" }));
+
+    expect(JSON.parse(sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor") || "{}"))
+      .toEqual(expect.objectContaining({ entities: ["CATL"], cadence: "daily" }));
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/app/dossiers/dossier-1/settings?wizard_prefill=monitor",
+    );
   });
 
   it("crea una tarea manual con título y prioridad", async () => {

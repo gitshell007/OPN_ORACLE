@@ -1,0 +1,72 @@
+# Celery registered tasks + beat (Oracle Dev code on release 96250a4)
+registered_task_count 51
+queues_worker: default,signals,ai,documents,notifications,maintenance
+beat_schedule_entries 12
+## tasks
+maintenance.cleanup_tokens
+maintenance.dispatch_due_jobs
+maintenance.dispatch_queued_jobs
+maintenance.documents_retention
+maintenance.expire_sessions
+maintenance.poll_source_activity
+maintenance.procurement_watch_retention
+maintenance.recover_stale_jobs
+maintenance.schedule_alert_evaluations
+maintenance.schedule_nightly_dossier_summaries
+maintenance.signal_reconcile_inbox
+maintenance.signal_reconcile_outbox
+maintenance.weekly_digest
+notifications.evaluate_alerts
+notifications.send_digest
+notifications.send_email
+notifications.send_notification
+oracle.ai.actor_partnership
+oracle.ai.competitive_procurement_intelligence
+oracle.ai.dossier_completion_wizard
+oracle.ai.dossier_situation_summary
+oracle.ai.entity_dossier_intelligence
+oracle.ai.entity_resolution
+oracle.ai.evidence_reviewer
+oracle.ai.intake
+oracle.ai.meeting_briefing
+oracle.ai.memory_curator
+oracle.ai.opportunity
+oracle.ai.report_writer
+oracle.ai.risk
+oracle.ai.signal_triage
+oracle.ai.tender_search_wizard
+oracle.ai.weekly_change
+oracle.competitive_procurement_report.generate
+oracle.document.process
+oracle.dossier_question.answer
+oracle.dossier_summary.refresh
+oracle.entity_dossier_report.generate
+oracle.export.generate
+oracle.investigation.run
+oracle.meeting_briefing.refresh
+oracle.memory.refresh
+oracle.procurement_document_report.generate
+oracle.procurement_watch.scan
+oracle.report.custom_brief.plan
+oracle.report.generate
+oracle.signal.dispatch_outbox
+oracle.signal.process_inbox
+oracle.signal.sync_monitor
+oracle.signal.triage
+oracle.weekly_change.refresh
+## beat
+cleanup-tokens -> maintenance.cleanup_tokens 3600s
+dispatch-due-jobs -> maintenance.dispatch_due_jobs 60s
+dispatch-queued-jobs -> maintenance.dispatch_queued_jobs 30s
+documents-retention -> maintenance.documents_retention 3600s
+expire-sessions -> maintenance.expire_sessions 900s
+poll-source-activity -> maintenance.poll_source_activity crontab 15 10 * * *
+procurement-watch-retention -> maintenance.procurement_watch_retention 3600s
+reconcile-signal-inbox -> maintenance.signal_reconcile_inbox 30s
+reconcile-signal-outbox -> maintenance.signal_reconcile_outbox 30s
+recover-stale-jobs -> maintenance.recover_stale_jobs 300s
+schedule-alert-evaluations -> maintenance.schedule_alert_evaluations 300s
+schedule-nightly-dossier-summaries -> maintenance.schedule_nightly_dossier_summaries crontab 15 3 * * *
+## Signal worker queues
+opn-signal-dev-worker -Q celery,memory concurrency=1
+beat unit: UnitFileState=disabled ActiveState=active (DRIFT)

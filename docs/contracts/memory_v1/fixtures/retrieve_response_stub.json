@@ -1,0 +1,33 @@
+{
+  "api_version": "memory.v1",
+  "coverage_manifest": {
+    "consulted": [],
+    "cutoff_at": null,
+    "excluded": [],
+    "failed": [],
+    "requested": [
+      "retrieval"
+    ],
+    "token_budget": 2000,
+    "token_used_estimate": 0,
+    "truncated": false,
+    "truncation_notes": [
+      "retrieve stub: engine on, pack builder pending MDEV-02/05"
+    ],
+    "used": [],
+    "version": "coverage_manifest.v1"
+  },
+  "items": [],
+  "limit": 10,
+  "policy_version": "consumer_memory_settings.v1",
+  "purpose": "question",
+  "query": "¿Cuál es el estado de la licencia ambiental?",
+  "request_id": null,
+  "scope": {
+    "product_code": "oracle",
+    "scope_id": "11111111-1111-4111-8111-111111111111",
+    "scope_type": "dossier",
+    "tenant_key": "c:14|t:tenant-a"
+  },
+  "watermark": null
+}

@@ -8,10 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
+from opn_oracle.ai.context import build_context
+from opn_oracle.tenants.context import TenantContext, tenant_context
+from tests.test_integration_oracle_domain import _client, _create_dossier, _csrf
+
 # Pull oracle_stack fixture from the domain integration module.
 pytest_plugins = ("tests.test_integration_oracle_domain",)
-
-from tests.test_integration_oracle_domain import _client, _create_dossier, _csrf
 
 pytestmark = pytest.mark.integration
 
@@ -46,6 +48,29 @@ def test_intent_draft_accept_and_activity_http(
     assert accept.status_code == 200, accept.get_json()
     assert accept.get_json()["status"] == "accepted"
 
+    requirement = client.post(
+        f"/api/v1/dossiers/{dossier_id}/requirements",
+        json={
+            "class": "market_scan",
+            "priority": "high",
+            "question": "¿Qué oportunidades cumplen el alcance aceptado?",
+            "decision_to_support": "Priorizar entrada",
+            "intent_revision_id": revision_id,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert requirement.status_code == 201, requirement.get_json()
+    offering = client.post(
+        f"/api/v1/dossiers/{dossier_id}/offerings",
+        json={
+            "name": "Oferta industrial sintética",
+            "description": "Capacidad que debe contrastarse con el mercado.",
+            "intent_revision_id": revision_id,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert offering.status_code == 201, offering.get_json()
+
     activity = client.get(f"/api/v1/dossiers/{dossier_id}/activity")
     assert activity.status_code == 200, activity.get_json()
     payload = activity.get_json()
@@ -54,6 +79,21 @@ def test_intent_draft_accept_and_activity_http(
     assert payload["intent"]["status"] == "accepted"
     assert "items" in payload
     assert "summary" in payload
+
+    app, ids, _ = oracle_stack
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        context = build_context(uuid.UUID(dossier_id), max_tokens=8_000)
+    assert context.payload["accepted_intent"]["id"] == revision_id
+    assert (
+        "entrar o no" in context.payload["accepted_intent"]["structured_spec"]["decision_to_make"]
+    )
+    assert context.payload["intelligence_requirements"][0]["id"] == requirement.get_json()["id"]
+    assert context.payload["offerings"][0]["id"] == offering.get_json()["id"]
+    assert context.manifest["intent_revision_id"] == revision_id
+    assert context.manifest["intent_content_hash"] == body["content_hash"]
 
     # Unknown dossier id → 404 (not leak)
     foreign = client.get(f"/api/v1/dossiers/{uuid.uuid4()}/activity")
@@ -98,6 +138,49 @@ def test_conversation_message_202_and_get_status(
     assert got.status_code == 200, got.get_json()
     assert got.get_json()["content_text"].startswith("¿Hay evidencia")
     assert got.get_json()["status"] == "queued"
+
+    # Dispatch handler in-process (no Celery worker): terminal poll + payload.
+    # Debt: real Celery worker E2E not exercised here.
+    app, ids, _ = oracle_stack
+    from opn_oracle.extensions import db
+    from opn_oracle.oracle.conversations import process_dossier_question_answer
+    from opn_oracle.oracle.jobs import BackgroundJob
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        job = db.session.get(BackgroundJob, uuid.UUID(str(body["job_id"])))
+        assert job is not None
+        # Fail-closed default when memory not configured → deterministic answer.
+        result = process_dossier_question_answer(
+            db.session,
+            {
+                "message_id": str(body["message_id"]),
+                "conversation_id": str(conversation_id),
+                "dossier_id": str(dossier_id),
+            },
+            job,
+            memory_mode="disabled",
+        )
+        db.session.commit()
+        assert result.get("status") in {"succeeded", "cancelled"} or result.get("memory_mode") in {
+            "disabled",
+            "shadow",
+            "augment",
+        }
+
+    terminal = client.get(
+        f"/api/v1/dossiers/{dossier_id}/conversations/{conversation_id}/messages/{body['message_id']}"
+    )
+    assert terminal.status_code == 200, terminal.get_json()
+    payload = terminal.get_json()
+    assert payload["status"] in {"succeeded", "failed", "cancelled"}
+    if payload["status"] == "succeeded":
+        answer = payload.get("answer_payload") or {}
+        # No phantom evidence when mode=disabled
+        assert answer.get("allowed_evidence_ids", []) == [] or answer.get("citations") == []
+        assert "input_manifest_hash" in answer or payload.get("coverage_manifest") is not None
 
 
 def test_custom_brief_202_and_get_detail(

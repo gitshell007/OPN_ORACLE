@@ -1,0 +1,19 @@
+{
+  "classifications": [
+    "internal",
+    "public"
+  ],
+  "cutoff_at": null,
+  "dossier_id": "11111111-1111-4111-8111-111111111111",
+  "kinds": [
+    "fact",
+    "chunk"
+  ],
+  "limit": 10,
+  "purpose": "question",
+  "query": "¿Cuál es el estado de la licencia ambiental?",
+  "source_types": [
+    "document"
+  ],
+  "token_budget": 2000
+}

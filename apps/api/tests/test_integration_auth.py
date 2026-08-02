@@ -138,6 +138,7 @@ def auth_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
     migrator.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 @pytest.fixture(autouse=True)

@@ -1,0 +1,44 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/health_response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "memory.v1"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "contract_bundle": {
+      "type": "string"
+    },
+    "engine_enabled": {
+      "type": "boolean"
+    },
+    "proposed_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "disabled"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "engine_enabled",
+    "api_version",
+    "contract_bundle",
+    "capabilities",
+    "proposed_capabilities"
+  ],
+  "type": "object"
+}

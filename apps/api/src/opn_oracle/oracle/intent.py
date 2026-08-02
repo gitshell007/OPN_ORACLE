@@ -633,8 +633,10 @@ def accept_revision(
         .with_for_update()
     )
     now = datetime.now(UTC)
+    previous_id: uuid.UUID | None = None
     if previous is not None and previous.id != revision.id:
         previous.status = "superseded"
+        previous_id = previous.id
         append_audit_event(
             session,
             action="intent.superseded",
@@ -652,6 +654,19 @@ def accept_revision(
     revision.accepted_by_user_id = actor_id
     revision.accepted_at = now
     dossier.current_intent_revision_id = revision.id
+    # MDEV-07: mark prior surveillance actions needs_review; never reconfigure/reactivate.
+    needs_review_count = 0
+    if previous_id is not None:
+        from opn_oracle.oracle.surveillance import (
+            mark_actions_needs_review_for_superseded_intent,
+        )
+
+        needs_review_count = mark_actions_needs_review_for_superseded_intent(
+            session,
+            dossier_id=dossier.id,
+            previous_revision_id=previous_id,
+            new_revision_id=revision.id,
+        )
     append_audit_event(
         session,
         action="intent.accepted",
@@ -666,6 +681,7 @@ def accept_revision(
             "content_hash": revision.content_hash,
             "previous_revision_id": str(previous.id) if previous is not None else None,
             "monitors_created": False,
+            "surveillance_needs_review_count": needs_review_count,
         },
     )
     session.commit()

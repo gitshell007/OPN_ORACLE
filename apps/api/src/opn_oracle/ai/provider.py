@@ -53,6 +53,8 @@ class LLMResult:
     model: str | None = None
     fallback_used: bool = False
     safe_fallback_used: bool = False
+    # Canonical SHA-256 of Signal validated_output (dossier_question_answer only).
+    validated_output_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -697,8 +699,37 @@ class MockLLMProvider:
                 "period_end": datetime(2026, 1, 8, tzinfo=UTC),
                 "coverage_summary": "Cobertura mock.",
             },
+            "dossier_question_answer": {
+                "answer_text": "Respuesta sintética sujeta a revisión humana.",
+                "citations": (
+                    [{"evidence_id": str(evidence[0]), "quote": "Fragmento mock."}]
+                    if evidence
+                    else []
+                ),
+            },
+            "report_custom_brief_plan": {
+                "version": "custom_brief_plan.v1",
+                "audience": "equipo del expediente",
+                "scope": "plan mock revisable",
+                "period": "sin fijar",
+                "sections": [
+                    {"id": "executive", "title": "Resumen ejecutivo", "required": True},
+                    {"id": "evidence", "title": "Evidencias y fuentes", "required": True},
+                    {"id": "risks", "title": "Riesgos e incertidumbres", "required": True},
+                    {"id": "next_actions", "title": "Siguientes acciones", "required": True},
+                ],
+                "formats": ["html", "json"],
+                "notes": ["Plan mock; requiere aceptación humana."],
+                "confidence": confidence,
+            },
         }
-        output = schema.model_validate(base | extras[request.agent])
+        # El plan de informe no comparte el contrato común de hechos, inferencias
+        # y recomendaciones. Mezclar esos campos produciría un output inválido
+        # para el schema estricto del task durable.
+        payload = extras[request.agent]
+        if request.agent != "report_custom_brief_plan":
+            payload = base | payload
+        output = schema.model_validate(payload)
         fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
         return LLMResult(
             output,
@@ -1146,6 +1177,15 @@ class SignalGovernedLLMProvider:
         allowed_evidence_ids = [
             str(item) for item in request.context.get("allowed_evidence_ids", [])
         ]
+        # SV2-AUG: execute_agent nests dual-memory allowlist under requested_scope
+        if not allowed_evidence_ids:
+            scope = request.context.get("requested_scope")
+            if isinstance(scope, dict):
+                allowed_evidence_ids = [
+                    str(item)
+                    for item in (scope.get("allowed_evidence_ids") or [])
+                    if str(item).strip()
+                ]
         allowed_evidence_json = json.dumps(
             allowed_evidence_ids, ensure_ascii=False, separators=(",", ":")
         )
@@ -1157,6 +1197,7 @@ class SignalGovernedLLMProvider:
         )
         body: dict[str, Any] = {
             "task_key": request.agent,
+            "allowed_evidence_ids": allowed_evidence_ids,
             "input": {
                 "messages": [
                     {
@@ -1177,16 +1218,33 @@ class SignalGovernedLLMProvider:
                 ],
                 "format": "json",
                 "max_output_tokens": request.max_output_tokens,
+                "allowed_evidence_ids": allowed_evidence_ids,
+                "requested_scope": (
+                    request.context.get("requested_scope")
+                    if isinstance(request.context.get("requested_scope"), dict)
+                    else {"allowed_evidence_ids": allowed_evidence_ids}
+                ),
             },
         }
         started = time.monotonic()
         safe_fallback_used = False
         payload = self._run(body)
+        usage = _usage(payload)
+        # MDEV-06 trust chain: dossier_question_answer must consume exactly the
+        # RT-07 validated_output object — never payload.result (raw provider).
+        if request.agent == "dossier_question_answer":
+            return self._consume_validated_dossier_question(
+                request=request,
+                schema=schema,
+                payload=payload,
+                allowed_evidence_ids=allowed_evidence_ids,
+                usage=usage,
+                started=started,
+            )
         normalized_output = _signal_output(payload)
         normalized_output = _normalize_signal_candidate_json(
             request, normalized_output, allowed_evidence_ids
         )
-        usage = _usage(payload)
         try:
             output = schema.model_validate_json(normalized_output)
             _validate_allowed_evidence(output, allowed_evidence_ids)
@@ -1283,6 +1341,106 @@ class SignalGovernedLLMProvider:
             fallback_used=bool(payload.get("fallback_used", False)),
             safe_fallback_used=safe_fallback_used,
         )
+
+    def _consume_validated_dossier_question(
+        self,
+        *,
+        request: LLMRequest,
+        schema: type[T],
+        payload: dict[str, Any],
+        allowed_evidence_ids: list[str],
+        usage: dict[str, Any],
+        started: float,
+    ) -> LLMResult:
+        """Fail-closed consumer of Signal RT-07 validated_output (never payload.result)."""
+
+        validated = payload.get("validated_output")
+        if not isinstance(validated, dict) or not validated:
+            raise AIUnavailable(
+                "Signal no devolvió validated_output válido para dossier_question_answer."
+            )
+        # Drop Signal envelope helpers that are not part of the agent schema.
+        candidate = {
+            key: value
+            for key, value in validated.items()
+            if key not in {"citation_count", "schema_version", "validated_output_sha256"}
+        }
+        if not candidate.get("answer_text"):
+            raise AIUnavailable(
+                "Signal validated_output carece de answer_text para dossier_question_answer."
+            )
+        # Canonical hash of the exact validated object Signal returned (pre-local schema).
+        canonical = json.dumps(
+            candidate, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+        )
+        vo_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        # Optional runtime integrity when Signal attaches RT-07 meta.
+        runtime = payload.get("runtime")
+        if isinstance(runtime, dict):
+            for required in ("runtime_id", "prompt_sha256", "schema_sha256"):
+                if not str(runtime.get(required) or "").strip():
+                    raise AIUnavailable(
+                        f"Signal runtime incompleto para dossier_question_answer ({required})."
+                    )
+        try:
+            # No normalize/repair path and never payload.result: schema drift fails closed.
+            # model_validate_json preserves UUID coercion from the JSON wire format.
+            output = schema.model_validate_json(canonical)
+            _validate_allowed_evidence(output, allowed_evidence_ids)
+        except (ValidationError, ValueError, TypeError) as error:
+            raise AIUnavailable(
+                "Signal validated_output no cumple schema/allowlist de dossier_question_answer."
+            ) from error
+        # Detect mutation: re-dump must re-validate and preserve answer_text + citations.
+        re_dumped = output.model_dump(mode="json")
+        try:
+            re_output = schema.model_validate_json(
+                json.dumps(re_dumped, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            )
+            if str(getattr(re_output, "answer_text", "")) != str(
+                getattr(output, "answer_text", "")
+            ):
+                raise AIUnavailable("Signal validated_output mutó al re-serializar (answer_text).")
+            out_cites = [
+                str(c.get("evidence_id") if isinstance(c, dict) else getattr(c, "evidence_id", ""))
+                for c in (re_dumped.get("citations") or [])
+            ]
+            in_cites = [
+                str(c.get("evidence_id") or "")
+                for c in (candidate.get("citations") or [])
+                if isinstance(c, dict)
+            ]
+            if out_cites != in_cites:
+                raise AIUnavailable("Signal validated_output mutó al re-serializar (citations).")
+        except AIUnavailable:
+            raise
+        except (ValidationError, ValueError, TypeError) as error:
+            raise AIUnavailable(
+                "Signal validated_output inestable tras normalización local."
+            ) from error
+        elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
+        return LLMResult(
+            output=output,
+            input_tokens=_usage_tokens(usage, "input"),
+            output_tokens=_usage_tokens(usage, "output"),
+            cost_micros=_non_negative_int(usage.get("cost_micros") or payload.get("cost_micros")),
+            latency_ms=_non_negative_int(payload.get("latency_ms")) or elapsed_ms,
+            provider=str(payload.get("provider") or payload.get("actual_provider") or "signal"),
+            model=str(payload.get("model") or payload.get("actual_model") or request.model),
+            fallback_used=bool(payload.get("fallback_used", False)),
+            safe_fallback_used=False,
+            validated_output_sha256=vo_hash,
+        )
+
+    def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Public governed boundary for Signal `/api/v1/ai/run`.
+
+        Preserves request_id/run_id, usage, attempts, provider, model and fallback
+        metadata for durable audit bindings. Product code must call this instead of
+        the private ``_run`` transport helper.
+        """
+
+        return self._run(body)
 
     def _run(self, body: dict[str, Any]) -> dict[str, Any]:
         try:

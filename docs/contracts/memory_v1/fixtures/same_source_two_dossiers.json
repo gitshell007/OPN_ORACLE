@@ -1,0 +1,25 @@
+{
+  "bindings": [
+    {
+      "memory_source_id": "ms_a_1",
+      "scope": {
+        "product_code": "oracle",
+        "scope_id": "11111111-1111-4111-8111-111111111111",
+        "scope_type": "dossier",
+        "tenant_key": "c:14|t:tenant-a"
+      }
+    },
+    {
+      "memory_source_id": "ms_b_1",
+      "scope": {
+        "product_code": "oracle",
+        "scope_id": "22222222-2222-4222-8222-222222222222",
+        "scope_type": "dossier",
+        "tenant_key": "c:14|t:tenant-a"
+      }
+    }
+  ],
+  "checksum": "sha256:shared1",
+  "rule": "same content may bind to multiple dossier scopes via distinct memory_source rows; queries never cross scope_id",
+  "source_ref": "src:doc:shared-pdf-1"
+}

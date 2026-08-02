@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DossierOracleSummaryPanel } from "@/components/dossiers/dossier-oracle-summary-panel";
 import { DossierContextPanel } from "@/components/dossiers/dossier-context-panel";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   productDossierTypeLabel,
   productResourceKindLabel,
@@ -78,13 +79,16 @@ export function ProductDossier() {
     );
   }
   return (
-    <div className="dossier-page">
+    <div className="dossier-page dossier-section-page">
       <Link className="back-link" href="/app/dossiers">
         <ArrowLeft size={15} /> Expedientes
       </Link>
-      <header className="dossier-header">
-        <div>
-          <div className="dossier-meta">
+      <PageHeader
+        eyebrow="Resumen"
+        title={dossier.title}
+        description={dossier.strategic_goal || dossier.description || "Sin objetivo descrito."}
+        meta={
+          <>
             <span className={`status ${dossier.status === "active" ? "active" : ""}`}>
               {productStatusLabel(dossier.status)}
             </span>
@@ -96,16 +100,14 @@ export function ProductDossier() {
                 timeStyle: "short",
               }).format(new Date(dossier.updated_at))}
             </span>
-          </div>
-          <h1>{dossier.title}</h1>
-          <p>{dossier.strategic_goal || dossier.description || "Sin objetivo descrito."}</p>
-        </div>
-        <div className="dossier-actions">
+          </>
+        }
+        actions={
           <Link className="vector-primary" href={`/app/dossiers/${id}/reports`}>
             <FileText size={16} /> Abrir informes
           </Link>
-        </div>
-      </header>
+        }
+      />
       <DossierOracleSummaryPanel dossierId={id} />
       <section className="vector-panel situation-panel">
         <header>

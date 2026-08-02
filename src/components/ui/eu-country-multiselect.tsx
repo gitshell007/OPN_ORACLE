@@ -91,7 +91,12 @@ export function EuCountryMultiSelect({
         placeholder="Filtrar países…"
         aria-label={`Filtrar ${label}`}
       />
-      <div className="eu-country-options" role="group" aria-labelledby={labelId}>
+      <div
+        className="eu-country-options"
+        role="group"
+        aria-labelledby={labelId}
+        tabIndex={0}
+      >
         {options.map((country) => (
           <label key={country.code} className={priorityCodes.includes(country.code) ? "priority" : ""}>
             <input

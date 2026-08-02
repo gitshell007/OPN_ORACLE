@@ -511,7 +511,7 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   await loginOwner(page, testInfo);
 
   await expect(
-    page.getByRole("heading", { name: "Licitaciones PLACSP" }),
+    page.getByRole("heading", { name: "Licitaciones", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Buscar con Oracle" }).click();
   await expect(
@@ -529,11 +529,12 @@ test("wizard gobernado funciona en Vector y no desborda", async ({
   await expect(
     page.getByRole("button", { name: "Aceptar y buscar" }),
   ).toBeVisible();
-  const saveWatch = page.getByRole("checkbox", {
+  const saveWatch = page.getByRole("switch", {
     name: /Guardar también una vigilancia/,
   });
-  await expect(saveWatch).not.toBeChecked();
-  await saveWatch.check();
+  await expect(saveWatch).toHaveAttribute("aria-checked", "false");
+  await saveWatch.click();
+  await expect(saveWatch).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Previsualizar ahora" }).click();
   await expect(page.getByText("38 coincidencias")).toBeVisible();
   await expect(

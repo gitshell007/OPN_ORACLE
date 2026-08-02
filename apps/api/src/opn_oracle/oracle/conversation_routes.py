@@ -25,6 +25,16 @@ from opn_oracle.oracle.conversations import (
     serialize_conversation,
     serialize_message,
 )
+from opn_oracle.oracle.custom_report_lifecycle import (
+    IllegalTransition,
+    PreconditionRequired,
+    accept_plan,
+    cancel_report,
+    edit_plan,
+    get_downloadable_artifact,
+    reject_plan,
+    retry_report,
+)
 from opn_oracle.oracle.custom_reports import (
     CustomReportConflict,
     CustomReportError,
@@ -112,15 +122,26 @@ class CustomBriefDetailSchema(Schema):
     template_key = String(required=True)
     template_version = String(required=True)
     generation_version = Integer(required=True)
+    version = Integer(load_default=1)
+    etag = String(allow_none=True)
     brief_request = String(required=True)
     plan_status = String(required=True)
+    lifecycle_state = String(allow_none=True)
     proposed_plan = Dict(keys=String(), values=Raw(), allow_none=True)
+    accepted_plan = Dict(keys=String(), values=Raw(), allow_none=True)
+    accepted_snapshot_hash = String(allow_none=True)
+    memory_degraded = Raw(load_default=False)
+    memory_degraded_reason = String(allow_none=True)
+    coverage = Dict(keys=String(), values=Raw(), allow_none=True)
+    ready_artifact = Dict(keys=String(), values=Raw(), allow_none=True)
+    downloadable = Raw(load_default=False)
     background_job_id = String(allow_none=True)
     error_code = String(allow_none=True)
     error_message = String(allow_none=True)
     requested_by_user_id = String(required=True)
     created_at = String(allow_none=True)
     updated_at = String(allow_none=True)
+    ready_at = String(allow_none=True)
 
 
 def _problem(
@@ -322,3 +343,315 @@ def get_custom_report_brief(
     except CustomReportNotFound as error:
         return _problem(404, detail=str(error), code="not_found")
     return serialize_custom_brief(report)
+
+
+def _parse_if_match() -> int | None:
+    raw = request.headers.get("If-Match", "").strip()
+    if not raw:
+        return None
+    raw = raw.removeprefix('W/"').removeprefix("W/").removeprefix('"').removesuffix('"')
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+class CustomPlanEditSchema(Schema):
+    proposed_plan = Dict(keys=String(), values=Raw(), required=True)
+
+
+class CustomPlanRejectSchema(Schema):
+    reason = String(load_default="", validate=validate.Length(max=500))
+
+
+class CustomPlanAcceptSchema(Schema):
+    proposed_plan = Dict(keys=String(), values=Raw(), load_default=None)
+    start_generation = Raw(load_default=True)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>/plan/accept")
+@require_permission("report.generate")
+@bp.input(CustomPlanAcceptSchema)
+@limiter.limit("20/minute")
+def accept_custom_report_plan(
+    json_data: dict[str, Any],
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> tuple[dict[str, Any], int] | Response:
+    if _dossier_or_404(dossier_id, write=True) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    expected = _parse_if_match()
+    try:
+        plan_override = json_data.get("proposed_plan")
+        auto = json_data.get("start_generation")
+        if isinstance(auto, str):
+            auto = auto.lower() in {"1", "true", "yes", "on"}
+        elif auto is None:
+            auto = True
+        else:
+            auto = bool(auto)
+        report = accept_plan(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+            actor_id=current_user.id,
+            expected_version=expected,
+            plan_override=plan_override if isinstance(plan_override, dict) else None,
+            request_id=getattr(g, "request_id", None),
+            auto_start_generation=auto,
+        )
+        # publish write job if staged
+        job_id = report.background_job_id
+        db.session.commit()
+        life_state = str((report.options or {}).get("lifecycle_state") or "")
+        if job_id is not None and life_state == "generating":
+            from opn_oracle.jobs.service import publish_job
+            from opn_oracle.oracle.jobs import BackgroundJob
+
+            job = db.session.get(BackgroundJob, job_id)
+            if job is not None:
+                publish_job(job)
+    except PreconditionRequired as error:
+        db.session.rollback()
+        return _problem(428, detail=str(error), code="precondition_required")
+    except CustomReportConflict as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="conflict")
+    except IllegalTransition as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="illegal_transition")
+    except CustomReportNotFound as error:
+        db.session.rollback()
+        return _problem(404, detail=str(error), code="not_found")
+    except CustomReportError as error:
+        db.session.rollback()
+        return _problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+            errors=getattr(error, "errors", None),
+        )
+    body = serialize_custom_brief(report)
+    return body, 200
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>/plan/edit")
+@require_permission("report.generate")
+@bp.input(CustomPlanEditSchema)
+@limiter.limit("20/minute")
+def edit_custom_report_plan(
+    json_data: dict[str, Any],
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> tuple[dict[str, Any], int] | Response:
+    if _dossier_or_404(dossier_id, write=True) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    expected = _parse_if_match()
+    try:
+        report = edit_plan(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+            actor_id=current_user.id,
+            expected_version=expected,
+            proposed_plan=json_data.get("proposed_plan") or {},
+            request_id=getattr(g, "request_id", None),
+        )
+        db.session.commit()
+    except PreconditionRequired as error:
+        db.session.rollback()
+        return _problem(428, detail=str(error), code="precondition_required")
+    except CustomReportConflict as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="conflict")
+    except IllegalTransition as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="illegal_transition")
+    except CustomReportNotFound as error:
+        db.session.rollback()
+        return _problem(404, detail=str(error), code="not_found")
+    except CustomReportError as error:
+        db.session.rollback()
+        return _problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+            errors=getattr(error, "errors", None),
+        )
+    return serialize_custom_brief(report), 200
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>/plan/reject")
+@require_permission("report.generate")
+@bp.input(CustomPlanRejectSchema)
+@limiter.limit("20/minute")
+def reject_custom_report_plan(
+    json_data: dict[str, Any],
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> tuple[dict[str, Any], int] | Response:
+    if _dossier_or_404(dossier_id, write=True) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    expected = _parse_if_match()
+    try:
+        report = reject_plan(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+            actor_id=current_user.id,
+            expected_version=expected,
+            reason=str(json_data.get("reason") or ""),
+            request_id=getattr(g, "request_id", None),
+        )
+        db.session.commit()
+    except PreconditionRequired as error:
+        db.session.rollback()
+        return _problem(428, detail=str(error), code="precondition_required")
+    except CustomReportConflict as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="conflict")
+    except IllegalTransition as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="illegal_transition")
+    except CustomReportNotFound as error:
+        db.session.rollback()
+        return _problem(404, detail=str(error), code="not_found")
+    except CustomReportError as error:
+        db.session.rollback()
+        return _problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+            errors=getattr(error, "errors", None),
+        )
+    return serialize_custom_brief(report), 200
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>/cancel")
+@require_permission("report.generate")
+@limiter.limit("20/minute")
+def cancel_custom_report(
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> tuple[dict[str, Any], int] | Response:
+    if _dossier_or_404(dossier_id, write=True) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    expected = _parse_if_match()
+    try:
+        report = cancel_report(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+            actor_id=current_user.id,
+            expected_version=expected,
+            request_id=getattr(g, "request_id", None),
+        )
+        db.session.commit()
+    except PreconditionRequired as error:
+        db.session.rollback()
+        return _problem(428, detail=str(error), code="precondition_required")
+    except CustomReportConflict as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="conflict")
+    except IllegalTransition as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="illegal_transition")
+    except CustomReportNotFound as error:
+        db.session.rollback()
+        return _problem(404, detail=str(error), code="not_found")
+    except CustomReportError as error:
+        db.session.rollback()
+        return _problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+            errors=getattr(error, "errors", None),
+        )
+    return serialize_custom_brief(report), 200
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>/retry")
+@require_permission("report.generate")
+@limiter.limit("20/minute")
+def retry_custom_report(
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> tuple[dict[str, Any], int] | Response:
+    if _dossier_or_404(dossier_id, write=True) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    expected = _parse_if_match()
+    try:
+        report = retry_report(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+            actor_id=current_user.id,
+            expected_version=expected,
+            request_id=getattr(g, "request_id", None),
+        )
+        job_id = report.background_job_id
+        db.session.commit()
+        life_state = str((report.options or {}).get("lifecycle_state") or "")
+        if job_id is not None and life_state == "generating":
+            from opn_oracle.jobs.service import publish_job
+            from opn_oracle.oracle.jobs import BackgroundJob
+
+            job = db.session.get(BackgroundJob, job_id)
+            if job is not None:
+                publish_job(job)
+    except PreconditionRequired as error:
+        db.session.rollback()
+        return _problem(428, detail=str(error), code="precondition_required")
+    except CustomReportConflict as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="conflict")
+    except IllegalTransition as error:
+        db.session.rollback()
+        return _problem(409, detail=str(error), code="illegal_transition")
+    except CustomReportNotFound as error:
+        db.session.rollback()
+        return _problem(404, detail=str(error), code="not_found")
+    except CustomReportError as error:
+        db.session.rollback()
+        return _problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+            errors=getattr(error, "errors", None),
+        )
+    return serialize_custom_brief(report), 200
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/reports/custom/<uuid:report_id>/download")
+@require_permission("report.read")
+@limiter.limit("30/minute")
+def download_custom_report(
+    dossier_id: uuid.UUID,
+    report_id: uuid.UUID,
+) -> Response:
+    if _dossier_or_404(dossier_id, write=False) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    try:
+        report = get_custom_brief(
+            db.session(),
+            dossier_id=dossier_id,
+            report_id=report_id,
+        )
+    except CustomReportNotFound as error:
+        return _problem(404, detail=str(error), code="not_found")
+    art = get_downloadable_artifact(report)
+    if art is None:
+        return _problem(
+            409,
+            detail="Artefacto no disponible para descarga (no ready o no validado).",
+            code="artifact_not_ready",
+        )
+    import json as _json
+
+    body = _json.dumps(art.get("content") or {}, ensure_ascii=False, indent=2)
+    resp = Response(body, mimetype="application/json")
+    resp.headers["Content-Disposition"] = f'attachment; filename="report-{report_id}.json"'
+    resp.headers["X-Content-SHA256"] = str(art.get("sha256") or "")
+    resp.headers["X-Content-Size"] = str(art.get("byte_size") or 0)
+    resp.headers["ETag"] = f'W/"{report.version}"'
+    return resp

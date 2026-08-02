@@ -275,6 +275,56 @@ export const DOSSIER_TABS = [
 
 export type DossierSection = (typeof DOSSIER_TABS)[number]["segment"];
 
+/**
+ * Agrupación de las secciones del expediente en seis destinos de primer nivel.
+ * Dieciséis pestañas planas no son una arquitectura: son una lista. Ninguna URL
+ * cambia; sólo cambia cómo se presentan. El primer elemento de `sections` es el
+ * destino por defecto del grupo (estático: sin memoria de última visita, para
+ * que el destino sea determinista en hidratación y en los e2e).
+ */
+export const DOSSIER_GROUPS = [
+  { id: "summary", label: "Resumen", sections: [""] },
+  {
+    id: "surveillance",
+    label: "Vigilancia",
+    sections: ["signals", "opportunities", "procurement", "risks"],
+  },
+  { id: "analysis", label: "Análisis", sections: ["actors", "investigations", "ask"] },
+  { id: "decision", label: "Decisión", sections: ["decisions", "meetings", "tasks"] },
+  {
+    id: "deliverables",
+    label: "Entregables",
+    sections: ["reports", "custom-brief", "documents"],
+  },
+  { id: "activity", label: "Actividad", sections: ["activity"] },
+] as const satisfies readonly {
+  id: string;
+  label: string;
+  sections: readonly DossierSection[];
+}[];
+
+export type DossierGroupId = (typeof DOSSIER_GROUPS)[number]["id"] | "settings";
+
+/** Reverso exhaustivo: un segmento nuevo sin entrada aquí no compila. */
+export const DOSSIER_SECTION_GROUP = {
+  "": "summary",
+  signals: "surveillance",
+  opportunities: "surveillance",
+  procurement: "surveillance",
+  risks: "surveillance",
+  actors: "analysis",
+  investigations: "analysis",
+  ask: "analysis",
+  decisions: "decision",
+  meetings: "decision",
+  tasks: "decision",
+  reports: "deliverables",
+  "custom-brief": "deliverables",
+  documents: "deliverables",
+  activity: "activity",
+  settings: "settings",
+} satisfies Record<DossierSection, DossierGroupId>;
+
 export const GROUP_LABELS: Record<Exclude<RouteGroup, "account" | "platform">, string> = {
   work: "Trabajo estratégico",
   intelligence: "Inteligencia",

@@ -11,6 +11,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 const STORAGE_PREFIX = "oracle:dossier-ask:";
 
@@ -208,16 +209,11 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
 
   return (
     <div className="dossier-section-page">
-      <header className="vector-panel">
-        <div>
-          <span className="section-kicker">Asistente del expediente</span>
-          <h1>Preguntar a Oracle</h1>
-          <p>
-            La pregunta se persiste antes de encolar el job. No modifica la intención ni los
-            hechos de memoria. Tras recargar se recupera el último mensaje desde la API.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Asistente del expediente"
+        title="Preguntar a Oracle"
+        description="La pregunta se persiste antes de encolar el job. No modifica la intención ni los hechos de memoria. Tras recargar se recupera el último mensaje desde la API."
+      />
 
       <section className="vector-panel">
         <form onSubmit={(event) => void onSubmit(event)} className="stack-form">
@@ -278,20 +274,155 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
             <p>
               <strong>Pregunta:</strong> {message.content_text}
             </p>
+            <p className="muted">
+              <strong>Timestamps:</strong>{" "}
+              {message.created_at ? `creado ${String(message.created_at)}` : "—"}
+              {message.updated_at ? ` · actualizado ${String(message.updated_at)}` : ""}
+            </p>
             {message.status === "succeeded" ? (
-              <div>
-                <strong>Respuesta</strong>
-                <pre className="answer-block">
-                  {String(message.answer_payload?.text ?? "Sin texto")}
-                </pre>
+              <div className="stack-form">
+                {Boolean(message.answer_payload?.degraded) ? (
+                  <p role="status" className="form-error">
+                    Respuesta degradada: la cobertura de memoria reportó fallos o el
+                    publicador operó en modo degradado. No se ocultan ausencias.
+                  </p>
+                ) : null}
+                <div>
+                  <strong>Respuesta</strong>
+                  <pre className="answer-block">
+                    {String(message.answer_payload?.text ?? "Sin texto")}
+                  </pre>
+                </div>
+                {Array.isArray(message.answer_payload?.citations) &&
+                message.answer_payload.citations.length > 0 ? (
+                  <div>
+                    <strong>Citas</strong>
+                    <ul className="citation-list">
+                      {message.answer_payload.citations.map(
+                        (citation: { evidence_id?: string; quote?: string }, idx: number) => {
+                          const eid = String(citation?.evidence_id ?? "");
+                          return (
+                            <li key={`${eid}-${idx}`}>
+                              <a
+                                href={`#evidence-${eid}`}
+                                className="citation-link"
+                                title="Abrir evidencia materializada del expediente"
+                              >
+                                {eid.slice(0, 8)}…
+                              </a>
+                              {citation?.quote ? (
+                                <span className="citation-quote"> — {String(citation.quote)}</span>
+                              ) : null}
+                            </li>
+                          );
+                        },
+                      )}
+                    </ul>
+                  </div>
+                ) : null}
+                {Array.isArray(message.answer_payload?.conflicts) &&
+                message.answer_payload.conflicts.length > 0 ? (
+                  <div role="status">
+                    <strong>Contradicciones</strong>
+                    <ul>
+                      {message.answer_payload.conflicts.map(
+                        (row: { statement?: string }, idx: number) => (
+                          <li key={`conflict-${idx}`}>{String(row?.statement ?? row)}</li>
+                        ),
+                      )}
+                    </ul>
+                  </div>
+                ) : null}
+                {message.coverage_manifest || message.answer_payload?.coverage_summary ? (
+                  <div>
+                    <strong>Cobertura</strong>
+                    <CoverageSummary
+                      coverage={
+                        (message.answer_payload?.coverage_summary as Record<string, unknown>) ||
+                        (message.coverage_manifest as Record<string, unknown>) ||
+                        {}
+                      }
+                      mode={String(message.answer_payload?.memory_mode ?? "")}
+                    />
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {message.error_message ? (
               <p role="alert">Error: {message.error_message}</p>
             ) : null}
+            {conversation && pendingMessageId ? (
+              <div className="inline-actions">
+                <button
+                  type="button"
+                  className="vector-secondary"
+                  onClick={() => void pollMessage(conversation.id, pendingMessageId)}
+                >
+                  <RefreshCw size={14} /> Actualizar
+                </button>
+                {["queued", "running"].includes(message.status) &&
+                message.background_job_id ? (
+                  <AsyncActionButton
+                    type="button"
+                    className="vector-secondary"
+                    onClick={() =>
+                      void (async () => {
+                        try {
+                          // Cooperative cancel via durable job fencing (If-Match version=0 best-effort).
+                          await api.jobs.cancel(String(message.background_job_id), 0);
+                          void pollMessage(conversation.id, pendingMessageId);
+                        } catch {
+                          void pollMessage(conversation.id, pendingMessageId);
+                        }
+                      })()
+                    }
+                  >
+                    Cancelar
+                  </AsyncActionButton>
+                ) : null}
+              </div>
+            ) : null}
           </article>
         )}
       </section>
     </div>
+  );
+}
+
+function CoverageSummary({
+  coverage,
+  mode,
+}: {
+  coverage: Record<string, unknown>;
+  mode: string;
+}) {
+  const count = (value: unknown): number => {
+    if (Array.isArray(value)) return value.length;
+    if (typeof value === "number") return value;
+    return 0;
+  };
+  return (
+    <ul className="coverage-summary">
+      {mode ? (
+        <li>
+          <strong>Modo:</strong> {mode}
+        </li>
+      ) : null}
+      <li>
+        <strong>Consultadas/solicitadas:</strong> {count(coverage.requested)}
+      </li>
+      <li>
+        <strong>Usadas:</strong> {count(coverage.used)}
+      </li>
+      <li>
+        <strong>Fallidas:</strong> {count(coverage.failed)}
+      </li>
+      <li>
+        <strong>Excluidas:</strong> {count(coverage.excluded)}
+      </li>
+      <li>
+        <strong>Truncadas:</strong> {count(coverage.truncated)}
+      </li>
+    </ul>
   );
 }

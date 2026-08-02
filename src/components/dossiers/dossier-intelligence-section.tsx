@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -77,21 +78,21 @@ const RISK_TRANSITIONS: Record<string, string[]> = {
 
 const SECTION_COPY = {
   signals: {
-    eyebrow: "Radar del expediente",
+    eyebrow: "Vigilancia",
     title: "Señales",
     description:
       "Prioriza, revisa y convierte señales trazables en trabajo estratégico.",
     permission: "signal.review",
   },
   opportunities: {
-    eyebrow: "Avance ofensivo",
+    eyebrow: "Vigilancia",
     title: "Oportunidades",
     description:
       "Valora oportunidades con una puntuación explicada y fuentes verificables.",
     permission: "opportunity.write",
   },
   risks: {
-    eyebrow: "Protección del avance",
+    eyebrow: "Vigilancia",
     title: "Riesgos",
     description:
       "Sigue los problemas que pueden frenar el avance y cómo se están gestionando.",
@@ -637,22 +638,36 @@ export function DossierIntelligenceSection({
   }
 
   return (
-    <section className="intelligence-section" aria-labelledby={`${kind}-title`}>
-      <header className="intelligence-heading">
-        <div>
-          <span className="section-kicker">{copy.eyebrow}</span>
-          <h1 id={`${kind}-title`}>{copy.title}</h1>
-          <p>{copy.description}</p>
-        </div>
-        <div className="intelligence-heading-actions">
-          {kind !== "signals" && <PermissionGate permission={copy.permission}><HydratedActionButton className="vector-primary" onClick={() => { resetManual(); setManualOpen(true); }}><Plus size={15} /> {kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}</HydratedActionButton></PermissionGate>}
-          <button className="vector-secondary" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={15} aria-hidden="true" /> Actualizar
-          </button>
-        </div>
-      </header>
+    <div className="dossier-section-page">
+      <PageHeader
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
+        id={`${kind}-title`}
+        actions={
+          <>
+            {kind !== "signals" && (
+              <PermissionGate permission={copy.permission}>
+                <HydratedActionButton
+                  className="vector-primary"
+                  onClick={() => {
+                    resetManual();
+                    setManualOpen(true);
+                  }}
+                >
+                  <Plus size={15} />{" "}
+                  {kind === "opportunities" ? "Nueva oportunidad" : "Nuevo riesgo"}
+                </HydratedActionButton>
+              </PermissionGate>
+            )}
+            <button className="vector-secondary" onClick={() => void load()} disabled={loading}>
+              <RefreshCw size={15} aria-hidden="true" /> Actualizar
+            </button>
+          </>
+        }
+      />
 
-      <div className="vector-panel intelligence-panel">
+      <section className="vector-panel intelligence-panel" aria-labelledby={`${kind}-title`}>
         <form className="intelligence-filters" onSubmit={applyFilters}>
           <label className="intelligence-search">
             <span className="sr-only">Buscar en {copy.title.toLowerCase()}</span>
@@ -824,7 +839,7 @@ export function DossierIntelligenceSection({
             </div>
           </footer>
         )}
-      </div>
+      </section>
 
       <Dialog.Root open={manualOpen} onOpenChange={(open) => { setManualOpen(open); if (!open) resetManual(); }}>
         <Dialog.Portal>
@@ -1107,7 +1122,7 @@ export function DossierIntelligenceSection({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-    </section>
+    </div>
   );
 }
 

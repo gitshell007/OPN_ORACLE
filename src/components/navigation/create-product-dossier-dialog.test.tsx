@@ -41,6 +41,7 @@ describe("CreateProductDossierDialog", () => {
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       type: "tender_or_grant",
       create_starter_profile: true,
+      accept_creation_intent: true,
     })));
   });
 
@@ -53,6 +54,7 @@ describe("CreateProductDossierDialog", () => {
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       create_starter_profile: false,
+      accept_creation_intent: true,
     })));
   });
 
@@ -88,6 +90,7 @@ describe("CreateProductDossierDialog", () => {
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       type: "market",
+      accept_creation_intent: true,
       initial_status: "active",
       geography: ["ES", "DE"],
       languages: ["es", "de"],

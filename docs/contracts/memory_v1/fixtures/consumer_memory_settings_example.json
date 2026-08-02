@@ -1,0 +1,42 @@
+{
+  "allowed_external_tenant_ids": [
+    "tenant-a"
+  ],
+  "cadence": {
+    "consolidate_seconds": 3600,
+    "refresh_seconds": 21600
+  },
+  "classifications_allowed": [
+    "public",
+    "internal"
+  ],
+  "enabled": false,
+  "etag": "W/\"cms-1\"",
+  "kill_switch": false,
+  "limits": {
+    "default_token_budget": 4000,
+    "max_ingest_bytes": 26214400,
+    "max_items_per_batch": 100,
+    "max_token_budget": 16000
+  },
+  "provenance": "host_default+consumer_db",
+  "retention": {
+    "derived_days": 365,
+    "legal_hold": false,
+    "raw_days": 180
+  },
+  "schema_version": "consumer_memory_settings.v1",
+  "sources": [
+    "document",
+    "signal",
+    "intent_metadata"
+  ],
+  "stages": {
+    "analyst": false,
+    "consolidate": false,
+    "extract": false,
+    "ingest": false,
+    "retrieve": false,
+    "summaries": false
+  }
+}

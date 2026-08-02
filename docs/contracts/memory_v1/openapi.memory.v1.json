@@ -1,0 +1,2245 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OPN Signal Memory API v1",
+    "version": "memory.v1",
+    "description": "Contrato bilateral MDEV-01. Flags OFF por defecto; retrieve/stub contractual."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "tags": [
+    {
+      "name": "memory"
+    },
+    {
+      "name": "oracle-bff-proposed",
+      "description": "BFF Oracle propuesto (no runtime Signal)"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "APIKey"
+      }
+    },
+    "parameters": {
+      "ExternalTenantId": {
+        "name": "X-OPN-External-Tenant-ID",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "DossierIdHeader": {
+        "name": "X-OPN-Dossier-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        }
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "MemoryScope": {
+        "additionalProperties": false,
+        "properties": {
+          "product_code": {
+            "const": "oracle",
+            "type": "string"
+          },
+          "scope_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "scope_type": {
+            "const": "dossier",
+            "type": "string"
+          },
+          "tenant_key": {
+            "pattern": "^c:[^|]+\\|t:[^|]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_key",
+          "product_code",
+          "scope_type",
+          "scope_id"
+        ],
+        "title": "MemoryScope",
+        "type": "object"
+      },
+      "CoverageManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "consulted": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "cutoff_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "excluded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "retryable"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "requested": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token_budget": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_used_estimate": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "truncation_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "used": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "const": "coverage_manifest.v1"
+          }
+        },
+        "required": [
+          "version",
+          "requested",
+          "consulted",
+          "failed",
+          "excluded",
+          "used",
+          "truncated",
+          "truncation_notes",
+          "cutoff_at",
+          "token_budget",
+          "token_used_estimate"
+        ],
+        "title": "CoverageManifestV1",
+        "type": "object"
+      },
+      "RetrievalItem": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "type": "string"
+          },
+          "classification": {
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ],
+            "type": "string"
+          },
+          "contradiction_evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "factual_status": {
+            "enum": [
+              "candidate",
+              "confirmed",
+              "disputed",
+              "contradicted",
+              "n_a"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "fact",
+              "chunk",
+              "summary",
+              "observation",
+              "conflict",
+              "entity"
+            ],
+            "type": "string"
+          },
+          "locator": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "rank_explanation": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": "number"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "support_evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "text": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "watermark": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "text",
+          "score",
+          "rank_explanation",
+          "source_ref",
+          "checksum",
+          "locator",
+          "classification",
+          "occurred_at",
+          "received_at",
+          "factual_status",
+          "support_evidence_refs",
+          "contradiction_evidence_refs",
+          "policy_version",
+          "watermark"
+        ],
+        "title": "MemoryRetrievalItem",
+        "type": "object"
+      },
+      "RetrieveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "classifications": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "cutoff_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kinds": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "purpose": {
+            "default": "question",
+            "enum": [
+              "question",
+              "report",
+              "summary",
+              "wizard",
+              "activity"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_types": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token_budget": {
+            "default": 4000,
+            "maximum": 128000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query",
+          "dossier_id"
+        ],
+        "title": "MemoryRetrieveRequest",
+        "type": "object"
+      },
+      "RetrieveResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": "memory.v1"
+          },
+          "coverage_manifest": {
+            "$ref": "#/components/schemas/CoverageManifest"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalItem"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "watermark": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "api_version",
+          "request_id",
+          "scope",
+          "items",
+          "coverage_manifest",
+          "query",
+          "purpose",
+          "limit"
+        ],
+        "title": "MemoryRetrieveResponse",
+        "type": "object"
+      },
+      "IngestBatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 200,
+            "minLength": 8,
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "checksum": {
+                  "type": "string"
+                },
+                "classification": {
+                  "enum": [
+                    "public",
+                    "internal",
+                    "confidential",
+                    "restricted"
+                  ],
+                  "type": "string"
+                },
+                "content": {
+                  "maxLength": 500000,
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "intent_metadata",
+                    "document",
+                    "chunk",
+                    "evidence",
+                    "signal"
+                  ],
+                  "type": "string"
+                },
+                "metadata": {
+                  "type": "object"
+                },
+                "occurred_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source_ref": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "source_ref",
+                "content",
+                "checksum"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "dossier_id",
+          "items",
+          "idempotency_key"
+        ],
+        "title": "MemoryIngestBatchRequest",
+        "type": "object"
+      },
+      "AnalysisRequestCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "type": "object"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "entity_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "intent": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "dossier_id",
+          "intent"
+        ],
+        "title": "MemoryAnalysisRequestCreate",
+        "type": "object"
+      },
+      "ConsumerMemorySettings": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_external_tenant_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 0,
+            "type": "array"
+          },
+          "cadence": {
+            "additionalProperties": false,
+            "properties": {
+              "consolidate_seconds": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "refresh_seconds": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "refresh_seconds",
+              "consolidate_seconds"
+            ],
+            "type": "object"
+          },
+          "classifications_allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "kill_switch": {
+            "type": "boolean"
+          },
+          "limits": {
+            "additionalProperties": false,
+            "properties": {
+              "default_token_budget": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_ingest_bytes": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_items_per_batch": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_token_budget": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "max_ingest_bytes",
+              "max_items_per_batch",
+              "default_token_budget",
+              "max_token_budget"
+            ],
+            "type": "object"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "retention": {
+            "additionalProperties": false,
+            "properties": {
+              "derived_days": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "legal_hold": {
+                "type": "boolean"
+              },
+              "raw_days": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "raw_days",
+              "derived_days",
+              "legal_hold"
+            ],
+            "type": "object"
+          },
+          "schema_version": {
+            "const": "consumer_memory_settings.v1"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "stages": {
+            "additionalProperties": false,
+            "properties": {
+              "analyst": {
+                "type": "boolean"
+              },
+              "consolidate": {
+                "type": "boolean"
+              },
+              "extract": {
+                "type": "boolean"
+              },
+              "ingest": {
+                "type": "boolean"
+              },
+              "retrieve": {
+                "type": "boolean"
+              },
+              "summaries": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ingest",
+              "extract",
+              "consolidate",
+              "summaries",
+              "retrieve",
+              "analyst"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_version",
+          "etag",
+          "enabled",
+          "kill_switch",
+          "allowed_external_tenant_ids",
+          "stages",
+          "sources",
+          "classifications_allowed",
+          "limits",
+          "retention",
+          "cadence",
+          "provenance"
+        ],
+        "title": "ConsumerMemorySettings",
+        "type": "object"
+      },
+      "DossierMemoryProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "classifications_allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "cutoff_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "kinds_allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "disabled",
+              "shadow",
+              "augment"
+            ],
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "dossier_memory_profile.v1"
+          },
+          "token_budget": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "etag",
+          "dossier_id",
+          "mode",
+          "token_budget",
+          "classifications_allowed",
+          "kinds_allowed",
+          "cutoff_at",
+          "provenance"
+        ],
+        "title": "DossierMemoryProfile",
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "http_status": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error_code",
+          "http_status",
+          "retryable",
+          "message"
+        ],
+        "title": "MemoryErrorEnvelope",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "engine_enabled",
+          "api_version",
+          "contract_bundle",
+          "capabilities",
+          "proposed_capabilities"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "disabled"
+            ]
+          },
+          "engine_enabled": {
+            "type": "boolean"
+          },
+          "api_version": {
+            "const": "memory.v1"
+          },
+          "contract_bundle": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "proposed_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ScopeEnsureRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dossier_id"
+        ],
+        "properties": {
+          "dossier_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "product_code": {
+            "type": "string",
+            "const": "oracle"
+          }
+        }
+      },
+      "ScopeStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "status",
+          "authorized",
+          "watermark"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending",
+              "revoked"
+            ]
+          },
+          "authorized": {
+            "type": "boolean"
+          },
+          "watermark": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "IngestBatchResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accepted",
+          "idempotency_key",
+          "scope",
+          "item_results"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "item_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "DossierStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "counts",
+          "coverage_summary",
+          "watermark"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "coverage_summary": {
+            "$ref": "#/components/schemas/CoverageManifest"
+          },
+          "watermark": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AnalysisRequestStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "scope"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "detail": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "SourceVersionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content",
+          "checksum"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 500000
+          },
+          "checksum": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TombstoneRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "responses": {
+      "MemoryError": {
+        "description": "Error contractual memory.v1",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    },
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/memory/v1/health": {
+      "get": {
+        "operationId": "memoryHealth",
+        "summary": "Health y capabilities efectivas",
+        "tags": [
+          "memory"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/v1/effective-config": {
+      "get": {
+        "operationId": "memoryEffectiveConfig",
+        "summary": "Configuración efectiva del consumer",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerMemorySettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        }
+      }
+    },
+    "/memory/v1/scopes/ensure": {
+      "post": {
+        "operationId": "memoryScopeEnsure",
+        "summary": "Alta/estado scope dossier",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopeEnsureRequest"
+              }
+            }
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/scopes/{dossier_id}": {
+      "get": {
+        "operationId": "memoryScopeGet",
+        "summary": "Estado de scope dossier",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "name": "dossier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/ingest": {
+      "post": {
+        "operationId": "memoryIngest",
+        "summary": "Ingesta idempotente",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestBatchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestBatchRequest"
+              }
+            }
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/sources/{source_id}/versions": {
+      "post": {
+        "operationId": "memorySourceVersion",
+        "summary": "Nueva versión de fuente",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceVersionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/sources/{source_id}/tombstone": {
+      "post": {
+        "operationId": "memorySourceTombstone",
+        "summary": "Tombstone de fuente",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TombstoneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/retrieve": {
+      "post": {
+        "operationId": "memoryRetrieve",
+        "summary": "Retrieval con budget/filtros",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrieveResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrieveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/v1/dossiers/{dossier_id}/stats": {
+      "get": {
+        "operationId": "memoryDossierStats",
+        "summary": "Stats/coverage/watermark del dossier",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "name": "dossier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierStats"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/analysis-requests": {
+      "post": {
+        "operationId": "memoryAnalysisCreate",
+        "summary": "Crear análisis durable",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRequestStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisRequestCreate"
+              }
+            }
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/analysis-requests/{analysis_request_id}": {
+      "get": {
+        "operationId": "memoryAnalysisGet",
+        "summary": "Estado de análisis",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "name": "analysis_request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRequestStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        }
+      }
+    },
+    "/memory/v1/analysis-requests/{analysis_request_id}/cancel": {
+      "post": {
+        "operationId": "memoryAnalysisCancel",
+        "summary": "cancel análisis",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "analysis_request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRequestStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        }
+      }
+    },
+    "/memory/v1/analysis-requests/{analysis_request_id}/retry": {
+      "post": {
+        "operationId": "memoryAnalysisRetry",
+        "summary": "retry análisis",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "analysis_request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRequestStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/consumer-settings": {
+      "get": {
+        "operationId": "memoryConsumerSettingsGet",
+        "summary": "Settings consumer",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerMemorySettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      },
+      "put": {
+        "operationId": "memoryConsumerSettingsPut",
+        "summary": "Update settings consumer",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/DossierIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerMemorySettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsumerMemorySettings"
+              }
+            }
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/memory/v1/dossiers/{dossier_id}/profile": {
+      "get": {
+        "operationId": "memoryDossierProfileGet",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "name": "dossier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierMemoryProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      },
+      "put": {
+        "operationId": "memoryDossierProfilePut",
+        "tags": [
+          "memory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExternalTenantId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "name": "dossier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierMemoryProfile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierMemoryProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "x-status": "proposed"
+      }
+    },
+    "/oracle-bff/v1/tenants/current/memory/settings": {
+      "get": {
+        "operationId": "bff_tenants_current_memory_settings",
+        "summary": "Modo efectivo tenant (PROPOSED)",
+        "tags": [
+          "oracle-bff-proposed"
+        ],
+        "x-status": "proposed",
+        "responses": {
+          "200": {
+            "description": "Proposed only"
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        }
+      }
+    },
+    "/oracle-bff/v1/tenants/current/memory/test-connection": {
+      "get": {
+        "operationId": "bff_tenants_current_memory_test-connection",
+        "summary": "Sonda health Signal (PROPOSED)",
+        "tags": [
+          "oracle-bff-proposed"
+        ],
+        "x-status": "proposed",
+        "responses": {
+          "200": {
+            "description": "Proposed only"
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        }
+      }
+    },
+    "/oracle-bff/v1/dossiers/{dossier_id}/memory/profile": {
+      "get": {
+        "operationId": "bff_dossiers_dossier_id_memory_profile",
+        "summary": "Perfil memoria expediente (PROPOSED)",
+        "tags": [
+          "oracle-bff-proposed"
+        ],
+        "x-status": "proposed",
+        "responses": {
+          "200": {
+            "description": "Proposed only"
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dossier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/oracle-bff/v1/dossiers/{dossier_id}/memory/status": {
+      "get": {
+        "operationId": "bff_dossiers_dossier_id_memory_status",
+        "summary": "Sync/coverage/watermark (PROPOSED)",
+        "tags": [
+          "oracle-bff-proposed"
+        ],
+        "x-status": "proposed",
+        "responses": {
+          "200": {
+            "description": "Proposed only"
+          },
+          "401": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "403": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "404": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "409": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "413": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "422": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "429": {
+            "$ref": "#/components/responses/MemoryError"
+          },
+          "503": {
+            "$ref": "#/components/responses/MemoryError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "dossier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

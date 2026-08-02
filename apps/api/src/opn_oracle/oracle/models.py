@@ -430,7 +430,10 @@ class Evidence(TenantDomainMixin, Base):
             'AND provenance @> \'{"source_kind":"procurement"}\'::jsonb) OR '
             "(source_kind='entity_intel' AND signal_id IS NULL AND document_id IS NULL "
             "AND document_version_id IS NULL AND document_chunk_id IS NULL "
-            'AND provenance @> \'{"source_kind":"entity_intel"}\'::jsonb)',
+            'AND provenance @> \'{"source_kind":"entity_intel"}\'::jsonb) OR '
+            "(source_kind='memory_signal' AND signal_id IS NULL AND document_id IS NULL "
+            "AND document_version_id IS NULL AND document_chunk_id IS NULL "
+            'AND provenance @> \'{"source_kind":"memory_signal"}\'::jsonb)',
             name="evidence_source_shape",
         ),
     )

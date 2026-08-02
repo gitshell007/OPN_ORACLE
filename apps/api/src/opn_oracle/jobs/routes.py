@@ -31,6 +31,8 @@ JOB_CONTROL_PERMISSIONS = {
     "oracle.entity_dossier_report.generate": "report.generate",
     "oracle.dossier_question.answer": "ai.execute",
     "oracle.report.custom_brief.plan": "report.generate",
+    "oracle.report.custom_brief.write": "report.generate",
+    "oracle.report.custom_brief.review": "report.generate",
     "oracle.ai.dossier_completion_wizard": "ai.execute",
     "oracle.ai.tender_search_wizard": "ai.execute",
     "oracle.document.process": "dossier.write",

@@ -18,7 +18,11 @@ from opn_oracle.oracle.intent import (
     accept_revision,
     compute_intent_content_hash,
     create_draft,
+    create_offering,
+    create_requirement,
     get_current_intent,
+    list_offerings,
+    list_requirements,
     reject_revision,
     serialize_intent_revision,
     update_draft,
@@ -256,6 +260,111 @@ def test_serialize_exposes_contract_fields() -> None:
     assert len(payload["content_hash"]) == 64
     assert payload["version"] == 1
     assert payload["row_version"] == 1
+
+
+def test_create_requirement_persists_validated_intake_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, dossier_id, intent_id = (uuid.uuid4() for _ in range(3))
+    dossier = SimpleNamespace(id=dossier_id, current_intent_revision_id=intent_id)
+    session = MagicMock()
+    monkeypatch.setattr("opn_oracle.oracle.intent._load_dossier", lambda *_args: dossier)
+    monkeypatch.setattr("opn_oracle.oracle.intent.get_revision", lambda *_args: object())
+    monkeypatch.setattr("opn_oracle.oracle.intent.append_audit_event", lambda *a, **k: None)
+
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        requirement = create_requirement(
+            session,
+            dossier_id=dossier_id,
+            actor_id=uuid.uuid4(),
+            payload={
+                "class": "market_scan",
+                "priority": "high",
+                "question": "¿Qué competidores operan en Estados Unidos?",
+                "decision_to_support": "Priorizar entrada de mercado.",
+                "scope": {"geographies": ["US"]},
+                "exclusions": {"sources": ["rumours"]},
+                "success_criteria": ["Tres actores con evidencia"],
+                "intent_revision_id": str(intent_id),
+            },
+        )
+
+    assert requirement.tenant_id == tenant_id
+    assert requirement.intent_revision_id == intent_id
+    assert requirement.requirement_class == "market_scan"
+    assert requirement.success_criteria == ["Tres actores con evidencia"]
+    session.add.assert_called_once_with(requirement)
+    session.commit.assert_called_once()
+
+
+def test_create_offering_persists_validated_product_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, dossier_id, intent_id = (uuid.uuid4() for _ in range(3))
+    dossier = SimpleNamespace(id=dossier_id, current_intent_revision_id=intent_id)
+    session = MagicMock()
+    monkeypatch.setattr("opn_oracle.oracle.intent._load_dossier", lambda *_args: dossier)
+    monkeypatch.setattr("opn_oracle.oracle.intent.get_revision", lambda *_args: object())
+    monkeypatch.setattr("opn_oracle.oracle.intent.append_audit_event", lambda *a, **k: None)
+
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        offering = create_offering(
+            session,
+            dossier_id=dossier_id,
+            actor_id=uuid.uuid4(),
+            payload={
+                "name": "Plataforma de almacenamiento",
+                "aliases": ["BESS", "  "],
+                "taxonomies": {"cpv": ["31422000"]},
+                "description": "Oferta para almacenamiento energético.",
+                "status": "active",
+                "intent_revision_id": str(intent_id),
+            },
+        )
+
+    assert offering.tenant_id == tenant_id
+    assert offering.intent_revision_id == intent_id
+    assert offering.aliases == ["BESS"]
+    assert offering.taxonomies == {"cpv": ["31422000"]}
+    session.add.assert_called_once_with(offering)
+    session.commit.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("factory", "payload"),
+    [
+        (create_requirement, {"class": "invalid"}),
+        (create_requirement, {"class": "market_scan", "priority": "invalid"}),
+        (create_requirement, {"class": "market_scan", "status": "invalid"}),
+        (create_offering, {"name": ""}),
+        (create_offering, {"name": "Oferta", "aliases": "invalid"}),
+        (create_offering, {"name": "Oferta", "taxonomies": "invalid"}),
+    ],
+)
+def test_intake_rejects_invalid_requirement_and_offering_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+    factory: Any,
+    payload: dict[str, Any],
+) -> None:
+    tenant_id, dossier_id = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(
+        "opn_oracle.oracle.intent._load_dossier",
+        lambda *_args: SimpleNamespace(id=dossier_id, current_intent_revision_id=None),
+    )
+    with (
+        tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())),
+        pytest.raises(IntentValidationError),
+    ):
+        factory(MagicMock(), dossier_id=dossier_id, actor_id=uuid.uuid4(), payload=payload)
+
+
+def test_list_intake_resources_scopes_to_active_tenant() -> None:
+    tenant_id, dossier_id = uuid.uuid4(), uuid.uuid4()
+    session = MagicMock()
+    session.scalars.return_value = [SimpleNamespace(id=uuid.uuid4())]
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        assert len(list_requirements(session, dossier_id)) == 1
+        assert len(list_offerings(session, dossier_id)) == 1
 
 
 def test_create_draft_assigns_monotonic_version(monkeypatch: pytest.MonkeyPatch) -> None:

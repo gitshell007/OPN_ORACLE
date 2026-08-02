@@ -21,12 +21,14 @@ from opn_oracle.jobs.tasks import (
 )
 from opn_oracle.oracle.conversations import (
     DOSSIER_QUESTION_JOB,
+    _answer_via_signal,
     apply_assistant_answer,
     process_dossier_question_answer,
 )
 from opn_oracle.oracle.custom_reports import (
     CUSTOM_BRIEF_JOB,
     CUSTOM_BRIEF_TEMPLATE_KEY,
+    _plan_via_signal,
     process_custom_brief_plan,
 )
 from opn_oracle.tenants.context import TenantContext, tenant_context
@@ -243,3 +245,194 @@ def test_apply_answer_still_forbids_intent_mutation_flag() -> None:
     )
     assert message.answer_payload["mutates_intent"] is False
     assert message.answer_payload["mutates_memory_facts"] is False
+
+
+def test_signal_question_adapter_persists_structured_answer_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, dossier_id, message_id, artifact_id = (uuid.uuid4() for _ in range(4))
+    evidence_id = str(uuid.uuid4())
+    job = _job()
+    message = SimpleNamespace(
+        id=message_id, content_text="¿Qué evidencia hay?", tenant_id=tenant_id
+    )
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        provider="ollama",
+        model="qwen3.5:9b",
+        output={
+            "answer_text": "Hay una evidencia autorizada.",
+            "citations": [{"evidence_id": evidence_id, "quote": "fragmento"}],
+            "facts": [{"statement": "Hecho", "evidence_ids": [evidence_id]}],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 72,
+            "open_questions": ["¿Confirmar fecha?"],
+            "warnings": [],
+            "validated_output_sha256": "a" * 64,
+        },
+    )
+    session = MagicMock()
+    session.get.return_value = artifact
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.execute_agent",
+        lambda **kwargs: (
+            calls.append(kwargs) or {"artifact_id": str(artifact_id), "audit_log_id": "audit"}
+        ),
+    )
+
+    result = _answer_via_signal(
+        session,
+        job=job,  # type: ignore[arg-type]
+        dossier_id=dossier_id,
+        message=message,  # type: ignore[arg-type]
+        memory_items=[{"text": "fragmento"}],
+        coverage={"version": "coverage_manifest.v1"},
+        memory_policy="memory.v1",
+        allowed_evidence_ids=[evidence_id],
+    )
+
+    assert calls[0]["agent"] == "dossier_question_answer"
+    assert calls[0]["target_id"] == message_id
+    assert result["answer_text"] == "Hay una evidencia autorizada."
+    assert result["answer_payload"]["provider_path"] == "signal"
+    assert result["answer_payload"]["signal_model"] == "qwen3.5:9b"
+    assert result["answer_payload"]["validated_output_sha256"] == "a" * 64
+
+
+def test_signal_brief_adapter_persists_revisable_plan_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dossier_id, report_id, artifact_id = (uuid.uuid4() for _ in range(3))
+    job = _job(job_type=CUSTOM_BRIEF_JOB)
+    report = SimpleNamespace(id=report_id)
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        output={
+            "version": "custom_brief_plan.v1",
+            "audience": "dirección",
+            "scope": "mercado",
+            "period": "2026",
+            "sections": [{"id": "executive", "title": "Resumen", "required": True}],
+            "formats": ["html"],
+            "notes": ["revisar"],
+            "open_questions": [],
+            "warnings": [],
+            "confidence": 80,
+        },
+    )
+    session = MagicMock()
+    session.get.return_value = artifact
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "opn_oracle.ai.service.execute_agent",
+        lambda **kwargs: (
+            calls.append(kwargs) or {"artifact_id": str(artifact_id), "audit_log_id": "audit"}
+        ),
+    )
+
+    plan, meta = _plan_via_signal(
+        session,
+        job=job,  # type: ignore[arg-type]
+        dossier_id=dossier_id,
+        report=report,  # type: ignore[arg-type]
+        brief="Analiza el mercado.",
+    )
+
+    assert calls[0]["agent"] == "report_custom_brief_plan"
+    assert calls[0]["target_id"] == report_id
+    assert plan["provider_path"] == "signal"
+    assert plan["sections"][0]["id"] == "executive"
+    assert meta == {
+        "artifact_id": str(artifact_id),
+        "task_key": "report_custom_brief_plan",
+        "provider_path": "signal",
+    }
+
+
+def test_question_worker_uses_governed_signal_result_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, dossier_id, conversation_id, message_id = (uuid.uuid4() for _ in range(4))
+    message = SimpleNamespace(
+        id=message_id,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        conversation_id=conversation_id,
+        role="user",
+        status="queued",
+        content_text="¿Qué cambió?",
+        answer_payload={},
+        coverage_manifest={},
+    )
+    session = MagicMock()
+    session.scalar.return_value = message
+    monkeypatch.setattr("opn_oracle.oracle.conversations.append_audit_event", lambda *a, **k: None)
+    monkeypatch.setattr("opn_oracle.oracle.conversations._signal_ai_enabled", lambda: True)
+    monkeypatch.setattr(
+        "opn_oracle.oracle.conversations._answer_via_signal",
+        lambda *a, **k: {
+            "answer_text": "Respuesta con cita.",
+            "answer_payload": {"provider_path": "signal", "citations": []},
+            "meta": {"task_key": "dossier_question_answer"},
+        },
+    )
+    adapter = SimpleNamespace(
+        retrieve=lambda *a: {
+            "items": [{"text": "evidencia"}],
+            "coverage_manifest": {"version": "coverage_manifest.v1"},
+            "policy_version": "memory.v1",
+        }
+    )
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        result = process_dossier_question_answer(
+            session,
+            {
+                "message_id": str(message_id),
+                "conversation_id": str(conversation_id),
+                "dossier_id": str(dossier_id),
+            },
+            _job(),  # type: ignore[arg-type]
+            memory_adapter=adapter,
+        )
+
+    assert result["task_key"] == "dossier_question_answer"
+    assert message.status == "succeeded"
+    assert message.answer_payload["provider_path"] == "signal"
+
+
+def test_brief_worker_uses_governed_signal_plan_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, dossier_id, report_id = (uuid.uuid4() for _ in range(3))
+    report = SimpleNamespace(
+        id=report_id,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        template_key=CUSTOM_BRIEF_TEMPLATE_KEY,
+        status="draft",
+        options={"brief_request": "Informe", "plan_status": "draft"},
+        error_code=None,
+        error_message=None,
+    )
+    session = MagicMock()
+    session.scalar.return_value = report
+    monkeypatch.setattr("opn_oracle.oracle.custom_reports.append_audit_event", lambda *a, **k: None)
+    monkeypatch.setattr("opn_oracle.oracle.custom_reports._signal_ai_enabled", lambda: True)
+    monkeypatch.setattr(
+        "opn_oracle.oracle.custom_reports._plan_via_signal",
+        lambda *a, **k: (
+            {"version": "custom_brief_plan.v1", "sections": [{"id": "executive"}]},
+            {"task_key": "report_custom_brief_plan", "provider_path": "signal"},
+        ),
+    )
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        result = process_custom_brief_plan(
+            session,
+            {"report_id": str(report_id), "dossier_id": str(dossier_id)},
+            _job(job_type=CUSTOM_BRIEF_JOB),  # type: ignore[arg-type]
+        )
+
+    assert result["task_key"] == "report_custom_brief_plan"
+    assert report.options["proposed_plan"]["version"] == "custom_brief_plan.v1"

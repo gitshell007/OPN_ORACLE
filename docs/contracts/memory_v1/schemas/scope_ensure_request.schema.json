@@ -1,0 +1,19 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/scope_ensure_request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dossier_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "product_code": {
+      "const": "oracle",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dossier_id"
+  ],
+  "type": "object"
+}

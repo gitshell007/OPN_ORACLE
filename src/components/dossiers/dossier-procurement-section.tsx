@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   formatDate,
   formatMoney,
@@ -259,66 +260,68 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
   }
 
   return (
-    <section className="vector-panel dossier-procurement-section" aria-busy={loading}>
-      <header>
-        <div>
-          <span className="section-kicker">Contratación pública</span>
-          <h2>Referencias fijadas al expediente</h2>
-        </div>
-        <div className="procurement-report-actions">
-          <button
-            className="vector-secondary"
-            type="button"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            <RefreshCw size={15} />
-            Actualizar
-          </button>
-          <PermissionGate permission="report.generate">
-            <AsyncActionButton
+    <div className="dossier-section-page">
+      <PageHeader
+        eyebrow="Vigilancia"
+        title="Licitaciones"
+        description="Referencias de contratación pública fijadas al expediente."
+        actions={
+          <div className="procurement-report-actions">
+            <button
               className="vector-secondary"
               type="button"
-              onClick={() => void generateDocumentReport()}
-              loading={loading || generating}
-              loadingLabel={
-                generating ? (
-                  <>
-                    <RefreshCw size={15} />
-                    Preparando…
-                  </>
-                ) : (
-                  "Cargando…"
-                )
-              }
-              disabled={!items.some((item) => item.kind === "award")}
+              onClick={() => void load()}
+              disabled={loading}
             >
-              <FileText size={15} />
-              Informe documental
-            </AsyncActionButton>
-            <AsyncActionButton
-              className="vector-primary"
-              type="button"
-              onClick={() => void generateCompetitiveReport()}
-              loading={loading || generatingCompetitive}
-              loadingLabel={
-                generatingCompetitive ? (
-                  <>
-                    <RefreshCw size={15} />
-                    Encolando…
-                  </>
-                ) : (
-                  "Cargando…"
-                )
-              }
-              disabled={!effectiveCompany}
-            >
-              <BarChart3 size={15} />
-              Inteligencia competitiva
-            </AsyncActionButton>
-          </PermissionGate>
-        </div>
-      </header>
+              <RefreshCw size={15} />
+              Actualizar
+            </button>
+            <PermissionGate permission="report.generate">
+              <AsyncActionButton
+                className="vector-secondary"
+                type="button"
+                onClick={() => void generateDocumentReport()}
+                loading={loading || generating}
+                loadingLabel={
+                  generating ? (
+                    <>
+                      <RefreshCw size={15} />
+                      Preparando…
+                    </>
+                  ) : (
+                    "Cargando…"
+                  )
+                }
+                disabled={!items.some((item) => item.kind === "award")}
+              >
+                <FileText size={15} />
+                Informe documental
+              </AsyncActionButton>
+              <AsyncActionButton
+                className="vector-primary"
+                type="button"
+                onClick={() => void generateCompetitiveReport()}
+                loading={loading || generatingCompetitive}
+                loadingLabel={
+                  generatingCompetitive ? (
+                    <>
+                      <RefreshCw size={15} />
+                      Encolando…
+                    </>
+                  ) : (
+                    "Cargando…"
+                  )
+                }
+                disabled={!effectiveCompany}
+              >
+                <BarChart3 size={15} />
+                Inteligencia competitiva
+              </AsyncActionButton>
+            </PermissionGate>
+          </div>
+        }
+      />
+      <section className="vector-panel dossier-procurement-section" aria-busy={loading}>
       {winnerCandidates.length > 0 && (
         <div className="procurement-competitive-controls">
           <label>
@@ -489,6 +492,7 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
           </p>
         </div>
       )}
-    </section>
+      </section>
+    </div>
   );
 }

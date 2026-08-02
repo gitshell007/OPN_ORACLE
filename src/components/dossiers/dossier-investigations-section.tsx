@@ -20,6 +20,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { PageHeader } from "@/components/ui/page-header";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 
 function message(reason: unknown, fallback: string): string {
@@ -195,24 +196,23 @@ export function DossierInvestigationsSection({ dossierId }: { dossierId: string 
   }
 
   return (
-    <section className="investigation-section">
-      <header className="investigation-heading">
-        <div>
-          <span className="section-kicker">Investigación empresarial</span>
-          <h1>Red, licitaciones y evidencia</h1>
-          <p>
-            Pasadas reanudables con revisión humana de identidad antes de expandir nodos.
-          </p>
-        </div>
-        <AsyncActionButton
-          className="vector-secondary"
-          loading={loading}
-          onClick={() => void load()}
-        >
-          <RefreshCw size={15} /> Actualizar
-        </AsyncActionButton>
-      </header>
+    <div className="dossier-section-page">
+      <PageHeader
+        eyebrow="Análisis"
+        title="Investigación"
+        description="Red, licitaciones y evidencia. Pasadas reanudables con revisión humana de identidad antes de expandir nodos."
+        actions={
+          <AsyncActionButton
+            className="vector-secondary"
+            loading={loading}
+            onClick={() => void load()}
+          >
+            <RefreshCw size={15} /> Actualizar
+          </AsyncActionButton>
+        }
+      />
 
+      <section className="investigation-section">
       {error && <p className="form-error" role="alert">{error}</p>}
 
       <div className="investigation-grid">
@@ -397,6 +397,7 @@ export function DossierInvestigationsSection({ dossierId }: { dossierId: string 
           )}
         </div>
       </div>
-    </section>
+      </section>
+    </div>
   );
 }

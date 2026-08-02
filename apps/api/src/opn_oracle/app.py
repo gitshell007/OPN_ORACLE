@@ -40,6 +40,7 @@ from opn_oracle.documents.storage import LocalObjectStorage, S3ObjectStorage
 from opn_oracle.extensions import db, init_extensions
 from opn_oracle.integrations.crypto import IntegrationKeyring
 from opn_oracle.integrations.entity_intel_routes import bp as entity_intel_bp
+from opn_oracle.integrations.memory_routes import bp as memory_settings_bp
 from opn_oracle.integrations.procurement_routes import bp as procurement_bp
 from opn_oracle.integrations.routes import bp as signal_integrations_bp
 from opn_oracle.integrations.signal_avanza import MockSignalAvanzaAdapter
@@ -58,6 +59,7 @@ from opn_oracle.oracle.procurement_search_profile_routes import (
 )
 from opn_oracle.oracle.procurement_search_watch_routes import bp as procurement_search_watches_bp
 from opn_oracle.oracle.routes import bp as oracle_bp
+from opn_oracle.oracle.surveillance_routes import bp as dossier_surveillance_bp
 from opn_oracle.platform.backup_routes import bp as platform_backups_bp
 from opn_oracle.platform.routes import bp as platform_bp
 from opn_oracle.reporting.rendering import DisabledPDFRenderer, WeasyPrintPDFRenderer
@@ -189,6 +191,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> APIFlask:
     app.register_blueprint(oracle_bp)
     app.register_blueprint(dossier_intent_bp)
     app.register_blueprint(dossier_activity_bp)
+    app.register_blueprint(dossier_surveillance_bp)
     app.register_blueprint(dossier_conversations_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(ai_bp)
@@ -196,6 +199,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> APIFlask:
     app.register_blueprint(documents_bp)
     app.register_blueprint(reporting_bp)
     app.register_blueprint(signal_integrations_bp)
+    app.register_blueprint(memory_settings_bp)
     app.register_blueprint(entity_intel_bp)
     app.register_blueprint(procurement_bp)
     app.register_blueprint(procurement_search_profiles_bp)

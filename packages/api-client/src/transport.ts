@@ -145,7 +145,7 @@ interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
   retry?: boolean;
-  ifMatch?: number;
+  ifMatch?: number | string;
   idempotencyKey?: string;
 }
 
@@ -163,8 +163,13 @@ async function request<T>(
       const id = requestId();
       if (id) headers.set("X-Request-ID", id);
       if (mutation) headers.set("X-CSRF-Token", csrfToken ?? "");
-      if (options.ifMatch !== undefined)
-        headers.set("If-Match", `W/"${options.ifMatch}"`);
+      if (options.ifMatch !== undefined) {
+        const match =
+          typeof options.ifMatch === "string"
+            ? options.ifMatch
+            : `W/"${options.ifMatch}"`;
+        headers.set("If-Match", match);
+      }
       if (options.idempotencyKey)
         headers.set("Idempotency-Key", options.idempotencyKey);
       const multipart =
@@ -2733,16 +2738,81 @@ export interface DossierActivityItem {
   last_success_at?: string | null;
   last_attempt_at?: string | null;
   last_error?: string | null;
+  intent_revision_id?: string | null;
+  requirement_id?: string | null;
   alignment_state?: string | null;
   provider_ref?: string | null;
   target?: Record<string, unknown>;
 }
 
+/** MDEV-07 human-confirmed surveillance action. */
+export interface SurveillanceAction {
+  id: string;
+  dossier_id: string;
+  action_type:
+    | "news_mentions"
+    | "official_publications"
+    | "actor_tenders"
+    | "offering_tenders"
+    | "research_digest"
+    | "no_follow"
+    | string;
+  status: string;
+  alignment_state: string;
+  cadence: "manual" | "hourly" | "daily" | "weekly" | string;
+  timezone: string;
+  actor_id?: string | null;
+  offering_id?: string | null;
+  requirement_id?: string | null;
+  intent_revision_id?: string | null;
+  effective_scope_hash: string;
+  origin: string;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_error?: string | null;
+  retry_count: number;
+  retry_after?: string | null;
+  row_version: number;
+  degraded?: boolean;
+  degraded_reason?: string | null;
+}
+
+export interface DossierIntentRevision {
+  id: string;
+  version: number;
+  schema_key: string;
+  schema_version: string;
+  request_text: string;
+  structured_spec: Record<string, unknown>;
+  status: string;
+  content_hash: string;
+  accepted_at?: string | null;
+}
+
+export interface DossierIntelligenceRequirement {
+  id: string;
+  intent_revision_id?: string | null;
+  class: string;
+  priority: string;
+  question: string;
+  decision_to_support: string;
+  status: string;
+  alignment_state: string;
+}
+
+export interface DossierOffering {
+  id: string;
+  intent_revision_id?: string | null;
+  name: string;
+  description: string;
+  status: string;
+}
+
 export interface DossierActivityResponse {
   dossier_id: string;
-  intent: Record<string, unknown> | null;
-  requirements: unknown[];
-  offerings: unknown[];
+  intent: DossierIntentRevision | null;
+  requirements: DossierIntelligenceRequirement[];
+  offerings: DossierOffering[];
   summary: {
     total: number;
     by_state: Record<string, number>;
@@ -2775,6 +2845,8 @@ export interface DossierMessage {
   error_code?: string | null;
   error_message?: string | null;
   created_at?: string | null;
+  /** Present when API serializes TimestampMixin.updated_at (dossier messages). */
+  updated_at?: string | null;
 }
 
 export interface CustomBriefAccepted {
@@ -2794,15 +2866,30 @@ export interface CustomBriefDetail {
   template_key: string;
   template_version: string;
   generation_version: number;
+  version?: number;
+  etag?: string;
   brief_request: string;
   plan_status: string;
+  lifecycle_state?: string;
   proposed_plan?: Record<string, unknown> | null;
+  accepted_plan?: Record<string, unknown> | null;
+  accepted_snapshot_hash?: string | null;
+  memory_degraded?: boolean;
+  memory_degraded_reason?: string | null;
+  accepted_degraded?: boolean;
+  generation_blocked?: boolean;
+  generation_blocked_code?: string | null;
+  generation_blocked_reason?: string | null;
+  coverage?: Record<string, unknown> | null;
+  ready_artifact?: Record<string, unknown> | null;
+  downloadable?: boolean;
   background_job_id?: string | null;
   error_code?: string | null;
   error_message?: string | null;
   requested_by_user_id: string;
   created_at?: string | null;
   updated_at?: string | null;
+  ready_at?: string | null;
 }
 
 const dossierActivity = {
@@ -2816,6 +2903,28 @@ const dossierActivity = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/activity${suffix}`,
     );
   },
+};
+
+/** MDEV-07 surveillance confirm / list (mutations require backend permission). */
+const surveillanceActions = {
+  list: (dossierId: string, query?: { action_type?: string; actor_id?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.action_type) params.set("action_type", query.action_type);
+    if (query?.actor_id) params.set("actor_id", query.actor_id);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<{ dossier_id: string; items: SurveillanceAction[]; total: number }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/surveillance-actions${suffix}`,
+    );
+  },
+  confirm: (
+    dossierId: string,
+    input: Record<string, unknown>,
+    idempotencyKey: string,
+  ) =>
+    request<SurveillanceAction & { duplicate?: boolean }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/surveillance-actions/confirm`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
 };
 
 const dossierConversations = {
@@ -2850,7 +2959,114 @@ const customBriefs = {
     request<CustomBriefDetail>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}`,
     ),
+  acceptPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    body: { proposed_plan?: Record<string, unknown>; start_generation?: boolean } = {},
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/accept`,
+      { method: "POST", body, ifMatch },
+    ),
+  editPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    proposed_plan: Record<string, unknown>,
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/edit`,
+      { method: "POST", body: { proposed_plan }, ifMatch },
+    ),
+  rejectPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    reason = "",
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/reject`,
+      { method: "POST", body: { reason }, ifMatch },
+    ),
+  cancel: (dossierId: string, reportId: string, ifMatch: number | string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/cancel`,
+      { method: "POST", body: {}, ifMatch },
+    ),
+  retry: (dossierId: string, reportId: string, ifMatch: number | string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/retry`,
+      { method: "POST", body: {}, ifMatch },
+    ),
+  downloadUrl: (dossierId: string, reportId: string) =>
+    `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/download`,
 };
+
+
+export type DossierMemoryProfile = {
+  id: string | null;
+  tenant_id: string;
+  dossier_id: string;
+  connection_id: string | null;
+  mode: "disabled" | "shadow" | "augment";
+  mode_label_es?: string;
+  version: number;
+  etag: string;
+  sources: string[];
+  kinds: string[];
+  classifications_allowed: string[];
+  token_budget: number;
+  limit: number;
+  status: string;
+  provenance: string;
+  last_test_at: string | null;
+  last_test_status: string | null;
+  last_error: string | null;
+  last_coverage: Record<string, unknown> | null;
+  updated_at: string | null;
+  persisted?: boolean;
+  publisher_reliable?: boolean;
+  actions_reliable?: boolean;
+  capability?: Record<string, unknown>;
+};
+
+const dossierMemory = {
+  getProfile: (dossierId: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile`,
+    ),
+  getEffective: (dossierId: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/effective`,
+    ),
+  putProfile: (
+    dossierId: string,
+    input: Partial<DossierMemoryProfile> & { mode: DossierMemoryProfile["mode"] },
+    etag: string,
+  ) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile`,
+      {
+        method: "PUT",
+        body: input,
+        ifMatch: etag,
+      },
+    ),
+  testConnection: (dossierId: string) =>
+    request<{
+      ok: boolean;
+      status: string;
+      synthetic?: boolean;
+      publisher_reliable?: boolean;
+      message?: string;
+    }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/test-connection`,
+      { method: "POST" },
+    ),
+  capability: () => request<Record<string, unknown>>("/api/v1/memory/capability"),
+};
+
 
 export const api = {
   auth,
@@ -2859,6 +3075,7 @@ export const api = {
   platform,
   jobs,
   signalAvanza,
+  dossierMemory,
   dossiers,
   oracleSummary,
   dossierCompletionWizard,
@@ -2884,6 +3101,7 @@ export const api = {
   documents,
   investigations,
   dossierActivity,
+  surveillanceActions,
   dossierConversations,
   customBriefs,
   reports,

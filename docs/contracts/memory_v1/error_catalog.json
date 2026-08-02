@@ -1,0 +1,140 @@
+{
+  "errors": [
+    {
+      "error_code": "missing_api_key",
+      "http_status": 401,
+      "retryable": false
+    },
+    {
+      "error_code": "invalid_api_key",
+      "http_status": 401,
+      "retryable": false
+    },
+    {
+      "error_code": "tenant_bound_credential_required",
+      "http_status": 401,
+      "retryable": false
+    },
+    {
+      "error_code": "memory_scope_forbidden",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "tenant_not_allowed",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "dossier_not_allowed",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "memory_read_required",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "memory_write_required",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "not_found",
+      "http_status": 404,
+      "retryable": false
+    },
+    {
+      "error_code": "analysis_request_not_found",
+      "http_status": 404,
+      "retryable": false
+    },
+    {
+      "error_code": "idempotency_conflict",
+      "http_status": 409,
+      "retryable": false
+    },
+    {
+      "error_code": "lifecycle_conflict",
+      "http_status": 409,
+      "retryable": false
+    },
+    {
+      "error_code": "stale_etag",
+      "http_status": 409,
+      "retryable": false
+    },
+    {
+      "error_code": "body_too_large",
+      "http_status": 413,
+      "retryable": false
+    },
+    {
+      "error_code": "schema_validation_failed",
+      "http_status": 422,
+      "retryable": false
+    },
+    {
+      "error_code": "unsupported_api_version",
+      "http_status": 422,
+      "retryable": false
+    },
+    {
+      "error_code": "rate_limit_exceeded",
+      "http_status": 429,
+      "retryable": true
+    },
+    {
+      "error_code": "memory_engine_disabled",
+      "http_status": 503,
+      "retryable": true
+    },
+    {
+      "error_code": "consumer_memory_disabled",
+      "http_status": 503,
+      "retryable": false
+    },
+    {
+      "error_code": "upstream_timeout",
+      "http_status": 504,
+      "retryable": true
+    },
+    {
+      "error_code": "upstream_5xx",
+      "http_status": 502,
+      "retryable": true
+    },
+    {
+      "error_code": "dossier_mismatch",
+      "http_status": 409,
+      "retryable": false
+    },
+    {
+      "error_code": "dossier_not_authorized",
+      "http_status": 404,
+      "retryable": false
+    },
+    {
+      "error_code": "insufficient_scope",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "credential_tenant_mismatch",
+      "http_status": 403,
+      "retryable": false
+    },
+    {
+      "error_code": "backend_unavailable",
+      "http_status": 503,
+      "retryable": true
+    },
+    {
+      "error_code": "source_failed",
+      "http_status": 502,
+      "retryable": true
+    }
+  ],
+  "schema_version": "memory_error_catalog.v1"
+}

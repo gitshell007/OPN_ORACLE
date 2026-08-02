@@ -1,0 +1,75 @@
+# Code stubs refs
+Signal main memory_retrieve returns items=[] — path app/api/v1/memory.py on origin/main
+
+
+@router.post("/retrieve")
+def memory_retrieve(
+    body: RetrieveBody,
+    consumer: ConsumerAuth,
+    db: Session = Depends(get_db),
+    x_opn_external_tenant_id: str | None = Header(default=None, alias="X-OPN-External-Tenant-ID"),
+) -> dict[str, Any]:
+    """Retrieval acotado. Sin engine → 503. Pack completo en MEMSOL-05."""
+    del db
+    _require_engine()
+    scope = _scope(consumer, x_opn_external_tenant_id)
+    return {
+        "api_version": "memory.v1",
+        "request_id": None,
+        "scope": {
+            "tenant_key": scope.tenant_key,
+            "product_code": scope.product_code,
+            "scope_type": scope.scope_type,
+            "scope_id": scope.scope_id,
+        },
+        "items": [],
+        "coverage_manifest": {
+            "version": "coverage_manifest.v1",
+            "requested": ["retrieval"],
+            "consulted": [],
+            "failed": [],
+            "excluded": [],
+            "used": [],
+            "truncated": False,
+            "truncation_notes": ["retrieve stub: engine on, pack builder pending MEMSOL-05"],
+            "cutoff_at": None,
+            "token_budget": 0,
+            "token_used_estimate": 0,
+        },
+        "query": body.query,
+        "purpose": body.purpose,
+        "limit": body.limit,
+    }
+
+
+Oracle HttpMemoryContextAdapter stub — origin/master
+class HttpMemoryContextAdapter:
+    """HTTP consumer stub (Signal memory API). Not activated in MEMSOL-05."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+
+    def retrieve(
+        self,
+        scope_hint: Mapping[str, Any] | None,
+        query: str,
+        purpose: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        del scope_hint, query, purpose, limit
+        if not self.base_url.startswith("https://"):
+            raise MemoryContextError("MEMORY_CONTEXT_BASE_URL debe usar HTTPS en modo http.")
+        # Full HTTP retrieve lands with Signal memory contract (MEMSOL-02/05 remote).
+        raise MemoryContextError(
+            "El adaptador HTTP de memoria aún no está habilitado en este despliegue."
+        )
+
+
+def build_memory_context_adapter(
+    mode: str,

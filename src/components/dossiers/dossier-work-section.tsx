@@ -28,6 +28,7 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } f
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
+import { PageHeader } from "@/components/ui/page-header";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { productLinkedResourceLabel } from "@/lib/product-copy";
 import { DossierActorCandidates } from "./dossier-actor-candidates";
@@ -77,28 +78,28 @@ const ACTOR_TYPE_LABELS: Record<string, string> = {
 
 const COPY = {
   actors: {
-    eyebrow: "Mapa relacional",
+    eyebrow: "Análisis",
     title: "Actores",
     description: "Personas, organizaciones e instituciones vinculadas al contexto estratégico.",
     create: "Nuevo actor",
     permission: "actor.write",
   },
   meetings: {
-    eyebrow: "Preparación y seguimiento",
+    eyebrow: "Decisión",
     title: "Reuniones",
     description: "Agenda, objetivo, estado y preparación trazable de cada encuentro.",
     create: "Nueva reunión",
     permission: "meeting.write",
   },
   tasks: {
-    eyebrow: "Trabajo operativo",
+    eyebrow: "Decisión",
     title: "Tareas",
     description: "Siguientes acciones priorizadas y conectadas con el expediente.",
     create: "Nueva tarea",
     permission: "task.write",
   },
   decisions: {
-    eyebrow: "Trazabilidad humana",
+    eyebrow: "Decisión",
     title: "Decisiones",
     description: "Propuestas y decisiones explícitas, separadas de hechos e inferencias.",
     create: "Registrar propuesta",
@@ -408,6 +409,24 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
     router.replace(pathname, { scroll: false });
   }
 
+  function prepareActorMonitor() {
+    if (kind !== "actors" || !selected?.actor?.canonical_name) return;
+    sessionStorage.setItem(
+      `oracle:wizard-prefill:${dossierId}:monitor`,
+      JSON.stringify({
+        name: `Seguimiento: ${selected.actor.canonical_name}`.slice(0, 200),
+        query: "",
+        keywords: [],
+        entities: [selected.actor.canonical_name],
+        languages: ["es"],
+        geographies: ["ES"],
+        source_types: ["news", "company_signal", "official_publication"],
+        cadence: "daily",
+      }),
+    );
+    router.push(`/app/dossiers/${dossierId}/settings?wizard_prefill=monitor`);
+  }
+
   const openRowDetail = useCallback(
     (rowId: string) => {
       router.replace(`${pathname}?selected=${encodeURIComponent(rowId)}`, { scroll: false });
@@ -634,20 +653,22 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
   }
 
   return (
-    <section className="vector-panel intelligence-section work-section" aria-labelledby={`${kind}-title`}>
-      <header className="intelligence-heading">
-        <div>
-          <span className="section-kicker">{copy.eyebrow}</span>
-          <h1 id={`${kind}-title`}>{copy.title}</h1>
-          <p>{copy.description}</p>
-        </div>
-        <PermissionGate permission={copy.permission}>
-          <HydratedActionButton className="vector-primary" type="button" onClick={() => void openCreate()}>
-            <Plus size={15} /> {copy.create}
-          </HydratedActionButton>
-        </PermissionGate>
-      </header>
+    <div className="dossier-section-page">
+      <PageHeader
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
+        id={`${kind}-title`}
+        actions={
+          <PermissionGate permission={copy.permission}>
+            <HydratedActionButton className="vector-primary" type="button" onClick={() => void openCreate()}>
+              <Plus size={15} /> {copy.create}
+            </HydratedActionButton>
+          </PermissionGate>
+        }
+      />
 
+      <section className="vector-panel intelligence-section work-section" aria-labelledby={`${kind}-title`}>
       {kind === "actors" && (
         <div className="segmented actor-view-switch" role="group" aria-label="Vista de actores">
           <button type="button" aria-pressed={actorView === "linked"} onClick={() => setActorView("linked")}>Actores vinculados</button>
@@ -795,6 +816,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             <section className="intelligence-detail-block"><h2>Contexto</h2><p>{selected.detail}</p><p>{selected.secondary}</p></section>
             {kind === "actors" && <section className="intelligence-detail-block"><h2>Confianza y procedencia</h2><p>{actorConfidence(selected.raw as OracleDossierActor) === null ? "La confianza no está documentada todavía." : `${actorConfidence(selected.raw as OracleDossierActor)} % de confianza registrada.`}</p><p>{selected.actor?.provenance && Object.keys(selected.actor.provenance).length ? Object.entries(selected.actor.provenance).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") : "Sin procedencia explícita. No uses este actor como hecho verificado hasta añadir una fuente."}</p></section>}
             {kind === "actors" && <PermissionGate permission="actor.write"><section className="intelligence-detail-block"><h2>Ajustar contexto</h2><p>Aumenta diez puntos la relevancia para este expediente, sin modificar la ficha canónica del actor.</p><AsyncActionButton className="vector-secondary" disabled={((selected.raw as OracleDossierActor).relevance_to_dossier ?? 0) >= 100} loading={busy} onClick={() => void reinforceActorRelevance()}>Reforzar relevancia</AsyncActionButton></section></PermissionGate>}
+            {kind === "actors" && <PermissionGate permission="signal.review"><section className="intelligence-detail-block"><h2>Seguimiento proactivo</h2><p>Prepara una vigilancia de noticias y actividad corporativa para este actor. Podrás revisar la cadencia y las fuentes antes de activarla.</p><button className="vector-primary" type="button" onClick={prepareActorMonitor}>Preparar vigilancia del actor</button></section></PermissionGate>}
             {kind === "meetings" && <section className="intelligence-detail-block"><h2>Preparación de la reunión</h2>{briefingRunning && <p role="status">Generando briefing con Oracle… La versión anterior seguirá disponible.</p>}{briefingsLoading ? <p role="status">Cargando la preparación…</p> : briefings.length ? <div className="work-briefings">{briefings.map((briefing) => { const output = briefingOutput(briefing); return <article key={briefing.id}><header><FileCheck2 size={15} /><span>Briefing v{briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></header>{output ? <><p>{String(output.meeting_objective ?? "Objetivo pendiente de documentar.")}</p><ul>{(Array.isArray(output.key_messages) ? output.key_messages : []).slice(0, 3).map((item) => <li key={String(item)}>{String(item)}</li>)}</ul><small>Confianza {String(output.confidence ?? "—")} % · {Array.isArray(output.questions) ? output.questions.length : 0} preguntas preparadas</small></> : <p>Preparación en curso o pendiente de publicar.</p>}</article>; })}</div> : <p>Aún no hay una preparación. Cuando la crees, mantendrá separados los hechos, las interpretaciones y las recomendaciones.</p>}<PermissionGate permission="meeting.write"><AsyncActionButton className="vector-secondary" disabled={briefingRunning} loading={busy} onClick={() => void createBriefing()}><FileCheck2 size={15} /> {briefingRunning ? "Preparando…" : "Preparar reunión"}</AsyncActionButton></PermissionGate></section>}
             {kind === "meetings" && meetingOutcomes(selected.raw as OracleMeeting) && <section className="intelligence-detail-block"><h2>Resultados registrados</h2>{(selected.raw as OracleMeeting).notes ? <p>{(selected.raw as OracleMeeting).notes}</p> : <p>Reunión cerrada sin notas detalladas.</p>}<div className="work-outcomes">{(meetingOutcomes(selected.raw as OracleMeeting)?.decisions ?? []).length > 0 && <div><h3>Decisiones resultantes</h3><ul>{(meetingOutcomes(selected.raw as OracleMeeting)?.decisions ?? []).map((item) => <li key={item.id}><Link href={`/app/dossiers/${dossierId}/decisions?selected=${encodeURIComponent(item.id)}`}>{item.title}</Link></li>)}</ul></div>}{(meetingOutcomes(selected.raw as OracleMeeting)?.tasks ?? []).length > 0 && <div><h3>Tareas resultantes</h3><ul>{(meetingOutcomes(selected.raw as OracleMeeting)?.tasks ?? []).map((item) => <li key={item.id}><Link href={`/app/dossiers/${dossierId}/tasks?selected=${encodeURIComponent(item.id)}`}>{item.title}</Link></li>)}</ul></div>}</div></section>}
             {kind === "meetings" && completionOpen && <PermissionGate permission="meeting.write"><section className="intelligence-detail-block"><h2>Cerrar reunión</h2><p>Registra resultados, decisiones propuestas y siguientes acciones. Si reintentas el envío, Oracle evitará duplicados.</p><form className="meeting-outcome-form" onSubmit={completeMeeting}><label>Resultados de la reunión<textarea value={completionNotes} onChange={(event) => setCompletionNotes(event.target.value)} placeholder="Acuerdos, señales relevantes y próximos pasos tratados." /></label><fieldset><legend>Decisiones propuestas</legend>{completionDecisions.map((item, index) => <div className="outcome-row" key={`decision-${index}`}><label>Título<input value={item.title} onChange={(event) => updateCompletionDecision(index, { title: event.target.value })} placeholder="Ej. Priorizar contacto con el equipo técnico" /></label><label>Justificación<textarea value={item.rationale} onChange={(event) => updateCompletionDecision(index, { rationale: event.target.value })} placeholder="Motivo de negocio o evidencia comentada." /></label></div>)}<button className="vector-secondary compact" type="button" onClick={() => setCompletionDecisions((current) => [...current, emptyDecisionDraft()])}>Añadir decisión</button></fieldset><fieldset><legend>Tareas de seguimiento</legend>{completionTasks.map((item, index) => <div className="outcome-row" key={`task-${index}`}><label>Título<input value={item.title} onChange={(event) => updateCompletionTask(index, { title: event.target.value })} placeholder="Ej. Preparar propuesta ejecutiva" /></label><label>Vencimiento<input type="date" value={item.dueDate} onChange={(event) => updateCompletionTask(index, { dueDate: event.target.value })} /></label><label>Prioridad<select value={item.priority} onChange={(event) => updateCompletionTask(index, { priority: event.target.value as OutcomeTaskDraft["priority"] })}><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option><option value="critical">Crítica</option></select></label><label className="inline-check"><input type="checkbox" checked={item.assignToMe} onChange={(event) => updateCompletionTask(index, { assignToMe: event.target.checked })} />Asignarme como responsable</label></div>)}<button className="vector-secondary compact" type="button" onClick={() => setCompletionTasks((current) => [...current, emptyTaskDraft()])}>Añadir tarea</button></fieldset>{completionError && <p className="form-error" role="alert">{completionError}</p>}<div className="dialog-actions"><button className="vector-secondary" type="button" onClick={resetCompletion}>Cancelar cierre</button><AsyncActionButton className="vector-primary" type="submit" loading={busy}>{busy ? "Registrando…" : "Cerrar reunión y crear seguimiento"}</AsyncActionButton></div></form></section></PermissionGate>}
@@ -802,6 +824,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
           </div></>}
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
-    </section>
+      </section>
+    </div>
   );
 }

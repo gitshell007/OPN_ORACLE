@@ -1,0 +1,157 @@
+{
+  "$id": "https://opn.local/contracts/memory_v1/consumer_memory_settings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allowed_external_tenant_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0,
+      "type": "array"
+    },
+    "cadence": {
+      "additionalProperties": false,
+      "properties": {
+        "consolidate_seconds": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refresh_seconds": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "refresh_seconds",
+        "consolidate_seconds"
+      ],
+      "type": "object"
+    },
+    "classifications_allowed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "etag": {
+      "type": "string"
+    },
+    "kill_switch": {
+      "type": "boolean"
+    },
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "default_token_budget": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_ingest_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_items_per_batch": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_token_budget": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_ingest_bytes",
+        "max_items_per_batch",
+        "default_token_budget",
+        "max_token_budget"
+      ],
+      "type": "object"
+    },
+    "provenance": {
+      "type": "string"
+    },
+    "retention": {
+      "additionalProperties": false,
+      "properties": {
+        "derived_days": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "legal_hold": {
+          "type": "boolean"
+        },
+        "raw_days": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "raw_days",
+        "derived_days",
+        "legal_hold"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "consumer_memory_settings.v1"
+    },
+    "sources": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "stages": {
+      "additionalProperties": false,
+      "properties": {
+        "analyst": {
+          "type": "boolean"
+        },
+        "consolidate": {
+          "type": "boolean"
+        },
+        "extract": {
+          "type": "boolean"
+        },
+        "ingest": {
+          "type": "boolean"
+        },
+        "retrieve": {
+          "type": "boolean"
+        },
+        "summaries": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ingest",
+        "extract",
+        "consolidate",
+        "summaries",
+        "retrieve",
+        "analyst"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "etag",
+    "enabled",
+    "kill_switch",
+    "allowed_external_tenant_ids",
+    "stages",
+    "sources",
+    "classifications_allowed",
+    "limits",
+    "retention",
+    "cadence",
+    "provenance"
+  ],
+  "title": "ConsumerMemorySettings",
+  "type": "object"
+}

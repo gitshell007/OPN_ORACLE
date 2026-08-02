@@ -23,9 +23,30 @@ tenant/dossier/documento, permisos `0700/0600`, escritura temporal atómica, lí
 SHA-256. `S3ObjectStorage` exige HTTPS, cifrado AES-256, allowlist y endpoint IP global fijado; los
 hostnames se rechazan para no aceptar DNS rebinding mediante el SDK.
 
-`NoopScanner` queda marcado como `not_configured` y sus archivos no son descargables. Producción
-con `DOCUMENTS_ENABLED=true` exige S3 y `DOCUMENT_SCANNER_MODE=clamav`; el adapter usa `INSTREAM`
-acotado y falla cerrado ante timeout o respuesta ambigua.
+`NoopScanner` queda marcado como `not_configured` y sus archivos no son descargables. El modo
+estable de producción con `DOCUMENTS_ENABLED=true` exige S3 y
+`DOCUMENT_SCANNER_MODE=clamav`; el adapter usa `INSTREAM` acotado y falla cerrado ante timeout o
+respuesta ambigua.
+
+Para una UAT productiva, acotada y reversible, se admite temporalmente el volumen local durable
+solo cuando se declaran simultáneamente `DOCUMENT_ALLOW_LOCAL_BACKEND=true`, scanner ClamAV real y
+`DOCUMENT_ALLOW_OFFICIAL_UNSCANNED=false`. `compose.prod.yml` fija la imagen de ClamAV por digest,
+mantiene su volumen de firmas y no publica el puerto 3310. Esta excepción no convierte el backend
+local en la arquitectura estable: antes de escalar usuarios o mover los objetos fuera del servidor
+hay que migrar a S3 compatible y probar backup/restore de objetos.
+
+Variables del piloto UAT:
+
+```text
+DOCUMENTS_ENABLED=true
+DOCUMENT_STORAGE_BACKEND=local
+DOCUMENT_LOCAL_ROOT=/var/lib/oracle-storage
+DOCUMENT_ALLOW_LOCAL_BACKEND=true
+DOCUMENT_SCANNER_MODE=clamav
+DOCUMENT_CLAMAV_HOST=clamav
+DOCUMENT_CLAMAV_PORT=3310
+DOCUMENT_ALLOW_OFFICIAL_UNSCANNED=false
+```
 
 ## Durabilidad y trazabilidad
 

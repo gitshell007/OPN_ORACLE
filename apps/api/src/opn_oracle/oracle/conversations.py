@@ -571,12 +571,36 @@ def process_dossier_question_answer(
     job: BackgroundJob,
     *,
     memory_adapter: Any | None = None,
+    memory_mode: str | None = None,
 ) -> dict[str, Any]:
-    """Real job handler body: retrieve context (mock/disabled) and settle the message.
+    """MDEV-06: retrieve dual memory, materialize citas, settle message.
 
-    Never mutates IntentRevision or promotes memory facts. Uses no paid providers.
-    ``memory_adapter`` is injectable for tests; production resolves from Flask config.
+    Never mutates IntentRevision or promotes memory facts. Uses no paid providers
+    unless AI_MODE=signal. ``memory_adapter`` is injectable for tests.
     """
+
+    from dataclasses import replace as dc_replace
+
+    from opn_oracle.integrations.memory_ask_dual import (
+        MemoryMode,
+        PermanentMemoryAskError,
+        RetryableMemoryAskError,
+        build_dual_ask_context,
+        build_input_manifest,
+        build_signal_factual_block,
+        classify_error_code,
+        dual_context_to_snapshot,
+        link_snapshot_run_usage,
+        load_oracle_authority_from_session,
+        persist_memory_signal_evidence,
+        validate_citations_allowlist,
+    )
+    from opn_oracle.integrations.memory_context import (
+        MemoryContextDisabled,
+        MemoryContextError,
+        persist_snapshot_from_retrieve_result,
+    )
+    from opn_oracle.integrations.memory_http_client import MemoryHttpError
 
     tenant_id = require_tenant_id()
     try:
@@ -622,17 +646,88 @@ def process_dossier_question_answer(
 
     adapter = memory_adapter
     if adapter is None:
-        from opn_oracle.integrations.memory_context import (
-            MemoryContextDisabled,
-            get_memory_context_adapter,
-        )
+        from opn_oracle.integrations.memory_context import get_memory_context_adapter
 
         try:
             adapter = get_memory_context_adapter()
         except Exception as error:  # pragma: no cover - defensive config
             raise ConversationError("No se pudo resolver el adaptador de memoria.") from error
-    else:
-        from opn_oracle.integrations.memory_context import MemoryContextDisabled
+
+    # SV2-AUG: resolve dossier DMP mode (canary) before adapter default (shadow).
+    # Product mechanism: DossierMemoryProfile.mode via PUT /memory/profile.
+    profile_mode = None
+    profile_cfg: dict[str, Any] = {}
+    if memory_mode is None and not (
+        isinstance(payload, Mapping) and payload.get("memory_mode")
+    ):
+        try:
+            from sqlalchemy import select as sa_select
+
+            from opn_oracle.integrations.models import DossierMemoryProfile
+
+            dmp_rows = list(
+                session.scalars(
+                    sa_select(DossierMemoryProfile).where(
+                        DossierMemoryProfile.tenant_id == tenant_id,
+                        DossierMemoryProfile.dossier_id == dossier_id,
+                    )
+                ).all()
+            )
+            # Prefer IC-bound profile (connection_id set) for canary dossier.
+            dmp_rows.sort(key=lambda r: 0 if getattr(r, "connection_id", None) else 1)
+            for row in dmp_rows:
+                cfg = dict(row.profile_config or {})
+                m = str(cfg.get("mode") or row.mode or "").strip().lower()
+                if m in {"disabled", "shadow", "augment"}:
+                    profile_mode = m
+                    profile_cfg = cfg
+                    break
+        except Exception:
+            profile_mode = None
+            profile_cfg = {}
+
+    raw_mode = (
+        memory_mode
+        or (payload.get("memory_mode") if isinstance(payload, Mapping) else None)
+        or profile_mode
+        or getattr(adapter, "effective_mode", None)
+    )
+    # Fail-closed: missing/unknown mode is never augment. Productive default is disabled
+    # unless the adapter/profile supplies a validated shadow|augment mode.
+    # mock-inject is only allowed behind explicit TESTING (Flask testing or env).
+    testing_active = False
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            testing_active = bool(
+                current_app.config.get("TESTING") or current_app.config.get("APP_ENV") == "test"
+            )
+    except Exception:  # pragma: no cover - no app context
+        testing_active = False
+    if not testing_active:
+        import os as _os
+
+        testing_active = str(_os.environ.get("TESTING") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+
+    effective_mode = "disabled" if raw_mode is None else str(raw_mode).strip().lower()
+    if effective_mode not in {"disabled", "shadow", "augment"}:
+        if effective_mode == "mock":
+            # Mock-inject only in explicit TESTING; production maps mock → disabled.
+            effective_mode = "augment" if testing_active else "disabled"
+        elif effective_mode == "http":
+            # Host transport mode is not a profile mode; fail-closed to shadow only when
+            # the adapter already resolved an effective profile mode elsewhere.
+            adapter_mode = str(getattr(adapter, "effective_mode", "") or "").strip().lower()
+            effective_mode = (
+                adapter_mode if adapter_mode in {"disabled", "shadow", "augment"} else "shadow"
+            )
+        else:
+            effective_mode = "disabled"
 
     scope_hint = {
         "tenant_id": str(tenant_id),
@@ -640,7 +735,25 @@ def process_dossier_question_answer(
         "conversation_id": str(conversation_id),
         "message_id": str(message_id),
         "job_id": str(job.id),
+        "mode": effective_mode,
     }
+    if profile_cfg:
+        if profile_cfg.get("token_budget") is not None:
+            scope_hint["token_budget"] = profile_cfg.get("token_budget")
+        if profile_cfg.get("kinds"):
+            scope_hint["kinds"] = list(profile_cfg.get("kinds") or [])
+        if profile_cfg.get("sources"):
+            scope_hint["sources"] = list(profile_cfg.get("sources") or [])
+        if profile_cfg.get("classifications_allowed"):
+            scope_hint["classifications_allowed"] = list(
+                profile_cfg.get("classifications_allowed") or []
+            )
+    snapshot_id = None
+    items_observed: list[Any] = []
+    coverage: dict[str, Any] = {}
+    policy = "unknown"
+    publisher_degraded = False
+
     try:
         retrieval = adapter.retrieve(
             scope_hint,
@@ -649,15 +762,65 @@ def process_dossier_question_answer(
             20,
         )
         coverage = dict(retrieval.get("coverage_manifest") or {})
-        items = list(retrieval.get("items") or [])
+        # Prefer items_for_prompt when present (empty list in shadow is intentional).
+        if "items_for_prompt" in retrieval:
+            items_observed = list(retrieval.get("items_observed") or retrieval.get("items") or [])
+            prompt_seed = list(retrieval.get("items_for_prompt") or [])
+        else:
+            items_observed = list(retrieval.get("items") or [])
+            prompt_seed = items_observed
         policy = str(retrieval.get("policy_version") or "unknown")
+        publisher_degraded = bool(retrieval.get("publisher_degraded"))
+        if retrieval.get("error") and classify_error_code(
+            str((retrieval.get("error") or {}).get("code") or ""),
+        ):
+            # Retryable technical path returned as degraded response — re-raise for Celery.
+            err = retrieval["error"]
+            if err.get("retryable"):
+                raise RetryableMemoryAskError(
+                    str(err.get("detail") or err.get("code") or "memory_retryable"),
+                    code=str(err.get("code") or "upstream_retryable"),
+                )
+        if isinstance(retrieval, dict) and retrieval.get("snapshot_meta"):
+            meta = dict(retrieval["snapshot_meta"])
+            meta.setdefault("tenant_id", str(tenant_id))
+            meta.setdefault("dossier_id", str(dossier_id))
+            retrieval = {**retrieval, "snapshot_meta": meta}
+            # Dual context built below; snapshot enriched after materialization.
+            _raw_retrieval = retrieval
+        else:
+            _raw_retrieval = retrieval
+        _ = prompt_seed  # used via dual context from items_observed + mode
     except MemoryContextDisabled:
         from opn_oracle.integrations.memory_context import empty_coverage_manifest
 
-        items = []
+        items_observed = []
         coverage = empty_coverage_manifest(requested=["memory.disabled"])
         coverage["excluded"] = [{"source": "memory", "reason": "policy"}]
         policy = "disabled"
+        effective_mode = "disabled"
+        _raw_retrieval = {}
+    except MemoryHttpError as error:
+        if classify_error_code(error.code) or bool(getattr(error, "retryable", False)):
+            # Do not mark message failed yet — Celery will retry within deadline.
+            raise RetryableMemoryAskError(str(error), code=str(error.code)) from error
+        mark_message_failed(
+            message,
+            error_code=str(error.code)[:100] or "memory_http_error",
+            error_message=str(error)[:500],
+        )
+        session.flush()
+        raise PermanentMemoryAskError(str(error), code=str(error.code)) from error
+    except (RetryableMemoryAskError, PermanentMemoryAskError):
+        raise
+    except MemoryContextError as error:
+        mark_message_failed(
+            message,
+            error_code="memory_context_error",
+            error_message=str(error)[:500],
+        )
+        session.flush()
+        raise PermanentMemoryAskError(str(error), code="memory_context_error") from error
     except Exception as error:
         mark_message_failed(
             message,
@@ -667,46 +830,379 @@ def process_dossier_question_answer(
         session.flush()
         raise ConversationError(f"Fallo al recuperar contexto: {error}") from error
 
-    if job.cancel_requested:
+    # Load real Oracle authority (tenant+dossier-scoped) from the same UoW session.
+    oracle_authority = load_oracle_authority_from_session(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        question=message.content_text,
+    )
+
+    typed_mode: MemoryMode
+    if effective_mode == "augment":
+        typed_mode = "augment"
+    elif effective_mode == "shadow":
+        typed_mode = "shadow"
+    else:
+        typed_mode = "disabled"
+        effective_mode = "disabled"
+
+    # Build dual blocks + materialize allowlist (shadow injects zero items).
+    dual = build_dual_ask_context(
+        mode=typed_mode,
+        tenant_id=str(tenant_id),
+        dossier_id=str(dossier_id),
+        question=message.content_text,
+        retrieval_items=[it for it in items_observed if isinstance(it, dict)],
+        coverage_manifest=coverage,
+        memory_policy=policy,
+        oracle_authority=oracle_authority,
+        job_id=str(job.id),
+        message_id=str(message.id),
+    )
+    coverage = dict(dual.coverage)
+    items_for_prompt = list(dual.signal_factual.get("items") or [])
+    allowed_ids = list(dual.allowed_evidence_ids)
+    evidence_persisted: list[str] = []
+    persist_degraded = False
+
+    # Persist Evidence rows when augment + citations. Failures must not leave
+    # phantom allowed_evidence_ids: only successfully persisted+linked IDs remain.
+    if typed_mode == "augment" and dual.citations:
+        try:
+            evidence_persisted = list(
+                persist_memory_signal_evidence(
+                    session,
+                    tenant_id=tenant_id,
+                    dossier_id=dossier_id,
+                    citations=dual.citations,
+                    job_id=str(job.id),
+                )
+            )
+        except Exception as persist_error:
+            # Visible failure: exclude all materialised IDs, mark coverage failed.
+            evidence_persisted = []
+            persist_degraded = True
+            failed = list(coverage.get("failed") or [])
+            failed.append(
+                {
+                    "source": "memory_signal_evidence",
+                    "reason": "persist_failed",
+                    "detail": str(persist_error)[:300],
+                }
+            )
+            coverage["failed"] = failed
+            excluded = list(coverage.get("excluded") or [])
+            for c in dual.citations:
+                excluded.append(
+                    {
+                        "source": "signal_item",
+                        "reason": "persist_failed",
+                        "id": c.signal_item_id,
+                        "oracle_evidence_id": c.oracle_evidence_id,
+                    }
+                )
+            coverage["excluded"] = excluded
+
+        persisted_set = {str(x) for x in evidence_persisted}
+        if not persisted_set and dual.citations:
+            # Persist returned empty without exception (constraint skip / mismatch).
+            persist_degraded = True
+            failed = list(coverage.get("failed") or [])
+            failed.append(
+                {
+                    "source": "memory_signal_evidence",
+                    "reason": "persist_empty",
+                    "detail": "no evidence rows durable after materialize",
+                }
+            )
+            coverage["failed"] = failed
+
+        # Rebuild allowlist/items/manifest from the effectively persisted set only.
+        kept_citations = tuple(c for c in dual.citations if c.oracle_evidence_id in persisted_set)
+        kept_mappings = tuple(m for m in dual.mappings if m.oracle_evidence_id in persisted_set)
+        dropped = [
+            c.oracle_evidence_id
+            for c in dual.citations
+            if c.oracle_evidence_id not in persisted_set
+        ]
+        if dropped:
+            excluded = list(coverage.get("excluded") or [])
+            for eid in dropped:
+                excluded.append(
+                    {
+                        "source": "signal_item",
+                        "reason": "not_persisted",
+                        "oracle_evidence_id": eid,
+                    }
+                )
+            coverage["excluded"] = excluded
+            persist_degraded = True
+        coverage["used"] = [c.oracle_evidence_id for c in kept_citations]
+        signal_block = build_signal_factual_block(
+            mode=typed_mode,
+            citations=kept_citations,
+            observed_count=len(items_observed),
+        )
+        allowed_ids = [c.oracle_evidence_id for c in kept_citations]
+        manifest, digest = build_input_manifest(
+            mode=typed_mode,
+            oracle_authority=dual.oracle_authority,
+            signal_factual=signal_block,
+            allowed_evidence_ids=allowed_ids,
+            coverage=coverage,
+            memory_policy=policy,
+            job_id=str(job.id),
+            message_id=str(message.id),
+        )
+        dual = dc_replace(
+            dual,
+            citations=kept_citations,
+            mappings=kept_mappings,
+            allowed_evidence_ids=tuple(allowed_ids),
+            signal_factual=signal_block,
+            coverage=coverage,
+            input_manifest=manifest,
+            input_manifest_hash=digest,
+            excluded=tuple(coverage.get("excluded") or []),
+        )
+        items_for_prompt = list(signal_block.get("items") or [])
+
+    snapshot_payload = dual_context_to_snapshot(dual)
+    if _raw_retrieval and isinstance(_raw_retrieval, dict) and _raw_retrieval.get("snapshot_meta"):
+        enriched = {
+            **_raw_retrieval,
+            "snapshot": snapshot_payload,
+            "snapshot_meta": {
+                **dict(_raw_retrieval["snapshot_meta"]),
+                "mode": effective_mode,
+            },
+        }
+        # Snapshot failures must not be silent: mark coverage, rebuild effective
+        # coverage/manifest from what is actually durable, and continue degraded.
+        try:
+            snapshot_id = persist_snapshot_from_retrieve_result(session, enriched)
+        except Exception as snap_error:
+            snapshot_id = None
+            persist_degraded = True
+            failed = list(coverage.get("failed") or [])
+            failed.append(
+                {
+                    "source": "memory_retrieval_snapshot",
+                    "reason": "snapshot_persist_failed",
+                    "detail": str(snap_error)[:300],
+                }
+            )
+            coverage["failed"] = failed
+            # Rebuild audit-grade input_manifest so it matches the effective
+            # allowlist + coverage (no half-linked snapshot IDs, no phantom evidence).
+            rebuilt_manifest, rebuilt_digest = build_input_manifest(
+                mode=typed_mode,
+                oracle_authority=dual.oracle_authority,
+                signal_factual=dual.signal_factual,
+                allowed_evidence_ids=list(dual.allowed_evidence_ids),
+                coverage=coverage,
+                memory_policy=policy,
+                job_id=str(job.id),
+                message_id=str(message.id),
+            )
+            dual = dc_replace(
+                dual,
+                coverage=coverage,
+                input_manifest=rebuilt_manifest,
+                input_manifest_hash=rebuilt_digest,
+            )
+
+    # Cancellation after retrieval / before model (fencing).
+    session.refresh(job, attribute_names=["cancel_requested"])
+    if bool(job.cancel_requested):
         cancel_message(message)
         session.flush()
-        return {"message_id": str(message.id), "status": "cancelled", "cancelled": True}
+        return {
+            "message_id": str(message.id),
+            "status": "cancelled",
+            "cancelled": True,
+            "snapshot_id": str(snapshot_id) if snapshot_id else None,
+            "input_manifest_hash": dual.input_manifest_hash,
+        }
 
-    # Deterministic grounded draft: no external LLM, no paid provider.
-    if items:
-        excerpts = []
-        for item in items[:5]:
-            text_bit = str(item.get("text") or "").strip()
-            if text_bit:
-                excerpts.append(text_bit[:400])
-        body = (
-            "Respuesta provisional a partir del contexto autorizado "
-            f"({len(items)} fragmentos, policy={policy}):\n\n"
-            + "\n".join(f"- {excerpt}" for excerpt in excerpts)
-        )
-        unknowns: list[str] = []
+    signal_meta: dict[str, Any] = {}
+    body: str
+    unknowns: list[str] = []
+    answer_payload: dict[str, Any]
+    degraded = publisher_degraded or persist_degraded or bool(coverage.get("failed"))
+
+    if _signal_ai_enabled():
+        try:
+            signal_result = _answer_via_signal(
+                session,
+                job=job,
+                dossier_id=dossier_id,
+                message=message,
+                memory_items=items_for_prompt,
+                coverage=coverage,
+                memory_policy=policy,
+                allowed_evidence_ids=allowed_ids,
+                dual_blocks={
+                    "oracle_authority": dual.oracle_authority,
+                    "signal_factual": dual.signal_factual,
+                },
+                input_manifest=dual.input_manifest,
+            )
+            body = str(signal_result["answer_text"])
+            answer_payload = dict(signal_result["answer_payload"])
+            signal_meta = dict(signal_result.get("meta") or {})
+            # Allowlist 100%: any foreign citation or material Evidence fails closed.
+            accepted, rejected = validate_citations_allowlist(
+                list(answer_payload.get("citations") or []),
+                allowed_ids,
+            )
+            if rejected:
+                raise ConversationError(
+                    f"La respuesta citó evidence_ids fuera de allowlist ({len(rejected)})."
+                )
+            answer_payload["citations"] = accepted
+            from opn_oracle.integrations.memory_ask_dual import (
+                validate_material_evidence_allowlist as _v_material,
+            )
+
+            mat_bad = _v_material(
+                list(answer_payload.get("facts") or []), allowed_ids, kind="facts"
+            ) + _v_material(list(answer_payload.get("claims") or []), allowed_ids, kind="claims")
+            if mat_bad:
+                raise ConversationError(
+                    f"La respuesta incluye facts/claims con Evidence no permitida ({len(mat_bad)})."
+                )
+        except Exception as error:
+            mark_message_failed(
+                message,
+                error_code="signal_ai_error",
+                error_message=str(error)[:500],
+            )
+            session.flush()
+            raise ConversationError(f"Fallo IA gobernada (Signal): {error}") from error
     else:
-        body = (
-            "No hay evidencia suficiente en la memoria autorizada del expediente "
-            "para responder con citas. Reformula la pregunta o amplía las fuentes "
-            f"del expediente (policy={policy})."
-        )
-        unknowns = ["evidencia_en_memoria"]
+        # Deterministic grounded draft: no external LLM (tests / AI disabled).
+        if items_for_prompt:
+            excerpts = []
+            citations_out = []
+            for item in items_for_prompt[:5]:
+                text_bit = str(item.get("text") or "").strip()
+                eid = str(item.get("evidence_id") or "")
+                if text_bit:
+                    excerpts.append(text_bit[:400])
+                if eid and text_bit:
+                    citations_out.append({"evidence_id": eid, "quote": text_bit[:300]})
+            body = (
+                "Respuesta provisional a partir del contexto autorizado "
+                f"({len(items_for_prompt)} fragmentos, mode={effective_mode}, "
+                f"policy={policy}):\n\n" + "\n".join(f"- {excerpt}" for excerpt in excerpts)
+            )
+            unknowns = []
+        else:
+            body = (
+                "No hay evidencia suficiente en la memoria autorizada del expediente "
+                "para responder con citas. Reformula la pregunta o amplía las fuentes "
+                f"del expediente (mode={effective_mode}, policy={policy})."
+            )
+            unknowns = ["evidencia_en_memoria"]
+            citations_out = []
+        answer_payload = {
+            "policy_version": policy,
+            "memory_mode": effective_mode,
+            "item_count": len(items_for_prompt),
+            "items_observed": len(items_observed),
+            "unknowns": unknowns,
+            "claims": [],
+            "conflicts": [],
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "citations": citations_out,
+            "allowed_evidence_ids": allowed_ids,
+            "evidence_mapping": [
+                {
+                    "signal_item_id": m.signal_item_id,
+                    "oracle_evidence_id": m.oracle_evidence_id,
+                    "checksum": m.checksum,
+                    "source_ref": m.source_ref,
+                    "source_version": m.source_version,
+                }
+                for m in dual.mappings
+            ],
+            "input_manifest_hash": dual.input_manifest_hash,
+            "degraded": degraded,
+            "job_id": str(job.id),
+            "provider_path": "deterministic",
+            "evidence_persisted": evidence_persisted,
+        }
+
+    answer_payload.setdefault("memory_mode", effective_mode)
+    answer_payload.setdefault("allowed_evidence_ids", allowed_ids)
+    answer_payload.setdefault("input_manifest_hash", dual.input_manifest_hash)
+    answer_payload.setdefault("degraded", degraded)
+    answer_payload.setdefault("items_observed", len(items_observed))
+    answer_payload.setdefault(
+        "coverage_summary",
+        {
+            "requested": coverage.get("requested"),
+            "used": coverage.get("used"),
+            "failed": coverage.get("failed"),
+            "excluded": coverage.get("excluded"),
+            "truncated": coverage.get("truncated"),
+        },
+    )
+
+    # Late fencing: cancel after answer generation but before publish.
+    session.refresh(job, attribute_names=["cancel_requested"])
+    if bool(job.cancel_requested):
+        cancel_message(message)
+        session.flush()
+        return {
+            "message_id": str(message.id),
+            "status": "cancelled",
+            "cancelled": True,
+            "late_response_suppressed": True,
+            "snapshot_id": str(snapshot_id) if snapshot_id else None,
+        }
 
     apply_assistant_answer(
         message,
         answer_text=body,
-        answer_payload={
-            "policy_version": policy,
-            "item_count": len(items),
-            "unknowns": unknowns,
-            "facts": [],
-            "inferences": [],
-            "recommendations": [],
-            "job_id": str(job.id),
-        },
+        answer_payload=answer_payload,
         coverage_manifest=coverage,
     )
+
+    # Link run/usage/attempts without rewriting frozen snapshot core.
+    if snapshot_id is not None:
+        from opn_oracle.integrations.models import MemoryRetrievalSnapshot
+
+        row = session.get(MemoryRetrievalSnapshot, snapshot_id)
+        if row is not None:
+            linked = link_snapshot_run_usage(
+                dict(row.payload or {}),
+                run_id=str(signal_meta.get("artifact_id") or job.id),
+                usage_log_id=str(signal_meta.get("audit_log_id") or "") or None,
+                attempts=int(
+                    getattr(job, "attempt_count", None) or getattr(job, "attempts", 1) or 1
+                ),
+            )
+            # payload core already frozen at insert; only post_links + ids columns.
+            try:
+                row.run_id = (
+                    uuid.UUID(str(signal_meta.get("artifact_id") or job.id))
+                    if (signal_meta.get("artifact_id") or job.id)
+                    else None
+                )
+            except (TypeError, ValueError):
+                row.run_id = None
+            if signal_meta.get("audit_log_id"):
+                row.usage_log_id = str(signal_meta["audit_log_id"])[:80]
+            # Keep payload immutable core: merge post_links only if payload had dual keys.
+            payload = dict(row.payload or {})
+            payload["post_links"] = linked.get("post_links") or {}
+            row.payload = payload
+
     append_audit_event(
         session,
         action="dossier.conversation.message.answered",
@@ -718,17 +1214,161 @@ def process_dossier_question_answer(
         metadata={
             "job_id": str(job.id),
             "policy_version": policy,
-            "item_count": len(items),
+            "memory_mode": effective_mode,
+            "item_count": len(items_for_prompt),
+            "items_observed": len(items_observed),
+            "allowed_evidence_count": len(allowed_ids),
+            "input_manifest_hash": dual.input_manifest_hash,
             "mutates_intent": False,
             "mutates_memory_facts": False,
+            "snapshot_id": str(snapshot_id) if snapshot_id else None,
+            "degraded": degraded,
+            **signal_meta,
         },
     )
     session.flush()
     return {
         "message_id": str(message.id),
         "status": message.status,
-        "item_count": len(items),
+        "item_count": len(items_for_prompt),
+        "items_observed": len(items_observed),
         "policy_version": policy,
+        "memory_mode": effective_mode,
+        "allowed_evidence_ids": allowed_ids,
+        "input_manifest_hash": dual.input_manifest_hash,
         "mutates_intent": False,
         "mutates_memory_facts": False,
+        "snapshot_id": str(snapshot_id) if snapshot_id else None,
+        "degraded": degraded,
+        **signal_meta,
+    }
+
+
+def _signal_ai_enabled() -> bool:
+    try:
+        from flask import current_app
+
+        return bool(
+            current_app.config.get("AI_ENABLED")
+            and str(current_app.config.get("AI_MODE") or "").lower() == "signal"
+        )
+    except Exception:
+        return False
+
+
+def _answer_via_signal(
+    session: Session,
+    *,
+    job: BackgroundJob,
+    dossier_id: uuid.UUID,
+    message: DossierMessage,
+    memory_items: list[Any],
+    coverage: Mapping[str, Any],
+    memory_policy: str,
+    allowed_evidence_ids: list[str] | None = None,
+    dual_blocks: Mapping[str, Any] | None = None,
+    input_manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call Signal task_key dossier_question_answer via execute_agent (no model hardcode)."""
+
+    from opn_oracle.ai.context import build_context
+    from opn_oracle.ai.models import AIArtifact
+    from opn_oracle.ai.service import execute_agent
+    from opn_oracle.integrations.memory_ask_dual import (
+        PROMPT_RUNTIME_ID,
+        PROMPT_RUNTIME_VERSION,
+        SCHEMA_RUNTIME_VERSION,
+        validate_citations_allowlist,
+    )
+
+    allowed = list(allowed_evidence_ids or [])
+    result = execute_agent(
+        agent="dossier_question_answer",
+        dossier_id=dossier_id,
+        job=job,
+        context_factory=lambda max_tokens: build_context(dossier_id, max_tokens=max_tokens),
+        supplemental_context={
+            "question": message.content_text,
+            "oracle_authority": dict((dual_blocks or {}).get("oracle_authority") or {}),
+            "signal_factual": dict((dual_blocks or {}).get("signal_factual") or {}),
+            "memory_items": memory_items[:20],
+            "memory_policy": memory_policy,
+            "coverage_manifest": dict(coverage),
+            "allowed_evidence_ids": allowed,
+            "input_manifest": dict(input_manifest or {}),
+            "prompt_runtime_id": PROMPT_RUNTIME_ID,
+            "prompt_runtime_version": PROMPT_RUNTIME_VERSION,
+            "schema_runtime_version": SCHEMA_RUNTIME_VERSION,
+            "untrusted_external_content": True,
+        },
+        target_type="dossier_message",
+        target_id=message.id,
+    )
+    artifact = session.get(AIArtifact, uuid.UUID(str(result["artifact_id"])))
+    if artifact is None or not isinstance(artifact.output, dict):
+        raise ConversationError("Artefacto de respuesta IA no disponible.")
+    output = dict(artifact.output)
+    answer_text = str(output.get("answer_text") or "").strip()
+    if not answer_text:
+        raise ConversationError("La respuesta IA no incluye answer_text.")
+    from opn_oracle.integrations.memory_ask_dual import validate_material_evidence_allowlist
+
+    raw_citations = list(output.get("citations") or [])
+    accepted, rejected = validate_citations_allowlist(raw_citations, allowed)
+    # Fail-closed: any rejected citation fails, including empty allowlist.
+    # Oracle must not depend solely on remote RT-07 for this local defense.
+    if rejected:
+        raise ConversationError(
+            f"La respuesta citó evidence_ids fuera de allowlist ({len(rejected)})."
+        )
+    facts_out = list(output.get("facts") or [])
+    claims_out = list(output.get("claims") or [])
+    material_rejected = validate_material_evidence_allowlist(
+        facts_out, allowed, kind="facts"
+    ) + validate_material_evidence_allowlist(claims_out, allowed, kind="claims")
+    if material_rejected:
+        raise ConversationError(
+            "La respuesta incluye facts/claims con Evidence no permitida "
+            f"({len(material_rejected)})."
+        )
+    validated_hash = (
+        str(output.get("validated_output_sha256") or "").strip()
+        or str((artifact.output or {}).get("validated_output_sha256") or "").strip()
+        or None
+    )
+    return {
+        "answer_text": answer_text,
+        "answer_payload": {
+            "policy_version": memory_policy,
+            "item_count": len(memory_items),
+            "unknowns": list(output.get("open_questions") or output.get("unknowns") or []),
+            "claims": claims_out,
+            "conflicts": list(output.get("conflicts") or []),
+            "facts": facts_out,
+            "inferences": output.get("inferences") or [],
+            "recommendations": output.get("recommendations") or [],
+            "citations": accepted,
+            "allowed_evidence_ids": allowed,
+            "confidence": output.get("confidence"),
+            "warnings": list(output.get("warnings") or []),
+            "job_id": str(job.id),
+            "artifact_id": str(artifact.id),
+            "audit_log_id": str(result.get("audit_log_id") or ""),
+            "provider_path": "signal",
+            "task_key": "dossier_question_answer",
+            "prompt_runtime_id": PROMPT_RUNTIME_ID,
+            "prompt_runtime_version": PROMPT_RUNTIME_VERSION,
+            "schema_runtime_version": SCHEMA_RUNTIME_VERSION,
+            "signal_provider": getattr(artifact, "provider", None)
+            or (artifact.output or {}).get("provider"),
+            "signal_model": getattr(artifact, "model", None),
+            "validated_output_sha256": validated_hash,
+        },
+        "meta": {
+            "artifact_id": str(artifact.id),
+            "audit_log_id": str(result.get("audit_log_id") or ""),
+            "task_key": "dossier_question_answer",
+            "provider_path": "signal",
+            "validated_output_sha256": validated_hash,
+        },
     }

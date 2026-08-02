@@ -222,10 +222,98 @@ class SignalIngestionRecord(TenantDomainMixin, Base):
     error_message: Mapped[str | None] = mapped_column(String(500))
 
 
+class DossierMemoryProfile(TenantDomainMixin, Base):
+    """Per-tenant dossier memory settings (MDEV-04). No secrets/provider/model."""
+
+    __tablename__ = "dossier_memory_profiles"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("tenant_id",),
+            ("tenants.id",),
+            ondelete="CASCADE",
+            name="fk_dmp_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_dmp_dossier_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("connection_id", "tenant_id"),
+            ("integration_connections.id", "integration_connections.tenant_id"),
+            ondelete="SET NULL",
+            name="fk_dmp_connection_tenant",
+        ),
+        CheckConstraint(
+            "mode IN ('disabled','shadow','augment')",
+            name="dmp_mode_valid",
+        ),
+        CheckConstraint("version >= 1", name="dmp_version_positive"),
+        CheckConstraint("jsonb_typeof(profile_config) = 'object'", name="dmp_config_object"),
+        Index("ix_dmp_tenant_dossier", "tenant_id", "dossier_id"),
+        # Treat NULL connection_id as equal (one default profile per dossier)
+        Index(
+            "uq_dmp_scope_nulls",
+            "tenant_id",
+            "dossier_id",
+            "connection_id",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+
+    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="disabled")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    etag: Mapped[str] = mapped_column(String(80), nullable=False, default='W/"dmp-v1"')
+    profile_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_status: Mapped[str | None] = mapped_column(String(40))
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    last_coverage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class MemoryRetrievalSnapshot(TenantDomainMixin, Base):
+    """Immutable retrieval snapshot per execution (bounded; no raw unlimited)."""
+
+    __tablename__ = "memory_retrieval_snapshots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("tenant_id",),
+            ("tenants.id",),
+            ondelete="CASCADE",
+            name="fk_mrs_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_mrs_dossier_tenant",
+        ),
+        Index("ix_mrs_tenant_dossier", "tenant_id", "dossier_id"),
+        CheckConstraint("jsonb_typeof(payload) = 'object'", name="mrs_payload_object"),
+        CheckConstraint("octet_length(context_hash) = 32", name="mrs_hash_length"),
+    )
+
+    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    context_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # post-link audit (nullable; does not mutate frozen content)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    usage_log_id: Mapped[str | None] = mapped_column(String(80))
+
+
 INTEGRATION_MODELS = (
     SignalMonitorConfigVersion,
     IntegrationOutboxEvent,
     IntegrationInboxEvent,
     SignalSyncRun,
     SignalIngestionRecord,
+    DossierMemoryProfile,
+    MemoryRetrievalSnapshot,
 )

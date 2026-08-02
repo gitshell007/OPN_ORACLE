@@ -1729,6 +1729,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 },
                 "initial_status": {"type": "string", "enum": ["draft", "active"]},
                 "create_starter_profile": {"type": "boolean"},
+                "accept_creation_intent": {"type": "boolean"},
             },
         },
         "DossierPatchInput": write(

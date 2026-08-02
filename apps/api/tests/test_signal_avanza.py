@@ -249,9 +249,10 @@ def test_http_contract_success_exercises_all_operations() -> None:
     monitor = {
         "oracle_monitor_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "tenant-test",
-        "query": "calls",
+        # Real Signal returns null when the monitor is driven only by entities/keywords.
+        "query": None,
         "status": "active",
-        "keywords": [],
+        "keywords": ["batteries"],
         "entities": [],
         "languages": [],
         "geographies": [],
@@ -313,9 +314,9 @@ def test_http_contract_success_exercises_all_operations() -> None:
         correlation_id="correlation",
     )
     spec = MonitorSpec(oracle_monitor_id=monitor["oracle_monitor_id"], query="calls")
-    assert (
-        adapter.create_monitor(spec, idempotency_key="create-key-123456").id == "external-monitor"
-    )
+    created = adapter.create_monitor(spec, idempotency_key="create-key-123456")
+    assert created.id == "external-monitor"
+    assert created.query == ""
     assert (
         adapter.update_monitor("external-monitor", spec, idempotency_key="update-key-123456").id
         == "external-monitor"

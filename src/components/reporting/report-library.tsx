@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { entityRoute } from "@/lib/entity-route";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
+import { PageHeader } from "@/components/ui/page-header";
 import { ExportMenu } from "./exports";
 import { JobProgress } from "./job-progress";
 import { ReportDrawer } from "./report-viewer";
@@ -61,16 +62,21 @@ function SortableHeader({
   current,
   dir,
   onSort,
+  className,
 }: {
   label: string;
   sortKey: ReportSortKey;
   current: ReportSortKey;
   dir: "asc" | "desc";
   onSort: (key: ReportSortKey) => void;
+  className?: string;
 }) {
   const active = current === sortKey;
   return (
-    <th aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+    <th
+      className={className}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
       <button
         type="button"
         className={active ? "report-sort-button is-active" : "report-sort-button"}
@@ -658,29 +664,24 @@ export function ReportLibrary({
   };
 
   return (
-    <div className="reporting-page report-library">
-      <header className="page-heading">
-        <div>
-          <span className="section-kicker">
-            {dossierId ? "Expediente · resultados trazables" : "Cartera · resultados trazables"}
-          </span>
-          <h1>{dossierId ? "Informes del expediente" : "Biblioteca de informes"}</h1>
-          <p>
-            Versiones auditables con hechos, inferencias, recomendaciones,
-            citas y artefactos inmutables.
-          </p>
-        </div>
-        <div className="report-library-actions">
-          <PermissionGate permission="export.create">
-            <ExportMenu dataset="reports" dossierId={dossierId} routeBase={routeBase} />
-          </PermissionGate>
-          <PermissionGate permission="report.generate">
-            <HydratedActionButton className="vector-primary" onClick={() => setWizardOpen(true)}>
-              <FilePlus2 size={16} /> Generar informe
-            </HydratedActionButton>
-          </PermissionGate>
-        </div>
-      </header>
+    <div className="reporting-page report-library dossier-section-page">
+      <PageHeader
+        eyebrow={dossierId ? "Entregables" : "Cartera"}
+        title="Informes"
+        description="Versiones auditables con hechos, inferencias, recomendaciones, citas y artefactos inmutables."
+        actions={
+          <div className="report-library-actions">
+            <PermissionGate permission="export.create">
+              <ExportMenu dataset="reports" dossierId={dossierId} routeBase={routeBase} />
+            </PermissionGate>
+            <PermissionGate permission="report.generate">
+              <HydratedActionButton className="vector-primary" onClick={() => setWizardOpen(true)}>
+                <FilePlus2 size={16} /> Generar informe
+              </HydratedActionButton>
+            </PermissionGate>
+          </div>
+        }
+      />
 
       {pendingEntityJobs.length > 0 && (
         <section className="vector-panel entity-pending-panel" aria-labelledby="entity-pending-title">
@@ -827,9 +828,9 @@ export function ReportLibrary({
                   {!dossierId && (
                     <SortableHeader label="Expediente" sortKey="dossier" current={sortKey} dir={sortDir} onSort={toggleSort} />
                   )}
-                  <SortableHeader label="Estado" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortableHeader label="Versión" sortKey="version" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortableHeader label="Actualizado" sortKey="updated" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Estado" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} className="report-col-status" />
+                  <SortableHeader label="Versión" sortKey="version" current={sortKey} dir={sortDir} onSort={toggleSort} className="report-col-version" />
+                  <SortableHeader label="Actualizado" sortKey="updated" current={sortKey} dir={sortDir} onSort={toggleSort} className="report-col-date" />
                   <th><span className="sr-only">Abrir</span></th>
                 </tr>
               </thead>
@@ -859,7 +860,7 @@ export function ReportLibrary({
                       </button>
                     </td>
                     {!dossierId && <td>{dossierName.get(report.dossier_id) ?? "Expediente accesible"}</td>}
-                    <td>
+                    <td className="report-col-status">
                       <span className={`report-status ${report.status}`}>
                         {reportStatusLabel[report.status]}
                       </span>
@@ -867,8 +868,8 @@ export function ReportLibrary({
                         <JobProgress jobId={report.job_id} label="Generando informe" onTerminal={() => void load()} allowActions />
                       )}
                     </td>
-                    <td>g{report.generation_version} · r{report.version}</td>
-                    <td>
+                    <td className="report-col-version">g{report.generation_version} · r{report.version}</td>
+                    <td className="report-col-date">
                       <CalendarDays size={14} /> {formatDateTime(report.updated_at ?? report.created_at)}
                     </td>
                     <td>

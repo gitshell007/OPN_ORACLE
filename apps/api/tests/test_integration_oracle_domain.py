@@ -82,6 +82,7 @@ from opn_oracle.oracle.links import (
     ReportEvidence,
 )
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Report, StrategicDossier
+from opn_oracle.platform.models import IntegrationConnection
 from opn_oracle.reporting.models import (
     DataExport,
     Notification,
@@ -264,6 +265,7 @@ def oracle_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
     cleanup_engine.dispose()
     with app.app_context():
         downgrade(directory=migrations, revision="base")
+        upgrade(directory=migrations)
 
 
 def test_global_product_read_models_enforce_dossier_scope(
@@ -3825,6 +3827,7 @@ def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(
             "type": "tender_or_grant",
             "strategic_goal": "Presentar una propuesta sólida antes del plazo.",
             "create_starter_profile": True,
+            "accept_creation_intent": True,
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )
@@ -3932,6 +3935,51 @@ def test_competitive_intelligence_creation_is_active_specific_and_honest(
     assert invalid.status_code == 422
 
 
+def test_competitive_readiness_recognises_canonical_signal_connection(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _ = oracle_stack
+    connection_id = uuid.uuid4()
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        db.session.add(
+            IntegrationConnection(
+                id=connection_id,
+                tenant_id=ids["tenant_a"],
+                provider="signal-avanza",
+                name="readiness-contract",
+                status="active",
+                adapter_mode="mock",
+            )
+        )
+        db.session.commit()
+
+    try:
+        response = _client(oracle_stack).get("/api/v1/dossiers/competitive-intelligence/readiness")
+        assert response.status_code == 200, response.get_json()
+        signal_check = next(
+            item for item in response.get_json()["checks"] if item["key"] == "signal"
+        )
+        assert signal_check == {
+            "key": "signal",
+            "ready": True,
+            "label": "Signal Avanza",
+            "detail": "La conexión de la organización está activa.",
+            "action_href": "/app/admin/integrations/signal-avanza",
+        }
+    finally:
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+        ):
+            connection = db.session.get(IntegrationConnection, connection_id)
+            if connection is not None:
+                db.session.delete(connection)
+                db.session.commit()
+
+
 def test_market_dossier_intake_materialises_editable_context(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
@@ -3945,6 +3993,7 @@ def test_market_dossier_intake_materialises_editable_context(
             "type": "market",
             "strategic_goal": "Decidir antes de diciembre si entramos y mediante qué canal.",
             "create_starter_profile": True,
+            "accept_creation_intent": True,
             "geography": ["es", "DE"],
             "sectors": ["almacenamiento energético"],
             "languages": ["ES", "de"],
@@ -4010,6 +4059,24 @@ def test_market_dossier_intake_materialises_editable_context(
     assert "utility scale" in config["keywords"]
     assert "licitación pública" in config["keywords"]
 
+    activity_response = client.get(f"/api/v1/dossiers/{dossier_id}/activity")
+    assert activity_response.status_code == 200, activity_response.get_json()
+    activity = activity_response.get_json()
+    assert activity["intent"]["status"] == "accepted"
+    assert activity["intent"]["schema_key"] == "market"
+    assert activity["intent"]["structured_spec"]["origin"] == "human_reviewed_creation_form"
+    assert activity["intent"]["structured_spec"]["profile"]["own_offer"] == (
+        "Integración de sistemas de baterías"
+    )
+    assert len(activity["requirements"]) == 1
+    assert activity["requirements"][0]["class"] == "market_scan"
+    assert activity["requirements"][0]["priority"] == "high"
+    assert activity["requirements"][0]["status"] == "active"
+    assert activity["requirements"][0]["alignment_state"] == "aligned"
+    assert activity["requirements"][0]["intent_revision_id"] == activity["intent"]["id"]
+    assert activity["offerings"][0]["name"] == "Integración de sistemas de baterías"
+    assert activity["offerings"][0]["intent_revision_id"] == activity["intent"]["id"]
+
     patched = client.patch(
         f"/api/v1/dossiers/{dossier_id}",
         json={
@@ -4054,7 +4121,8 @@ def test_market_dossier_intake_materialises_editable_context(
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )
-    assert outside_eu.status_code == 422
+    assert outside_eu.status_code == 201, outside_eu.get_json()
+    assert outside_eu.get_json()["geography"] == ["US"]
 
 
 def test_dossier_crud_filters_concurrency_archive_and_idor(

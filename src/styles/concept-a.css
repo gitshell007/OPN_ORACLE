@@ -109,6 +109,10 @@
 .compact-field { max-width: 240px; }
 .global-inventory-toolbar { display: flex; align-items: end; gap: 8px; margin-bottom: 12px; }
 .global-inventory-toolbar label { display: flex; align-items: center; gap: 8px; min-width: min(420px, 48vw); padding: 0 10px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); }
+.global-inventory-toolbar label:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .global-inventory-toolbar input { width: 100%; min-height: 38px; border: 0; outline: 0; background: transparent; color: var(--va-text); }
 .global-inventory-toolbar select { min-height: 40px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); padding: 0 10px; color: var(--va-text); }
 .global-inventory-toolbar > span { margin-left: auto; color: var(--va-muted); font-size: 12px; }
@@ -116,6 +120,11 @@
 .global-inventory-table table { width: 100%; border-collapse: collapse; }
 .global-inventory-table th, .global-inventory-table td { padding: 11px 13px; border-bottom: 1px solid var(--va-border); text-align: left; vertical-align: top; }
 .global-inventory-table th { color: var(--va-muted); background: var(--va-soft); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.global-inventory-table th:last-child,
+.global-inventory-table td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .global-inventory-table td strong, .global-inventory-table td small { display: block; }
 .global-inventory-table td small { margin-top: 4px; color: var(--va-muted); font-size: 11px; }
 .global-inventory-table a { color: var(--va-primary); font-weight: 650; }
@@ -135,6 +144,10 @@
 .entity-search-form select, .entity-search-input > div { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); }
 .entity-search-form select { padding: 0 10px; }
 .entity-search-input > div { display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.entity-search-input > div:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .entity-search-input input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--va-text); }
 .entity-suggestions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .entity-suggestions button { border: 1px solid #cfe0f3; background: #f8fbff; color: #254161; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 650; }
@@ -586,6 +599,10 @@
   background: #fff;
   padding: 0 10px;
 }
+.entity-graph-v2-directory-search:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .entity-graph-v2-directory-search input {
   flex: 1;
   border: 0;
@@ -961,6 +978,11 @@
 .procurement-search-list input { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; background: white; color: var(--va-text); padding: 0 10px; }
 .procurement-search-control,
 .procurement-awards-search label > div { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; background: white; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.procurement-search-control:focus-within,
+.procurement-awards-search label > div:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .procurement-search-control input,
 .procurement-awards-search label > div input { min-height: auto; border: 0; outline: 0; padding: 0; width: 100%; }
 .procurement-search-form > .vector-primary { min-height: 40px; align-self: end; }
@@ -1406,6 +1428,10 @@
 }
 .changes-filters { display: flex; align-items: end; gap: 8px; margin-bottom: 14px; }
 .changes-filters > label:first-child { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 260px; padding: 0 10px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); }
+.changes-filters > label:first-child:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .changes-filters > label:first-child input { width: 100%; min-height: 38px; border: 0; outline: 0; }
 .changes-filters select, .changes-date input { min-height: 40px; border: 1px solid var(--va-border); border-radius: 6px; padding: 0 9px; background: var(--va-panel); color: var(--va-text); }
 .changes-date { display: grid; gap: 3px; color: var(--va-muted); font-size: 10px; font-weight: 700; }
@@ -1493,6 +1519,45 @@
   margin: 7px 0 0;
   color: var(--va-text);
   line-height: 1.45;
+}
+.dossier-memory-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.dossier-memory-summary > div {
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  background: var(--va-soft);
+  padding: 16px;
+}
+.dossier-memory-summary h2,
+.dossier-memory-summary h3,
+.dossier-memory-summary p {
+  margin: 0;
+}
+.dossier-memory-summary h2,
+.dossier-memory-summary h3 {
+  margin-bottom: 8px;
+}
+.dossier-memory-summary p,
+.dossier-memory-summary small {
+  color: var(--va-muted);
+  line-height: 1.55;
+  white-space: pre-line;
+}
+.dossier-memory-summary ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+.dossier-memory-summary li span {
+  color: var(--va-muted);
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
 }
 .placeholder-actions {
   display: flex;
@@ -2055,6 +2120,9 @@
   .placeholder-contract {
     grid-template-columns: 1fr;
   }
+  .dossier-memory-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2370,8 +2438,12 @@
   outline: none;
 }
 .vector-menu [role="menuitem"]:hover,
-.vector-menu [role="menuitem"]:focus {
+.vector-menu [role="menuitem"]:focus,
+.vector-menu [role="menuitem"]:focus-visible {
   background: var(--va-soft);
+}
+.vector-menu [role="menuitem"]:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--va-primary);
 }
 .vector-menu [role="menuitem"] + [role="menuitem"] {
   margin-top: 2px;
@@ -2629,8 +2701,11 @@
   padding: 4px;
 }
 .vector-content {
-  padding: 24px 26px 70px;
-  max-width: 1700px;
+  padding-block: var(--space-6) var(--page-bottom);
+  padding-inline: var(--gutter);
+  /* box-sizing:border-box es global, asi que el max-width incluye el padding:
+     hay que sumar los dos gutters para que la columna util sea --content-max. */
+  max-width: calc(var(--content-max) + var(--gutter) * 2);
   margin: 0 auto;
 }
 .page-heading {
@@ -2650,14 +2725,21 @@
   color: #53657a;
   margin-bottom: 6px;
 }
-.page-heading h1 {
+.page-heading h1,
+.page-heading .page-title {
   font-size: 26px;
   letter-spacing: -0.025em;
   margin-bottom: 5px;
+  font-weight: 700;
+  color: var(--va-text);
 }
 .page-heading p {
   color: var(--va-muted);
   margin: 0;
+}
+/* Título de área (admin shell) no es h1: evita doble heading por pantalla */
+.page-heading > div > p.page-title + p {
+  color: var(--va-muted);
 }
 .portfolio-health {
   display: grid;
@@ -2962,6 +3044,10 @@
   min-width: 300px;
   flex: 1;
   background: white;
+}
+.search-field:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
 }
 .search-field input {
   border: 0;
@@ -4966,7 +5052,7 @@ html[data-font-scale="small"] .workspace-chip strong {
   font-size: 11px;
 }
 [data-density="compact"] .vector-content {
-  padding-top: 18px;
+  padding-top: var(--space-4);
 }
 [data-density="compact"] .dossier-table td {
   height: 43px;
@@ -4982,7 +5068,7 @@ html[data-font-scale="small"] .workspace-chip strong {
   height: 66px;
 }
 [data-density="comfortable"] .vector-content {
-  padding-top: 32px;
+  padding-top: var(--space-7);
 }
 [data-density="comfortable"] .attention-strip > div {
   padding-block: 19px;
@@ -5501,6 +5587,8 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 
 .dossier-inventory-table tbody .selection-column input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
   margin: 0;
   cursor: pointer;
 }
@@ -5515,6 +5603,12 @@ html[data-font-scale="small"] .workspace-chip strong {
 
 .dossier-inventory-table td:not(.sticky-name) {
   white-space: nowrap;
+}
+
+.dossier-inventory-table th.numeric-col,
+.dossier-inventory-table td.numeric-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .dossier-inventory-table td > strong + small {
@@ -5982,7 +6076,8 @@ html[data-font-scale="small"] .workspace-chip strong {
     margin-left: auto;
   }
   .vector-content {
-    padding: 17px 12px 72px;
+    /* Gutter minimo en movil: evita texto a sangre sin inventar un contenedor nuevo */
+    padding: var(--space-4) var(--gutter) var(--page-bottom);
   }
   .page-heading {
     display: block;
@@ -7606,4 +7701,330 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 .eu-country-error {
   color: var(--va-danger);
+}
+
+
+/* ==========================================================================
+   SV2-UI · Sistema de layout y navegación del expediente
+   Los breakpoints van literales: @media no acepta var().
+   ========================================================================== */
+@media (max-width: 1023px) { :root { --gutter: var(--gutter-md); } }
+@media (max-width: 640px)  { :root { --gutter: var(--gutter-sm); } }
+
+/* Escotilla para tablas anchas que necesitan todo el ancho disponible.
+   También en páginas de sección del expediente (no solo hijos directos de
+   .vector-content): la tabla de Actividad vive bajo .dossier-section-page. */
+.vector-content > .full-bleed,
+.dossier-section-page > .full-bleed,
+.dossier-page > .full-bleed {
+  width: calc(100% + var(--gutter) * 2);
+  margin-inline: calc(var(--gutter) * -1);
+}
+
+/* Ritmo vertical uniforme de las páginas del expediente. */
+.dossier-page,
+.dossier-section-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.dossier-page > .back-link { margin-bottom: 0; }
+.dossier-page > .dossier-header { margin-bottom: 0; }
+
+/* --- Cabecera única de página ------------------------------------------- */
+.opn-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.opn-page-header__text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.opn-page-header__eyebrow {
+  color: var(--nav-muted);
+  font-size: var(--text-eyebrow);
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.opn-page-header__title {
+  margin: 0;
+  color: var(--va-text);
+  font-size: var(--text-h1);
+  line-height: var(--text-h1-lh);
+  letter-spacing: var(--text-h1-track);
+  font-weight: 760;
+}
+.opn-page-header__description {
+  margin: 0;
+  max-width: 78ch;
+  color: var(--va-muted);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+.opn-page-header__meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  color: var(--va-muted); font-size: var(--text-meta);
+}
+.opn-page-header__actions {
+  display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto;
+}
+
+/* --- Navegación de primer nivel ----------------------------------------- */
+.dossier-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--va-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.dossier-nav::-webkit-scrollbar { display: none; }
+.dossier-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--nav-h);
+  padding: 0 var(--space-3);
+  border-bottom: 2px solid transparent;
+  color: var(--nav-muted);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.dossier-nav__item:hover { color: var(--va-text); }
+.dossier-nav__item[data-active="true"] {
+  color: var(--va-primary);
+  border-bottom-color: var(--va-primary);
+}
+.dossier-nav__item:focus-visible {
+  outline: 2px solid var(--va-primary);
+  outline-offset: -2px;
+  border-radius: 4px 4px 0 0;
+}
+.dossier-nav-row .dossier-nav { flex: 1 1 auto; min-width: 0; }
+.dossier-nav__utility {
+  display: flex; align-items: center; gap: var(--space-2);
+  flex: 0 0 auto; padding-bottom: var(--space-2);
+}
+
+/* --- Sub-navegación contextual ------------------------------------------ */
+.dossier-subnav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  width: max-content;
+  max-width: 100%;
+  margin: var(--space-4) 0 var(--space-5);
+  padding: var(--space-1);
+  border: 1px solid var(--va-border);
+  border-radius: var(--va-radius);
+  background: var(--va-soft);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dossier-subnav::-webkit-scrollbar { display: none; }
+.dossier-subnav a {
+  display: inline-flex;
+  align-items: center;
+  height: var(--subnav-h);
+  padding: 0 var(--space-3);
+  border-radius: 4px;
+  color: var(--nav-muted);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.dossier-subnav a:hover { color: var(--va-text); }
+.dossier-subnav a[aria-current="page"] {
+  background: var(--va-panel);
+  color: var(--va-primary);
+  box-shadow: 0 1px 2px #0b1a3312;
+}
+.dossier-subnav a:focus-visible {
+  outline: 2px solid var(--va-primary);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   SV2-UI-TABLAS · Densidad y legibilidad de tablas del expediente
+   Patrón existente (work/intelligence/document/inventory): overflow wrap,
+   min-width, nowrap en columnas cortas y fechas, números a la derecha.
+   No se reduce el tamaño de fuente por debajo del que ya usa cada tabla.
+   ========================================================================== */
+
+/* Actividad: .dense-table / .table-wrap existían en el markup sin CSS. */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.dense-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+}
+.dense-table th,
+.dense-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--va-border);
+  text-align: left;
+  vertical-align: top;
+  color: #33475e;
+}
+.dense-table th {
+  background: #f6f8fb;
+  color: var(--va-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* Sin font-size en td: hereda el cuerpo (14px). Prohibido bajarlo. */
+.dense-table td strong,
+.dense-table td small {
+  display: block;
+}
+.dense-table td small {
+  margin-top: 3px;
+  color: var(--va-muted);
+}
+.dense-table .dense-col-type {
+  white-space: nowrap;
+  min-width: 7.5rem;
+}
+.dense-table .dense-col-title {
+  min-width: 14rem;
+}
+/* Separación clara entre Estado y Cadencia (antes ~4 px de gap efectivo). */
+.dense-table .dense-col-status,
+.dense-table .dense-col-cadence {
+  white-space: nowrap;
+  min-width: 8.5rem;
+  padding-inline: 16px;
+}
+.dense-table .dense-col-cadence {
+  min-width: 6.5rem;
+  border-left: 1px solid #e8edf3;
+}
+.dense-table .dense-col-when {
+  white-space: nowrap;
+  min-width: 10rem;
+}
+.dense-table .dense-col-when small {
+  white-space: nowrap;
+}
+.dense-table .dense-col-error {
+  min-width: 10rem;
+  max-width: 22rem;
+}
+.dense-table .dense-col-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.dense-table .status {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+/* Intelligence: columnas cortas y fechas no se parten; puntuación a la derecha. */
+.intelligence-table th:nth-child(2),
+.intelligence-table td:nth-child(2),
+.intelligence-table th:nth-child(4),
+.intelligence-table td:nth-child(4),
+.intelligence-table th:nth-child(5),
+.intelligence-table td:nth-child(5) {
+  white-space: nowrap;
+}
+.intelligence-table th:nth-child(3),
+.intelligence-table td:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.intelligence-table {
+  min-width: 920px;
+}
+
+/* Work / actores: estado y fechas en una línea; sin estrechar la fuente (11px). */
+.work-table th:nth-child(2),
+.work-table td:nth-child(2),
+.work-table th:nth-child(4),
+.work-table td:nth-child(4) {
+  white-space: nowrap;
+}
+.work-table td:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+}
+.actor-candidates-table th:nth-child(4),
+.actor-candidates-table td:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Documentos: tamaño numérico a la derecha; estado sin wrap. */
+.document-table th:nth-child(2),
+.document-table td:nth-child(2) {
+  white-space: nowrap;
+}
+.document-table th:nth-child(4),
+.document-table td:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.document-table th:nth-child(5),
+.document-table td:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Informes / exportaciones: fechas y métricas compactas (clases, no nth-child:
+   report-library inserta «Expediente» condicionalmente). */
+.report-table .report-col-date,
+.report-table .report-col-version,
+.report-table .report-col-size,
+.report-table .report-col-status {
+  white-space: nowrap;
+}
+.report-table .report-col-version,
+.report-table .report-col-size {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* Tira de métricas: cifras cortas, no párrafos. La rejilla de dos columnas de
+   .placeholder-contract deja huérfano el último dato cuando son impares y gasta
+   media pantalla en cinco números. Modificador, no cambio global: esa clase la
+   comparten cuatro componentes con contenido largo. */
+.placeholder-contract.is-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.placeholder-contract.is-metrics > div {
+  padding: var(--space-3) var(--space-4);
+}
+.placeholder-contract.is-metrics dd {
+  margin-top: var(--space-1);
+  font-size: 22px;
+  font-weight: 720;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
