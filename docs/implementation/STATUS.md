@@ -3,6 +3,16 @@
 Actualizado: 2026-08-01
 Rama: `mdev/01-rework2`
 
+
+## MDEV-06 provisional dual-memory ask (2026-08-02)
+- branch `mdev/06-ask-dual-memory` from published MDEV-04 tip `55e9320` + cherry-pick MDEV-05 `f20b0fb` (resolved STATUS)
+- vertical: persist→Celery→dual blocks→materialize Evidence/allowlist→input_manifest→deterministic/Signal task→poll
+- modes disabled/shadow/augment distinct; shadow injects 0; checksum rematerialize; tenant filter; retryable 408/429/5xx
+- migration `20260802_0030` source_kind=memory_signal; UI Vector citas/coverage/degradación/cancel
+- tests `test_memory_mdev06_ask_dual.py` + mutations allowlist/retryable/tenant/checksum
+- inherited debt MDEV-02/03/04/05 (in-process Signal store, no full PG/Celery E2E, no OpenRouter)
+- no deploy / no merge / no production
+
 ## MDEV-01 · **PASS Codex** (2026-08-01)
 
 - Codex decision: **PASS MDEV-01**.

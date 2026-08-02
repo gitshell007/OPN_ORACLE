@@ -465,12 +465,23 @@ def _generate_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, A
 
 
 def _answer_dossier_question(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
-    """Settle Preguntar a Oracle without paid providers (MEMSOL residual workers)."""
+    """Settle Preguntar a Oracle (MDEV-06 dual memory). Retryable vs permanent classified."""
+
+    from opn_oracle.integrations.memory_ask_dual import (
+        PermanentMemoryAskError,
+        RetryableMemoryAskError,
+    )
 
     try:
+        # Local lookup keeps mutation/monkeypatch of module attribute effective.
         return process_dossier_question_answer(db.session(), payload, job)
     except CancelledJobError:
         raise
+    except RetryableMemoryAskError as error:
+        # 408/429/5xx/timeout must keep backoff/deadline — never Permanent early.
+        raise RetriableJobError(str(error)) from error
+    except PermanentMemoryAskError as error:
+        raise PermanentJobError(str(error)) from error
     except (ConversationNotFound, ConversationConflict, ConversationError) as error:
         raise PermanentJobError(str(error)) from error
     except (KeyError, ValueError) as error:

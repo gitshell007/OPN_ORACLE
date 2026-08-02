@@ -597,11 +597,30 @@ class DossierQuestionCitation(StrictModel):
     quote: str = Field(default="", max_length=500)
 
 
+class DossierQuestionClaim(StrictModel):
+    statement: str = Field(min_length=1, max_length=4000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=10)
+    confidence: int = Field(default=50, ge=0, le=100)
+
+
+class DossierQuestionConflict(StrictModel):
+    statement: str = Field(min_length=1, max_length=4000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=10)
+    confidence: int = Field(default=50, ge=0, le=100)
+
+
 class DossierQuestionAnswerOutput(AgentOutput):
-    """Respuesta a Preguntar a Oracle con citas acotadas a evidence_ids permitidos."""
+    """Respuesta a Preguntar a Oracle con citas acotadas a evidence_ids permitidos.
+
+    Separa hechos (facts), claims, conflicts, unknowns (open_questions) y citations.
+    Cada citation.evidence_id debe pertenecer a allowed_evidence_ids del input.
+    """
 
     answer_text: str = Field(min_length=1, max_length=8000)
     citations: list[DossierQuestionCitation] = Field(default_factory=list, max_length=20)
+    claims: list[DossierQuestionClaim] = Field(default_factory=list, max_length=10)
+    conflicts: list[DossierQuestionConflict] = Field(default_factory=list, max_length=10)
+    unknowns: list[str] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="before")
     @classmethod
@@ -622,6 +641,11 @@ class DossierQuestionAnswerOutput(AgentOutput):
                 else:
                     fixed.append(item)
             payload["inferences"] = fixed
+        if "unknowns" not in payload and isinstance(payload.get("open_questions"), list):
+            payload["unknowns"] = list(payload["open_questions"])
+        for key in ("unknowns", "warnings", "open_questions"):
+            if key in payload:
+                payload[key] = _coerce_str_list(payload[key])
         return payload
 
 
