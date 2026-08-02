@@ -1191,6 +1191,17 @@ def _invoke_rt09_writer_via_signal(
     )
     allowlist = [str(x) for x in (snap.get("allowlist") or []) if str(x).strip()]
     plan = options.get("accepted_plan") or snap.get("accepted_plan") or {}
+    # SV2: el writer necesita los TEXTOS de la evidencia congelada, no solo ids —
+    # con ids desnudos el modelo solo puede inventar contenido y sellarlo.
+    evidence_for_writer = [
+        {
+            "evidence_id": str(item.get("evidence_id") or ""),
+            "source_ref": str(item.get("source_ref") or ""),
+            "text": str(item.get("exact_excerpt") or item.get("extract") or "")[:600],
+        }
+        for item in (snap.get("evidence_items") or [])
+        if isinstance(item, Mapping) and str(item.get("evidence_id") or "").strip()
+    ][:80]
     body: dict[str, Any] = {
         "task_key": "report_custom_writer",
         "allowed_evidence_ids": allowlist,
@@ -1204,6 +1215,11 @@ def _invoke_rt09_writer_via_signal(
                             "accepted_plan": plan,
                             "brief_request": snap.get("brief_request"),
                             "allowlist": allowlist,
+                            "evidence_items": evidence_for_writer,
+                            "grounding_rule": (
+                                "Redacta EXCLUSIVAMENTE con la información de evidence_items; "
+                                "cita sus evidence_id. No inventes personas, empresas ni cifras."
+                            ),
                             "coverage": snap.get("coverage"),
                             "memory_mode": snap.get("memory_mode"),
                         },
@@ -1276,6 +1292,15 @@ def _invoke_rt10_review_via_signal(
         api_key=api_key,
         timeout_seconds=float(current_app.config.get("SIGNAL_AI_TIMEOUT_SECONDS") or 120),
     )
+    # SV2: el reviewer juzga grounding con los mismos textos de evidencia congelados.
+    evidence_for_review = [
+        {
+            "evidence_id": str(item.get("evidence_id") or ""),
+            "text": str(item.get("exact_excerpt") or item.get("extract") or "")[:400],
+        }
+        for item in (snap.get("evidence_items") or [])
+        if isinstance(item, Mapping) and str(item.get("evidence_id") or "").strip()
+    ][:80]
     body: dict[str, Any] = {
         "task_key": "report_custom_review",
         "input": {
@@ -1287,6 +1312,11 @@ def _invoke_rt10_review_via_signal(
                             "snapshot_hash": current_hash,
                             "writer_output": writer_output,
                             "allowlist": snap.get("allowlist") or [],
+                            "evidence_items": evidence_for_review,
+                            "review_rule": (
+                                "approved=false si el informe afirma personas, empresas o "
+                                "cifras que no estén respaldadas por evidence_items."
+                            ),
                         },
                         ensure_ascii=False,
                         separators=(",", ":"),
