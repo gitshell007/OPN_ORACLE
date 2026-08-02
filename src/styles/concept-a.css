@@ -109,6 +109,10 @@
 .compact-field { max-width: 240px; }
 .global-inventory-toolbar { display: flex; align-items: end; gap: 8px; margin-bottom: 12px; }
 .global-inventory-toolbar label { display: flex; align-items: center; gap: 8px; min-width: min(420px, 48vw); padding: 0 10px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); }
+.global-inventory-toolbar label:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .global-inventory-toolbar input { width: 100%; min-height: 38px; border: 0; outline: 0; background: transparent; color: var(--va-text); }
 .global-inventory-toolbar select { min-height: 40px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); padding: 0 10px; color: var(--va-text); }
 .global-inventory-toolbar > span { margin-left: auto; color: var(--va-muted); font-size: 12px; }
@@ -140,6 +144,10 @@
 .entity-search-form select, .entity-search-input > div { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; background: var(--va-panel); color: var(--va-text); }
 .entity-search-form select { padding: 0 10px; }
 .entity-search-input > div { display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.entity-search-input > div:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .entity-search-input input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--va-text); }
 .entity-suggestions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .entity-suggestions button { border: 1px solid #cfe0f3; background: #f8fbff; color: #254161; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 650; }
@@ -591,6 +599,10 @@
   background: #fff;
   padding: 0 10px;
 }
+.entity-graph-v2-directory-search:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .entity-graph-v2-directory-search input {
   flex: 1;
   border: 0;
@@ -966,6 +978,11 @@
 .procurement-search-list input { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; background: white; color: var(--va-text); padding: 0 10px; }
 .procurement-search-control,
 .procurement-awards-search label > div { min-height: 40px; border: 1px solid var(--va-border); border-radius: 7px; background: white; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.procurement-search-control:focus-within,
+.procurement-awards-search label > div:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .procurement-search-control input,
 .procurement-awards-search label > div input { min-height: auto; border: 0; outline: 0; padding: 0; width: 100%; }
 .procurement-search-form > .vector-primary { min-height: 40px; align-self: end; }
@@ -1411,6 +1428,10 @@
 }
 .changes-filters { display: flex; align-items: end; gap: 8px; margin-bottom: 14px; }
 .changes-filters > label:first-child { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 260px; padding: 0 10px; border: 1px solid var(--va-border); border-radius: 6px; background: var(--va-panel); }
+.changes-filters > label:first-child:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
+}
 .changes-filters > label:first-child input { width: 100%; min-height: 38px; border: 0; outline: 0; }
 .changes-filters select, .changes-date input { min-height: 40px; border: 1px solid var(--va-border); border-radius: 6px; padding: 0 9px; background: var(--va-panel); color: var(--va-text); }
 .changes-date { display: grid; gap: 3px; color: var(--va-muted); font-size: 10px; font-weight: 700; }
@@ -2417,8 +2438,12 @@
   outline: none;
 }
 .vector-menu [role="menuitem"]:hover,
-.vector-menu [role="menuitem"]:focus {
+.vector-menu [role="menuitem"]:focus,
+.vector-menu [role="menuitem"]:focus-visible {
   background: var(--va-soft);
+}
+.vector-menu [role="menuitem"]:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--va-primary);
 }
 .vector-menu [role="menuitem"] + [role="menuitem"] {
   margin-top: 2px;
@@ -3016,6 +3041,10 @@
   min-width: 300px;
   flex: 1;
   background: white;
+}
+.search-field:focus-within {
+  border-color: var(--va-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--va-primary) 22%, transparent);
 }
 .search-field input {
   border: 0;
