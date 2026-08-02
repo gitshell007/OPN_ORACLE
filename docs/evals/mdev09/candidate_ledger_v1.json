@@ -132,5 +132,12 @@
       "synthetic_factual_fallback": false
     }
   },
-  "policy_notes": "MDEV-08 fourth attempt: removed fallback_deterministic for Ask/Report; fallback is local ollama when validated or deny_degraded; never synthetic factual."
+  "policy_notes": "MDEV-08 fourth attempt: removed fallback_deterministic for Ask/Report; fallback is local ollama when validated or deny_degraded; never synthetic factual.",
+  "mdev10_dev_deploy": {
+    "status": "deployed_with_debt",
+    "observed_at": "2026-08-02T06:14:00+02:00",
+    "environment": "dev_only",
+    "augment": false,
+    "smoke_shadow_complete": false
+  }
 }
