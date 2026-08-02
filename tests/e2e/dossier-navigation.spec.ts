@@ -114,25 +114,34 @@ test.describe("SV2-UI-E2E dossier grouped navigation", () => {
       await expect(page.locator(".dossier-subnav")).toBeVisible();
     }
 
-    // 4. Exactamente un aria-current="page" en el documento
-    // (regresión: tabs duplicados / shell+subnav).
+    // 4. `aria-current="page"` se declara POR LANDMARK, no una vez por
+    // documento: las migas de pan lo llevan por convención WAI-ARIA y la
+    // navegación del expediente también. La regresión que protegemos es el
+    // duplicado DENTRO de una misma navegación (lo provocaba el antiguo
+    // <details>Más</details>, que repetía trece pestañas en el DOM).
     for (const path of ["signals", "procurement", ""] as const) {
       await page.goto(path ? `${base}/${path}` : base);
+      // Ninguna navegación puede marcar dos veces la página actual.
       await expect
-        .poll(async () => page.locator('[aria-current="page"]').count())
+        .poll(async () =>
+          page.evaluate(() =>
+            Math.max(
+              ...[...document.querySelectorAll("nav")].map(
+                (nav) => nav.querySelectorAll('[aria-current="page"]').length,
+              ),
+            ),
+          ),
+        )
         .toBe(1);
-      const current = page.locator('[aria-current="page"]');
-      if (path === "signals" || path === "procurement") {
-        await expect(current).toHaveAttribute(
-          "data-testid",
-          `dossier-subnav-${path === "signals" ? "signals" : "procurement"}`,
-        );
-      } else {
-        await expect(current).toHaveAttribute(
-          "data-testid",
-          "dossier-nav-summary",
-        );
-      }
+      // Y dentro de la navegación del expediente, exactamente una y la correcta.
+      const dossierCurrent = page.locator(
+        '.dossier-nav [aria-current="page"], .dossier-subnav [aria-current="page"]',
+      );
+      await expect(dossierCurrent).toHaveCount(1);
+      await expect(dossierCurrent).toHaveAttribute(
+        "data-testid",
+        path ? `dossier-subnav-${path}` : "dossier-nav-summary",
+      );
     }
 
     // 6. Atajos ask y settings
