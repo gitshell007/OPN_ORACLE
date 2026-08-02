@@ -270,9 +270,7 @@ def test_pg_tenant_isolation_confirm_semantics_and_needs_review() -> None:
 
     # Runtime RLS: tenant B sees 0; tenant A sees 1; needs_review does not change status
     with runtime.connect() as conn:
-        conn.execute(
-            text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant_b)}
-        )
+        conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant_b)})
         seen_b = conn.execute(
             text("SELECT count(*) FROM dossier_surveillance_actions WHERE id=:id"),
             {"id": action_id},
@@ -280,9 +278,7 @@ def test_pg_tenant_isolation_confirm_semantics_and_needs_review() -> None:
         conn.rollback()
 
     with runtime.connect() as conn:
-        conn.execute(
-            text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant_a)}
-        )
+        conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant_a)})
         seen_a = conn.execute(
             text("SELECT count(*) FROM dossier_surveillance_actions WHERE id=:id"),
             {"id": action_id},

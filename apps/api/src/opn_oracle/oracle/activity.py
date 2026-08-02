@@ -153,9 +153,7 @@ def build_dossier_activity(
                 "kind": "surveillance_action",
                 "id": str(action.id),
                 "title": action.title or action.action_type,
-                "product_state": product_state
-                if product_state in PRODUCT_STATES
-                else "prepared",
+                "product_state": product_state if product_state in PRODUCT_STATES else "prepared",
                 "desired_status": action.status,
                 "observed_status": action.status,
                 "cadence": action.cadence,
@@ -166,9 +164,7 @@ def build_dossier_activity(
                 "intent_revision_id": (
                     str(action.intent_revision_id) if action.intent_revision_id else None
                 ),
-                "requirement_id": (
-                    str(action.requirement_id) if action.requirement_id else None
-                ),
+                "requirement_id": (str(action.requirement_id) if action.requirement_id else None),
                 "alignment_state": action.alignment_state,
                 "provider_ref": (
                     str(action.signal_monitor_id) if action.signal_monitor_id else None

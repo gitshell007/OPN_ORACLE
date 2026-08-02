@@ -428,17 +428,13 @@ def serialize_action(action: DossierSurveillanceAction) -> dict[str, Any]:
         "manual_overrides": dict(action.manual_overrides or {}),
         "last_run_at": action.last_run_at.isoformat() if action.last_run_at else None,
         "next_run_at": action.next_run_at.isoformat() if action.next_run_at else None,
-        "last_attempt_at": (
-            action.last_attempt_at.isoformat() if action.last_attempt_at else None
-        ),
+        "last_attempt_at": (action.last_attempt_at.isoformat() if action.last_attempt_at else None),
         "last_error": action.last_error,
         "retry_count": action.retry_count,
         "retry_after": action.retry_after.isoformat() if action.retry_after else None,
         "row_version": action.row_version,
         "watchlist_id": str(action.watchlist_id) if action.watchlist_id else None,
-        "signal_monitor_id": (
-            str(action.signal_monitor_id) if action.signal_monitor_id else None
-        ),
+        "signal_monitor_id": (str(action.signal_monitor_id) if action.signal_monitor_id else None),
         "procurement_watch_id": (
             str(action.procurement_watch_id) if action.procurement_watch_id else None
         ),
@@ -573,12 +569,16 @@ def confirm_surveillance_action(
                 errors={"offering_id": ["Debe ser un UUID."]},
             ) from error
 
-    if action_type in {
-        "news_mentions",
-        "official_publications",
-        "actor_tenders",
-        "no_follow",
-    } and actor_id is None:
+    if (
+        action_type
+        in {
+            "news_mentions",
+            "official_publications",
+            "actor_tenders",
+            "no_follow",
+        }
+        and actor_id is None
+    ):
         raise SurveillanceValidationError(
             "Este tipo de vigilancia requiere actor_id.",
             errors={"actor_id": ["Obligatorio para este tipo."]},
@@ -697,8 +697,10 @@ def confirm_surveillance_action(
         return existing, False
 
     status = "retired" if action_type == "no_follow" else "active"
-    next_run = None if action_type == "no_follow" else compute_next_run_at(
-        cadence=cadence, timezone=timezone, from_time=now
+    next_run = (
+        None
+        if action_type == "no_follow"
+        else compute_next_run_at(cadence=cadence, timezone=timezone, from_time=now)
     )
     degraded = False
     degraded_reason = None
@@ -846,9 +848,7 @@ def resume_action(
         request_id=request_id,
         metadata={
             "version": action.row_version,
-            "next_run_at": (
-                action.next_run_at.isoformat() if action.next_run_at else None
-            ),
+            "next_run_at": (action.next_run_at.isoformat() if action.next_run_at else None),
         },
     )
     session.commit()

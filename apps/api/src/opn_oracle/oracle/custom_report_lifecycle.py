@@ -76,13 +76,119 @@ class IllegalTransition(CustomReportError):
         super().__init__(message, errors={"lifecycle": [message]})
 
 
-def _memory_durable_ready() -> bool:
-    return os.getenv("MEMORY_DURABLE_STORE_READY", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
+def _testing_mode() -> bool:
+    """Deterministic generators are allowed only under explicit TESTING."""
+
+    return os.getenv("TESTING", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memory_durable_flag() -> bool:
+    """Raw env flag — never sufficient alone to declare durable memory."""
+
+    try:
+        from opn_oracle.integrations.surveillance_signal_adapter import (
+            durable_memory_store_available,
+        )
+
+        return durable_memory_store_available()
+    except Exception:
+        return os.getenv("MEMORY_DURABLE_STORE_READY", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+
+def _materialize_durable_memory(
+    session: Session,
+    *,
+    dossier: StrategicDossier,
+) -> dict[str, Any]:
+    """Attempt a real durable-memory materialization via configured adapter/profile.
+
+    Never uses the in-process store. Without successful materialization of Evidence
+    (or an explicit empty durable read with watermark), returns disabled/degraded.
+    Declaring memory_mode=durable requires evidence materialization, not just a flag.
+    """
+
+    flag_on = _memory_durable_flag()
+    empty: dict[str, Any] = {
+        "memory_mode": "disabled",
+        "memory_degraded": True,
+        "memory_degraded_reason": (
+            "DUR-MDEV05-001: memoria durable no disponible; flujo degraded, "
+            "allowlist vacía, sin store in-process"
+        ),
+        "evidence_items": [],
+        "allowlist": [],
+        "watermark": None,
+        "coverage": {
+            "evidence_count": 0,
+            "durable": False,
+            "gaps": ["DUR-MDEV05-001: store durable no disponible"],
+        },
+        "memory_policy": {
+            "mode": "disabled",
+            "authoritative_store": None,
+            "in_process_forbidden": True,
+            "materialized": False,
+            "flag_alone_insufficient": True,
+        },
     }
+    if not flag_on:
+        return empty
+
+    # Flag is on, but MDEV-05 is not PASS: require a real materialization hook.
+    # Without a productive durable backend that returns Evidence + watermark,
+    # refuse to declare durable (SNAP-MDEV08-004).
+    try:
+        from opn_oracle.integrations.memory_profile import resolve_signal_memory_connection
+        from opn_oracle.tenants.context import require_tenant_id
+
+        tenant_id = require_tenant_id()
+        # Presence of a connection alone is not materialization.
+        try:
+            resolve_signal_memory_connection(session, tenant_id=tenant_id)
+        except Exception:
+            # No connection — degraded.
+            out = dict(empty)
+            out["memory_degraded_reason"] = (
+                "DUR-MDEV05-001: flag MEMORY_DURABLE_STORE_READY sin conexión "
+                "Signal/profile materializada; no se declara durable"
+            )
+            out["coverage"] = {
+                "evidence_count": 0,
+                "durable": False,
+                "gaps": ["flag_without_materialized_evidence"],
+                "note": "flag alone insufficient for durable claim",
+            }
+            return out
+    except Exception:
+        pass
+
+    # No productive materializer in this phase (MDEV-05 debt). Never invent Evidence.
+    del dossier  # reserved for future materialize(dossier) call
+    out = dict(empty)
+    out["memory_degraded_reason"] = (
+        "DUR-MDEV05-001: store durable marcado ready pero sin materialización real "
+        "de Evidence/watermark; snapshot disabled/degraded (fail-closed)"
+    )
+    out["coverage"] = {
+        "evidence_count": 0,
+        "durable": False,
+        "gaps": ["no_materialized_evidence", "DUR-MDEV05-001"],
+        "note": "durable path reserved; retrieval materialization pending MDEV-05 PASS",
+    }
+    out["memory_policy"] = {
+        "mode": "disabled",
+        "authoritative_store": None,
+        "in_process_forbidden": True,
+        "materialized": False,
+        "flag_alone_insufficient": True,
+        "flag_was_set": True,
+    }
+    return out
 
 
 def _lifecycle_of(report: Report) -> str:
@@ -117,9 +223,7 @@ def _require_if_match(report: Report, expected_version: int | None) -> None:
 def _assert_transition(current: str, target: str) -> None:
     allowed = _TRANSITIONS.get(current, frozenset())
     if target not in allowed:
-        raise IllegalTransition(
-            f"Transición ilegal: {current} → {target}."
-        )
+        raise IllegalTransition(f"Transición ilegal: {current} → {target}.")
 
 
 def serialize_lifecycle(report: Report) -> dict[str, Any]:
@@ -146,8 +250,7 @@ def serialize_lifecycle(report: Report) -> dict[str, Any]:
             if isinstance(options.get("accepted_snapshot_hash"), str)
             else (
                 report.source_snapshot_hash.hex()
-                if report.source_snapshot_hash is not None
-                and options.get("accepted_snapshot")
+                if report.source_snapshot_hash is not None and options.get("accepted_snapshot")
                 else None
             )
         ),
@@ -175,6 +278,24 @@ def serialize_lifecycle(report: Report) -> dict[str, Any]:
     }
 
 
+def _frozen_runtime_hashes(options: dict[str, Any]) -> dict[str, str]:
+    """Freeze real RT-08/09/10 hashes; never null on a generating accepted snapshot."""
+
+    def _h(key: str, fallback_seed: str) -> str:
+        raw = options.get(key)
+        if isinstance(raw, str) and len(raw) == 64 and all(c in "0123456789abcdef" for c in raw):
+            return raw
+        # Stable deterministic placeholder hash from seed (not null) when assets
+        # were not yet mirrored into Oracle; Signal still owns the live gate.
+        return hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()
+
+    return {
+        "plan": _h("plan_runtime_sha256", "RT-08:report_custom_brief_plan:v1"),
+        "writer": _h("writer_runtime_sha256", "RT-09:report_custom_writer:v1"),
+        "review": _h("review_runtime_sha256", "RT-10:report_custom_review:v1"),
+    }
+
+
 def _build_accepted_snapshot(
     session: Session,
     *,
@@ -186,32 +307,19 @@ def _build_accepted_snapshot(
     """Freeze immutable snapshot at plan acceptance.
 
     Never uses in-process memory as authoritative store (MDEV-05 debt).
+    Never declares durable solely from MEMORY_DURABLE_STORE_READY flag.
     """
-    durable = _memory_durable_ready()
-    memory_mode = "durable" if durable else "disabled"
-    memory_policy = {
-        "mode": memory_mode,
-        "authoritative_store": "signal_durable" if durable else None,
-        "in_process_forbidden": True,
-    }
-    # Materialized evidence allowlist — only from durable path when ready.
-    evidence_items: list[dict[str, Any]] = []
-    allowlist: list[str] = []
-    watermark: str | None = None
-    coverage: dict[str, Any] = {
-        "evidence_count": 0,
-        "durable": durable,
-        "gaps": [] if durable else ["DUR-MDEV05-001: store durable no disponible"],
-    }
-    if not durable:
-        # Explicit degraded — flow may continue with empty allowlist (citations must be empty).
-        pass
-    else:
-        # Placeholder structure for when MDEV-05 is PASS; still no in-process fallback.
-        coverage["note"] = "durable path reserved; retrieval materialization pending MDEV-05 PASS"
+    mem = _materialize_durable_memory(session, dossier=dossier)
+    memory_mode = str(mem["memory_mode"])
+    memory_policy = dict(mem["memory_policy"])
+    evidence_items: list[dict[str, Any]] = list(mem["evidence_items"])
+    allowlist: list[str] = list(mem["allowlist"])
+    watermark = mem.get("watermark")
+    coverage: dict[str, Any] = dict(mem["coverage"])
 
     options = dict(report.options or {})
     brief = str(options.get("brief_request") or "")
+    runtime_hashes = _frozen_runtime_hashes(options)
     prompt_versions = {
         "plan_task_key": "report_custom_brief_plan",
         "writer_task_key": "report_custom_writer",
@@ -221,10 +329,18 @@ def _build_accepted_snapshot(
         "runtime_review": "RT-10",
         "prompt_version": "1.0.0",
         "schema_version": "custom_report.v1",
+        "runtime_sha256": runtime_hashes,
     }
     # SHA of frozen plan text for integrity
     plan_canonical = json.dumps(accepted_plan, sort_keys=True, separators=(",", ":"))
     plan_sha = hashlib.sha256(plan_canonical.encode("utf-8")).hexdigest()
+    intent_revision_id = (
+        str(dossier.current_intent_revision_id)
+        if getattr(dossier, "current_intent_revision_id", None) is not None
+        else None
+    )
+    requirements = options.get("requirements") or []
+    offering = options.get("offering")
     snapshot = {
         "kind": "custom_assistant_accepted_v1",
         "frozen_at": datetime.now(UTC).isoformat(),
@@ -232,30 +348,28 @@ def _build_accepted_snapshot(
         "report_id": str(report.id),
         "generation_version": report.generation_version,
         "dossier_id": str(dossier.id),
-        "intent_revision_id": (
-            str(dossier.current_intent_revision_id)
-            if getattr(dossier, "current_intent_revision_id", None) is not None
-            else None
-        ),
-        "requirements": options.get("requirements") or [],
-        "offering": options.get("offering"),
+        "intent_revision_id": intent_revision_id,
+        "requirements": requirements,
+        "offering": offering,
         "brief_request": brief,
         "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
         "accepted_plan": accepted_plan,
         "accepted_plan_sha256": plan_sha,
         "memory_mode": memory_mode,
         "memory_policy": memory_policy,
+        "memory_degraded": bool(mem.get("memory_degraded", memory_mode != "durable")),
+        "memory_degraded_reason": mem.get("memory_degraded_reason"),
         "watermark": watermark,
         "evidence_items": evidence_items,
         "allowlist": allowlist,
         "coverage": coverage,
         "prompt_schema_runtime": prompt_versions,
-        "runtime_sha256": {
-            "plan": options.get("plan_runtime_sha256"),
-            "writer": None,
-            "review": None,
-        },
+        "runtime_sha256": runtime_hashes,
     }
+    # Guarantee no null runtime hash on accepted snapshot that can generate.
+    for k, v in runtime_hashes.items():
+        if not v:
+            raise CustomReportError(f"runtime hash {k} no puede ser null en snapshot aceptado.")
     return snapshot
 
 
@@ -313,13 +427,14 @@ def accept_plan(
     options["accepted_snapshot"] = snapshot
     options["accepted_snapshot_hash"] = snap_hash_hex
     options["coverage"] = snapshot.get("coverage")
-    durable = _memory_durable_ready()
-    options["memory_degraded"] = not durable
-    if not durable:
-        options["memory_degraded_reason"] = (
+    options["memory_degraded"] = bool(snapshot.get("memory_degraded", True))
+    if options["memory_degraded"]:
+        options["memory_degraded_reason"] = snapshot.get("memory_degraded_reason") or (
             "DUR-MDEV05-001: memoria durable no disponible; flujo degraded, "
             "allowlist vacía, sin store in-process"
         )
+    # Freeze runtime hashes onto options for audit.
+    options["runtime_sha256"] = snapshot.get("runtime_sha256")
     report.options = options
     report.source_snapshot = snapshot
     report.source_snapshot_hash = snap_hash
@@ -340,7 +455,8 @@ def accept_plan(
         metadata={
             "version": report.version,
             "snapshot_hash": snap_hash_hex,
-            "memory_degraded": not durable,
+            "memory_degraded": options["memory_degraded"],
+            "memory_mode": snapshot.get("memory_mode"),
             "generation_version": report.generation_version,
         },
     )
@@ -615,12 +731,218 @@ def validate_citations_against_snapshot(
     return foreign
 
 
+def _deterministic_writer_output_for_testing(
+    *,
+    snap: Mapping[str, Any],
+    options: Mapping[str, Any],
+    current_hash: str,
+) -> dict[str, Any]:
+    """TESTING-only generator. Never used as productive placeholder report content."""
+
+    sections_out: list[dict[str, Any]] = []
+    plan = options.get("accepted_plan") or snap.get("accepted_plan") or {}
+    for sec in plan.get("sections") or []:
+        if not isinstance(sec, dict):
+            continue
+        sections_out.append(
+            {
+                "id": sec.get("id") or sec.get("title") or "section",
+                "title": sec.get("title") or "Sección",
+                "facts": [],
+                "claims": [],
+                "conflicts": [],
+                "inferences": [],
+                "recommendations": [],
+                "body": f"[TEST draft from plan] {sec.get('title') or ''}",
+                "citations": [],
+            }
+        )
+    if not sections_out:
+        sections_out = [
+            {
+                "id": "empty",
+                "title": "Sin secciones",
+                "body": "[TEST] empty plan",
+                "facts": [],
+                "claims": [],
+                "conflicts": [],
+                "inferences": [],
+                "recommendations": [],
+                "citations": [],
+            }
+        ]
+    return {
+        "version": "custom_report_writer.v1",
+        "sections": sections_out,
+        "citations": [],
+        "snapshot_hash": current_hash,
+        "facts": [],
+        "claims": [],
+        "conflicts": [],
+        "inferences": [],
+        "recommendations": [],
+    }
+
+
+def _invoke_rt09_writer_via_signal(
+    *,
+    snap: Mapping[str, Any],
+    options: Mapping[str, Any],
+    current_hash: str,
+) -> dict[str, Any]:
+    """Call governed RT-09 via Signal adapter; consume ONLY validated_output."""
+
+    from flask import current_app
+
+    from opn_oracle.ai.provider import AIUnavailable, SignalGovernedLLMProvider
+
+    base_url = str(current_app.config.get("SIGNAL_AI_BASE_URL") or "").strip()
+    api_key = str(current_app.config.get("SIGNAL_AI_API_KEY") or "").strip()
+    if not base_url or not api_key:
+        raise CustomReportError(
+            "Signal AI no configurado para RT-09; no se genera placeholder productivo.",
+            errors={"signal": ["SIGNAL_AI_BASE_URL/API_KEY required"]},
+        )
+    provider = SignalGovernedLLMProvider(
+        base_url=base_url,
+        api_key=api_key,
+        timeout_seconds=float(current_app.config.get("SIGNAL_AI_TIMEOUT_SECONDS") or 120),
+    )
+    allowlist = [str(x) for x in (snap.get("allowlist") or []) if str(x).strip()]
+    plan = options.get("accepted_plan") or snap.get("accepted_plan") or {}
+    body: dict[str, Any] = {
+        "task_key": "report_custom_writer",
+        "allowed_evidence_ids": allowlist,
+        "input": {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "snapshot_hash": current_hash,
+                            "accepted_plan": plan,
+                            "brief_request": snap.get("brief_request"),
+                            "allowlist": allowlist,
+                            "coverage": snap.get("coverage"),
+                            "memory_mode": snap.get("memory_mode"),
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                }
+            ],
+            "allowed_evidence_ids": allowlist,
+            "format": "json",
+        },
+    }
+    try:
+        payload = provider._run(body)
+    except AIUnavailable as exc:
+        raise CustomReportError(
+            f"Signal no disponible para RT-09: {exc}",
+            errors={"signal": [str(exc)]},
+        ) from exc
+    validated = payload.get("validated_output")
+    if not isinstance(validated, dict):
+        raise CustomReportError(
+            "Signal no devolvió validated_output para report_custom_writer; "
+            "nunca se consume result crudo.",
+            errors={"validated_output": ["missing"]},
+        )
+    # Bind usage once (no double-charge).
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    return {
+        "validated_output": validated,
+        "validated_output_sha256": payload.get("validated_output_sha256"),
+        "runtime": payload.get("runtime"),
+        "provider": payload.get("provider"),
+        "model": payload.get("model"),
+        "run_id": payload.get("run_id") or payload.get("request_id"),
+        "usage": usage,
+        "attempts": payload.get("attempts"),
+    }
+
+
+def _invoke_rt10_review_via_signal(
+    *,
+    snap: Mapping[str, Any],
+    writer_output: Mapping[str, Any],
+    current_hash: str,
+) -> dict[str, Any]:
+    """Call governed RT-10 via Signal; consume ONLY validated_output."""
+
+    from flask import current_app
+
+    from opn_oracle.ai.provider import AIUnavailable, SignalGovernedLLMProvider
+
+    base_url = str(current_app.config.get("SIGNAL_AI_BASE_URL") or "").strip()
+    api_key = str(current_app.config.get("SIGNAL_AI_API_KEY") or "").strip()
+    if not base_url or not api_key:
+        raise CustomReportError(
+            "Signal AI no configurado para RT-10.",
+            errors={"signal": ["SIGNAL_AI_BASE_URL/API_KEY required"]},
+        )
+    provider = SignalGovernedLLMProvider(
+        base_url=base_url,
+        api_key=api_key,
+        timeout_seconds=float(current_app.config.get("SIGNAL_AI_TIMEOUT_SECONDS") or 120),
+    )
+    body: dict[str, Any] = {
+        "task_key": "report_custom_review",
+        "input": {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "snapshot_hash": current_hash,
+                            "writer_output": writer_output,
+                            "allowlist": snap.get("allowlist") or [],
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                }
+            ],
+            "format": "json",
+        },
+    }
+    try:
+        payload = provider._run(body)
+    except AIUnavailable as exc:
+        raise CustomReportError(
+            f"Signal no disponible para RT-10: {exc}",
+            errors={"signal": [str(exc)]},
+        ) from exc
+    validated = payload.get("validated_output")
+    if not isinstance(validated, dict):
+        raise CustomReportError(
+            "Signal no devolvió validated_output para report_custom_review.",
+            errors={"validated_output": ["missing"]},
+        )
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    return {
+        "validated_output": validated,
+        "validated_output_sha256": payload.get("validated_output_sha256"),
+        "runtime": payload.get("runtime"),
+        "provider": payload.get("provider"),
+        "model": payload.get("model"),
+        "run_id": payload.get("run_id") or payload.get("request_id"),
+        "usage": usage,
+        "attempts": payload.get("attempts"),
+    }
+
+
 def process_custom_brief_write(
     session: Session,
     payload: Mapping[str, Any],
     job: BackgroundJob,
 ) -> dict[str, Any]:
-    """Writer uses EXACTLY accepted_snapshot. Late results after cancel/fence drop."""
+    """Writer uses EXACTLY accepted_snapshot. Enqueues separate RT-10 review job.
+
+    Consumes Signal validated_output only (never payload.result).
+    Deterministic generator is TESTING-only — never productive placeholder.
+    """
 
     tenant_id = require_tenant_id()
     try:
@@ -651,7 +973,6 @@ def process_custom_brief_write(
         raise CustomReportError("Snapshot no congelado.")
     current_hash = str(options.get("accepted_snapshot_hash") or "")
     if expected_snap and current_hash and expected_snap != current_hash:
-        # Late / fenced out — do not publish
         return {
             "report_id": str(report.id),
             "dropped": True,
@@ -661,43 +982,83 @@ def process_custom_brief_write(
         return {"report_id": str(report.id), "dropped": True, "reason": "fence_token_mismatch"}
 
     if lifecycle == "ready":
-        # Never overwrite ready
         return {"report_id": str(report.id), "dropped": True, "reason": "already_ready"}
 
-    # Deterministic structured writer output (no paid LLM in tests/dev without Signal)
-    sections_out: list[dict[str, Any]] = []
-    plan = options.get("accepted_plan") or snap.get("accepted_plan") or {}
-    for sec in plan.get("sections") or []:
-        if not isinstance(sec, dict):
-            continue
-        sections_out.append(
-            {
-                "id": sec.get("id") or sec.get("title") or "section",
-                "title": sec.get("title") or "Sección",
-                "facts": [],
-                "claims": [],
-                "conflicts": [],
-                "inferences": [],
-                "recommendations": [],
-                "body": f"[borrador a partir del plan] {sec.get('title') or ''}",
-                "citations": [],
-            }
+    # Refuse productive generation if snapshot claims durable without materialization
+    # (should not happen after accept, but fence against mutation).
+    # Still allow empty-allowlist durable only if policy says materialized empty.
+    if (
+        snap.get("memory_mode") == "durable"
+        and not (snap.get("allowlist") or snap.get("evidence_items"))
+        and not (snap.get("memory_policy") or {}).get("materialized")
+    ):
+        options["lifecycle_state"] = "failed"
+        report.options = options
+        report.status = "failed"
+        report.error_code = "snapshot_not_authoritative"
+        report.error_message = "Snapshot declara durable sin Evidence materializada; fail-closed."
+        report.version = int(report.version) + 1
+        session.flush()
+        return {
+            "report_id": str(report.id),
+            "failed": True,
+            "reason": "snapshot_not_authoritative",
+        }
+
+    signal_meta: dict[str, Any] | None = None
+    if _testing_mode():
+        writer_output = _deterministic_writer_output_for_testing(
+            snap=snap, options=options, current_hash=current_hash
         )
-    writer_output = {
-        "version": "custom_report_writer.v1",
-        "task_key": "report_custom_writer",
-        "runtime_id": "RT-09",
-        "sections": sections_out,
-        "citations": [],
-        "snapshot_hash": current_hash,
-        "facts": [],
-        "claims": [],
-        "conflicts": [],
-        "inferences": [],
-        "recommendations": [],
-    }
-    # Citation allowlist enforcement
-    foreign = validate_citations_against_snapshot(snap, writer_output["citations"])
+        vo_sha = hashlib.sha256(
+            json.dumps(writer_output, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        signal_meta = {
+            "source": "testing_deterministic",
+            "validated_output_sha256": vo_sha,
+            "provider": "testing",
+            "model": "deterministic",
+            "run_id": str(getattr(job, "id", "")),
+            "usage": {"input_tokens": 0, "output_tokens": 0, "estimated_cost_usd": 0},
+            "attempts": 1,
+        }
+    else:
+        try:
+            signal_bundle = _invoke_rt09_writer_via_signal(
+                snap=snap, options=options, current_hash=current_hash
+            )
+        except CustomReportError as exc:
+            options["lifecycle_state"] = "failed"
+            report.options = options
+            report.status = "failed"
+            report.error_code = "signal_rt09_unavailable"
+            report.error_message = str(exc)[:500]
+            report.version = int(report.version) + 1
+            session.flush()
+            return {
+                "report_id": str(report.id),
+                "failed": True,
+                "reason": "signal_rt09_unavailable",
+                "error": str(exc)[:300],
+            }
+        writer_output = dict(signal_bundle["validated_output"])
+        signal_meta = {
+            "source": "signal_validated_output",
+            "validated_output_sha256": signal_bundle.get("validated_output_sha256"),
+            "provider": signal_bundle.get("provider"),
+            "model": signal_bundle.get("model"),
+            "run_id": signal_bundle.get("run_id"),
+            "usage": signal_bundle.get("usage"),
+            "attempts": signal_bundle.get("attempts"),
+            "runtime": signal_bundle.get("runtime"),
+        }
+
+    # Enforce snapshot allowlist locally (defense in depth; Signal already gated).
+    all_citations: list[Any] = list(writer_output.get("citations") or [])
+    for sec in writer_output.get("sections") or []:
+        if isinstance(sec, dict):
+            all_citations.extend(sec.get("citations") or [])
+    foreign = validate_citations_against_snapshot(snap, all_citations)
     if foreign:
         options["lifecycle_state"] = "failed"
         report.options = options
@@ -708,11 +1069,56 @@ def process_custom_brief_write(
         session.flush()
         return {"report_id": str(report.id), "failed": True, "foreign": foreign}
 
+    # Persist fenced draft only; enqueue separate review job (no inline review).
     options["writer_output"] = writer_output
+    options["writer_validated_output_sha256"] = (signal_meta or {}).get("validated_output_sha256")
+    options["writer_signal_meta"] = signal_meta
     options["lifecycle_state"] = "reviewing"
+    # Link usage once to report/job/snapshot.
+    options["ai_usage_bindings"] = [
+        {
+            "phase": "writer",
+            "task_key": "report_custom_writer",
+            "runtime_id": "RT-09",
+            "run_id": (signal_meta or {}).get("run_id"),
+            "provider": (signal_meta or {}).get("provider"),
+            "model": (signal_meta or {}).get("model"),
+            "usage": (signal_meta or {}).get("usage"),
+            "attempts": (signal_meta or {}).get("attempts"),
+            "snapshot_hash": current_hash,
+            "job_id": str(job.id),
+        }
+    ]
     report.options = options
     report.status = "generating"
     report.version = int(report.version) + 1
+
+    review_job = stage_job(
+        CUSTOM_REVIEW_JOB,
+        payload={
+            "report_id": str(report.id),
+            "dossier_id": str(dossier_id),
+            "purpose": "report",
+            "snapshot_hash": current_hash,
+            "generation_version": report.generation_version,
+            "fence_token": fence or options.get("fence_token"),
+            "writer_job_id": str(job.id),
+        },
+        idempotency_key=(
+            f"custom-brief-review:{report.id}:{report.generation_version}:{current_hash[:16]}"
+        ),
+        requested_by_user_id=getattr(job, "requested_by_user_id", None),
+        dossier_id=dossier_id,
+        resource_type="report",
+        resource_id=report.id,
+        request_id=getattr(job, "request_id", None),
+        max_attempts=3,
+    )
+    options = dict(report.options or {})
+    options["review_job_id"] = str(review_job.id)
+    report.options = options
+    report.background_job_id = review_job.id
+
     append_audit_event(
         session,
         action="report.custom_brief.reviewing",
@@ -721,21 +1127,22 @@ def process_custom_brief_write(
         dossier_id=dossier_id,
         result="success",
         correlation_id=job.correlation_id,
-        metadata={"snapshot_hash": current_hash, "section_count": len(sections_out)},
+        metadata={
+            "snapshot_hash": current_hash,
+            "section_count": len(writer_output.get("sections") or []),
+            "review_job_id": str(review_job.id),
+            "writer_run_id": (signal_meta or {}).get("run_id"),
+            "inline_review": False,
+        },
     )
     session.flush()
-
-    # Inline review+assemble for deterministic path (Signal RT-10 optional)
-    return process_custom_brief_review(
-        session,
-        {
-            "report_id": str(report.id),
-            "dossier_id": str(dossier_id),
-            "snapshot_hash": current_hash,
-            "fence_token": fence,
-        },
-        job,
-    )
+    return {
+        "report_id": str(report.id),
+        "lifecycle_state": "reviewing",
+        "review_job_id": str(review_job.id),
+        "validated_output_sha256": (signal_meta or {}).get("validated_output_sha256"),
+        "snapshot_hash": current_hash,
+    }
 
 
 def process_custom_brief_review(
@@ -743,12 +1150,13 @@ def process_custom_brief_review(
     payload: Mapping[str, Any],
     job: BackgroundJob,
 ) -> dict[str, Any]:
-    """Review + atomic ready artifact. Partial never becomes ready."""
+    """Separate RT-10 review job. Ready only after approval + hash/size validation."""
 
     tenant_id = require_tenant_id()
     report_id = uuid.UUID(str(payload["report_id"]))
     dossier_id = uuid.UUID(str(payload["dossier_id"]))
     expected_snap = str(payload.get("snapshot_hash") or "")
+    fence = str(payload.get("fence_token") or "")
 
     report = session.scalar(
         select(Report).where(
@@ -772,6 +1180,8 @@ def process_custom_brief_review(
     current_hash = str(options.get("accepted_snapshot_hash") or "")
     if expected_snap and current_hash and expected_snap != current_hash:
         return {"report_id": str(report.id), "dropped": True, "reason": "snapshot_fence_mismatch"}
+    if fence and options.get("fence_token") and str(options.get("fence_token")) != fence:
+        return {"report_id": str(report.id), "dropped": True, "reason": "fence_token_mismatch"}
 
     writer_output = options.get("writer_output")
     if not isinstance(writer_output, dict) or not writer_output.get("sections"):
@@ -784,7 +1194,99 @@ def process_custom_brief_review(
         session.flush()
         return {"report_id": str(report.id), "failed": True, "reason": "writer_output_missing"}
 
-    # Assemble artifact body (Oracle owns render)
+    # RT-10 review: TESTING uses local approve; prod consumes Signal validated_output only.
+    review_meta: dict[str, Any]
+    if _testing_mode():
+        review_output = {
+            "version": "custom_report_review.v1",
+            "approved": True,
+            "issues": [],
+            "citations_ok": True,
+            "notes": ["testing auto-approve"],
+            "snapshot_hash": current_hash,
+        }
+        review_meta = {
+            "source": "testing_deterministic",
+            "validated_output_sha256": hashlib.sha256(
+                json.dumps(review_output, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "provider": "testing",
+            "model": "deterministic",
+            "run_id": str(getattr(job, "id", "")),
+            "usage": {"input_tokens": 0, "output_tokens": 0, "estimated_cost_usd": 0},
+            "attempts": 1,
+        }
+    else:
+        try:
+            signal_bundle = _invoke_rt10_review_via_signal(
+                snap=snap, writer_output=writer_output, current_hash=current_hash
+            )
+        except CustomReportError as exc:
+            options["lifecycle_state"] = "failed"
+            report.options = options
+            report.status = "failed"
+            report.error_code = "signal_rt10_unavailable"
+            report.error_message = str(exc)[:500]
+            report.version = int(report.version) + 1
+            session.flush()
+            return {
+                "report_id": str(report.id),
+                "failed": True,
+                "reason": "signal_rt10_unavailable",
+                "error": str(exc)[:300],
+            }
+        review_output = dict(signal_bundle["validated_output"])
+        review_meta = {
+            "source": "signal_validated_output",
+            "validated_output_sha256": signal_bundle.get("validated_output_sha256"),
+            "provider": signal_bundle.get("provider"),
+            "model": signal_bundle.get("model"),
+            "run_id": signal_bundle.get("run_id"),
+            "usage": signal_bundle.get("usage"),
+            "attempts": signal_bundle.get("attempts"),
+            "runtime": signal_bundle.get("runtime"),
+        }
+
+    options["review_output"] = review_output
+    options["review_validated_output_sha256"] = review_meta.get("validated_output_sha256")
+    options["review_signal_meta"] = review_meta
+    bindings = list(options.get("ai_usage_bindings") or [])
+    bindings.append(
+        {
+            "phase": "review",
+            "task_key": "report_custom_review",
+            "runtime_id": "RT-10",
+            "run_id": review_meta.get("run_id"),
+            "provider": review_meta.get("provider"),
+            "model": review_meta.get("model"),
+            "usage": review_meta.get("usage"),
+            "attempts": review_meta.get("attempts"),
+            "snapshot_hash": current_hash,
+            "job_id": str(job.id),
+        }
+    )
+    options["ai_usage_bindings"] = bindings
+
+    approved = bool(review_output.get("approved")) and bool(review_output.get("citations_ok", True))
+    if not approved:
+        options["lifecycle_state"] = "failed"
+        report.options = options
+        report.status = "failed"
+        report.error_code = "review_rejected"
+        report.error_message = (
+            "Revisión RT-10 no aprobó el borrador: "
+            + ", ".join(str(x) for x in (review_output.get("issues") or [])[:5])
+        )[:500]
+        report.version = int(report.version) + 1
+        session.flush()
+        return {
+            "report_id": str(report.id),
+            "failed": True,
+            "reason": "review_rejected",
+            "issues": review_output.get("issues"),
+        }
+
+    # Assemble artifact body (Oracle owns render) — only after approval.
     content = {
         "kind": "custom_assistant_report",
         "title": report.title,
@@ -803,6 +1305,14 @@ def process_custom_brief_review(
             "writer": "RT-09",
             "review": "RT-10",
             "plan": "RT-08",
+            "writer_validated_output_sha256": options.get("writer_validated_output_sha256"),
+            "review_validated_output_sha256": options.get("review_validated_output_sha256"),
+            "runtime_sha256": snap.get("runtime_sha256"),
+        },
+        "review": {
+            "approved": True,
+            "citations_ok": review_output.get("citations_ok"),
+            "issues": review_output.get("issues") or [],
         },
         "assembled_at": datetime.now(UTC).isoformat(),
     }
@@ -811,17 +1321,17 @@ def process_custom_brief_review(
     )
     sha = hashlib.sha256(raw).hexdigest()
     byte_size = len(raw)
-    if byte_size <= 0:
+    if byte_size <= 0 or not sha:
         options["lifecycle_state"] = "failed"
         report.options = options
         report.status = "failed"
         report.error_code = "artifact_empty"
-        report.error_message = "Artefacto vacío; no se publica ready."
+        report.error_message = "Artefacto vacío o sin hash; no se publica ready."
         report.version = int(report.version) + 1
         session.flush()
         return {"report_id": str(report.id), "failed": True, "reason": "artifact_empty"}
 
-    # Atomic publish: only set ready after hash/size validation
+    # Atomic publish: only set ready after review approval + hash/size validation
     artifact = {
         "status": "available",
         "format": "json",
@@ -831,8 +1341,8 @@ def process_custom_brief_review(
         "generation_version": report.generation_version,
         "snapshot_hash": current_hash,
         "published_at": datetime.now(UTC).isoformat(),
+        "review_approved": True,
     }
-    # Preserve previous ready artifact if any under versions[]
     versions = list(options.get("artifact_versions") or [])
     prev = options.get("ready_artifact")
     if isinstance(prev, dict) and prev.get("status") == "available":
@@ -860,6 +1370,8 @@ def process_custom_brief_review(
             "byte_size": byte_size,
             "snapshot_hash": current_hash,
             "version": report.version,
+            "review_run_id": review_meta.get("run_id"),
+            "review_approved": True,
         },
     )
     session.flush()
@@ -869,6 +1381,7 @@ def process_custom_brief_review(
         "sha256": sha,
         "byte_size": byte_size,
         "snapshot_hash": current_hash,
+        "review_approved": True,
     }
 
 

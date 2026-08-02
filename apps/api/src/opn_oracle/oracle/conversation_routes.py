@@ -345,12 +345,11 @@ def get_custom_report_brief(
     return serialize_custom_brief(report)
 
 
-
 def _parse_if_match() -> int | None:
     raw = request.headers.get("If-Match", "").strip()
     if not raw:
         return None
-    raw = raw.removeprefix('W/"').removeprefix('W/').removeprefix('"').removesuffix('"')
+    raw = raw.removeprefix('W/"').removeprefix("W/").removeprefix('"').removesuffix('"')
     try:
         return int(raw)
     except ValueError:

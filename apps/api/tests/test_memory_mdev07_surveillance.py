@@ -639,9 +639,7 @@ def test_http_pause_requires_if_match(
 
 
 @pytest.mark.unit
-def test_http_confirm_happy_path(
-    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_http_confirm_happy_path(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     from collections.abc import Iterator
     from contextlib import contextmanager
 

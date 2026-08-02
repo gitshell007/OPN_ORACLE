@@ -97,7 +97,7 @@ describe("DossierCustomBriefSection", () => {
     await waitFor(() => expect(getBrief).toHaveBeenCalled());
     await vi.advanceTimersByTimeAsync(2100);
     await waitFor(() =>
-      expect(screen.getByText("Plan propuesto (revisar)")).toBeInTheDocument(),
+      expect(screen.getByText("Plan propuesto")).toBeInTheDocument(),
     );
     expect(screen.getByText("Resumen ejecutivo")).toBeInTheDocument();
     const stored = JSON.parse(sessionStorage.getItem("oracle:dossier-brief:d1") ?? "{}");
@@ -131,7 +131,7 @@ describe("DossierCustomBriefSection", () => {
 
     await waitFor(() => expect(getBrief).toHaveBeenCalledWith("d1", "r-reload"));
     await waitFor(() =>
-      expect(screen.getByText("Plan propuesto (revisar)")).toBeInTheDocument(),
+      expect(screen.getByText("Plan propuesto")).toBeInTheDocument(),
     );
     expect(screen.getByText(/Encargo restaurado/)).toBeInTheDocument();
     expect(screen.getByText("Siguientes acciones")).toBeInTheDocument();

@@ -112,11 +112,7 @@ def serialize_custom_brief(report: Report) -> dict[str, Any]:
         "requested_by_user_id": str(report.requested_by_user_id),
         "created_at": report.created_at.isoformat() if report.created_at else None,
         "updated_at": report.updated_at.isoformat() if report.updated_at else None,
-        "ready_at": (
-            report.ready_at.isoformat()
-            if getattr(report, "ready_at", None)
-            else None
-        ),
+        "ready_at": (report.ready_at.isoformat() if getattr(report, "ready_at", None) else None),
     }
 
 
