@@ -964,6 +964,10 @@ def execute_agent(
         fail(error, active_attempt_id=attempt_id)
         raise
     output = result.output.model_dump(mode="json")
+    # Preserve bilateral trust hash from Signal validated_output (MDEV-06).
+    vo_hash = getattr(result, "validated_output_sha256", None)
+    if vo_hash:
+        output["validated_output_sha256"] = str(vo_hash)
     try:
         if agent == "dossier_completion_wizard":
             validate_dossier_completion_output(output, context)
