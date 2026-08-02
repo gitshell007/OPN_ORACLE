@@ -19,6 +19,7 @@ from opn_oracle.integrations.memory_contract_v1 import (
     materialize_signal_item_to_evidence,
     should_inject_into_llm,
 )
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 
 MemoryMode = Literal["disabled", "shadow", "augment"]
 PROMPT_RUNTIME_ID = "RT-07"
@@ -328,9 +329,7 @@ def load_oracle_authority_from_session(
             .where(
                 Evidence.id.in_(evidence_ids),
                 Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(
-                    ("signal", "document", "procurement", "entity_intel", "memory_signal")
-                ),
+                Evidence.source_kind.in_(DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS),
             )
             .order_by(Evidence.created_at.desc())
             .limit(40)

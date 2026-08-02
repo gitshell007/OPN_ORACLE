@@ -20,6 +20,7 @@ from opn_oracle.oracle.intent import (
     DossierOffering,
     IntelligenceRequirement,
 )
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 from opn_oracle.oracle.links import EvidenceDossier, MeetingActor
 from opn_oracle.oracle.models import (
     Actor,
@@ -460,7 +461,7 @@ def build_context(
             .where(
                 Evidence.id.in_(evidence_ids),
                 Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(("signal", "document", "procurement", "entity_intel")),
+                Evidence.source_kind.in_(DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS),
             )
             .order_by(Evidence.created_at.desc())
             .limit(50)
