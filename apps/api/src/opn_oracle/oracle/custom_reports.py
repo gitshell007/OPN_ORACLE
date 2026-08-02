@@ -33,6 +33,35 @@ def _iso_or_none(value: object) -> str | None:
 
 
 CUSTOM_BRIEF_TEMPLATE_KEY = "custom_assistant_brief"
+
+# RT-08 v1.0.2: optional semantic arrays — missing keys normalize to [].
+BRIEF_PLAN_OPTIONAL_ARRAY_KEYS: tuple[str, ...] = (
+    "facts",
+    "claims",
+    "conflicts",
+    "inferences",
+    "recommendations",
+)
+
+
+def normalize_brief_plan_output(plan: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize RT-08 plan: absent optional arrays become ``[]``; present arrays kept.
+
+    Does not invent sections or other required fields. Safe on non-dict input → {}.
+    """
+
+    if not isinstance(plan, dict):
+        out: dict[str, Any] = {}
+    else:
+        out = dict(plan)
+    for key in BRIEF_PLAN_OPTIONAL_ARRAY_KEYS:
+        if key not in out or out[key] is None:
+            out[key] = []
+        elif not isinstance(out[key], list):
+            out[key] = []
+    return out
+
+
 CUSTOM_BRIEF_TEMPLATE_VERSION = "v1"
 CUSTOM_BRIEF_REPORT_TYPE = "custom_assistant"
 CUSTOM_BRIEF_JOB = "oracle.report.custom_brief.plan"
@@ -409,7 +438,7 @@ def process_custom_brief_plan(
         }
     options["plan_status"] = "proposed"
     options["lifecycle_state"] = "plan_proposed"
-    options["proposed_plan"] = proposed_plan
+    options["proposed_plan"] = normalize_brief_plan_output(proposed_plan)
     options["mutates_intent"] = False
     options["mutates_memory_facts"] = False
     report.options = options
@@ -483,24 +512,31 @@ def _plan_via_signal(
     sections = output.get("sections") or []
     if not isinstance(sections, list) or not sections:
         raise CustomReportError("El plan IA no incluye sections.")
-    proposed_plan = {
-        "version": str(output.get("version") or "custom_brief_plan.v1"),
-        "audience": str(output.get("audience") or "equipo del expediente"),
-        "scope": str(output.get("scope") or ""),
-        "period": str(output.get("period") or "sin fijar"),
-        "sections": sections,
-        "formats": list(output.get("formats") or ["html", "json"]),
-        "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
-        "notes": list(output.get("notes") or []),
-        "open_questions": list(output.get("open_questions") or []),
-        "warnings": list(output.get("warnings") or []),
-        "confidence": output.get("confidence"),
-        "job_id": str(job.id),
-        "artifact_id": str(artifact.id),
-        "audit_log_id": str(result.get("audit_log_id") or ""),
-        "provider_path": "signal",
-        "task_key": "report_custom_brief_plan",
-    }
+    proposed_plan = normalize_brief_plan_output(
+        {
+            "version": str(output.get("version") or "custom_brief_plan.v1"),
+            "audience": str(output.get("audience") or "equipo del expediente"),
+            "scope": str(output.get("scope") or ""),
+            "period": str(output.get("period") or "sin fijar"),
+            "sections": sections,
+            "formats": list(output.get("formats") or ["html", "json"]),
+            "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest() if brief else None,
+            "notes": list(output.get("notes") or []),
+            "open_questions": list(output.get("open_questions") or []),
+            "warnings": list(output.get("warnings") or []),
+            "facts": output.get("facts"),
+            "claims": output.get("claims"),
+            "conflicts": output.get("conflicts"),
+            "inferences": output.get("inferences"),
+            "recommendations": output.get("recommendations"),
+            "confidence": output.get("confidence"),
+            "job_id": str(job.id),
+            "artifact_id": str(artifact.id),
+            "audit_log_id": str(result.get("audit_log_id") or ""),
+            "provider_path": "signal",
+            "task_key": "report_custom_brief_plan",
+        }
+    )
     meta = {
         "artifact_id": str(artifact.id),
         "task_key": "report_custom_brief_plan",

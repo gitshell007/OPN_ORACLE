@@ -253,20 +253,76 @@ def test_mutation_stage_caller_removed_returns_no_stage(
     assert called["stage"] is True
 
 
-def test_rt08_prompt_contract_requires_empty_arrays() -> None:
+def test_rt08_v102_optional_arrays_and_parser_defaults() -> None:
+    """RT-08 v1.0.2: optional arrays + normalize missing → []."""
+    import json
     from importlib.resources import files
+    from copy import deepcopy
+
+    from opn_oracle.oracle.custom_report_runtime_catalog import load_contractual_runtime_catalog
+    from opn_oracle.oracle.custom_reports import (
+        BRIEF_PLAN_OPTIONAL_ARRAY_KEYS,
+        normalize_brief_plan_output,
+    )
 
     text = files("opn_oracle.ai.prompts").joinpath("report_custom_brief_plan/v1.md").read_text(
         encoding="utf-8"
     )
-    assert "1.0.1" in text
+    assert "1.0.2" in text
     assert "facts" in text and "claims" in text
-    assert "`[]`" in text or "[]" in text
-    assert "sin wrappers" in text or "sin wrappers" in text.lower() or "sin wrappers" in text or "wrappers" in text
-    from opn_oracle.oracle.custom_report_runtime_catalog import load_contractual_runtime_catalog
 
     cat = load_contractual_runtime_catalog()
-    assert cat["RT-08"]["prompt_version"] == "1.0.1"
+    assert cat["RT-08"]["prompt_version"] == "1.0.2"
+    assert cat["RT-08"]["schema_sha256"] == (
+        "949a1b57b628246594ffc169d77a7cb676a11d90fa43a5910ab455920e7028f7"
+    )
+    assert cat["RT-08"]["prompt_sha256"] == (
+        "3768e8828e623cf69608ed799f900f389b4e3e9d57b85fbcc189bb67bf4c92fe"
+    )
+
+    # Schema-level: without optional arrays is valid under v1.0.2 contract.
+    # (Contract schema lives on Signal; Oracle mirrors required keys via catalog + parser.)
+    minimal = {
+        "version": "custom_brief_plan.v1",
+        "sections": [{"id": "executive", "title": "Resumen ejecutivo", "required": True}],
+    }
+    normalized = normalize_brief_plan_output(minimal)
+    for key in BRIEF_PLAN_OPTIONAL_ARRAY_KEYS:
+        assert key in normalized
+        assert normalized[key] == []
+    assert normalized["sections"] == minimal["sections"]
+
+    # With arrays present → intact
+    with_arrays = {
+        **minimal,
+        "facts": [{"id": "f1"}],
+        "claims": [{"id": "c1"}],
+        "conflicts": [],
+        "inferences": [{"id": "i1"}],
+        "recommendations": ["r1"],
+    }
+    intact = normalize_brief_plan_output(with_arrays)
+    assert intact["facts"] == [{"id": "f1"}]
+    assert intact["claims"] == [{"id": "c1"}]
+    assert intact["inferences"] == [{"id": "i1"}]
+    assert intact["recommendations"] == ["r1"]
+    assert intact["conflicts"] == []
+
+    # Mutation: temporarily force "required" semantics by clearing defaults → RED
+    # Simulate pre-v1.0.2 consumer that required keys present without normalize.
+    def _strict_required(plan: dict) -> None:
+        for key in BRIEF_PLAN_OPTIONAL_ARRAY_KEYS:
+            assert key in plan  # would fail without normalize
+
+    bare = deepcopy(minimal)
+    try:
+        _strict_required(bare)
+        raised = False
+    except AssertionError:
+        raised = True
+    assert raised is True, "mutation RED: bare plan without defaults must fail strict required"
+    # restore path: normalize → GREEN
+    _strict_required(normalize_brief_plan_output(bare))
 
 
 def test_normalize_checksum_from_bytes() -> None:

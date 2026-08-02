@@ -33,6 +33,7 @@ from opn_oracle.oracle.custom_reports import (
     CustomReportNotFound,
     _sha256,
     get_custom_brief,
+    normalize_brief_plan_output,
 )
 from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.models import Report, StrategicDossier
@@ -634,7 +635,7 @@ def _build_accepted_snapshot(
         "runtime_plan": "RT-08",
         "runtime_writer": "RT-09",
         "runtime_review": "RT-10",
-        "prompt_version": "1.0.1",
+        "prompt_version": "1.0.2",
         "schema_version": "custom_report.v1",
         "runtime_sha256": runtime_hashes,
         "catalog_source": "signal_verified_manifests_contractual_v1",
@@ -723,7 +724,7 @@ def accept_plan(
     if dossier is None:
         raise CustomReportNotFound("Expediente no encontrado.")
 
-    accepted_plan = dict(proposed)
+    accepted_plan = normalize_brief_plan_output(proposed)
     accepted_plan["accepted_at"] = datetime.now(UTC).isoformat()
     accepted_plan["accepted_by_user_id"] = str(actor_id)
     snapshot = _build_accepted_snapshot(
@@ -827,7 +828,7 @@ def edit_plan(
             errors={"plan": ["sections requerido"]},
         )
     options = dict(report.options or {})
-    options["proposed_plan"] = dict(proposed_plan)
+    options["proposed_plan"] = normalize_brief_plan_output(proposed_plan)
     options["plan_status"] = "proposed"
     options["lifecycle_state"] = "plan_proposed"
     options["plan_edited_by"] = str(actor_id)
