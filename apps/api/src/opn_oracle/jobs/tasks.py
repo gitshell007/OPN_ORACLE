@@ -131,8 +131,32 @@ AI_RETRY_CAUSE_JOB_TYPES = {
     "oracle.weekly_change.refresh",
     "oracle.memory.refresh",
     "oracle.dossier_summary.refresh",
+    # Preguntar dual-memory: without this, PermanentJobError('permanent_failure') from
+    # None hides AIUnavailable / ConversationError and blocks demo diagnosis.
+    "oracle.dossier_question.answer",
 }
 logger = logging.getLogger(__name__)
+
+
+def _exception_cause_text(error: BaseException) -> str:
+    """Type + message of the deepest __cause__, falling back to the outer error.
+
+    Celery re-raises with `from None` so the public log is generic; the durable job
+    row must still keep the operator-facing root cause (type + message).
+    """
+
+    seen: set[int] = set()
+    current: BaseException = error
+    while current.__cause__ is not None and id(current.__cause__) not in seen:
+        seen.add(id(current))
+        current = current.__cause__
+    text = redact(str(current)).strip()
+    type_name = type(current).__name__
+    if not text:
+        return type_name
+    if text.startswith(type_name):
+        return text
+    return f"{type_name}: {text}"
 
 
 def _ai_handler(agent: str) -> Handler:
@@ -190,15 +214,14 @@ def _permanent_failure_message(job: BackgroundJob, error: Exception) -> str:
     """Igual que `_retry_exhausted_message`: la causa solo para jobs de IA.
 
     Los jobs de IA exponen la causa porque el operador la necesita para diagnosticar
-    (es lo que permitió ver el "Invalid JSON: EOF" del informe de entidad). Para el
-    resto, el mensaje debe quedar genérico: el texto de una excepción cualquiera puede
-    arrastrar fragmentos del payload. La versión anterior lo filtraba para todos los
-    tipos de job, y el test de integración que lo cubre no se estaba ejecutando.
+    (es lo que permitió ver el "Invalid JSON: EOF" del informe de entidad y el
+    allowlist dual de Preguntar). Para el resto, el mensaje debe quedar genérico: el
+    texto de una excepción cualquiera puede arrastrar fragmentos del payload.
     """
 
     if not (job.job_type.startswith("oracle.ai.") or job.job_type in AI_RETRY_CAUSE_JOB_TYPES):
         return "El job no pudo completarse."
-    cause = redact(str(error)).strip()
+    cause = _exception_cause_text(error)
     if not cause:
         return "El job no pudo completarse."
     return f"El job no pudo completarse. Causa: {cause}"[:500]

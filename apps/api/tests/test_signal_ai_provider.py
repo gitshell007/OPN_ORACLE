@@ -606,3 +606,64 @@ def test_stripping_unauthorized_citations_keeps_the_authorized_ones() -> None:
     assert len(parrafos) == 1
     assert parrafos[0].evidence_ids == [permitida]
     assert "inventada" not in parrafos[0].text
+
+
+def test_merge_allowed_evidence_ids_unions_top_level_and_requested_scope() -> None:
+    """SV2-REGRESION-ASK: dual-memory scope must not be dropped when top-level is non-empty.
+
+    Regression: top-level had 1 oracle Evidence id while requested_scope held ~20
+    dual-memory ids. Provider used only top-level → Signal allowlist=1, model cited
+    dual ids → local _validate_allowed_evidence raised AIUnavailable after HTTP 200.
+    """
+    from opn_oracle.ai.provider import _merge_allowed_evidence_ids
+
+    top = "b15d77de-2e99-40d2-8087-1eaa79709e3a"
+    dual_a = "c030c465-8294-438c-91a7-14b49657f91f"
+    dual_b = "49a5073d-6b29-43ec-8dd9-d87deec011b9"
+    merged = _merge_allowed_evidence_ids(
+        {
+            "allowed_evidence_ids": [top, dual_a],
+            "requested_scope": {"allowed_evidence_ids": [dual_a, dual_b, ""]},
+        }
+    )
+    assert merged == [top, dual_a, dual_b]
+
+
+def test_dossier_question_sends_merged_allowlist_to_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Body.allowed_evidence_ids must be the union of top-level + dual scope."""
+    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.ai.schemas import DossierQuestionAnswerOutput
+
+    top = "b15d77de-2e99-40d2-8087-1eaa79709e3a"
+    dual = "c030c465-8294-438c-91a7-14b49657f91f"
+    captured: dict[str, object] = {}
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        captured["allowed"] = list(body.get("allowed_evidence_ids") or [])
+        request_http = httpx.Request("POST", url)
+        # Fail after capture; we only assert the outbound allowlist.
+        return httpx.Response(500, request=request_http, text="boom")
+
+    monkeypatch.setattr("opn_oracle.ai.provider.httpx.post", post)
+    provider = SignalGovernedLLMProvider(
+        base_url="https://signal.test", api_key="k", timeout_seconds=3
+    )
+    request = LLMRequest(
+        agent="dossier_question_answer",
+        model="m",
+        system_prompt="s",
+        task_prompt="t",
+        context={
+            "allowed_evidence_ids": [top],
+            "requested_scope": {"allowed_evidence_ids": [dual]},
+        },
+        max_output_tokens=100,
+        classification="public",
+    )
+    with pytest.raises(AIUnavailable):
+        provider.generate_structured(request, DossierQuestionAnswerOutput)
+    assert captured["allowed"] == [top, dual]

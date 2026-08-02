@@ -840,6 +840,37 @@ class OllamaLLMProvider:
         return ProviderHealth("healthy", self.model)
 
 
+def _merge_allowed_evidence_ids(context: dict[str, Any]) -> list[str]:
+    """Union top-level allowlist with dual-memory IDs under requested_scope.
+
+    SV2-AUG nests dual-memory `allowed_evidence_ids` under `requested_scope` while
+    `build_context` may still publish a non-empty top-level allowlist (often a
+    single oracle Evidence row). Using only the top-level list when it is non-empty
+    drops the dual-memory IDs that the model is instructed to cite, so RT-07 and
+    local `_validate_allowed_evidence` disagree and Preguntar fails closed with
+    AIUnavailable despite Signal returning HTTP 200.
+    """
+
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: Any) -> None:
+        if not isinstance(raw, list):
+            return
+        for item in raw:
+            value = str(item).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+
+    _add(context.get("allowed_evidence_ids"))
+    scope = context.get("requested_scope")
+    if isinstance(scope, dict):
+        _add(scope.get("allowed_evidence_ids"))
+    return merged
+
+
 def _validate_allowed_evidence(output: BaseModel, allowed_values: list[str]) -> None:
     """Reject model citations that are not part of the authorized context snapshot."""
 
@@ -1174,18 +1205,7 @@ class SignalGovernedLLMProvider:
             schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")
         )
         context_json = json.dumps(request.context, ensure_ascii=False, separators=(",", ":"))
-        allowed_evidence_ids = [
-            str(item) for item in request.context.get("allowed_evidence_ids", [])
-        ]
-        # SV2-AUG: execute_agent nests dual-memory allowlist under requested_scope
-        if not allowed_evidence_ids:
-            scope = request.context.get("requested_scope")
-            if isinstance(scope, dict):
-                allowed_evidence_ids = [
-                    str(item)
-                    for item in (scope.get("allowed_evidence_ids") or [])
-                    if str(item).strip()
-                ]
+        allowed_evidence_ids = _merge_allowed_evidence_ids(request.context)
         allowed_evidence_json = json.dumps(
             allowed_evidence_ids, ensure_ascii=False, separators=(",", ":")
         )
