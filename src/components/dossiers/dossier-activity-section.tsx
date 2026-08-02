@@ -25,6 +25,16 @@ const KIND_LABEL: Record<string, string> = {
   signal_monitor: "Monitor Signal",
   procurement_watch: "Licitaciones",
   background_job: "Trabajo",
+  surveillance_action: "Acción de vigilancia",
+};
+
+const ACTION_TYPE_LABEL: Record<string, string> = {
+  news_mentions: "Noticias y menciones",
+  official_publications: "Publicaciones oficiales",
+  actor_tenders: "Licitaciones del actor",
+  offering_tenders: "Licitaciones de la oferta",
+  research_digest: "Digest de investigación",
+  no_follow: "Sin seguimiento",
 };
 
 const INTENT_LABEL: Record<string, string> = {
@@ -56,24 +66,78 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
   const [data, setData] = useState<DossierActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [alignmentBusy, setAlignmentBusy] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setForbidden(false);
     try {
       const result = await api.dossierActivity.get(dossierId, { limit: 100, offset: 0 });
       setData(result);
     } catch (reason) {
       setData(null);
-      setError(
-        reason instanceof ApiError
-          ? reason.problem.detail
-          : "No se pudo cargar la actividad del expediente.",
-      );
+      if (reason instanceof ApiError && (reason.status === 403 || reason.status === 401)) {
+        setForbidden(true);
+        setError("No tienes permiso para ver la actividad de este expediente.");
+      } else {
+        setError(
+          reason instanceof ApiError
+            ? reason.problem.detail
+            : "No se pudo cargar la actividad del expediente.",
+        );
+      }
     } finally {
       setLoading(false);
     }
   }, [dossierId]);
+
+  async function resolveAlignment(
+    item: DossierActivityItem,
+    decision: "adopt" | "keep" | "retire",
+  ) {
+    const version = Number(item.target?.row_version ?? 0);
+    const path =
+      decision === "retire"
+        ? `/api/v1/dossiers/${dossierId}/surveillance-actions/${item.id}/alignment/retire`
+        : `/api/v1/dossiers/${dossierId}/surveillance-actions/${item.id}/alignment/${decision}`;
+    setAlignmentBusy(`${item.id}:${decision}`);
+    setActionMessage(null);
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `align-${decision}-${item.id}-${Date.now()}`,
+          "If-Match": `W/"${version || 1}"`,
+        },
+      });
+      if (response.status === 403 || response.status === 401) {
+        setActionMessage("No tienes permiso para resolver el desalineamiento.");
+        return;
+      }
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+        setActionMessage(body?.detail ?? "No se pudo aplicar la decisión.");
+        return;
+      }
+      setActionMessage(
+        decision === "adopt"
+          ? "Alcance adoptado con la intención vigente."
+          : decision === "keep"
+            ? "Se conserva el alcance anterior (override)."
+            : "Vigilancia retirada.",
+      );
+      await load();
+    } catch {
+      setActionMessage("Error de red al resolver la revisión de alcance.");
+    } finally {
+      setAlignmentBusy(null);
+    }
+  }
 
   useEffect(() => {
     const kickoff = window.setTimeout(() => void load(), 0);
@@ -93,11 +157,13 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
   if (error || !data) {
     return (
       <div className="not-found" role="alert">
-        <strong>Actividad no disponible</strong>
+        <strong>{forbidden ? "Acceso restringido" : "Actividad no disponible"}</strong>
         <p>{error ?? "Sin datos."}</p>
-        <button type="button" className="vector-secondary" onClick={() => void load()}>
-          <RefreshCw size={15} /> Reintentar
-        </button>
+        {!forbidden ? (
+          <button type="button" className="vector-secondary" onClick={() => void load()}>
+            <RefreshCw size={15} /> Reintentar
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -175,9 +241,18 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
         )}
       </section>
 
+      {actionMessage ? (
+        <p className="status" role="status">
+          {actionMessage}
+        </p>
+      ) : null}
+
       <section className="vector-panel" aria-label="Listado de actividad">
         {items.length === 0 ? (
-          <p>No hay vigilancias ni trabajos en este expediente.</p>
+          <p>
+            No hay vigilancias ni trabajos en este expediente. Puedes vincular un actor o competidor
+            sin seguimiento y confirmar después cada tipo de vigilancia.
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="dense-table">
@@ -189,40 +264,100 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
                   <th scope="col">Cadencia</th>
                   <th scope="col">Próximo / último</th>
                   <th scope="col">Error</th>
+                  <th scope="col">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={`${item.kind}-${item.id}`}>
-                    <td>{KIND_LABEL[item.kind] ?? item.kind}</td>
-                    <td>
-                      <strong>{item.title}</strong>
-                      {item.alignment_state === "needs_review" ? (
-                        <span className="status warning"> Revisión de alcance</span>
-                      ) : null}
-                    </td>
-                    <td>
-                      <span
-                        className={
-                          item.product_state === "needs_attention"
-                            ? "status danger"
-                            : item.product_state === "active"
-                              ? "status active"
-                              : "status"
-                        }
-                      >
-                        {STATE_LABEL[item.product_state] ?? item.product_state}
-                      </span>
-                    </td>
-                    <td>{item.cadence ?? "—"}</td>
-                    <td>
-                      {formatWhen(item.next_run_at)}
-                      <br />
-                      <small>{formatWhen(item.last_success_at ?? item.last_attempt_at)}</small>
-                    </td>
-                    <td>{item.last_error ?? "—"}</td>
-                  </tr>
-                ))}
+                {items.map((item) => {
+                  const actionType =
+                    typeof item.target?.action_type === "string"
+                      ? item.target.action_type
+                      : undefined;
+                  const degraded = Boolean(item.target?.degraded);
+                  return (
+                    <tr key={`${item.kind}-${item.id}`}>
+                      <td>
+                        {KIND_LABEL[item.kind] ?? item.kind}
+                        {actionType ? (
+                          <>
+                            <br />
+                            <small>{ACTION_TYPE_LABEL[actionType] ?? actionType}</small>
+                          </>
+                        ) : null}
+                      </td>
+                      <td>
+                        <strong>{item.title}</strong>
+                        {item.alignment_state === "needs_review" ? (
+                          <span className="status warning"> Revisión de alcance</span>
+                        ) : null}
+                        {degraded ? (
+                          <span className="status warning"> Degradado</span>
+                        ) : null}
+                      </td>
+                      <td>
+                        <span
+                          className={
+                            item.product_state === "needs_attention"
+                              ? "status danger"
+                              : item.product_state === "active"
+                                ? "status active"
+                                : "status"
+                          }
+                        >
+                          {STATE_LABEL[item.product_state] ?? item.product_state}
+                        </span>
+                      </td>
+                      <td>{item.cadence ?? "—"}</td>
+                      <td>
+                        {formatWhen(item.next_run_at)}
+                        <br />
+                        <small>{formatWhen(item.last_success_at ?? item.last_attempt_at)}</small>
+                      </td>
+                      <td>
+                        {item.last_error ?? "—"}
+                        {degraded && item.target?.degraded_reason ? (
+                          <>
+                            <br />
+                            <small>{String(item.target.degraded_reason)}</small>
+                          </>
+                        ) : null}
+                      </td>
+                      <td>
+                        {item.kind === "surveillance_action" &&
+                        item.alignment_state === "needs_review" ? (
+                          <div className="inline-actions" role="group" aria-label="Revisión de alcance">
+                            <button
+                              type="button"
+                              className="vector-primary"
+                              disabled={alignmentBusy === `${item.id}:adopt`}
+                              onClick={() => void resolveAlignment(item, "adopt")}
+                            >
+                              Adoptar
+                            </button>
+                            <button
+                              type="button"
+                              className="vector-secondary"
+                              disabled={alignmentBusy === `${item.id}:keep`}
+                              onClick={() => void resolveAlignment(item, "keep")}
+                            >
+                              Conservar
+                            </button>
+                            <button
+                              type="button"
+                              className="vector-secondary"
+                              disabled={alignmentBusy === `${item.id}:retire`}
+                              onClick={() => void resolveAlignment(item, "retire")}
+                            >
+                              Retirar
+                            </button>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

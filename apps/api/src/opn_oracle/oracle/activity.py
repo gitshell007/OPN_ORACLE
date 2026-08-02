@@ -28,6 +28,7 @@ from opn_oracle.oracle.policy import dossier_accessible
 from opn_oracle.oracle.procurement_search_profiles import ProcurementSearchProfile
 from opn_oracle.oracle.procurement_search_watch import ProcurementSearchWatch
 from opn_oracle.oracle.service import ResourceNotFound
+from opn_oracle.oracle.surveillance import DossierSurveillanceAction
 from opn_oracle.tenants.context import require_tenant_id
 
 PRODUCT_STATES = frozenset(
@@ -134,6 +135,56 @@ def build_dossier_activity(
     offerings = [serialize_offering(row) for row in list_offerings(session, dossier_id)]
 
     items: list[dict[str, Any]] = []
+
+    # MDEV-07 confirmed surveillance actions (human opt-in).
+    for action in session.scalars(
+        select(DossierSurveillanceAction)
+        .where(
+            DossierSurveillanceAction.tenant_id == tenant_id,
+            DossierSurveillanceAction.dossier_id == dossier_id,
+        )
+        .order_by(DossierSurveillanceAction.updated_at.desc())
+    ).all():
+        product_state = action.status
+        if product_state == "retired":
+            product_state = "finished"
+        items.append(
+            {
+                "kind": "surveillance_action",
+                "id": str(action.id),
+                "title": action.title or action.action_type,
+                "product_state": product_state
+                if product_state in PRODUCT_STATES
+                else "prepared",
+                "desired_status": action.status,
+                "observed_status": action.status,
+                "cadence": action.cadence,
+                "next_run_at": _iso(action.next_run_at),
+                "last_success_at": _iso(action.last_run_at),
+                "last_attempt_at": _iso(action.last_attempt_at),
+                "last_error": _safe_error(action.last_error),
+                "intent_revision_id": (
+                    str(action.intent_revision_id) if action.intent_revision_id else None
+                ),
+                "requirement_id": (
+                    str(action.requirement_id) if action.requirement_id else None
+                ),
+                "alignment_state": action.alignment_state,
+                "provider_ref": (
+                    str(action.signal_monitor_id) if action.signal_monitor_id else None
+                ),
+                "target": {
+                    "action_type": action.action_type,
+                    "actor_id": str(action.actor_id) if action.actor_id else None,
+                    "offering_id": str(action.offering_id) if action.offering_id else None,
+                    "retry_count": action.retry_count,
+                    "retry_after": _iso(action.retry_after),
+                    "degraded": bool(action.degraded),
+                    "degraded_reason": action.degraded_reason,
+                    "row_version": action.row_version,
+                },
+            }
+        )
 
     watchlists = list(
         session.scalars(

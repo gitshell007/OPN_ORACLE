@@ -2738,9 +2738,43 @@ export interface DossierActivityItem {
   last_success_at?: string | null;
   last_attempt_at?: string | null;
   last_error?: string | null;
+  intent_revision_id?: string | null;
+  requirement_id?: string | null;
   alignment_state?: string | null;
   provider_ref?: string | null;
   target?: Record<string, unknown>;
+}
+
+/** MDEV-07 human-confirmed surveillance action. */
+export interface SurveillanceAction {
+  id: string;
+  dossier_id: string;
+  action_type:
+    | "news_mentions"
+    | "official_publications"
+    | "actor_tenders"
+    | "offering_tenders"
+    | "research_digest"
+    | "no_follow"
+    | string;
+  status: string;
+  alignment_state: string;
+  cadence: "manual" | "hourly" | "daily" | "weekly" | string;
+  timezone: string;
+  actor_id?: string | null;
+  offering_id?: string | null;
+  requirement_id?: string | null;
+  intent_revision_id?: string | null;
+  effective_scope_hash: string;
+  origin: string;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_error?: string | null;
+  retry_count: number;
+  retry_after?: string | null;
+  row_version: number;
+  degraded?: boolean;
+  degraded_reason?: string | null;
 }
 
 export interface DossierIntentRevision {
@@ -2854,6 +2888,28 @@ const dossierActivity = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/activity${suffix}`,
     );
   },
+};
+
+/** MDEV-07 surveillance confirm / list (mutations require backend permission). */
+const surveillanceActions = {
+  list: (dossierId: string, query?: { action_type?: string; actor_id?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.action_type) params.set("action_type", query.action_type);
+    if (query?.actor_id) params.set("actor_id", query.actor_id);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<{ dossier_id: string; items: SurveillanceAction[]; total: number }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/surveillance-actions${suffix}`,
+    );
+  },
+  confirm: (
+    dossierId: string,
+    input: Record<string, unknown>,
+    idempotencyKey: string,
+  ) =>
+    request<SurveillanceAction & { duplicate?: boolean }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/surveillance-actions/confirm`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
 };
 
 const dossierConversations = {
@@ -2988,6 +3044,7 @@ export const api = {
   documents,
   investigations,
   dossierActivity,
+  surveillanceActions,
   dossierConversations,
   customBriefs,
   reports,

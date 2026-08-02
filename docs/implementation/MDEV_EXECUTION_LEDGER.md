@@ -118,7 +118,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | MDEV-04 | pending | pending | | | |
 | MDEV-05 | pending | pending | | | |
 | MDEV-06 | pending | pending | | | |
-| MDEV-07 | pending | pending | | | |
+| MDEV-07 | implemented_with_debt (provisional) | awaiting_codex_review | tip branch mdev/07-vigilancias-actividad | tip branch mdev/07-vigilancias-actividad | Gate Packet ANSWER_000014; deuda MDEV-05/06 visible; NEXT≠MDEV-08 hasta 4º MDEV-06 |
 | MDEV-08 | pending | pending | | | |
 | MDEV-09 | pending | pending | | | |
 | MDEV-10 | pending | pending | | | |

@@ -82,6 +82,7 @@ export type {
   CustomBriefDetail,
   DossierActivityItem,
   DossierActivityResponse,
+  SurveillanceAction,
   DossierIntentRevision,
   DossierIntelligenceRequirement,
   DossierOffering,
