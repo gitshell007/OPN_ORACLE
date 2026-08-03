@@ -347,6 +347,10 @@ def test_confirm_idempotent_and_actor_zero_monitors(monkeypatch: pytest.MonkeyPa
         assert first.signal_monitor_id is None
         assert first.watchlist_id is None
         assert first.effective_scope_hash
+        # Honesty: local confirm without Signal monitor is degraded (not silently active).
+        assert first.degraded is True
+        assert first.degraded_reason is not None
+        assert "SIGNAL-MONITOR-ABSENT" in first.degraded_reason
 
         second, created2 = surv.confirm_surveillance_action(
             session,  # type: ignore[arg-type]
@@ -360,6 +364,7 @@ def test_confirm_idempotent_and_actor_zero_monitors(monkeypatch: pytest.MonkeyPa
         )
         assert created2 is False
         assert second.id == first.id
+        assert second.degraded is True
         assert len(session.actions) == 1
 
         assert (

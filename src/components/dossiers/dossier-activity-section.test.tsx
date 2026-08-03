@@ -87,4 +87,46 @@ describe("DossierActivitySection", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/No se pudo cargar/),
     );
   });
+
+  it("no presenta vigilancia local sin monitor como Activo", async () => {
+    getActivity.mockResolvedValue({
+      dossier_id: "d1",
+      intent: null,
+      requirements: [],
+      offerings: [],
+      summary: {
+        total: 1,
+        by_state: { needs_attention: 1 },
+        by_kind: { surveillance_action: 1 },
+      },
+      items: [
+        {
+          kind: "surveillance_action",
+          id: "sa1",
+          title: "Vigilancia news Nexus/IberVolt",
+          product_state: "needs_attention",
+          desired_status: "active",
+          observed_status: "active",
+          cadence: "daily",
+          last_error: "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal",
+          target: {
+            action_type: "news_mentions",
+            degraded: true,
+            degraded_reason:
+              "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; no vigila de verdad",
+            signal_monitor_id: null,
+          },
+        },
+      ],
+      pagination: { limit: 100, offset: 0, total: 1 },
+    });
+
+    render(<DossierActivitySection dossierId="d1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Vigilancia news Nexus/IberVolt")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Sin monitor Signal")).toBeVisible();
+    expect(screen.getByText("No vigila")).toBeVisible();
+    expect(screen.queryByText("Activo")).not.toBeInTheDocument();
+  });
 });

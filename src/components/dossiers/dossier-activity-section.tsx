@@ -276,6 +276,22 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
                       ? item.target.action_type
                       : undefined;
                   const degraded = Boolean(item.target?.degraded);
+                  const missingMonitor =
+                    item.kind === "surveillance_action" &&
+                    (degraded || item.target?.signal_monitor_id == null) &&
+                    item.desired_status !== "retired" &&
+                    item.desired_status !== "finished";
+                  // Never show a green «Activo» when the row does not watch Signal.
+                  const statusLabel = missingMonitor
+                    ? "Sin monitor Signal"
+                    : (STATE_LABEL[item.product_state] ?? item.product_state);
+                  const statusClass = missingMonitor
+                    ? "status warning"
+                    : item.product_state === "needs_attention"
+                      ? "status danger"
+                      : item.product_state === "active"
+                        ? "status active"
+                        : "status";
                   return (
                     <tr key={`${item.kind}-${item.id}`}>
                       <td className="dense-col-type">
@@ -289,22 +305,12 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
                         {item.alignment_state === "needs_review" ? (
                           <span className="status warning"> Revisión de alcance</span>
                         ) : null}
-                        {degraded ? (
-                          <span className="status warning"> Degradado</span>
+                        {degraded || missingMonitor ? (
+                          <span className="status warning"> No vigila</span>
                         ) : null}
                       </td>
                       <td className="dense-col-status">
-                        <span
-                          className={
-                            item.product_state === "needs_attention"
-                              ? "status danger"
-                              : item.product_state === "active"
-                                ? "status active"
-                                : "status"
-                          }
-                        >
-                          {STATE_LABEL[item.product_state] ?? item.product_state}
-                        </span>
+                        <span className={statusClass}>{statusLabel}</span>
                       </td>
                       <td className="dense-col-cadence">{item.cadence ?? "—"}</td>
                       <td className="dense-col-when">

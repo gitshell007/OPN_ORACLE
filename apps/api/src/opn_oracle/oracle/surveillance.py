@@ -673,12 +673,20 @@ def confirm_surveillance_action(
                 cadence=cadence, timezone=timezone, from_time=now
             )
         existing.row_version += 1
-        # MDEV-05 debt: do not pretend durable remote activation.
-        if create_backend_resources and action_type != "no_follow":
+        # Honest product state: without a real Signal monitor the action does not watch.
+        # create_backend_resources is reserved for a future wire; today it never materializes
+        # signal_monitor_id, so mark degraded whenever the row would claim to be active.
+        if action_type != "no_follow" and existing.signal_monitor_id is None:
             existing.degraded = True
-            existing.degraded_reason = (
-                "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
-            )
+            if create_backend_resources:
+                existing.degraded_reason = (
+                    "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
+                )
+            else:
+                existing.degraded_reason = (
+                    "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
+                    "no vigila de verdad"
+                )
         append_audit_event(
             session,
             action="surveillance.confirmed.idempotent",
@@ -702,12 +710,19 @@ def confirm_surveillance_action(
         if action_type == "no_follow"
         else compute_next_run_at(cadence=cadence, timezone=timezone, from_time=now)
     )
+    # Path confirm → Signal monitor is not wired yet (MDEV-07 / SV2-VIGILANCIAS).
+    # Never present a local row as fully active when signal_monitor_id stays null.
     degraded = False
     degraded_reason = None
-    if create_backend_resources and action_type != "no_follow":
-        # Explicit flag for tests that want to exercise fail-closed remote path.
+    if action_type != "no_follow":
         degraded = True
-        degraded_reason = "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
+        if create_backend_resources:
+            degraded_reason = "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
+        else:
+            degraded_reason = (
+                "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
+                "no vigila de verdad"
+            )
 
     action = DossierSurveillanceAction(
         tenant_id=tenant_id,

@@ -148,6 +148,22 @@ def build_dossier_activity(
         product_state = action.status
         if product_state == "retired":
             product_state = "finished"
+        # Honesty: an "active" row without Signal monitor is not really watching.
+        # Surface degraded on the read model even for legacy rows that never set the flag.
+        watching_statuses = {"active", "pending", "running", "retrying"}
+        no_real_monitor = action.signal_monitor_id is None and action.action_type != "no_follow"
+        degraded = bool(action.degraded) or (
+            no_real_monitor and action.status in watching_statuses
+        )
+        degraded_reason = action.degraded_reason
+        if degraded and not degraded_reason and no_real_monitor:
+            degraded_reason = (
+                "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
+                "no vigila de verdad"
+            )
+        # Prefer product_state that does not lie as plain "active" when monitor is missing.
+        if degraded and product_state == "active" and no_real_monitor:
+            product_state = "needs_attention"
         items.append(
             {
                 "kind": "surveillance_action",
@@ -160,7 +176,9 @@ def build_dossier_activity(
                 "next_run_at": _iso(action.next_run_at),
                 "last_success_at": _iso(action.last_run_at),
                 "last_attempt_at": _iso(action.last_attempt_at),
-                "last_error": _safe_error(action.last_error),
+                "last_error": _safe_error(action.last_error) or (
+                    degraded_reason if degraded and no_real_monitor else None
+                ),
                 "intent_revision_id": (
                     str(action.intent_revision_id) if action.intent_revision_id else None
                 ),
@@ -175,8 +193,11 @@ def build_dossier_activity(
                     "offering_id": str(action.offering_id) if action.offering_id else None,
                     "retry_count": action.retry_count,
                     "retry_after": _iso(action.retry_after),
-                    "degraded": bool(action.degraded),
-                    "degraded_reason": action.degraded_reason,
+                    "degraded": degraded,
+                    "degraded_reason": degraded_reason,
+                    "signal_monitor_id": (
+                        str(action.signal_monitor_id) if action.signal_monitor_id else None
+                    ),
                     "row_version": action.row_version,
                 },
             }
