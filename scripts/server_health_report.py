@@ -811,6 +811,95 @@ def render_html(report: dict[str, Any]) -> str:
     def chip(value: str, extra_class: str = "") -> str:
         return f"<span class='chip {extra_class}'>{esc(value)}</span>"
 
+    def disk_chart(capture: dict[str, Any]) -> str:
+        disk = capture.get("data", {}).get("disk", {})
+        try:
+            total = max(0, int(disk.get("total_bytes") or 0))
+            free = min(total, max(0, int(disk.get("free_bytes") or 0)))
+        except (TypeError, ValueError):
+            return ""
+        if total <= 0:
+            return ""
+        used = total - free
+        free_pct = free / total * 100
+        used_pct = used / total * 100
+        free_change = capture.get("variation", {}).get("disk_free_bytes")
+        label = f"{format_bytes(free)} libres frente a {format_bytes(used)} ocupados"
+        return f"""
+        <div style='margin-top:16px;padding:14px;border:1px solid #e5ebf2;border-radius:14px;background:#fbfcfe'>
+          <div class='detail-label' style='margin-bottom:10px'>Disco raíz · libre frente a ocupado</div>
+          <div style='display:flex;align-items:center;gap:14px'>
+            <svg role='img' aria-label='{esc(label)}' viewBox='0 0 42 42' width='104' height='104' style='flex:none;display:block'>
+              <circle cx='21' cy='21' r='15.9' fill='none' stroke='#e0e7ef' stroke-width='6'/>
+              <circle cx='21' cy='21' r='15.9' fill='none' stroke='#32a984' stroke-width='6' stroke-linecap='round' stroke-dasharray='{free_pct:.4f} {used_pct:.4f}' transform='rotate(-90 21 21)'/>
+              <text x='21' y='20.2' text-anchor='middle' fill='#152238' font-size='6.2' font-weight='700'>{free_pct:.0f}%</text>
+              <text x='21' y='25.1' text-anchor='middle' fill='#7b899a' font-size='3.5'>LIBRE</text>
+            </svg>
+            <div style='min-width:0;flex:1'>
+              <div style='color:#152238;font-size:13px;font-weight:750;line-height:1.3'>{esc(format_bytes(free))} libres</div>
+              <div style='margin-top:3px;color:#6c7a8e;font-size:11px'>{esc(format_bytes(used))} ocupados · {esc(format_bytes(total))} total</div>
+              <div style='display:flex;flex-wrap:wrap;gap:7px 12px;margin-top:10px;color:#526176;font-size:10px'>
+                <span><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#32a984;margin-right:4px'></span>Libre {free_pct:.1f}%</span>
+                <span><span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#e0e7ef;margin-right:4px'></span>Ocupado {used_pct:.1f}%</span>
+              </div>
+              <div class='{change_class(free_change)}' style='margin-top:7px'>Variación de espacio libre: {esc(format_pct(free_change))}</div>
+            </div>
+          </div>
+        </div>"""
+
+    def storage_chart(capture: dict[str, Any]) -> str:
+        storage = storage_usage(capture)
+        items: list[dict[str, Any]] = []
+        for item in storage.get("directories", []):
+            path = str(item.get("path") or "")
+            try:
+                size = max(0, int(item.get("size_bytes") or 0))
+            except (TypeError, ValueError):
+                continue
+            if path and size > 0:
+                items.append({"path": path, "size_bytes": size, "kind": "DIR"})
+        items = sorted(items, key=lambda item: int(item["size_bytes"]), reverse=True)[:10]
+        total = sum(int(item["size_bytes"]) for item in items)
+        if not items or total <= 0:
+            return ""
+
+        palette = ("#2f6fed", "#32a984", "#c7a667", "#8b6fc4", "#e27d60", "#4e9bb5", "#d26a9a", "#78926a", "#c47c3c", "#65758b")
+        segments: list[str] = []
+        legend: list[str] = []
+        offset = 25.0
+        for index, item in enumerate(items):
+            percentage = int(item["size_bytes"]) / total * 100
+            color = palette[index % len(palette)]
+            segments.append(
+                f"<circle cx='21' cy='21' r='15.9' fill='none' stroke='{color}' stroke-width='6' stroke-linecap='butt' stroke-dasharray='{percentage:.4f} {100 - percentage:.4f}' stroke-dashoffset='{offset:.4f}' transform='rotate(-90 21 21)'/>"
+            )
+            offset -= percentage
+            variation = capture.get("variation", {}).get("storage_directories", {}).get(item["path"])
+            legend.append(
+                f"<div style='display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px solid #edf0f4;font-size:10px;line-height:1.3'>"
+                f"<span style='flex:none;width:8px;height:8px;margin-top:2px;border-radius:2px;background:{color}'></span>"
+                f"<span style='min-width:0;flex:1;color:#526176;overflow-wrap:anywhere'><strong style='color:#7a8798;font-size:9px'>{item['kind']}</strong> {esc(item['path'])}</span>"
+                f"<strong style='flex:none;color:#152238'>{esc(format_bytes(item['size_bytes']))} <em class='{change_class(variation)}'>{esc(format_pct(variation))}</em></strong>"
+                "</div>"
+            )
+        return f"""
+        <div style='margin-top:10px;padding:14px;border:1px solid #e5ebf2;border-radius:14px;background:#fff'>
+          <div class='detail-label' style='margin-bottom:10px'>Qué ocupa más · top 10 directorios</div>
+          <div style='display:flex;align-items:center;gap:14px'>
+            <svg role='img' aria-label='Top 10 directorios por espacio ocupado' viewBox='0 0 42 42' width='104' height='104' style='flex:none;display:block'>
+              <circle cx='21' cy='21' r='15.9' fill='none' stroke='#edf0f4' stroke-width='6'/>
+              {''.join(segments)}
+              <text x='21' y='19.5' text-anchor='middle' fill='#152238' font-size='5.2' font-weight='700'>TOP 10</text>
+              <text x='21' y='24.4' text-anchor='middle' fill='#7b899a' font-size='3.4'>ELEMENTOS</text>
+            </svg>
+            <div style='min-width:0;flex:1;color:#6c7a8e;font-size:10px;line-height:1.45'>
+              <strong style='display:block;color:#152238;font-size:13px'>{esc(format_bytes(total))}</strong>
+              <span>peso relativo entre los 10 directorios seleccionados</span>
+            </div>
+          </div>
+          <div style='margin-top:10px'>{''.join(legend)}</div>
+        </div>"""
+
     server_cards: list[str] = []
     spend_captures = [capture for capture in report["targets"] if openrouter_spend(capture)]
     spend_details: list[str] = []
@@ -906,6 +995,7 @@ def render_html(report: dict[str, Any]) -> str:
             extras += f"<div class='detail-block'><div class='detail-label'>Top 10 archivos por tamaño</div><div class='detail-list'>{storage_file_rows}</div></div>"
         if data.get("errors"):
             extras += f"<div class='alert'>{'; '.join(esc(item) for item in data['errors'])}</div>"
+        charts = disk_chart(capture) + storage_chart(capture)
         server_cards.append(f"""
         <article class='server-card'>
           <div class='server-head'><div><div class='server-kicker'>{esc(str(data.get('os', 'Linux')))} · CPU {esc(data.get('cpu_count', 'n/d'))} · carga {esc(data.get('load_1m', 'n/d'))}</div><h3>{label}</h3><div class='host'>{host}</div></div><span class='status {status_class}'>{status_label}</span></div>
@@ -915,6 +1005,7 @@ def render_html(report: dict[str, Any]) -> str:
             {metric_card('Bases de datos', format_bytes(metrics.get('database_total_bytes')), variation.get('database_total_bytes'))}
             {metric_card('Tareas', task_summary(capture), variation.get('tasks_total'))}
           </div>
+          {charts}
           <div class='server-details'>{extras}</div>
         </article>""")
 

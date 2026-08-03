@@ -14,6 +14,10 @@ El monitor genera un informe diario para info@opnconsultoria.com con:
   por consumidor, modelo, tarea, proyecto, coste y estado. Se obtiene de `ai_usage_logs` en
   Signal y se calcula con los tokens y el catálogo de precios registrado; se etiqueta como coste
   registrado y no como factura descargada del proveedor.
+- HTML premium: un donut por servidor compara espacio libre frente a ocupado y otro donut muestra
+  los 10 directorios que más ocupan, con su variación diaria. El segundo gráfico expresa el peso
+  relativo dentro de esos 10 directorios para evitar doble contabilización con sus archivos hijos;
+  el informe conserva debajo el detalle completo de los top 10 directorios y top 10 archivos.
 
 La ejecución es externa al backend Flask: un host monitor conecta por SSH, recibe un pequeño
 recolector por stdin y no instala agentes ni modifica los servidores consultados. El histórico se
@@ -47,9 +51,10 @@ El timer queda programado a las 08:00 de Europe/Madrid, con hasta diez minutos d
 Persistent=true permite recuperar una ejecución perdida tras reiniciar el host.
 
 El correo se entrega como HTML responsive: cabecera ejecutiva, tarjetas de KPIs, control de coste
-OpenRouter y una tarjeta por servidor. A 430 px de ancho (viewport aproximado de un iPhone 16 Pro
-Max) las métricas se apilan en dos columnas y el único detalle tabular, el desglose OpenRouter,
-se desplaza horizontalmente dentro de su propia caja sin ensanchar el correo completo.
+OpenRouter, dos gráficos inline por servidor y una tarjeta por servidor. A 430 px de ancho (viewport
+aproximado de un iPhone 16 Pro Max) los donuts no dependen de recursos externos, las métricas se
+apilan en dos columnas y el único detalle tabular, el desglose OpenRouter, se desplaza
+horizontalmente dentro de su propia caja sin ensanchar el correo completo.
 
 ## Seguridad y límites
 
