@@ -1954,3 +1954,20 @@ def test_dossier_procurement_routes_pin_list_delete_and_replay(
         g.active_tenant_id = tenant_id
         deleted = oracle_routes.dossier_procurement_delete(dossier_id, item_id)
     assert deleted == {"deleted": True, "id": str(item_id)}
+
+
+def test_snapshot_deadline_parses_iso_date_and_datetime() -> None:
+    from datetime import date
+
+    assert procurement_items._snapshot_deadline({"deadline": "2026-09-30"}) == date(
+        2026, 9, 30
+    )
+    assert procurement_items._snapshot_deadline(
+        {"deadline": "2026-09-30T23:59:00Z"}
+    ) == date(2026, 9, 30)
+    assert procurement_items._snapshot_deadline({"deadline_date": "2026-01-15"}) == date(
+        2026, 1, 15
+    )
+    assert procurement_items._snapshot_deadline({"deadline": None}) is None
+    assert procurement_items._snapshot_deadline({"deadline": "sin-fecha"}) is None
+    assert procurement_items._snapshot_deadline({}) is None

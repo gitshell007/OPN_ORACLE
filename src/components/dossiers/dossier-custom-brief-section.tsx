@@ -367,10 +367,11 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
                 ? `Generación bloqueada (${detail.generation_blocked_code || "blocked"}): ${
                     detail.generation_blocked_reason ||
                     detail.memory_degraded_reason ||
-                    "memoria durable no disponible (MDEV-05)"
+                    "la memoria del expediente no está disponible ahora"
                   }`
                 : `Degradado: ${
-                    detail.memory_degraded_reason || "memoria durable no disponible (MDEV-05)"
+                    detail.memory_degraded_reason ||
+                    "la memoria del expediente no está disponible ahora"
                   }`}
             </p>
           ) : null}

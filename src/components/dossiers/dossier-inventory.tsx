@@ -31,17 +31,17 @@ import { CreateProductDossierDialog } from "@/components/navigation/create-produ
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 
 const STATUS_OPTIONS = ["draft", "active", "paused", "archived"] as const;
+/** Tipos ofrecidos al filtrar: alineados con los creables en el diálogo «Nuevo expediente».
+ *  Los legados (technology, investment, product_launch, risk_watch) siguen en TYPE_LABELS
+ *  para mostrar filas históricas, pero no se ofrecen como filtro muerto que devuelve cero. */
 const TYPE_OPTIONS = [
   "project",
   "strategic_account",
   "market",
-  "technology",
   "tender_or_grant",
-  "investment",
   "partnership",
-  "product_launch",
   "regulatory_affair",
-  "risk_watch",
+  "competitive_intelligence",
   "custom",
 ] as const;
 const SORT_OPTIONS: readonly DossierSort[] = [
@@ -81,6 +81,7 @@ const TYPE_LABELS: Record<string, string> = {
   product_launch: "Lanzamiento",
   regulatory_affair: "Asunto regulatorio",
   risk_watch: "Vigilancia de riesgo",
+  competitive_intelligence: "Inteligencia competitiva",
   custom: "Otro",
 };
 const COLUMN_LABELS: Record<OptionalColumn, string> = {

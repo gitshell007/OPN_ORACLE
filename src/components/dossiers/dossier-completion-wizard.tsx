@@ -131,7 +131,7 @@ export function DossierCompletionWizard({ dossierId }: { dossierId: string }) {
     } catch {
       setRunning(false);
       setError(
-        "No se pudo lanzar la ronda. Si Signal aún no conoce esta task, el proceso puede quedar bloqueado hasta desplegarla.",
+        "No se pudo lanzar la ronda de mejora. Comprueba la conexión o inténtalo de nuevo en unos minutos. Si el problema continúa, contacta con tu administrador.",
       );
     }
   }

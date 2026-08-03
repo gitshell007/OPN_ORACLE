@@ -3276,6 +3276,9 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
         assert promoted_again is False
         assert replay.id == opportunity.id
         assert opportunity.confidence == 70
+        # Ola 0 · punto 3: la fecha límite de la licitación debe copiarse a la oportunidad.
+        assert opportunity.deadline is not None
+        assert opportunity.deadline.isoformat() == "2026-09-30"
         assert (
             db.session.get(
                 OpportunityEvidence,

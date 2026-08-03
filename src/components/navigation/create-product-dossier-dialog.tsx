@@ -500,7 +500,11 @@ export function CreateProductDossierDialog({
                 </label>
               </section>
             )}
-            {(!isMarket || step === "context") && starterField}
+            {/* Base inicial: en pantallas de un solo paso va aquí; en wizards multi-paso
+                solo al final, para no rellenar cuatro pantallas y crear un expediente vacío. */}
+            {!isMarket && type !== "competitive_intelligence" && starterField}
+            {isMarket && step === "decision" && starterField}
+            {type === "competitive_intelligence" && reviewing && starterField}
             {error && <p className="form-error" role="alert">{error}</p>}
             {type === "competitive_intelligence" && reviewing && (
               <section className="competitive-review" aria-labelledby="competitive-review-title">

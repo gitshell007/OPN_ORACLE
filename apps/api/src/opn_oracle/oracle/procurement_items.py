@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import uuid
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, cast
 
@@ -629,6 +630,35 @@ def delete_procurement_item(
     return True
 
 
+def _snapshot_deadline(snapshot: dict[str, Any]) -> date | None:
+    """Copy a tender closing date into Opportunity.deadline when parseable.
+
+    PLACSP/Signal may store a plain ISO date or a datetime. Unparseable values
+    are ignored (None) so promotion never fails solely because of date shape.
+    """
+
+    raw = snapshot.get("deadline")
+    if raw in (None, ""):
+        raw = snapshot.get("deadline_date")
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, datetime):
+        return raw.date()
+    if isinstance(raw, date):
+        return raw
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        if "T" in text or " " in text or "+" in text[10:]:
+            return datetime.fromisoformat(text).date()
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
 def promote_procurement_to_opportunity(
     session: Session,
     *,
@@ -659,12 +689,13 @@ def promote_procurement_to_opportunity(
         if existing is not None:
             return existing, False
     title = str(item.snapshot.get("title") or f"Contratación {item.folder_id}")[:300]
+    snapshot = item.snapshot if isinstance(item.snapshot, dict) else {}
     opportunity = Opportunity(
         tenant_id=tenant_id,
         dossier_id=dossier_id,
         opportunity_type="public_procurement",
         title=title,
-        description=procurement_evidence_extract(item.snapshot)[:10000],
+        description=procurement_evidence_extract(snapshot)[:10000],
         confidence=70,
         overall_score=0,
         score_details={
@@ -676,6 +707,7 @@ def promote_procurement_to_opportunity(
                 "evidence_ids": [str(item.evidence_id)],
             }
         },
+        deadline=_snapshot_deadline(snapshot),
         next_action="Completar la evaluación participar/no participar.",
         owner_user_id=actor_id,
     )
