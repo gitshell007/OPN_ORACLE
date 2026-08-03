@@ -946,3 +946,85 @@ def test_snapshot_fail_rebuilds_effective_manifest(monkeypatch: pytest.MonkeyPat
     assert result.get("snapshot_id") in (None, "")
     # Allowlist only contains effectively persisted evidence ids
     assert len(result["allowed_evidence_ids"]) == 1
+
+
+def test_humanize_structured_deadline_and_amount_for_llm_prompt() -> None:
+    from opn_oracle.integrations.memory_ask_dual import (
+        _humanize_structured_memory_text,
+        build_signal_factual_block,
+    )
+    from opn_oracle.integrations.memory_contract_v1 import MaterializedCitation
+
+    raw_deadline = "tender.deadline: {'datetime': '2026-04-15T14:00:00'}"
+    humanized = _humanize_structured_memory_text(raw_deadline)
+    assert "15 de abril de 2026" in humanized
+    assert "14:00" in humanized
+    assert "ISO 2026-04-15T14:00:00" in humanized
+    # Idempotent: already humanized text is left intact.
+    assert _humanize_structured_memory_text(humanized) == humanized
+
+    raw_amount = "tender.amount: {'amount': 2400000, 'currency': 'EUR'}"
+    amount = _humanize_structured_memory_text(raw_amount)
+    assert "2.400.000 EUR" in amount
+    assert "amount=2400000" in amount
+
+    def _cit(
+        *,
+        evidence_id: str,
+        signal_item_id: str,
+        excerpt: str,
+        checksum: str,
+    ) -> MaterializedCitation:
+        return MaterializedCitation(
+            oracle_evidence_id=evidence_id,
+            signal_item_id=signal_item_id,
+            source_ref=f"signal://{signal_item_id}",
+            checksum=checksum,
+            exact_excerpt=excerpt,
+            classification="internal",
+            locator="{}",
+            occurred_at=None,
+            policy_version="memory.v1",
+            watermark="wm-1",
+            tenant_id="t1",
+            dossier_id="d1",
+        )
+
+    # Presentation order: tender key facts before company boilerplate.
+    citations = (
+        _cit(
+            evidence_id="e-company",
+            signal_item_id="s1",
+            excerpt="[company:name:x] company.legal_name: {'name': 'X'}",
+            checksum="c1",
+        ),
+        _cit(
+            evidence_id="e-deadline",
+            signal_item_id="s2",
+            excerpt="tender.deadline: {'datetime': '2026-04-15T14:00:00'}",
+            checksum="c2",
+        ),
+        _cit(
+            evidence_id="e-ext",
+            signal_item_id="s3",
+            excerpt="tender.external_id: {'id': 'LIC-OATDA-2026-017'}",
+            checksum="c3",
+        ),
+        _cit(
+            evidence_id="e-amount",
+            signal_item_id="s4",
+            excerpt="tender.amount: {'amount': 2400000, 'currency': 'EUR'}",
+            checksum="c4",
+        ),
+    )
+    block = build_signal_factual_block(
+        mode="augment", citations=citations, observed_count=4
+    )
+    texts = [str(item["text"]) for item in block["items"]]
+    ids = [str(item["evidence_id"]) for item in block["items"]]
+    assert ids[0] == "e-ext"
+    assert ids[1] == "e-deadline"
+    assert ids[2] == "e-amount"
+    assert ids[3] == "e-company"
+    assert "15 de abril de 2026" in texts[1]
+    assert "2.400.000 EUR" in texts[2]

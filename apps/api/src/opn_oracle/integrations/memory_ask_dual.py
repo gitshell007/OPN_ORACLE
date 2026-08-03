@@ -7,8 +7,8 @@ non-citable items. Does not promote memory facts or mutate IntentRevision.
 from __future__ import annotations
 
 import hashlib
-import re
 import json
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -23,7 +23,7 @@ from opn_oracle.integrations.memory_contract_v1 import (
 
 MemoryMode = Literal["disabled", "shadow", "augment"]
 PROMPT_RUNTIME_ID = "RT-07"
-PROMPT_RUNTIME_VERSION = "1.0.0"
+PROMPT_RUNTIME_VERSION = "1.0.1"
 SCHEMA_RUNTIME_VERSION = "dossier_question_answer.v1"
 
 # Retryable technical failures that must preserve Celery backoff/deadline.
@@ -366,52 +366,172 @@ _MONTHS_ES = (
     "diciembre",
 )
 
+# Prompt order bias: RT-07 caps citations (~8). Company boilerplate often fills the
+# budget before tender.external_id / amount / deadline, so the model omits the demo
+# markers even when those facts are in the allowlist. Stable priority is presentation
+# only — never invents or drops evidence.
+_PROMPT_FACT_PRIORITY: tuple[tuple[str, int], ...] = (
+    ("tender.external_id", 0),
+    ("tender.deadline", 1),
+    ("tender.amount", 2),
+    ("tender.title", 3),
+    ("tender.buyer", 4),
+    ("tender.publication_date", 5),
+    ("tender.cpv", 6),
+    ("tender.", 20),
+    ("company.", 40),
+)
+
+
+def _format_es_date_time(iso_datetime: str) -> str | None:
+    """Return Spanish prose for an ISO date/datetime, or None if unparsable."""
+
+    raw = (iso_datetime or "").strip()
+    if len(raw) < 10:
+        return None
+    date_part = raw[:10]
+    try:
+        year_s, month_s, day_s = date_part.split("-")
+        year, month, day = int(year_s), int(month_s), int(day_s)
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return None
+    except (TypeError, ValueError):
+        return None
+    prose = f"{day} de {_MONTHS_ES[month - 1]} de {year}"
+    time_match = re.match(
+        r"^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})(?::\d{2})?",
+        raw,
+    )
+    if time_match:
+        prose = f"{prose}, {time_match.group(1)}:{time_match.group(2)}"
+    return prose
+
+
+def _format_es_amount(amount_raw: str, currency: str | None = None) -> str | None:
+    """Format a numeric amount with Spanish thousands separators (no invention)."""
+
+    cleaned = (amount_raw or "").strip().replace(" ", "").replace(",", "")
+    if not cleaned:
+        return None
+    try:
+        # Integers preferred; accept simple decimals without inventing cents.
+        if "." in cleaned:
+            number = float(cleaned)
+            if not number.is_integer():
+                # Keep original numeric token; only group the integer part.
+                int_part, frac = cleaned.split(".", 1)
+                grouped = f"{int(int_part):,}".replace(",", ".") + "," + frac
+            else:
+                grouped = f"{int(number):,}".replace(",", ".")
+        else:
+            grouped = f"{int(cleaned):,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return None
+    cur = (currency or "").strip().upper()
+    if cur:
+        return f"{grouped} {cur}"
+    return grouped
+
 
 def _humanize_structured_deadline_text(text: str) -> str:
     """Render structured tender.deadline ISO datetimes as Spanish prose for the LLM.
 
     Dual-memory often materializes ``tender.deadline: {'datetime': '2026-04-15T14:00:00'}``.
     Without a human form the model rarely emits the demo marker «15 de abril» even when
-    the ISO date is present and cited.
+    the ISO date is present and cited. Always keep the ISO form next to the prose so the
+    model copies rather than invents a calendar format.
     """
 
-    def _replace(match: re.Match[str]) -> str:
-        iso = match.group("iso") or match.group("iso2") or ""
-        try:
-            # Accept trailing Z / offsets loosely: take date portion.
-            date_part = iso[:10]
-            year_s, month_s, day_s = date_part.split("-")
-            year, month, day = int(year_s), int(month_s), int(day_s)
-            if not (1 <= month <= 12 and 1 <= day <= 31):
-                return match.group(0)
-            label = match.group("label") or "tender.deadline: "
-            return (
-                f"{label}{day} de {_MONTHS_ES[month - 1]} de {year} "
-                f"(ISO {date_part}; original {match.group(0).split(':', 1)[-1].strip()})"
-            )
-        except (TypeError, ValueError, IndexError):
-            return match.group(0)
+    # Already humanized (idempotent): leave untouched.
+    if re.search(r"tender\.deadline:\s*\d{1,2}\s+de\s+\w+\s+de\s+20\d{2}", text, flags=re.I):
+        return text
 
-    # Simpler, robust path for the common single-key dict form.
-    simple = re.compile(
-        r"tender\.deadline:\s*\{[^}]*['\"]datetime['\"]\s*:\s*['\"]"
-        r"(20\d{2}-\d{2}-\d{2})T[^'\"]*['\"][^}]*\}",
+    patterns = (
+        # Dict form: tender.deadline: {'datetime': '2026-04-15T14:00:00'}
+        re.compile(
+            r"tender\.deadline:\s*\{[^}]*['\"]datetime['\"]\s*:\s*['\"]"
+            r"(?P<iso>20\d{2}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)"
+            r"[^'\"]*['\"][^}]*\}",
+            flags=re.IGNORECASE,
+        ),
+        # Bare ISO after label: tender.deadline: 2026-04-15T14:00:00
+        re.compile(
+            r"tender\.deadline:\s*"
+            r"(?P<iso>20\d{2}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)"
+            r"(?=\s|$)",
+            flags=re.IGNORECASE,
+        ),
+    )
+
+    def _replace(match: re.Match[str]) -> str:
+        iso = match.group("iso")
+        prose = _format_es_date_time(iso)
+        if not prose:
+            return match.group(0)
+        return f"tender.deadline: {prose} (ISO {iso})"
+
+    out = text
+    for pattern in patterns:
+        out = pattern.sub(_replace, out)
+    return out
+
+
+def _humanize_structured_amount_text(text: str) -> str:
+    """Render structured tender.amount as Spanish thousands-grouped currency for the LLM.
+
+    Memory stores ``tender.amount: {'amount': 2400000, 'currency': 'EUR'}``. The demo
+    marker and spoken Spanish use ``2.400.000``; surface that form next to the raw amount.
+    """
+
+    if re.search(r"tender\.amount:\s*[\d.]+\s*[A-Z]{3}\b", text, flags=re.I):
+        return text
+
+    pattern = re.compile(
+        r"tender\.amount:\s*\{(?P<body>[^}]*)\}",
         flags=re.IGNORECASE,
     )
 
-    def _simple_replace(match: re.Match[str]) -> str:
-        date_part = match.group(1)
-        try:
-            year_s, month_s, day_s = date_part.split("-")
-            year, month, day = int(year_s), int(month_s), int(day_s)
-            return (
-                f"tender.deadline: {day} de {_MONTHS_ES[month - 1]} de {year} "
-                f"(ISO {date_part})"
-            )
-        except (TypeError, ValueError, IndexError):
+    def _replace(match: re.Match[str]) -> str:
+        body = match.group("body")
+        amount_m = re.search(
+            r"['\"]amount['\"]\s*:\s*['\"]?(\d+(?:[.,]\d+)?)['\"]?",
+            body,
+            flags=re.IGNORECASE,
+        )
+        if not amount_m:
             return match.group(0)
+        currency_m = re.search(
+            r"['\"]currency['\"]\s*:\s*['\"]([A-Za-z]{3})['\"]",
+            body,
+            flags=re.IGNORECASE,
+        )
+        raw_amount = amount_m.group(1)
+        currency = currency_m.group(1) if currency_m else None
+        formatted = _format_es_amount(raw_amount, currency)
+        if not formatted:
+            return match.group(0)
+        raw_note = f"amount={raw_amount}" + (
+            f", currency={currency.upper()}" if currency else ""
+        )
+        return f"tender.amount: {formatted} ({raw_note})"
 
-    return simple.sub(_simple_replace, text)
+    return pattern.sub(_replace, text)
+
+
+def _humanize_structured_memory_text(text: str) -> str:
+    """Apply all structured-fact humanizations used before LLM injection."""
+
+    return _humanize_structured_amount_text(_humanize_structured_deadline_text(text))
+
+
+def _prompt_fact_sort_key(text: str) -> tuple[int, str]:
+    """Stable sort key: key tender facts first, then other tender.*, then company.*."""
+
+    lowered = (text or "").lower()
+    for needle, priority in _PROMPT_FACT_PRIORITY:
+        if needle in lowered:
+            return (priority, lowered)
+    return (80, lowered)
 
 
 def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -423,7 +543,7 @@ def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     """
 
     text = str(raw.get("text") or raw.get("extract") or "").strip()
-    text = _humanize_structured_deadline_text(text)
+    text = _humanize_structured_memory_text(text)
     if not text:
         return None
     item_id = str(raw.get("id") or "").strip()
@@ -524,7 +644,7 @@ def materialize_augment_items(
         prior = index.get(key)
         evidence_id: str | None = None
         if prior is not None:
-            prior_extract = _humanize_structured_deadline_text(
+            prior_extract = _humanize_structured_memory_text(
                 str(prior.get("exact_excerpt") or prior.get("extract") or "")
             )
             if (
@@ -584,7 +704,7 @@ def build_signal_factual_block(
                 {
                     "evidence_id": c.oracle_evidence_id,
                     "signal_item_id": c.signal_item_id,
-                    "text": _humanize_structured_deadline_text(c.exact_excerpt),
+                    "text": _humanize_structured_memory_text(c.exact_excerpt),
                     "source_ref": c.source_ref,
                     "checksum": c.checksum,
                     "locator": c.locator,
@@ -592,6 +712,9 @@ def build_signal_factual_block(
                     "untrusted_external": True,
                 }
             )
+        # Presentation order only: surface key tender facts before company boilerplate
+        # so RT-07's citation budget is more likely to cover expediente/importe/plazo.
+        items_for_prompt.sort(key=lambda item: _prompt_fact_sort_key(str(item.get("text") or "")))
     return {
         "block": "signal_factual",
         "mode": mode,
@@ -821,7 +944,18 @@ def build_dual_ask_context(
         citations=citations,
         observed_count=len(retrieval_items or []),
     )
-    allowed = tuple(c.oracle_evidence_id for c in citations) if mode == "augment" else ()
+    # Prefer the presentation order of signal_factual items (key tender facts first).
+    if mode == "augment":
+        ordered_ids = [
+            str(item.get("evidence_id") or "")
+            for item in list(signal_block.get("items") or [])
+            if isinstance(item, dict) and str(item.get("evidence_id") or "").strip()
+        ]
+        allowed = tuple(ordered_ids) if ordered_ids else tuple(
+            c.oracle_evidence_id for c in citations
+        )
+    else:
+        allowed = ()
     manifest, digest = build_input_manifest(
         mode=mode,
         oracle_authority=authority,
