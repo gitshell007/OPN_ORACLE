@@ -96,7 +96,7 @@ describe("DossierProfilePanel", () => {
     const { container } = render(
       <DossierProfilePanel
         dossierId="d1"
-        dossierType="project"
+        dossierType="unknown_type"
         profileConfig={{}}
         draft={null}
         onDraftChange={() => undefined}
@@ -104,5 +104,94 @@ describe("DossierProfilePanel", () => {
       />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("edita el perfil custom (oferta, competidores, CPV, barreras, decisión)", () => {
+    const onDraftChange = vi.fn();
+    const onSave = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+    render(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="custom"
+        profileConfig={{
+          version: "custom.v1",
+          own_offer: "Software e IA",
+          competitors: [{ name: "Capgemini", aliases: [] }],
+        }}
+        draft={{
+          kind: "custom",
+          own_offer: "Software e IA",
+          decision_to_make: "Priorizar PLACSP software",
+          competitors: "Capgemini, NTT DATA, Inetum",
+          barriers: "Homologación",
+          cpv: "72000000, 72200000",
+          keywords: "IA, software",
+          geographies: "ES",
+          target_buyers: "AAPP",
+          segments: "sector público",
+          business_objective: "Ganar cuota IT pública",
+          success_indicators: "pipeline",
+          sources: "PLACSP",
+        }}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Perfil del expediente" })).toBeVisible();
+    expect(screen.getByLabelText("Oferta propia")).toHaveValue("Software e IA");
+    expect(screen.getByLabelText("Decisión a tomar")).toHaveValue("Priorizar PLACSP software");
+    expect(screen.getByLabelText("Competidores")).toHaveValue("Capgemini, NTT DATA, Inetum");
+    expect(screen.getByLabelText("Códigos CPV")).toHaveValue("72000000, 72200000");
+    expect(screen.getByLabelText("Barreras")).toHaveValue("Homologación");
+
+    fireEvent.change(screen.getByLabelText("Oferta propia"), {
+      target: { value: "Software, plataformas e IA" },
+    });
+    expect(onDraftChange).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+    expect(onSave).toHaveBeenCalled();
+  });
+
+  it("muestra el perfil custom en modo lectura con enlace a configuración", () => {
+    render(
+      <DossierProfilePanel
+        dossierId="ab7bba16"
+        dossierType="custom"
+        profileConfig={{
+          version: "custom.v1",
+          own_offer: "Software e IA Nexus",
+          competitors: [{ name: "Capgemini", aliases: [] }],
+          cpv: ["72000000"],
+        }}
+        draft={{
+          kind: "custom",
+          own_offer: "Software e IA Nexus",
+          decision_to_make: "Priorizar cuentas",
+          competitors: "Capgemini, NTT DATA, Inetum",
+          barriers: "Homologación",
+          cpv: "72000000",
+          keywords: "",
+          geographies: "ES",
+          target_buyers: "",
+          segments: "",
+          business_objective: "",
+          success_indicators: "",
+          sources: "",
+        }}
+        onDraftChange={() => undefined}
+        onSave={(event) => event.preventDefault()}
+        readOnly
+      />,
+    );
+
+    expect(screen.getByTestId("dossier-profile-summary")).toBeVisible();
+    expect(screen.getByText("Software e IA Nexus")).toBeVisible();
+    expect(screen.getByText("Capgemini, NTT DATA, Inetum")).toBeVisible();
+    expect(screen.getByText("72000000")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Editar en configuración/ })).toHaveAttribute(
+      "href",
+      "/app/dossiers/ab7bba16/settings#dossier-profile",
+    );
   });
 });

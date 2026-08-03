@@ -11,8 +11,10 @@ describe("dossier-profile helpers", () => {
   it("clasifica tipos de perfil", () => {
     expect(profileKindFor("market")).toBe("market");
     expect(profileKindFor("competitive_intelligence")).toBe("competitive_intelligence");
-    expect(profileKindFor("project")).toBe("empty");
-    expect(profileKindFor("project", { mystery: true })).toBe("other");
+    expect(profileKindFor("custom")).toBe("custom");
+    expect(profileKindFor("project")).toBe("custom");
+    expect(profileKindFor("unknown_type")).toBe("empty");
+    expect(profileKindFor("unknown_type", { mystery: true })).toBe("custom");
   });
 
   it("serializa y deserializa un perfil de mercado", () => {
@@ -47,6 +49,40 @@ describe("dossier-profile helpers", () => {
       { name: "Rival A", aliases: [] },
       { name: "Rival B", aliases: [] },
     ]);
+  });
+
+  it("serializa el perfil custom del expediente demo (oferta, CPV, competidores, decisión)", () => {
+    const draft = draftFromProfileConfig("custom", {
+      version: "v1",
+      own_offer: "Software e IA para sector público",
+      decision_to_make: "Priorizar cuentas PLACSP software",
+      competitors: [
+        { name: "Capgemini", aliases: [] },
+        { name: "NTT DATA", aliases: [] },
+        { name: "Inetum", aliases: [] },
+      ],
+      cpv: ["72000000", "72200000", "72212000"],
+      barriers: ["Homologación sector público"],
+      keywords: ["software", "IA"],
+    });
+    expect(draft?.kind).toBe("custom");
+    expect(draft && draft.kind === "custom" && draft.competitors).toBe(
+      "Capgemini, NTT DATA, Inetum",
+    );
+    expect(draft && draft.kind === "custom" && draft.cpv).toBe(
+      "72000000, 72200000, 72212000",
+    );
+    const payload = profileConfigFromDraft(draft!);
+    expect(payload.version).toBe("custom.v1");
+    expect(payload.own_offer).toBe("Software e IA para sector público");
+    expect(payload.decision_to_make).toBe("Priorizar cuentas PLACSP software");
+    expect(payload.competitors).toEqual([
+      { name: "Capgemini", aliases: [] },
+      { name: "NTT DATA", aliases: [] },
+      { name: "Inetum", aliases: [] },
+    ]);
+    expect(payload.cpv).toEqual(["72000000", "72200000", "72212000"]);
+    expect(payload.barriers).toEqual(["Homologación sector público"]);
   });
 
   it("parsea listas por comas y saltos de línea", () => {

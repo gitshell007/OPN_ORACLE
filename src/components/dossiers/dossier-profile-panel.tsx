@@ -6,6 +6,7 @@ import { FormEvent } from "react";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   type CompetitiveProfileDraft,
+  type CustomProfileDraft,
   type MarketProfileDraft,
   type ProfileDraft,
   profileHasContent,
@@ -323,6 +324,165 @@ function CompetitiveFields({
   );
 }
 
+function CustomFields({
+  draft,
+  onChange,
+  disabled,
+}: {
+  draft: CustomProfileDraft;
+  onChange(next: CustomProfileDraft): void;
+  disabled?: boolean;
+}) {
+  const set = <K extends keyof CustomProfileDraft>(key: K, value: CustomProfileDraft[K]) =>
+    onChange({ ...draft, [key]: value });
+  return (
+    <>
+      <Field
+        id="profile-own-offer"
+        label="Oferta propia"
+        value={draft.own_offer}
+        required
+        multiline
+        disabled={disabled}
+        onChange={(value) => set("own_offer", value)}
+      />
+      <Field
+        id="profile-decision"
+        label="Decisión a tomar"
+        value={draft.decision_to_make}
+        multiline
+        disabled={disabled}
+        onChange={(value) => set("decision_to_make", value)}
+      />
+      <Field
+        id="profile-competitors"
+        label="Competidores"
+        value={draft.competitors}
+        required
+        multiline
+        hint="Nombres separados por comas."
+        disabled={disabled}
+        onChange={(value) => set("competitors", value)}
+      />
+      <Field
+        id="profile-cpv"
+        label="Códigos CPV"
+        value={draft.cpv}
+        hint="Separados por comas (p. ej. familias software/servicios IT)."
+        disabled={disabled}
+        onChange={(value) => set("cpv", value)}
+      />
+      <Field
+        id="profile-barriers"
+        label="Barreras"
+        value={draft.barriers}
+        hint="Separadas por comas."
+        multiline
+        disabled={disabled}
+        onChange={(value) => set("barriers", value)}
+      />
+      <Field
+        id="profile-business-objective"
+        label="Objetivo de negocio"
+        value={draft.business_objective}
+        multiline
+        disabled={disabled}
+        onChange={(value) => set("business_objective", value)}
+      />
+      <Field
+        id="profile-keywords"
+        label="Palabras clave"
+        value={draft.keywords}
+        hint="Separadas por comas."
+        disabled={disabled}
+        onChange={(value) => set("keywords", value)}
+      />
+      <Field
+        id="profile-geographies"
+        label="Geografías"
+        value={draft.geographies}
+        hint="Separadas por comas."
+        disabled={disabled}
+        onChange={(value) => set("geographies", value)}
+      />
+      <Field
+        id="profile-buyers"
+        label="Compradores objetivo"
+        value={draft.target_buyers}
+        hint="Separados por comas."
+        disabled={disabled}
+        onChange={(value) => set("target_buyers", value)}
+      />
+      <Field
+        id="profile-segments"
+        label="Segmentos"
+        value={draft.segments}
+        hint="Separados por comas."
+        disabled={disabled}
+        onChange={(value) => set("segments", value)}
+      />
+      <Field
+        id="profile-sources"
+        label="Fuentes"
+        value={draft.sources}
+        hint="Separadas por comas."
+        disabled={disabled}
+        onChange={(value) => set("sources", value)}
+      />
+      <Field
+        id="profile-indicators"
+        label="Indicadores de éxito"
+        value={draft.success_indicators}
+        hint="Separados por comas."
+        disabled={disabled}
+        onChange={(value) => set("success_indicators", value)}
+      />
+    </>
+  );
+}
+
+function readOnlyRows(draft: ProfileDraft) {
+  if (draft.kind === "market") {
+    return (
+      <>
+        <ReadOnlyRow label="Oferta propia" value={draft.own_offer} />
+        <ReadOnlyRow label="Decisión a tomar" value={draft.decision_to_make} />
+        <ReadOnlyRow label="Competidores" value={draft.competitors} />
+        <ReadOnlyRow label="Barreras" value={draft.barriers} />
+        <ReadOnlyRow label="Segmentos" value={draft.segments} />
+        <ReadOnlyRow label="Canales" value={draft.channels} />
+        <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
+      </>
+    );
+  }
+  if (draft.kind === "competitive_intelligence") {
+    return (
+      <>
+        <ReadOnlyRow label="Oferta propia" value={draft.own_offer} />
+        <ReadOnlyRow label="Objetivo de negocio" value={draft.business_objective} />
+        <ReadOnlyRow label="Competidores" value={draft.competitors} />
+        <ReadOnlyRow label="CPV" value={draft.cpv} />
+        <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
+        <ReadOnlyRow label="Geografías" value={draft.geographies} />
+        <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
+      </>
+    );
+  }
+  return (
+    <>
+      <ReadOnlyRow label="Oferta propia" value={draft.own_offer} />
+      <ReadOnlyRow label="Decisión a tomar" value={draft.decision_to_make} />
+      <ReadOnlyRow label="Competidores" value={draft.competitors} />
+      <ReadOnlyRow label="CPV" value={draft.cpv} />
+      <ReadOnlyRow label="Barreras" value={draft.barriers} />
+      <ReadOnlyRow label="Objetivo de negocio" value={draft.business_objective} />
+      <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
+      <ReadOnlyRow label="Geografías" value={draft.geographies} />
+      <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
+    </>
+  );
+}
+
 export function DossierProfilePanel({
   dossierId,
   dossierType,
@@ -338,24 +498,6 @@ export function DossierProfilePanel({
   const hasContent = profileHasContent(profileConfig);
 
   if (kind === "empty") return null;
-
-  if (kind === "other") {
-    if (!hasContent) return null;
-    return (
-      <section className="settings-section" data-testid="dossier-profile-panel">
-        <header>
-          <h2>Perfil del expediente</h2>
-          <p>
-            Este tipo no tiene un perfil tipado en el producto. Hay datos en{" "}
-            <code>profile_config</code> que la UI no modela aún.
-          </p>
-        </header>
-        <pre className="reporting-hint" style={{ whiteSpace: "pre-wrap", margin: "0 18px 18px" }}>
-          {JSON.stringify(profileConfig, null, 2)}
-        </pre>
-      </section>
-    );
-  }
 
   if (readOnly) {
     if (!draft || !hasContent) {
@@ -388,27 +530,7 @@ export function DossierProfilePanel({
           </div>
         </header>
         <dl className="competitive-review" style={{ border: "none", background: "transparent", padding: 0 }}>
-          {draft.kind === "market" ? (
-            <>
-              <ReadOnlyRow label="Oferta propia" value={draft.own_offer} />
-              <ReadOnlyRow label="Decisión a tomar" value={draft.decision_to_make} />
-              <ReadOnlyRow label="Competidores" value={draft.competitors} />
-              <ReadOnlyRow label="Barreras" value={draft.barriers} />
-              <ReadOnlyRow label="Segmentos" value={draft.segments} />
-              <ReadOnlyRow label="Canales" value={draft.channels} />
-              <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
-            </>
-          ) : (
-            <>
-              <ReadOnlyRow label="Oferta propia" value={draft.own_offer} />
-              <ReadOnlyRow label="Objetivo de negocio" value={draft.business_objective} />
-              <ReadOnlyRow label="Competidores" value={draft.competitors} />
-              <ReadOnlyRow label="CPV" value={draft.cpv} />
-              <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
-              <ReadOnlyRow label="Geografías" value={draft.geographies} />
-              <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
-            </>
-          )}
+          {readOnlyRows(draft)}
         </dl>
         <div className="placeholder-actions">
           <Link className="vector-secondary" href={`/app/dossiers/${dossierId}/settings#dossier-profile`}>
@@ -421,6 +543,13 @@ export function DossierProfilePanel({
 
   if (!draft) return null;
 
+  const blurb =
+    draft.kind === "market"
+      ? "Oferta propia, ecosistema, barreras y decisión a tomar capturados en el alta. Edítalos aquí; se guardan en profile_config."
+      : draft.kind === "competitive_intelligence"
+        ? "Oferta propia, competidores, CPV y criterios del alta de inteligencia competitiva. Edítalos aquí; se guardan en profile_config."
+        : "Oferta propia, competidores, CPV, barreras y decisión del expediente. Edítalos aquí; se guardan en profile_config (custom.v1).";
+
   return (
     <section
       className="settings-section"
@@ -429,11 +558,7 @@ export function DossierProfilePanel({
     >
       <header>
         <h2>Perfil del expediente</h2>
-        <p>
-          {draft.kind === "market"
-            ? "Oferta propia, ecosistema, barreras y decisión a tomar capturados en el alta. Edítalos aquí; se guardan en profile_config."
-            : "Oferta propia, competidores, CPV y criterios del alta de inteligencia competitiva. Edítalos aquí; se guardan en profile_config."}
-        </p>
+        <p>{blurb}</p>
       </header>
       <form className="dossier-settings-form competitive-intake-fields" onSubmit={onSave}>
         {draft.kind === "market" ? (
@@ -442,8 +567,14 @@ export function DossierProfilePanel({
             disabled={disabled || busy}
             onChange={(next) => onDraftChange(next)}
           />
-        ) : (
+        ) : draft.kind === "competitive_intelligence" ? (
           <CompetitiveFields
+            draft={draft}
+            disabled={disabled || busy}
+            onChange={(next) => onDraftChange(next)}
+          />
+        ) : (
+          <CustomFields
             draft={draft}
             disabled={disabled || busy}
             onChange={(next) => onDraftChange(next)}

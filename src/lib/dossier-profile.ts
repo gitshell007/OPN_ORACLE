@@ -1,6 +1,16 @@
-/** Helpers for strategic_dossiers.profile_config (market + competitive_intelligence). */
+/** Helpers for strategic_dossiers.profile_config.
+ *
+ * Mapa real (no unificar a lo bravo):
+ * - market → market.v1 (intake mercado)
+ * - competitive_intelligence → competitive-intelligence.v1
+ * - custom/project/opportunity/… → free-form JSONB (API passthrough); UI modela
+ *   un subconjunto estratégico (oferta, competidores, CPV, barreras, decisión)
+ *   con version "custom.v1" al guardar desde esta pantalla.
+ * - dossier memory profile (API aparte) y procurement search profiles son otros
+ *   objetos; no se mezclan aquí.
+ */
 
-export type ProfileKind = "market" | "competitive_intelligence" | "other" | "empty";
+export type ProfileKind = "market" | "competitive_intelligence" | "custom" | "empty";
 
 export type CompetitorDraft = {
   name: string;
@@ -43,7 +53,24 @@ export type CompetitiveProfileDraft = {
   success_indicators: string;
 };
 
-export type ProfileDraft = MarketProfileDraft | CompetitiveProfileDraft;
+/** Free-form strategic intake for custom/project and other non-typed dossier types. */
+export type CustomProfileDraft = {
+  kind: "custom";
+  own_offer: string;
+  decision_to_make: string;
+  competitors: string;
+  barriers: string;
+  cpv: string;
+  keywords: string;
+  geographies: string;
+  target_buyers: string;
+  segments: string;
+  business_objective: string;
+  success_indicators: string;
+  sources: string;
+};
+
+export type ProfileDraft = MarketProfileDraft | CompetitiveProfileDraft | CustomProfileDraft;
 
 export function profileKindFor(
   dossierType: string,
@@ -51,7 +78,18 @@ export function profileKindFor(
 ): ProfileKind {
   if (dossierType === "market") return "market";
   if (dossierType === "competitive_intelligence") return "competitive_intelligence";
-  if (profileConfig && Object.keys(profileConfig).length > 0) return "other";
+  // Custom and siblings always expose the strategic form (even empty) so the
+  // intake loop can be closed for demo/project dossiers without changing type.
+  if (
+    dossierType === "custom" ||
+    dossierType === "project" ||
+    dossierType === "opportunity" ||
+    dossierType === "risk" ||
+    dossierType === "account" ||
+    (profileConfig && Object.keys(profileConfig).length > 0)
+  ) {
+    return "custom";
+  }
   return "empty";
 }
 
@@ -119,6 +157,42 @@ export function emptyCompetitiveDraft(): CompetitiveProfileDraft {
   };
 }
 
+export function emptyCustomDraft(): CustomProfileDraft {
+  return {
+    kind: "custom",
+    own_offer: "",
+    decision_to_make: "",
+    competitors: "",
+    barriers: "",
+    cpv: "",
+    keywords: "",
+    geographies: "",
+    target_buyers: "",
+    segments: "",
+    business_objective: "",
+    success_indicators: "",
+    sources: "",
+  };
+}
+
+function customDraftFromProfile(profile: Record<string, unknown>): CustomProfileDraft {
+  return {
+    kind: "custom",
+    own_offer: String(profile.own_offer ?? ""),
+    decision_to_make: String(profile.decision_to_make ?? ""),
+    competitors: competitorsToField(profile.competitors),
+    barriers: stringsToField(profile.barriers),
+    cpv: stringsToField(profile.cpv),
+    keywords: stringsToField(profile.keywords),
+    geographies: stringsToField(profile.geographies),
+    target_buyers: stringsToField(profile.target_buyers),
+    segments: stringsToField(profile.segments),
+    business_objective: String(profile.business_objective ?? ""),
+    success_indicators: stringsToField(profile.success_indicators),
+    sources: stringsToField(profile.sources),
+  };
+}
+
 export function draftFromProfileConfig(
   dossierType: string,
   profileConfig?: Record<string, unknown> | null,
@@ -159,6 +233,9 @@ export function draftFromProfileConfig(
       success_indicators: stringsToField(profile.success_indicators),
     };
   }
+  if (profileKindFor(dossierType, profileConfig) === "custom") {
+    return customDraftFromProfile(profile);
+  }
   return null;
 }
 
@@ -179,20 +256,39 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
       keywords: listField(draft.keywords),
     };
   }
+  if (draft.kind === "competitive_intelligence") {
+    return {
+      own_offer: draft.own_offer.trim(),
+      business_objective: draft.business_objective.trim(),
+      competitors: competitorsFromField(draft.competitors),
+      segments: listField(draft.segments),
+      geographies: listField(draft.geographies),
+      target_buyers: listField(draft.target_buyers),
+      horizon: draft.horizon.trim(),
+      keywords: listField(draft.keywords),
+      cpv: listField(draft.cpv),
+      sources: listField(draft.sources),
+      participation_criteria: draft.participation_criteria.trim(),
+      exclusion_criteria: draft.exclusion_criteria.trim(),
+      success_indicators: listField(draft.success_indicators),
+    };
+  }
+  // custom.v1: free-form strategic intake. Kept separate from market/CI schemas
+  // so agents/context do not treat it as typed evidence until a later turn.
   return {
+    version: "custom.v1",
     own_offer: draft.own_offer.trim(),
-    business_objective: draft.business_objective.trim(),
+    decision_to_make: draft.decision_to_make.trim(),
     competitors: competitorsFromField(draft.competitors),
-    segments: listField(draft.segments),
+    barriers: listField(draft.barriers),
+    cpv: listField(draft.cpv),
+    keywords: listField(draft.keywords),
     geographies: listField(draft.geographies),
     target_buyers: listField(draft.target_buyers),
-    horizon: draft.horizon.trim(),
-    keywords: listField(draft.keywords),
-    cpv: listField(draft.cpv),
-    sources: listField(draft.sources),
-    participation_criteria: draft.participation_criteria.trim(),
-    exclusion_criteria: draft.exclusion_criteria.trim(),
+    segments: listField(draft.segments),
+    business_objective: draft.business_objective.trim(),
     success_indicators: listField(draft.success_indicators),
+    sources: listField(draft.sources),
   };
 }
 

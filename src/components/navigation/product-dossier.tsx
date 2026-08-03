@@ -211,6 +211,8 @@ export function ProductDossier() {
       <DossierOracleSummaryPanel dossierId={id} />
       {(dossier.dossier_type === "market" ||
         dossier.dossier_type === "competitive_intelligence" ||
+        dossier.dossier_type === "custom" ||
+        dossier.dossier_type === "project" ||
         (dossier.profile_config && Object.keys(dossier.profile_config).length > 0)) && (
         <DossierProfilePanel
           dossierId={id}

@@ -175,6 +175,94 @@ describe("DossierSettingsSection", () => {
     );
   });
 
+  it("carga y guarda el perfil custom vía PATCH profile_config", async () => {
+    const customDossier = {
+      ...dossier,
+      dossier_type: "custom",
+      title: "SV2 Demo · Nexus Ibérica Sistemas",
+      version: 3,
+      profile_config: {
+        version: "v1",
+        own_offer: "Software e IA",
+        decision_to_make: "Priorizar PLACSP software",
+        competitors: [
+          { name: "Capgemini", aliases: [] },
+          { name: "NTT DATA", aliases: [] },
+          { name: "Inetum", aliases: [] },
+        ],
+        cpv: ["72000000", "72200000"],
+        barriers: ["Homologación"],
+        keywords: ["software", "IA"],
+        geographies: ["ES"],
+        target_buyers: [],
+        segments: [],
+        success_indicators: [],
+        sources: [],
+        business_objective: "",
+      },
+    };
+    mocks.get.mockResolvedValue(customDossier);
+    mocks.update.mockResolvedValue({
+      ...customDossier,
+      version: 4,
+      profile_config: {
+        version: "custom.v1",
+        own_offer: "Software, plataformas e IA para AAPP",
+        decision_to_make: "Priorizar PLACSP software",
+        competitors: customDossier.profile_config.competitors,
+        cpv: ["72000000", "72200000", "72212000"],
+        barriers: ["Homologación"],
+        keywords: ["software", "IA"],
+        geographies: ["ES"],
+        target_buyers: [],
+        segments: [],
+        success_indicators: [],
+        sources: [],
+        business_objective: "",
+      },
+    });
+
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+
+    expect(await screen.findByRole("heading", { name: "Perfil del expediente" })).toBeVisible();
+    expect(screen.getByLabelText("Oferta propia")).toHaveValue("Software e IA");
+    expect(screen.getByLabelText("Competidores")).toHaveValue("Capgemini, NTT DATA, Inetum");
+    expect(screen.getByLabelText("Códigos CPV")).toHaveValue("72000000, 72200000");
+    expect(screen.getByLabelText("Barreras")).toHaveValue("Homologación");
+    expect(screen.getByLabelText("Decisión a tomar")).toHaveValue("Priorizar PLACSP software");
+
+    fireEvent.change(screen.getByLabelText("Oferta propia"), {
+      target: { value: "Software, plataformas e IA para AAPP" },
+    });
+    fireEvent.change(screen.getByLabelText("Códigos CPV"), {
+      target: { value: "72000000, 72200000, 72212000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith(
+        "dossier-1",
+        expect.objectContaining({
+          version: 3,
+          profile_config: expect.objectContaining({
+            version: "custom.v1",
+            own_offer: "Software, plataformas e IA para AAPP",
+            decision_to_make: "Priorizar PLACSP software",
+            competitors: [
+              { name: "Capgemini", aliases: [] },
+              { name: "NTT DATA", aliases: [] },
+              { name: "Inetum", aliases: [] },
+            ],
+            cpv: ["72000000", "72200000", "72212000"],
+            barriers: ["Homologación"],
+          }),
+        }),
+        3,
+      ),
+    );
+    expect(mocks.success).toHaveBeenCalledWith("Perfil del expediente actualizado");
+  });
+
   it("mantiene accesible la configuración si los monitores no están autorizados", async () => {
     mocks.monitors.mockRejectedValueOnce(new Error("forbidden"));
     render(<DossierSettingsSection dossierId="dossier-1" />);
@@ -213,9 +301,10 @@ describe("DossierSettingsSection", () => {
     fireEvent.change(screen.getByLabelText(/^Consulta principal/), {
       target: { value: "almacenamiento energético" },
     });
-    fireEvent.change(screen.getByLabelText(/^Palabras clave/), {
-      target: { value: "baterías, subvenciones" },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("baterías, subvenciones, almacenamiento"),
+      { target: { value: "baterías, subvenciones" } },
+    );
     fireEvent.change(screen.getByLabelText(/^Competidores y entidades/), {
       target: { value: "Empresa Delta\nOrganismo Gamma" },
     });
