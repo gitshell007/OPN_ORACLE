@@ -23,6 +23,7 @@ from opn_oracle.oracle.jobs import BackgroundJob
 from opn_oracle.oracle.models import (
     Actor,
     DossierActor,
+    DossierProcurementItem,
     DossierSignal,
     Opportunity,
     Report,
@@ -209,7 +210,93 @@ DATASETS: dict[str, DatasetSpec] = {
         ),
         ("action", "resource_type", "result"),
     ),
+    # Pinned PLACSP items on accessible dossiers (CSV openable in Excel).
+    # Snapshot fields are virtual columns resolved at export time.
+    "tenders": DatasetSpec(
+        DossierProcurementItem,
+        "opportunity.read",
+        (
+            "folder_id",
+            "title",
+            "buyer",
+            "amount",
+            "deadline",
+            "cpv",
+            "status",
+            "source_url",
+        ),
+        frozenset(
+            {
+                "id",
+                "dossier_id",
+                "folder_id",
+                "title",
+                "buyer",
+                "amount",
+                "deadline",
+                "cpv",
+                "status",
+                "source_url",
+                "region",
+                "created_at",
+            }
+        ),
+        ("folder_id", "title", "buyer"),
+    ),
+    "awards": DatasetSpec(
+        DossierProcurementItem,
+        "opportunity.read",
+        (
+            "folder_id",
+            "title",
+            "buyer",
+            "winner",
+            "award_amount",
+            "award_date",
+            "cpv",
+            "status",
+            "source_url",
+        ),
+        frozenset(
+            {
+                "id",
+                "dossier_id",
+                "folder_id",
+                "title",
+                "buyer",
+                "winner",
+                "award_amount",
+                "award_date",
+                "cpv",
+                "status",
+                "source_url",
+                "region",
+                "created_at",
+            }
+        ),
+        ("folder_id", "title", "buyer", "winner"),
+    ),
 }
+
+PROCUREMENT_DATASETS = frozenset({"tenders", "awards"})
+PROCUREMENT_KIND: dict[str, str] = {"tenders": "tender", "awards": "award"}
+PROCUREMENT_MODEL_COLUMNS = frozenset(
+    {"id", "dossier_id", "folder_id", "source_url", "created_at", "kind"}
+)
+PROCUREMENT_SNAPSHOT_COLUMNS = frozenset(
+    {
+        "title",
+        "buyer",
+        "amount",
+        "deadline",
+        "cpv",
+        "status",
+        "region",
+        "winner",
+        "award_amount",
+        "award_date",
+    }
+)
 
 
 def csv_safe(value: Any) -> str:
@@ -227,6 +314,30 @@ def csv_safe(value: Any) -> str:
     if probe.startswith(("=", "+", "-", "@")) or raw.startswith(("\t", "\r", "\n")):
         return "'" + raw
     return raw
+
+
+def _procurement_cell(row: DossierProcurementItem, column: str) -> Any:
+    """Resolve a virtual export column from model attrs or the PLACSP snapshot."""
+
+    if column in PROCUREMENT_MODEL_COLUMNS:
+        if column == "source_url":
+            return row.source_url or (row.snapshot or {}).get("source_url")
+        return getattr(row, column, None)
+    snapshot = row.snapshot if isinstance(row.snapshot, dict) else {}
+    if column not in PROCUREMENT_SNAPSHOT_COLUMNS:
+        return None
+    value = snapshot.get(column)
+    if column == "cpv" and isinstance(value, list):
+        return "; ".join(str(item) for item in value if str(item).strip())
+    return value
+
+
+def _export_cell_value(export: DataExport, row: Any, column: str, *, watermark: str) -> Any:
+    if column == "_watermark":
+        return watermark
+    if export.dataset in PROCUREMENT_DATASETS:
+        return _procurement_cell(row, column)
+    return getattr(row, column, None)
 
 
 def _normalize_request(
@@ -381,18 +492,44 @@ def _query(export: DataExport, spec: DatasetSpec) -> Select[tuple[Any]]:
             statement = statement.where(AuditEvent.dossier_id == export.dossier_id)
         else:
             raise ExportError("Este dataset no admite filtro por expediente.")
+    if export.dataset in PROCUREMENT_DATASETS:
+        statement = statement.where(
+            DossierProcurementItem.kind == PROCUREMENT_KIND[export.dataset]
+        )
     status = export.filters.get("status")
     if status:
-        if not hasattr(model, "status"):
+        if export.dataset in PROCUREMENT_DATASETS:
+            statement = statement.where(
+                DossierProcurementItem.snapshot["status"].as_string() == str(status)
+            )
+        elif not hasattr(model, "status"):
             raise ExportError("Este dataset no admite filtro de estado.")
-        statement = statement.where(model.status == str(status))
+        else:
+            statement = statement.where(model.status == str(status))
     search = str(export.filters.get("search", "")).strip()
     if search:
         if len(search) > 200:
             raise ExportError("El filtro search es demasiado largo.")
-        statement = statement.where(
-            or_(*(getattr(model, column).ilike(f"%{search}%") for column in spec.search_columns))
-        )
+        if export.dataset in PROCUREMENT_DATASETS:
+            pattern = f"%{search}%"
+            search_clauses = []
+            for column in spec.search_columns:
+                if column in PROCUREMENT_MODEL_COLUMNS:
+                    search_clauses.append(getattr(model, column).ilike(pattern))
+                else:
+                    search_clauses.append(
+                        DossierProcurementItem.snapshot[column].as_string().ilike(pattern)
+                    )
+            statement = statement.where(or_(*search_clauses))
+        else:
+            statement = statement.where(
+                or_(
+                    *(
+                        getattr(model, column).ilike(f"%{search}%")
+                        for column in spec.search_columns
+                    )
+                )
+            )
     if "selected_ids" in export.filters:
         statement = statement.where(
             model.id.in_(uuid.UUID(value) for value in export.filters["selected_ids"])
@@ -455,7 +592,7 @@ def process_export(export_id: uuid.UUID, job: BackgroundJob) -> dict[str, Any]:
             record: dict[str, str] = {}
             for column in export.columns:
                 name = str(column)
-                value = watermark if name == "_watermark" else getattr(row, name, None)
+                value = _export_cell_value(export, row, name, watermark=watermark)
                 record[name] = csv_safe(value)
             writer.writerow(record)
         payload = b"\xef\xbb\xbf" + output.getvalue().encode("utf-8")

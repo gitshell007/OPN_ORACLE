@@ -3485,6 +3485,8 @@ def _reporting_schemas() -> dict[str, Any]:
                         "tasks",
                         "reports",
                         "audit",
+                        "tenders",
+                        "awards",
                     ],
                 },
                 "dossier_id": nullable_uuid,

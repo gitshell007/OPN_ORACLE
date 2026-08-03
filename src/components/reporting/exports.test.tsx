@@ -93,6 +93,39 @@ describe("secure exports Vector", () => {
     await waitFor(() => expect(progress).toHaveAttribute("aria-valuenow", "47"));
   });
 
+  it("ofrece licitaciones y adjudicaciones con columnas de propuestas", async () => {
+    render(<ExportCenter initialDataset="tenders" />);
+    expect(await screen.findByRole("option", { name: "Licitaciones" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "Adjudicaciones" })).toBeVisible();
+    expect(screen.getByLabelText("folder_id")).toBeChecked();
+    expect(screen.getByLabelText("title")).toBeChecked();
+    expect(screen.getByLabelText("buyer")).toBeChecked();
+    expect(screen.getByLabelText("amount")).toBeChecked();
+    expect(screen.getByLabelText("source_url")).toBeChecked();
+    fireEvent.change(screen.getByLabelText("Dataset"), {
+      target: { value: "awards" },
+    });
+    await waitFor(() => expect(screen.getByLabelText("award_amount")).toBeChecked());
+    expect(screen.getByLabelText("winner")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Generar CSV" }));
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataset: "awards",
+          columns: expect.arrayContaining([
+            "folder_id",
+            "title",
+            "buyer",
+            "winner",
+            "award_amount",
+            "source_url",
+          ]),
+        }),
+        expect.stringContaining("export-awards-"),
+      ),
+    );
+  });
+
   it("solicita enlace temporal antes de descargar un CSV disponible", async () => {
     const ready = { ...queued, status: "ready" as const, job_id: null, byte_size: 2048 };
     mocks.list.mockResolvedValueOnce({ data: [ready], meta: { page: 1, size: 100, total: 1 } });

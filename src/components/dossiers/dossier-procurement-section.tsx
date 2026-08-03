@@ -26,6 +26,7 @@ import {
   snapshotNumber,
   snapshotText,
 } from "@/components/procurement/procurement-helpers";
+import { ExportMenu } from "@/components/reporting/exports";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 import { JobProgress } from "@/components/reporting/job-progress";
 
@@ -276,6 +277,10 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
               <RefreshCw size={15} />
               Actualizar
             </button>
+            <PermissionGate permission="export.create">
+              <ExportMenu dataset="tenders" dossierId={dossierId} />
+              <ExportMenu dataset="awards" dossierId={dossierId} />
+            </PermissionGate>
             <PermissionGate permission="report.generate">
               <AsyncActionButton
                 className="vector-secondary"

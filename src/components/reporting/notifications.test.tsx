@@ -135,4 +135,29 @@ describe("notifications Vector", () => {
     expect(screen.getByLabelText("Correo electrónico")).toBeDisabled();
     expect(screen.getByText(/alertas de seguridad se envían al instante/i)).toBeVisible();
   });
+
+  it("permite correo solo de licitaciones sin activar todas las notificaciones", async () => {
+    render(<NotificationPreferences />);
+    expect(
+      await screen.findByRole("button", { name: /Alertas de licitaciones \(vigilancia\)/i }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Alertas de licitaciones \(vigilancia\)/i }),
+    );
+    expect(
+      await screen.findByRole("heading", {
+        name: "Alertas de licitaciones (vigilancia)",
+      }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByLabelText("Correo electrónico"));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar preferencias" }));
+    await waitFor(() =>
+      expect(mocks.updatePreference).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notification_type: "procurement.watch",
+          channels: { in_app: true, email: true },
+        }),
+      ),
+    );
+  });
 });
