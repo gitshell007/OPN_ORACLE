@@ -3062,6 +3062,78 @@ export type DossierMemoryProfile = {
   capability?: Record<string, unknown>;
 };
 
+export interface AiAuditListItem {
+  id: string;
+  dossier_id: string | null;
+  background_job_id?: string | null;
+  agent: string;
+  action?: string | null;
+  status: string;
+  error_code?: string | null;
+  provider: string;
+  model: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cost_micros?: number | null;
+  currency?: string | null;
+  latency_ms?: number | null;
+  attempt_count?: number | null;
+  source_ids?: string[];
+  data_classification?: string | null;
+  human_review_state?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface AiAuditDetail extends AiAuditListItem {
+  use_case?: string | null;
+  prompt?: {
+    name?: string | null;
+    version?: string | null;
+    hash?: string | null;
+  };
+  schema?: { name?: string | null; version?: string | null };
+  usage?: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cost_micros?: number | null;
+    currency?: string | null;
+  };
+  review_state?: string | null;
+  attempts?: Array<{
+    number: number;
+    kind: string;
+    status: string;
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cost_micros?: number | null;
+    latency_ms?: number | null;
+    error_code?: string | null;
+  }>;
+}
+
+export interface AiAuditListQuery {
+  status?: string;
+  agent?: string;
+  dossier_id?: string;
+}
+
+const aiAudit = {
+  list: (params: AiAuditListQuery = {}) => {
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.agent) query.set("agent", params.agent);
+    if (params.dossier_id) query.set("dossier_id", params.dossier_id);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request<{ items: AiAuditListItem[] }>(`/api/v1/ai-audit${suffix}`);
+  },
+  get: (auditId: string) =>
+    request<AiAuditDetail>(
+      `/api/v1/ai/audits/${encodeURIComponent(auditId)}`,
+    ),
+};
+
 const dossierMemory = {
   getProfile: (dossierId: string) =>
     request<DossierMemoryProfile>(
@@ -3106,6 +3178,7 @@ export const api = {
   platform,
   jobs,
   signalAvanza,
+  aiAudit,
   dossierMemory,
   dossiers,
   oracleSummary,

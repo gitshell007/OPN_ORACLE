@@ -20,7 +20,7 @@ from apiflask.fields import (
 from flask import Response, g, request
 from flask_login import current_user
 from marshmallow import validate
-from sqlalchemy import select
+from sqlalchemy import case, select
 
 from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
@@ -156,6 +156,77 @@ def _dossier(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier | None:
     ):
         return None
     return dossier
+
+
+def _audit_source_ids(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw if item is not None and str(item).strip()]
+
+
+def serialize_ai_audit_list_item(audit: AIAuditLog) -> dict[str, Any]:
+    """Campos de listado: sin inventar; nulos se omiten o quedan como null en JSON."""
+    return {
+        "id": str(audit.id),
+        "dossier_id": str(audit.dossier_id) if audit.dossier_id else None,
+        "background_job_id": str(audit.background_job_id) if audit.background_job_id else None,
+        "agent": audit.agent,
+        "action": audit.action,
+        "status": audit.status,
+        "error_code": audit.error_code,
+        "provider": audit.provider,
+        "model": audit.model,
+        "input_tokens": audit.input_tokens,
+        "output_tokens": audit.output_tokens,
+        "cost_micros": audit.actual_cost_micros,
+        "currency": audit.currency,
+        "latency_ms": audit.latency_ms,
+        "attempt_count": audit.attempt_count,
+        "source_ids": _audit_source_ids(audit.source_ids),
+        "data_classification": audit.data_classification,
+        "human_review_state": audit.human_review_state,
+        "created_at": audit.created_at.isoformat() if audit.created_at else None,
+        "started_at": audit.started_at.isoformat() if audit.started_at else None,
+        "completed_at": audit.completed_at.isoformat() if audit.completed_at else None,
+    }
+
+
+def serialize_ai_audit_detail(
+    audit: AIAuditLog, attempts: list[AIAttempt] | None = None
+) -> dict[str, Any]:
+    payload = serialize_ai_audit_list_item(audit)
+    payload.update(
+        {
+            "use_case": audit.use_case,
+            "prompt": {
+                "name": audit.prompt_name,
+                "version": audit.prompt_version,
+                "hash": audit.prompt_hash.hex() if audit.prompt_hash else None,
+            },
+            "schema": {"name": audit.schema_name, "version": audit.schema_version},
+            "usage": {
+                "input_tokens": audit.input_tokens,
+                "output_tokens": audit.output_tokens,
+                "cost_micros": audit.actual_cost_micros,
+                "currency": audit.currency,
+            },
+            "review_state": audit.human_review_state,
+            "attempts": [
+                {
+                    "number": item.attempt_number,
+                    "kind": item.kind,
+                    "status": item.status,
+                    "input_tokens": item.input_tokens,
+                    "output_tokens": item.output_tokens,
+                    "cost_micros": item.cost_micros,
+                    "latency_ms": item.latency_ms,
+                    "error_code": item.error_code,
+                }
+                for item in (attempts or [])
+            ],
+        }
+    )
+    return payload
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/agents/<string:agent>/runs")
@@ -436,42 +507,7 @@ def get_audit(audit_id: uuid.UUID) -> Any:
             .order_by(AIAttempt.attempt_number)
         )
     )
-    return {
-        "id": str(audit.id),
-        "dossier_id": str(audit.dossier_id) if audit.dossier_id else None,
-        "background_job_id": (str(audit.background_job_id) if audit.background_job_id else None),
-        "agent": audit.agent,
-        "status": audit.status,
-        "error_code": audit.error_code,
-        "provider": audit.provider,
-        "model": audit.model,
-        "prompt": {
-            "name": audit.prompt_name,
-            "version": audit.prompt_version,
-            "hash": audit.prompt_hash.hex(),
-        },
-        "schema": {"name": audit.schema_name, "version": audit.schema_version},
-        "usage": {
-            "input_tokens": audit.input_tokens,
-            "output_tokens": audit.output_tokens,
-            "cost_micros": audit.actual_cost_micros,
-        },
-        "latency_ms": audit.latency_ms,
-        "review_state": audit.human_review_state,
-        "attempts": [
-            {
-                "number": item.attempt_number,
-                "kind": item.kind,
-                "status": item.status,
-                "input_tokens": item.input_tokens,
-                "output_tokens": item.output_tokens,
-                "cost_micros": item.cost_micros,
-                "latency_ms": item.latency_ms,
-                "error_code": item.error_code,
-            }
-            for item in attempts
-        ],
-    }
+    return serialize_ai_audit_detail(audit, attempts)
 
 
 @bp.post("/artifacts/<uuid:artifact_id>/reviews")
@@ -587,29 +623,56 @@ def review_ai_job(job_id: uuid.UUID) -> Any:
 @public_bp.get("/ai-audit")
 @require_permission("audit.read")
 def list_ai_audit() -> Any:
-    rows = db.session.scalars(
-        select(AIAuditLog)
-        .where(AIAuditLog.tenant_id == g.active_tenant_id)
-        .order_by(AIAuditLog.created_at.desc())
-        .limit(100)
+    """Listado de ejecuciones IA del tenant con filtros opcionales.
+
+    Query params:
+      - status: pending|running|succeeded|failed|denied
+      - agent: nombre de agente exacto
+      - dossier_id: UUID de expediente (404 si no es accesible)
+    Orden por defecto: fallidas/denegadas primero, luego created_at desc.
+    """
+    status_filter = (request.args.get("status") or "").strip() or None
+    agent_filter = (request.args.get("agent") or "").strip() or None
+    dossier_raw = (request.args.get("dossier_id") or "").strip() or None
+
+    query = select(AIAuditLog).where(AIAuditLog.tenant_id == g.active_tenant_id)
+
+    if dossier_raw is not None:
+        try:
+            dossier_id = uuid.UUID(dossier_raw)
+        except ValueError:
+            return problem_response(
+                422, detail="dossier_id no es un UUID válido.", code="validation_error"
+            )
+        if _dossier(dossier_id, write=False) is None:
+            return problem_response(404, detail="Expediente no disponible.", code="not_found")
+        query = query.where(AIAuditLog.dossier_id == dossier_id)
+
+    allowed_status = {"pending", "running", "succeeded", "failed", "denied"}
+    if status_filter is not None:
+        if status_filter not in allowed_status:
+            return problem_response(
+                422, detail="Estado de auditoría no válido.", code="validation_error"
+            )
+        query = query.where(AIAuditLog.status == status_filter)
+    if agent_filter is not None:
+        query = query.where(AIAuditLog.agent == agent_filter)
+
+    # Fallidas primero (es lo que se audita); luego denegadas; resto por fecha.
+    failure_rank = case(
+        (AIAuditLog.status == "failed", 0),
+        (AIAuditLog.status == "denied", 1),
+        else_=2,
     )
+    rows = list(
+        db.session.scalars(
+            query.order_by(failure_rank, AIAuditLog.created_at.desc()).limit(200)
+        )
+    )
+    # Aislamiento: sin expediente → visible en el tenant; con expediente → solo si accesible.
     visible = [
         row
         for row in rows
-        if row.dossier_id is not None and _dossier(row.dossier_id, write=False) is not None
+        if row.dossier_id is None or _dossier(row.dossier_id, write=False) is not None
     ]
-    return {
-        "items": [
-            {
-                "id": str(row.id),
-                "dossier_id": str(row.dossier_id) if row.dossier_id else None,
-                "agent": row.agent,
-                "status": row.status,
-                "error_code": row.error_code,
-                "provider": row.provider,
-                "model": row.model,
-                "created_at": row.created_at.isoformat(),
-            }
-            for row in visible
-        ]
-    }
+    return {"items": [serialize_ai_audit_list_item(row) for row in visible]}

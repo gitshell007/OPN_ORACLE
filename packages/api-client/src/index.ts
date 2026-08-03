@@ -13,6 +13,11 @@ export type {
   SignalMonitorSourceType,
 } from "./transport";
 export type { DossierMemoryProfile } from "./transport";
+export type {
+  AiAuditDetail,
+  AiAuditListItem,
+  AiAuditListQuery,
+} from "./transport";
 export type { DocumentSearchResult, OracleDocument } from "./transport";
 export type { BackendDossier } from "./transport";
 export type { OracleSummaryCurrent, OracleSummaryVersion } from "./transport";

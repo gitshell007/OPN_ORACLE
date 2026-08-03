@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  ScrollText,
   UserRound,
   Users,
   Workflow,
@@ -239,6 +240,7 @@ export const ADMIN_ROUTES = [
   { id: "admin-integrations", label: "Integraciones", href: "/app/admin/integrations", group: "admin", icon: PlugZap, permission: "tenant.integrations.manage" },
   { id: "admin-signal", label: "Signal Avanza", href: "/app/admin/integrations/signal-avanza", group: "admin", icon: RadioTower, permission: "tenant.integrations.manage" },
   { id: "admin-audit", label: "Auditoría", href: "/app/admin/audit", group: "admin", icon: SearchCheck, permission: "audit.read" },
+  { id: "admin-ai-audit", label: "Auditoría de IA", href: "/app/admin/ai-audit", group: "admin", icon: ScrollText, permission: "audit.read" },
 ] as const satisfies readonly AppRouteDefinition[];
 
 export const PLATFORM_ROUTES = [
