@@ -43,7 +43,13 @@ from opn_oracle.ai.schemas import (
     ReportOutput,
     SignalTriageOutput,
 )
-from opn_oracle.ai.service import EvidenceReviewError, _strip_reviewer_rejected_claims
+from opn_oracle.ai.service import (
+    EvidenceReviewError,
+    _conclusion_review_claims,
+    _ground_conclusions_to_facts,
+    _reviewer_context,
+    _strip_reviewer_rejected_claims,
+)
 from opn_oracle.auth import permissions
 from opn_oracle.oracle.summary import _validated_summary_payload
 from opn_oracle.platform.models import User
@@ -421,6 +427,217 @@ def test_strip_claims_privacy_issue_never_publishes_even_when_lenient() -> None:
 
     with pytest.raises(EvidenceReviewError, match=r"seguridad|privacidad|inyección"):
         _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+
+
+def test_unfounded_title_is_degraded_and_does_not_survive() -> None:
+    """SV2-TITULO-FUNDADO: hechos de cubiertas EMT no autorizan título de competencia/software.
+
+    La conclusión no fundada no pasa: el título vistoso se degrada a uno honesto
+    basado en los facts citados.
+    """
+
+    unfounded_title = "Competencia en licitaciones de energía y software"
+    fact_statement = (
+        "Licitación PLACSP 2026-0072: impermeabilización de cubiertas del "
+        "Depósito Norte y San Isidro de la EMT."
+    )
+    output = {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 60,
+        "open_questions": [],
+        "warnings": [],
+        "title": unfounded_title,
+        "description": (
+            "Riesgo de competencia agresiva en el mercado de software y energía "
+            "sin rivalidades citadas."
+        ),
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+    grounded = _ground_conclusions_to_facts(output, agent="risk")
+
+    assert grounded["title"] != unfounded_title
+    assert "software" not in grounded["title"].lower()
+    assert "energ" not in grounded["title"].lower() or "impermeabiliz" in grounded["title"].lower()
+    assert any(
+        token in grounded["title"].lower()
+        for token in ("impermeabiliz", "cubiertas", "emt", "depósito", "deposito", "placsp")
+    )
+    assert "sin datos de competencia" in grounded["title"].lower()
+    assert grounded["description"] != output["description"]
+    assert any("no fundada" in warning.lower() for warning in grounded["warnings"])
+    assert grounded["confidence"] <= 45
+    # Los facts citados no se tocan.
+    assert grounded["facts"][0]["statement"] == fact_statement
+
+
+def test_founded_title_is_preserved() -> None:
+    """Si el título ya se sostiene en los facts, no se reescribe."""
+
+    fact_statement = (
+        "Licitación PLACSP 2026-0072 de impermeabilización de cubiertas EMT "
+        "Depósito Norte y San Isidro."
+    )
+    title = "Impermeabilización de cubiertas EMT Depósito Norte"
+    output = {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 70,
+        "open_questions": [],
+        "warnings": [],
+        "title": title,
+        "description": (
+            "La licitación PLACSP 2026-0072 cubre impermeabilización de cubiertas "
+            "del Depósito Norte y San Isidro de la EMT."
+        ),
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+    grounded = _ground_conclusions_to_facts(output, agent="risk")
+    assert grounded["title"] == title
+    assert grounded["description"] == output["description"]
+    assert grounded["confidence"] == 70
+    assert not any("no fundada" in warning.lower() for warning in grounded["warnings"])
+
+
+def test_reviewer_package_includes_title_as_conclusion_claim() -> None:
+    """El revisor recibe el título como claim kind=conclusion (antes solo veía facts)."""
+
+    class _Prompt:
+        output_schema_name = "RiskAnalysisOutput"
+
+    class _Context:
+        def __init__(self) -> None:
+            self.classification = "internal"
+            self.redaction_summary: dict[str, int] = {"matches": 0}
+            self.injection_indicators: list[str] = []
+            self.evidence: list[Any] = []
+            self.manifest: dict[str, list[str]] = {
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"]
+            }
+
+    output = {
+        "facts": [
+            {
+                "statement": "Impermeabilización de cubiertas EMT.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 50,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Competencia en licitaciones de energía y software",
+        "description": "Sin base.",
+        "recommended_status": "watch",
+    }
+    conclusion_claims = _conclusion_review_claims(output)
+    assert any(c["path"] == "$.title" and c["kind"] == "conclusion" for c in conclusion_claims)
+
+    package = _reviewer_context(
+        agent="risk",
+        prompt=_Prompt(),
+        context=_Context(),  # type: ignore[arg-type]
+        output=output,
+    )
+    claim_paths = {c["path"] for c in package["candidate_claims"]}
+    assert "$.title" in claim_paths
+    assert "$.description" in claim_paths
+    assert "$.recommended_status" in claim_paths
+    instruction = package["review_task"]["instruction"].lower()
+    assert "conclus" in instruction
+    assert "title" in instruction
+
+
+def test_strip_conclusion_objection_does_not_fail_job() -> None:
+    """Si el revisor objeta solo $.title, no se tumba el job: se avisa y se deja degradar."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Impermeabilización de cubiertas del Depósito Norte EMT.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 55,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Competencia en licitaciones de energía y software",
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [
+                {
+                    "path": "$.title",
+                    "claim": "Competencia en licitaciones de energía y software",
+                    "reason": "El título no se sostiene en los facts de cubiertas EMT.",
+                }
+            ],
+            "required_corrections": ["Alinear el título con los facts."],
+        }
+    )
+
+    cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+    assert cleaned["title"] == output["title"]  # strip no borra; grounding degrada después
+    assert any("conclusiones de producto" in warning for warning in cleaned["warnings"])
+
+    grounded = _ground_conclusions_to_facts(cleaned, agent="risk")
+    assert grounded["title"] != output["title"]
+    assert any(
+        token in grounded["title"].lower()
+        for token in ("impermeabiliz", "cubiertas", "emt", "depósito", "deposito")
+    )
 
 
 def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viable_copy() -> None:
