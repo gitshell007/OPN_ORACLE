@@ -15,6 +15,7 @@ from opn_oracle.oracle.custom_reports import (
     CustomReportConflict,
     CustomReportError,
     create_custom_report_brief,
+    list_custom_briefs,
     serialize_custom_brief,
 )
 from opn_oracle.tenants.context import TenantContext, TenantContextMissing, tenant_context
@@ -233,3 +234,20 @@ def test_serialize_custom_brief_exposes_plan_status() -> None:
     assert payload["plan_status"] == "draft"
     assert payload["brief_request"] == "hola"
     assert payload["status"] == "draft"
+
+
+def test_list_custom_briefs_returns_latest_first() -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    newer = SimpleNamespace(id=uuid.uuid4())
+    older = SimpleNamespace(id=uuid.uuid4())
+    session = MagicMock()
+    scalars_result = MagicMock()
+    scalars_result.all.return_value = [newer, older]
+    session.scalars.return_value = scalars_result
+
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        rows = list_custom_briefs(session, dossier_id=dossier_id, limit=1)
+
+    assert rows == [newer, older]
+    session.scalars.assert_called_once()

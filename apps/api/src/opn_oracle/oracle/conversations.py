@@ -15,6 +15,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -453,6 +454,8 @@ def enqueue_user_message(
         max_attempts=3,
     )
     message.background_job_id = job.id
+    # Keep conversation activity timestamp current so list-latest recovers the right thread.
+    conversation.updated_at = datetime.now(UTC)
     append_audit_event(
         session,
         action="dossier.conversation.message.enqueued",
@@ -498,6 +501,61 @@ def get_message(
     if message is None:
         raise ConversationNotFound("Mensaje no encontrado.")
     return message
+
+
+def list_conversations(
+    session: Session,
+    *,
+    dossier_id: uuid.UUID,
+    limit: int = 20,
+) -> list[DossierConversation]:
+    """Return conversations for a dossier, most recently updated first.
+
+    Used by the Ask UI to rehydrate after tab/session loss without relying on
+    sessionStorage as source of truth.
+    """
+
+    tenant_id = require_tenant_id()
+    capped = max(1, min(int(limit or 20), 100))
+    rows = session.scalars(
+        select(DossierConversation)
+        .where(
+            DossierConversation.tenant_id == tenant_id,
+            DossierConversation.dossier_id == dossier_id,
+        )
+        .order_by(
+            DossierConversation.updated_at.desc().nullslast(),
+            DossierConversation.created_at.desc().nullslast(),
+        )
+        .limit(capped)
+    ).all()
+    return list(rows)
+
+
+def list_messages(
+    session: Session,
+    *,
+    dossier_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    limit: int = 50,
+) -> list[DossierMessage]:
+    """Return messages in a conversation ordered by sequence descending (latest first)."""
+
+    tenant_id = require_tenant_id()
+    # Ensure conversation belongs to dossier/tenant before listing messages.
+    _load_conversation(session, conversation_id, dossier_id=dossier_id)
+    capped = max(1, min(int(limit or 50), 200))
+    rows = session.scalars(
+        select(DossierMessage)
+        .where(
+            DossierMessage.tenant_id == tenant_id,
+            DossierMessage.dossier_id == dossier_id,
+            DossierMessage.conversation_id == conversation_id,
+        )
+        .order_by(DossierMessage.sequence.desc(), DossierMessage.created_at.desc().nullslast())
+        .limit(capped)
+    ).all()
+    return list(rows)
 
 
 def apply_assistant_answer(

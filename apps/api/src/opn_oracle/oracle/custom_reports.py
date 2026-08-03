@@ -190,6 +190,33 @@ def get_custom_brief(
     return report
 
 
+def list_custom_briefs(
+    session: Session,
+    *,
+    dossier_id: uuid.UUID,
+    limit: int = 20,
+) -> list[Report]:
+    """Return custom assistant briefs for a dossier, most recently updated first.
+
+    Lets the Informe libre UI rehydrate after tab/session loss without depending
+    on sessionStorage as source of truth.
+    """
+
+    tenant_id = require_tenant_id()
+    capped = max(1, min(int(limit or 20), 100))
+    rows = session.scalars(
+        select(Report)
+        .where(
+            Report.tenant_id == tenant_id,
+            Report.dossier_id == dossier_id,
+            Report.template_key == CUSTOM_BRIEF_TEMPLATE_KEY,
+        )
+        .order_by(Report.updated_at.desc().nullslast(), Report.created_at.desc().nullslast())
+        .limit(capped)
+    ).all()
+    return list(rows)
+
+
 def create_custom_report_brief(
     session: Session,
     *,

@@ -127,33 +127,61 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
     pollBriefRef.current = pollBrief;
   }, [pollBrief]);
 
+  // Durable rehydrate: API is source of truth. sessionStorage is only a shortcut.
   useEffect(() => {
     let cancelled = false;
     const kickoff = window.setTimeout(() => {
       void (async () => {
         setHydrating(true);
-        const stored = readSession(dossierId);
-        if (!stored?.reportId) {
-          if (!cancelled) setHydrating(false);
-          return;
-        }
         try {
-          const current = await api.customBriefs.get(dossierId, stored.reportId);
-          if (cancelled) return;
-          setDetail(current);
-          setAccepted({
-            job_id: current.background_job_id ?? stored.jobId ?? "",
-            report_id: current.id,
-            plan_status: current.plan_status,
-            report: current as unknown as Record<string, unknown>,
-          });
-          if (current.plan_status === "draft" && !current.error_code) {
-            void pollBrief(current.id);
+          const stored = readSession(dossierId);
+
+          const applyBrief = (current: CustomBriefDetail) => {
+            setDetail(current);
+            setAccepted({
+              job_id: current.background_job_id ?? "",
+              report_id: current.id,
+              plan_status: current.plan_status,
+              report: current as unknown as Record<string, unknown>,
+            });
+            writeSession(dossierId, {
+              reportId: current.id,
+              jobId: current.background_job_id,
+            });
+            const life = current.lifecycle_state || current.plan_status;
+            const inFlight =
+              (!current.error_code && current.plan_status === "draft") ||
+              life === "generating" ||
+              life === "reviewing" ||
+              life === "plan_accepted";
+            if (inFlight && life !== "ready" && life !== "failed" && life !== "cancelled") {
+              void pollBrief(current.id);
+            }
+          };
+
+          // Fast path: same-tab reload with valid session marker.
+          if (stored?.reportId) {
+            try {
+              const current = await api.customBriefs.get(dossierId, stored.reportId);
+              if (cancelled) return;
+              applyBrief(current);
+              return;
+            } catch {
+              // Stale key — fall through to API list.
+            }
           }
+
+          // Tab closed / logout / other device: recover latest brief from API.
+          const listed = await api.customBriefs.list(dossierId, { limit: 1 });
+          if (cancelled) return;
+          const latest = listed.items?.[0];
+          if (!latest?.id) return;
+          applyBrief(latest);
         } catch {
-          // stale key
+          // Empty or unreachable API: leave form usable.
+        } finally {
+          if (!cancelled) setHydrating(false);
         }
-        if (!cancelled) setHydrating(false);
       })();
     }, 0);
     return () => {
@@ -270,7 +298,7 @@ export function DossierCustomBriefSection({ dossierId }: { dossierId: string }) 
       <PageHeader
         eyebrow="Asistente de informes"
         title="Informe libre"
-        description="Guarda el encargo como brief y encola la planificación. El plan propuesto se muestra al asentar el worker; recargar restaura el informe desde la API."
+        description="Guarda el encargo como brief y encola la planificación. El plan propuesto se muestra al asentar el worker; al volver (incluso tras cerrar la pestaña) se recupera el último brief del expediente desde la API."
       />
 
       <section className="vector-panel">

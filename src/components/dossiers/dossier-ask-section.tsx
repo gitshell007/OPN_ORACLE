@@ -103,41 +103,80 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
     pollMessageRef.current = pollMessage;
   }, [pollMessage]);
 
-  // Reload-safe rehydrate: conversation + last message from sessionStorage → GET API
+  // Durable rehydrate: API is source of truth (last conversation + latest message).
+  // sessionStorage is only a convenience shortcut for the same tab reload.
   useEffect(() => {
     let cancelled = false;
     const kickoff = window.setTimeout(() => {
       void (async () => {
         setHydrating(true);
-        const stored = readSession(dossierId);
-        if (!stored?.conversationId) {
-          if (!cancelled) setHydrating(false);
-          return;
-        }
-        setConversation({
-          id: stored.conversationId,
-          dossier_id: dossierId,
-          status: "open",
-          title: stored.title ?? "Preguntar a Oracle",
-        });
-        if (stored.messageId) {
-          setPendingMessageId(stored.messageId);
-          try {
-            const current = await api.dossierConversations.getMessage(
-              dossierId,
-              stored.conversationId,
-              stored.messageId,
-            );
-            if (cancelled) return;
-            setMessage(current);
-            if (["queued", "running"].includes(current.status)) {
-              void pollMessage(stored.conversationId, stored.messageId);
+        try {
+          const stored = readSession(dossierId);
+
+          // Fast path: same-tab reload with valid session marker → direct GET.
+          if (stored?.conversationId && stored.messageId) {
+            try {
+              const current = await api.dossierConversations.getMessage(
+                dossierId,
+                stored.conversationId,
+                stored.messageId,
+              );
+              if (cancelled) return;
+              setConversation({
+                id: stored.conversationId,
+                dossier_id: dossierId,
+                status: "open",
+                title: stored.title ?? "Preguntar a Oracle",
+              });
+              setPendingMessageId(stored.messageId);
+              setMessage(current);
+              if (["queued", "running"].includes(current.status)) {
+                void pollMessage(stored.conversationId, stored.messageId);
+              }
+              return;
+            } catch {
+              // Stale session entry — fall through to API list.
             }
-          } catch {
-            // Stale session entry; keep UI usable for a new question.
           }
+
+          // Tab closed / logout / other device: recover latest conversation from API.
+          const listed = await api.dossierConversations.list(dossierId, { limit: 1 });
+          if (cancelled) return;
+          const latest = listed.items?.[0];
+          if (!latest?.id) return;
+
+          setConversation(latest);
+          const messages = await api.dossierConversations.listMessages(
+            dossierId,
+            latest.id,
+            { limit: 1 },
+          );
+          if (cancelled) return;
+          const latestMessage = messages.items?.[0];
+          if (!latestMessage?.id) {
+            writeSession(dossierId, {
+              conversationId: latest.id,
+              messageId: null,
+              title: latest.title,
+            });
+            return;
+          }
+
+          setPendingMessageId(latestMessage.id);
+          setMessage(latestMessage);
+          writeSession(dossierId, {
+            conversationId: latest.id,
+            messageId: latestMessage.id,
+            title: latest.title,
+          });
+          if (["queued", "running"].includes(latestMessage.status)) {
+            void pollMessage(latest.id, latestMessage.id);
+          }
+        } catch {
+          // Empty or unreachable API: leave UI ready for a new question.
+        } finally {
+          if (!cancelled) setHydrating(false);
         }
-        if (!cancelled) setHydrating(false);
       })();
     }, 0);
     return () => {
@@ -212,7 +251,7 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
       <PageHeader
         eyebrow="Asistente del expediente"
         title="Preguntar a Oracle"
-        description="La pregunta se persiste antes de encolar el job. No modifica la intención ni los hechos de memoria. Tras recargar se recupera el último mensaje desde la API."
+        description="La pregunta se persiste antes de encolar el job. No modifica la intención ni los hechos de memoria. Al volver (incluso tras cerrar la pestaña) se recupera la última conversación del expediente desde la API."
       />
 
       <section className="vector-panel">
@@ -262,8 +301,8 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
         </header>
         {!message ? (
           <p>
-            Aún no hay respuestas. Tras enviar, el estado se conserva al recargar mediante
-            la conversación y el message_id guardados y un GET a la API.
+            Aún no hay respuestas. Tras enviar, la conversación queda en el expediente: al
+            volver (recarga, nueva pestaña o reabrir sesión) se muestra la última desde la API.
           </p>
         ) : (
           <article className="ask-result">

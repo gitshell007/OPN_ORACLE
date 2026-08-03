@@ -2928,11 +2928,33 @@ const surveillanceActions = {
 };
 
 const dossierConversations = {
+  /** Latest conversations for a dossier (API is durable source of truth). */
+  list: (dossierId: string, opts: { limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return request<{ items: DossierConversation[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations${qs ? `?${qs}` : ""}`,
+    );
+  },
   create: (dossierId: string, input: { title?: string } = {}) =>
     request<DossierConversation>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations`,
       { method: "POST", body: input },
     ),
+  /** Messages of a conversation, latest sequence first. */
+  listMessages: (
+    dossierId: string,
+    conversationId: string,
+    opts: { limit?: number } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return request<{ items: DossierMessage[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`,
+    );
+  },
   enqueueMessage: (
     dossierId: string,
     conversationId: string,
@@ -2950,6 +2972,15 @@ const dossierConversations = {
 };
 
 const customBriefs = {
+  /** Latest custom briefs for a dossier (API is durable source of truth). */
+  list: (dossierId: string, opts: { limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return request<{ items: CustomBriefDetail[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom${qs ? `?${qs}` : ""}`,
+    );
+  },
   create: (dossierId: string, input: { brief_request: string }, idempotencyKey: string) =>
     request<CustomBriefAccepted>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom`,

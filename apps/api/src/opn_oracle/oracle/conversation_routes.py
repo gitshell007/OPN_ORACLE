@@ -22,6 +22,8 @@ from opn_oracle.oracle.conversations import (
     create_conversation,
     enqueue_user_message,
     get_message,
+    list_conversations,
+    list_messages,
     serialize_conversation,
     serialize_message,
 )
@@ -41,6 +43,7 @@ from opn_oracle.oracle.custom_reports import (
     CustomReportNotFound,
     create_custom_report_brief,
     get_custom_brief,
+    list_custom_briefs,
     serialize_custom_brief,
 )
 from opn_oracle.oracle.models import StrategicDossier
@@ -176,6 +179,27 @@ def _dossier_or_404(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier |
     return dossier
 
 
+@bp.get("/dossiers/<uuid:dossier_id>/conversations")
+@require_permission("dossier.read")
+@limiter.limit("60/minute")
+def list_dossier_conversations(dossier_id: uuid.UUID) -> dict[str, Any] | Response:
+    """List conversations for a dossier (most recently updated first).
+
+    Source of truth for Ask UI rehydration after tab close / logout / new device.
+    sessionStorage is only a convenience cache on the client.
+    """
+
+    if _dossier_or_404(dossier_id, write=False) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    raw_limit = request.args.get("limit", "20")
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 20
+    rows = list_conversations(db.session(), dossier_id=dossier_id, limit=limit)
+    return {"items": [serialize_conversation(row) for row in rows]}
+
+
 @bp.post("/dossiers/<uuid:dossier_id>/conversations")
 @require_permission("dossier.write")
 @bp.input(ConversationCreateSchema)
@@ -202,6 +226,34 @@ def create_dossier_conversation(
         db.session.rollback()
         return _problem(422, detail=str(error), code="validation_error", errors=error.errors)
     return serialize_conversation(conversation)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/conversations/<uuid:conversation_id>/messages")
+@require_permission("dossier.read")
+@limiter.limit("60/minute")
+def list_conversation_messages(
+    dossier_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+) -> dict[str, Any] | Response:
+    """List messages in a conversation (latest sequence first)."""
+
+    if _dossier_or_404(dossier_id, write=False) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    raw_limit = request.args.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        rows = list_messages(
+            db.session(),
+            dossier_id=dossier_id,
+            conversation_id=conversation_id,
+            limit=limit,
+        )
+    except ConversationNotFound as error:
+        return _problem(404, detail=str(error), code="not_found")
+    return {"items": [serialize_message(row) for row in rows]}
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/conversations/<uuid:conversation_id>/messages")
@@ -274,6 +326,26 @@ def get_conversation_message(
     except ConversationNotFound as error:
         return _problem(404, detail=str(error), code="not_found")
     return serialize_message(message)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/reports/custom")
+@require_permission("report.read")
+@limiter.limit("60/minute")
+def list_custom_report_briefs(dossier_id: uuid.UUID) -> dict[str, Any] | Response:
+    """List custom briefs for a dossier (most recently updated first).
+
+    Source of truth for Informe libre UI rehydration after tab/session loss.
+    """
+
+    if _dossier_or_404(dossier_id, write=False) is None:
+        return _problem(404, detail="Expediente no encontrado.", code="not_found")
+    raw_limit = request.args.get("limit", "20")
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 20
+    rows = list_custom_briefs(db.session(), dossier_id=dossier_id, limit=limit)
+    return {"items": [serialize_custom_brief(row) for row in rows]}
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/reports/custom")
