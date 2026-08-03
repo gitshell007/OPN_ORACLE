@@ -1028,3 +1028,44 @@ def test_humanize_structured_deadline_and_amount_for_llm_prompt() -> None:
     assert ids[3] == "e-company"
     assert "15 de abril de 2026" in texts[1]
     assert "2.400.000 EUR" in texts[2]
+
+
+def test_complete_answer_with_grounded_tender_facts_copies_deadline() -> None:
+    from opn_oracle.integrations.memory_ask_dual import (
+        complete_answer_with_grounded_tender_facts,
+    )
+
+    items = [
+        {
+            "evidence_id": "e-ext",
+            "text": "[tender:proc:LIC-OATDA-2026-017] tender.external_id: {'id': 'LIC-OATDA-2026-017'}",
+        },
+        {
+            "evidence_id": "e-amount",
+            "text": "[tender:proc:LIC-OATDA-2026-017] tender.amount: {'amount': 2400000, 'currency': 'EUR'}",
+        },
+        {
+            "evidence_id": "e-deadline",
+            "text": "[tender:proc:LIC-OATDA-2026-017] tender.deadline: {'datetime': '2026-04-15T14:00:00'}",
+        },
+    ]
+    answer = (
+        "Nexus participa en LIC-OATDA-2026-017 con un importe de 2.400.000 EUR."
+    )
+    completed, cites = complete_answer_with_grounded_tender_facts(
+        answer, signal_items=items, citations=[{"evidence_id": "e-amount", "quote": "importe"}]
+    )
+    assert "15 de abril de 2026" in completed
+    assert "LIC-OATDA-2026-017" in completed
+    # Does not re-introduce amount already present via digit form.
+    assert completed.count("2.400.000") == 1
+    assert any(c.get("evidence_id") == "e-deadline" for c in cites)
+
+    # Unknown tender not mentioned → no invention.
+    untouched, cites2 = complete_answer_with_grounded_tender_facts(
+        "Solo datos de la empresa sin licitación.",
+        signal_items=items,
+        citations=[],
+    )
+    assert "15 de abril" not in untouched
+    assert cites2 == []

@@ -1052,6 +1052,20 @@ def process_dossier_question_answer(
             body = str(signal_result["answer_text"])
             answer_payload = dict(signal_result["answer_payload"])
             signal_meta = dict(signal_result.get("meta") or {})
+            # Deterministic completion: if the model already named a tender present in
+            # dual-memory, copy missing humanized amount/deadline from authorized extracts
+            # (never invent formats; only reuse prose already in signal_factual items).
+            from opn_oracle.integrations.memory_ask_dual import (
+                complete_answer_with_grounded_tender_facts as _complete_tender_facts,
+            )
+
+            body, grounded_citations = _complete_tender_facts(
+                body,
+                signal_items=items_for_prompt,
+                citations=list(answer_payload.get("citations") or []),
+            )
+            answer_payload["citations"] = grounded_citations
+            answer_payload["text"] = body
             # Allowlist 100%: any foreign citation or material Evidence fails closed.
             accepted, rejected = validate_citations_allowlist(
                 list(answer_payload.get("citations") or []),

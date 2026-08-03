@@ -534,6 +534,148 @@ def _prompt_fact_sort_key(text: str) -> tuple[int, str]:
     return (80, lowered)
 
 
+def _tender_entity_key(text: str) -> str | None:
+    match = re.search(r"\[tender:proc:([^\]]+)\]", text or "", flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def build_key_tender_facts(
+    items: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group humanized tender extracts by entity for compact prompt + grounding.
+
+    Only copies values already present in authorized item text — never invents.
+    """
+
+    by_entity: dict[str, dict[str, Any]] = {}
+    for raw in items:
+        text = _humanize_structured_memory_text(str(raw.get("text") or ""))
+        entity = _tender_entity_key(text)
+        if not entity:
+            continue
+        row = by_entity.setdefault(
+            entity,
+            {
+                "entity": entity,
+                "external_id": None,
+                "amount": None,
+                "deadline": None,
+                "evidence_ids": [],
+            },
+        )
+        eid = str(raw.get("evidence_id") or "").strip()
+        if eid and eid not in row["evidence_ids"]:
+            row["evidence_ids"].append(eid)
+
+        ext = re.search(
+            r"tender\.external_id:\s*(?:\{[^}]*['\"]id['\"]\s*:\s*['\"]([^'\"]+)['\"][^}]*\}|(\S+))",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if ext:
+            row["external_id"] = (ext.group(1) or ext.group(2) or "").strip() or row["external_id"]
+
+        amount = re.search(
+            r"tender\.amount:\s*([\d.]+(?:\s*[A-Z]{3})?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if amount and "de " not in amount.group(1).lower():
+            row["amount"] = amount.group(1).strip()
+
+        deadline = re.search(
+            r"tender\.deadline:\s*(\d{1,2}\s+de\s+\w+\s+de\s+20\d{2}(?:,\s*\d{2}:\d{2})?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if deadline:
+            row["deadline"] = deadline.group(1).strip()
+
+    return list(by_entity.values())
+
+
+def complete_answer_with_grounded_tender_facts(
+    answer_text: str,
+    *,
+    signal_items: Sequence[Mapping[str, Any]],
+    citations: Sequence[Mapping[str, Any]] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Copy missing humanized amount/deadline into the answer when the tender is already named.
+
+    Fail-open for empty inputs. Never invents values: only reuses prose from allowlisted
+    extracts. Only completes tenders whose entity/external_id already appears in the
+    model answer (so we do not introduce unsolicited tenders).
+    """
+
+    text = str(answer_text or "").strip()
+    cites: list[dict[str, Any]] = [dict(c) for c in (citations or []) if isinstance(c, Mapping)]
+    if not text:
+        return text, cites
+
+    key_facts = build_key_tender_facts(signal_items)
+    if not key_facts:
+        return text, cites
+
+    cited_ids = {
+        str(c.get("evidence_id") or "").strip()
+        for c in cites
+        if str(c.get("evidence_id") or "").strip()
+    }
+    additions: list[str] = []
+    lowered = text.lower()
+
+    for fact in key_facts:
+        entity = str(fact.get("entity") or "")
+        external_id = str(fact.get("external_id") or entity)
+        tokens = {entity.lower(), external_id.lower()} - {""}
+        if not tokens or not any(tok in lowered for tok in tokens):
+            continue
+        missing_bits: list[str] = []
+        amount = fact.get("amount")
+        deadline = fact.get("deadline")
+        if amount and str(amount).lower() not in lowered:
+            amount_digits = re.sub(r"\D", "", str(amount))
+            text_digits = re.sub(r"\D", "", text)
+            if not amount_digits or amount_digits not in text_digits:
+                missing_bits.append(f"importe {amount}")
+        if deadline:
+            day_month = re.search(
+                r"(\d{1,2})\s+de\s+(\w+)",
+                str(deadline),
+                flags=re.IGNORECASE,
+            )
+            present = str(deadline).lower() in lowered
+            if day_month and not present:
+                present = (
+                    f"{day_month.group(1)} de {day_month.group(2)}".lower() in lowered
+                )
+            if not present:
+                missing_bits.append(f"plazo {deadline}")
+        if not missing_bits:
+            continue
+        label = external_id or entity
+        additions.append(
+            f"Para el expediente {label}, la evidencia autorizada indica "
+            + " y ".join(missing_bits)
+            + "."
+        )
+        for eid in fact.get("evidence_ids") or []:
+            eid_s = str(eid).strip()
+            if not eid_s or eid_s in cited_ids:
+                continue
+            # Quote is a short verbatim slice of the structured extract label.
+            quote = f"[tender:proc:{entity}] " + " / ".join(missing_bits)
+            cites.append({"evidence_id": eid_s, "quote": quote[:300]})
+            cited_ids.add(eid_s)
+
+    if not additions:
+        return text, cites
+    completed = text.rstrip() + "\n\n" + " ".join(additions)
+    return completed[:2500], cites
+
+
 def _normalize_retrieval_item(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     """Normalize a Signal retrieval item; return None if not citable.
 
@@ -715,12 +857,14 @@ def build_signal_factual_block(
         # Presentation order only: surface key tender facts before company boilerplate
         # so RT-07's citation budget is more likely to cover expediente/importe/plazo.
         items_for_prompt.sort(key=lambda item: _prompt_fact_sort_key(str(item.get("text") or "")))
+    key_tender_facts = build_key_tender_facts(items_for_prompt) if inject else []
     return {
         "block": "signal_factual",
         "mode": mode,
         "observed_count": observed_count,
         "inject_into_llm": inject,
         "items": items_for_prompt,
+        "key_tender_facts": key_tender_facts,
         "untrusted_external": True,
         "note": (
             "shadow_zero_injection"
