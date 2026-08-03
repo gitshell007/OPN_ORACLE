@@ -2002,6 +2002,17 @@ def ensure_dossier_aggregates_many(
     return dossiers
 
 
+def order_with_nulls_last(column: Any, *, descending: bool) -> Any:
+    """Product contract: rows without a sort value never cover those that have one.
+
+    Applies to deadline/due_date (and any other nullable sort column): ascending or
+    descending, nulls stay at the end so the working week stays legible.
+    """
+
+    base = column.desc() if descending else column.asc()
+    return base.nulls_last()
+
+
 def list_page(
     session: Session,
     model: type[Any],
@@ -2032,7 +2043,7 @@ def list_page(
         term = f"%{search[:100]}%"
         criterion = __import__("sqlalchemy").or_(*(column.ilike(term) for column in search_columns))
         query, count_query = query.where(criterion), count_query.where(criterion)
-    order = allow_sort[sort_key].desc() if descending else allow_sort[sort_key].asc()
+    order = order_with_nulls_last(allow_sort[sort_key], descending=descending)
     total = int(session.scalar(count_query) or 0)
     rows = list(session.scalars(query.order_by(order).offset((page - 1) * size).limit(size)))
     return rows, total

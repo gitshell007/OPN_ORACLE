@@ -733,6 +733,48 @@ def promote_procurement_to_opportunity(
     return opportunity, True
 
 
+def backfill_opportunity_deadlines_from_procurement(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID | None = None,
+) -> int:
+    """Fill Opportunity.deadline from the linked tender snapshot when still null.
+
+    Safe contract:
+    - only rows with ``linked_opportunity_id`` (promoted from procurement);
+    - never overwrites a non-null ``Opportunity.deadline``;
+    - ignores unparseable snapshot dates;
+    - agent/manual opportunities without a linked tender stay null (no date to recover).
+
+    Returns the number of opportunities updated.
+    """
+
+    query = (
+        select(DossierProcurementItem, Opportunity)
+        .join(
+            Opportunity,
+            (Opportunity.id == DossierProcurementItem.linked_opportunity_id)
+            & (Opportunity.tenant_id == DossierProcurementItem.tenant_id),
+        )
+        .where(
+            DossierProcurementItem.linked_opportunity_id.is_not(None),
+            Opportunity.deadline.is_(None),
+        )
+    )
+    if tenant_id is not None:
+        query = query.where(DossierProcurementItem.tenant_id == tenant_id)
+
+    updated = 0
+    for item, opportunity in session.execute(query).all():
+        snapshot = item.snapshot if isinstance(item.snapshot, dict) else {}
+        deadline = _snapshot_deadline(snapshot)
+        if deadline is None:
+            continue
+        opportunity.deadline = deadline
+        updated += 1
+    return updated
+
+
 def serialize_procurement_item(item: DossierProcurementItem) -> dict[str, Any]:
     return {
         "id": str(item.id),

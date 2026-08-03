@@ -1971,3 +1971,49 @@ def test_snapshot_deadline_parses_iso_date_and_datetime() -> None:
     assert procurement_items._snapshot_deadline({"deadline": None}) is None
     assert procurement_items._snapshot_deadline({"deadline": "sin-fecha"}) is None
     assert procurement_items._snapshot_deadline({}) is None
+
+
+@pytest.mark.unit
+def test_backfill_opportunity_deadlines_from_procurement_only_fills_nulls() -> None:
+    """Recover deadline from linked tender snapshot; never overwrite non-null."""
+
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    tenant_id = uuid.uuid4()
+    linked_null = uuid.uuid4()
+    linked_kept = uuid.uuid4()
+    no_snapshot_date = uuid.uuid4()
+
+    item_fill = SimpleNamespace(
+        linked_opportunity_id=linked_null,
+        tenant_id=tenant_id,
+        snapshot={"deadline": "2026-08-06", "title": "Licitación con plazo"},
+    )
+    item_empty = SimpleNamespace(
+        linked_opportunity_id=no_snapshot_date,
+        tenant_id=tenant_id,
+        snapshot={"title": "Sin plazo en snapshot"},
+    )
+    opp_null = SimpleNamespace(id=linked_null, tenant_id=tenant_id, deadline=None)
+    opp_kept = SimpleNamespace(
+        id=linked_kept, tenant_id=tenant_id, deadline=date(2026, 1, 1)
+    )
+    opp_empty = SimpleNamespace(id=no_snapshot_date, tenant_id=tenant_id, deadline=None)
+
+    # Query already filters Opportunity.deadline IS NULL, so only null rows are joined.
+    session = MagicMock()
+    session.execute.return_value.all.return_value = [
+        (item_fill, opp_null),
+        (item_empty, opp_empty),
+    ]
+
+    updated = procurement_items.backfill_opportunity_deadlines_from_procurement(session)
+
+    assert updated == 1
+    assert opp_null.deadline == date(2026, 8, 6)
+    assert opp_empty.deadline is None
+    # Non-null row is outside the query result set — still protected by contract.
+    assert opp_kept.deadline == date(2026, 1, 1)
+    session.execute.assert_called_once()

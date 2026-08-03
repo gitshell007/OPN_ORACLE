@@ -119,6 +119,7 @@ from opn_oracle.oracle.service import (
     ensure_dossier_aggregates_many,
     list_page,
     merge_actors,
+    order_with_nulls_last,
     promote_signal_link,
     record_status_change,
     review_signal_link,
@@ -401,7 +402,7 @@ def _global_dossier_resource_page(model: type[Any]) -> dict[str, Any]:
         .join(StrategicDossier, StrategicDossier.id == model.dossier_id)
         .where(*criteria)
     )
-    order = sortable[sort].desc() if desc else sortable[sort].asc()
+    order = order_with_nulls_last(sortable[sort], descending=desc)
     rows = list(
         db.session.execute(
             query.order_by(order, model.id.asc()).offset((page - 1) * size).limit(size)
@@ -1761,6 +1762,7 @@ def _model_page(model: type[Any], *, criteria: tuple[Any, ...] = ()) -> dict[str
             "status",
             "overall_score",
             "due_date",
+            "deadline",
             "scheduled_at",
             "decided_at",
             "priority",
