@@ -248,10 +248,13 @@ class OpportunityFitAssessment(StrictModel):
     (perfil del expediente). Los ``official_evidence_ids`` enlazan licitaciones u
     otras fuentes oficiales que el encaje menciona, sin convertir lo declarado
     en hecho verificado.
+
+    La frontera de IDs se revalida en ``validate_opportunity_origin_boundary``:
+    si no hay declared válido, el bloque se anula en post-proceso.
     """
 
     statement: str = Field(min_length=1, max_length=4000)
-    declared_evidence_ids: list[UUID] = Field(min_length=1)
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
     official_evidence_ids: list[UUID] = Field(default_factory=list)
     confidence: int = Field(ge=0, le=100)
     origin: Literal["declared_by_client"] = "declared_by_client"
@@ -280,6 +283,39 @@ class OpportunityAnalysisOutput(AgentOutput):
     candidate_actors: list[CandidateActor] = Field(default_factory=list)
     next_best_action: NextBestAction | None = None
     fit_assessment: OpportunityFitAssessment | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_invalid_fit_assessment(cls, value: Any) -> Any:
+        """Tolera mocks/LLM que inventan un fit_assessment incompleto o vacío.
+
+        En lugar de tumbar el job (ValidationError), se descarta el bloque y la
+        frontera de origen lo rellena o lo deja en null.
+        """
+
+        if not isinstance(value, dict):
+            return value
+        fit = value.get("fit_assessment")
+        if fit in (None, "", {}, []):
+            value["fit_assessment"] = None
+            return value
+        if not isinstance(fit, dict):
+            value["fit_assessment"] = None
+            return value
+        statement = str(fit.get("statement") or "").strip()
+        declared = fit.get("declared_evidence_ids")
+        if not statement or not isinstance(declared, list) or not declared:
+            value["fit_assessment"] = None
+            return value
+        cleaned = dict(fit)
+        cleaned["statement"] = statement
+        # Normalizar origin desconocido al canónico declarado.
+        if cleaned.get("origin") not in {None, "", "declared_by_client"}:
+            cleaned["origin"] = "declared_by_client"
+        if "confidence" in cleaned:
+            cleaned["confidence"] = _coerce_confidence_0_100(cleaned["confidence"])
+        value["fit_assessment"] = cleaned
+        return value
 
 
 class RiskScores(StrictModel):
