@@ -3811,7 +3811,13 @@ def test_dossier_create_uses_active_default_workspace(
         headers={"X-CSRF-Token": _csrf(client)},
     )
     assert response.status_code == 201
-    assert response.get_json()["workspace_id"] == str(ids["workspace_a"])
+    body = response.get_json()
+    assert body["workspace_id"] == str(ids["workspace_a"])
+    # Empty dossier: opportunity/risk means are 0; health is neutral 50, not "worst" 0.
+    assert body["opportunity_score"] == 0
+    assert body["risk_score"] == 0
+    assert body["health_score"] == 50
+    assert body["score_explanation"]["algorithm_version"] == "oracle-scoring-v1"
 
 
 def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(

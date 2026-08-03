@@ -121,9 +121,31 @@ export function ProductDossier() {
             "El expediente todavía no tiene una descripción consolidada."}
         </p>
         <dl className="placeholder-contract">
-          <div><dt>Salud</dt><dd>{dossier.health_score}</dd></div>
-          <div><dt>Oportunidad</dt><dd>{dossier.opportunity_score}</dd></div>
-          <div><dt>Riesgo</dt><dd>{dossier.risk_score}</dd></div>
+          <div>
+            <dt title="Media de oportunidades y riesgos: salud = clamp(50 + 0,5·oportunidad − 0,5·riesgo)">
+              Salud
+            </dt>
+            <dd>
+              {dossier.health_score}
+              {dossier.opportunity_score === 0 &&
+              dossier.risk_score === 0 &&
+              dossier.health_score === 50 ? (
+                <small> · neutro (sin oportunidades ni riesgos)</small>
+              ) : null}
+            </dd>
+          </div>
+          <div>
+            <dt title="Media de overall_score de oportunidades del expediente (0 si no hay)">
+              Oportunidad
+            </dt>
+            <dd>{dossier.opportunity_score}</dd>
+          </div>
+          <div>
+            <dt title="Media de overall_score de riesgos del expediente (0 si no hay)">
+              Riesgo
+            </dt>
+            <dd>{dossier.risk_score}</dd>
+          </div>
         </dl>
         <div className="placeholder-actions">
           <Link className="vector-secondary" href={`/app/dossiers/${id}/signals`}>Señales</Link>

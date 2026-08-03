@@ -115,6 +115,8 @@ from opn_oracle.oracle.service import (
     create_dossier_actor,
     create_scored_resource,
     delete_dossiers,
+    ensure_dossier_aggregates,
+    ensure_dossier_aggregates_many,
     list_page,
     merge_actors,
     promote_signal_link,
@@ -1012,6 +1014,7 @@ def dossiers_list() -> Any:
                 *_typed_list_criteria(StrategicDossier),
             ),
         )
+        rows = ensure_dossier_aggregates_many(db.session(), rows)
         return {
             "data": [_serialize(row) for row in rows],
             "meta": {"page": page, "size": size, "total": total},
@@ -1279,6 +1282,7 @@ def dossier_get(dossier_id: uuid.UUID) -> Any:
     dossier = _dossier_or_404(dossier_id)
     if dossier is None:
         return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    dossier = ensure_dossier_aggregates(db.session(), dossier)
     return _serialize(dossier), 200, {"ETag": f'W/"{dossier.version}"'}
 
 

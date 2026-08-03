@@ -56,6 +56,7 @@ from opn_oracle.oracle.policy import (
 )
 from opn_oracle.oracle.scoring import (
     ACTOR_PRIORITY_WEIGHTS,
+    ALGORITHM_VERSION,
     OPPORTUNITY_WEIGHTS,
     RISK_WEIGHTS,
     SIGNAL_WEIGHTS,
@@ -450,6 +451,9 @@ def create_dossier(
             "profile_version": profile_config.get("version") if profile_config else None,
         },
     )
+    # Column defaults are 0/0/0; without a refresh an empty dossier reads as
+    # health=0 (worst) instead of the neutral aggregate (health=50).
+    _refresh_dossier_aggregates(session, dossier.id)
     session.commit()
     return dossier
 
@@ -1954,10 +1958,52 @@ def _refresh_dossier_aggregates(session: Session, dossier_id: uuid.UUID) -> None
     dossier.opportunity_score = aggregate["opportunity_score"]
     dossier.risk_score = aggregate["risk_score"]
     dossier.score_explanation = {
-        "algorithm_version": "oracle-scoring-v1",
+        "algorithm_version": ALGORITHM_VERSION,
         "aggregate": "arithmetic mean; health=50+0.5*opportunity-0.5*risk",
+        "opportunity_count": len(opportunities),
+        "risk_count": len(risks),
         **aggregate,
     }
+
+
+def _dossier_aggregates_stale(dossier: StrategicDossier) -> bool:
+    explanation = dossier.score_explanation if isinstance(dossier.score_explanation, dict) else {}
+    return explanation.get("algorithm_version") != ALGORITHM_VERSION
+
+
+def ensure_dossier_aggregates(
+    session: Session, dossier: StrategicDossier, *, commit: bool = True
+) -> StrategicDossier:
+    """Self-heal dossiers created before aggregates were refreshed on create.
+
+    Proof of a successful run is ``score_explanation.algorithm_version``. An empty
+    ``{}`` means the row still carries column defaults (health 0) and must be
+    recomputed from current opportunities/risks.
+    """
+
+    if not _dossier_aggregates_stale(dossier):
+        return dossier
+    _refresh_dossier_aggregates(session, dossier.id)
+    if commit:
+        session.commit()
+        session.refresh(dossier)
+    return dossier
+
+
+def ensure_dossier_aggregates_many(
+    session: Session, dossiers: list[StrategicDossier]
+) -> list[StrategicDossier]:
+    """Batch self-heal for list endpoints (single commit)."""
+
+    stale = [row for row in dossiers if _dossier_aggregates_stale(row)]
+    if not stale:
+        return dossiers
+    for row in stale:
+        _refresh_dossier_aggregates(session, row.id)
+    session.commit()
+    for row in stale:
+        session.refresh(row)
+    return dossiers
 
 
 def list_page(

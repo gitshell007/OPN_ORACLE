@@ -82,3 +82,29 @@ def test_custom_weights_validation_and_aggregate() -> None:
     }
     with pytest.raises(ValueError):
         score_signal({key: 101 for key in SIGNAL_WEIGHTS})
+
+
+@pytest.mark.unit
+def test_empty_dossier_aggregate_is_neutral_health_not_zero() -> None:
+    """Empty means opportunity=0, risk=0, health=50 — never health=0 as 'no data'."""
+
+    assert aggregate_dossier_scores([], []) == {
+        "opportunity_score": 0,
+        "risk_score": 0,
+        "health_score": 50,
+    }
+    assert aggregate_dossier_scores([100], []) == {
+        "opportunity_score": 100,
+        "risk_score": 0,
+        "health_score": 100,
+    }
+    assert aggregate_dossier_scores([], [100]) == {
+        "opportunity_score": 0,
+        "risk_score": 100,
+        "health_score": 0,
+    }
+    assert aggregate_dossier_scores([60], [20]) == {
+        "opportunity_score": 60,
+        "risk_score": 20,
+        "health_score": 70,
+    }

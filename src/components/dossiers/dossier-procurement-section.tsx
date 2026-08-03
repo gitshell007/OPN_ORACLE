@@ -419,8 +419,26 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     <dd>{formatDate(snapshotDeadline(item))}</dd>
                   </div>
                   <div>
-                    <dt>Importe</dt>
-                    <dd>{formatMoney(snapshotAmount(item))}</dd>
+                    <dt
+                      title={
+                        item.kind === "tender"
+                          ? "Campo amount de PLACSP: el origen no indica si es base de licitación o IVA incluido"
+                          : "Campo award_amount de PLACSP: el origen no indica si es base o IVA incluido"
+                      }
+                    >
+                      {item.kind === "tender"
+                        ? "Importe publicado"
+                        : "Importe adjudicado publicado"}
+                    </dt>
+                    <dd>
+                      {formatMoney(snapshotAmount(item))}
+                      {snapshotAmount(item) != null ? (
+                        <small className="procurement-amount-note">
+                          {" "}
+                          (PLACSP; sin clasificar base/IVA)
+                        </small>
+                      ) : null}
+                    </dd>
                   </div>
                   <div>
                     <dt>Evidencia</dt>

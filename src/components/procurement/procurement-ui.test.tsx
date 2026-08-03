@@ -842,6 +842,45 @@ describe("UI de contratación pública", () => {
       screen.getAllByText("Autoridad Portuaria de Barcelona"),
     ).not.toHaveLength(0);
     expect(screen.getByText("UTE · En consorcio")).toBeInTheDocument();
+    expect(screen.getByText("Importe adjudicado publicado")).toBeInTheDocument();
+    expect(screen.getByText(/PLACSP; sin clasificar base\/IVA/)).toBeInTheDocument();
+  });
+
+  it("etiqueta el importe de licitación fijada como publicado sin inventar base/IVA", async () => {
+    mocks.listPinned.mockResolvedValue({
+      data: [
+        {
+          id: "tender-pin-amount",
+          tenant_id: "tenant-1",
+          dossier_id: "dossier-1",
+          kind: "tender",
+          folder_id: "2026/992/IVA",
+          snapshot: {
+            title: "Suministro con IVA ambiguo",
+            buyer: "Organismo demo",
+            amount: 820000,
+            deadline: "2026-09-01",
+            summary_feed: "Importe 992.200 € IVA incluido",
+          },
+          source_url: "https://contrataciondelestado.es/tender/992",
+          evidence_id: "evidence-tender-992",
+          pinned_by_user_id: "user-1",
+          created_at: "2026-07-16T00:00:00Z",
+          updated_at: "2026-07-16T00:00:00Z",
+        },
+      ],
+    });
+
+    render(<DossierProcurementSection dossierId="dossier-1" />);
+
+    expect(
+      await screen.findByText("Suministro con IVA ambiguo"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Importe publicado")).toBeInTheDocument();
+    expect(screen.queryByText(/^Importe$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/PLACSP; sin clasificar base\/IVA/)).toBeInTheDocument();
+    // No se pinta summary_feed crudo junto a la cifra formateada (evita 992k vs 820k).
+    expect(screen.queryByText(/992\.200/)).not.toBeInTheDocument();
   });
 
   it("encola inteligencia competitiva con la denominación fijada y estado durable", async () => {
