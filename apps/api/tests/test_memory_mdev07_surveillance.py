@@ -262,6 +262,7 @@ class _FakeSession:
         self._dossier: Any = None
         self._actor: Any = None
         self._link: Any = None
+        self._connection: Any = None
 
     def scalar(self, stmt: Any) -> Any:
         # Heuristic by inspecting compiled-ish string or entity type in with_for_update chains.
@@ -270,6 +271,8 @@ class _FakeSession:
             return self._dossier
         if "dossier_actors" in text.lower() or "DossierActor" in text:
             return self._link
+        if "integration_connections" in text.lower() or "IntegrationConnection" in text:
+            return self._connection
         if "actors" in text.lower() or "Actor" in text:
             return self._actor
         if "dossier_surveillance_actions" in text.lower() or "DossierSurveillanceAction" in text:
@@ -383,6 +386,126 @@ def test_confirm_idempotent_and_actor_zero_monitors(monkeypatch: pytest.MonkeyPa
             )
             == 0
         )
+
+
+def test_confirm_flags_on_with_ic_sets_signal_monitor_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: con banderas ON + IC, signal_monitor_id no puede quedar nulo."""
+
+    from opn_oracle.oracle import surveillance as surv
+    from opn_oracle.tenants.context import TenantContext, tenant_context
+
+    tenant = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    monitor_id = uuid.uuid4()
+    watchlist_id = uuid.uuid4()
+    event_id = uuid.uuid4()
+    session = _FakeSession()
+    session._dossier = SimpleNamespace(
+        id=dossier_id,
+        tenant_id=tenant,
+        status="active",
+        current_intent_revision_id=uuid.uuid4(),
+    )
+    session._actor = SimpleNamespace(
+        id=actor_id, tenant_id=tenant, canonical_name="IberVolt SA", actor_type="company"
+    )
+    session._link = SimpleNamespace(
+        id=uuid.uuid4(), tenant_id=tenant, dossier_id=dossier_id, actor_id=actor_id
+    )
+    session._connection = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id=tenant,
+        provider="signal-avanza",
+        status="active",
+        adapter_mode="mock",
+        base_url="https://signal-dev.opnconsultoria.com/api/v1/oracle",
+        created_at=datetime.now(UTC),
+    )
+
+    monkeypatch.setenv("MEMORY_SURVEILLANCE_SIGNAL_ENABLED", "1")
+    monkeypatch.setattr(surv, "dossier_accessible", lambda *a, **k: True)
+    monkeypatch.setattr(surv, "append_audit_event", lambda *a, **k: None)
+    monkeypatch.setattr(surv, "_dispatch_monitor_event", lambda *a, **k: None)
+
+    def _fake_stage(**kwargs: Any) -> tuple[Any, Any, bool]:
+        mon = SimpleNamespace(id=monitor_id, watchlist_id=watchlist_id)
+        evt = SimpleNamespace(id=event_id)
+        return mon, evt, False
+
+    monkeypatch.setattr(
+        "opn_oracle.integrations.service.stage_dossier_monitor_create",
+        _fake_stage,
+    )
+
+    with tenant_context(TenantContext(tenant_id=tenant, actor_id=user_id)):
+        first, created = surv.confirm_surveillance_action(
+            session,  # type: ignore[arg-type]
+            dossier_id=dossier_id,
+            actor_user_id=user_id,
+            payload={
+                "action_type": "news_mentions",
+                "actor_id": str(actor_id),
+                "cadence": "daily",
+                "title": "Vigilancia news demo",
+            },
+        )
+    assert created is True
+    # Gate: con flags ON + IC, el confirm reutiliza monitor.create y rellena el id.
+    assert first.signal_monitor_id == monitor_id
+    assert first.watchlist_id == watchlist_id
+    assert first.degraded is False
+    assert first.degraded_reason is None
+
+
+def test_confirm_flags_on_without_ic_stays_degraded_honest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opn_oracle.oracle import surveillance as surv
+    from opn_oracle.tenants.context import TenantContext, tenant_context
+
+    tenant = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    session = _FakeSession()
+    session._dossier = SimpleNamespace(
+        id=dossier_id,
+        tenant_id=tenant,
+        status="active",
+        current_intent_revision_id=None,
+    )
+    session._actor = SimpleNamespace(
+        id=actor_id, tenant_id=tenant, canonical_name="Demo SA", actor_type="company"
+    )
+    session._link = SimpleNamespace(
+        id=uuid.uuid4(), tenant_id=tenant, dossier_id=dossier_id, actor_id=actor_id
+    )
+    session._connection = None
+
+    monkeypatch.setenv("MEMORY_SURVEILLANCE_SIGNAL_ENABLED", "1")
+    monkeypatch.setattr(surv, "dossier_accessible", lambda *a, **k: True)
+    monkeypatch.setattr(surv, "append_audit_event", lambda *a, **k: None)
+
+    with tenant_context(TenantContext(tenant_id=tenant, actor_id=user_id)):
+        action, created = surv.confirm_surveillance_action(
+            session,  # type: ignore[arg-type]
+            dossier_id=dossier_id,
+            actor_user_id=user_id,
+            payload={
+                "action_type": "news_mentions",
+                "actor_id": str(actor_id),
+                "cadence": "daily",
+            },
+        )
+    assert created is True
+    assert action.signal_monitor_id is None
+    assert action.degraded is True
+    assert action.degraded_reason is not None
+    assert "sin conexión" in action.degraded_reason
 
 
 def test_no_follow_creates_no_schedule(monkeypatch: pytest.MonkeyPatch) -> None:

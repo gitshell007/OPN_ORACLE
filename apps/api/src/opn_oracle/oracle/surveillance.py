@@ -46,7 +46,17 @@ from opn_oracle.oracle.models import (
 from opn_oracle.oracle.policy import dossier_accessible
 from opn_oracle.oracle.service import ResourceNotFound, VersionConflict
 from opn_oracle.platform.audit import append_audit_event
+from opn_oracle.platform.models import IntegrationConnection
 from opn_oracle.tenants.context import require_tenant_id
+
+# action_type → Signal source_types used by the July monitor.create path
+_ACTION_SOURCE_TYPES: dict[str, list[str]] = {
+    "news_mentions": ["news", "company_signal"],
+    "official_publications": ["official_publication", "regulatory_signal"],
+    "actor_tenders": ["company_signal", "official_publication"],
+    "offering_tenders": ["company_signal", "official_publication"],
+    "research_digest": ["news", "company_signal", "official_publication"],
+}
 
 ACTION_TYPES = frozenset(
     {
@@ -487,6 +497,182 @@ def _get_action_for_update(
     return action
 
 
+def _surveillance_signal_enabled() -> bool:
+    """Product flag: attempt July monitor.create path from confirm."""
+
+    try:
+        from opn_oracle.integrations.surveillance_signal_adapter import (
+            surveillance_signal_enabled,
+        )
+
+        return surveillance_signal_enabled()
+    except Exception:  # pragma: no cover - defensive import boundary
+        return False
+
+
+def _monitor_cadence(cadence: str) -> str:
+    if cadence in {"hourly", "daily", "weekly"}:
+        return cadence
+    return "daily"
+
+
+def _build_monitor_spec_for_action(
+    *,
+    action_type: str,
+    title: str,
+    cadence: str,
+    keywords: list[Any],
+    source_types: list[Any],
+    actor: Actor | None,
+) -> Any:
+    from opn_oracle.integrations.service import monitor_spec_from_payload
+
+    entity_type = "company"
+    if actor is not None and str(getattr(actor, "actor_type", "") or "").lower() in {
+        "person",
+        "individual",
+    }:
+        entity_type = "person"
+    entities: list[dict[str, str]] = []
+    if actor is not None and actor.canonical_name:
+        entities.append({"type": entity_type, "name": actor.canonical_name[:300]})
+    kw = [str(item).strip() for item in keywords if str(item).strip()][:50]
+    sources = [str(item).strip().lower() for item in source_types if str(item).strip()]
+    if not sources:
+        sources = list(_ACTION_SOURCE_TYPES.get(action_type, ["news"]))
+    query = title.strip() if title.strip() else (actor.canonical_name if actor else action_type)
+    return monitor_spec_from_payload(
+        {
+            "query": query[:1000],
+            "keywords": kw,
+            "entities": entities,
+            "source_types": sources,
+            "cadence": _monitor_cadence(cadence),
+            "languages": ["es"],
+            "geographies": ["ES"],
+            "retention_days": 365,
+        },
+        oracle_monitor_id="pending-monitor",
+        desired_status="active",
+    )
+
+
+def _try_stage_signal_monitor(
+    session: Session,
+    *,
+    action: DossierSurveillanceAction,
+    dossier: StrategicDossier,
+    actor_user_id: uuid.UUID,
+    action_type: str,
+    title: str,
+    cadence: str,
+    keywords: list[Any],
+    source_types: list[Any],
+    actor: Actor | None,
+    idempotency_seed: str,
+) -> tuple[bool, str | None, uuid.UUID | None]:
+    """Stage the July watchlist→monitor→outbox path. Returns (ok, reason, event_id)."""
+
+    from opn_oracle.integrations.service import (
+        IdempotencyConflict,
+        stage_dossier_monitor_create,
+    )
+
+    if action.signal_monitor_id is not None:
+        return True, None, None
+
+    connection = session.scalar(
+        select(IntegrationConnection)
+        .where(
+            IntegrationConnection.tenant_id == dossier.tenant_id,
+            IntegrationConnection.provider == "signal-avanza",
+            IntegrationConnection.status == "active",
+        )
+        .order_by(IntegrationConnection.created_at.desc())
+        .limit(1)
+    )
+    if connection is None:
+        return (
+            False,
+            "SIGNAL-MONITOR-ABSENT: sin conexión signal-avanza activa en el tenant; "
+            "no vigila de verdad",
+            None,
+        )
+
+    # Guard: real HTTP must not point at production Signal from oracle-dev.
+    base = (connection.base_url or "").lower()
+    if (
+        connection.adapter_mode == "http"
+        and "signal.opnconsultoria.com" in base
+        and "signal-dev" not in base
+    ):
+        return (
+            False,
+            "SIGNAL-MONITOR-ABSENT: transporte apunta a Signal producción; "
+            "bloqueado en oracle-dev",
+            None,
+        )
+
+    try:
+        spec = _build_monitor_spec_for_action(
+            action_type=action_type,
+            title=title,
+            cadence=cadence,
+            keywords=keywords,
+            source_types=source_types,
+            actor=actor,
+        )
+    except Exception as exc:  # ValidationError or similar
+        return (
+            False,
+            f"SIGNAL-MONITOR-ABSENT: configuración de monitor no válida ({exc})",
+            None,
+        )
+
+    idempotency_key = f"surv-monitor:{idempotency_seed}"[:200]
+    if len(idempotency_key) < 8:
+        idempotency_key = f"surv-monitor:{uuid.uuid4()}"
+    try:
+        monitor, event, _duplicate = stage_dossier_monitor_create(
+            dossier=dossier,
+            connection=connection,
+            name=title or ACTION_TYPE_LABELS.get(action_type, action_type),
+            spec=spec,
+            idempotency_key=idempotency_key,
+            created_by_user_id=actor_user_id,
+            session=session,
+        )
+    except IdempotencyConflict:
+        return (
+            False,
+            "SIGNAL-MONITOR-ABSENT: conflicto de idempotencia al crear monitor",
+            None,
+        )
+    except Exception as exc:
+        return (
+            False,
+            f"SIGNAL-MONITOR-ABSENT: fallo al crear monitor local ({type(exc).__name__})",
+            None,
+        )
+
+    action.signal_monitor_id = monitor.id
+    action.watchlist_id = monitor.watchlist_id
+    return True, None, event.id
+
+
+def _dispatch_monitor_event(event_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    try:
+        from opn_oracle.integrations.tasks import dispatch_outbox
+
+        dispatch_outbox.apply_async(
+            kwargs={"event_id": str(event_id), "tenant_id": str(tenant_id)},
+            queue="signals",
+        )
+    except Exception:
+        # Outbox row remains; reconcile task will retry.
+        return
+
+
 def confirm_surveillance_action(
     session: Session,
     *,
@@ -498,9 +684,9 @@ def confirm_surveillance_action(
 ) -> tuple[DossierSurveillanceAction, bool]:
     """Confirm a surveillance type. Idempotent on (dossier, type, actor, offering).
 
-    Returns (action, created). Never auto-activates Signal jobs unless
-    ``create_backend_resources`` is True AND type is not ``no_follow``.
-    Default keeps prepared/active local state without remote auto-start.
+    Returns (action, created). When ``MEMORY_SURVEILLANCE_SIGNAL_ENABLED`` is on,
+    reuses the July ``monitor.create`` path (watchlist → monitor → outbox).
+    If that path cannot create a monitor, the row stays degraded and honest.
     """
 
     dossier = _load_dossier(session, dossier_id, actor_user_id, write=True)
@@ -645,6 +831,65 @@ def confirm_surveillance_action(
     )
 
     now = datetime.now(UTC)
+    actor_row: Actor | None = None
+    if actor_id is not None:
+        actor_row = session.scalar(
+            select(Actor).where(Actor.id == actor_id, Actor.tenant_id == tenant_id)
+        )
+    keywords = list(payload.get("keywords") or [])
+    source_types = list(payload.get("source_types") or [])
+    wire_enabled = _surveillance_signal_enabled()
+    pending_dispatch: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    def _apply_monitor_link(target: DossierSurveillanceAction) -> None:
+        """Attach Signal monitor or leave degraded; never claim clean active without id."""
+
+        if action_type == "no_follow":
+            target.degraded = False
+            target.degraded_reason = None
+            return
+        if target.signal_monitor_id is not None:
+            target.degraded = False
+            target.degraded_reason = None
+            return
+        if not wire_enabled:
+            target.degraded = True
+            if create_backend_resources:
+                target.degraded_reason = (
+                    "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
+                )
+            else:
+                target.degraded_reason = (
+                    "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
+                    "no vigila de verdad"
+                )
+            return
+        ok, reason, event_id = _try_stage_signal_monitor(
+            session,
+            action=target,
+            dossier=dossier,
+            actor_user_id=actor_user_id,
+            action_type=action_type,
+            title=title,
+            cadence=cadence,
+            keywords=keywords,
+            source_types=source_types,
+            actor=actor_row,
+            idempotency_seed=f"{dossier.id}:{target.dedupe_key}:{target.row_version}",
+        )
+        if ok:
+            # _try_stage mutates target.signal_monitor_id / watchlist_id on success.
+            target.degraded = False
+            target.degraded_reason = None
+            if event_id is not None:
+                pending_dispatch.append((event_id, tenant_id))
+            return
+        target.degraded = True
+        target.degraded_reason = reason or (
+            "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
+            "no vigila de verdad"
+        )
+
     if existing is not None:
         # Idempotent confirm: refresh cadence/scope if still not retired; no re-activation storm.
         if existing.status == "retired":
@@ -673,20 +918,7 @@ def confirm_surveillance_action(
                 cadence=cadence, timezone=timezone, from_time=now
             )
         existing.row_version += 1
-        # Honest product state: without a real Signal monitor the action does not watch.
-        # create_backend_resources is reserved for a future wire; today it never materializes
-        # signal_monitor_id, so mark degraded whenever the row would claim to be active.
-        if action_type != "no_follow" and existing.signal_monitor_id is None:
-            existing.degraded = True
-            if create_backend_resources:
-                existing.degraded_reason = (
-                    "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
-                )
-            else:
-                existing.degraded_reason = (
-                    "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
-                    "no vigila de verdad"
-                )
+        _apply_monitor_link(existing)
         append_audit_event(
             session,
             action="surveillance.confirmed.idempotent",
@@ -699,9 +931,15 @@ def confirm_surveillance_action(
                 "action_type": action_type,
                 "scope_hash": scope_hash,
                 "duplicate": True,
+                "signal_monitor_id": (
+                    str(existing.signal_monitor_id) if existing.signal_monitor_id else None
+                ),
+                "degraded": existing.degraded,
             },
         )
         session.commit()
+        for event_id, tid in pending_dispatch:
+            _dispatch_monitor_event(event_id, tid)
         return existing, False
 
     status = "retired" if action_type == "no_follow" else "active"
@@ -710,19 +948,6 @@ def confirm_surveillance_action(
         if action_type == "no_follow"
         else compute_next_run_at(cadence=cadence, timezone=timezone, from_time=now)
     )
-    # Path confirm → Signal monitor is not wired yet (MDEV-07 / SV2-VIGILANCIAS).
-    # Never present a local row as fully active when signal_monitor_id stays null.
-    degraded = False
-    degraded_reason = None
-    if action_type != "no_follow":
-        degraded = True
-        if create_backend_resources:
-            degraded_reason = "DUR-MDEV05-001: backend monitor no durable; fail-closed local"
-        else:
-            degraded_reason = (
-                "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
-                "no vigila de verdad"
-            )
 
     action = DossierSurveillanceAction(
         tenant_id=tenant_id,
@@ -745,17 +970,17 @@ def confirm_surveillance_action(
         next_run_at=next_run,
         title=title,
         notes=notes,
-        degraded=degraded,
-        degraded_reason=degraded_reason,
+        degraded=False,
+        degraded_reason=None,
         retry_count=0,
         row_version=1,
-        # Intentionally no watchlist_id / signal_monitor_id until durable path exists.
         watchlist_id=None,
         signal_monitor_id=None,
         procurement_watch_id=None,
     )
     session.add(action)
     session.flush()
+    _apply_monitor_link(action)
     append_audit_event(
         session,
         action="surveillance.confirmed",
@@ -768,11 +993,17 @@ def confirm_surveillance_action(
             "action_type": action_type,
             "scope_hash": scope_hash,
             "cadence": cadence,
-            "monitors_created": False,
+            "monitors_created": action.signal_monitor_id is not None,
             "jobs_created": False,
+            "signal_monitor_id": (
+                str(action.signal_monitor_id) if action.signal_monitor_id else None
+            ),
+            "degraded": action.degraded,
         },
     )
     session.commit()
+    for event_id, tid in pending_dispatch:
+        _dispatch_monitor_event(event_id, tid)
     return action, True
 
 
