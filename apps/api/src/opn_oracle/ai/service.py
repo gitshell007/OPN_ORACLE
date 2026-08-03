@@ -23,7 +23,12 @@ from opn_oracle.ai.models import (
 )
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
-from opn_oracle.ai.schemas import AgentOutput, EvidenceReviewerOutput, SignalTriageOutput
+from opn_oracle.ai.schemas import (
+    AgentOutput,
+    ClaimIssue,
+    EvidenceReviewerOutput,
+    SignalTriageOutput,
+)
 from opn_oracle.ai.tender_search_wizard import postvalidate_tender_search_plan
 from opn_oracle.extensions import db
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
@@ -326,119 +331,131 @@ def _strip_reviewer_rejected_claims(
     package. A direct path is trusted only when it names a claim Oracle actually sent and carries
     the same text. Otherwise an exact, unique text match recovers the original output path.
 
-    With ``lenient=False`` (resumen nocturno), ambiguity or unscoped safety objections keep the
-    historical fail-closed behaviour. With ``lenient=True`` (``report_writer``), unanchorable
-    scoped objections become visible warnings and the report still publishes so a demo or
-    analyst is not left without an artifact after a successful generation.
+    Objection classes (never mixed):
+
+    * **Quality** (``confidence_issues``, ``classification_errors``): with ``lenient=True``
+      (report_writer, opportunity, risk) degrade to visible warnings so a successful generate
+      still yields a proposal for the human gate. Strict mode stays fail-closed.
+    * **Security** (``privacy_or_security_issues``, ``prompt_injection_indicators``): always
+      fail-closed. Open-source ingestion must not publish when the reviewer suspects injection
+      or a privacy/security issue, even for lenient agents.
+    * **Scoped claims** that the reviewer flags but cannot be uniquely anchored: fail-closed
+      always. Publishing the claim with a footnote would leave content the reviewer rejected.
+      Fuzzy path/text matching is the recovery path; if it fails, refuse to publish.
     """
 
-    scoped_issues = [
+    scoped_issues: list[ClaimIssue] = [
         *reviewer.unsupported_claims,
         *reviewer.misused_evidence,
         *reviewer.missing_evidence,
     ]
-    unscoped_issues = [
+    quality_issues: list[str] = [
         *reviewer.classification_errors,
-        *reviewer.privacy_or_security_issues,
-        *reviewer.prompt_injection_indicators,
         *reviewer.confidence_issues,
     ]
+    security_issues: list[str] = [
+        *reviewer.privacy_or_security_issues,
+        *reviewer.prompt_injection_indicators,
+    ]
+    unanchored: list[ClaimIssue] = []
+
+    if security_issues:
+        detail = "; ".join(
+            _short_text(str(sec_note), limit=200) for sec_note in security_issues[:6]
+        )
+        raise EvidenceReviewError(
+            "El revisor rechazó el output por objeciones de seguridad "
+            f"(privacidad o inyección de prompt): {detail}"
+        )
+
     if not scoped_issues:
-        # Sin claims anclables: fail-closed en modo estricto; en lenient (propuestas de
-        # oportunidad/riesgo, report_writer) publicamos con advertencia para no dejar
-        # al usuario sin artefacto tras un generate exitoso.
-        # unscoped_issues son str (confidence/classification/privacy/injection).
+        # Solo calidad (o fail vacío): en lenient publicar con advertencia; estricto falla.
         if lenient:
             warnings = output.get("warnings")
             if not isinstance(warnings, list):
                 raise EvidenceReviewError("El informe no permite declarar el recorte del revisor.")
             warnings = list(warnings)
-            if unscoped_issues:
+            if quality_issues:
                 warnings.append(
-                    "Revisión de evidencia: el revisor objetó con motivos no retirables por "
-                    f"claim ({len(unscoped_issues)}); la propuesta se publica con advertencia."
+                    "Revisión de evidencia: el revisor objetó con motivos de calidad no "
+                    f"retirables por claim ({len(quality_issues)}); la propuesta se publica "
+                    "con advertencia."
                 )
-                for issue in unscoped_issues[:12]:
-                    warnings.append(f"Objeción no anclada: {_short_text(str(issue), limit=800)}")
+                for quality_note in quality_issues[:12]:
+                    warnings.append(
+                        f"Objeción de calidad: {_short_text(str(quality_note), limit=800)}"
+                    )
             else:
                 warnings.append(
-                    "Revisión de evidencia: veredicto fail sin claims anclables; "
-                    "la propuesta se publica con advertencia."
+                    "Revisión de evidencia: veredicto fail sin claims anclables ni objeciones "
+                    "de seguridad; la propuesta se publica con advertencia."
                 )
             return {**output, "warnings": warnings}
         raise EvidenceReviewError(
             "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
         )
-    if unscoped_issues and not lenient:
+    if quality_issues and not lenient:
         raise EvidenceReviewError(
-            "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
+            "El revisor rechazó el resumen con objeciones de calidad que no se pueden retirar "
+            "por claim."
         )
 
     candidates = _review_candidate_claims(output)
-    resolved: dict[str, Any] = {}
-    unanchored: list[Any] = []
-    for issue in scoped_issues:
+    resolved: dict[str, ClaimIssue] = {}
+    for claim_issue in scoped_issues:
         direct = [
             candidate
             for candidate in candidates
-            if candidate["path"] == issue.path and candidate["claim"] == issue.claim
+            if candidate["path"] == claim_issue.path and candidate["claim"] == claim_issue.claim
         ]
-        exact_text = [candidate for candidate in candidates if candidate["claim"] == issue.claim]
+        exact_text = [
+            candidate for candidate in candidates if candidate["claim"] == claim_issue.claim
+        ]
         # Reviewer paths over the compact package often miss the original JSON path; fall back
         # to a unique path suffix or unique substring match before giving up.
         path_suffix = [
             candidate
             for candidate in candidates
-            if issue.path
+            if claim_issue.path
             and (
-                str(candidate["path"]).endswith(issue.path)
-                or issue.path.endswith(str(candidate["path"]))
+                str(candidate["path"]).endswith(claim_issue.path)
+                or claim_issue.path.endswith(str(candidate["path"]))
             )
             and (
-                candidate["claim"] == issue.claim
-                or issue.claim in str(candidate["claim"])
-                or str(candidate["claim"]) in issue.claim
+                candidate["claim"] == claim_issue.claim
+                or claim_issue.claim in str(candidate["claim"])
+                or str(candidate["claim"]) in claim_issue.claim
             )
         ]
         fuzzy_text = [
             candidate
             for candidate in candidates
-            if issue.claim
-            and (issue.claim in str(candidate["claim"]) or str(candidate["claim"]) in issue.claim)
+            if claim_issue.claim
+            and (
+                claim_issue.claim in str(candidate["claim"])
+                or str(candidate["claim"]) in claim_issue.claim
+            )
         ]
         matches = direct or exact_text or path_suffix
         if not matches and len({str(c["path"]) for c in fuzzy_text}) == 1:
             matches = fuzzy_text
         unique_paths = {str(candidate["path"]) for candidate in matches}
         if len(unique_paths) != 1 or "$" in unique_paths:
-            if lenient:
-                unanchored.append(issue)
-                continue
-            raise EvidenceReviewError(
-                "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
-            )
-        resolved[next(iter(unique_paths))] = issue
+            # Claim señalada y no anclable: fail-closed siempre (también en indulgente).
+            # Publicar la afirmación con una nota al pie no es defendible.
+            unanchored.append(claim_issue)
+            continue
+        resolved[next(iter(unique_paths))] = claim_issue
 
-    if not resolved and unanchored and lenient:
-        warnings = output.get("warnings")
-        if not isinstance(warnings, list):
-            raise EvidenceReviewError("El informe no permite declarar el recorte del revisor.")
-        warnings = list(warnings)
-        warnings.append(
-            "Revisión de evidencia: el revisor objetó "
-            f"{len(unanchored)} "
-            f"{'afirmación' if len(unanchored) == 1 else 'afirmaciones'} "
-            "que no se pudieron anclar de forma única; el informe se publica con advertencia."
+    if unanchored:
+        sample = unanchored[0]
+        raise EvidenceReviewError(
+            "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única "
+            f"({len(unanchored)} objeción(es) sin ancla). No se publica el contenido objetado. "
+            f"Ejemplo: {_short_text(sample.claim, limit=300)}"
         )
-        for issue in unanchored[:12]:
-            warnings.append(
-                "Objeción no anclada: "
-                f"{_short_text(issue.claim, limit=500)} "
-                f"Motivo: {_short_text(issue.reason, limit=500)}"
-            )
-        return {**output, "warnings": warnings}
 
-    if not resolved and not lenient:
+    if not resolved:
         raise EvidenceReviewError(
             "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
         )
@@ -462,7 +479,7 @@ def _strip_reviewer_rejected_claims(
             return [item for item in cleaned_items if item is not dropped]
         return value
 
-    cleaned_output = clean(output) if resolved else dict(output)
+    cleaned_output = clean(output)
     if not isinstance(cleaned_output, dict):
         raise EvidenceReviewError("El revisor objetó el resumen completo; no se puede publicar.")
     warnings = cleaned_output.get("warnings")
@@ -474,24 +491,20 @@ def _strip_reviewer_rejected_claims(
     if count:
         label = "afirmación objetada" if count == 1 else "afirmaciones objetadas"
         warnings.append(f"Revisión de evidencia: se retiraron {count} {label} antes de publicar.")
-    for issue in resolved.values():
+    for resolved_issue in resolved.values():
         warnings.append(
             "Afirmación retirada: "
-            f"{_short_text(issue.claim, limit=500)} Motivo: {_short_text(issue.reason, limit=500)}"
+            f"{_short_text(resolved_issue.claim, limit=500)} "
+            f"Motivo: {_short_text(resolved_issue.reason, limit=500)}"
         )
-    if unanchored:
+    # Calidad residual junto a claims anclados: en indulgente se documenta; no bloquea el recorte.
+    if quality_issues and lenient:
         warnings.append(
-            "Revisión de evidencia: "
-            f"{len(unanchored)} "
-            f"{'objeción' if len(unanchored) == 1 else 'objeciones'} "
-            "no se anclaron de forma única y se conservan con advertencia."
+            "Revisión de evidencia: además se conservan "
+            f"{len(quality_issues)} objeción(es) de calidad como advertencia."
         )
-        for issue in unanchored[:12]:
-            warnings.append(
-                "Objeción no anclada: "
-                f"{_short_text(issue.claim, limit=500)} "
-                f"Motivo: {_short_text(issue.reason, limit=500)}"
-            )
+        for quality_note in quality_issues[:12]:
+            warnings.append(f"Objeción de calidad: {_short_text(str(quality_note), limit=800)}")
     return cleaned_output
 
 

@@ -200,11 +200,11 @@ def test_fit_budget_never_zeroes_allowed_evidence_ids() -> None:
     assert all(isinstance(item, str) and len(item) == 36 for item in allow)
 
 
-def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> None:
-    """Production actors reports fail when the reviewer invents unanchorable paths.
+def test_strip_claims_unanchorable_claim_never_publishes() -> None:
+    """Claim señalada y no anclable: fail-closed siempre (también en indulgente).
 
-    Strict mode (nightly summary) keeps fail-closed; report_writer uses lenient=True so the
-    generated body is not discarded after a successful writer call.
+    Publicar la afirmación objetada con una nota al pie no es defendible: el revisor
+    dijo que algo no se sostiene y no sabemos cuál recortar.
     """
 
     output = {
@@ -258,18 +258,12 @@ def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> No
     with pytest.raises(EvidenceReviewError, match="no se pudo anclar"):
         _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
 
-    cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
-    assert cleaned["title"] == "Informe de actores"
-    assert cleaned["executive_summary"] == "Mapa de actores del expediente."
-    assert any("no se pudieron anclar" in warning for warning in cleaned["warnings"])
-    assert any("Objeción no anclada" in warning for warning in cleaned["warnings"])
-    # Body preserved when the objection could not be tied to a real claim path.
-    assert cleaned["sections"][0]["paragraphs"][0]["text"].startswith("ITURRI SA")
+    with pytest.raises(EvidenceReviewError, match="no se pudo anclar"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
 
 
-def test_strip_claims_lenient_publishes_when_only_unscoped_objections() -> None:
-    """Opportunity/risk generate succeeds but the local reviewer often fails with
-    confidence/classification issues and no claim paths — keep the proposal."""
+def test_strip_claims_quality_objection_publishes_with_warning_when_lenient() -> None:
+    """Clase calidad (confidence_issues): en indulgente publica con advertencia."""
 
     output = {
         "facts": [
@@ -315,14 +309,118 @@ def test_strip_claims_lenient_publishes_when_only_unscoped_objections() -> None:
         }
     )
 
-    with pytest.raises(EvidenceReviewError, match="no se pueden retirar"):
+    with pytest.raises(EvidenceReviewError, match=r"objeciones de calidad|no se pueden retirar"):
         _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
 
     cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
     assert cleaned["title"] == "Oportunidad de prueba"
     assert cleaned["facts"][0]["statement"].startswith("Hay una licitación")
-    assert any("motivos no retirables" in warning for warning in cleaned["warnings"])
+    assert any("motivos de calidad" in warning for warning in cleaned["warnings"])
     assert any("Confianza demasiado alta" in warning for warning in cleaned["warnings"])
+
+
+def test_strip_claims_prompt_injection_never_publishes_even_when_lenient() -> None:
+    """Clase seguridad (prompt_injection): fail-closed aunque el agente sea indulgente."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Hay una licitación citada en el expediente.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 55,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Oportunidad de prueba",
+        "recommendation": "investigate",
+        "scores": {
+            "strategic_fit": 50,
+            "urgency": 50,
+            "expected_value": 50,
+            "actionability": 50,
+            "relationship_leverage": 50,
+            "timing": 50,
+            "confidence": 50,
+            "execution_effort": 50,
+            "blocking_risk": 50,
+            "overall": 50,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [],
+            "prompt_injection_indicators": [
+                "El extracto pide al modelo ignorar instrucciones del sistema y filtrar secretos.",
+            ],
+            "required_corrections": ["No publicar contenido influido por la fuente."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match=r"seguridad|inyección"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
+
+    with pytest.raises(EvidenceReviewError, match=r"seguridad|inyección"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+
+
+def test_strip_claims_privacy_issue_never_publishes_even_when_lenient() -> None:
+    """Clase seguridad (privacy_or_security_issues): también fail-closed en indulgente."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Contacto del gestor: +34 600 000 000.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 40,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Riesgo de prueba",
+        "severity": "watch",
+        "uncertainty": 80,
+        "scores": {
+            "severity": 40,
+            "impact": 40,
+            "likelihood": 40,
+            "detectability": 40,
+            "controllability": 40,
+            "time_horizon": 40,
+            "confidence": 40,
+            "overall": 40,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 95,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [],
+            "privacy_or_security_issues": [
+                "El output expone un teléfono personal sin base legal de tratamiento.",
+            ],
+            "required_corrections": ["Eliminar el dato personal."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match=r"seguridad|privacidad|inyección"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
 
 
 def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viable_copy() -> None:
