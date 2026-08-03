@@ -52,14 +52,16 @@ DEFAULT_CREDS = "/root/sv2_demo_owner_credentials.txt"
 DEFAULT_DOSSIER = "ab7bba16-3e55-4f35-ad73-0c84e2850688"
 DEFAULT_TENANT = "a6edb3c8-0611-4d7a-a6e1-e882c7460539"
 DEFAULT_QUESTION = (
-    "¿Quién es el administrador único y qué licitación pública tiene en curso "
-    "Nexus Ibérica?"
+    "¿Quién es el administrador único de Nexus Ibérica y qué adjudicatario real "
+    "de PLACSP (por ejemplo Capgemini) aparece en las adjudicaciones del expediente?"
 )
 # Tras SV2-EXPEDIENTE-CON-CARNE la memoria dual mezcla ficha sintética + PLACSP real.
-# Los markers sintéticos (LIC-OATDA / 2.400.000 / 15 de abril) ya no salen de forma
-# fiable: el modelo prioriza licitaciones PLACSP ancladas. Comprobamos hechos del
-# expediente que siguen siendo ciertos y citables (admin + sujeto + rol).
-REQUIRED_MARKERS = ("Laura Mendez", "Nexus Ibérica", "administrador")
+# Los markers sintéticos (LIC-OATDA / 2.400.000 / 15 de abril) diluyen la prueba de
+# recuperación precisa. Mantener admin/sujeto y exigir al menos un ancla PLACSP
+# real: Capgemini está en memory.memory_facts (company.legal_name / adjudicatario
+# de XP1228/2025, CG-2026/2815/0061, 1DGT2AP00041) — dato estable de hechos
+# extraídos, no prosa volátil del modelo.
+REQUIRED_MARKERS = ("Laura Mendez", "Nexus Ibérica", "administrador", "Capgemini")
 FORBIDDEN_MARKER = "Ejemplo SL"
 ORACLE_SERVICES = (
     "opn-oracle-api",
