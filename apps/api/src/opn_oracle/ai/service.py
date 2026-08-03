@@ -343,7 +343,33 @@ def _strip_reviewer_rejected_claims(
         *reviewer.prompt_injection_indicators,
         *reviewer.confidence_issues,
     ]
-    if unscoped_issues or not scoped_issues:
+    if not scoped_issues:
+        # Sin claims anclables: fail-closed en modo estricto; en lenient (propuestas de
+        # oportunidad/riesgo, report_writer) publicamos con advertencia para no dejar
+        # al usuario sin artefacto tras un generate exitoso.
+        # unscoped_issues son str (confidence/classification/privacy/injection).
+        if lenient:
+            warnings = output.get("warnings")
+            if not isinstance(warnings, list):
+                raise EvidenceReviewError("El informe no permite declarar el recorte del revisor.")
+            warnings = list(warnings)
+            if unscoped_issues:
+                warnings.append(
+                    "Revisión de evidencia: el revisor objetó con motivos no retirables por "
+                    f"claim ({len(unscoped_issues)}); la propuesta se publica con advertencia."
+                )
+                for issue in unscoped_issues[:12]:
+                    warnings.append(f"Objeción no anclada: {_short_text(str(issue), limit=800)}")
+            else:
+                warnings.append(
+                    "Revisión de evidencia: veredicto fail sin claims anclables; "
+                    "la propuesta se publica con advertencia."
+                )
+            return {**output, "warnings": warnings}
+        raise EvidenceReviewError(
+            "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
+        )
+    if unscoped_issues and not lenient:
         raise EvidenceReviewError(
             "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
         )
@@ -1141,7 +1167,14 @@ def execute_agent(
                     cleaned_output = _strip_reviewer_rejected_claims(
                         output,
                         reviewer,
-                        lenient=(agent == "report_writer"),
+                        lenient=(
+                            agent
+                            in {
+                                "report_writer",
+                                "opportunity",
+                                "risk",
+                            }
+                        ),
                     )
                     cleaned_model = prompt.schema.model_validate_json(json.dumps(cleaned_output))
                     validate_evidence(

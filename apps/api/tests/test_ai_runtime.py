@@ -152,6 +152,8 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert (
         registry.get("dossier_situation_summary").evidence_review_failure_policy == "strip_claims"
     )
+    assert registry.get("opportunity").evidence_review_failure_policy == "strip_claims"
+    assert registry.get("risk").evidence_review_failure_policy == "strip_claims"
     assert registry.get("entity_dossier_intelligence").requires_evidence_review is False
     assert registry.get("dossier_situation_summary").version == "v5"
     assert registry.get("dossier_situation_summary", "v1").version == "v1"
@@ -263,6 +265,64 @@ def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> No
     assert any("Objeción no anclada" in warning for warning in cleaned["warnings"])
     # Body preserved when the objection could not be tied to a real claim path.
     assert cleaned["sections"][0]["paragraphs"][0]["text"].startswith("ITURRI SA")
+
+
+def test_strip_claims_lenient_publishes_when_only_unscoped_objections() -> None:
+    """Opportunity/risk generate succeeds but the local reviewer often fails with
+    confidence/classification issues and no claim paths — keep the proposal."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Hay una licitación citada en el expediente.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 55,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Oportunidad de prueba",
+        "recommendation": "investigate",
+        "scores": {
+            "strategic_fit": 50,
+            "urgency": 50,
+            "expected_value": 50,
+            "actionability": 50,
+            "relationship_leverage": 50,
+            "timing": 50,
+            "confidence": 50,
+            "execution_effort": 50,
+            "blocking_risk": 50,
+            "overall": 50,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [],
+            "confidence_issues": [
+                "Confianza demasiado alta: el modelo no justifica el score.",
+            ],
+            "required_corrections": ["Bajar confianza."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match="no se pueden retirar"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
+
+    cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+    assert cleaned["title"] == "Oportunidad de prueba"
+    assert cleaned["facts"][0]["statement"].startswith("Hay una licitación")
+    assert any("motivos no retirables" in warning for warning in cleaned["warnings"])
+    assert any("Confianza demasiado alta" in warning for warning in cleaned["warnings"])
 
 
 def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viable_copy() -> None:

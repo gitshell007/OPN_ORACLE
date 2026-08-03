@@ -93,7 +93,19 @@ class Client:
         try:
             with self.opener.open(req, timeout=self.timeout) as resp:
                 raw = resp.read().decode("utf-8")
-                return int(resp.status), (json.loads(raw) if raw else None)
+                if not raw:
+                    return int(resp.status), None
+                ctype = ""
+                try:
+                    ctype = str(resp.headers.get("Content-Type") or "")
+                except Exception:
+                    ctype = ""
+                if "application/json" in ctype or raw.lstrip()[:1] in {"{", "["}:
+                    try:
+                        return int(resp.status), json.loads(raw)
+                    except json.JSONDecodeError:
+                        return int(resp.status), {"_raw": raw[:800], "_non_json": True}
+                return int(resp.status), {"_html": True, "_bytes": len(raw)}
         except urllib.error.HTTPError as error:
             raw = error.read().decode("utf-8", errors="replace")
             try:
@@ -373,12 +385,16 @@ def cycle_agent(
 
     print(f"{agent.upper()}_HAPPY_PASS", flush=True)
 
-    # Higiene: intentar borrar si hay DELETE (no es obligatorio)
+    # Higiene: intentar borrar si hay DELETE (no es obligatorio).
+    # KEEP_ENTITIES=1 deja la fila para capturas del panel de portada.
     deleted = False
-    if created_id:
+    keep = env("KEEP_ENTITIES", "0") not in {"0", "false", "no"}
+    if created_id and not keep:
         code_d, _ = client.request("DELETE", f"/api/v1/{create_kind}/{created_id}")
         deleted = code_d in {200, 204}
         print(f"cleanup_delete {code_d}", flush=True)
+    elif created_id and keep:
+        print("KEEP_ENTITIES=1 — no se borra la entidad del panel", flush=True)
 
     return {
         "agent": agent,
