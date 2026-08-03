@@ -900,9 +900,17 @@ def _analysis_candidate_seed(
 
 
 def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
-    """Contexto para el agente opportunity: expediente + evidencia + semilla candidata."""
+    """Contexto para el agente opportunity: expediente + evidencia + semilla candidata.
 
-    base = build_context(dossier_id, max_tokens=max_tokens)
+    SV2-OPORTUNIDAD-CIEGA: no incluir ``living_summary``. Ese resumen es un borrador
+    previo (a menudo de situación/oportunidad) que el modelo local copia como si
+    fueran hechos citables, y deja sin anclar las licitaciones PLACSP del corpus.
+    Risk no sufre el mismo atractor (su framing no coincide con el summary) y ya
+    usa bien la evidencia procurement. Misma allowlist de evidencia; una sola
+    diferencia de camino: opportunity sin living_summary.
+    """
+
+    base = build_context(dossier_id, max_tokens=max_tokens, include_living_summary=False)
     enriched = dict(base.payload)
     enriched["candidate"] = _analysis_candidate_seed(enriched, kind="opportunity")
     enriched["tenant_id"] = str(require_tenant_id())
