@@ -19,6 +19,8 @@ from sqlalchemy import delete, or_, select, update
 
 from opn_oracle.ai.context import (
     build_dossier_completion_context,
+    build_opportunity_analysis_context,
+    build_risk_analysis_context,
     build_tender_search_replan_context,
     build_tender_search_wizard_context,
 )
@@ -740,6 +742,28 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     answers=payload.get("answers", []),
                 ),
                 target_type="dossier_completion_wizard",
+                target_id=dossier_id,
+            )
+        if agent == "opportunity":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_opportunity_analysis_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="opportunity_analysis",
+                target_id=dossier_id,
+            )
+        if agent == "risk":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_risk_analysis_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="risk_analysis",
                 target_id=dossier_id,
             )
         return execute_agent(agent=agent, dossier_id=dossier_id, job=job)

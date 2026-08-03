@@ -38,6 +38,8 @@ public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA"
 DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
 INTAKE_AGENT = "intake"
+OPPORTUNITY_AGENT = "opportunity"
+RISK_AGENT = "risk"
 TENDER_SEARCH_WIZARD_TARGET = "tenant_search_profile"
 
 
@@ -340,6 +342,75 @@ def latest_intake(dossier_id: uuid.UUID) -> Any:
         "job": serialize_job(job) if job else None,
         "artifact": _serialize_agent_artifact(artifact),
     }
+
+
+def _enqueue_analysis_agent(dossier_id: uuid.UUID, agent: str, *, label: str) -> Any:
+    """Encola un agente de análisis: propone entidad; no la crea."""
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return problem_response(
+            428,
+            detail=f"Idempotency-Key es obligatorio para lanzar el análisis de {label}.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{agent}",
+            payload={"dossier_id": str(dossier_id)},
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            dossier_id=dossier_id,
+            resource_type="strategic_dossier",
+            resource_id=dossier_id,
+        )
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_agent_artifact(_latest_agent_artifact(dossier_id, agent)),
+    }, 202
+
+
+def _latest_analysis_agent(dossier_id: uuid.UUID, agent: str) -> Any:
+    """Última propuesta del agente (solo lectura; la persona confirma)."""
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    job = _latest_agent_job(dossier_id, agent)
+    artifact = _latest_agent_artifact(dossier_id, agent)
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_agent_artifact(artifact),
+    }
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/opportunity/runs")
+@require_permission("ai.execute")
+def enqueue_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
+    """Lanza el agente de oportunidad: propone; no crea la oportunidad."""
+    return _enqueue_analysis_agent(dossier_id, OPPORTUNITY_AGENT, label="oportunidad")
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/latest")
+@require_permission("ai.execute")
+def latest_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de oportunidad del expediente (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, OPPORTUNITY_AGENT)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/risk/runs")
+@require_permission("ai.execute")
+def enqueue_risk_analysis(dossier_id: uuid.UUID) -> Any:
+    """Lanza el agente de riesgo: propone; no crea el riesgo."""
+    return _enqueue_analysis_agent(dossier_id, RISK_AGENT, label="riesgo")
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/risk/latest")
+@require_permission("ai.execute")
+def latest_risk_analysis(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de riesgo del expediente (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, RISK_AGENT)
 
 
 def _wizard_answers(value: Any) -> list[dict[str, str]]:

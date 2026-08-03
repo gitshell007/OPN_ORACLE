@@ -13,6 +13,8 @@ import { DossierAskSection } from "@/components/dossiers/dossier-ask-section";
 import { DossierCustomBriefSection } from "@/components/dossiers/dossier-custom-brief-section";
 import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents-section";
 import { DossierIntakeSection } from "@/components/dossiers/dossier-intake-section";
+import { DossierOpportunityAnalysisSection } from "@/components/dossiers/dossier-opportunity-analysis-section";
+import { DossierRiskAnalysisSection } from "@/components/dossiers/dossier-risk-analysis-section";
 import { DossierInvestigationsSection } from "@/components/dossiers/dossier-investigations-section";
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-section";
@@ -24,6 +26,14 @@ const sectionCopy: Record<string, { description: string; api: string }> = {
   intake: {
     description: "Propuesta de expediente a partir de pliego o documentos (confirmación humana).",
     api: "POST /api/v1/ai/dossiers/{id}/intake/runs",
+  },
+  "opportunity-analysis": {
+    description: "Propuesta de oportunidad con citas a evidencia (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/opportunity/runs",
+  },
+  "risk-analysis": {
+    description: "Propuesta de riesgo con citas a evidencia (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/risk/runs",
   },
   "custom-brief": { description: "Brief libre y plan de informe personalizado.", api: "POST /api/v1/dossiers/{id}/reports/custom" },
   signals: { description: "Señales asociadas a este expediente.", api: "GET /api/v1/dossiers/{id}/signals" },
@@ -73,6 +83,10 @@ export default async function DossierSectionPage({
         <DossierAskSection dossierId={id} />
       ) : section === "intake" ? (
         <DossierIntakeSection dossierId={id} />
+      ) : section === "opportunity-analysis" ? (
+        <DossierOpportunityAnalysisSection dossierId={id} />
+      ) : section === "risk-analysis" ? (
+        <DossierRiskAnalysisSection dossierId={id} />
       ) : section === "custom-brief" ? (
         <DossierCustomBriefSection dossierId={id} />
       ) : (

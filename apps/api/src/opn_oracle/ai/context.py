@@ -8,7 +8,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -863,6 +863,89 @@ def build_dossier_situation_context(dossier_id: uuid.UUID, *, max_tokens: int) -
         redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
         injection_indicators=tuple(
             sorted(set(base.injection_indicators) | set(enriched_indicators))
+        ),
+        estimated_tokens=max(1, len(encoded) // 4),
+    )
+
+
+
+def _analysis_candidate_seed(
+    payload: dict[str, Any], *, kind: Literal["opportunity", "risk"]
+) -> dict[str, Any]:
+    """Semilla revisable: el agente propone; la persona confirma. No es una entidad de negocio."""
+
+    dossier = payload.get("dossier") if isinstance(payload.get("dossier"), dict) else {}
+    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
+    evidence_ids = [
+        str(item.get("id"))
+        for item in evidence
+        if isinstance(item, dict) and item.get("id")
+    ][:20]
+    title = str(dossier.get("title") or "").strip()
+    description = str(
+        dossier.get("description") or dossier.get("strategic_goal") or ""
+    ).strip()
+    label = "oportunidad" if kind == "opportunity" else "riesgo"
+    return {
+        "kind": f"{kind}_from_evidence",
+        "title_hint": title,
+        "description_hint": description[:2000],
+        "seed_evidence_ids": evidence_ids,
+        "instruction": (
+            f"Propón un {label} accionable solo si puedes citar evidence_ids de la allowlist. "
+            "Si no hay hechos con fuente, no inventes: deja facts vacío y señala la limitación "
+            "en warnings/open_questions. La decisión final es siempre humana."
+        ),
+    }
+
+
+def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+    """Contexto para el agente opportunity: expediente + evidencia + semilla candidata."""
+
+    base = build_context(dossier_id, max_tokens=max_tokens)
+    enriched = dict(base.payload)
+    enriched["candidate"] = _analysis_candidate_seed(enriched, kind="opportunity")
+    enriched["tenant_id"] = str(require_tenant_id())
+    enriched["dossier_id"] = str(dossier_id)
+    indicators: list[str] = []
+    payload, redactions = _sanitize(enriched, indicators)
+    fitted = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted)
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=base.manifest | {"analysis_kind": "opportunity"},
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(
+            sorted(set(base.injection_indicators) | set(indicators))
+        ),
+        estimated_tokens=max(1, len(encoded) // 4),
+    )
+
+
+def build_risk_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+    """Contexto para el agente risk: expediente + evidencia + semilla candidata."""
+
+    base = build_context(dossier_id, max_tokens=max_tokens)
+    enriched = dict(base.payload)
+    enriched["candidate"] = _analysis_candidate_seed(enriched, kind="risk")
+    enriched["tenant_id"] = str(require_tenant_id())
+    enriched["dossier_id"] = str(dossier_id)
+    indicators: list[str] = []
+    payload, redactions = _sanitize(enriched, indicators)
+    fitted = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted)
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=base.manifest | {"analysis_kind": "risk"},
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(
+            sorted(set(base.injection_indicators) | set(indicators))
         ),
         estimated_tokens=max(1, len(encoded) // 4),
     )

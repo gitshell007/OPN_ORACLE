@@ -38,13 +38,13 @@ const PANEL_COPY = {
   opportunities: {
     emptyTitle: "Aún no hay oportunidades registradas",
     emptyDescription:
-      "Registra oportunidades del expediente o promueve una recomendación del Oráculo de arriba. No es un error de permisos.",
+      "Registra oportunidades, lanza el Análisis de oportunidad (Análisis → Oportunidad IA) o promueve una recomendación del Oráculo. No es un error de permisos.",
     ctaLabel: "Abrir oportunidades",
   },
   risks: {
     emptyTitle: "Aún no hay riesgos registrados",
     emptyDescription:
-      "Añade riesgos del expediente o promueve una recomendación del Oráculo. El panel está vacío porque no hay filas de negocio.",
+      "Añade riesgos, lanza el Análisis de riesgo (Análisis → Riesgo IA) o promueve una recomendación del Oráculo. El panel está vacío porque no hay filas de negocio.",
     ctaLabel: "Abrir riesgos",
   },
   tasks: {

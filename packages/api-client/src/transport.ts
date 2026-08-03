@@ -1824,6 +1824,146 @@ export interface IntakeRunResponse {
   artifact: IntakeArtifact | null;
 }
 
+
+/** Análisis IA de oportunidad (propuesta con citas; la persona confirma y crea la entidad). */
+export type OpportunityAnalysisRecommendation = "go" | "investigate" | "hold" | "no_go";
+
+export interface OpportunityAnalysisScores {
+  strategic_fit: number;
+  urgency: number;
+  expected_value: number;
+  actionability: number;
+  relationship_leverage: number;
+  timing: number;
+  confidence: number;
+  execution_effort: number;
+  blocking_risk: number;
+  overall: number;
+}
+
+export interface OpportunityAnalysisCandidateActor {
+  actor_id?: string | null;
+  name: string;
+  role: string;
+  evidence_ids?: string[];
+}
+
+export interface OpportunityAnalysisNextAction {
+  action: string;
+  owner_role: string;
+  due_date?: string | null;
+  rationale: string;
+}
+
+export interface OpportunityAnalysisOutput {
+  title: string;
+  opportunity_type?: string;
+  summary?: string;
+  recommendation: OpportunityAnalysisRecommendation | string;
+  scores: OpportunityAnalysisScores;
+  deadline?: string | null;
+  confirmed_requirements?: string[];
+  unknown_requirements?: string[];
+  blockers?: string[];
+  candidate_actors?: OpportunityAnalysisCandidateActor[];
+  next_best_action?: OpportunityAnalysisNextAction | null;
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface OpportunityAnalysisArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "opportunity" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: OpportunityAnalysisOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface OpportunityAnalysisRunResponse {
+  job: JobResponse | null;
+  artifact: OpportunityAnalysisArtifact | null;
+}
+
+/** Análisis IA de riesgo (propuesta con citas; la persona confirma y crea la entidad). */
+export type RiskAnalysisRecommendedStatus =
+  | "watch"
+  | "mitigate"
+  | "accept_candidate"
+  | "dismiss_candidate";
+
+export interface RiskAnalysisScores {
+  impact: number;
+  likelihood: number;
+  velocity: number;
+  exposure: number;
+  uncertainty: number;
+  controllability: number;
+  overall: number;
+}
+
+export interface RiskAnalysisScenario {
+  name: string;
+  description: string;
+  probability: number;
+  impact: number;
+  evidence_ids?: string[];
+}
+
+export interface RiskAnalysisMitigation {
+  action: string;
+  owner_role: string;
+  effectiveness: number;
+  trigger: string;
+}
+
+export interface RiskAnalysisOutput {
+  title: string;
+  category?: string;
+  description?: string;
+  recommended_status: RiskAnalysisRecommendedStatus | string;
+  scores: RiskAnalysisScores;
+  leading_indicators?: string[];
+  suggested_owner_role?: string;
+  suggested_review_date?: string | null;
+  scenarios?: RiskAnalysisScenario[];
+  mitigations?: RiskAnalysisMitigation[];
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface RiskAnalysisArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "risk" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: RiskAnalysisOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface RiskAnalysisRunResponse {
+  job: JobResponse | null;
+  artifact: RiskAnalysisArtifact | null;
+}
+
 export type AiArtifactReviewDecision = "accepted" | "rejected" | "changes_requested";
 
 export interface AiArtifactReviewResponse {
@@ -1839,6 +1979,55 @@ const dossierIntake = {
   run: (dossierId: string, idempotencyKey: string) =>
     request<IntakeRunResponse>(
       `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/intake/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+
+const dossierOpportunityAnalysis = {
+  latest: (dossierId: string) =>
+    request<OpportunityAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<OpportunityAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+const dossierRiskAnalysis = {
+  latest: (dossierId: string) =>
+    request<RiskAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/risk/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<RiskAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/risk/runs`,
       { method: "POST", body: {}, idempotencyKey },
     ),
   review: (
@@ -3322,6 +3511,8 @@ export const api = {
   oracleSummary,
   dossierCompletionWizard,
   dossierIntake,
+  dossierOpportunityAnalysis,
+  dossierRiskAnalysis,
   dossierSignals,
   objectives,
   hypotheses,
