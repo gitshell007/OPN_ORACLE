@@ -478,6 +478,59 @@ def normalize_identity_name(value: str, *, drop_legal_suffix: bool = False) -> s
     return " ".join(tokens)[:320]
 
 
+# CIF de sociedad española. Nunca se usa para personas físicas: el BORME no publica
+# NIF personal y emparejar por nombre sin identificador sigue prohibido.
+_SPANISH_COMPANY_CIF = re.compile(r"^[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]$")
+
+
+def normalize_spanish_company_tax_id(value: Any) -> str | None:
+    """Normaliza CIF de sociedad. Rechaza NIF de persona (8 dígitos + letra)."""
+    raw = re.sub(r"[\s.\-_/]", "", str(value or "")).upper()
+    if not raw or not _SPANISH_COMPANY_CIF.fullmatch(raw):
+        return None
+    return raw
+
+
+def extract_company_tax_id(*sources: Any) -> str | None:
+    """Busca un CIF de sociedad en dicts de identificadores, nodos Signal o strings."""
+    keys = (
+        "tax_id",
+        "cif",
+        "vat",
+        "vat_id",
+        "nif",
+        "company_tax_id",
+        "winner_identifier",
+        "identifier",
+    )
+    for source in sources:
+        if source is None:
+            continue
+        if isinstance(source, str):
+            tax_id = normalize_spanish_company_tax_id(source)
+            if tax_id:
+                return tax_id
+            continue
+        if not isinstance(source, Mapping):
+            continue
+        nested = source.get("identifiers")
+        if isinstance(nested, Mapping):
+            for key in keys:
+                tax_id = normalize_spanish_company_tax_id(nested.get(key))
+                if tax_id:
+                    return tax_id
+        for key in keys:
+            tax_id = normalize_spanish_company_tax_id(source.get(key))
+            if tax_id:
+                return tax_id
+        profile = source.get("profile")
+        if isinstance(profile, Mapping):
+            tax_id = normalize_spanish_company_tax_id(profile.get("tax_id") or profile.get("cif"))
+            if tax_id:
+                return tax_id
+    return None
+
+
 def actor_alias_candidates(session: Session) -> list[dict[str, Any]]:
     """Return organization-only alias candidates; never merge or mutate actors."""
 
@@ -592,9 +645,15 @@ def create_investigation(
         raise InvestigationError("La entidad semilla debe contener entre 2 y 300 caracteres.")
     if seed_kind not in {"company", "person", "unknown"}:
         raise InvestigationError("seed_kind no es válido.")
-    identifiers = payload.get("seed_identifiers") or {}
-    if not isinstance(identifiers, Mapping):
+    raw_identifiers = payload.get("seed_identifiers") or {}
+    if not isinstance(raw_identifiers, Mapping):
         raise InvestigationError("seed_identifiers debe ser un objeto.")
+    identifiers = dict(raw_identifiers)
+    if seed_kind == "company":
+        seed_tax = extract_company_tax_id(identifiers)
+        if seed_tax:
+            identifiers["tax_id"] = seed_tax
+            identifiers.setdefault("tax_id_scheme", "ES_CIF")
     limits_value = payload.get("limits")
     if limits_value is not None and not isinstance(limits_value, Mapping):
         raise InvestigationError("limits debe ser un objeto.")
@@ -633,7 +692,11 @@ def create_investigation(
         discovery_path=[],
         resolution_status="candidate",
         identity_confidence=100 if identifiers else 0,
-        gate_reason="Confirma la identidad raíz antes de consultar o expandir fuentes.",
+        gate_reason=(
+            "CIF de sociedad en semilla; confirma la entidad antes de expandir."
+            if seed_kind == "company" and extract_company_tax_id(identifiers)
+            else "Confirma la identidad raíz antes de consultar o expandir fuentes."
+        ),
     )
     session.add(seed)
     for index, stage in enumerate(MACRO_STAGES):
@@ -857,6 +920,35 @@ def _node_kind(node: Mapping[str, Any]) -> str:
     return "unknown"
 
 
+def _merge_entity_identifiers(
+    entity: ResearchEntity,
+    identifiers: Mapping[str, Any] | None,
+) -> None:
+    if not identifiers:
+        return
+    merged = dict(entity.identifiers or {})
+    for key, value in identifiers.items():
+        if value is None or value == "":
+            continue
+        # Solo persistir tax_id/cif/nif si es un CIF de sociedad válido.
+        if key in {"tax_id", "cif", "nif", "vat", "vat_id", "company_tax_id"}:
+            tax_id = normalize_spanish_company_tax_id(value)
+            if tax_id and entity.entity_kind == "company":
+                merged["tax_id"] = tax_id
+                merged["tax_id_scheme"] = "ES_CIF"
+            continue
+        if key not in merged or not merged.get(key):
+            merged[key] = value
+    tax_id = extract_company_tax_id(merged)
+    entity.identifiers = merged
+    if tax_id and entity.entity_kind == "company" and entity.identity_confidence < 90:
+        entity.identity_confidence = 90
+        entity.gate_reason = (
+            "CIF de sociedad capturado; la identidad societaria es estable. "
+            "Las personas vinculadas siguen requiriendo revisión humana."
+        )
+
+
 def _upsert_entity(
     session: Session,
     *,
@@ -865,15 +957,31 @@ def _upsert_entity(
     kind: str,
     depth: int,
     discovery_path: list[Any],
+    identifiers: Mapping[str, Any] | None = None,
 ) -> ResearchEntity:
     normalized = normalize_identity_name(name)
-    entity = session.scalar(
-        select(ResearchEntity).where(
-            ResearchEntity.run_id == run.id,
-            ResearchEntity.entity_kind == kind,
-            ResearchEntity.normalized_name == normalized,
+    tax_id = extract_company_tax_id(identifiers) if kind == "company" else None
+    entity: ResearchEntity | None = None
+    # Sociedades: desduplicar por CIF cuando existe. Nunca emparejar personas por
+    # parecido de nombre ni por NIF inventado.
+    if tax_id:
+        for candidate in session.scalars(
+            select(ResearchEntity).where(
+                ResearchEntity.run_id == run.id,
+                ResearchEntity.entity_kind == "company",
+            )
+        ):
+            if extract_company_tax_id(candidate.identifiers) == tax_id:
+                entity = candidate
+                break
+    if entity is None:
+        entity = session.scalar(
+            select(ResearchEntity).where(
+                ResearchEntity.run_id == run.id,
+                ResearchEntity.entity_kind == kind,
+                ResearchEntity.normalized_name == normalized,
+            )
         )
-    )
     if entity is None:
         entity = ResearchEntity(
             tenant_id=run.tenant_id,
@@ -888,9 +996,14 @@ def _upsert_entity(
             gate_reason=(
                 "Las personas y entidades sin identificador requieren revisión antes de expandirse."
             ),
+            identifiers=dict(identifiers or {}),
         )
         session.add(entity)
         session.flush()
+    else:
+        if depth < entity.depth:
+            entity.depth = depth
+    _merge_entity_identifiers(entity, identifiers)
     return entity
 
 
@@ -951,20 +1064,36 @@ def process_investigation_run(
         name = _node_name(node)
         if not name:
             continue
+        kind = _node_kind(node)
+        node_identifiers: dict[str, Any] = {}
+        tax_id = extract_company_tax_id(node) if kind == "company" else None
+        if tax_id:
+            node_identifiers = {
+                "tax_id": tax_id,
+                "tax_id_scheme": "ES_CIF",
+                "tax_id_source": "signal_graph",
+            }
         entity = _upsert_entity(
             session,
             run=run,
             name=name,
-            kind=_node_kind(node),
+            kind=kind,
             depth=max(1, int(node.get("depth") or 1)),
             discovery_path=[{"source_id": str(graph_source.id), "via": "entity_graph"}],
+            identifiers=node_identifiers or None,
         )
         for key in ("id", "key", "node_id"):
             value = node.get(key)
             if value is not None:
                 node_entities[str(value)] = entity
         node_entities[normalize_identity_name(name)] = entity
+        if tax_id:
+            node_entities[f"tax_id:{tax_id}"] = entity
     node_entities.setdefault(seed.normalized_name, seed)
+    if seed.entity_kind == "company":
+        seed_tax = extract_company_tax_id(seed.identifiers, run.seed_identifiers)
+        if seed_tax:
+            node_entities[f"tax_id:{seed_tax}"] = seed
     relations_created = 0
     for edge in [item for item in graph.get("edges", []) if isinstance(item, Mapping)]:
         source_value = edge.get("source") or edge.get("from") or edge.get("source_name")
@@ -1077,6 +1206,16 @@ def process_investigation_run(
             received = item.get("received_tender_quantity")
             if isinstance(received, bool) or not isinstance(received, int) or received < 0:
                 received = None
+            award_tax_id = extract_company_tax_id(item)
+            if award_tax_id:
+                _merge_entity_identifiers(
+                    entity,
+                    {
+                        "tax_id": award_tax_id,
+                        "tax_id_scheme": "ES_CIF",
+                        "tax_id_source": "procurement_award",
+                    },
+                )
             session.add(
                 ProcurementParticipation(
                     tenant_id=run.tenant_id,
@@ -1088,9 +1227,12 @@ def process_investigation_run(
                     evidence_kind="structured",
                     exact_name=entity.exact_name,
                     exact_identifier=(
-                        str(item.get("winner_identifier"))[:100]
-                        if item.get("winner_identifier")
-                        else None
+                        award_tax_id
+                        or (
+                            str(item.get("winner_identifier"))[:100]
+                            if item.get("winner_identifier")
+                            else None
+                        )
                     ),
                     received_tender_quantity=received,
                     confidence=100,
