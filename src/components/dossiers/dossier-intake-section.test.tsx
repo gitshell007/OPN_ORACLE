@@ -181,14 +181,17 @@ describe("DossierIntakeSection", () => {
     mocks.review.mockResolvedValue({ review_id: "rev-1", artifact_status: "valid" });
   });
 
-  it("muestra vacío y lanza el análisis", async () => {
+  it("muestra vacío y lanza el análisis sin mutar el expediente", async () => {
     const view = render(<DossierIntakeSection dossierId="dossier-1" />);
     expect(await view.findByTestId("dossier-intake-empty")).toBeInTheDocument();
     fireEvent.click(view.getByTestId("dossier-intake-run"));
     await waitFor(() => expect(mocks.run).toHaveBeenCalledWith("dossier-1", expect.any(String)));
+    // Solo propuesta: no PATCH ni review hasta confirmación humana.
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.review).not.toHaveBeenCalled();
   });
 
-  it("oculta hechos e inferencias sin evidencia y permite confirmar", async () => {
+  it("camino feliz: confirma y aplica título/descripción al expediente", async () => {
     mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
     const view = render(<DossierIntakeSection dossierId="dossier-1" />);
     const proposal = await view.findByTestId("dossier-intake-proposal");
@@ -232,7 +235,7 @@ describe("DossierIntakeSection", () => {
     });
   });
 
-  it("descarta sin mutar el expediente", async () => {
+  it("camino cancelado: descarta sin mutar el expediente", async () => {
     mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
     const view = render(<DossierIntakeSection dossierId="dossier-1" />);
     await view.findByTestId("dossier-intake-proposal");
