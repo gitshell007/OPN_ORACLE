@@ -251,6 +251,10 @@ def _max_output_tokens(name: str, version: str) -> int:
         # Signal pisa este valor para tareas gobernadas, pero mandarlo correcto evita que el
         # límite real dependa de ese parche.
         return 16000
+    if name in {"opportunity", "risk"}:
+        # Expediente con varias piezas PLACSP: con 2000 el JSON de salida se corta a media
+        # cadena (ValidationError EOF) y el job muere aunque Titan haya respondido a coste 0.
+        return 6000
     if name == "dossier_completion_wizard":
         return 4500
     if name == "tender_search_wizard":
