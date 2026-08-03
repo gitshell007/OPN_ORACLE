@@ -1593,32 +1593,30 @@ def execute_agent(
                     allowed_evidence.add(uuid.UUID(str(raw_id)))
                 except (ValueError, TypeError, AttributeError):
                     continue
-        validate_evidence(cast(AgentOutput, result.output), allowed_evidence)
-    except Exception as error:
-        fail(error, active_attempt_id=attempt_id)
-        raise
-    output = result.output.model_dump(mode="json")
-    # SV2-PERFIL-EVIDENCIA: separar declarado (fit_assessment) de oficial (facts).
-    if agent == "opportunity":
-        declared_raw = context.manifest.get("declared_evidence_ids") or []
-        declared_set: set[uuid.UUID] = set()
-        for raw_id in declared_raw:
-            try:
-                declared_set.add(uuid.UUID(str(raw_id)))
-            except (ValueError, TypeError, AttributeError):
-                continue
-        output = validate_opportunity_origin_boundary(
-            output,
-            official_ids=allowed_evidence,
-            declared_ids=declared_set,
-        )
-        try:
+        # SV2-PERFIL-EVIDENCIA: primero separar declarado de oficial; si no, un
+        # fact que cite UUID declared tumba validate_evidence (solo ORM oficial).
+        output = result.output.model_dump(mode="json")
+        if agent == "opportunity":
+            declared_set: set[uuid.UUID] = set()
+            for raw_id in context.manifest.get("declared_evidence_ids") or []:
+                try:
+                    declared_set.add(uuid.UUID(str(raw_id)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            output = validate_opportunity_origin_boundary(
+                output,
+                official_ids=allowed_evidence,
+                declared_ids=declared_set,
+            )
             boundary_model = prompt.schema.model_validate_json(json.dumps(output))
             validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
             output = boundary_model.model_dump(mode="json")
-        except Exception as error:
-            fail(error, active_attempt_id=attempt_id)
-            raise
+        else:
+            validate_evidence(cast(AgentOutput, result.output), allowed_evidence)
+            output = result.output.model_dump(mode="json")
+    except Exception as error:
+        fail(error, active_attempt_id=attempt_id)
+        raise
     # Preserve bilateral trust hash from Signal validated_output (MDEV-06).
     vo_hash = getattr(result, "validated_output_sha256", None)
     if vo_hash:

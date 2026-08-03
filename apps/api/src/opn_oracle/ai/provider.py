@@ -873,6 +873,11 @@ def _merge_allowed_evidence_ids(context: dict[str, Any]) -> list[str]:
     drops the dual-memory IDs that the model is instructed to cite, so RT-07 and
     local `_validate_allowed_evidence` disagree and Preguntar fails closed with
     AIUnavailable despite Signal returning HTTP 200.
+
+    SV2-PERFIL-EVIDENCIA: también une ``allowed_declared_evidence_ids`` (perfil
+    del cliente, source_kind=declared). El modelo puede citarlos durante la
+    generación; ``validate_opportunity_origin_boundary`` los saca de ``facts[]``
+    después y solo los deja en ``fit_assessment``.
     """
 
     merged: list[str] = []
@@ -889,9 +894,11 @@ def _merge_allowed_evidence_ids(context: dict[str, Any]) -> list[str]:
             merged.append(value)
 
     _add(context.get("allowed_evidence_ids"))
+    _add(context.get("allowed_declared_evidence_ids"))
     scope = context.get("requested_scope")
     if isinstance(scope, dict):
         _add(scope.get("allowed_evidence_ids"))
+        _add(scope.get("allowed_declared_evidence_ids"))
     return merged
 
 
