@@ -1667,6 +1667,24 @@ def _oracle_schemas() -> dict[str, Any]:
     json_object = {"$ref": "#/components/schemas/JsonObject"}
     json_array = {"$ref": "#/components/schemas/JsonArray"}
     string_array = {"type": "array", "items": string}
+    # Ámbito de expediente: ISO 3166-1 alpha-2 o ISO 3166-2 (p. ej. ES-VC).
+    # El servidor normaliza a mayúsculas; hacia Signal se proyecta solo el país.
+    geography_code = {
+        "type": "string",
+        "pattern": r"^[A-Za-z]{2}(-[A-Za-z0-9]{1,3})?$",
+        "description": (
+            "Código ISO 3166-1 alpha-2 o ISO 3166-2 (subdivisión). "
+            "Ejemplos: ES, ES-VC (Comunidad Valenciana), DE, US. "
+            "Oracle conserva la subdivisión; la proyección a monitores Signal usa el país."
+        ),
+        "examples": ["ES", "ES-VC", "DE"],
+    }
+    geography_array = {
+        "type": "array",
+        "items": geography_code,
+        "maxItems": 50,
+        "description": "Ámbitos geográficos del expediente (país y/o subdivisión ISO).",
+    }
     uuid_array = {"type": "array", "items": uuid}
     common = {
         "id": uuid,
@@ -1810,7 +1828,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 "strategic_goal": {"type": "string"},
                 "owner_user_id": uuid,
                 "collaborator_user_ids": uuid_array,
-                "geography": string_array,
+                "geography": geography_array,
                 "sectors": string_array,
                 "languages": string_array,
                 "scoring_config": json_object,
@@ -1837,7 +1855,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 },
                 "owner_user_id": uuid,
                 "scoring_config": json_object,
-                "geography": string_array,
+                "geography": geography_array,
                 "sectors": string_array,
                 "languages": string_array,
                 "profile_config": {
@@ -2166,7 +2184,7 @@ def _oracle_schemas() -> dict[str, Any]:
             "strategic_goal": string,
             "owner_user_id": nullable_uuid,
             "collaborator_user_ids": uuid_array,
-            "geography": string_array,
+            "geography": geography_array,
             "sectors": string_array,
             "languages": string_array,
             "score_explanation": json_object,

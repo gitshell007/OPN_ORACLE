@@ -32052,6 +32052,7 @@ export interface components {
             collaborator_user_ids?: string[];
             create_starter_profile?: boolean;
             description?: string;
+            /** @description Ámbitos geográficos del expediente (país y/o subdivisión ISO). */
             geography?: string[];
             /** @enum {string} */
             initial_status?: "draft" | "active";
@@ -32104,6 +32105,7 @@ export interface components {
         };
         DossierPatchInput: {
             description?: string;
+            /** @description Ámbitos geográficos del expediente (país y/o subdivisión ISO). */
             geography?: string[];
             languages?: string[];
             /** Format: uuid */
@@ -32129,6 +32131,7 @@ export interface components {
             created_at?: string;
             description?: string;
             dossier_type?: string;
+            /** @description Ámbitos geográficos del expediente (país y/o subdivisión ISO). */
             geography?: string[];
             health_score?: number;
             /** Format: uuid */
@@ -32192,6 +32195,7 @@ export interface components {
         };
         DossierWriteInput: {
             description?: string;
+            /** @description Ámbitos geográficos del expediente (país y/o subdivisión ISO). */
             geography?: string[];
             languages?: string[];
             /** Format: uuid */

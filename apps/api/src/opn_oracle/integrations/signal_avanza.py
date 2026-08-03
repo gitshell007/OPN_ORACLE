@@ -76,7 +76,8 @@ class MonitorSpec(BaseModel):
             if info.field_name in {"languages", "source_types"}:
                 item = item.lower()
             elif info.field_name == "geographies":
-                item = item.upper()
+                # ISO 3166-2 (ES-VC) → país alpha-2: Signal no interpreta subdivisiones.
+                item = item.upper().split("-", 1)[0]
             if item not in seen:
                 normalized.append(item)
                 seen.add(item)

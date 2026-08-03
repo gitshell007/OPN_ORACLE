@@ -90,42 +90,10 @@ DOSSIER_TYPES = frozenset(
         "custom",
     }
 )
-# Preset de conveniencia (UE-27). El dominio es global: la validación admite
-# cualquier código ISO 3166-1 alpha-2, no solo este conjunto.
-EU_COUNTRY_CODES = frozenset(
-    {
-        "AT",
-        "BE",
-        "BG",
-        "CY",
-        "CZ",
-        "DE",
-        "DK",
-        "EE",
-        "ES",
-        "FI",
-        "FR",
-        "GR",
-        "HR",
-        "HU",
-        "IE",
-        "IT",
-        "LT",
-        "LU",
-        "LV",
-        "MT",
-        "NL",
-        "PL",
-        "PT",
-        "RO",
-        "SE",
-        "SI",
-        "SK",
-    }
-)
-# Formato ISO 3166-1 alpha-2. No se valida contra un catálogo cerrado de estados
-# para no hardcodear regiones ni bloquear mercados fuera de la UE.
-_ISO_ALPHA2 = re.compile(r"^[A-Z]{2}$")
+# ISO 3166-1 alpha-2 o ISO 3166-2 (subdivisión). Sin catálogo cerrado de estados
+# ni de CCAA: el formato basta; mercados fuera de la UE y subdivisiones ES-* son válidos.
+# La proyección hacia Signal aplana a país (ver geography_codes_for_signal).
+_ISO_GEOGRAPHY = re.compile(r"^[A-Z]{2}(-[A-Z0-9]{1,3})?$")
 DOSSIER_TRANSITIONS = {
     "draft": frozenset({"active", "archived"}),
     "active": frozenset({"paused", "archived"}),
@@ -237,15 +205,42 @@ def _profile_strings(value: Any, field: str, *, limit: int = 30) -> list[str]:
 
 
 def _geography_codes(value: Any) -> list[str]:
-    """Normaliza códigos de geografía a ISO 3166-1 alpha-2 (ámbito global)."""
+    """Normaliza códigos de geografía a ISO 3166-1 alpha-2 o ISO 3166-2.
+
+    Oracle conserva la subdivisión (p. ej. ES-VC). La proyección hacia Signal
+    debe usar geography_codes_for_signal para enviar solo el país.
+    """
     codes = [item.upper() for item in _profile_strings(value, "geography", limit=50)]
-    invalid = sorted(code for code in codes if not _ISO_ALPHA2.fullmatch(code))
+    invalid = sorted(code for code in codes if not _ISO_GEOGRAPHY.fullmatch(code))
     if invalid:
         raise DomainValidationError(
-            "geography solo admite códigos ISO 3166-1 alpha-2 (p. ej. ES, DE, US, MX); "
-            "no válidos: " + ", ".join(invalid)
+            "geography solo admite ISO 3166-1 alpha-2 o ISO 3166-2 "
+            "(p. ej. ES, ES-VC, DE, US); no válidos: " + ", ".join(invalid)
         )
     return codes
+
+
+def geography_codes_for_signal(codes: list[str] | None) -> list[str]:
+    """Aplana ISO 3166-2 a país alpha-2 para monitores Signal (deduplicado, orden estable).
+
+    Signal acepta cualquier string en geographies y no filtra web_search por él;
+    aun así se proyecta solo el país para no enviar subdivisiones que el receptor
+    no interpreta (procurement country_code es String(2); monitores no validan
+    formato pero tampoco consumen subdivisiones).
+    """
+    countries: list[str] = []
+    seen: set[str] = set()
+    for raw in codes or []:
+        code = str(raw).strip().upper()
+        if not code:
+            continue
+        country = code.split("-", 1)[0]
+        if len(country) != 2 or not country.isalpha():
+            continue
+        if country not in seen:
+            seen.add(country)
+            countries.append(country)
+    return countries
 
 
 def _language_codes(value: Any) -> list[str]:
@@ -842,7 +837,8 @@ def _apply_market_profile(
             "keywords": keywords or list(watchlist.query_config.get("keywords", [])),
             "entities": [{"type": "company", "name": name} for name in entity_names],
             "languages": [str(item).lower() for item in dossier.languages],
-            "geographies": [str(item).upper() for item in dossier.geography],
+            # Subdivisiones ISO 3166-2 se conservan en dossier.geography; Signal recibe país.
+            "geographies": geography_codes_for_signal(list(dossier.geography or [])),
             "cadence": "daily",
         }
     rationale_parts = []
