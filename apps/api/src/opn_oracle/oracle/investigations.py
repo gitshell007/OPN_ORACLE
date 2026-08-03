@@ -1294,6 +1294,39 @@ def investigation_summary(session: Session, run: InvestigationRun) -> dict[str, 
             .order_by(ResearchClaim.claim_kind, ResearchClaim.subject)
         )
     )
+    completed_stages = {
+        step.stage for step in steps if step.status == "completed"
+    }
+    blocked_stages = {
+        step.stage for step in steps if step.status == "blocked"
+    }
+    pending_stages = {
+        step.stage for step in steps if step.status in {"pending", "ready", "running"}
+    }
+    # MVP only completes P1/P3/P4; P2 (identity frontier expansion) and P5 (report)
+    # stay blocked pending human review. Never present that as a full network map.
+    incomplete_reasons: list[str] = []
+    if "P2" in blocked_stages:
+        incomplete_reasons.append(
+            "P2_identity_frontier_blocked_pending_human_review_no_level_expansion"
+        )
+    if "P5" in blocked_stages:
+        incomplete_reasons.append("P5_report_blocked_pending_human_publication_review")
+    if pending_stages:
+        incomplete_reasons.append(
+            "stages_pending:" + ",".join(sorted(pending_stages))
+        )
+    if completed_stages != set(MACRO_STAGES):
+        missing = [stage for stage in MACRO_STAGES if stage not in completed_stages]
+        incomplete_reasons.append("stages_not_completed:" + ",".join(missing))
+    # Dedupe while preserving order.
+    seen_reasons: set[str] = set()
+    ordered_reasons: list[str] = []
+    for reason in incomplete_reasons:
+        if reason not in seen_reasons:
+            seen_reasons.add(reason)
+            ordered_reasons.append(reason)
+    completeness = "complete" if not ordered_reasons else "incomplete"
     return {
         "id": str(run.id),
         "dossier_id": str(run.dossier_id),
@@ -1305,6 +1338,8 @@ def investigation_summary(session: Session, run: InvestigationRun) -> dict[str, 
         },
         "status": run.status,
         "stage": run.stage,
+        "completeness": completeness,
+        "incompleteness_reasons": ordered_reasons,
         "progress": run.progress,
         "cutoff_at": run.cutoff_at.isoformat(),
         "period_start": run.period_start.isoformat() if run.period_start else None,
@@ -1481,6 +1516,8 @@ def investigation_report_preview(session: Session, run_id: uuid.UUID) -> dict[st
                 "No expande nodos candidatos sin revision humana de identidad.",
                 "La opinion se limita a sociedades, estructura de red y hechos fechados.",
             ],
+            "completeness": summary.get("completeness", "incomplete"),
+            "incompleteness_reasons": list(summary.get("incompleteness_reasons") or []),
         },
         "verified_entities": verified,
         "candidate_entities": candidates,

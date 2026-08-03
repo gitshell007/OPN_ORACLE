@@ -1519,6 +1519,18 @@ export function EntityGraphExplorer({
             <span>{visibleNodeCount} de {graph?.nodes.length ?? 0} nodos visibles</span>
             <span>{visibleEdgeCount} de {graph?.edges.length ?? 0} enlaces visibles</span>
             {graph?.truncated && <span>Vista recortada por Signal</span>}
+            {graph?.completeness === "incomplete" && (
+              <span role="status">Grafo incompleto</span>
+            )}
+            {graph?.captured_at && (
+              <span title={graph.captured_at}>
+                Capturado{" "}
+                {new Date(graph.captured_at).toLocaleString("es-ES", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+              </span>
+            )}
             {graph?.cache_hit && <span>Caché activo</span>}
             <button className="vector-secondary small" disabled={loading} onClick={() => void loadGraph()}>
               <RefreshCw size={14} />
@@ -1923,6 +1935,15 @@ export function EntityGraphExplorer({
                   <small>Signal vía Flask</small>
                 </summary>
                 <div className="entity-graph-disclosure-body">
+                  {graph.completeness === "incomplete" && (
+                    <p className="entity-graph-warning" role="status">
+                      <Sparkles size={14} />
+                      Grafo incompleto: no es el mapa societario entero.
+                      {(graph.incompleteness_reasons?.length ?? 0) > 0
+                        ? ` Motivos: ${graph.incompleteness_reasons?.join(", ")}.`
+                        : ""}
+                    </p>
+                  )}
                   {graph.truncated && (
                     <p className="entity-graph-warning">
                       <Sparkles size={14} />

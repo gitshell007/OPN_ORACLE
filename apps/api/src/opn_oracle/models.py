@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from opn_oracle.ai.models import AI_MODELS
 from opn_oracle.documents.models import DOCUMENT_MODELS
 from opn_oracle.extensions import Base
+from opn_oracle.integrations.entity_graph_snapshots import ENTITY_GRAPH_SNAPSHOT_MODELS
 from opn_oracle.integrations.models import INTEGRATION_MODELS
 from opn_oracle.oracle.conversations import CONVERSATION_MODELS
 from opn_oracle.oracle.custom_report_usage import CUSTOM_REPORT_USAGE_MODELS
@@ -85,6 +86,7 @@ MODEL_REGISTRY = (
     PlatformSourceActivity,
     *BACKUP_MODELS,
     *INTEGRATION_MODELS,
+    *ENTITY_GRAPH_SNAPSHOT_MODELS,
     *ORACLE_MODELS,
     *INTENT_MODELS,
     *CONVERSATION_MODELS,

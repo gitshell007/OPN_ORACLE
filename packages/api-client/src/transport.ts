@@ -1405,6 +1405,24 @@ const entityIntel = {
       `/api/v1/entity-intel/graph?${query.toString()}`,
     );
   },
+  graphSnapshots: (input: {
+    name: string;
+    type?: EntityIntelKind;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams({
+      name: input.name,
+      type: input.type ?? "company",
+      limit: String(input.limit ?? 10),
+    });
+    return request<EntityIntelGraphSnapshotListResponse>(
+      `/api/v1/entity-intel/graph/snapshots?${query.toString()}`,
+    );
+  },
+  graphSnapshot: (snapshotId: string) =>
+    request<EntityIntelGraphResponse>(
+      `/api/v1/entity-intel/graph/snapshots/${encodeURIComponent(snapshotId)}`,
+    ),
   reports: (input: {
     name: string;
     type?: EntityIntelKind;
@@ -1657,6 +1675,33 @@ export interface EntityIntelGraphResponse {
   note?: string | null;
   cached_seconds: number;
   cache_hit: boolean;
+  /** complete | incomplete — never treat truncated graphs as full maps */
+  completeness?: "complete" | "incomplete";
+  incompleteness_reasons?: string[];
+  captured_at?: string | null;
+  graph_origin?: "live" | "snapshot" | string | null;
+  requested_depth?: number | null;
+  snapshot_id?: string | null;
+}
+
+export interface EntityIntelGraphSnapshotMeta {
+  id: string;
+  entity_name: string;
+  entity_kind: string;
+  depth: number;
+  active_only: boolean;
+  truncated: boolean;
+  completeness: "complete" | "incomplete" | string;
+  incompleteness_reasons: string[];
+  node_count: number;
+  edge_count: number;
+  captured_at: string;
+  source: string;
+}
+
+export interface EntityIntelGraphSnapshotListResponse {
+  items: EntityIntelGraphSnapshotMeta[];
+  total: number;
 }
 
 export type JobResponse = components["schemas"]["JobResponse"];

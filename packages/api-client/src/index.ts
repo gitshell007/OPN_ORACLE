@@ -84,6 +84,8 @@ export type {
   EntityIntelGraphEdge,
   EntityIntelGraphNode,
   EntityIntelGraphResponse,
+  EntityIntelGraphSnapshotMeta,
+  EntityIntelGraphSnapshotListResponse,
   EntityIntelDossierResponse,
   EntityIntelKind,
   EntityIntelReportJob,
