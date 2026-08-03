@@ -1030,7 +1030,19 @@ def process_dossier_question_answer(
     body: str
     unknowns: list[str] = []
     answer_payload: dict[str, Any]
-    degraded = publisher_degraded or persist_degraded or bool(coverage.get("failed"))
+    coverage_failed = list(coverage.get("failed") or [])
+    degraded = publisher_degraded or persist_degraded or bool(coverage_failed)
+    # Honest reasons only — never invent "memory coverage failed" when failed=[].
+    degraded_reasons: list[str] = []
+    if publisher_degraded:
+        degraded_reasons.append("publicador de memoria degradado")
+    if persist_degraded:
+        degraded_reasons.append("persistencia de evidencia degradada")
+    if coverage_failed:
+        degraded_reasons.append(
+            f"cobertura de memoria reportó {len(coverage_failed)} fallo(s)"
+        )
+    degraded_reason = "; ".join(degraded_reasons) if degraded_reasons else None
 
     if _signal_ai_enabled():
         try:
@@ -1146,6 +1158,7 @@ def process_dossier_question_answer(
             ],
             "input_manifest_hash": dual.input_manifest_hash,
             "degraded": degraded,
+            "degraded_reason": degraded_reason,
             "job_id": str(job.id),
             "provider_path": "deterministic",
             "evidence_persisted": evidence_persisted,
@@ -1154,7 +1167,9 @@ def process_dossier_question_answer(
     answer_payload.setdefault("memory_mode", effective_mode)
     answer_payload.setdefault("allowed_evidence_ids", allowed_ids)
     answer_payload.setdefault("input_manifest_hash", dual.input_manifest_hash)
-    answer_payload.setdefault("degraded", degraded)
+    # Always own degraded flags from measured path (publisher/persist/coverage.failed).
+    answer_payload["degraded"] = degraded
+    answer_payload["degraded_reason"] = degraded_reason
     answer_payload.setdefault("items_observed", len(items_observed))
     answer_payload.setdefault(
         "coverage_summary",

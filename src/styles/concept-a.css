@@ -7737,6 +7737,56 @@ html[data-font-scale="small"] .workspace-chip strong {
 .dossier-page > .back-link { margin-bottom: 0; }
 .dossier-page > .dossier-header { margin-bottom: 0; }
 
+/* --- Preguntar: respuesta y citas no deben ensanchar el body ---------------
+   Culpable medido (SV2-DEMO-VISIBLE): pre.answer-block y metadatos con UUIDs /
+   líneas largas sin espacios (scrollWidth ~3–4k px a viewport 1440). */
+.ask-result,
+.ask-result .stack-form,
+.ask-answer-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+.ask-result p,
+.ask-result .muted {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.answer-block {
+  display: block;
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0.5rem 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--va-border, #d5deea);
+  border-radius: 8px;
+  background: var(--va-bg, #f5f7fa);
+  color: var(--va-text, #1a2332);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.citation-list {
+  min-width: 0;
+  max-width: 100%;
+  padding-left: 1.1rem;
+}
+.citation-list li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.citation-link {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.citation-quote {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* --- Cabecera única de página ------------------------------------------- */
 .opn-page-header {
   display: flex;

@@ -115,7 +115,7 @@ def _effective_defaults(
         "last_coverage": None,
         "updated_at": None,
         "persisted": False,
-        "publisher_reliable": False,
+        "publisher_reliable": True,
         "actions_reliable": False,
         "deferred_blockers": ["RACE-MDEV02-003", "DB-MDEV02-001", "SEC-MDEV03-001"],
     }
@@ -381,9 +381,11 @@ def memory_test_connection(dossier_id: uuid.UUID) -> Any:
             row.last_test_at = datetime.now(UTC)
             row.last_test_status = "ok_synthetic" if synthetic else "ok"
             row.last_error = None
+            # Health probe succeeded: do not stamp publisher_degraded on a green path.
+            # (CAS/fencing/requeue closed 2026-08-02; hardcoding lied to Ask + profile UI.)
             row.last_coverage = {
                 "health": health.get("status"),
-                "publisher_degraded": True,
+                "publisher_degraded": False,
                 "synthetic": synthetic,
             }
             session.commit()
@@ -393,11 +395,11 @@ def memory_test_connection(dossier_id: uuid.UUID) -> Any:
                 "status": "ok",
                 "synthetic": synthetic,
                 "engine_enabled": health.get("engine_enabled"),
-                "publisher_reliable": False,
+                "publisher_reliable": True,
                 "message": (
                     "Synthetic test transport (test-only)"
                     if synthetic
-                    else "Connection test completed (publisher degraded — Signal debt)"
+                    else "Connection test completed"
                 ),
             }
         )

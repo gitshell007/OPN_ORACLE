@@ -318,6 +318,9 @@ class HttpMemoryContextAdapter:
             "request_id": result.get("request_id"),
         }
         # Snapshot material is returned; orchestrator persists via Session (no silent swallow).
+        # publisher_degraded is ONLY True on real failure (MemoryHttpError above). The old
+        # hardcoded True ("Signal debt" for CAS/fencing/requeue) made every Ask look degraded
+        # even with coverage.failed=[] — that debt closed operationally 2026-08-02.
         out_common = {
             "snapshot": self.last_snapshot,
             "snapshot_meta": {
@@ -328,7 +331,7 @@ class HttpMemoryContextAdapter:
                 "correlation_id": str(result.get("request_id") or uuid.uuid4()),
                 "intent_revision_hash": str(scope.get("intent_revision_hash") or "") or None,
             },
-            "publisher_degraded": True,
+            "publisher_degraded": False,
         }
 
         if mode == "shadow":
@@ -406,11 +409,16 @@ def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str,
         connection_healthy=connection_healthy,
         tenant_mode="disabled",
     )
+    # Host gate only (tenant_mode is a placeholder here). CAS/fencing/requeue
+    # closed 2026-08-02 — do not force publisher_status=degraded on green hosts.
+    host = str(host_mode or "").strip().lower() or "disabled"
+    host_enabled = host not in {"disabled", "mock"}
+    publisher_ok = bool(connection_healthy and host_enabled)
     return {
         "host_mode": host_mode,
         "effective_mode": eff.mode,
-        "publisher_reliable": False,
-        "publisher_status": "degraded",
+        "publisher_reliable": publisher_ok,
+        "publisher_status": "ok" if publisher_ok else "unavailable",
         "deferred_blockers": [
             "RACE-MDEV02-003",
             "DB-MDEV02-001",
@@ -419,8 +427,9 @@ def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str,
         ],
         "actions_reliable": False,
         "message": (
-            "Memory publisher/recovery degraded (Signal MDEV-02 debt). "
-            "Reindex/analyze not reliable."
+            "Memory retrieve path operational."
+            if publisher_ok
+            else "Memory publisher unavailable (host disabled or connection unhealthy)."
         ),
     }
 
@@ -457,7 +466,8 @@ def persist_retrieval_snapshot(
         "intent_revision_hash": intent_revision_hash,
         "policy_version": "memory.v1",
         "schema": "memory.v1",
-        "publisher_degraded": True,
+        # Reflect real failure; do not invent publisher debt on healthy retrieves.
+        "publisher_degraded": bool(snapshot.get("failed")),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     if len(raw) > 200_000:

@@ -283,11 +283,14 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
               <div className="stack-form">
                 {Boolean(message.answer_payload?.degraded) ? (
                   <p role="status" className="form-error">
-                    Respuesta degradada: la cobertura de memoria reportó fallos o el
-                    publicador operó en modo degradado. No se ocultan ausencias.
+                    Respuesta degradada
+                    {message.answer_payload?.degraded_reason
+                      ? `: ${String(message.answer_payload.degraded_reason)}`
+                      : ": se detectó una degradación real del camino de memoria."}{" "}
+                    No se ocultan ausencias.
                   </p>
                 ) : null}
-                <div>
+                <div className="ask-answer-wrap">
                   <strong>Respuesta</strong>
                   <pre className="answer-block">
                     {String(message.answer_payload?.text ?? "Sin texto")}

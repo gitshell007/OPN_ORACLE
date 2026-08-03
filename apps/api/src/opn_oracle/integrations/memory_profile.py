@@ -141,6 +141,7 @@ def profile_to_public(row: Any) -> dict[str, Any]:
             "DB-MDEV02-001",
             "SEC-MDEV03-001",
         ],
-        "publisher_reliable": False,
+        # Publisher debt (CAS/fencing/requeue) closed 2026-08-02; do not lie.
+        "publisher_reliable": True,
         "actions_reliable": False,
     }
