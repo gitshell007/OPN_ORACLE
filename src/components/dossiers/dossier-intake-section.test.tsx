@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -62,6 +62,8 @@ vi.mock("@/components/ui/async-action-button", () => ({
     onClick,
     type = "button",
     disabled,
+    loading: _loading,
+    className,
     ...rest
   }: {
     children: React.ReactNode;
@@ -71,7 +73,7 @@ vi.mock("@/components/ui/async-action-button", () => ({
     loading?: boolean;
     className?: string;
   }) => (
-    <button type={type} onClick={onClick} disabled={disabled} {...rest}>
+    <button type={type} onClick={onClick} disabled={disabled} className={className} {...rest}>
       {children}
     </button>
   ),
@@ -163,6 +165,10 @@ const groundedArtifact = {
 };
 
 describe("DossierIntakeSection", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.get.mockResolvedValue(dossier);
@@ -176,32 +182,35 @@ describe("DossierIntakeSection", () => {
   });
 
   it("muestra vacío y lanza el análisis", async () => {
-    render(<DossierIntakeSection dossierId="dossier-1" />);
-    expect(await screen.findByTestId("dossier-intake-empty")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("dossier-intake-run"));
+    const view = render(<DossierIntakeSection dossierId="dossier-1" />);
+    expect(await view.findByTestId("dossier-intake-empty")).toBeInTheDocument();
+    fireEvent.click(view.getByTestId("dossier-intake-run"));
     await waitFor(() => expect(mocks.run).toHaveBeenCalledWith("dossier-1", expect.any(String)));
   });
 
   it("oculta hechos e inferencias sin evidencia y permite confirmar", async () => {
     mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
-    render(<DossierIntakeSection dossierId="dossier-1" />);
+    const view = render(<DossierIntakeSection dossierId="dossier-1" />);
+    const root = await view.findByTestId("dossier-intake-section");
 
-    expect(await screen.findByTestId("dossier-intake-proposal")).toBeInTheDocument();
-    expect(screen.getByTestId("dossier-intake-facts")).toHaveTextContent("El órgano es el SERMAS");
-    expect(screen.getByTestId("dossier-intake-facts")).not.toHaveTextContent(
+    expect(within(root).getByTestId("dossier-intake-proposal")).toBeInTheDocument();
+    expect(within(root).getByTestId("dossier-intake-facts")).toHaveTextContent(
+      "El órgano es el SERMAS",
+    );
+    expect(within(root).getByTestId("dossier-intake-facts")).not.toHaveTextContent(
       "Hecho inventado sin fuente",
     );
-    expect(screen.getByTestId("dossier-intake-inferences")).toHaveTextContent(
+    expect(within(root).getByTestId("dossier-intake-inferences")).toHaveTextContent(
       "Inferencia con fuente",
     );
-    expect(screen.getByTestId("dossier-intake-inferences")).not.toHaveTextContent(
+    expect(within(root).getByTestId("dossier-intake-inferences")).not.toHaveTextContent(
       "Inferencia sin fuente",
     );
-    expect(screen.getByTestId("dossier-intake-proposed-type")).toHaveTextContent(
+    expect(within(root).getByTestId("dossier-intake-proposed-type")).toHaveTextContent(
       "tipo:tender_or_grant",
     );
 
-    fireEvent.click(screen.getByTestId("dossier-intake-apply"));
+    fireEvent.click(within(root).getByTestId("dossier-intake-apply"));
     await waitFor(() => {
       expect(mocks.update).toHaveBeenCalledWith(
         "dossier-1",
@@ -226,9 +235,10 @@ describe("DossierIntakeSection", () => {
 
   it("descarta sin mutar el expediente", async () => {
     mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
-    render(<DossierIntakeSection dossierId="dossier-1" />);
-    await screen.findByTestId("dossier-intake-proposal");
-    fireEvent.click(screen.getByTestId("dossier-intake-reject"));
+    const view = render(<DossierIntakeSection dossierId="dossier-1" />);
+    const root = await view.findByTestId("dossier-intake-section");
+    expect(within(root).getByTestId("dossier-intake-proposal")).toBeInTheDocument();
+    fireEvent.click(within(root).getByTestId("dossier-intake-reject"));
     await waitFor(() => {
       expect(mocks.review).toHaveBeenCalledWith(
         "art-1",
