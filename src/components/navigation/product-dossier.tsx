@@ -15,7 +15,9 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DossierOracleSummaryPanel } from "@/components/dossiers/dossier-oracle-summary-panel";
 import { DossierContextPanel } from "@/components/dossiers/dossier-context-panel";
+import { DossierProfilePanel } from "@/components/dossiers/dossier-profile-panel";
 import { PageHeader } from "@/components/ui/page-header";
+import { draftFromProfileConfig } from "@/lib/dossier-profile";
 import {
   productDossierTypeLabel,
   productResourceKindLabel,
@@ -207,6 +209,19 @@ export function ProductDossier() {
         }
       />
       <DossierOracleSummaryPanel dossierId={id} />
+      {(dossier.dossier_type === "market" ||
+        dossier.dossier_type === "competitive_intelligence" ||
+        (dossier.profile_config && Object.keys(dossier.profile_config).length > 0)) && (
+        <DossierProfilePanel
+          dossierId={id}
+          dossierType={dossier.dossier_type}
+          profileConfig={dossier.profile_config}
+          draft={draftFromProfileConfig(dossier.dossier_type, dossier.profile_config ?? null)}
+          onDraftChange={() => undefined}
+          onSave={(event) => event.preventDefault()}
+          readOnly
+        />
+      )}
       <section className="vector-panel situation-panel">
         <header>
           <div>

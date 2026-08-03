@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   createMonitor: vi.fn(),
   monitorAction: vi.fn(),
   success: vi.fn(),
+  memoryGet: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => ({
@@ -27,6 +28,9 @@ vi.mock("@oracle/api-client", () => ({
       monitors: mocks.monitors,
       createMonitor: mocks.createMonitor,
       action: mocks.monitorAction,
+    },
+    dossierMemory: {
+      getEffective: mocks.memoryGet,
     },
   },
 }));
@@ -87,8 +91,79 @@ describe("DossierSettingsSection", () => {
     mocks.monitors.mockResolvedValue({ data: [] });
     mocks.createMonitor.mockResolvedValue({ id: "monitor-1", outbox_event_id: "event-1" });
     mocks.update.mockResolvedValue({ ...dossier, status: "paused", version: 5 });
+    mocks.memoryGet.mockRejectedValue(new Error("memory unavailable"));
   });
   afterEach(cleanup);
+
+  it("carga y guarda el perfil de mercado vía PATCH profile_config", async () => {
+    const marketDossier = {
+      ...dossier,
+      dossier_type: "market",
+      version: 7,
+      profile_config: {
+        version: "market.v1",
+        own_offer: "Integración de baterías",
+        decision_to_make: "Entrar o no",
+        competitors: [{ name: "Gamma", aliases: [] }],
+        barriers: ["Permisos"],
+        segments: [],
+        channels: [],
+        target_buyers: [],
+        partners: [],
+        regulators: [],
+        success_indicators: [],
+        keywords: ["almacenamiento"],
+        horizon: "",
+      },
+    };
+    mocks.get.mockResolvedValue(marketDossier);
+    mocks.update.mockResolvedValue({
+      ...marketDossier,
+      version: 8,
+      profile_config: {
+        ...marketDossier.profile_config,
+        own_offer: "Integración de sistemas de baterías",
+        decision_to_make: "Entrar con partner local",
+      },
+    });
+
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+
+    expect(await screen.findByRole("heading", { name: "Perfil del expediente" })).toBeVisible();
+    expect(screen.getByLabelText("Oferta propia")).toHaveValue("Integración de baterías");
+    expect(screen.getByLabelText("Competidores")).toHaveValue("Gamma");
+    expect(screen.getByLabelText("Barreras")).toHaveValue("Permisos");
+
+    fireEvent.change(screen.getByLabelText("Oferta propia"), {
+      target: { value: "Integración de sistemas de baterías" },
+    });
+    fireEvent.change(screen.getByLabelText("Decisión a tomar"), {
+      target: { value: "Entrar con partner local" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith(
+        "dossier-1",
+        expect.objectContaining({
+          version: 7,
+          profile_config: expect.objectContaining({
+            own_offer: "Integración de sistemas de baterías",
+            decision_to_make: "Entrar con partner local",
+            competitors: [{ name: "Gamma", aliases: [] }],
+            barriers: ["Permisos"],
+          }),
+        }),
+        7,
+      ),
+    );
+    expect(mocks.success).toHaveBeenCalledWith("Perfil del expediente actualizado");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Oferta propia")).toHaveValue(
+        "Integración de sistemas de baterías",
+      ),
+    );
+  });
 
   it("mantiene accesible la configuración si los monitores no están autorizados", async () => {
     mocks.monitors.mockRejectedValueOnce(new Error("forbidden"));

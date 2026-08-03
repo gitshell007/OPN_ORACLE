@@ -616,6 +616,11 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
 
     profile = dossier.profile_config or {}
     version = str(profile.get("version", ""))
+    competitors = [
+        str(item.get("name", ""))
+        for item in profile.get("competitors", [])
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    ][:20]
     if version == "market.v1":
         return {
             "version": version,
@@ -625,14 +630,34 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             "segments": list(profile.get("segments", []))[:15],
             "channels": list(profile.get("channels", []))[:15],
             "target_buyers": list(profile.get("target_buyers", []))[:15],
-            "competitors": [
-                str(item.get("name", ""))
-                for item in profile.get("competitors", [])
-                if isinstance(item, dict)
-            ][:20],
+            "competitors": competitors,
             "partners": list(profile.get("partners", []))[:15],
             "regulators": list(profile.get("regulators", []))[:15],
             "barriers": list(profile.get("barriers", []))[:15],
+            "success_indicators": list(profile.get("success_indicators", []))[:15],
+            "keywords": list(profile.get("keywords", []))[:30],
+        }
+    if version == "competitive-intelligence.v1":
+        return {
+            "version": version,
+            "own_offer": _small_text(str(profile.get("own_offer", "")), 500),
+            "business_objective": _small_text(
+                str(profile.get("business_objective", "")), 1000
+            ),
+            "horizon": _small_text(str(profile.get("horizon", "")), 300),
+            "segments": list(profile.get("segments", []))[:15],
+            "geographies": list(profile.get("geographies", []))[:15],
+            "target_buyers": list(profile.get("target_buyers", []))[:15],
+            "competitors": competitors,
+            "keywords": list(profile.get("keywords", []))[:30],
+            "cpv": list(profile.get("cpv", []))[:30],
+            "sources": list(profile.get("sources", []))[:15],
+            "participation_criteria": _small_text(
+                str(profile.get("participation_criteria", "")), 800
+            ),
+            "exclusion_criteria": _small_text(
+                str(profile.get("exclusion_criteria", "")), 800
+            ),
             "success_indicators": list(profile.get("success_indicators", []))[:15],
         }
     if version:

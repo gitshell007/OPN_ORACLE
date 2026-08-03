@@ -15,9 +15,15 @@ import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { DossierProfilePanel } from "@/components/dossiers/dossier-profile-panel";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EuCountryMultiSelect } from "@/components/ui/eu-country-multiselect";
 import { PageHeader } from "@/components/ui/page-header";
+import {
+  draftFromProfileConfig,
+  profileConfigFromDraft,
+  type ProfileDraft,
+} from "@/lib/dossier-profile";
 import { productStatusLabel } from "@/lib/product-copy";
 
 const errorText = (reason: unknown, fallback: string) =>
@@ -76,6 +82,8 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
   const [memoryProfile, setMemoryProfile] = useState<DossierMemoryProfile | null>(null);
   const [memoryBusy, setMemoryBusy] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,6 +107,9 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
         description: resource.description || "",
         status: resource.status,
       });
+      setProfileDraft(
+        draftFromProfileConfig(resource.dossier_type, resource.profile_config ?? null),
+      );
       setMonitors(monitorResult.value.data);
       setMonitorsUnavailable(!monitorResult.available);
       setConnections(activeConnections);
@@ -196,12 +207,43 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
         dossier.version,
       );
       setDossier(updated);
+      setProfileDraft(
+        draftFromProfileConfig(updated.dossier_type, updated.profile_config ?? null),
+      );
       setError(null);
       toast.success("Expediente actualizado");
     } catch (reason) {
       setError(errorText(reason, "No se pudieron guardar los cambios."));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveProfile(event: FormEvent) {
+    event.preventDefault();
+    if (!dossier?.version || !profileDraft) return;
+    setProfileBusy(true);
+    try {
+      const updated = await api.dossiers.update(
+        dossierId,
+        {
+          profile_config: profileConfigFromDraft(profileDraft) as NonNullable<
+            Parameters<typeof api.dossiers.update>[1]["profile_config"]
+          >,
+          version: dossier.version,
+        },
+        dossier.version,
+      );
+      setDossier(updated);
+      setProfileDraft(
+        draftFromProfileConfig(updated.dossier_type, updated.profile_config ?? null),
+      );
+      setError(null);
+      toast.success("Perfil del expediente actualizado");
+    } catch (reason) {
+      setError(errorText(reason, "No se pudo guardar el perfil del expediente."));
+    } finally {
+      setProfileBusy(false);
     }
   }
 
@@ -359,6 +401,31 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
           <label className="field full"><span>Descripción</span><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} disabled={archived} /></label>
           <div className="settings-actions"><AsyncActionButton className="vector-primary" type="submit" disabled={archived} loading={busy}><Save size={15} /> Guardar cambios</AsyncActionButton></div>
         </form>
+      </PermissionGate>
+      <PermissionGate
+        permission="dossier.write"
+        fallback={
+          <DossierProfilePanel
+            dossierId={dossierId}
+            dossierType={dossier.dossier_type}
+            profileConfig={dossier.profile_config}
+            draft={profileDraft}
+            onDraftChange={setProfileDraft}
+            onSave={(event) => event.preventDefault()}
+            readOnly
+          />
+        }
+      >
+        <DossierProfilePanel
+          dossierId={dossierId}
+          dossierType={dossier.dossier_type}
+          profileConfig={dossier.profile_config}
+          draft={profileDraft}
+          onDraftChange={setProfileDraft}
+          onSave={(event) => void saveProfile(event)}
+          busy={profileBusy}
+          disabled={archived}
+        />
       </PermissionGate>
       <section className="settings-section"><header><h2>Vigilancia de fuentes</h2><p>Define qué quieres seguir y comprueba si la conexión está funcionando.</p></header>
         {!archived && <PermissionGate permission="signal.review">
