@@ -188,6 +188,7 @@ class SignalAvanzaAdapter(Protocol):
     ) -> ProviderMonitor: ...
     def pause_monitor(self, monitor_id: str, *, idempotency_key: str) -> ProviderMonitor: ...
     def resume_monitor(self, monitor_id: str, *, idempotency_key: str) -> ProviderMonitor: ...
+    def get_monitor(self, monitor_id: str) -> ProviderMonitor: ...
     def sync_signals(self, monitor_id: str, *, cursor: str | None) -> SignalPage: ...
     def get_signal(self, signal_id: str) -> SignalItem | None: ...
     def health(self) -> bool: ...
@@ -242,6 +243,25 @@ class MockSignalAvanzaAdapter:
         del idempotency_key
         spec = MonitorSpec(oracle_monitor_id=monitor_id, query="mock", status="active")
         return self.update_monitor(monitor_id, spec, idempotency_key="mock-resume")
+
+    def get_monitor(self, monitor_id: str) -> ProviderMonitor:
+        # Mock never collects: last_run_at stays null so honesty surfaces as not_collecting.
+        now = datetime(2020, 1, 1, tzinfo=UTC)
+        return ProviderMonitor(
+            oracle_monitor_id=monitor_id,
+            query="mock",
+            source_types=["news"],
+            status="active",
+            id=monitor_id,
+            created_at=now,
+            updated_at=now,
+            tenant_id="mock",
+            cursor="mock",
+            config_version=1,
+            config_hash="sha256:mock",
+            health={"state": "ok"},
+            last_run_at=None,
+        )
 
     def sync_signals(self, monitor_id: str, *, cursor: str | None) -> SignalPage:
         seed = hashlib.sha256(f"{monitor_id}:{cursor or 'start'}".encode()).hexdigest()
@@ -447,6 +467,10 @@ class HttpSignalAvanzaAdapter:
 
     def resume_monitor(self, monitor_id: str, *, idempotency_key: str) -> ProviderMonitor:
         return self._action(monitor_id, "resume", idempotency_key)
+
+    def get_monitor(self, monitor_id: str) -> ProviderMonitor:
+        external_id = quote(monitor_id, safe="")
+        return ProviderMonitor.model_validate(self._request("GET", f"monitors/{external_id}"))
 
     def sync_signals(self, monitor_id: str, *, cursor: str | None) -> SignalPage:
         params = {"cursor": cursor} if cursor else None

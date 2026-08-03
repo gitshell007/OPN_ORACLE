@@ -276,22 +276,51 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
                       ? item.target.action_type
                       : undefined;
                   const degraded = Boolean(item.target?.degraded);
-                  const missingMonitor =
-                    item.kind === "surveillance_action" &&
-                    (degraded || item.target?.signal_monitor_id == null) &&
-                    item.desired_status !== "retired" &&
-                    item.desired_status !== "finished";
-                  // Never show a green «Activo» when the row does not watch Signal.
-                  const statusLabel = missingMonitor
-                    ? "Sin monitor Signal"
-                    : (STATE_LABEL[item.product_state] ?? item.product_state);
-                  const statusClass = missingMonitor
-                    ? "status warning"
-                    : item.product_state === "needs_attention"
-                      ? "status danger"
-                      : item.product_state === "active"
-                        ? "status active"
-                        : "status";
+                  const collectionState =
+                    typeof item.target?.collection_state === "string"
+                      ? item.target.collection_state
+                      : undefined;
+                  // Three honest states (SV2-VIGILANCIA-VERDAD):
+                  // absent · not_collecting · collecting (+ unknown if Signal mute).
+                  const isAbsent =
+                    collectionState === "absent" ||
+                    (item.kind === "surveillance_action" &&
+                      item.target?.signal_monitor_id == null &&
+                      item.desired_status !== "retired" &&
+                      item.desired_status !== "finished" &&
+                      actionType !== "no_follow");
+                  const isNotCollecting = collectionState === "not_collecting";
+                  const isUnknown =
+                    collectionState === "unknown" ||
+                    (degraded &&
+                      !isAbsent &&
+                      !isNotCollecting &&
+                      collectionState !== "collecting" &&
+                      item.product_state !== "active");
+                  const isCollecting =
+                    collectionState === "collecting" && item.product_state === "active";
+                  // Never show a green «Activo» when collection is not proven.
+                  let statusLabel = STATE_LABEL[item.product_state] ?? item.product_state;
+                  let statusClass = "status";
+                  let honestyBadge: string | null = null;
+                  if (isAbsent) {
+                    statusLabel = "Sin monitor Signal";
+                    statusClass = "status warning";
+                    honestyBadge = "No vigila";
+                  } else if (isNotCollecting) {
+                    statusLabel = "Sin recolección";
+                    statusClass = "status warning";
+                    honestyBadge = "No recolecta";
+                  } else if (isUnknown) {
+                    statusLabel = "Desconocido";
+                    statusClass = "status warning";
+                    honestyBadge = "Salud desconocida";
+                  } else if (isCollecting || item.product_state === "active") {
+                    statusLabel = "Activo";
+                    statusClass = "status active";
+                  } else if (item.product_state === "needs_attention") {
+                    statusClass = "status danger";
+                  }
                   return (
                     <tr key={`${item.kind}-${item.id}`}>
                       <td className="dense-col-type">
@@ -305,8 +334,8 @@ export function DossierActivitySection({ dossierId }: { dossierId: string }) {
                         {item.alignment_state === "needs_review" ? (
                           <span className="status warning"> Revisión de alcance</span>
                         ) : null}
-                        {degraded || missingMonitor ? (
-                          <span className="status warning"> No vigila</span>
+                        {honestyBadge ? (
+                          <span className="status warning"> {honestyBadge}</span>
                         ) : null}
                       </td>
                       <td className="dense-col-status">
