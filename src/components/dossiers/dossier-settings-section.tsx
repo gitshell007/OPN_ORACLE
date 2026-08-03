@@ -15,6 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
+import { DossierCollaboratorsPanel } from "@/components/dossiers/dossier-collaborators-panel";
 import { DossierProfilePanel } from "@/components/dossiers/dossier-profile-panel";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EuCountryMultiSelect } from "@/components/ui/eu-country-multiselect";
@@ -427,6 +428,7 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
           disabled={archived}
         />
       </PermissionGate>
+      <DossierCollaboratorsPanel dossierId={dossierId} disabled={archived} />
       <section className="settings-section"><header><h2>Vigilancia de fuentes</h2><p>Define qué quieres seguir y comprueba si la conexión está funcionando.</p></header>
         {!archived && <PermissionGate permission="signal.review">
           <form className="dossier-monitor-create" onSubmit={createMonitor}>

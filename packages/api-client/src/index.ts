@@ -20,6 +20,10 @@ export type {
 } from "./transport";
 export type { DocumentSearchResult, OracleDocument } from "./transport";
 export type { BackendDossier } from "./transport";
+export type {
+  DossierCollaborator,
+  DossierCollaboratorRole,
+} from "./transport";
 export type { OracleSummaryCurrent, OracleSummaryVersion } from "./transport";
 export type {
   PlatformBackup,

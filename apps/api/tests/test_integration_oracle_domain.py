@@ -4758,6 +4758,70 @@ def test_resource_policy_membership_and_archived_child_guard(
     )
 
 
+def test_collaborator_invite_rejects_user_from_other_organization(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Cross-tenant isolation: cannot invite a member of another organization."""
+
+    app, ids, password = oracle_stack
+    owner = _client(oracle_stack)
+    dossier = _create_dossier(owner, ids, "Expediente aislamiento colaboradores")
+    foreign_user = uuid.uuid4()
+    foreign_membership = uuid.uuid4()
+    foreign_role = uuid.uuid4()
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users(id,email,display_name,password_hash,status,email_verified_at,created_at,updated_at) "
+                "VALUES (:id,'foreign-org@example.test','Foreign Org',:password,'active',now(),now(),now())"
+            ),
+            {"id": foreign_user, "password": PasswordHasher().hash(password)},
+        )
+        # Membership only on tenant_b — not on tenant_a where the dossier lives.
+        connection.execute(
+            text(
+                "INSERT INTO tenant_memberships(id,tenant_id,user_id,status,accepted_at,settings,created_at,updated_at) "
+                "VALUES (:id,:tenant,:user,'active',now(),'{}',now(),now())"
+            ),
+            {"id": foreign_membership, "tenant": ids["tenant_b"], "user": foreign_user},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO roles(id,tenant_id,key,name,description,is_system,created_at,updated_at) "
+                "VALUES (:id,:tenant,'foreign_owner','Foreign','x',false,now(),now())"
+            ),
+            {"id": foreign_role, "tenant": ids["tenant_b"]},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO membership_roles(tenant_id,membership_id,role_id) "
+                "VALUES (:tenant,:membership,:role)"
+            ),
+            {
+                "tenant": ids["tenant_b"],
+                "membership": foreign_membership,
+                "role": foreign_role,
+            },
+        )
+    engine.dispose()
+
+    attempt = owner.put(
+        f"/api/v1/dossiers/{dossier['id']}/collaborators/{foreign_user}",
+        json={"role": "viewer"},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert attempt.status_code == 422, attempt.get_json()
+    body = attempt.get_json()
+    detail = str(body.get("detail") or body.get("title") or body).lower()
+    assert "válido" in detail or "colaborador" in detail or "valid" in detail
+
+    listed = owner.get(f"/api/v1/dossiers/{dossier['id']}/collaborators")
+    assert listed.status_code == 200
+    assert all(row["user_id"] != str(foreign_user) for row in listed.get_json()["data"])
+    del app
+
+
 def test_configured_scoring_override_actor_and_evidence_policy(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

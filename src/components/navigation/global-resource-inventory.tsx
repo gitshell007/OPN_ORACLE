@@ -205,6 +205,11 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
         <>
           <EntitySearchPanel compact />
           <ProcurementAwardsPanel />
+          <p className="reporting-hint">
+            ¿Posibles duplicados en el directorio?{" "}
+            <Link href="/app/actors/duplicates">Revisar candidatos a fusión</Link>
+            {" "}(la persona decide; el sistema solo propone).
+          </p>
         </>
       )}
       <form className="global-inventory-toolbar" role="search" onSubmit={submit}>

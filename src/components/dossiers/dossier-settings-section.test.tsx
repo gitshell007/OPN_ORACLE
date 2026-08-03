@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   monitorAction: vi.fn(),
   success: vi.fn(),
   memoryGet: vi.fn(),
+  listCollaborators: vi.fn(),
+  assignableList: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => ({
@@ -22,6 +24,9 @@ vi.mock("@oracle/api-client", () => ({
       get: mocks.get,
       update: mocks.update,
       archive: mocks.archive,
+      listCollaborators: mocks.listCollaborators,
+      setCollaborator: vi.fn(),
+      removeCollaborator: vi.fn(),
     },
     signalAvanza: {
       connections: mocks.connections,
@@ -31,6 +36,9 @@ vi.mock("@oracle/api-client", () => ({
     },
     dossierMemory: {
       getEffective: mocks.memoryGet,
+    },
+    assignableUsers: {
+      list: mocks.assignableList,
     },
   },
 }));
@@ -92,6 +100,8 @@ describe("DossierSettingsSection", () => {
     mocks.createMonitor.mockResolvedValue({ id: "monitor-1", outbox_event_id: "event-1" });
     mocks.update.mockResolvedValue({ ...dossier, status: "paused", version: 5 });
     mocks.memoryGet.mockRejectedValue(new Error("memory unavailable"));
+    mocks.listCollaborators.mockResolvedValue({ data: [] });
+    mocks.assignableList.mockResolvedValue({ items: [] });
   });
   afterEach(cleanup);
 

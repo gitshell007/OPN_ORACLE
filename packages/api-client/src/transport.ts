@@ -809,7 +809,33 @@ const dossiers = {
       "/api/v1/dossiers/bulk-delete",
       { method: "POST", body: { dossier_ids: dossierIds } },
     ),
+  listCollaborators: (dossierId: string) =>
+    request<{ data: DossierCollaborator[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/collaborators`,
+    ),
+  setCollaborator: (
+    dossierId: string,
+    userId: string,
+    input: { role: DossierCollaboratorRole },
+  ) =>
+    request<DossierCollaborator>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/collaborators/${encodeURIComponent(userId)}`,
+      { method: "PUT", body: input },
+    ),
+  removeCollaborator: (dossierId: string, userId: string) =>
+    request<void>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/collaborators/${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    ),
 };
+
+export type DossierCollaboratorRole =
+  | "owner"
+  | "editor"
+  | "collaborator"
+  | "viewer";
+
+export type DossierCollaborator = components["schemas"]["CollaboratorResource"];
 
 export type OracleSummaryCurrent =
   components["schemas"]["OracleSummaryCurrentResponse"];
@@ -1299,6 +1325,23 @@ const actors = {
     request<OracleDossierActor>(
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
+    ),
+  /** Propose-only detector: organizations that share a normalized identity key. */
+  aliasCandidates: () =>
+    request<{ items: ActorAliasCandidate[] }>(
+      "/api/v1/actors/alias-candidates",
+    ),
+  /**
+   * Human-confirmed merge. Source actor is archived/deleted after links move
+   * to the target; audit event `actor.merged` records who/when/why.
+   */
+  merge: (
+    targetId: string,
+    input: { source_actor_id: string; reason: string },
+  ) =>
+    request<OracleActor>(
+      `/api/v1/actors/${encodeURIComponent(targetId)}/merge`,
+      { method: "POST", body: input },
     ),
 };
 

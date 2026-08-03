@@ -229,6 +229,14 @@ export const ACCOUNT_ROUTES = [
 export const AUXILIARY_ROUTES = [
   { id: "notifications", label: "Notificaciones", href: "/app/notifications", group: "account", icon: Bell, permission: "notifications.read" },
   { id: "exports", label: "Exportaciones", href: "/app/exports", group: "execution", icon: FileSearch, permission: "export.create" },
+  {
+    id: "actors-duplicates",
+    label: "Candidatos a fusión",
+    href: "/app/actors/duplicates",
+    group: "intelligence",
+    icon: Network,
+    permission: "actor.read",
+  },
 ] as const satisfies readonly AppRouteDefinition[];
 
 export const ADMIN_ROUTES = [
@@ -372,6 +380,12 @@ const ALL_ROUTES: readonly AppRouteDefinition[] = [
 ];
 
 export function breadcrumbsForPath(pathname: string): BreadcrumbItem[] {
+  if (pathname === "/app/actors/duplicates" || pathname.startsWith("/app/actors/duplicates/")) {
+    return [
+      { label: "Actores", href: "/app/actors" },
+      { label: "Candidatos a fusión" },
+    ];
+  }
   const entityMatch = pathname.match(/^\/app\/actors\/entity\/([^/]+)\/(.+)$/);
   if (entityMatch) {
     const [, , encodedName] = entityMatch;
