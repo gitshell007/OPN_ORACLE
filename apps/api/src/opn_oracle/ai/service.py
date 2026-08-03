@@ -303,6 +303,62 @@ _CONCLUSION_GROUNDING_AGENTS = frozenset(
     }
 )
 
+# Assertion-class stems / exact forms that attribute an outcome or legal fact.
+# Token overlap alone measures *topic* (de qué se habla); this layer measures
+# *claim predicates* (qué se afirma). A title may reuse tender vocabulary and
+# still invent a win, sanction, breach, etc. that no cited fact supports.
+#
+# Why a closed set is enough *here*: the commercial damage is concrete false
+# claims about real firms ("X gana la licitación"), not open-ended rhetoric.
+# What it leaves out: paraphrase without these stems ("se alza con", "es la
+# elegida", "queda fuera") — residual for a semantic reviewer / product decision.
+_ASSERTION_EXACT = frozenset(
+    {
+        "gana",
+        "ganó",
+        "gano",
+        "ganar",
+        "ganando",
+        "ganada",
+        "ganado",
+        "ganadas",
+        "ganados",
+        "ganador",
+        "ganadora",
+        "ganadores",
+        "ganadoras",
+        "vence",
+        "venció",
+        "vencio",
+        "vencer",
+        "vencedor",
+        "vencedora",
+        "vencedores",
+        "vencedoras",
+        "quiebra",
+        "quiebras",
+        "quebró",
+        "quebro",
+        "quebrar",
+        "quebrado",
+        "quebrada",
+        "quebrados",
+        "quebradas",
+    }
+)
+
+# Long enough that accidental topic words (garantía, ganadería…) do not match.
+_ASSERTION_STEMS = (
+    "adjudic",  # adjudica, adjudicado, adjudicación, adjudicataria…
+    "incumpl",  # incumple, incumplimiento…
+    "sancion",  # sanciona, sanción → normalizado sin tilde en tokens
+    "sanció",  # sanción as content token may keep accent depending on source
+    "demandar",
+    "demandó",
+    "demandad",  # demandado/a/s
+    "demandas",  # demandas (lawsuit plural; "demanda" alone is ambiguous)
+)
+
 
 def _content_tokens(text: str) -> set[str]:
     """Meaningful tokens for grounding checks (no stopwords, min length 3)."""
@@ -313,6 +369,53 @@ def _content_tokens(text: str) -> set[str]:
             continue
         tokens.add(match)
     return tokens
+
+
+def _assertion_family(token: str) -> str | None:
+    """Return a canonical family id if ``token`` is an assertion-class predicate."""
+
+    if token in _ASSERTION_EXACT:
+        if token.startswith("gan"):
+            return "gan"
+        if token.startswith("venc"):
+            return "venc"
+        if token.startswith("quiebr") or token.startswith("quebr"):
+            return "quebr"
+        return token
+    for stem in _ASSERTION_STEMS:
+        if token.startswith(stem) or token == stem:
+            # Collapse closely related stems into one family.
+            if stem.startswith("adjudic"):
+                return "adjudic"
+            if stem.startswith("incumpl"):
+                return "incumpl"
+            if stem.startswith("sanci"):
+                return "sancion"
+            if stem.startswith("demand"):
+                return "demand"
+            if stem.startswith("quebr") or stem.startswith("quiebr"):
+                return "quebr"
+            return stem
+    return None
+
+
+def _assertion_families(text: str) -> set[str]:
+    families: set[str] = set()
+    for token in _content_tokens(text):
+        family = _assertion_family(token)
+        if family is not None:
+            families.add(family)
+    return families
+
+
+def _unsupported_assertion_families(text: str, fact_corpus: str) -> set[str]:
+    """Assertion families present in ``text`` but absent from the cited fact corpus."""
+
+    title_families = _assertion_families(text)
+    if not title_families:
+        return set()
+    fact_families = _assertion_families(fact_corpus)
+    return title_families - fact_families
 
 
 def _fact_statements(output: dict[str, Any]) -> list[str]:
@@ -346,11 +449,18 @@ def _conclusion_supported(
     fact_tokens: set[str],
     *,
     min_ratio: float = 0.45,
+    fact_corpus: str = "",
+    require_assertion_grounding: bool = False,
 ) -> bool:
-    """True when enough content words of the conclusion appear in cited facts.
+    """True when the conclusion is grounded in cited facts.
 
-    An empty conclusion is vacuously supported. A non-empty conclusion with zero
-    fact tokens is never supported (nothing to stand on).
+    Layer 1 — token overlap: enough content words of the conclusion appear in
+    facts (topic grounding: *de qué se habla*).
+
+    Layer 2 — assertion predicates (titles/headlines only when requested): verbs
+    that attribute an outcome (ganar, adjudicar, sancionar…) must also appear
+    in the fact corpus (*qué se afirma*). Overlap alone accepts
+    «Nexus gana la licitación PLACSP…» when the fact only describes the tender.
     """
 
     tokens = _content_tokens(text)
@@ -359,7 +469,12 @@ def _conclusion_supported(
     if not fact_tokens:
         return False
     overlap = tokens & fact_tokens
-    return (len(overlap) / len(tokens)) >= min_ratio
+    if (len(overlap) / len(tokens)) < min_ratio:
+        return False
+    # Layer 2 only for titles/headlines: unsupported assertion predicates fail.
+    if not require_assertion_grounding or not fact_corpus:
+        return True
+    return not _unsupported_assertion_families(text, fact_corpus)
 
 
 def _honest_title_from_facts(facts: list[str], *, agent: str) -> str:
@@ -413,6 +528,7 @@ def _ground_conclusions_to_facts(
 
     facts = _fact_statements(output)
     fact_tokens = _grounding_corpus_tokens(output)
+    fact_corpus = " ".join(facts)
     result = dict(output)
     warnings = list(result["warnings"]) if isinstance(result.get("warnings"), list) else []
     degraded: list[str] = []
@@ -422,10 +538,18 @@ def _ground_conclusions_to_facts(
         if not isinstance(value, str) or not value.strip():
             continue
         # Titles are judged more strictly: every flashy orphan word is product damage.
-        ratio = 0.5 if field in {"title", "headline"} else 0.35
-        if _conclusion_supported(value, fact_tokens, min_ratio=ratio):
+        # They also require assertion-predicate grounding (SV2-TITULO-FALSO).
+        is_title = field in {"title", "headline"}
+        ratio = 0.5 if is_title else 0.35
+        if _conclusion_supported(
+            value,
+            fact_tokens,
+            min_ratio=ratio,
+            fact_corpus=fact_corpus,
+            require_assertion_grounding=is_title,
+        ):
             continue
-        if field in {"title", "headline"}:
+        if is_title:
             honest = _honest_title_from_facts(facts, agent=agent)
         else:
             honest = _honest_prose_from_facts(facts, limit=800 if field != "summary" else 600)

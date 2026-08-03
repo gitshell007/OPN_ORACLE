@@ -531,6 +531,147 @@ def test_founded_title_is_preserved() -> None:
     assert not any("no fundada" in warning.lower() for warning in grounded["warnings"])
 
 
+def _emt_cover_fact_output(title: str, *, confidence: int = 70) -> dict[str, Any]:
+    """Shared fixture: single EMT covers tender fact (Codex table in SV2-TITULO-FALSO)."""
+
+    fact_statement = (
+        "Licitación PLACSP 2026-0072: impermeabilización de cubiertas del "
+        "Depósito Norte y San Isidro de la EMT."
+    )
+    return {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": confidence,
+        "open_questions": [],
+        "warnings": [],
+        "title": title,
+        "description": "Descripción genérica no evaluada en estos casos de título.",
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+
+def test_false_assertion_title_with_correct_vocabulary_is_degraded() -> None:
+    """SV2-TITULO-FALSO caso 3: «Nexus gana…» reutiliza el vocabulario del fact y miente.
+
+    Reproducción del hallazgo Codex: el solapamiento de palabras mide de qué se
+    habla, no qué se afirma. Antes del fix este título pasaba (ratio ≥ 0.5 con
+    PLACSP/cubiertas). Debe degradarse.
+    """
+
+    false_title = "Nexus Ibérica gana la licitación PLACSP 2026-0072 de cubiertas"
+    output = _emt_cover_fact_output(false_title)
+
+    grounded = _ground_conclusions_to_facts(output, agent="risk")
+
+    assert grounded["title"] != false_title
+    assert "gana" not in grounded["title"].lower()
+    assert "nexus" not in grounded["title"].lower()
+    assert any(
+        token in grounded["title"].lower()
+        for token in ("impermeabiliz", "cubiertas", "emt", "placsp", "depósito", "deposito")
+    )
+    assert any("no fundada" in warning.lower() for warning in grounded["warnings"])
+    assert grounded["confidence"] <= 45
+    # Facts intactos.
+    assert "impermeabilización" in grounded["facts"][0]["statement"].lower()
+
+
+def test_founded_title_with_matching_assertion_is_preserved() -> None:
+    """Si el fact sí dice que se adjudicó, el título con ese verbo no se degrada."""
+
+    fact_statement = (
+        "Nexus Ibérica Sistemas S.L. gana la licitación PLACSP 2026-0072 de "
+        "impermeabilización de cubiertas EMT."
+    )
+    title = "Nexus Ibérica gana la licitación PLACSP 2026-0072 de cubiertas"
+    output = {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 70,
+        "open_questions": [],
+        "warnings": [],
+        "title": title,
+        "description": fact_statement,
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+    grounded = _ground_conclusions_to_facts(output, agent="opportunity")
+    assert grounded["title"] == title
+    assert grounded["confidence"] == 70
+    assert not any("no fundada" in warning.lower() for warning in grounded["warnings"])
+
+
+def test_titulo_falso_four_cases_table() -> None:
+    """Tabla Codex SV2-TITULO-FALSO: cuatro títulos contra el mismo fact EMT.
+
+    | Título | Esperado |
+    | Competencia en… software | degrada |
+    | Obras de mantenimiento… (correcto, otras palabras) | degrada (fallo barato del solapamiento) |
+    | Nexus Ibérica gana… | degrada (afirmación falsa; el hueco cerrado) |
+    | Licitación PLACSP… EMT | acepta |
+    """
+
+    cases = [
+        (
+            "Competencia en licitaciones de energía y software",
+            "degrades",
+        ),
+        (
+            "Obras de mantenimiento en instalaciones de transporte público",
+            "degrades",
+        ),
+        (
+            "Nexus Ibérica gana la licitación PLACSP 2026-0072 de cubiertas",
+            "degrades",
+        ),
+        (
+            "Licitación PLACSP 2026-0072: impermeabilización de cubiertas EMT",
+            "accepts",
+        ),
+    ]
+    results: list[tuple[str, str, str]] = []
+    for title, expected in cases:
+        grounded = _ground_conclusions_to_facts(_emt_cover_fact_output(title), agent="risk")
+        actual = "degrades" if grounded["title"] != title else "accepts"
+        results.append((title, expected, actual))
+        assert actual == expected, (
+            f"title={title!r}: expected gate={expected}, got={actual} "
+            f"→ published={grounded['title']!r}"
+        )
+    # Documented for the gate packet; keep the matrix exhaustive.
+    assert [r[2] for r in results] == ["degrades", "degrades", "degrades", "accepts"]
+
+
 def test_reviewer_package_includes_title_as_conclusion_claim() -> None:
     """El revisor recibe el título como claim kind=conclusion (antes solo veía facts)."""
 
