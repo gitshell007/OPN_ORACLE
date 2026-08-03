@@ -30,7 +30,6 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   FormEvent,
-  KeyboardEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -94,11 +93,6 @@ function SortableHeader({
   );
 }
 
-function isActivationKey(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" && event.key !== " ") return false;
-  event.preventDefault();
-  return true;
-}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -839,13 +833,7 @@ export function ReportLibrary({
                   <tr
                     key={report.id}
                     className="interactive-row"
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Abrir detalle de ${report.title}`}
                     onClick={() => setSelectedReportId(report.id)}
-                    onKeyDown={(event) => {
-                      if (isActivationKey(event)) setSelectedReportId(report.id);
-                    }}
                   >
                     <td>
                       <button

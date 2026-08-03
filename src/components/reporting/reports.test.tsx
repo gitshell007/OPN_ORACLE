@@ -352,15 +352,16 @@ describe("reports Vector", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("abre el informe desde la fila con teclado", async () => {
+  it("abre el informe desde el botón de título (teclado/AT)", async () => {
     mocks.list.mockResolvedValue({ data: [baseReport], meta: { page: 1, size: 100, total: 1 } });
     render(<ReportLibrary routeBase="/app" />);
 
-    const row = await screen.findByRole("button", {
-      name: "Abrir detalle de Informe ejecutivo",
+    const open = await screen.findByRole("button", {
+      name: "Abrir Informe ejecutivo",
     });
-    expect(row).toHaveClass("interactive-row");
-    fireEvent.keyDown(row, { key: "Enter" });
+    expect(open.closest("tr")).toHaveClass("interactive-row");
+    expect(open.closest("tr")).not.toHaveAttribute("role", "button");
+    fireEvent.click(open);
 
     expect(await screen.findByText("El expediente conserva impulso.")).toBeVisible();
   });
@@ -378,11 +379,11 @@ describe("reports Vector", () => {
     });
     render(<ReportLibrary routeBase="/app" />);
 
-    await screen.findByRole("button", { name: "Abrir detalle de Informe ejecutivo" });
+    await screen.findByRole("button", { name: "Abrir Informe ejecutivo" });
     const rowTitles = () =>
-      screen
-        .getAllByRole("button", { name: /^Abrir detalle de/ })
-        .map((row) => row.querySelector("strong")?.textContent);
+      [...document.querySelectorAll("tr.interactive-row strong")].map(
+        (el) => el.textContent,
+      );
 
     // Por defecto: actualizado descendente → el más reciente primero.
     expect(rowTitles()).toEqual(["Análisis competitivo", "Informe ejecutivo"]);

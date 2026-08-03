@@ -163,11 +163,13 @@ describe("DossierIntelligenceSection", () => {
     render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
 
     expect((await screen.findAllByText("Publicada una nueva convocatoria"))[0]).toBeVisible();
-    const row = screen.getByRole("button", {
-      name: "Abrir detalle de Publicada una nueva convocatoria",
+    const open = screen.getByRole("button", {
+      name: "Inspeccionar Publicada una nueva convocatoria",
     });
+    const row = open.closest("tr");
     expect(row).toHaveClass("interactive-row");
-    fireEvent.click(row);
+    expect(row).not.toHaveAttribute("role", "button");
+    fireEvent.click(open);
     const detail = await screen.findByRole("dialog", {
       name: "Publicada una nueva convocatoria",
     });

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -37,11 +37,6 @@ export type DossierWorkKind = "actors" | "meetings" | "tasks" | "decisions";
 type ActorType = "person" | "organization" | "institution" | "program" | "other";
 type RawResource = OracleDossierActor | OracleMeeting | OracleTask | OracleDecision;
 
-function isActivationKey(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" && event.key !== " ") return false;
-  event.preventDefault();
-  return true;
-}
 
 interface WorkRow {
   id: string;
@@ -722,13 +717,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
                 <tr
                   key={row.id}
                   className="interactive-row"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Abrir detalle de ${row.title}`}
                   onClick={() => openRowDetail(row.id)}
-                  onKeyDown={(event) => {
-                    if (isActivationKey(event)) openRowDetail(row.id);
-                  }}
                 >
                   <td><strong>{row.title}</strong><small>{row.secondary}</small></td>
                   <td><span className={`intelligence-status status-${row.status}`}>{LABELS[row.status] ?? row.status}</span></td>

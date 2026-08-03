@@ -74,14 +74,17 @@ describe("DossierDocumentsSection", () => {
     );
   });
 
-  it("abre el detalle desde la fila de documento con teclado", async () => {
+  it("abre el detalle desde la fila de documento (sin role=button anidado)", async () => {
     render(<DossierDocumentsSection dossierId="dossier-1" />);
 
-    const row = await screen.findByRole("button", {
-      name: "Abrir detalle de convocatoria.pdf",
+    const open = await screen.findByRole("link", {
+      name: "Abrir convocatoria.pdf",
     });
+    const row = open.closest("tr");
     expect(row).toHaveClass("interactive-row");
-    fireEvent.keyDown(row, { key: " " });
+    expect(row).not.toHaveAttribute("role", "button");
+    // Clic en la fila (atajo ratón) dispara openDocument vía onClick.
+    fireEvent.click(row!);
 
     await waitFor(() =>
       expect(mocks.replace).toHaveBeenCalledWith(

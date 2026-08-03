@@ -1,4 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * PLAYWRIGHT_BASE_URL apunta a un origen remoto (p.ej. oracle-dev) → sin webServer local.
+ * Por defecto sigue el arnés local (API E2E + next dev).
+ */
+const remoteBase = process.env.PLAYWRIGHT_BASE_URL?.trim();
+const baseURL = remoteBase || "http://127.0.0.1:3000";
+const isRemote = Boolean(remoteBase);
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -7,25 +16,29 @@ export default defineConfig({
   expect: { timeout: 10000 },
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: [
-    {
-      command: "bash scripts/run-auth-e2e-api.sh",
-      url: "http://127.0.0.1:5001/health/live",
-      reuseExistingServer: false,
-      timeout: 120000,
-      gracefulShutdown: { signal: "SIGTERM", timeout: 10000 },
-    },
-    {
-      command: "ORACLE_API_ORIGIN=http://127.0.0.1:5001 npm run dev",
-      url: "http://127.0.0.1:3000",
-      reuseExistingServer: false,
-      timeout: 120000,
-    },
-  ],
+  ...(isRemote
+    ? {}
+    : {
+        webServer: [
+          {
+            command: "bash scripts/run-auth-e2e-api.sh",
+            url: "http://127.0.0.1:5001/health/live",
+            reuseExistingServer: false,
+            timeout: 120000,
+            gracefulShutdown: { signal: "SIGTERM", timeout: 10000 },
+          },
+          {
+            command: "ORACLE_API_ORIGIN=http://127.0.0.1:5001 npm run dev",
+            url: "http://127.0.0.1:3000",
+            reuseExistingServer: false,
+            timeout: 120000,
+          },
+        ],
+      }),
   projects: [
     {
       name: "desktop",

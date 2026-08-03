@@ -27,7 +27,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -40,11 +40,6 @@ export type IntelligenceSectionKind = "signals" | "opportunities" | "risks";
 type ScoredResource = OracleOpportunity | OracleRisk;
 type SelectedItem = DossierSignalEnvelope | ScoredResource;
 
-function isActivationKey(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" && event.key !== " ") return false;
-  event.preventDefault();
-  return true;
-}
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Nueva",
@@ -771,13 +766,7 @@ export function DossierIntelligenceSection({
                     <tr
                       key={isSignal(item) ? item.link.id : item.id}
                       className="interactive-row"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Abrir detalle de ${title(item)}`}
                       onClick={() => void openDetail(item)}
-                      onKeyDown={(event) => {
-                        if (isActivationKey(event)) void openDetail(item);
-                      }}
                     >
                       <td>
                         <strong>{title(item)}</strong>

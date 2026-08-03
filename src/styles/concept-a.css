@@ -2146,7 +2146,7 @@
     cursor: pointer;
     list-style: none;
     padding: 11px 14px;
-    color: #647286;
+    color: var(--nav-muted, #556272);
     font-size: 13px;
     font-weight: 700;
   }
@@ -2719,6 +2719,7 @@
   align-items: flex-start;
   margin-bottom: 19px;
 }
+/* Microcopy admin/sección: antes #53657a/#66758a (~4:1). --nav-muted → 5.28:1. */
 .eyebrow,
 .section-kicker {
   display: block;
@@ -2726,7 +2727,7 @@
   letter-spacing: 0.1em;
   font-size: 9px;
   font-weight: 800;
-  color: #53657a;
+  color: var(--nav-muted, #556272);
   margin-bottom: 6px;
 }
 .page-heading h1,
