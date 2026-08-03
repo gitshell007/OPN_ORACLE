@@ -16,9 +16,12 @@ from opn_oracle.integrations.memory_ask_dual import (
     build_dual_ask_context,
     build_input_manifest,
     build_oracle_authority_block,
+    build_signal_factual_block,
     classify_error_code,
+    format_allowlist_rejection,
     load_oracle_authority_from_session,
     materialize_augment_items,
+    merge_ask_citation_allowlist,
     validate_citations_allowlist,
     validate_material_evidence_allowlist,
 )
@@ -118,6 +121,66 @@ def test_allowlist_precision_100_rejects_foreign() -> None:
     )
     assert [c["evidence_id"] for c in accepted] == ["ev-1", "ev-2"]
     assert rejected == ["foreign"]
+
+
+def test_merge_ask_allowlist_unions_dual_and_dossier_procurement() -> None:
+    """SV2-ASK-FLAKE: dual-only validation rejected legitimate procurement IDs."""
+    dual = ["dual-mem-1", "dual-mem-2"]
+    procurement = "96272488-1112-4058-8217-a34db67b5bd9"
+    authority = {
+        "oracle_evidence": [
+            {"id": procurement, "source_kind": "procurement"},
+            {"id": "bulk-mem-signal", "source_kind": "memory_signal"},
+        ]
+    }
+    merged = merge_ask_citation_allowlist(
+        dual,
+        oracle_authority=authority,
+        extra_dossier_evidence_ids=["doc-ev-1"],
+    )
+    assert "dual-mem-1" in merged and "dual-mem-2" in merged
+    assert procurement in merged
+    assert "doc-ev-1" in merged
+    # memory_signal from authority is NOT bulk-imported (dual owns those IDs)
+    assert "bulk-mem-signal" not in merged
+    # Model citing Capgemini PLACSP awards must pass when merged is used
+    accepted, rejected = validate_citations_allowlist(
+        [
+            {"evidence_id": "dual-mem-1", "quote": "Laura"},
+            {"evidence_id": procurement, "quote": "Capgemini PLACSP"},
+        ],
+        merged,
+    )
+    assert rejected == []
+    assert len(accepted) == 2
+    msg = format_allowlist_rejection(["foreign-id"], merged)
+    assert "foreign-id" in msg and "allowlist_size=" in msg
+
+
+def test_signal_factual_items_omit_signal_item_id() -> None:
+    """Never teach non-citable memory fact/chunk IDs to the model."""
+    from opn_oracle.integrations.memory_contract_v1 import MaterializedCitation
+
+    citation = MaterializedCitation(
+        oracle_evidence_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        signal_item_id="fact:39502",
+        source_ref="fact:39502",
+        checksum="a" * 64,
+        exact_excerpt="company.legal_name: Capgemini",
+        classification="internal",
+        locator='{"k":1}',
+        occurred_at=None,
+        policy_version="memory.v1",
+        watermark="wm-1",
+        tenant_id=str(uuid.uuid4()),
+        dossier_id=str(uuid.uuid4()),
+    )
+    block = build_signal_factual_block(
+        mode="augment", citations=[citation], observed_count=1
+    )
+    assert len(block["items"]) == 1
+    assert "signal_item_id" not in block["items"][0]
+    assert block["items"][0]["evidence_id"] == citation.oracle_evidence_id
 
 
 def test_empty_allowlist_rejects_any_citation_and_material_facts() -> None:
@@ -513,7 +576,10 @@ def test_process_answer_augment_injects_allowlist(monkeypatch: pytest.MonkeyPatc
 
     assert result["memory_mode"] == "augment"
     assert result["item_count"] == 1
-    assert len(result["allowed_evidence_ids"]) == 1
+    # SV2-ASK-FLAKE: effective allowlist = dual materialization ∪ dossier-citable
+    # evidence taught via oracle_authority (here: document ev-oracle-1).
+    assert len(result["allowed_evidence_ids"]) == 2
+    assert "ev-oracle-1" in result["allowed_evidence_ids"]
     assert msg.status == "succeeded"
     assert msg.answer_payload.get("citations")
     assert msg.answer_payload["citations"][0]["evidence_id"] in result["allowed_evidence_ids"]

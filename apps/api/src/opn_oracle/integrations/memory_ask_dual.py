@@ -316,6 +316,19 @@ def load_oracle_authority_from_session(
         EvidenceDossier.tenant_id == tenant_id,
         EvidenceDossier.dossier_id == dossier_id,
     )
+    # Prefer durable dossier evidence (procurement/document/…) over bulk
+    # memory_signal rematerializations. Ask injects dual-memory separately; if we
+    # order only by created_at the 40-row cap fills with per-turn memory_signal
+    # UUIDs and hides PLACSP awards the model (and build_context) already sees.
+    from sqlalchemy import case
+
+    kind_rank = case(
+        (Evidence.source_kind == "procurement", 0),
+        (Evidence.source_kind == "document", 1),
+        (Evidence.source_kind == "entity_intel", 2),
+        (Evidence.source_kind == "signal", 3),
+        else_=9,
+    )
     oracle_evidence = [
         {
             "id": str(row.id),
@@ -333,7 +346,7 @@ def load_oracle_authority_from_session(
                     ("signal", "document", "procurement", "entity_intel", "memory_signal")
                 ),
             )
-            .order_by(Evidence.created_at.desc())
+            .order_by(kind_rank.asc(), Evidence.created_at.desc())
             .limit(40)
         )
     ]
@@ -842,10 +855,12 @@ def build_signal_factual_block(
     items_for_prompt: list[dict[str, Any]] = []
     if inject:
         for c in citations:
+            # Never teach signal_item_id (memory fact/chunk ref): it is not an
+            # Oracle Evidence UUID and RT-07 / local allowlist will reject it.
+            # Citability principle: only expose IDs that appear in allowed_evidence_ids.
             items_for_prompt.append(
                 {
                     "evidence_id": c.oracle_evidence_id,
-                    "signal_item_id": c.signal_item_id,
                     "text": _humanize_structured_memory_text(c.exact_excerpt),
                     "source_ref": c.source_ref,
                     "checksum": c.checksum,
@@ -954,6 +969,106 @@ def validate_citations_allowlist(
             continue
         accepted.append(dict(raw))
     return accepted, rejected
+
+
+# Dossier evidence kinds that are legitimately citable when linked via EvidenceDossier
+# and shown to the model (build_context / oracle_authority). Dual-memory memory_signal
+# IDs are always taken from the current materialization set, never bulk-imported.
+DOSSIER_CITABLE_SOURCE_KINDS = frozenset(
+    {"procurement", "document", "signal", "entity_intel"}
+)
+
+
+def merge_ask_citation_allowlist(
+    dual_allowed_ids: Sequence[str],
+    *,
+    oracle_authority: Mapping[str, Any] | None = None,
+    extra_dossier_evidence_ids: Sequence[str] | None = None,
+) -> list[str]:
+    """Union dual-memory allowlist with legitimately citable dossier Evidence IDs.
+
+    Preguntar teaches the model both dual-memory items and dossier evidence from
+    ``build_context`` / ``oracle_authority`` (e.g. PLACSP procurement awards). The
+    conversation-layer validator must use the same set that Signal RT-07 and the
+    provider merge use — dual-only validation rejects procurement IDs the model
+    was explicitly allowed to cite, which is the SV2-ASK-FLAKE root cause.
+    """
+
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: Any) -> None:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            return
+        seen.add(value)
+        merged.append(value)
+
+    for item in dual_allowed_ids or []:
+        _add(item)
+    for item in extra_dossier_evidence_ids or []:
+        _add(item)
+    authority = oracle_authority or {}
+    for row in list(authority.get("oracle_evidence") or []):
+        if not isinstance(row, Mapping):
+            continue
+        kind = str(row.get("source_kind") or "").strip()
+        # Authority may still list memory_signal; only trust dual set for those.
+        if kind and kind not in DOSSIER_CITABLE_SOURCE_KINDS:
+            continue
+        _add(row.get("id"))
+    return merged
+
+
+def format_allowlist_rejection(
+    rejected: Sequence[str],
+    allowed_evidence_ids: Sequence[str],
+    *,
+    kind: str = "evidence_ids",
+) -> str:
+    """Human-visible rejection detail — never swallow which IDs failed."""
+
+    rej = [str(x) for x in rejected if str(x).strip()]
+    allow_n = len(list(allowed_evidence_ids or []))
+    sample_rej = ", ".join(rej[:8])
+    more = f" (+{len(rej) - 8} más)" if len(rej) > 8 else ""
+    return (
+        f"La respuesta citó {kind} fuera de allowlist ({len(rej)}): "
+        f"[{sample_rej}{more}]; allowlist_size={allow_n}."
+    )
+
+
+def load_dossier_citable_evidence_ids(
+    session: Any,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+) -> list[str]:
+    """Stable dossier Evidence IDs the model may cite (excludes bulk memory_signal)."""
+
+    from sqlalchemy import select
+
+    from opn_oracle.oracle.links import EvidenceDossier
+    from opn_oracle.oracle.models import Evidence
+
+    rows = list(
+        session.scalars(
+            select(Evidence.id)
+            .join(
+                EvidenceDossier,
+                (EvidenceDossier.evidence_id == Evidence.id)
+                & (EvidenceDossier.tenant_id == Evidence.tenant_id),
+            )
+            .where(
+                Evidence.tenant_id == tenant_id,
+                EvidenceDossier.dossier_id == dossier_id,
+                Evidence.source_kind.in_(tuple(DOSSIER_CITABLE_SOURCE_KINDS)),
+            )
+            .order_by(Evidence.created_at.desc())
+            .limit(200)
+        )
+    )
+    return [str(item) for item in rows]
 
 
 def validate_material_evidence_allowlist(

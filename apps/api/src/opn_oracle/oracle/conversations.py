@@ -648,8 +648,11 @@ def process_dossier_question_answer(
         build_signal_factual_block,
         classify_error_code,
         dual_context_to_snapshot,
+        format_allowlist_rejection,
         link_snapshot_run_usage,
+        load_dossier_citable_evidence_ids,
         load_oracle_authority_from_session,
+        merge_ask_citation_allowlist,
         persist_memory_signal_evidence,
         validate_citations_allowlist,
     )
@@ -920,7 +923,17 @@ def process_dossier_question_answer(
     )
     coverage = dict(dual.coverage)
     items_for_prompt = list(dual.signal_factual.get("items") or [])
-    allowed_ids = list(dual.allowed_evidence_ids)
+    # Dual-only is incomplete: build_context + oracle_authority also teach dossier
+    # Evidence (procurement PLACSP, documents, …). Merge before any model call so
+    # RT-07, provider, and conversation-layer validators share one allowlist.
+    dossier_citable_ids = load_dossier_citable_evidence_ids(
+        session, tenant_id=tenant_id, dossier_id=dossier_id
+    )
+    allowed_ids = merge_ask_citation_allowlist(
+        list(dual.allowed_evidence_ids),
+        oracle_authority=dual.oracle_authority,
+        extra_dossier_evidence_ids=dossier_citable_ids,
+    )
     evidence_persisted: list[str] = []
     persist_degraded = False
 
@@ -1002,7 +1015,14 @@ def process_dossier_question_answer(
             citations=kept_citations,
             observed_count=len(items_observed),
         )
-        allowed_ids = [c.oracle_evidence_id for c in kept_citations]
+        dual_only_ids = [c.oracle_evidence_id for c in kept_citations]
+        # Keep dossier-citable IDs after dual rematerialize filter; only drop
+        # dual IDs that failed to persist (phantom memory_signal).
+        allowed_ids = merge_ask_citation_allowlist(
+            dual_only_ids,
+            oracle_authority=dual.oracle_authority,
+            extra_dossier_evidence_ids=dossier_citable_ids,
+        )
         manifest, digest = build_input_manifest(
             mode=typed_mode,
             oracle_authority=dual.oracle_authority,
@@ -1143,7 +1163,7 @@ def process_dossier_question_answer(
             )
             if rejected:
                 raise ConversationError(
-                    f"La respuesta citó evidence_ids fuera de allowlist ({len(rejected)})."
+                    format_allowlist_rejection(rejected, allowed_ids)
                 )
             answer_payload["citations"] = accepted
             from opn_oracle.integrations.memory_ask_dual import (
@@ -1155,7 +1175,9 @@ def process_dossier_question_answer(
             ) + _v_material(list(answer_payload.get("claims") or []), allowed_ids, kind="claims")
             if mat_bad:
                 raise ConversationError(
-                    f"La respuesta incluye facts/claims con Evidence no permitida ({len(mat_bad)})."
+                    format_allowlist_rejection(
+                        mat_bad, allowed_ids, kind="facts/claims evidence_ids"
+                    )
                 )
         except Exception as error:
             mark_message_failed(
@@ -1400,14 +1422,22 @@ def _answer_via_signal(
         raise ConversationError("La respuesta IA no incluye answer_text.")
     from opn_oracle.integrations.memory_ask_dual import validate_material_evidence_allowlist
 
+    from opn_oracle.integrations.memory_ask_dual import (
+        format_allowlist_rejection,
+        merge_ask_citation_allowlist,
+    )
+
+    # Align with provider merge: dual IDs + dossier evidence taught via dual_blocks.
+    allowed = merge_ask_citation_allowlist(
+        allowed,
+        oracle_authority=dict((dual_blocks or {}).get("oracle_authority") or {}),
+    )
     raw_citations = list(output.get("citations") or [])
     accepted, rejected = validate_citations_allowlist(raw_citations, allowed)
     # Fail-closed: any rejected citation fails, including empty allowlist.
     # Oracle must not depend solely on remote RT-07 for this local defense.
     if rejected:
-        raise ConversationError(
-            f"La respuesta citó evidence_ids fuera de allowlist ({len(rejected)})."
-        )
+        raise ConversationError(format_allowlist_rejection(rejected, allowed))
     facts_out = list(output.get("facts") or [])
     claims_out = list(output.get("claims") or [])
     material_rejected = validate_material_evidence_allowlist(
@@ -1415,8 +1445,9 @@ def _answer_via_signal(
     ) + validate_material_evidence_allowlist(claims_out, allowed, kind="claims")
     if material_rejected:
         raise ConversationError(
-            "La respuesta incluye facts/claims con Evidence no permitida "
-            f"({len(material_rejected)})."
+            format_allowlist_rejection(
+                material_rejected, allowed, kind="facts/claims evidence_ids"
+            )
         )
     validated_hash = (
         str(output.get("validated_output_sha256") or "").strip()
