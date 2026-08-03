@@ -175,19 +175,30 @@ export function DossierDocumentsSection({ dossierId }: { dossierId: string }) {
         description="Sube, procesa, busca y convierte fuentes en evidencias citables sin confundir su contenido con una conclusión."
         id="documents-title"
         actions={
-          <PermissionGate permission="documents.manage">
-            <label className="vector-primary document-upload">
-              <FileUp size={16} />
-              {busy ? "Procesando…" : "Subir documento"}
-              <input
-                ref={input}
-                type="file"
-                disabled={busy}
-                accept=".pdf,.docx,.txt,.md,.csv,.vtt,.srt,application/vnd.opn.transcript+json"
-                onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])}
-              />
-            </label>
-          </PermissionGate>
+          <>
+            <PermissionGate permission="ai.execute">
+              <Link
+                className="vector-secondary"
+                href={`/app/dossiers/${encodeURIComponent(dossierId)}/intake`}
+                data-testid="documents-to-intake"
+              >
+                Análisis de entrada
+              </Link>
+            </PermissionGate>
+            <PermissionGate permission="documents.manage">
+              <label className="vector-primary document-upload">
+                <FileUp size={16} />
+                {busy ? "Procesando…" : "Subir documento"}
+                <input
+                  ref={input}
+                  type="file"
+                  disabled={busy}
+                  accept=".pdf,.docx,.txt,.md,.csv,.vtt,.srt,application/vnd.opn.transcript+json"
+                  onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])}
+                />
+              </label>
+            </PermissionGate>
+          </>
         }
       />
       <section className="vector-panel vector-documents product-documents" aria-labelledby="documents-title">

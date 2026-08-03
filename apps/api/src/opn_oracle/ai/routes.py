@@ -37,6 +37,7 @@ bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
 DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
+INTAKE_AGENT = "intake"
 TENDER_SEARCH_WIZARD_TARGET = "tenant_search_profile"
 
 
@@ -250,6 +251,95 @@ def enqueue_agent(dossier_id: uuid.UUID, agent: str) -> Any:
     except ValueError as error:
         return problem_response(422, detail=str(error), code="validation_error")
     return {"job_id": str(job.id), "status": job.status}, 202
+
+
+def _latest_agent_artifact(dossier_id: uuid.UUID, agent: str) -> AIArtifact | None:
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id == dossier_id,
+            AIArtifact.agent == agent,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_agent_job(dossier_id: uuid.UUID, agent: str) -> BackgroundJob | None:
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id == dossier_id,
+            BackgroundJob.job_type == f"oracle.ai.{agent}",
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _serialize_agent_artifact(artifact: AIArtifact | None) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    return {
+        "id": str(artifact.id),
+        "dossier_id": str(artifact.dossier_id) if artifact.dossier_id else None,
+        "agent": artifact.agent,
+        "schema_name": artifact.schema_name,
+        "schema_version": artifact.schema_version,
+        "status": artifact.status,
+        "output": artifact.output,
+        "audit_log_id": str(artifact.audit_log_id) if artifact.audit_log_id else None,
+        "created_at": artifact.created_at.isoformat(),
+        "updated_at": artifact.updated_at.isoformat(),
+        "version": artifact.version,
+    }
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/intake/runs")
+@require_permission("ai.execute")
+def enqueue_intake(dossier_id: uuid.UUID) -> Any:
+    """Lanza el agente de intake: propone estructura; no muta el expediente."""
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return problem_response(
+            428,
+            detail="Idempotency-Key es obligatorio para lanzar el análisis de entrada.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{INTAKE_AGENT}",
+            payload={"dossier_id": str(dossier_id)},
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            dossier_id=dossier_id,
+            resource_type="strategic_dossier",
+            resource_id=dossier_id,
+        )
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_agent_artifact(_latest_agent_artifact(dossier_id, INTAKE_AGENT)),
+    }, 202
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/intake/latest")
+@require_permission("ai.execute")
+def latest_intake(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de intake del expediente (solo lectura; la persona confirma)."""
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    job = _latest_agent_job(dossier_id, INTAKE_AGENT)
+    artifact = _latest_agent_artifact(dossier_id, INTAKE_AGENT)
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_agent_artifact(artifact),
+    }
 
 
 def _wizard_answers(value: Any) -> list[dict[str, str]]:

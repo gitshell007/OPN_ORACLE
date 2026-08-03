@@ -1760,6 +1760,101 @@ const dossierCompletionWizard = {
     ),
 };
 
+/** Propuesta estructurada del agente intake (pliego/correo → expediente). No muta el negocio. */
+export type IntakeDossierType =
+  | "project"
+  | "strategic_account"
+  | "market"
+  | "technology"
+  | "tender_or_grant"
+  | "investment"
+  | "partnership"
+  | "product_launch"
+  | "regulatory_affair"
+  | "risk_watch"
+  | "competitive_intelligence"
+  | "custom";
+
+export interface IntakeFact {
+  statement: string;
+  evidence_ids: string[];
+}
+
+export interface IntakeInference {
+  statement: string;
+  reasoning_summary: string;
+  confidence: number;
+  evidence_ids?: string[];
+}
+
+export interface IntakeRecommendation {
+  action: string;
+  rationale: string;
+  priority: "low" | "medium" | "high" | "critical";
+}
+
+export interface IntakeOutput {
+  proposed_title: string;
+  proposed_description: string;
+  dossier_type: IntakeDossierType | string;
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface IntakeArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "intake" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: IntakeOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface IntakeRunResponse {
+  job: JobResponse | null;
+  artifact: IntakeArtifact | null;
+}
+
+export type AiArtifactReviewDecision = "accepted" | "rejected" | "changes_requested";
+
+export interface AiArtifactReviewResponse {
+  review_id: string;
+  artifact_status: string;
+}
+
+const dossierIntake = {
+  latest: (dossierId: string) =>
+    request<IntakeRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/intake/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<IntakeRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/intake/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
 export interface EntityIntelReportJob extends JobResponse {
   entity?: string | null;
   entity_key?: string | null;
@@ -3226,6 +3321,7 @@ export const api = {
   dossiers,
   oracleSummary,
   dossierCompletionWizard,
+  dossierIntake,
   dossierSignals,
   objectives,
   hypotheses,

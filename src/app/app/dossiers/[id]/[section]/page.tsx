@@ -12,6 +12,7 @@ import { DossierActivitySection } from "@/components/dossiers/dossier-activity-s
 import { DossierAskSection } from "@/components/dossiers/dossier-ask-section";
 import { DossierCustomBriefSection } from "@/components/dossiers/dossier-custom-brief-section";
 import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents-section";
+import { DossierIntakeSection } from "@/components/dossiers/dossier-intake-section";
 import { DossierInvestigationsSection } from "@/components/dossiers/dossier-investigations-section";
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-section";
@@ -20,6 +21,10 @@ import { DOSSIER_TABS } from "@/lib/app-routes";
 const sectionCopy: Record<string, { description: string; api: string }> = {
   activity: { description: "Vigilancias, monitores y jobs del expediente.", api: "GET /api/v1/dossiers/{id}/activity" },
   ask: { description: "Preguntas durables a Oracle con citas.", api: "POST /api/v1/dossiers/{id}/conversations/.../messages" },
+  intake: {
+    description: "Propuesta de expediente a partir de pliego o documentos (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/intake/runs",
+  },
   "custom-brief": { description: "Brief libre y plan de informe personalizado.", api: "POST /api/v1/dossiers/{id}/reports/custom" },
   signals: { description: "Señales asociadas a este expediente.", api: "GET /api/v1/dossiers/{id}/signals" },
   opportunities: { description: "Oportunidades y puntuación del expediente.", api: "GET /api/v1/dossiers/{id}/opportunities" },
@@ -66,6 +71,8 @@ export default async function DossierSectionPage({
         <DossierActivitySection dossierId={id} />
       ) : section === "ask" ? (
         <DossierAskSection dossierId={id} />
+      ) : section === "intake" ? (
+        <DossierIntakeSection dossierId={id} />
       ) : section === "custom-brief" ? (
         <DossierCustomBriefSection dossierId={id} />
       ) : (
