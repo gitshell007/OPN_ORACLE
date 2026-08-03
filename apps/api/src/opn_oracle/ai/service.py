@@ -13,7 +13,12 @@ from typing import Any, cast
 from flask import current_app
 from sqlalchemy import delete, func, select, text
 
-from opn_oracle.ai.context import BuiltContext, build_context, validate_evidence
+from opn_oracle.ai.context import (
+    BuiltContext,
+    build_context,
+    validate_evidence,
+    validate_opportunity_origin_boundary,
+)
 from opn_oracle.ai.models import (
     AIArtifact,
     AIAttempt,
@@ -437,10 +442,33 @@ def _fact_statements(output: dict[str, Any]) -> list[str]:
     return statements
 
 
-def _grounding_corpus_tokens(output: dict[str, Any]) -> set[str]:
+def _declared_fit_statements(output: dict[str, Any]) -> list[str]:
+    """Prosa de encaje anclada en material declarado (origin distinto del oficial)."""
+
+    fit = output.get("fit_assessment")
+    if not isinstance(fit, dict):
+        return []
+    if fit.get("origin") not in {None, "declared_by_client"}:
+        return []
+    if not fit.get("declared_evidence_ids"):
+        return []
+    text = fit.get("statement")
+    if isinstance(text, str) and text.strip():
+        return [text.strip()]
+    return []
+
+
+def _grounding_corpus_tokens(output: dict[str, Any], *, agent: str = "") -> set[str]:
     tokens: set[str] = set()
     for statement in _fact_statements(output):
         tokens |= _content_tokens(statement)
+    # SV2-PERFIL-EVIDENCIA: el gate de fundamentación puede usar la oferta
+    # declarada como fundamento del *encaje*, con origen distinto (fit_assessment).
+    # No se mezcla con facts oficiales: los tokens entran etiquetados vía el
+    # campo separado, no como si fueran extractos PLACSP.
+    if agent == "opportunity":
+        for statement in _declared_fit_statements(output):
+            tokens |= _content_tokens(statement)
     return tokens
 
 
@@ -527,8 +555,11 @@ def _ground_conclusions_to_facts(
         return output
 
     facts = _fact_statements(output)
-    fact_tokens = _grounding_corpus_tokens(output)
-    fact_corpus = " ".join(facts)
+    declared_fit = _declared_fit_statements(output)
+    # Corpus de fundamentación: facts oficiales + (solo opportunity) encaje declarado.
+    grounding_statements = [*facts, *declared_fit]
+    fact_tokens = _grounding_corpus_tokens(output, agent=agent)
+    fact_corpus = " ".join(grounding_statements)
     result = dict(output)
     warnings = list(result["warnings"]) if isinstance(result.get("warnings"), list) else []
     degraded: list[str] = []
@@ -550,9 +581,11 @@ def _ground_conclusions_to_facts(
         ):
             continue
         if is_title:
-            honest = _honest_title_from_facts(facts, agent=agent)
+            honest = _honest_title_from_facts(grounding_statements or facts, agent=agent)
         else:
-            honest = _honest_prose_from_facts(facts, limit=800 if field != "summary" else 600)
+            honest = _honest_prose_from_facts(
+                grounding_statements or facts, limit=800 if field != "summary" else 600
+            )
         degraded.append(
             f"{field} («{_short_text(value, limit=72)}» → «{_short_text(honest, limit=72)}»)"
         )
@@ -567,9 +600,10 @@ def _ground_conclusions_to_facts(
                 continue
             if _conclusion_supported(value, fact_tokens, min_ratio=0.35):
                 continue
-            if facts:
+            seed = (grounding_statements or facts)
+            if seed:
                 updated[field] = _short_text(
-                    f"Revisar a la luz de: {_short_text(facts[0], limit=220)}",
+                    f"Revisar a la luz de: {_short_text(seed[0], limit=220)}",
                     limit=500 if field == "action" else 800,
                 )
             else:
@@ -740,6 +774,28 @@ def _review_evidence_index(context: BuiltContext) -> list[dict[str, Any]]:
                 "classification": row.classification,
                 "locator": row.locator,
                 "extract": _short_text(row.extract, limit=1_200),
+            }
+        )
+    # Evidencia declarada (perfil): visible para el revisor con source_kind propio.
+    manifest = context.manifest if isinstance(getattr(context, "manifest", None), dict) else {}
+    declared_ids = {str(item) for item in (manifest.get("declared_evidence_ids") or [])}
+    payload = getattr(context, "payload", None)
+    declared_items = payload.get("declared_evidence") if isinstance(payload, dict) else None
+    for raw in declared_items or []:
+        if not isinstance(raw, dict):
+            continue
+        rid = str(raw.get("id") or "")
+        if not rid or (declared_ids and rid not in declared_ids):
+            continue
+        items.append(
+            {
+                "id": rid,
+                "source_kind": str(raw.get("source_kind") or "declared"),
+                "classification": str(raw.get("classification") or "internal"),
+                "locator": raw.get("locator") if isinstance(raw.get("locator"), dict) else {},
+                "extract": _short_text(raw.get("extract"), limit=1_200),
+                "origin": "declared_by_client",
+                "label": raw.get("label") or "Declarado por el cliente",
             }
         )
     return items
@@ -1542,6 +1598,27 @@ def execute_agent(
         fail(error, active_attempt_id=attempt_id)
         raise
     output = result.output.model_dump(mode="json")
+    # SV2-PERFIL-EVIDENCIA: separar declarado (fit_assessment) de oficial (facts).
+    if agent == "opportunity":
+        declared_raw = context.manifest.get("declared_evidence_ids") or []
+        declared_set: set[uuid.UUID] = set()
+        for raw_id in declared_raw:
+            try:
+                declared_set.add(uuid.UUID(str(raw_id)))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        output = validate_opportunity_origin_boundary(
+            output,
+            official_ids=allowed_evidence,
+            declared_ids=declared_set,
+        )
+        try:
+            boundary_model = prompt.schema.model_validate_json(json.dumps(output))
+            validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
+            output = boundary_model.model_dump(mode="json")
+        except Exception as error:
+            fail(error, active_attempt_id=attempt_id)
+            raise
     # Preserve bilateral trust hash from Signal validated_output (MDEV-06).
     vo_hash = getattr(result, "validated_output_sha256", None)
     if vo_hash:

@@ -566,6 +566,30 @@ class MockLLMProvider:
                     "blocking_risk": 50,
                     "overall": 50,
                 },
+                **(
+                    {
+                        "fit_assessment": {
+                            "statement": (
+                                "Encaje (mock) con la oferta declarada por el cliente; "
+                                "no es un hecho de fuente oficial."
+                            ),
+                            "declared_evidence_ids": [
+                                uuid.UUID(
+                                    str(
+                                        request.context.get("allowed_declared_evidence_ids", [])[
+                                            0
+                                        ]
+                                    )
+                                )
+                            ],
+                            "official_evidence_ids": [evidence[0]] if evidence else [],
+                            "confidence": min(60, confidence),
+                            "origin": "declared_by_client",
+                        }
+                    }
+                    if request.context.get("allowed_declared_evidence_ids")
+                    else {}
+                ),
             },
             "risk": {
                 "title": "Riesgo candidato",

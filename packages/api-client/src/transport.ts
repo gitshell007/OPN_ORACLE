@@ -1900,6 +1900,15 @@ export interface OpportunityAnalysisNextAction {
   rationale: string;
 }
 
+/** Encaje oferta↔oportunidad anclado en material declarado por el cliente. */
+export interface OpportunityFitAssessment {
+  statement: string;
+  declared_evidence_ids: string[];
+  official_evidence_ids?: string[];
+  confidence: number;
+  origin?: "declared_by_client" | string;
+}
+
 export interface OpportunityAnalysisOutput {
   title: string;
   opportunity_type?: string;
@@ -1912,6 +1921,8 @@ export interface OpportunityAnalysisOutput {
   blockers?: string[];
   candidate_actors?: OpportunityAnalysisCandidateActor[];
   next_best_action?: OpportunityAnalysisNextAction | null;
+  /** Encaje con perfil declarado; distinto de facts[] oficiales. */
+  fit_assessment?: OpportunityFitAssessment | null;
   facts: IntakeFact[];
   inferences: IntakeInference[];
   recommendations: IntakeRecommendation[];

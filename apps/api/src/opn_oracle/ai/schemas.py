@@ -241,6 +241,22 @@ class NextBestAction(StrictModel):
     rationale: str = Field(min_length=1, max_length=4000)
 
 
+class OpportunityFitAssessment(StrictModel):
+    """Encaje oferta↔oportunidad anclado en material **declarado por el cliente**.
+
+    Distinto de ``facts[]``: los ``declared_evidence_ids`` tienen ``source_kind=declared``
+    (perfil del expediente). Los ``official_evidence_ids`` enlazan licitaciones u
+    otras fuentes oficiales que el encaje menciona, sin convertir lo declarado
+    en hecho verificado.
+    """
+
+    statement: str = Field(min_length=1, max_length=4000)
+    declared_evidence_ids: list[UUID] = Field(min_length=1)
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    confidence: int = Field(ge=0, le=100)
+    origin: Literal["declared_by_client"] = "declared_by_client"
+
+
 class OpportunityAnalysisOutput(AgentOutput):
     title: str
     opportunity_type: Literal[
@@ -263,6 +279,7 @@ class OpportunityAnalysisOutput(AgentOutput):
     blockers: list[str] = Field(default_factory=list)
     candidate_actors: list[CandidateActor] = Field(default_factory=list)
     next_best_action: NextBestAction | None = None
+    fit_assessment: OpportunityFitAssessment | None = None
 
 
 class RiskScores(StrictModel):

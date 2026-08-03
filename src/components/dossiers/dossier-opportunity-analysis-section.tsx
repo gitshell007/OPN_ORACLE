@@ -482,7 +482,7 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
               </div>
             </header>
 
-            <h3>Hechos</h3>
+            <h3>Hechos (fuente oficial / externa)</h3>
             {facts.length === 0 ? (
               <p data-testid="dossier-opportunity-no-facts">No hay hechos con evidencia citada.</p>
             ) : (
@@ -491,7 +491,7 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                   <li key={`${fact.statement}-${fact.evidence_ids.join(",")}`}>
                     <p>{fact.statement}</p>
                     <small className="muted">
-                      Evidencias: {fact.evidence_ids.length} ·{" "}
+                      Evidencias oficiales: {fact.evidence_ids.length} ·{" "}
                       {fact.evidence_ids.slice(0, 3).join(", ")}
                       {fact.evidence_ids.length > 3 ? "…" : ""}
                     </small>
@@ -499,6 +499,37 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                 ))}
               </ul>
             )}
+
+            {output?.fit_assessment?.statement ? (
+              <>
+                <h3>Encaje con oferta declarada</h3>
+                <div
+                  className="opportunity-fit-assessment"
+                  data-testid="dossier-opportunity-fit-assessment"
+                >
+                  <p data-testid="dossier-opportunity-fit-statement">
+                    {output.fit_assessment.statement}
+                  </p>
+                  <small className="muted" data-testid="dossier-opportunity-fit-origin">
+                    Origen:{" "}
+                    {output.fit_assessment.origin === "declared_by_client" ||
+                    !output.fit_assessment.origin
+                      ? "Declarado por el cliente (perfil del expediente)"
+                      : String(output.fit_assessment.origin)}
+                    {" · "}
+                    IDs declarados:{" "}
+                    {(output.fit_assessment.declared_evidence_ids || []).length}
+                    {(output.fit_assessment.official_evidence_ids || []).length > 0
+                      ? ` · IDs oficiales enlazados: ${
+                          output.fit_assessment.official_evidence_ids?.length ?? 0
+                        }`
+                      : ""}
+                    {" · "}
+                    Confianza {output.fit_assessment.confidence ?? "—"}%
+                  </small>
+                </div>
+              </>
+            ) : null}
 
             <h3>Inferencias con fuente</h3>
             {inferences.length === 0 ? (
