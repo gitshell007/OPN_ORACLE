@@ -31,9 +31,7 @@ def test_declared_cannot_appear_as_official_risk_fact() -> None:
     """Un fact/scenario que cite ID declared se retira o se limpia (falla antes del gate)."""
 
     official = uuid.UUID("11111111-1111-1111-1111-111111111111")
-    declared = declared_evidence_id(
-        uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "barriers"
-    )
+    declared = declared_evidence_id(uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "barriers")
     output = {
         "title": "Riesgo demo",
         "recommended_status": "watch",
@@ -114,9 +112,7 @@ def test_declared_cannot_appear_as_official_risk_fact() -> None:
 
 def test_risk_context_declared_without_ids_is_dropped() -> None:
     official = uuid.UUID("11111111-1111-1111-1111-111111111111")
-    declared = declared_evidence_id(
-        uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "barriers"
-    )
+    declared = declared_evidence_id(uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "barriers")
     output = {
         "title": "Riesgo",
         "recommended_status": "watch",
@@ -222,8 +218,7 @@ def test_enrich_risk_context_declared_from_profile_barriers() -> None:
             {
                 "id": competitors_id,
                 "extract": (
-                    "[Declarado por el cliente] Competidores declarados: "
-                    "Capgemini, NTT DATA"
+                    "[Declarado por el cliente] Competidores declarados: Capgemini, NTT DATA"
                 ),
                 "source_kind": "declared",
                 "origin": "declared_by_client",
@@ -265,9 +260,7 @@ def test_opportunity_origin_boundary_regression_intact() -> None:
     """La firma y el comportamiento del 095 no se rompen."""
 
     official = uuid.UUID("11111111-1111-1111-1111-111111111111")
-    declared = declared_evidence_id(
-        uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "own_offer"
-    )
+    declared = declared_evidence_id(uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "own_offer")
     output = {
         "facts": [
             {"statement": "Oficial PLACSP", "evidence_ids": [str(official)]},
