@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Activate an immutable release: symlink, migrate once, restart services.
+# Activate an immutable release: symlink + env identity together, migrate once,
+# restart services. Fail loud if identity sources diverge.
 # Usage: activate-release.sh <release-id>
 set -euo pipefail
 
@@ -17,18 +18,35 @@ SECRETS="/etc/opn-oracle-dev/secrets"
 [[ -d "$RELEASE_DIR" ]] || { echo "missing $RELEASE_DIR" >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "missing $ENV_FILE" >&2; exit 1; }
 
+# Prefer tree identity when the release was built with RELEASE_ID metadata.
+if [[ -f "${RELEASE_DIR}/RELEASE_ID" ]]; then
+  TREE_ID="$(tr -d '[:space:]' <"${RELEASE_DIR}/RELEASE_ID")"
+  if [[ -n "$TREE_ID" && "$TREE_ID" != "$RELEASE_ID" ]]; then
+    echo "FATAL: activate arg RELEASE_ID=${RELEASE_ID} != tree RELEASE_ID=${TREE_ID}" >&2
+    exit 1
+  fi
+fi
+
 PREV=""
 if [[ -L "$CURRENT" ]]; then
   PREV="$(readlink -f "$CURRENT" || true)"
 fi
 
-# Point env ORACLE_RELEASE / APP_VERSION / RELEASE
-sed -i "s|^ORACLE_RELEASE=.*|ORACLE_RELEASE=${RELEASE_ID}|" "$ENV_FILE"
-if ! grep -q '^RELEASE=' "$ENV_FILE"; then
-  echo "RELEASE=${RELEASE_ID}" >>"$ENV_FILE"
-else
-  sed -i "s|^RELEASE=.*|RELEASE=${RELEASE_ID}|" "$ENV_FILE"
-fi
+# --- Update env + symlink as one activation unit (SV2-SANEO-ANIDADO) ---
+# Never update only the symlink (build-release used to hint ln -sfn alone;
+# that left ORACLE_RELEASE/RELEASE lagging and /api/v1/meta lied).
+_set_env_key() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  else
+    echo "${key}=${value}" >>"$ENV_FILE"
+  fi
+}
+
+_set_env_key "ORACLE_RELEASE" "$RELEASE_ID"
+_set_env_key "RELEASE" "$RELEASE_ID"
 if ! grep -q '^APP_VERSION=' "$ENV_FILE"; then
   echo "APP_VERSION=0.1.0" >>"$ENV_FILE"
 fi
@@ -41,6 +59,33 @@ printf '%s\n' "$RELEASE_ID" >/opt/opn-oracle/CURRENT_RELEASE
 if [[ -n "$PREV" ]]; then
   printf '%s\n' "$(basename "$PREV")" >/opt/opn-oracle/PREVIOUS_RELEASE || true
 fi
+
+# --- Fail-loud identity coherence (symlink ≡ env ≡ CURRENT_RELEASE ≡ tree) ---
+ACTIVE="$(basename "$(readlink -f "$CURRENT")")"
+ENV_ORACLE_RELEASE="$(sed -n 's/^ORACLE_RELEASE=//p' "$ENV_FILE" | tail -n 1)"
+ENV_RELEASE="$(sed -n 's/^RELEASE=//p' "$ENV_FILE" | tail -n 1)"
+CURRENT_FILE="$(tr -d '[:space:]' </opt/opn-oracle/CURRENT_RELEASE 2>/dev/null || true)"
+TREE_ID="$(tr -d '[:space:]' <"${RELEASE_DIR}/RELEASE_ID" 2>/dev/null || true)"
+
+_fail_identity() {
+  echo "FATAL: release identity divergence after activate: $*" >&2
+  echo "  symlink_basename=${ACTIVE}" >&2
+  echo "  ORACLE_RELEASE=${ENV_ORACLE_RELEASE}" >&2
+  echo "  RELEASE=${ENV_RELEASE}" >&2
+  echo "  CURRENT_RELEASE=${CURRENT_FILE}" >&2
+  echo "  tree_RELEASE_ID=${TREE_ID:-<missing>}" >&2
+  echo "  expected=${RELEASE_ID}" >&2
+  exit 1
+}
+
+[[ "$ACTIVE" == "$RELEASE_ID" ]] || _fail_identity "current basename != RELEASE_ID"
+[[ "$ENV_ORACLE_RELEASE" == "$RELEASE_ID" ]] || _fail_identity "ORACLE_RELEASE != RELEASE_ID"
+[[ "$ENV_RELEASE" == "$RELEASE_ID" ]] || _fail_identity "RELEASE != RELEASE_ID"
+[[ "$CURRENT_FILE" == "$RELEASE_ID" ]] || _fail_identity "CURRENT_RELEASE file != RELEASE_ID"
+if [[ -n "$TREE_ID" && "$TREE_ID" != "$RELEASE_ID" ]]; then
+  _fail_identity "tree RELEASE_ID != activate arg"
+fi
+echo "identity OK: symlink=env=CURRENT_RELEASE=${RELEASE_ID}${TREE_ID:+ tree=${TREE_ID}}"
 
 # Load env for migration (set -a)
 set -a
@@ -92,4 +137,16 @@ systemctl restart opn-oracle-beat
 
 sleep 3
 systemctl --no-pager --full status opn-oracle-api opn-oracle-web opn-oracle-worker opn-oracle-beat || true
-echo "activate complete"
+
+# Post-restart identity re-check (services read EnvironmentFile at start)
+ENV_ORACLE_RELEASE="$(sed -n 's/^ORACLE_RELEASE=//p' "$ENV_FILE" | tail -n 1)"
+ACTIVE="$(basename "$(readlink -f "$CURRENT")")"
+META_RELEASE="$(curl -fsS http://127.0.0.1:8010/api/v1/meta 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("release",""))' 2>/dev/null || true)"
+if [[ "$ACTIVE" != "$RELEASE_ID" || "$ENV_ORACLE_RELEASE" != "$RELEASE_ID" ]]; then
+  _fail_identity "post-restart env/symlink drift"
+fi
+if [[ -n "$META_RELEASE" && "$META_RELEASE" != "$RELEASE_ID" ]]; then
+  # Prefer tree identity in app code; if meta still disagrees, surface it.
+  echo "WARNING: /api/v1/meta release=${META_RELEASE} != ${RELEASE_ID} (check tree RELEASE_ID vs Settings)" >&2
+fi
+echo "activate complete: meta=${META_RELEASE:-<unavailable>} symlink=${ACTIVE} env=${ENV_ORACLE_RELEASE}"

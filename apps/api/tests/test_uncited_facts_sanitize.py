@@ -1,4 +1,4 @@
-"""SV2-SANEO-UNIFORME · facts sin evidence_ids: un solo punto, todos los agentes."""
+"""SV2-SANEO-UNIFORME / SV2-SANEO-ANIDADO · facts + nested sin evidence_ids."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from opn_oracle.ai.provider import (
     DEFAULT_MIN_GROUNDED_FACTS,
     MIN_GROUNDED_FACTS_BY_AGENT,
     MIN_GROUNDED_FACTS_FOR_QUALITY,
+    NESTED_STRICT_EVIDENCE_LISTS,
     QUALITY_DEGRADED_CONFIDENCE_CAP,
     UncitedFactsError,
     _sanitize_uncited_facts_json,
@@ -21,11 +22,11 @@ from opn_oracle.ai.provider import (
 from opn_oracle.ai.schemas import (
     AGENT_SCHEMAS,
     ActorAnalysisOutput,
+    DossierSituationSummaryOutput,
     EntityResolutionOutput,
     OpportunityAnalysisOutput,
     RiskAnalysisOutput,
 )
-
 
 # Agentes de demo/SV2 con facts[] estricto (batería parametrizada del camino uniforme).
 STRICT_FACTS_DEMO_AGENTS = (
@@ -409,3 +410,195 @@ def test_dossier_question_answer_not_in_uniform_path() -> None:
         }
     )
     assert _sanitize_uncited_facts_json(raw, agent="dossier_question_answer") == raw
+
+
+# ---------------------------------------------------------------------------
+# SV2-SANEO-ANIDADO · sublistados de situation_summary
+# ---------------------------------------------------------------------------
+
+
+def test_nested_inventory_only_situation_summary() -> None:
+    """Solo situation_summary tiene nested estricto en el punto único."""
+
+    assert set(NESTED_STRICT_EVIDENCE_LISTS) == {"dossier_situation_summary"}
+    fields = {name for name, _ in NESTED_STRICT_EVIDENCE_LISTS["dossier_situation_summary"]}
+    assert fields == {"opportunities", "risks", "relevant_actors"}
+
+
+@pytest.mark.parametrize(
+    "field,label,item_ok,item_bad",
+    [
+        (
+            "opportunities",
+            "opportunity",
+            {
+                "title": "Licitación citada",
+                "rationale": "Importe y CPV en evidencia",
+                "urgency": "high",
+                "confidence": 70,
+                "evidence_ids": ["EID"],
+            },
+            {
+                "title": "Oportunidad inventada sin citas",
+                "rationale": "Sin anclas",
+                "urgency": "low",
+                "confidence": 40,
+                "evidence_ids": [],
+            },
+        ),
+        (
+            "risks",
+            "risk",
+            {
+                "title": "Riesgo citado",
+                "rationale": "Retraso documentado",
+                "severity": "medium",
+                "confidence": 60,
+                "evidence_ids": ["EID"],
+            },
+            {
+                "title": "Riesgo sin citas",
+                "rationale": "Suposición",
+                "severity": "high",
+                "confidence": 30,
+                "evidence_ids": [],
+            },
+        ),
+        (
+            "relevant_actors",
+            "actor",
+            {
+                "actor_id": None,
+                "name": "Actor citado",
+                "relevance": "Adjudicatario en PLACSP",
+                "evidence_ids": ["EID"],
+            },
+            {
+                "actor_id": None,
+                "name": "Actor sin citas",
+                "relevance": "Mención suelta",
+                "evidence_ids": [],
+            },
+        ),
+    ],
+)
+def test_situation_nested_uncited_items_dropped_with_warning(
+    field: str, label: str, item_ok: dict, item_bad: dict
+) -> None:
+    """Elemento nested sin citas se retira; el fundado permanece; schema valida."""
+
+    eid = str(uuid.uuid4())
+    ok = {**item_ok, "evidence_ids": [eid]}
+    bad = dict(item_bad)
+    payload = _minimal_facts_payload(
+        "dossier_situation_summary",
+        facts=[{"statement": "Hecho fundado", "evidence_ids": [eid]}],
+        confidence=80,
+    )
+    payload[field] = [ok, bad]
+    cleaned = _sanitize_uncited_facts_json(json.dumps(payload), agent="dossier_situation_summary")
+    data = json.loads(cleaned)
+    assert len(data[field]) == 1
+    assert data[field][0]["evidence_ids"] == [eid]
+    assert any(
+        f"Se retiraron 1 {label}(s) sin evidence_ids en {field}" in w for w in data["warnings"]
+    )
+    # Nested drop no degrada por sí solo (min facts=1 y hay 1 fact fundado)
+    assert data["confidence"] == 80
+    DossierSituationSummaryOutput.model_validate_json(cleaned)
+
+
+def test_situation_nested_all_uncited_leaves_empty_list_not_fatal() -> None:
+    """Sublistado vacío tras saneo es OK (opcionales); no UncitedFactsError."""
+
+    eid = str(uuid.uuid4())
+    payload = _minimal_facts_payload(
+        "dossier_situation_summary",
+        facts=[{"statement": "Ancla", "evidence_ids": [eid]}],
+        confidence=75,
+    )
+    payload["opportunities"] = [
+        {
+            "title": "Sin citas A",
+            "rationale": "x",
+            "urgency": "low",
+            "confidence": 20,
+            "evidence_ids": [],
+        },
+        {
+            "title": "Sin citas B",
+            "rationale": "y",
+            "urgency": "medium",
+            "confidence": 20,
+            "evidence_ids": [],
+        },
+    ]
+    payload["risks"] = [
+        {
+            "title": "Riesgo vacío",
+            "rationale": "z",
+            "severity": "low",
+            "confidence": 10,
+            "evidence_ids": [],
+        }
+    ]
+    payload["relevant_actors"] = [
+        {
+            "name": "Nadie",
+            "relevance": "sin ancla",
+            "evidence_ids": [],
+        }
+    ]
+    cleaned = _sanitize_uncited_facts_json(json.dumps(payload), agent="dossier_situation_summary")
+    data = json.loads(cleaned)
+    assert data["opportunities"] == []
+    assert data["risks"] == []
+    assert data["relevant_actors"] == []
+    assert len(data["facts"]) == 1
+    assert any("opportunities" in w for w in data["warnings"])
+    assert any("risks" in w for w in data["warnings"])
+    assert any("relevant_actors" in w for w in data["warnings"])
+    DossierSituationSummaryOutput.model_validate_json(cleaned)
+
+
+def test_situation_nested_schema_death_mode_without_sanitize() -> None:
+    """Sin saneo, evidence_ids vacío en nested mata con too_short (documenta flake)."""
+
+    eid = str(uuid.uuid4())
+    payload = _minimal_facts_payload(
+        "dossier_situation_summary",
+        facts=[{"statement": "OK", "evidence_ids": [eid]}],
+    )
+    payload["opportunities"] = [
+        {
+            "title": "Muerte por forma",
+            "rationale": "sin citas",
+            "urgency": "high",
+            "confidence": 50,
+            "evidence_ids": [],
+        }
+    ]
+    with pytest.raises(ValidationError) as exc:
+        DossierSituationSummaryOutput.model_validate_json(json.dumps(payload))
+    assert "evidence_ids" in str(exc.value)
+    assert "too_short" in str(exc.value)
+
+
+def test_other_agents_do_not_sanitize_spurious_nested_lists() -> None:
+    """Nested solo aplica a situation_summary; opportunity no toca un risks[] espurio."""
+
+    eid = str(uuid.uuid4())
+    payload = _minimal_facts_payload(
+        "opportunity",
+        facts=[
+            {"statement": "A", "evidence_ids": [eid]},
+            {"statement": "B", "evidence_ids": [eid]},
+        ],
+    )
+    payload["risks"] = [{"title": "no debería tocarse", "evidence_ids": []}]
+    raw = json.dumps(payload)
+    cleaned = _sanitize_uncited_facts_json(raw, agent="opportunity")
+    data = json.loads(cleaned)
+    # facts intactos (ambos citados); risks espurio intacto
+    assert len(data["facts"]) == 2
+    assert data["risks"] == [{"title": "no debería tocarse", "evidence_ids": []}]

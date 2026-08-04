@@ -575,11 +575,7 @@ class MockLLMProvider:
                             ),
                             "declared_evidence_ids": [
                                 uuid.UUID(
-                                    str(
-                                        request.context.get("allowed_declared_evidence_ids", [])[
-                                            0
-                                        ]
-                                    )
+                                    str(request.context.get("allowed_declared_evidence_ids", [])[0])
                                 )
                             ],
                             "official_evidence_ids": [evidence[0]] if evidence else [],
@@ -864,36 +860,41 @@ class OllamaLLMProvider:
         return ProviderHealth("healthy", self.model)
 
 
-# SV2-SANEO-UNIFORME · un solo punto de defensa para todos los agentes con
-# ``facts[].evidence_ids`` estricto (min_length≥1). Un fact sin citas no es error
-# fatal: se retira antes de validar el schema. El **mecanismo es uno**; los
-# **mínimos de calidad** pueden variar por agente (documentados junto al número).
+# SV2-SANEO-UNIFORME / SV2-SANEO-ANIDADO · un solo punto de defensa para todos
+# los agentes con ``facts[].evidence_ids`` estricto (min_length≥1) y, para
+# ``dossier_situation_summary``, también los sublistados opcionales con
+# ``evidence_ids`` estricto (opportunities / risks / relevant_actors). Un
+# elemento sin citas no es error fatal: se retira antes de validar el schema.
+# El **mecanismo es uno**; los **mínimos de calidad** de facts varían por agente.
 #
-# Inventario agente × defensa (Oracle consumer; no toca contratos Signal RT-07/08/09/10):
+# Inventario agente x defensa (Oracle consumer; no toca RT-07/08/09/10 Signal):
 #
-# | Agente                              | facts[] estricto | Pasa por saneo | min fundados |
-# |-------------------------------------|------------------|----------------|--------------|
-# | actor_partnership                   | Fact             | sí             | 2            |
-# | opportunity                         | Fact             | sí             | 2            |
-# | risk                                | Fact             | sí             | 2            |
-# | entity_resolution                   | Fact             | sí             | 1            |
-# | dossier_situation_summary           | SituationFact    | sí             | 1            |
-# | meeting_briefing                    | Fact             | sí             | 2            |
-# | signal_triage                       | Fact             | sí             | 2            |
-# | intake                              | Fact             | sí             | 2            |
-# | report_writer                       | Fact             | sí (Oracle)    | 2            |
-# | competitive_procurement_intelligence| Fact             | sí (Oracle)    | 2            |
-# | entity_dossier_intelligence         | Fact             | sí (Oracle)    | 2            |
-# | memory_curator                      | Fact             | sí             | 2            |
-# | evidence_reviewer                   | Fact             | sí             | 2            |
-# | weekly_change                       | Fact             | sí             | 2            |
-# | dossier_question_answer             | Fact             | no (RT-07)     | n/a          |
-# | dossier_completion_wizard           | no               | no-op          | n/a          |
-# | tender_search_wizard                | no               | no-op          | n/a          |
-# | report_custom_brief_plan            | no               | no-op          | n/a          |
+# agent / facts schema / saneo / min grounded / nested
+# actor_partnership                    Fact            yes  2  -
+# opportunity                          Fact            yes  2  -
+# risk                                 Fact            yes  2  -
+# entity_resolution                    Fact            yes  1  -
+# dossier_situation_summary            SituationFact   yes  1  opp/risk/actors
+# meeting_briefing                     Fact            yes  2  -
+# signal_triage                        Fact            yes  2  -
+# intake                               Fact            yes  2  -
+# report_writer                        Fact (Oracle)   yes  2  -
+# competitive_procurement_intelligence Fact (Oracle)   yes  2  -
+# entity_dossier_intelligence          Fact (Oracle)   yes  2  -
+# memory_curator                       Fact            yes  2  -
+# evidence_reviewer                    Fact            yes  2  -
+# weekly_change                        Fact            yes  2  -
+# dossier_question_answer              Fact            no   n/a (RT-07)
+# dossier_completion_wizard            none            noop n/a
+# tender_search_wizard                 none            noop n/a
+# report_custom_brief_plan             none            noop n/a
 #
-# RT-07/08/09/10 viven en Signal (contratos congelados). Aquí solo se defiende
-# el consumidor Oracle del schema local; report_* sí tienen ``facts: list[Fact]``
+# Nested (situation summary): sublistados opcionales; elemento sin citas se
+# retira con aviso; lista vacia tras saneo **no** es fatal (a diferencia de
+# facts[] cuando el modelo si emitio facts y todos carecian de citas).
+#
+# RT-07/08/09/10 viven en Signal (contratos congelados). Aqui solo se defiende
+# el consumidor Oracle del schema local; report_* si tienen ``facts: list[Fact]``
 # en Oracle y por eso entran al saneo sin tocar el contrato Signal.
 
 # Mínimo por defecto (análisis multi-fact: contrastar ≥2 anclas citadas).
@@ -904,7 +905,7 @@ QUALITY_DEGRADED_CONFIDENCE_CAP = 40
 
 # Mínimos de calidad **por agente** (documentados junto al número, SV2-SANEO-UNIFORME).
 MIN_GROUNDED_FACTS_BY_AGENT: dict[str, int] = {
-    # 2: corridas buenas traen 3–4 facts PLACSP; 1 fact tras sanear es anémico.
+    # 2: corridas buenas traen 3-4 facts PLACSP; 1 fact tras sanear es anemico.
     "actor_partnership": 2,
     # 2: go/investigate/no_go necesita más de un ancla citada.
     "opportunity": 2,
@@ -938,6 +939,17 @@ MIN_GROUNDED_FACTS_BY_AGENT: dict[str, int] = {
 # (no pasa por esta función; no mutar validated_output de Signal).
 AGENTS_WITH_STRICT_FACTS: frozenset[str] = frozenset(MIN_GROUNDED_FACTS_BY_AGENT)
 
+# Sublistados con ``evidence_ids`` estricto (min_length≥1) fuera de ``facts[]``.
+# Mismo mecanismo de drop+warning; lista vacía tras saneo es aceptable (opcionales).
+# Clave de schema → (campo JSON, etiqueta en warning).
+NESTED_STRICT_EVIDENCE_LISTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "dossier_situation_summary": (
+        ("opportunities", "opportunity"),
+        ("risks", "risk"),
+        ("relevant_actors", "actor"),  # schema: relevant_actors (prompt: actors)
+    ),
+}
+
 
 def min_grounded_facts_for_agent(agent: str) -> int:
     """Mínimo de facts fundados tras sanear, por agente (default multi-fact = 2)."""
@@ -949,20 +961,59 @@ class UncitedFactsError(ValueError):
     """Todos los facts emitidos carecían de evidence_ids y se retiraron."""
 
 
-def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
-    """Retira facts sin ``evidence_ids`` antes de la validación Pydantic.
+def _preview_cited_item(item: dict[str, Any]) -> str:
+    """Texto corto para warnings al retirar un elemento sin citas."""
 
-    **Punto único** (SV2-SANEO-UNIFORME): se invoca desde el provider Signal para
-    todos los agentes con ``facts[].evidence_ids`` estricto. No hay copias por
-    agente; solo varía el mínimo de calidad (ver ``MIN_GROUNDED_FACTS_BY_AGENT``).
+    for key in ("statement", "text", "title", "name", "change", "decision", "action"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()[:100]
+    return ""
+
+
+def _filter_uncited_items(
+    items: list[Any],
+) -> tuple[list[Any], int, list[str]]:
+    """Misma regla de citas: conserva solo dicts con ``evidence_ids`` no vacío."""
+
+    kept: list[Any] = []
+    dropped = 0
+    dropped_previews: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        evidence = item.get("evidence_ids")
+        if not isinstance(evidence, list) or len(evidence) == 0:
+            dropped += 1
+            preview = _preview_cited_item(item)
+            if preview:
+                dropped_previews.append(preview)
+            continue
+        kept.append(item)
+    return kept, dropped, dropped_previews
+
+
+def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
+    """Retira facts (y nested situation) sin ``evidence_ids`` antes de validar.
+
+    **Punto único** (SV2-SANEO-UNIFORME + SV2-SANEO-ANIDADO): se invoca desde el
+    provider Signal para todos los agentes con ``facts[].evidence_ids`` estricto.
+    No hay copias por agente ni un segundo sistema para nested; solo varía el
+    mínimo de calidad de facts (``MIN_GROUNDED_FACTS_BY_AGENT``) y, para
+    situation summary, se aplican los mismos filtros a sublistados opcionales
+    (``NESTED_STRICT_EVIDENCE_LISTS``).
 
     Misma familia que la frontera del 095: la forma del modelo no puede matar el
-    job. Un fact sin citas se omite con aviso visible; si tras el saneo no queda
-    ninguno de los emitidos, falla con mensaje explícito («el modelo no citó
-    nada»), no con ``ValidationError: evidence_ids too_short``.
+    job. Un elemento sin citas se omite con aviso visible.
 
-    Si quedan 1..min-1 facts fundados (min = por agente), degrada confianza y
-    marca needs_review en warnings (no relaja el schema).
+    Facts: si tras el saneo no queda ninguno de los emitidos, falla con mensaje
+    explícito («el modelo no citó nada»), no con ``ValidationError: evidence_ids
+    too_short``. Si quedan 1..min-1 facts fundados, degrada confianza y marca
+    needs_review (no relaja el schema).
+
+    Nested (opportunities/risks/relevant_actors): elemento sin citas se retira
+    con aviso; sublistado vacío **no** es fatal (campos opcionales default []).
 
     Esquemas sin ``facts[]`` (wizards, plan) y el path RT-07 de Preguntar no
     entran aquí.
@@ -982,75 +1033,82 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
     if not isinstance(candidate, dict):
         return raw_output
 
-    facts = candidate.get("facts")
-    if not isinstance(facts, list):
-        return raw_output
-
-    kept: list[Any] = []
-    dropped = 0
-    dropped_previews: list[str] = []
-    for item in facts:
-        if not isinstance(item, dict):
-            dropped += 1
-            continue
-        evidence = item.get("evidence_ids")
-        if not isinstance(evidence, list) or len(evidence) == 0:
-            dropped += 1
-            preview = str(item.get("statement") or item.get("text") or "").strip()
-            if preview:
-                dropped_previews.append(preview[:100])
-            continue
-        kept.append(item)
-
-    if dropped == 0:
-        return raw_output
-
-    if not kept:
-        raise UncitedFactsError(
-            "el modelo no citó nada: todos los facts carecían de evidence_ids y se "
-            f"retiraron ({dropped} fact(s) sin citas). No se publica un análisis sin "
-            "fundamentación."
-        )
-
-    candidate["facts"] = kept
+    changed = False
     warnings = list(candidate["warnings"]) if isinstance(candidate.get("warnings"), list) else []
-    preview_blob = "; ".join(dropped_previews)[:220]
-    drop_warning = (
-        f"Se retiraron {dropped} fact(s) sin evidence_ids (no publicables"
-        f"{f': {preview_blob}' if preview_blob else ''}). "
-        "Un fact sin citas no es un error fatal del job: se omite y se publica lo fundado."
-    )
-    if drop_warning not in warnings:
-        warnings.append(drop_warning)
 
-    if len(kept) < min_grounded:
-        conf_raw = candidate.get("confidence")
-        try:
-            conf_i = int(conf_raw)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            conf_i = 50
-        new_conf = min(max(0, conf_i), QUALITY_DEGRADED_CONFIDENCE_CAP)
-        candidate["confidence"] = new_conf
-        scores = candidate.get("scores")
-        if isinstance(scores, dict) and "confidence" in scores:
-            try:
-                scores["confidence"] = min(
-                    max(0, int(scores["confidence"])), QUALITY_DEGRADED_CONFIDENCE_CAP
+    # --- facts[] (requeridos para fundamentación cuando el modelo emite facts) ---
+    facts = candidate.get("facts")
+    if isinstance(facts, list):
+        kept, dropped, dropped_previews = _filter_uncited_items(facts)
+        if dropped > 0:
+            changed = True
+            if not kept:
+                raise UncitedFactsError(
+                    "el modelo no citó nada: todos los facts carecían de evidence_ids y se "
+                    f"retiraron ({dropped} fact(s) sin citas). No se publica un análisis sin "
+                    "fundamentación."
                 )
-            except (TypeError, ValueError):
-                scores["confidence"] = QUALITY_DEGRADED_CONFIDENCE_CAP
-        # entity_resolution: decision match/no_match sin masa de hechos → needs_review
-        if candidate.get("decision") in {"match", "no_match", "create_new"}:
-            candidate["decision"] = "needs_review"
-        quality_warning = (
-            f"Tras sanear facts sin citas quedan solo {len(kept)} fact(s) fundado(s) "
-            f"(mínimo razonable={min_grounded} para agente={agent}). "
-            f"Confianza degradada a {new_conf}; se recomienda revisión humana "
-            "(needs_review). Publicar por debajo del mínimo de calidad del agente "
-            "no es aceptable."
+            candidate["facts"] = kept
+            preview_blob = "; ".join(dropped_previews)[:220]
+            drop_warning = (
+                f"Se retiraron {dropped} fact(s) sin evidence_ids (no publicables"
+                f"{f': {preview_blob}' if preview_blob else ''}). "
+                "Un fact sin citas no es un error fatal del job: se omite y se publica lo fundado."
+            )
+            if drop_warning not in warnings:
+                warnings.append(drop_warning)
+
+            if len(kept) < min_grounded:
+                conf_raw = candidate.get("confidence")
+                try:
+                    conf_i = int(conf_raw)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    conf_i = 50
+                new_conf = min(max(0, conf_i), QUALITY_DEGRADED_CONFIDENCE_CAP)
+                candidate["confidence"] = new_conf
+                scores = candidate.get("scores")
+                if isinstance(scores, dict) and "confidence" in scores:
+                    try:
+                        scores["confidence"] = min(
+                            max(0, int(scores["confidence"])), QUALITY_DEGRADED_CONFIDENCE_CAP
+                        )
+                    except (TypeError, ValueError):
+                        scores["confidence"] = QUALITY_DEGRADED_CONFIDENCE_CAP
+                # entity_resolution: decision match/no_match sin masa de hechos → needs_review
+                if candidate.get("decision") in {"match", "no_match", "create_new"}:
+                    candidate["decision"] = "needs_review"
+                quality_warning = (
+                    f"Tras sanear facts sin citas quedan solo {len(kept)} fact(s) fundado(s) "
+                    f"(mínimo razonable={min_grounded} para agente={agent}). "
+                    f"Confianza degradada a {new_conf}; se recomienda revisión humana "
+                    "(needs_review). Publicar por debajo del mínimo de calidad del agente "
+                    "no es aceptable."
+                )
+                if quality_warning not in warnings:
+                    warnings.append(quality_warning)
+
+    # --- nested opcionales (mismo filtro; vacío no es fatal) ---
+    for field_name, label in NESTED_STRICT_EVIDENCE_LISTS.get(agent, ()):
+        raw_list = candidate.get(field_name)
+        if not isinstance(raw_list, list):
+            continue
+        kept_nested, dropped_nested, nested_previews = _filter_uncited_items(raw_list)
+        if dropped_nested == 0:
+            continue
+        changed = True
+        candidate[field_name] = kept_nested
+        preview_blob = "; ".join(nested_previews)[:220]
+        nested_warning = (
+            f"Se retiraron {dropped_nested} {label}(s) sin evidence_ids en {field_name} "
+            f"(no publicables{f': {preview_blob}' if preview_blob else ''}). "
+            "Un elemento sin citas no es un error fatal del job: se omite; "
+            "sublistado vacío es aceptable (campo opcional)."
         )
-        if quality_warning not in warnings:
-            warnings.append(quality_warning)
+        if nested_warning not in warnings:
+            warnings.append(nested_warning)
+
+    if not changed:
+        return raw_output
 
     candidate["warnings"] = warnings
     return json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
@@ -1491,9 +1549,7 @@ class SignalGovernedLLMProvider:
         # SV2-SANEO-UNIFORME: punto único — retirar facts sin citas antes del schema
         # para todos los agentes con facts[].evidence_ids estricto (no matar el job).
         try:
-            normalized_output = _sanitize_uncited_facts_json(
-                normalized_output, agent=request.agent
-            )
+            normalized_output = _sanitize_uncited_facts_json(normalized_output, agent=request.agent)
         except UncitedFactsError:
             raise
         try:
