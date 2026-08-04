@@ -103,6 +103,7 @@ from opn_oracle.oracle.procurement_items import (
     list_procurement_items,
     pin_procurement_item,
     promote_procurement_to_opportunity,
+    refresh_procurement_item,
     serialize_procurement_item,
 )
 from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
@@ -1693,7 +1694,47 @@ def dossier_procurement_delete(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any
     if not deleted:
         return problem_response(404, detail="Ítem de contratación no encontrado.", code="not_found")
     db.session.commit()
+    if isinstance(deleted, dict):
+        return deleted
     return {"deleted": True, "id": str(item_id)}
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>/refresh")
+@require_permission("opportunity.write")
+def dossier_procurement_refresh(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any:
+    """Re-fetch Signal snapshot for a pin; preserve pin id, links and evidence policy."""
+
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if dossier.status == "archived":
+        return problem_response(
+            422, detail="Un expediente archivado es de solo lectura.", code="domain_validation"
+        )
+    try:
+        item, evidence_meta = refresh_procurement_item(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            dossier_id=dossier.id,
+            item_id=item_id,
+            actor_id=current_user.id,
+        )
+        db.session.commit()
+        payload = serialize_procurement_item(item)
+        payload["refresh"] = evidence_meta
+        return payload
+    except ProcurementItemError as error:
+        db.session.rollback()
+        detail = str(error)
+        if "no encontrada" in detail.lower() or "no se encontró" in detail.lower():
+            return problem_response(404, detail=detail, code="not_found")
+        return problem_response(422, detail=detail, code="domain_validation")
+    except ProcurementConfigurationError as error:
+        db.session.rollback()
+        return problem_response(503, detail=str(error), code="procurement_not_configured")
+    except ProcurementProviderError as error:
+        db.session.rollback()
+        return problem_response(error.status_code, detail=error.detail, code=error.code)
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>/promote")

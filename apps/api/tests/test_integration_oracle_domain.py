@@ -3342,6 +3342,332 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
     assert replayed.get_json()["replayed"] is True
 
 
+def test_procurement_refresh_preserves_pin_links_and_rotates_uncited_evidence(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refresh updates snapshot/NIF without re-pin; rotates evidence only if extract changes."""
+
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Procurement refresh higiene")
+    dossier_id = uuid.UUID(dossier["id"])
+    state = {"phase": "initial"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/AWARD_REFRESH_1")
+        base = {
+            "folder_id": "AWARD_REFRESH_1",
+            "title": "Suministro plataforma IA",
+            "buyer": "Organismo demo",
+            "winner": "Capgemini España S.L",
+            "award_amount": "250000",
+            "award_date": "2026-06-23",
+            "cpv": ["48180000"],
+            "status": "ADJ",
+            "source_url": "https://contrataciondelestado.es/award/AWARD_REFRESH_1",
+        }
+        if state["phase"] == "with_nif":
+            base = {
+                **base,
+                "winner_identifier": "B08377715",
+                "tax_id": "B08377715",
+            }
+        elif state["phase"] == "title_change":
+            base = {
+                **base,
+                "title": "Suministro plataforma IA multiagente (actualizado)",
+                "winner_identifier": "B08377715",
+                "tax_id": "B08377715",
+            }
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"total": 1, "items": [base]},
+        )
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        transport = httpx.MockTransport(handler)
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        pinned, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="award",
+            folder_id="AWARD_REFRESH_1",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        pin_id = pinned.id
+        first_evidence_id = pinned.evidence_id
+        opportunity, promoted = procurement_items.promote_procurement_to_opportunity(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=pin_id,
+            actor_id=ids["user"],
+        )
+        assert promoted is True
+        linked_opp = opportunity.id
+        db.session.commit()
+        assert not (pinned.snapshot or {}).get("winner_identifier")
+
+        # NIF-only refresh: extract prose is unchanged (NIF not in extract), so evidence
+        # is reused; pin identity and opportunity link stay put.
+        state["phase"] = "with_nif"
+        refreshed, meta = procurement_items.refresh_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=pin_id,
+            actor_id=ids["user"],
+        )
+        db.session.commit()
+
+        assert refreshed.id == pin_id
+        assert refreshed.linked_opportunity_id == linked_opp
+        assert refreshed.folder_id == "AWARD_REFRESH_1"
+        assert refreshed.snapshot.get("winner_identifier") == "B08377715"
+        assert meta["evidence_rotated"] is False
+        assert refreshed.evidence_id == first_evidence_id
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], first_evidence_id, dossier_id),
+            )
+            is not None
+        )
+
+        # Title change alters the citable extract → new evidence version; old disposed
+        # under 098 (opportunity_evidence hard-ref keeps it as retained_uncitable).
+        state["phase"] = "title_change"
+        rotated, rot_meta = procurement_items.refresh_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=pin_id,
+            actor_id=ids["user"],
+        )
+        db.session.commit()
+
+        assert rotated.id == pin_id
+        assert rotated.linked_opportunity_id == linked_opp
+        assert "multiagente" in str(rotated.snapshot.get("title") or "")
+        assert rot_meta["evidence_rotated"] is True
+        assert rotated.evidence_id != first_evidence_id
+        assert rot_meta["previous_disposition"]["disposition"] == "retained_uncitable"
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], first_evidence_id, dossier_id),
+            )
+            is None
+        )
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], rotated.evidence_id, dossier_id),
+            )
+            is not None
+        )
+        # Historical opportunity citation is not rewritten.
+        assert opportunity.score_details["confidence"]["evidence_ids"] == [
+            str(first_evidence_id)
+        ]
+
+
+def test_procurement_delete_drops_uncited_evidence_keeps_cited(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unpin: uncited evidence is deleted; artifact-cited evidence is retained unlinked."""
+
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Procurement delete higiene")
+    dossier_id = uuid.UUID(dossier["id"])
+
+    def award_handler(folder_id: str, title: str) -> Any:
+        def handler(request: httpx.Request) -> httpx.Response:
+            del request
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "total": 1,
+                    "items": [
+                        {
+                            "folder_id": folder_id,
+                            "title": title,
+                            "buyer": "Organismo demo",
+                            "winner": "Empresa Demo SA",
+                            "winner_identifier": "A12345678",
+                            "award_amount": "1000",
+                            "award_date": "2026-01-01",
+                            "cpv": ["72000000"],
+                            "status": "ADJ",
+                            "source_url": f"https://contrataciondelestado.es/award/{folder_id}",
+                        }
+                    ],
+                },
+            )
+
+        return handler
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        # --- Uncited path ---
+        transport = httpx.MockTransport(award_handler("AWARD_DEL_UNCITED", "Sin citas"))
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        uncited, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="award",
+            folder_id="AWARD_DEL_UNCITED",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        uncited_id = uncited.id
+        uncited_evidence = uncited.evidence_id
+        db.session.commit()
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], uncited_evidence, dossier_id),
+            )
+            is not None
+        )
+
+        result = procurement_items.delete_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=uncited_id,
+        )
+        db.session.commit()
+        assert isinstance(result, dict)
+        assert result["evidence"]["disposition"] == "deleted"
+        assert db.session.get(Evidence, uncited_evidence) is None
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], uncited_evidence, dossier_id),
+            )
+            is None
+        )
+
+        # --- Cited path: evidence referenced by AI artifact output ---
+        transport = httpx.MockTransport(award_handler("AWARD_DEL_CITED", "Con citas"))
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        cited, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="award",
+            folder_id="AWARD_DEL_CITED",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        cited_id = cited.id
+        cited_evidence = cited.evidence_id
+        now = datetime.now(UTC)
+        digest = hashlib.sha256(b"cited-procurement-artifact").digest()
+        audit = AIAuditLog(
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            requested_by_user_id=ids["user"],
+            use_case="dossier_summary",
+            agent="dossier_situation_summary",
+            action="generate",
+            provider="mock",
+            model="mock-v1",
+            prompt_name="summary",
+            prompt_version="v1",
+            prompt_hash=digest,
+            context_hash=digest,
+            schema_name="DossierSituationSummary",
+            schema_version="v1",
+            input_hash=digest,
+            output_hash=digest,
+            source_ids=[str(cited_evidence)],
+            status="succeeded",
+            data_classification="internal",
+            redaction_applied=False,
+            redaction_summary={},
+            input_tokens=0,
+            output_tokens=0,
+            actual_cost_micros=0,
+            currency="EUR",
+            attempt_count=1,
+            started_at=now,
+            completed_at=now,
+            human_review_state="not_required",
+        )
+        db.session.add(audit)
+        db.session.flush()
+        artifact = AIArtifact(
+            tenant_id=ids["tenant_a"],
+            audit_log_id=audit.id,
+            dossier_id=dossier_id,
+            target_type="dossier",
+            target_id=dossier_id,
+            agent="dossier_situation_summary",
+            schema_name="DossierSituationSummary",
+            schema_version="v1",
+            output={
+                "facts": [
+                    {
+                        "statement": "Adjudicación citada históricamente.",
+                        "evidence_ids": [str(cited_evidence)],
+                    }
+                ]
+            },
+            output_hash=digest,
+            status="valid",
+            version=1,
+        )
+        db.session.add(artifact)
+        db.session.commit()
+
+        result = procurement_items.delete_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=cited_id,
+        )
+        db.session.commit()
+        assert isinstance(result, dict)
+        assert result["evidence"]["disposition"] == "retained_uncitable"
+        assert result["evidence"]["cited_by_artifacts"] is True
+        kept = db.session.get(Evidence, cited_evidence)
+        assert kept is not None
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], cited_evidence, dossier_id),
+            )
+            is None
+        )
+
+
 def test_tender_report_context_cites_pinned_procurement_evidence(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
     monkeypatch: pytest.MonkeyPatch,

@@ -7,19 +7,32 @@ import json
 import logging
 import math
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, cast
 
-from sqlalchemy import select
+from sqlalchemy import Text, delete, select
+from sqlalchemy import cast as sa_cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from opn_oracle.ai.models import AIArtifact, AIContextEvidence
 from opn_oracle.integrations.procurement import (
     ProcurementProviderError,
     procurement_client_from_config,
 )
-from opn_oracle.oracle.links import EvidenceDossier, OpportunityEvidence
+from opn_oracle.oracle.links import (
+    DecisionEvidence,
+    DossierActorEvidence,
+    EvidenceDossier,
+    HypothesisEvidence,
+    InsightEvidence,
+    MeetingEvidence,
+    OpportunityEvidence,
+    RelationshipEvidence,
+    ReportEvidence,
+    RiskEvidence,
+)
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Opportunity
 from opn_oracle.platform.audit import append_audit_event
 
@@ -646,13 +659,143 @@ def list_procurement_items(
     )
 
 
+def _evidence_cited_by_artifacts(
+    session: Session, *, tenant_id: uuid.UUID, evidence_id: uuid.UUID
+) -> bool:
+    """True when any AI artifact output still references this evidence UUID."""
+
+    token = str(evidence_id)
+    # Artifacts store evidence_ids inside nested JSON; a text containment check is
+    # enough to preserve historical claim resolution without rewriting outputs.
+    return (
+        session.scalar(
+            select(AIArtifact.id)
+            .where(
+                AIArtifact.tenant_id == tenant_id,
+                sa_cast(AIArtifact.output, Text).like(f"%{token}%"),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _evidence_has_hard_refs(
+    session: Session, *, tenant_id: uuid.UUID, evidence_id: uuid.UUID
+) -> bool:
+    """True when product rows still need the Evidence row (joins / other pins)."""
+
+    join_tables = (
+        EvidenceDossier,
+        OpportunityEvidence,
+        HypothesisEvidence,
+        RiskEvidence,
+        ReportEvidence,
+        DecisionEvidence,
+        InsightEvidence,
+        MeetingEvidence,
+        RelationshipEvidence,
+        DossierActorEvidence,
+        AIContextEvidence,
+    )
+    for model in join_tables:
+        if (
+            session.scalar(
+                select(model.evidence_id)
+                .where(
+                    model.tenant_id == tenant_id,
+                    model.evidence_id == evidence_id,
+                )
+                .limit(1)
+            )
+            is not None
+        ):
+            return True
+    return (
+        session.scalar(
+            select(DossierProcurementItem.id)
+            .where(
+                DossierProcurementItem.tenant_id == tenant_id,
+                DossierProcurementItem.evidence_id == evidence_id,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def dispose_procurement_evidence(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Detach pin evidence from the dossier; drop only if uncited (098 rule).
+
+    - Always unlinks ``evidence_dossiers`` for this dossier so future agent
+      context cannot cite it.
+    - Clears ``ai_context_evidence`` for the same triple first (RESTRICT FK).
+    - If the Evidence row is still referenced by artifacts or other product
+      joins, the row is kept (historical citations remain resolvable).
+    - If nothing else needs it, the Evidence row is deleted.
+    """
+
+    session.execute(
+        delete(AIContextEvidence).where(
+            AIContextEvidence.tenant_id == tenant_id,
+            AIContextEvidence.dossier_id == dossier_id,
+            AIContextEvidence.evidence_id == evidence_id,
+        )
+    )
+    session.execute(
+        delete(EvidenceDossier).where(
+            EvidenceDossier.tenant_id == tenant_id,
+            EvidenceDossier.dossier_id == dossier_id,
+            EvidenceDossier.evidence_id == evidence_id,
+        )
+    )
+    session.flush()
+
+    cited = _evidence_cited_by_artifacts(
+        session, tenant_id=tenant_id, evidence_id=evidence_id
+    )
+    hard_refs = _evidence_has_hard_refs(
+        session, tenant_id=tenant_id, evidence_id=evidence_id
+    )
+    if cited or hard_refs:
+        return {
+            "evidence_id": str(evidence_id),
+            "disposition": "retained_uncitable",
+            "cited_by_artifacts": cited,
+            "hard_refs": hard_refs,
+        }
+
+    evidence = session.get(Evidence, evidence_id)
+    if evidence is not None and evidence.tenant_id == tenant_id:
+        session.delete(evidence)
+        session.flush()
+        return {
+            "evidence_id": str(evidence_id),
+            "disposition": "deleted",
+            "cited_by_artifacts": False,
+            "hard_refs": False,
+        }
+    return {
+        "evidence_id": str(evidence_id),
+        "disposition": "missing",
+        "cited_by_artifacts": False,
+        "hard_refs": False,
+    }
+
+
 def delete_procurement_item(
     session: Session,
     *,
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
     item_id: uuid.UUID,
-) -> bool:
+) -> bool | dict[str, Any]:
     item = session.scalar(
         select(DossierProcurementItem).where(
             DossierProcurementItem.id == item_id,
@@ -662,7 +805,17 @@ def delete_procurement_item(
     )
     if item is None:
         return False
+    evidence_id = item.evidence_id
+    kind = item.kind
+    folder_id = item.folder_id
     session.delete(item)
+    session.flush()
+    evidence_result = dispose_procurement_evidence(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        evidence_id=evidence_id,
+    )
     append_audit_event(
         session,
         action="procurement.unpinned",
@@ -670,9 +823,150 @@ def delete_procurement_item(
         resource_id=item_id,
         dossier_id=dossier_id,
         result="success",
-        metadata={"kind": item.kind, "folder_id": item.folder_id},
+        metadata={
+            "kind": kind,
+            "folder_id": folder_id,
+            "evidence": evidence_result,
+        },
     )
-    return True
+    return {
+        "deleted": True,
+        "id": str(item_id),
+        "evidence": evidence_result,
+    }
+
+
+def refresh_procurement_item(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    item_id: uuid.UUID,
+    actor_id: uuid.UUID | None = None,
+) -> tuple[DossierProcurementItem, dict[str, Any]]:
+    """Re-fetch Signal snapshot for a pin without changing its identity.
+
+    Preserves pin id, ``linked_opportunity_id`` and (when extract unchanged)
+    the existing evidence id. When the citable extract changes, creates a new
+    Evidence version and disposes the previous one under the 098 rule
+    (cited → keep unlinked; uncited → delete).
+    """
+
+    del actor_id  # reserved for future audit actor attribution
+    item = session.scalar(
+        select(DossierProcurementItem)
+        .where(
+            DossierProcurementItem.id == item_id,
+            DossierProcurementItem.tenant_id == tenant_id,
+            DossierProcurementItem.dossier_id == dossier_id,
+        )
+        .with_for_update()
+    )
+    if item is None:
+        raise ProcurementItemError("Referencia de contratación no encontrada.")
+
+    normalized_kind = cast(ProcurementKind, item.kind)
+    previous_evidence_id = item.evidence_id
+    previous_linked = item.linked_opportunity_id
+    snapshot = resolve_procurement_snapshot(normalized_kind, item.folder_id)
+    extract = procurement_evidence_extract(snapshot)
+    new_checksum = _checksum(extract)
+    new_source_url = _source_url(snapshot)
+    snapshot_sha = hashlib.sha256(_canonical(snapshot)).hexdigest()
+
+    item.snapshot = snapshot
+    item.source_url = new_source_url
+
+    evidence_meta: dict[str, Any] = {
+        "previous_evidence_id": str(previous_evidence_id),
+        "evidence_rotated": False,
+        "previous_disposition": None,
+    }
+
+    previous_evidence = session.get(Evidence, previous_evidence_id)
+    same_content = (
+        previous_evidence is not None
+        and previous_evidence.tenant_id == tenant_id
+        and previous_evidence.checksum == new_checksum
+    )
+    if same_content and previous_evidence is not None:
+        # Snapshot fields may change without altering the citable extract (e.g. NIF
+        # added to structured snapshot but extract still has the same prose). Update
+        # provenance pointers only — never mutate extract/checksum of an existing row.
+        provenance = dict(previous_evidence.provenance or {})
+        provenance["snapshot_sha256"] = snapshot_sha
+        provenance["refreshed_at"] = datetime.now(UTC).isoformat()
+        previous_evidence.provenance = provenance
+        if new_source_url and previous_evidence.source_url != new_source_url:
+            previous_evidence.source_url = new_source_url
+        evidence_meta["current_evidence_id"] = str(previous_evidence_id)
+    else:
+        new_evidence = Evidence(
+            tenant_id=tenant_id,
+            source_kind="procurement",
+            source_url=new_source_url,
+            extract=extract[:20000],
+            locator={
+                "kind": "placsp_procurement",
+                "procurement_kind": normalized_kind,
+                "folder_id": item.folder_id,
+                "source_url": new_source_url,
+            },
+            checksum=new_checksum,
+            classification="internal",
+            provenance={
+                "source_kind": "procurement",
+                "procurement_kind": normalized_kind,
+                "folder_id": item.folder_id,
+                "snapshot_sha256": snapshot_sha,
+                "supersedes_evidence_id": str(previous_evidence_id),
+            },
+        )
+        session.add(new_evidence)
+        session.flush()
+        item.evidence_id = new_evidence.id
+        session.add(
+            EvidenceDossier(
+                tenant_id=tenant_id,
+                evidence_id=new_evidence.id,
+                dossier_id=dossier_id,
+            )
+        )
+        session.flush()
+        previous_disposition = dispose_procurement_evidence(
+            session,
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            evidence_id=previous_evidence_id,
+        )
+        evidence_meta.update(
+            {
+                "current_evidence_id": str(new_evidence.id),
+                "evidence_rotated": True,
+                "previous_disposition": previous_disposition,
+            }
+        )
+
+    # Identity invariants: pin id and opportunity link must not change on refresh.
+    assert item.linked_opportunity_id == previous_linked
+
+    append_audit_event(
+        session,
+        action="procurement.refreshed",
+        resource_type="dossier_procurement_item",
+        resource_id=item.id,
+        dossier_id=dossier_id,
+        result="success",
+        metadata={
+            "kind": item.kind,
+            "folder_id": item.folder_id,
+            "evidence": evidence_meta,
+            "linked_opportunity_id": (
+                str(item.linked_opportunity_id) if item.linked_opportunity_id else None
+            ),
+        },
+    )
+    return item, evidence_meta
 
 
 def _snapshot_deadline(snapshot: dict[str, Any]) -> date | None:

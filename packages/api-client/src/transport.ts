@@ -2758,9 +2758,37 @@ const dossierProcurement = {
       { method: "POST", body: input },
     ),
   remove: (dossierId: string, itemId: string) =>
-    request<{ deleted: boolean; id: string }>(
+    request<{
+      deleted: boolean;
+      id: string;
+      evidence?: {
+        evidence_id: string;
+        disposition: string;
+        cited_by_artifacts: boolean;
+        hard_refs: boolean;
+      };
+    }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}`,
       { method: "DELETE" },
+    ),
+  refresh: (dossierId: string, itemId: string) =>
+    request<
+      DossierProcurementItem & {
+        refresh?: {
+          previous_evidence_id: string;
+          current_evidence_id?: string;
+          evidence_rotated: boolean;
+          previous_disposition?: {
+            evidence_id: string;
+            disposition: string;
+            cited_by_artifacts: boolean;
+            hard_refs: boolean;
+          } | null;
+        };
+      }
+    >(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}/refresh`,
+      { method: "POST" },
     ),
   promote: (dossierId: string, itemId: string) =>
     request<{ opportunity: OracleOpportunity; replayed: boolean }>(

@@ -1956,6 +1956,122 @@ def test_dossier_procurement_routes_pin_list_delete_and_replay(
     assert deleted == {"deleted": True, "id": str(item_id)}
 
 
+@pytest.mark.unit
+def test_dossier_procurement_refresh_route_preserves_identity(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    linked_opp = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        email="writer@example.com",
+        display_name="Writer",
+        status="active",
+    )
+    pinned = _FakePinnedItem(item_id=item_id, tenant_id=tenant_id, dossier_id=dossier_id)
+    pinned.linked_opportunity_id = linked_opp
+    pinned.evidence_id = evidence_id
+    pinned.snapshot = {
+        "kind": "award",
+        "folder_id": "P_6_26",
+        "winner_identifier": "B08377715",
+    }
+    refresh_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset({"opportunity.write"}),
+    )
+    monkeypatch.setattr(
+        oracle_routes,
+        "_dossier_or_404",
+        lambda value, write=False: _FakeDossier(value),
+    )
+
+    def fake_refresh(session: Any, **kwargs: Any) -> tuple[_FakePinnedItem, dict[str, Any]]:
+        del session
+        refresh_calls.append(kwargs)
+        return pinned, {
+            "previous_evidence_id": str(evidence_id),
+            "current_evidence_id": str(evidence_id),
+            "evidence_rotated": False,
+            "previous_disposition": None,
+        }
+
+    monkeypatch.setattr(oracle_routes, "refresh_procurement_item", fake_refresh)
+
+    with app.test_request_context(
+        f"/api/v1/dossiers/{dossier_id}/procurement/{item_id}/refresh",
+        method="POST",
+    ):
+        login_user(user)
+        g.active_tenant_id = tenant_id
+        response = oracle_routes.dossier_procurement_refresh(dossier_id, item_id)
+
+    assert response["id"] == str(item_id)
+    assert response["linked_opportunity_id"] == str(linked_opp)
+    assert response["evidence_id"] == str(evidence_id)
+    assert response["snapshot"]["winner_identifier"] == "B08377715"
+    assert response["refresh"]["evidence_rotated"] is False
+    assert refresh_calls[0]["item_id"] == item_id
+    assert refresh_calls[0]["tenant_id"] == tenant_id
+
+
+@pytest.mark.unit
+def test_dossier_procurement_delete_route_returns_evidence_disposition(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        email="writer@example.com",
+        display_name="Writer",
+        status="active",
+    )
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset({"opportunity.write"}),
+    )
+    monkeypatch.setattr(
+        oracle_routes,
+        "_dossier_or_404",
+        lambda value, write=False: _FakeDossier(value),
+    )
+    monkeypatch.setattr(
+        oracle_routes,
+        "delete_procurement_item",
+        lambda session, **kwargs: {
+            "deleted": True,
+            "id": str(item_id),
+            "evidence": {
+                "evidence_id": str(evidence_id),
+                "disposition": "deleted",
+                "cited_by_artifacts": False,
+                "hard_refs": False,
+            },
+        },
+    )
+
+    with app.test_request_context(
+        f"/api/v1/dossiers/{dossier_id}/procurement/{item_id}", method="DELETE"
+    ):
+        login_user(user)
+        g.active_tenant_id = tenant_id
+        deleted = oracle_routes.dossier_procurement_delete(dossier_id, item_id)
+    assert deleted["deleted"] is True
+    assert deleted["evidence"]["disposition"] == "deleted"
+
+
 def test_snapshot_deadline_parses_iso_date_and_datetime() -> None:
     from datetime import date
 
