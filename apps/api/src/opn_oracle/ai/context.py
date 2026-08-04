@@ -1485,10 +1485,19 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
         for item in evidence_payload
         if pliego_evidence_richness(str(item.get("extract") or "")) >= 4
     ]
+    # Manifest must list the same evidence rows as BuiltContext.evidence — AIContextEvidence
+    # looks up evidence_hashes[id] for every selected row (KeyError if out of sync).
+    selected_ids = [str(row.id) for row in selected_rows]
+    selected_hashes = {
+        str(row.id): row.checksum.hex() if row.checksum else hashlib.sha256(b"").hexdigest()
+        for row in selected_rows
+    }
     return BuiltContext(
         payload=cast(dict[str, Any], json.loads(encoded.decode())),
-        manifest=base.manifest
-        | {
+        manifest={
+            **base.manifest,
+            "evidence_ids": selected_ids,
+            "evidence_hashes": selected_hashes,
             "analysis_kind": "opportunity",
             "declared_evidence_ids": declared_ids,
             "declared_evidence_fields": [
