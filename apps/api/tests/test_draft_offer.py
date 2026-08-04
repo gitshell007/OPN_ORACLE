@@ -16,7 +16,6 @@ from opn_oracle.ai.draft_offer import (
 from opn_oracle.ai.fit_scoring import score_profile_tender_fit
 from opn_oracle.ai.schemas import OpportunityAnalysisOutput
 
-
 # Extracto PCAP con criterios 65/60 (lo que recupera el 132) + F.2/F.3 + lotes.
 BALEARES_EXTRACT = """
 EXTRACTO DEL PCAP · CONTR 2026 11077 · Baleares · Red de agentes inteligentes
@@ -95,9 +94,7 @@ def _baleares_official(eid: uuid.UUID | None = None) -> list[dict]:
     ]
 
 
-def _score_fit(
-    dossier_id: uuid.UUID, official_id: uuid.UUID
-) -> tuple[dict, dict[str, str]]:
+def _score_fit(dossier_id: uuid.UUID, official_id: uuid.UUID) -> tuple[dict, dict[str, str]]:
     declared = _nexus_declared_fields(dossier_id)
     scored = score_profile_tender_fit(
         profile=NEXUS_PROFILE,
@@ -143,9 +140,7 @@ def test_nexus_baleares_draft_has_sections_gaps_checklist() -> None:
     for sec in sections:
         assert "[oficial]" in sec["requirement"]
         assert sec["requirement_origin"] == "official"
-        assert str(official_id) in sec["official_evidence_ids"] or sec[
-            "official_evidence_ids"
-        ]
+        assert str(official_id) in sec["official_evidence_ids"] or sec["official_evidence_ids"]
         assert "[borrador declarado" in sec["our_response_draft"]
         assert sec["response_origin"] == "declared_generated"
         # No se presenta como hecho
@@ -158,7 +153,9 @@ def test_nexus_baleares_draft_has_sections_gaps_checklist() -> None:
     assert "f.2" in gap_blob or "volumen" in gap_blob or "1,5" in gap_blob
     assert "f.3" in gap_blob or "certific" in gap_blob or "tres" in gap_blob
     gap_codes = {g["code"] for g in draft["gaps"]}
-    assert "f2_volume" in gap_codes or any("volumen" in g["description"].casefold() for g in draft["gaps"])
+    assert "f2_volume" in gap_codes or any(
+        "volumen" in g["description"].casefold() for g in draft["gaps"]
+    )
     assert "f3_certificates" in gap_codes or any(
         "f.3" in g["description"].casefold() or "certific" in g["description"].casefold()
         for g in draft["gaps"]
@@ -212,7 +209,9 @@ def test_enrich_attaches_draft_and_schema_roundtrip() -> None:
         "declared_evidence": [
             {
                 "id": declared["own_offer"],
-                "extract": f"[Declarado por el cliente] Oferta propia: {NEXUS_PROFILE['own_offer']}",
+                "extract": (
+                    f"[Declarado por el cliente] Oferta propia: {NEXUS_PROFILE['own_offer']}"
+                ),
                 "source_kind": "declared",
                 "locator": {"field": "own_offer"},
             },

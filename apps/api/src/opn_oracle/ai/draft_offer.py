@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from opn_oracle.ai.fit_scoring import (
@@ -69,7 +69,7 @@ _SOLVENCY_F3 = re.compile(
     re.IGNORECASE,
 )
 _LOT_LINE = re.compile(
-    r"Lote\s*(\d+)\s*[:.\-–—]\s*([^\n;|/]{3,80}?)(?=\s*/\s*Lote\s*\d|\s*\)\s*$|$|\n)",
+    r"Lote\s*(\d+)\s*[:.\-\u2013\u2014]\s*([^\n;|/]{3,80}?)(?=\s*/\s*Lote\s*\d|\s*\)\s*$|$|\n)",
     re.IGNORECASE,
 )
 _DEUC = re.compile(r"\bDEUC\b|Documento\s+Europeo\s+[UÚ]nico", re.IGNORECASE)
@@ -82,7 +82,7 @@ _SOBRE = re.compile(r"\bsobre\s*[A-C]\b|sobres?\s+de\s+la\s+oferta", re.IGNORECA
 
 def _as_of(value: date | datetime | None) -> date:
     if value is None:
-        return datetime.now(timezone.utc).date()
+        return datetime.now(UTC).date()
     if isinstance(value, datetime):
         return value.date()
     return value
@@ -108,7 +108,7 @@ def _lot_hint_from_fit(fit: dict[str, Any], corpus: str) -> str | None:
             continue
         bag = f"{dim.get('capability') or ''} {dim.get('status_reason') or ''}"
         m = re.search(
-            r"Lote\s*2(?:\s*[:.\-–—]\s*|\s*\(\s*)([^\n;.)]{3,80})",
+            r"Lote\s*2(?:\s*[:.\-\u2013\u2014]\s*|\s*\(\s*)([^\n;.)]{3,80})",
             bag,
             re.IGNORECASE,
         )
@@ -120,7 +120,7 @@ def _lot_hint_from_fit(fit: dict[str, Any], corpus: str) -> str | None:
     lots = _LOT_LINE.findall(corpus)
     if not lots:
         return None
-    # Prefer lote 2 if present (demo canónica Nexus × Baleares).
+    # Prefer lote 2 if present (demo canonica Nexus x Baleares).
     for num, title in lots:
         if str(num) == "2":
             return f"Lote {num}: {title.strip()}"[:120]
@@ -162,7 +162,13 @@ def _gaps_from_verdict(fit: dict[str, Any]) -> list[dict[str, Any]]:
             _add("f2_volume", text, "blocking")
         elif "f.3" in low or "certificado" in low or "tres años" in low or "tres anos" in low:
             _add("f3_certificates", text, "blocking")
-        elif "deadline" in low or "plazo" in low or "presentar" in low or "reacción" in low or "reaccion" in low:
+        elif (
+            "deadline" in low
+            or "plazo" in low
+            or "presentar" in low
+            or "reacción" in low
+            or "reaccion" in low
+        ):
             _add("deadline_capacity", text, "important")
         elif "cpv" in low:
             _add("cpv_confirm", text, "info")
@@ -186,7 +192,11 @@ def _gaps_from_verdict(fit: dict[str, Any]) -> list[dict[str, Any]]:
                     reason or "F.2: volumen anual no declarado / no evaluable.",
                     "blocking",
                 )
-            if "F.3" in reason or "certific" in reason.casefold() or "servicios" in reason.casefold():
+            if (
+                "F.3" in reason
+                or "certific" in reason.casefold()
+                or "servicios" in reason.casefold()
+            ):
                 _add(
                     "f3_certificates",
                     reason or "F.3: servicios/certificados no declarados / no evaluable.",
@@ -277,9 +287,8 @@ def _seed_response(
             + " Confirmar alcance por lote y exclusiones del PPT."
         )
     else:
-        body = (
-            f"Semilla genérica de respuesta para la sección «{section_key}». "
-            + (f"Oferta declarada: «{own[:200]}»." if own else "Completar con material del perfil.")
+        body = f"Semilla genérica de respuesta para la sección «{section_key}». " + (
+            f"Oferta declarada: «{own[:200]}»." if own else "Completar con material del perfil."
         )
 
     return f"{_RESPONSE_TAG} {body} Edición humana obligatoria antes de presentar."[:2000]
@@ -306,23 +315,21 @@ def _extract_award_sections(
         ),
     )
     if not criteria_ids:
-        criteria_ids = [
-            str(item.get("id"))
-            for item in official_evidence
-            if item.get("id")
-        ][:4]
+        criteria_ids = [str(item.get("id")) for item in official_evidence if item.get("id")][:4]
 
-    solvency_ids = _official_ids_matching(
-        official_evidence, re.compile(r"F\.?\s*[23]|solvencia", re.IGNORECASE)
-    ) or criteria_ids
-    lot_ids = _official_ids_matching(
-        official_evidence, re.compile(r"Lote\s*\d+", re.IGNORECASE)
-    ) or criteria_ids
+    solvency_ids = (
+        _official_ids_matching(
+            official_evidence, re.compile(r"F\.?\s*[23]|solvencia", re.IGNORECASE)
+        )
+        or criteria_ids
+    )
+    lot_ids = (
+        _official_ids_matching(official_evidence, re.compile(r"Lote\s*\d+", re.IGNORECASE))
+        or criteria_ids
+    )
 
     declared_ids = [
-        eid
-        for field in ("own_offer", "cpv", "barriers")
-        if (eid := declared_by_field.get(field))
+        eid for field in ("own_offer", "cpv", "barriers") if (eid := declared_by_field.get(field))
     ]
 
     has_criteria = bool(
@@ -335,9 +342,8 @@ def _extract_award_sections(
     # --- 1. Oferta económica (fórmulas) ---
     econ_snip = _snippet(corpus, _CRITERIA_ECON) or _snippet(corpus, _POINTS_65)
     if has_criteria or econ_snip:
-        req = (
-            f"{_OFFICIAL_TAG} Criterios evaluables mediante fórmulas (oferta económica). "
-            + (f"Extracto: «{econ_snip}»." if econ_snip else "Ver PCAP de adjudicación.")
+        req = f"{_OFFICIAL_TAG} Criterios evaluables mediante fórmulas (oferta económica). " + (
+            f"Extracto: «{econ_snip}»." if econ_snip else "Ver PCAP de adjudicación."
         )
         if _POINTS_65.search(corpus) or _POINTS_60.search(corpus):
             req += (
@@ -345,9 +351,7 @@ def _extract_award_sections(
                 "porcentuales sobre la media (varios licitadores) respecto al otro criterio."
             )
         gap_msgs = [
-            g["description"]
-            for g in gaps
-            if g.get("code") in {"f2_volume", "deadline_capacity"}
+            g["description"] for g in gaps if g.get("code") in {"f2_volume", "deadline_capacity"}
         ]
         sections.append(
             {
@@ -406,15 +410,12 @@ def _extract_award_sections(
         snip_65 = _snippet(corpus, _POINTS_65, window=280) or _snippet(
             corpus, _POINTS_60, window=280
         )
-        req = (
-            f"{_OFFICIAL_TAG} Umbrales de puntuación del PCAP (65 / 60 puntos). "
-            + (
-                f"Extracto: «{snip_65}»."
-                if snip_65
-                else (
-                    "Si un único licitador: el otro criterio > 65 puntos; si varios: "
-                    "superior en 60 puntos porcentuales a la media del criterio no económico."
-                )
+        req = f"{_OFFICIAL_TAG} Umbrales de puntuación del PCAP (65 / 60 puntos). " + (
+            f"Extracto: «{snip_65}»."
+            if snip_65
+            else (
+                "Si un único licitador: el otro criterio > 65 puntos; si varios: "
+                "superior en 60 puntos porcentuales a la media del criterio no económico."
             )
         )
         sections.append(
@@ -434,7 +435,10 @@ def _extract_award_sections(
                 "response_origin": "declared_generated",
                 "declared_evidence_ids": declared_ids[:4],
                 "gaps": [
-                    "Validar con el equipo si la estrategia de puntos técnicos supera umbrales del PCAP."
+                    (
+                        "Validar con el equipo si la estrategia de puntos "
+                        "tecnicos supera umbrales del PCAP."
+                    )
                 ],
             }
         )
@@ -483,11 +487,7 @@ def _extract_award_sections(
         req = (
             f"{_OFFICIAL_TAG} Objeto y lotes del expediente. "
             + (f"Extracto: «{lot_snip}»." if lot_snip else "")
-            + (
-                f" Recomendación de encaje: {lot_hint}."
-                if lot_hint
-                else ""
-            )
+            + (f" Recomendación de encaje: {lot_hint}." if lot_hint else "")
         )
         sections.append(
             {
@@ -506,9 +506,7 @@ def _extract_award_sections(
                 "response_origin": "declared_generated",
                 "declared_evidence_ids": declared_ids[:4],
                 "gaps": [
-                    g["description"]
-                    for g in gaps
-                    if g.get("code") in {"lot_ute", "cpv_confirm"}
+                    g["description"] for g in gaps if g.get("code") in {"lot_ute", "cpv_confirm"}
                 ][:4],
             }
         )
@@ -516,9 +514,10 @@ def _extract_award_sections(
     # Fallback mínimo si el extracto no trae criterios literales: 3 secciones
     # genéricas ancladas al pliego primario para no devolver esqueleto vacío.
     if len(sections) < 3 and official_evidence:
-        generic_ids = criteria_ids or [
-            str(item.get("id")) for item in official_evidence if item.get("id")
-        ][:4]
+        generic_ids = (
+            criteria_ids
+            or [str(item.get("id")) for item in official_evidence if item.get("id")][:4]
+        )
         for key, title, hint in (
             (
                 "award_economic",
@@ -610,7 +609,10 @@ def _admin_checklist(
         item(
             "solvencia_f2",
             "Acreditación solvencia económica (F.2)",
-            "Volumen anual de negocio ≥ 1,5× valor estimado (año de mayor volumen de los tres últimos).",
+            (
+                "Volumen anual de negocio >= 1,5x valor estimado "
+                "(ano de mayor volumen de los tres ultimos)."
+            ),
             status="blocked" if "f2_volume" in gap_codes else "pending",
         ),
         item(
@@ -657,8 +659,7 @@ def _build_statement(
         f"«{_HUMAN_GATE}».",
         f"Secciones desde criterios del PCAP: {len(sections)} "
         f"({', '.join(s['title'] for s in sections[:6])}).",
-        f"Gaps heredados del veredicto: {len(gaps)} "
-        f"(F.2/F.3/plazo u otros).",
+        f"Gaps heredados del veredicto: {len(gaps)} (F.2/F.3/plazo u otros).",
         _BANNER,
         "Origen: semilla desde perfil declarado + requisitos oficiales del pliego. "
         "No contamina facts oficiales del análisis (frontera 095).",
@@ -679,8 +680,6 @@ def build_draft_offer(
     Requires ``fit_assessment.verdict`` (puerta humana del 133 heredada).
     """
 
-    if not isinstance(fit_assessment, dict):
-        return None
     verdict = fit_assessment.get("verdict")
     if not isinstance(verdict, dict):
         return None
@@ -696,10 +695,7 @@ def build_draft_offer(
         or _tender_ref(corpus)
         or _tender_ref(_all_official_text(official_evidence))
     )
-    if isinstance(tender_ref, str):
-        tender_ref = tender_ref.strip() or None
-    else:
-        tender_ref = None
+    tender_ref = tender_ref.strip() or None if isinstance(tender_ref, str) else None
 
     lot_hint = _lot_hint_from_fit(fit_assessment, corpus)
     gaps = _gaps_from_verdict(fit_assessment)

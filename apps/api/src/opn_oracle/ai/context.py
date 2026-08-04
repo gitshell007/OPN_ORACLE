@@ -412,12 +412,10 @@ def _is_opportunity_pliego_materialization(row: Evidence) -> bool:
         "opportunity_pliego",
     }:
         return True
-    if loc.get("materialized_for") in {
+    return loc.get("materialized_for") in {
         "sv2_e2e_vivo_opportunity",
         "opportunity_pliego",
-    }:
-        return True
-    return False
+    }
 
 
 def diversify_evidence_by_source_kind(
@@ -562,9 +560,7 @@ def build_context(
     # (load_opportunity_pliego_evidence_rows). Keep them out of the generic bag
     # so Preguntar is not flooded with PCAP chunks for every question.
     evidence_candidates = [
-        row
-        for row in evidence_candidates
-        if not _is_opportunity_pliego_materialization(row)
+        row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
     ]
     evidence_rows = diversify_evidence_by_source_kind(
         evidence_candidates, limit=50, max_per_kind=15
@@ -1141,9 +1137,7 @@ def _analysis_candidate_seed(
 # del bag o sepultado por el portfolio. Opportunity necesita esos chunks para el
 # motor de encaje/borrador.
 
-_PLIEGO_DOC_NAME = re.compile(
-    r"(?i)(pcap|ppt|pliego|extracto|oferta.?contr|prescripciones)"
-)
+_PLIEGO_DOC_NAME = re.compile(r"(?i)(pcap|ppt|pliego|extracto|oferta.?contr|prescripciones)")
 _PLIEGO_CHUNK_SIGNAL = re.compile(
     r"(?i)("
     r"CRITERIOS\s+DE\s+ADJUDICACI|"
@@ -1164,9 +1158,7 @@ _PLIEGO_CHUNK_SIGNAL = re.compile(
 _PLIEGO_FAMILY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "criteria",
-        re.compile(
-            r"(?i)CRITERIOS\s+DE\s+ADJUDICACI|65\s*puntos|60\s*puntos|juicio\s+de\s+valor"
-        ),
+        re.compile(r"(?i)CRITERIOS\s+DE\s+ADJUDICACI|65\s*puntos|60\s*puntos|juicio\s+de\s+valor"),
     ),
     ("f2", re.compile(r"(?i)F\.?\s*2|volumen\s+anual\s+de\s+negocio|solvencia\s+econ")),
     (
@@ -1264,9 +1256,7 @@ def rank_opportunity_evidence_items(
             continue
         family = pliego_evidence_family(extract)
         family_count = sum(
-            1
-            for s in selected
-            if pliego_evidence_family(str(s.get("extract") or "")) == family
+            1 for s in selected if pliego_evidence_family(str(s.get("extract") or "")) == family
         )
         if family_count >= 2 and family != "other":
             continue
@@ -1399,9 +1389,7 @@ def materialize_pliego_document_evidence(
             db.session.add(evidence)
             db.session.flush()
             db.session.add(
-                EvidenceDossier(
-                    tenant_id=tenant_id, evidence_id=evidence.id, dossier_id=dossier_id
-                )
+                EvidenceDossier(tenant_id=tenant_id, evidence_id=evidence.id, dossier_id=dossier_id)
             )
             created.append(evidence)
             existing_chunk_ids.add(chunk.id)
@@ -1482,7 +1470,7 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
     # Materialize document evidence from ready pliego uploads (idempotent).
     try:
         materialize_pliego_document_evidence(dossier_id)
-    except Exception:  # noqa: BLE001 — never block opportunity on materialization
+    except Exception:
         db.session.rollback()
 
     base = build_context(dossier_id, max_tokens=max_tokens, include_living_summary=False)
@@ -1739,9 +1727,7 @@ def validate_opportunity_origin_boundary(
                         "recommendation": rec,
                         "human_gate": "awaiting_user_confirmation",
                         "conditions": [
-                            str(c)
-                            for c in (raw_verdict.get("conditions") or [])
-                            if str(c).strip()
+                            str(c) for c in (raw_verdict.get("conditions") or []) if str(c).strip()
                         ][:12],
                     }
             result["fit_assessment"] = cleaned_fit
@@ -1756,8 +1742,7 @@ def validate_opportunity_origin_boundary(
         if not fit_ok:
             result["draft_offer"] = None
             warnings.append(
-                "draft_offer omitido: requiere fit_assessment.verdict "
-                "(puerta humana del encaje)."
+                "draft_offer omitido: requiere fit_assessment.verdict (puerta humana del encaje)."
             )
         else:
             draft_declared = [

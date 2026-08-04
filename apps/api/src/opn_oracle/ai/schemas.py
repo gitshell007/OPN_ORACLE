@@ -433,9 +433,7 @@ class OpportunityAnalysisOutput(AgentOutput):
         if not isinstance(value, dict):
             return value
         fit = value.get("fit_assessment")
-        if fit in (None, "", {}, []):
-            value["fit_assessment"] = None
-        elif not isinstance(fit, dict):
+        if fit in (None, "", {}, []) or not isinstance(fit, dict):
             value["fit_assessment"] = None
         else:
             statement = str(fit.get("statement") or "").strip()
@@ -455,9 +453,7 @@ class OpportunityAnalysisOutput(AgentOutput):
                     "scoring_engine",
                     "scored_as_of",
                 }
-                cleaned: dict[str, Any] = {
-                    key: fit[key] for key in allowed_keys if key in fit
-                }
+                cleaned: dict[str, Any] = {key: fit[key] for key in allowed_keys if key in fit}
                 cleaned["statement"] = statement[:4000]
                 cleaned["declared_evidence_ids"] = declared
                 # Normalizar origin desconocido al canónico declarado.
@@ -532,9 +528,7 @@ class OpportunityAnalysisOutput(AgentOutput):
 
                 for opt in ("tender_ref", "scoring_engine", "scored_as_of"):
                     if opt in cleaned and cleaned[opt] is not None:
-                        cleaned[opt] = str(cleaned[opt])[
-                            :200 if opt == "tender_ref" else 80
-                        ]
+                        cleaned[opt] = str(cleaned[opt])[: 200 if opt == "tender_ref" else 80]
 
                 value["fit_assessment"] = cleaned
 
@@ -568,15 +562,14 @@ class OpportunityAnalysisOutput(AgentOutput):
             key = str(sec.get("key") or title or "section").strip()[:80]
             if not (title and req and resp and key):
                 continue
-            gaps_raw = sec.get("gaps") if isinstance(sec.get("gaps"), list) else []
+            sec_gaps_candidate = sec.get("gaps")
+            sec_gaps: list[Any] = sec_gaps_candidate if isinstance(sec_gaps_candidate, list) else []
             good_sections.append(
                 {
                     "key": key,
                     "title": title[:300],
                     "points_hint": (
-                        str(sec.get("points_hint"))[:200]
-                        if sec.get("points_hint")
-                        else None
+                        str(sec.get("points_hint"))[:200] if sec.get("points_hint") else None
                     ),
                     "requirement": req[:2000],
                     "requirement_origin": "official",
@@ -588,7 +581,7 @@ class OpportunityAnalysisOutput(AgentOutput):
                     "declared_evidence_ids": sec.get("declared_evidence_ids")
                     if isinstance(sec.get("declared_evidence_ids"), list)
                     else [],
-                    "gaps": [str(g)[:500] for g in gaps_raw if str(g).strip()][:12],
+                    "gaps": [str(g)[:500] for g in sec_gaps if str(g).strip()][:12],
                 }
             )
         if not good_sections:
@@ -657,12 +650,8 @@ class OpportunityAnalysisOutput(AgentOutput):
             "banner": banner[:500],
             "human_gate": "draft_requires_human_edit",
             "statement": statement[:4000],
-            "tender_ref": (
-                str(draft["tender_ref"])[:200] if draft.get("tender_ref") else None
-            ),
-            "lot_hint": (
-                str(draft["lot_hint"])[:200] if draft.get("lot_hint") else None
-            ),
+            "tender_ref": (str(draft["tender_ref"])[:200] if draft.get("tender_ref") else None),
+            "lot_hint": (str(draft["lot_hint"])[:200] if draft.get("lot_hint") else None),
             "sections": good_sections,
             "administrative_checklist": good_checklist,
             "gaps_summary": gaps_summary,
@@ -675,9 +664,7 @@ class OpportunityAnalysisOutput(AgentOutput):
             ),
             "origin": "declared_draft",
             "based_on_verdict": (
-                str(draft["based_on_verdict"])[:40]
-                if draft.get("based_on_verdict")
-                else None
+                str(draft["based_on_verdict"])[:40] if draft.get("based_on_verdict") else None
             ),
             "official_evidence_ids": draft.get("official_evidence_ids")
             if isinstance(draft.get("official_evidence_ids"), list)

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-import uuid
-
-import pytest
 
 from opn_oracle.oracle.procurement_report import (
     ENCRYPTED_PDF_EXTRACT_WARNING,

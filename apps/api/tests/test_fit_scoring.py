@@ -12,7 +12,6 @@ from opn_oracle.ai.fit_scoring import (
 )
 from opn_oracle.ai.schemas import OpportunityAnalysisOutput, OpportunityFitAssessment
 
-
 BALEARES_EXTRACT = """
 EXTRACTO DEL PCAP · CONTR 2026 11077 · Baleares · Red de agentes inteligentes
 Fuente: PCAP oficial PLACSP.
@@ -107,12 +106,14 @@ def test_nexus_baleares_dimensions_dual_citations_and_not_evaluable() -> None:
     assert "[declarado]" in by_key["cpv"]["capability"]
     assert by_key["cpv"]["requirement_origin"] == "official"
     assert by_key["cpv"]["capability_origin"] == "declared_by_client"
-    assert str(official_id) in by_key["cpv"]["official_evidence_ids"] or by_key[
-        "cpv"
-    ]["official_evidence_ids"]  # may match AI hints
-    assert declared["cpv"] in by_key["cpv"]["declared_evidence_ids"] or declared[
-        "own_offer"
-    ] in by_key["cpv"]["declared_evidence_ids"]
+    assert (
+        str(official_id) in by_key["cpv"]["official_evidence_ids"]
+        or by_key["cpv"]["official_evidence_ids"]
+    )  # may match AI hints
+    assert (
+        declared["cpv"] in by_key["cpv"]["declared_evidence_ids"]
+        or declared["own_offer"] in by_key["cpv"]["declared_evidence_ids"]
+    )
 
     # Solvencia: F.2/F.3 en pliego, Nexus sin volumen ni servicios 3 años
     assert by_key["solvency"]["status"] == "not_evaluable"
@@ -124,9 +125,7 @@ def test_nexus_baleares_dimensions_dual_citations_and_not_evaluable() -> None:
 
     # Lotes: Lote 2 red de agentes encaja con oferta de agentes/IA
     assert by_key["lots"]["status"] in {"fit", "partial"}
-    assert "Lote 2" in by_key["lots"]["requirement"] or "Lote 2" in by_key["lots"][
-        "capability"
-    ]
+    assert "Lote 2" in by_key["lots"]["requirement"] or "Lote 2" in by_key["lots"]["capability"]
 
     # Plazo: cierra 2026-08-06, as_of 2026-08-04 → 2 días, partial
     assert by_key["deadline"]["status"] == "partial"
@@ -141,8 +140,10 @@ def test_nexus_baleares_dimensions_dual_citations_and_not_evaluable() -> None:
     assert verdict["human_gate"] == "awaiting_user_confirmation"
     assert any("1,5" in c or "1.5" in c or "F.2" in c for c in verdict["conditions"])
     assert any("F.3" in c or "tres años" in c or "tres anos" in c for c in verdict["conditions"])
-    assert "automática" in verdict["rationale"] or "automatica" in verdict["rationale"].casefold() or (
-        "humana" in verdict["rationale"].casefold()
+    assert (
+        "automática" in verdict["rationale"]
+        or "automatica" in verdict["rationale"].casefold()
+        or ("humana" in verdict["rationale"].casefold())
     )
 
 
@@ -152,7 +153,7 @@ def test_solvency_with_declared_volume_can_fail() -> None:
     dossier_id = uuid.uuid4()
     profile = {
         **NEXUS_PROFILE,
-        "annual_turnover": 100_000,  # << 1.5 × 5.45M
+        "annual_turnover": 100_000,  # << 1.5 x 5.45M
         "past_services": "Servicios TI 2023-2025 con certificados",
     }
     declared = {
@@ -273,7 +274,9 @@ def test_enrich_merges_into_opportunity_output() -> None:
         "declared_evidence": [
             {
                 "id": declared["own_offer"],
-                "extract": f"[Declarado por el cliente] Oferta propia: {NEXUS_PROFILE['own_offer']}",
+                "extract": (
+                    f"[Declarado por el cliente] Oferta propia: {NEXUS_PROFILE['own_offer']}"
+                ),
                 "source_kind": "declared",
                 "locator": {"field": "own_offer"},
             },
@@ -326,9 +329,7 @@ def test_enrich_merges_into_opportunity_output() -> None:
     assert cleaned["fit_assessment"] is not None
     assert cleaned["fit_assessment"]["origin"] == "declared_by_client"
     assert cleaned["fit_assessment"]["verdict"]["human_gate"] == "awaiting_user_confirmation"
-    solv = next(
-        d for d in cleaned["fit_assessment"]["dimensions"] if d["key"] == "solvency"
-    )
+    solv = next(d for d in cleaned["fit_assessment"]["dimensions"] if d["key"] == "solvency")
     assert solv["status"] == "not_evaluable"
 
 

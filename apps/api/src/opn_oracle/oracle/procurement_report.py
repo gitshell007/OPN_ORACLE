@@ -106,9 +106,7 @@ def download_placsp_pdf(
     return bytes(payload)
 
 
-def _collect_document_refs(
-    documents: Any, *, seen: set[str], values: list[dict[str, str]]
-) -> None:
+def _collect_document_refs(documents: Any, *, seen: set[str], values: list[dict[str, str]]) -> None:
     if not isinstance(documents, list):
         return
     for document in documents:
@@ -256,9 +254,13 @@ def _dossier_ready_text_extracts(
         name_hint = any(h in name for h in _EXTRACT_FILENAME_HINTS)
         # Emparejar por tipo CODICE (legal→pcap, technical→ppt) o por stem.
         type_hint = False
-        if ref_type in {"legal", "pcap"} and ("pcap" in name or "pliego" in name or "extracto" in name):
+        if ref_type in {"legal", "pcap"} and (
+            "pcap" in name or "pliego" in name or "extracto" in name
+        ):
             type_hint = True
-        if ref_type in {"technical", "ppt"} and ("ppt" in name or "tecn" in name or "extracto" in name):
+        if ref_type in {"technical", "ppt"} and (
+            "ppt" in name or "tecn" in name or "extracto" in name
+        ):
             type_hint = True
         stem_hint = bool(ref_stem and ref_stem[:8] and ref_stem[:8] in name)
         if is_textish or name_hint or type_hint or stem_hint:
@@ -288,9 +290,7 @@ def _use_encrypted_pdf_extract_fallback(
     for doc in extracts:
         if doc.id in used_ids:
             continue
-        if not (
-            document_available_for_citation(doc) or official_unscanned_document_allowed(doc)
-        ):
+        if not (document_available_for_citation(doc) or official_unscanned_document_allowed(doc)):
             continue
         mark_official_unscanned_acceptance(
             doc,
@@ -381,10 +381,7 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
         if document is None:
             raise DocumentError(document_unavailable_reason(None))
         # Documento existente failed por cifrado previo → mismo fallback.
-        if (
-            document.status != "ready"
-            or not document_available_for_citation(document)
-        ) and (
+        if (document.status != "ready" or not document_available_for_citation(document)) and (
             "cifrado" in str(document.safe_error_code or "").casefold()
             or "cifrado" in str(getattr(document, "status", "") or "").casefold()
         ):

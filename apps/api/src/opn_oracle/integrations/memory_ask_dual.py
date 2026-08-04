@@ -355,9 +355,7 @@ def load_oracle_authority_from_session(
         )
     )
     evidence_candidates = [
-        row
-        for row in evidence_candidates
-        if not _is_opportunity_pliego_materialization(row)
+        row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
     ]
     evidence_rows = diversify_evidence_by_source_kind(
         evidence_candidates, limit=40, max_per_kind=12

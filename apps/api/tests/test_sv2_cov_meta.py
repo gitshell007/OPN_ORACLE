@@ -18,6 +18,10 @@ import pytest
 from flask import g
 
 from opn_oracle.auth import permissions
+from opn_oracle.integrations.procurement import (
+    ProcurementConfigurationError,
+    ProcurementProviderError,
+)
 from opn_oracle.oracle import routes as oracle_routes
 from opn_oracle.oracle.models import (
     Briefing,
@@ -25,10 +29,6 @@ from opn_oracle.oracle.models import (
     Opportunity,
     Task,
     Watchlist,
-)
-from opn_oracle.integrations.procurement import (
-    ProcurementConfigurationError,
-    ProcurementProviderError,
 )
 from opn_oracle.oracle.procurement_items import ProcurementItemError
 from opn_oracle.oracle.service import DomainValidationError, ResourceNotFound
@@ -461,9 +461,7 @@ def test_monitor_create_and_list_missing_watchlist(
             json={},
         )
     # restore active dossier for provider-required path
-    monkeypatch.setattr(
-        oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4())
-    )
+    monkeypatch.setattr(oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4()))
     with _authenticated_http_probe(
         app,
         monkeypatch,
@@ -698,9 +696,7 @@ def test_detail_resolves_briefing_via_meeting_dossier(
         forbidden = client.get(f"/api/v1/briefings/{briefing.id}")
     assert forbidden.status_code == 404
 
-    monkeypatch.setattr(
-        oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4())
-    )
+    monkeypatch.setattr(oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4()))
     with _authenticated_http_probe(
         app,
         monkeypatch,
@@ -795,9 +791,7 @@ def test_detail_patch_archived_and_dossier_actor_error(
         version=1,
     )
     monkeypatch.setattr(oracle_routes.db.session, "scalar", lambda *a, **k: da)
-    monkeypatch.setattr(
-        oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4())
-    )
+    monkeypatch.setattr(oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4()))
     monkeypatch.setattr(oracle_routes.db.session, "rollback", lambda: None)
     monkeypatch.setattr(
         oracle_routes,
@@ -868,9 +862,7 @@ def test_m2m_list_and_mutate_fail_closed(
         put_arch = client.put(f"/api/v1/opportunities/{opp_id}/actors/{target_id}")
 
     # parent found, active dossier, target missing
-    monkeypatch.setattr(
-        oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4())
-    )
+    monkeypatch.setattr(oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4()))
 
     def _scalar_parent_only(*_a: Any, **_k: Any) -> Any:
         # first call: parent; second: target
@@ -921,9 +913,7 @@ def test_m2m_list_and_mutate_fail_closed(
     assert del_missing.status_code == 404
 
 
-def test_m2m_put_links_when_missing(
-    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_m2m_put_links_when_missing(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Bug que cazaría: PUT M2M no crea vínculo o no audit trail (commit sin linked)."""
 
     opp_id = uuid.uuid4()
@@ -949,9 +939,7 @@ def test_m2m_put_links_when_missing(
     monkeypatch.setattr(oracle_routes.db.session, "add", lambda obj: added.append(obj))
     monkeypatch.setattr(oracle_routes.db.session, "commit", lambda: None)
     monkeypatch.setattr(oracle_routes.db.session, "rollback", lambda: None)
-    monkeypatch.setattr(
-        oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4())
-    )
+    monkeypatch.setattr(oracle_routes, "_dossier_or_404", lambda *a, **k: _dossier_ns(uuid.uuid4()))
     monkeypatch.setattr(oracle_routes, "append_audit_event", lambda *a, **k: None)
 
     with _authenticated_http_probe(
@@ -1042,9 +1030,7 @@ def test_living_and_oracle_summary_404_paths(
             headers={"Idempotency-Key": "refresh-01"},
         )
         versions = client.get(f"/api/v1/dossiers/{dossier_id}/oracle-summary/versions")
-        version = client.get(
-            f"/api/v1/dossiers/{dossier_id}/oracle-summary/versions/{version_id}"
-        )
+        version = client.get(f"/api/v1/dossiers/{dossier_id}/oracle-summary/versions/{version_id}")
         feedback = client.post(
             f"/api/v1/dossiers/{dossier_id}/oracle-summary/{version_id}/feedback",
             json={"rating": 1},

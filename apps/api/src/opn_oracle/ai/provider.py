@@ -591,8 +591,7 @@ class MockLLMProvider:
                                 ],
                                 "human_gate": "awaiting_user_confirmation",
                                 "rationale": (
-                                    "Propuesta mock con puerta humana; "
-                                    "no es decisión automática."
+                                    "Propuesta mock con puerta humana; no es decisión automática."
                                 ),
                             },
                         }

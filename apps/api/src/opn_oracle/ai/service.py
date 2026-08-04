@@ -1642,20 +1642,16 @@ def execute_agent(
 
                 output = enrich_opportunity_fit_assessment(
                     output,
-                    context_payload=context.payload
-                    if isinstance(context.payload, dict)
-                    else {},
+                    context_payload=context.payload if isinstance(context.payload, dict) else {},
                 )
                 output = validate_opportunity_origin_boundary(
                     output,
                     official_ids=allowed_evidence,
                     declared_ids=declared_set,
                 )
-            except Exception as enrich_error:  # noqa: BLE001 — no tumbar opportunity
+            except Exception as enrich_error:
                 warnings = (
-                    list(output["warnings"])
-                    if isinstance(output.get("warnings"), list)
-                    else []
+                    list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
                 )
                 warnings.append(
                     "Encaje dimensional no aplicado: "
@@ -1672,9 +1668,7 @@ def execute_agent(
 
                 output = enrich_opportunity_draft_offer(
                     output,
-                    context_payload=context.payload
-                    if isinstance(context.payload, dict)
-                    else {},
+                    context_payload=context.payload if isinstance(context.payload, dict) else {},
                 )
                 output = strip_draft_from_official_facts(output)
                 output = validate_opportunity_origin_boundary(
@@ -1682,16 +1676,11 @@ def execute_agent(
                     official_ids=allowed_evidence,
                     declared_ids=declared_set,
                 )
-            except Exception as draft_error:  # noqa: BLE001 — no tumbar opportunity
+            except Exception as draft_error:
                 warnings = (
-                    list(output["warnings"])
-                    if isinstance(output.get("warnings"), list)
-                    else []
+                    list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
                 )
-                warnings.append(
-                    "Borrador de oferta no aplicado: "
-                    f"{type(draft_error).__name__}."
-                )
+                warnings.append(f"Borrador de oferta no aplicado: {type(draft_error).__name__}.")
                 output["warnings"] = warnings
             boundary_model = prompt.schema.model_validate_json(json.dumps(output))
             validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)

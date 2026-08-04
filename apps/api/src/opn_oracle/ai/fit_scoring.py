@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from opn_oracle.oracle.cpv_taxonomy import normalize_cpv_code
@@ -49,12 +49,12 @@ _AMOUNT = re.compile(
 )
 # Título de lote: corta ante otro «Lote N», barra de listado compacto o cierre ).
 _LOT_LINE = re.compile(
-    r"Lote\s*(\d+)\s*[:.\-–—]\s*([^\n;|/]{3,80}?)(?=\s*/\s*Lote\s*\d|\s*\)\s*$|$|\n)",
+    r"Lote\s*(\d+)\s*[:.\-\u2013\u2014]\s*([^\n;|/]{3,80}?)(?=\s*/\s*Lote\s*\d|\s*\)\s*$|$|\n)",
     re.IGNORECASE,
 )
 _SOLVENCY_ECON = re.compile(
     r"(F\.?\s*2|solvencia\s+econ[oó]mica|volumen\s+anual\s+de\s+negocio|"
-    r"una\s+vez\s+y\s+media|1[,.]5\s*×|1[,.]5\s*x)",
+    r"una\s+vez\s+y\s+media|1[,.]5\s*\u00d7|1[,.]5\s*x)",
     re.IGNORECASE,
 )
 _SOLVENCY_TECH = re.compile(
@@ -73,7 +73,7 @@ _AI_SOFTWARE_HINTS = re.compile(
 
 def _as_of(value: date | datetime | None) -> date:
     if value is None:
-        return datetime.now(timezone.utc).date()
+        return datetime.now(UTC).date()
     if isinstance(value, datetime):
         return value.date()
     return value
@@ -151,9 +151,7 @@ def _profile_cpvs(profile: dict[str, Any]) -> list[str]:
     return out[:20]
 
 
-def _declared_field_id(
-    declared_by_field: dict[str, str], field: str
-) -> list[str]:
+def _declared_field_id(declared_by_field: dict[str, str], field: str) -> list[str]:
     eid = declared_by_field.get(field)
     return [eid] if eid else []
 
@@ -236,7 +234,8 @@ def _select_primary_official_evidence(
         matched: list[dict[str, Any]] = []
         for item in official_evidence:
             extract = str(item.get("extract") or "")
-            locator = item.get("locator") if isinstance(item.get("locator"), dict) else {}
+            _loc_raw = item.get("locator")
+            locator: dict[str, Any] = _loc_raw if isinstance(_loc_raw, dict) else {}
             bag = " ".join(
                 str(x)
                 for x in (
@@ -357,12 +356,8 @@ def score_cpv_dimension(
 
     if tender_cpvs and profile_cpvs:
         prefix2, prefix4 = _cpv_related(profile_cpvs, tender_cpvs)
-        req = (
-            f"[oficial] CPV del pliego/licitación: {', '.join(tender_cpvs[:8])}."
-        )
-        cap = (
-            f"[declarado] CPV de interés del perfil: {', '.join(profile_cpvs[:8])}."
-        )
+        req = f"[oficial] CPV del pliego/licitación: {', '.join(tender_cpvs[:8])}."
+        cap = f"[declarado] CPV de interés del perfil: {', '.join(profile_cpvs[:8])}."
         if prefix4 or set(profile_cpvs) & set(tender_cpvs):
             return _dimension(
                 key="cpv",
@@ -415,7 +410,10 @@ def score_cpv_dimension(
             re.IGNORECASE,
         )
         if m:
-            req = f"[oficial] Ámbito del pliego (sin CPV numérico en extracto): «{m.group(0).strip()}»."
+            req = (
+                f"[oficial] Ambito del pliego (sin CPV numerico en extracto): "
+                f"«{m.group(0).strip()}»."
+            )
 
     cap = (
         f"[declarado] CPV de interés: {', '.join(profile_cpvs[:8])}."
@@ -439,12 +437,7 @@ def score_cpv_dimension(
             label="CPV",
             requirement=req,
             official_evidence_ids=official_ids,
-            capability=cap
-            + (
-                f" Oferta propia: {own_offer[:200]}."
-                if own_offer
-                else ""
-            ),
+            capability=cap + (f" Oferta propia: {own_offer[:200]}." if own_offer else ""),
             declared_evidence_ids=declared_ids
             or _declared_field_id(declared_by_field, "own_offer"),
             status="partial",
@@ -462,8 +455,7 @@ def score_cpv_dimension(
             capability=cap,
             declared_evidence_ids=declared_ids,
             status="not_evaluable",
-            status_reason=_NOT_EVALUABLE
-            + ": no hay CPV oficial ni señal de ámbito comparable.",
+            status_reason=_NOT_EVALUABLE + ": no hay CPV oficial ni señal de ámbito comparable.",
         )
     return _dimension(
         key="cpv",
@@ -505,12 +497,12 @@ def score_solvency_dimension(
             threshold = amount * 1.5
             req_parts.append(
                 f"[oficial] F.2 solvencia económica: volumen anual de negocio "
-                f"≥ 1,5× valor estimado ({amount:,.2f} EUR → umbral ≈ {threshold:,.2f} EUR)."
+                f">= 1,5x valor estimado ({amount:,.2f} EUR → umbral ≈ {threshold:,.2f} EUR)."
             )
         else:
             req_parts.append(
                 "[oficial] F.2 solvencia económica: volumen anual de negocio "
-                "≥ 1,5× el valor estimado del contrato (o del lote)."
+                ">= 1,5x el valor estimado del contrato (o del lote)."
             )
     if has_f3:
         req_parts.append(
@@ -528,17 +520,13 @@ def score_solvency_dimension(
     cap_parts: list[str] = []
     declared_ids: list[str] = []
     if annual_volume is not None and str(annual_volume).strip():
-        cap_parts.append(
-            f"[declarado] Volumen anual declarado: {annual_volume}."
-        )
+        cap_parts.append(f"[declarado] Volumen anual declarado: {annual_volume}.")
         declared_ids.extend(
             _declared_field_id(declared_by_field, "annual_turnover")
             or _declared_field_id(declared_by_field, "annual_volume")
         )
     else:
-        cap_parts.append(
-            "[declarado] El perfil **no** declara volumen anual de negocio."
-        )
+        cap_parts.append("[declarado] El perfil **no** declara volumen anual de negocio.")
     if past_services is not None and str(past_services).strip():
         cap_parts.append(
             f"[declarado] Referencias técnicas declaradas: {str(past_services)[:300]}."
@@ -592,7 +580,7 @@ def score_solvency_dimension(
             declared_evidence_ids=declared_ids,
             status="not_evaluable",
             status_reason=(
-                f"{_NOT_EVALUABLE}: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; "
+                f"{_NOT_EVALUABLE}: F.2 exige volumen >=1,5x y F.3 servicios de 3 años; "
                 "el perfil no aporta ninguno de esos datos."
             ),
         )
@@ -618,9 +606,7 @@ def score_solvency_dimension(
             capability=capability,
             declared_evidence_ids=declared_ids,
             status="not_evaluable",
-            status_reason=(
-                f"{_NOT_EVALUABLE}: no hay servicios de 3 años declarados para F.3."
-            ),
+            status_reason=(f"{_NOT_EVALUABLE}: no hay servicios de 3 años declarados para F.3."),
         )
 
     # Ambos evaluables: comparación simple
@@ -632,8 +618,7 @@ def score_solvency_dimension(
             if vol < amount * 1.5:
                 status = "no_fit"
                 reason = (
-                    f"Volumen declarado ({vol:,.0f}) < 1,5× valor estimado "
-                    f"({amount * 1.5:,.0f})."
+                    f"Volumen declarado ({vol:,.0f}) < 1,5x valor estimado ({amount * 1.5:,.0f})."
                 )
         except ValueError:
             status = "not_evaluable"
@@ -658,8 +643,7 @@ def score_lots_dimension(
 ) -> dict[str, Any]:
     corpus = _all_official_text(official_evidence)
     lots = [
-        (m.group(1), m.group(2).strip().rstrip(").,; ").strip())
-        for m in _LOT_LINE.finditer(corpus)
+        (m.group(1), m.group(2).strip().rstrip(").,; ").strip()) for m in _LOT_LINE.finditer(corpus)
     ]
     # dedupe by number
     seen: set[str] = set()
@@ -680,12 +664,12 @@ def score_lots_dimension(
         if re.search(r"\blotes?\b", corpus, re.IGNORECASE):
             req = "[oficial] La licitación menciona lotes, sin detalle parseable en el extracto."
             status: FitStatus = "not_evaluable"
-            reason = (
-                _NOT_EVALUABLE
-                + " en el lado oficial: no hay listado de lotes con título."
-            )
+            reason = _NOT_EVALUABLE + " en el lado oficial: no hay listado de lotes con título."
         else:
-            req = "[oficial] No se localizan lotes en la evidencia (licitación posiblemente no lotificada)."
+            req = (
+                "[oficial] No se localizan lotes en la evidencia "
+                "(licitacion posiblemente no lotificada)."
+            )
             status = "fit"
             reason = "Sin lotes: la presentación es al expediente completo."
         cap = (
@@ -716,7 +700,9 @@ def score_lots_dimension(
         for token in re.findall(r"[a-záéíóúñ]{4,}", title_l):
             if token in offer_l:
                 score += 2
-        if "agente" in title_l and ("agente" in offer_l or "ia" in offer_l or "inteligencia" in offer_l):
+        if "agente" in title_l and (
+            "agente" in offer_l or "ia" in offer_l or "inteligencia" in offer_l
+        ):
             score += 3
         if "gobernanza" in title_l and ("gobernanza" in offer_l or "ia" in offer_l):
             score += 2
@@ -810,17 +796,9 @@ def score_deadline_dimension(
         official_evidence,
         re.compile(r"deadline|plazo|presentaci[oó]n|cierre|202\d-\d{2}-\d{2}", re.I),
     )
-    barriers = [
-        str(b).strip()
-        for b in (profile.get("barriers") or [])
-        if str(b).strip()
-    ]
+    barriers = [str(b).strip() for b in (profile.get("barriers") or []) if str(b).strip()]
     plazo_barrier = next(
-        (
-            b
-            for b in barriers
-            if "plazo" in b.casefold() or "documentaci" in b.casefold()
-        ),
+        (b for b in barriers if "plazo" in b.casefold() or "documentaci" in b.casefold()),
         None,
     )
     declared_ids = _declared_field_id(declared_by_field, "barriers")
@@ -840,8 +818,7 @@ def score_deadline_dimension(
             ),
             declared_evidence_ids=declared_ids,
             status="not_evaluable",
-            status_reason=_NOT_EVALUABLE
-            + " en lado oficial: sin fecha de cierre parseable.",
+            status_reason=_NOT_EVALUABLE + " en lado oficial: sin fecha de cierre parseable.",
         )
 
     days = (deadline - today).days
@@ -895,8 +872,7 @@ def score_deadline_dimension(
             declared_evidence_ids=declared_ids,
             status="partial",
             status_reason=(
-                f"Ventana de {days} día(s): ajustada. "
-                f"Capacidad de reacción {_NOT_EVALUABLE}."
+                f"Ventana de {days} día(s): ajustada. Capacidad de reacción {_NOT_EVALUABLE}."
             ),
         )
     return _dimension(
@@ -949,10 +925,9 @@ def _build_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     # Condiciones
-    solv = by_key.get("solvency") or {}
     if statuses.get("solvency") == "not_evaluable":
         conditions.append(
-            "Solo si puede acreditar F.2: volumen anual de negocio ≥ 1,5× el valor "
+            "Solo si puede acreditar F.2: volumen anual de negocio >= 1,5x el valor "
             "estimado del contrato (o del lote) en el año de mayor volumen de los tres últimos."
         )
         conditions.append(
@@ -1023,9 +998,7 @@ def _build_statement(
         f"(puerta humana: {verdict.get('human_gate')})."
     ]
     for dim in dimensions:
-        lines.append(
-            f"- {dim.get('label')}: {dim.get('status')} — {dim.get('status_reason')}"
-        )
+        lines.append(f"- {dim.get('label')}: {dim.get('status')} — {dim.get('status_reason')}")
     if verdict.get("conditions"):
         lines.append("Condiciones propuestas:")
         for cond in verdict["conditions"][:6]:
@@ -1107,9 +1080,7 @@ def score_profile_tender_fit(
         return None
 
     statement = (existing_statement or "").strip()
-    generated = _build_statement(
-        dimensions=dims, verdict=verdict, tender_ref=tender_ref
-    )
+    generated = _build_statement(dimensions=dims, verdict=verdict, tender_ref=tender_ref)
     # Prefer generated dimensional statement when existing is generic mock
     if not statement or "mock" in statement.casefold() or len(statement) < 40:
         statement = generated
@@ -1138,15 +1109,16 @@ def score_profile_tender_fit(
 
 
 def declared_fields_from_evidence(
-    declared_evidence: list[dict[str, Any]],
+    declared_evidence: list[Any],
 ) -> dict[str, str]:
-    """Map profile field → declared evidence id from context pieces."""
+    """Map profile field -> declared evidence id from context pieces."""
 
     out: dict[str, str] = {}
     for item in declared_evidence:
         if not isinstance(item, dict):
             continue
-        locator = item.get("locator") if isinstance(item.get("locator"), dict) else {}
+        _loc_raw = item.get("locator")
+        locator: dict[str, Any] = _loc_raw if isinstance(_loc_raw, dict) else {}
         field = str(locator.get("field") or "").strip()
         eid = str(item.get("id") or "").strip()
         if field and eid:
@@ -1189,12 +1161,14 @@ def enrich_opportunity_fit_assessment(
 
     result = dict(output)
     dossier = context_payload.get("dossier") if isinstance(context_payload, dict) else {}
-    profile = {}
+    profile: dict[str, Any] = {}
     if isinstance(dossier, dict):
-        profile = dossier.get("profile") if isinstance(dossier.get("profile"), dict) else {}
+        _prof = dossier.get("profile")
+        profile = _prof if isinstance(_prof, dict) else {}
     # Prefer full profile_config keys if present under dossier
     if not profile and isinstance(dossier, dict):
-        profile = dossier.get("profile_config") if isinstance(dossier.get("profile_config"), dict) else {}
+        _pcfg = dossier.get("profile_config")
+        profile = _pcfg if isinstance(_pcfg, dict) else {}
 
     declared_list = context_payload.get("declared_evidence") or []
     if not isinstance(declared_list, list):

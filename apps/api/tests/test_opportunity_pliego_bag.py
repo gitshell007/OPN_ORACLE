@@ -12,6 +12,7 @@ from datetime import date
 
 from opn_oracle.ai.context import (
     _is_opportunity_pliego_materialization,
+    declared_evidence_id,
     diversify_evidence_by_source_kind,
     pliego_evidence_family,
     pliego_evidence_richness,
@@ -19,8 +20,6 @@ from opn_oracle.ai.context import (
 )
 from opn_oracle.ai.draft_offer import enrich_opportunity_draft_offer
 from opn_oracle.ai.fit_scoring import enrich_opportunity_fit_assessment
-from opn_oracle.ai.context import declared_evidence_id
-
 
 # Pin PLACSP fino (como d96614d3 en vivo): sin F.2/F.3 ni 65/60.
 THIN_PIN_EXTRACT = (
@@ -201,9 +200,10 @@ def test_pliego_bag_yields_full_fit_and_draft_sections() -> None:
     assert len(fit.get("dimensions") or []) >= 4
     solv = next(d for d in fit["dimensions"] if d["key"] == "solvency")
     # Con F.2/F.3 en bag: requisito localizado (status not_evaluable por perfil, no por bag).
-    assert "F.2" in (solv.get("requirement") or "") or "volumen" in (
-        solv.get("requirement") or ""
-    ).lower()
+    assert (
+        "F.2" in (solv.get("requirement") or "")
+        or "volumen" in (solv.get("requirement") or "").lower()
+    )
     assert f2_id in (solv.get("official_evidence_ids") or []) or any(
         eid in (solv.get("official_evidence_ids") or []) for eid in (f2_id, f3_id)
     )
@@ -218,7 +218,12 @@ def test_pliego_bag_yields_full_fit_and_draft_sections() -> None:
     for sec in sections:
         eids = set(sec.get("official_evidence_ids") or [])
         req = str(sec.get("requirement") or "")
-        if eids & {crit_id, f2_id, f3_id, lots_id} or "65" in req or "F.2" in req or "juicio" in req:
+        if (
+            eids & {crit_id, f2_id, f3_id, lots_id}
+            or "65" in req
+            or "F.2" in req
+            or "juicio" in req
+        ):
             pliego_cited += 1
     assert pliego_cited >= 3, f"expected ≥3 pliego-cited sections, got {pliego_cited}: {sections}"
     checklist = draft.get("administrative_checklist") or []
@@ -254,7 +259,7 @@ def test_diversify_prevents_document_flood_after_pliego_materialize() -> None:
     candidates = docs + entity + proc
     selected = diversify_evidence_by_source_kind(candidates, limit=50, max_per_kind=15)
     kinds = [r.source_kind for r in selected]
-    # Without diversify, limit=50 would be 50× document. With diversify, all
+    # Without diversify, limit=50 would be 50x document. With diversify, all
     # non-document kinds are preserved and document is soft-capped first.
     assert kinds.count("entity_intel") == 5
     assert kinds.count("procurement") == 5
@@ -308,5 +313,6 @@ def test_oracle_authority_bag_excludes_opportunity_materializations() -> None:
     assert kinds.count("procurement") == 8
     assert any("Laura Mendez" in r.extract for r in selected)
     assert not any(
-        _is_opportunity_pliego_materialization(r) for r in selected  # type: ignore[arg-type]
+        _is_opportunity_pliego_materialization(r)
+        for r in selected  # type: ignore[arg-type]
     )
