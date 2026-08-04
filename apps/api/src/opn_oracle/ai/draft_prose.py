@@ -206,18 +206,27 @@ def _batch_llm_polish(
             }
         )
 
-    try:
-        return _run(_TASK_KEY)
-    except Exception as primary_exc:
-        # Si Signal aún no tiene draft_prose_polish en allowed_tasks del
-        # consumidor, reutiliza tender_summary (ollama/ollama_titan, coste 0)
-        # que ya está en ORACLE_GOVERNED_TASKS. El engine flag sigue siendo
-        # sv2_prosa_v1; la gobernanza sigue siendo vía /ai/run.
-        msg = str(primary_exc).casefold()
-        if "task_not_allowed" in msg or "no está autorizada" in msg or "no esta autorizada" in msg:
-            logger.info("draft_prose_polish task not allowed; fallback task_key=tender_summary")
-            return _run("tender_summary")
-        raise
+    # Cadena: draft_prose_polish → opportunity (autorizada en vivo) →
+    # tender_summary. Mismo /ai/run, ollama_titan, coste 0. Engine=sv2_prosa_v1.
+    last_exc: Exception | None = None
+    for task_key in (_TASK_KEY, "opportunity", "tender_summary"):
+        try:
+            if task_key != _TASK_KEY:
+                logger.info("draft_prose_polish fallback task_key=%s", task_key)
+            return _run(task_key)
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc).casefold()
+            if (
+                "task_not_allowed" in msg
+                or "no está autorizada" in msg
+                or "no esta autorizada" in msg
+                or "aiunavailable" in type(exc).__name__.casefold()
+            ):
+                continue
+            raise
+    assert last_exc is not None
+    raise last_exc
 
 
 def polish_draft_offer_prose(
