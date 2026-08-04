@@ -2031,6 +2031,108 @@ export interface AiArtifactReviewResponse {
   artifact_status: string;
 }
 
+
+export interface ActorAnalysisScores {
+  influence: number;
+  relevance: number;
+  relationship_strength: number;
+  accessibility: number;
+  strategic_alignment: number;
+  recent_activity: number;
+  overall_priority: number;
+}
+
+export interface ActorAnalysisRole {
+  role: string;
+  basis: "fact" | "inference";
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ActorAnalysisRelationship {
+  counterpart_actor_id?: string | null;
+  counterpart_name: string;
+  relationship_type: string;
+  basis: "fact" | "inference";
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ActorEngagementAction {
+  action: string;
+  channel: string;
+  objective: string;
+  priority: "low" | "medium" | "high" | "critical";
+}
+
+export interface ActorAnalysisOutput {
+  actor_id?: string | null;
+  roles: ActorAnalysisRole[];
+  scores: ActorAnalysisScores;
+  confirmed_relationships: string[];
+  inferred_relationships: string[];
+  observable_interests: string[];
+  information_gaps: string[];
+  relationships: ActorAnalysisRelationship[];
+  engagement_actions: ActorEngagementAction[];
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface ActorAnalysisArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "actor_partnership" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: ActorAnalysisOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface ActorAnalysisRunResponse {
+  job: JobResponse | null;
+  artifact: ActorAnalysisArtifact | null;
+}
+
+export interface EntityResolutionOutput {
+  decision: "match" | "no_match" | "needs_review" | "create_new";
+  matched_actor_id?: string | null;
+  rationale: string;
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface EntityResolutionArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "entity_resolution" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: EntityResolutionOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface EntityResolutionRunResponse {
+  job: JobResponse | null;
+  artifact: EntityResolutionArtifact | null;
+}
+
 const dossierIntake = {
   latest: (dossierId: string) =>
     request<IntakeRunResponse>(
@@ -2064,6 +2166,55 @@ const dossierOpportunityAnalysis = {
   run: (dossierId: string, idempotencyKey: string) =>
     request<OpportunityAnalysisRunResponse>(
       `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+
+const dossierActorPartnership = {
+  latest: (dossierId: string) =>
+    request<ActorAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/actor-partnership/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<ActorAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/actor-partnership/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+const dossierEntityResolution = {
+  latest: (dossierId: string) =>
+    request<EntityResolutionRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/entity-resolution/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<EntityResolutionRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/entity-resolution/runs`,
       { method: "POST", body: {}, idempotencyKey },
     ),
   review: (
@@ -3601,6 +3752,8 @@ export const api = {
   dossierIntake,
   dossierOpportunityAnalysis,
   dossierRiskAnalysis,
+  dossierActorPartnership,
+  dossierEntityResolution,
   dossierSignals,
   objectives,
   hypotheses,

@@ -271,6 +271,8 @@ export const DOSSIER_TABS = [
   { id: "intake", label: "Entrada", segment: "intake", permission: "ai.execute" },
   { id: "opportunity-analysis", label: "Oportunidad IA", segment: "opportunity-analysis", permission: "ai.execute" },
   { id: "risk-analysis", label: "Riesgo IA", segment: "risk-analysis", permission: "ai.execute" },
+  { id: "actor-priority", label: "Prioridad actores", segment: "actor-priority", permission: "ai.execute" },
+  { id: "entity-resolution", label: "Resolución entidades", segment: "entity-resolution", permission: "ai.execute" },
   { id: "signals", label: "Señales", segment: "signals", permission: "signal.read" },
   { id: "opportunities", label: "Oportunidades", segment: "opportunities", permission: "opportunity.read" },
   { id: "procurement", label: "Licitaciones", segment: "procurement", permission: "opportunity.read" },
@@ -302,7 +304,7 @@ export const DOSSIER_GROUPS = [
     label: "Vigilancia",
     sections: ["signals", "opportunities", "procurement", "risks"],
   },
-  { id: "analysis", label: "Análisis", sections: ["actors", "investigations", "ask", "intake", "opportunity-analysis", "risk-analysis"] },
+  { id: "analysis", label: "Análisis", sections: ["actors", "investigations", "ask", "intake", "opportunity-analysis", "risk-analysis", "actor-priority", "entity-resolution"] },
   { id: "decision", label: "Decisión", sections: ["decisions", "meetings", "tasks"] },
   {
     id: "deliverables",

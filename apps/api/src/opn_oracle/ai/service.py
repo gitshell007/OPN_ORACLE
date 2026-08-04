@@ -303,6 +303,8 @@ _CONCLUSION_GROUNDING_AGENTS = frozenset(
     {
         "opportunity",
         "risk",
+        "actor_partnership",
+        "entity_resolution",
         "report_writer",
         "dossier_situation_summary",
     }
@@ -1791,6 +1793,8 @@ def execute_agent(
                                 "report_writer",
                                 "opportunity",
                                 "risk",
+                                "actor_partnership",
+                                "entity_resolution",
                             }
                         ),
                     )

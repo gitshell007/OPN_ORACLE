@@ -40,6 +40,8 @@ TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
 INTAKE_AGENT = "intake"
 OPPORTUNITY_AGENT = "opportunity"
 RISK_AGENT = "risk"
+ACTOR_PARTNERSHIP_AGENT = "actor_partnership"
+ENTITY_RESOLUTION_AGENT = "entity_resolution"
 TENDER_SEARCH_WIZARD_TARGET = "tenant_search_profile"
 
 
@@ -411,6 +413,38 @@ def enqueue_risk_analysis(dossier_id: uuid.UUID) -> Any:
 def latest_risk_analysis(dossier_id: uuid.UUID) -> Any:
     """Última propuesta de riesgo del expediente (solo lectura; la persona confirma)."""
     return _latest_analysis_agent(dossier_id, RISK_AGENT)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/actor-partnership/runs")
+@require_permission("ai.execute")
+def enqueue_actor_partnership(dossier_id: uuid.UUID) -> Any:
+    """Lanza priorización de actores: propone scores; no muta el expediente."""
+    return _enqueue_analysis_agent(
+        dossier_id, ACTOR_PARTNERSHIP_AGENT, label="priorización de actores"
+    )
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/actor-partnership/latest")
+@require_permission("ai.execute")
+def latest_actor_partnership(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de priorización de actores (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, ACTOR_PARTNERSHIP_AGENT)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/entity-resolution/runs")
+@require_permission("ai.execute")
+def enqueue_entity_resolution(dossier_id: uuid.UUID) -> Any:
+    """Lanza resolución de entidades: propone match; no fusiona actores."""
+    return _enqueue_analysis_agent(
+        dossier_id, ENTITY_RESOLUTION_AGENT, label="resolución de entidades"
+    )
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/entity-resolution/latest")
+@require_permission("ai.execute")
+def latest_entity_resolution(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de resolución de entidades (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, ENTITY_RESOLUTION_AGENT)
 
 
 def _wizard_answers(value: Any) -> list[dict[str, str]]:

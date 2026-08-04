@@ -18,7 +18,9 @@ from flask import current_app
 from sqlalchemy import delete, or_, select, update
 
 from opn_oracle.ai.context import (
+    build_actor_partnership_context,
     build_dossier_completion_context,
+    build_entity_resolution_context,
     build_opportunity_analysis_context,
     build_risk_analysis_context,
     build_tender_search_replan_context,
@@ -764,6 +766,28 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     dossier_id, max_tokens=max_tokens
                 ),
                 target_type="risk_analysis",
+                target_id=dossier_id,
+            )
+        if agent == "actor_partnership":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_actor_partnership_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="actor_partnership_analysis",
+                target_id=dossier_id,
+            )
+        if agent == "entity_resolution":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_entity_resolution_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="entity_resolution_analysis",
                 target_id=dossier_id,
             )
         return execute_agent(agent=agent, dossier_id=dossier_id, job=job)

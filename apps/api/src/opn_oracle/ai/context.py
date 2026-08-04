@@ -941,7 +941,7 @@ def build_dossier_situation_context(dossier_id: uuid.UUID, *, max_tokens: int) -
                 "name": actor.canonical_name,
                 "roles": link.roles,
                 "priority": link.priority,
-                "notes": _small_text(link.notes),
+                "notes": _small_text(link.notes or ""),
                 "updated_at": link.updated_at.isoformat(),
             }
             for link, actor in actors
@@ -1819,6 +1819,224 @@ def build_frozen_context(
         classification="internal",
         redaction_summary={"matches": redactions},
         injection_indicators=tuple(sorted(set(indicators))),
+        estimated_tokens=max(1, len(encoded) // 4),
+    )
+
+
+
+def _dossier_actors_for_analysis(dossier_id: uuid.UUID, *, limit: int = 25) -> list[tuple[DossierActor, Actor]]:
+    tenant_id = require_tenant_id()
+    return list(
+        db.session.execute(
+            select(DossierActor, Actor)
+            .join(Actor, Actor.id == DossierActor.actor_id)
+            .where(DossierActor.tenant_id == tenant_id, DossierActor.dossier_id == dossier_id)
+            .order_by(DossierActor.priority.desc(), DossierActor.updated_at.desc())
+            .limit(limit)
+        )
+    )
+
+
+def _actor_tax_id(actor: Actor) -> str | None:
+    identifiers = actor.identifiers if isinstance(actor.identifiers, dict) else {}
+    metadata = actor.actor_metadata if isinstance(actor.actor_metadata, dict) else {}
+    for source in (identifiers, metadata, metadata.get("profile") if isinstance(metadata.get("profile"), dict) else {}):
+        if not isinstance(source, dict):
+            continue
+        for key in ("tax_id", "nif", "cif", "vat", "company_tax_id", "winner_identifier"):
+            raw = source.get(key)
+            if raw is None:
+                continue
+            text = str(raw).strip().upper().replace(" ", "").replace("-", "")
+            if len(text) >= 8:
+                return text
+    return None
+
+
+def _serialize_dossier_actor_row(link: DossierActor, actor: Actor) -> dict[str, Any]:
+    tax_id = _actor_tax_id(actor)
+    return {
+        "dossier_actor_id": str(link.id),
+        "actor_id": str(actor.id),
+        "name": actor.canonical_name,
+        "canonical_key": actor.canonical_key,
+        "actor_type": actor.actor_type,
+        "roles": link.roles,
+        "priority": link.priority,
+        "influence": link.influence,
+        "relevance_to_dossier": link.relevance_to_dossier,
+        "relationship_strength": link.relationship_strength,
+        "accessibility": link.accessibility,
+        "strategic_alignment": link.strategic_alignment,
+        "recent_activity": link.recent_activity,
+        "version": link.version,
+        "notes": _small_text(link.notes or ""),
+        "identifiers": actor.identifiers if isinstance(actor.identifiers, dict) else {},
+        "tax_id": tax_id,
+        "aliases": actor.aliases if isinstance(actor.aliases, list) else [],
+    }
+
+
+def build_actor_partnership_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+    """Contexto de priorización de actores: lista del expediente + evidencia.
+
+    El agente propone scores y engagement; no muta ``dossier_actors`` hasta
+    confirmación humana.
+    """
+
+    base = build_context(dossier_id, max_tokens=max_tokens)
+    tenant_id = require_tenant_id()
+    rows = _dossier_actors_for_analysis(dossier_id)
+    serialized = [_serialize_dossier_actor_row(link, actor) for link, actor in rows]
+    primary = serialized[0] if serialized else None
+    enriched = dict(base.payload)
+    enriched["actors"] = serialized
+    enriched["actor"] = primary or {
+        "instruction": (
+            "No hay actores vinculados al expediente. Propón priorización solo si "
+            "aparecen en evidencia citada; no inventes personas u organizaciones."
+        )
+    }
+    enriched["tenant_id"] = str(tenant_id)
+    enriched["dossier_id"] = str(dossier_id)
+    enriched["security_instruction"] = (
+        "Prioriza actores con hechos citables (adjudicaciones, roles, relaciones). "
+        "Separa hechos de inferencias. No perfiles atributos sensibles (ideología, "
+        "salud, religión). No contactes ni automatizes outreach. Cada fact e "
+        "inference debe citar evidence_ids de la allowlist. La persona confirma "
+        "antes de aplicar scores al expediente."
+    )
+    indicators: list[str] = []
+    payload, redactions = _sanitize(enriched, indicators)
+    fitted = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted)
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=base.manifest
+        | {
+            "analysis_kind": "actor_partnership",
+            "actor_count": len(serialized),
+            "primary_actor_id": (primary or {}).get("actor_id"),
+        },
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(sorted(set(base.injection_indicators) | set(indicators))),
+        estimated_tokens=max(1, len(encoded) // 4),
+    )
+
+
+def build_entity_resolution_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
+    """Contexto de resolución de entidades con NIF/CIF como ancla preferente.
+
+    Nunca fusiona. Si hay CIF común se propone match; sin identificador común
+    solo candidato con confianza baja / needs_review.
+    """
+
+    base = build_context(dossier_id, max_tokens=max_tokens)
+    tenant_id = require_tenant_id()
+    rows = _dossier_actors_for_analysis(dossier_id, limit=40)
+    serialized = [_serialize_dossier_actor_row(link, actor) for link, actor in rows]
+
+    # Agrupa por tax_id para proponer el caso más fiable primero.
+    by_tax: dict[str, list[dict[str, Any]]] = {}
+    for item in serialized:
+        tax = item.get("tax_id")
+        if isinstance(tax, str) and tax:
+            by_tax.setdefault(tax, []).append(item)
+
+    nif_groups = [
+        {"tax_id": tax, "actors": actors}
+        for tax, actors in sorted(by_tax.items(), key=lambda pair: (-len(pair[1]), pair[0]))
+        if len(actors) >= 2
+    ]
+
+    # Semilla: primer grupo NIF duplicado, o dos actores del expediente sin NIF.
+    entity: dict[str, Any]
+    candidates: list[dict[str, Any]]
+    if nif_groups:
+        group = nif_groups[0]["actors"]
+        entity = {
+            "actor_id": group[0]["actor_id"],
+            "name": group[0]["name"],
+            "tax_id": group[0].get("tax_id"),
+            "identifiers": group[0].get("identifiers") or {},
+            "basis": "shared_tax_id",
+        }
+        candidates = [
+            {
+                "actor_id": item["actor_id"],
+                "name": item["name"],
+                "tax_id": item.get("tax_id"),
+                "identifiers": item.get("identifiers") or {},
+                "signal": "same_tax_id",
+            }
+            for item in group[1:]
+        ]
+    elif len(serialized) >= 2:
+        entity = {
+            "actor_id": serialized[0]["actor_id"],
+            "name": serialized[0]["name"],
+            "tax_id": serialized[0].get("tax_id"),
+            "identifiers": serialized[0].get("identifiers") or {},
+            "basis": "name_only_candidate",
+        }
+        candidates = [
+            {
+                "actor_id": item["actor_id"],
+                "name": item["name"],
+                "tax_id": item.get("tax_id"),
+                "identifiers": item.get("identifiers") or {},
+                "signal": "dossier_co_presence",
+            }
+            for item in serialized[1:6]
+        ]
+    else:
+        entity = {
+            "name": None,
+            "basis": "insufficient_actors",
+            "instruction": (
+                "No hay suficientes actores en el expediente para resolver. "
+                "Devuelve needs_review o create_new solo con evidencia citada."
+            ),
+        }
+        candidates = []
+
+    enriched = dict(base.payload)
+    enriched["entity"] = entity
+    enriched["candidates"] = candidates
+    enriched["dossier_actors"] = serialized
+    enriched["nif_duplicate_groups"] = nif_groups[:10]
+    enriched["tenant_id"] = str(tenant_id)
+    enriched["dossier_id"] = str(dossier_id)
+    enriched["security_instruction"] = (
+        "REGLA DE RESOLUCIÓN: el NIF/CIF manda sobre el nombre. Si dos actores "
+        "comparten tax_id normalizado, puedes proponer decision=match con alta "
+        "confianza citando la evidencia del identificador. Si solo hay similitud "
+        "de nombre sin identificador común, decision=needs_review (o no_match) "
+        "con confianza baja; NUNCA fusión automática. create_new solo si la "
+        "entidad observada no encaja con ningún candidato. Cada fact debe citar "
+        "evidence_ids. La persona confirma; Oracle no fusiona en este job."
+    )
+    indicators: list[str] = []
+    payload, redactions = _sanitize(enriched, indicators)
+    fitted = _fit_budget(payload, max(256, max_tokens * 4))
+    encoded = _canonical(fitted)
+    return BuiltContext(
+        payload=cast(dict[str, Any], json.loads(encoded.decode())),
+        manifest=base.manifest
+        | {
+            "analysis_kind": "entity_resolution",
+            "actor_count": len(serialized),
+            "nif_group_count": len(nif_groups),
+            "entity_actor_id": entity.get("actor_id"),
+        },
+        context_hash=hashlib.sha256(encoded).digest(),
+        evidence=base.evidence,
+        classification=base.classification,
+        redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
+        injection_indicators=tuple(sorted(set(base.injection_indicators) | set(indicators))),
         estimated_tokens=max(1, len(encoded) // 4),
     )
 

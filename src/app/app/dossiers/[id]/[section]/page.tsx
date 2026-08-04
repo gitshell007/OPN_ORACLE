@@ -15,6 +15,8 @@ import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents
 import { DossierIntakeSection } from "@/components/dossiers/dossier-intake-section";
 import { DossierOpportunityAnalysisSection } from "@/components/dossiers/dossier-opportunity-analysis-section";
 import { DossierRiskAnalysisSection } from "@/components/dossiers/dossier-risk-analysis-section";
+import { DossierActorPartnershipSection } from "@/components/dossiers/dossier-actor-partnership-section";
+import { DossierEntityResolutionSection } from "@/components/dossiers/dossier-entity-resolution-section";
 import { DossierInvestigationsSection } from "@/components/dossiers/dossier-investigations-section";
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-section";
@@ -34,6 +36,14 @@ const sectionCopy: Record<string, { description: string; api: string }> = {
   "risk-analysis": {
     description: "Propuesta de riesgo con citas a evidencia (confirmación humana).",
     api: "POST /api/v1/ai/dossiers/{id}/risk/runs",
+  },
+  "actor-priority": {
+    description: "Priorización de actores con scores citados (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/actor-partnership/runs",
+  },
+  "entity-resolution": {
+    description: "Resolución de entidades con NIF preferente (sin fusión automática).",
+    api: "POST /api/v1/ai/dossiers/{id}/entity-resolution/runs",
   },
   "custom-brief": { description: "Brief libre y plan de informe personalizado.", api: "POST /api/v1/dossiers/{id}/reports/custom" },
   signals: { description: "Señales asociadas a este expediente.", api: "GET /api/v1/dossiers/{id}/signals" },
@@ -87,6 +97,10 @@ export default async function DossierSectionPage({
         <DossierOpportunityAnalysisSection dossierId={id} />
       ) : section === "risk-analysis" ? (
         <DossierRiskAnalysisSection dossierId={id} />
+      ) : section === "actor-priority" ? (
+        <DossierActorPartnershipSection dossierId={id} />
+      ) : section === "entity-resolution" ? (
+        <DossierEntityResolutionSection dossierId={id} />
       ) : section === "custom-brief" ? (
         <DossierCustomBriefSection dossierId={id} />
       ) : (

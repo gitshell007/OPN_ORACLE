@@ -187,17 +187,17 @@ EVIDENCE_REVIEW_REQUIRED = {
 # Respuesta al veredicto `fail`, declarada por agente y consultada directamente.
 # - reject_output: fallo duro (triage, competitive y agentes de decisión).
 # - strip_claims: retira solo claims anclados y publica con avisos visibles. Aplica al
-#   resumen nocturno, report_writer y análisis de oportunidad/riesgo: el revisor semántico
+#   resumen nocturno, report_writer, oportunidad/riesgo y priorización/resolución de actores: el revisor semántico
 #   con modelos locales a menudo tumba salidas con citas reales y deja al usuario sin
 #   propuesta; el recorte conserva validación estructural de citas y la puerta humana.
 # - not_required: el agente no invoca al revisor semántico.
 EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "intake": "reject_output",
     "signal_triage": "reject_output",
-    "entity_resolution": "reject_output",
+    "entity_resolution": "strip_claims",
     "opportunity": "strip_claims",
     "risk": "strip_claims",
-    "actor_partnership": "reject_output",
+    "actor_partnership": "strip_claims",
     "meeting_briefing": "reject_output",
     "report_writer": "strip_claims",
     "competitive_procurement_intelligence": "reject_output",
