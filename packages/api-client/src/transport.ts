@@ -1942,6 +1942,60 @@ export interface OpportunityFitAssessment {
   scored_as_of?: string | null;
 }
 
+/** Gap a acreditar en el borrador (suele heredarse del veredicto de encaje). */
+export interface DraftOfferGap {
+  code: string;
+  description: string;
+  severity?: "blocking" | "important" | "info" | string;
+  origin?: "verdict_condition" | "pliego" | "profile" | string;
+}
+
+/** Sección del borrador = criterio del PCAP. */
+export interface DraftOfferSection {
+  key: string;
+  title: string;
+  points_hint?: string | null;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  our_response_draft: string;
+  response_origin?: "declared_generated" | string;
+  declared_evidence_ids?: string[];
+  gaps?: string[];
+}
+
+/** Ítem de checklist administrativa del borrador. */
+export interface DraftOfferChecklistItem {
+  key: string;
+  label: string;
+  description: string;
+  status?: "pending" | "ready" | "blocked" | string;
+  source?: "pliego" | "admin" | string;
+}
+
+/**
+ * Borrador de oferta guiado por el pliego (SV2-BORRADOR).
+ * Material declarado/generado — no contamina facts oficiales.
+ * Puerta humana: draft_requires_human_edit.
+ */
+export interface OpportunityDraftOffer {
+  banner: string;
+  human_gate?: "draft_requires_human_edit" | string;
+  statement: string;
+  tender_ref?: string | null;
+  lot_hint?: string | null;
+  sections?: DraftOfferSection[];
+  administrative_checklist?: DraftOfferChecklistItem[];
+  gaps_summary?: string[];
+  gaps?: DraftOfferGap[];
+  draft_engine?: string | null;
+  drafted_as_of?: string | null;
+  origin?: "declared_draft" | string;
+  based_on_verdict?: string | null;
+  official_evidence_ids?: string[];
+  declared_evidence_ids?: string[];
+}
+
 export interface OpportunityAnalysisOutput {
   title: string;
   opportunity_type?: string;
@@ -1956,6 +2010,8 @@ export interface OpportunityAnalysisOutput {
   next_best_action?: OpportunityAnalysisNextAction | null;
   /** Encaje con perfil declarado; distinto de facts[] oficiales. */
   fit_assessment?: OpportunityFitAssessment | null;
+  /** Esqueleto de oferta desde criterios del PCAP; no es documento presentable. */
+  draft_offer?: OpportunityDraftOffer | null;
   facts: IntakeFact[];
   inferences: IntakeInference[];
   recommendations: IntakeRecommendation[];

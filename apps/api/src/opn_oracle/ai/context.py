@@ -1245,6 +1245,63 @@ def validate_opportunity_origin_boundary(
                         ][:12],
                     }
             result["fit_assessment"] = cleaned_fit
+
+    # SV2-BORRADOR: sanear IDs del borrador; sin veredicto de encaje se anula.
+    # El draft es declared_draft: no puede colarse en facts (strip aparte).
+    draft = result.get("draft_offer")
+    if isinstance(draft, dict):
+        fit_ok = isinstance(result.get("fit_assessment"), dict) and isinstance(
+            (result.get("fit_assessment") or {}).get("verdict"), dict
+        )
+        if not fit_ok:
+            result["draft_offer"] = None
+            warnings.append(
+                "draft_offer omitido: requiere fit_assessment.verdict "
+                "(puerta humana del encaje)."
+            )
+        else:
+            draft_declared = [
+                item
+                for item in _as_uuids(draft.get("declared_evidence_ids"))
+                if item in declared_ids
+            ]
+            draft_official = [
+                item
+                for item in _as_uuids(draft.get("official_evidence_ids"))
+                if item in official_ids
+            ]
+            cleaned_sections: list[dict[str, Any]] = []
+            for sec in draft.get("sections") or []:
+                if not isinstance(sec, dict):
+                    continue
+                sec_decl = [
+                    item
+                    for item in _as_uuids(sec.get("declared_evidence_ids"))
+                    if item in declared_ids
+                ]
+                sec_off = [
+                    item
+                    for item in _as_uuids(sec.get("official_evidence_ids"))
+                    if item in official_ids
+                ]
+                cleaned_sections.append(
+                    {
+                        **sec,
+                        "declared_evidence_ids": [str(item) for item in sec_decl],
+                        "official_evidence_ids": [str(item) for item in sec_off],
+                        "requirement_origin": "official",
+                        "response_origin": "declared_generated",
+                    }
+                )
+            result["draft_offer"] = {
+                **draft,
+                "declared_evidence_ids": [str(item) for item in draft_declared],
+                "official_evidence_ids": [str(item) for item in draft_official],
+                "sections": cleaned_sections,
+                "human_gate": "draft_requires_human_edit",
+                "origin": "declared_draft",
+            }
+
     if stripped:
         warnings.append(
             f"Se retiraron o limpiaron {stripped} bloque(s) de facts/inferences que "

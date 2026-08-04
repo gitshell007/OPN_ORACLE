@@ -327,6 +327,69 @@ class OpportunityFitAssessment(StrictModel):
     scored_as_of: str | None = Field(default=None, max_length=40)
 
 
+class DraftOfferGap(StrictModel):
+    """Gap a acreditar (suele heredarse del veredicto de encaje)."""
+
+    code: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=800)
+    severity: Literal["blocking", "important", "info"] = "important"
+    origin: Literal["verdict_condition", "pliego", "profile"] = "verdict_condition"
+
+
+class DraftOfferSection(StrictModel):
+    """Sección del borrador = criterio del PCAP (o bloque de habilitación).
+
+    ``requirement`` es oficial; ``our_response_draft`` es semilla declarada/generada
+    (nunca hecho). ``gaps`` lista lo que falta por acreditar en esa sección.
+    """
+
+    key: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=300)
+    points_hint: str | None = Field(default=None, max_length=200)
+    requirement: str = Field(min_length=1, max_length=2000)
+    requirement_origin: Literal["official"] = "official"
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    our_response_draft: str = Field(min_length=1, max_length=2000)
+    response_origin: Literal["declared_generated"] = "declared_generated"
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+
+
+class DraftOfferChecklistItem(StrictModel):
+    """Ítem de checklist administrativa (DEUC, sobres, solvencia…)."""
+
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=300)
+    description: str = Field(min_length=1, max_length=500)
+    status: Literal["pending", "ready", "blocked"] = "pending"
+    source: Literal["pliego", "admin"] = "pliego"
+
+
+class OpportunityDraftOffer(StrictModel):
+    """Borrador de oferta guiado por el pliego (SV2-BORRADOR).
+
+    Solo se genera si existe ``fit_assessment.verdict``. Es material **declarado/
+    generado** (``origin=declared_draft``): no contamina ``facts[]`` oficiales
+    (frontera 095). Puerta humana propia: ``draft_requires_human_edit``.
+    """
+
+    banner: str = Field(min_length=1, max_length=500)
+    human_gate: Literal["draft_requires_human_edit"] = "draft_requires_human_edit"
+    statement: str = Field(min_length=1, max_length=4000)
+    tender_ref: str | None = Field(default=None, max_length=200)
+    lot_hint: str | None = Field(default=None, max_length=200)
+    sections: list[DraftOfferSection] = Field(default_factory=list)
+    administrative_checklist: list[DraftOfferChecklistItem] = Field(default_factory=list)
+    gaps_summary: list[str] = Field(default_factory=list)
+    gaps: list[DraftOfferGap] = Field(default_factory=list)
+    draft_engine: str | None = Field(default=None, max_length=80)
+    drafted_as_of: str | None = Field(default=None, max_length=40)
+    origin: Literal["declared_draft"] = "declared_draft"
+    based_on_verdict: str | None = Field(default=None, max_length=40)
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+
+
 class OpportunityAnalysisOutput(AgentOutput):
     title: str
     opportunity_type: Literal[
@@ -350,6 +413,7 @@ class OpportunityAnalysisOutput(AgentOutput):
     candidate_actors: list[CandidateActor] = Field(default_factory=list)
     next_best_action: NextBestAction | None = None
     fit_assessment: OpportunityFitAssessment | None = None
+    draft_offer: OpportunityDraftOffer | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -362,6 +426,8 @@ class OpportunityAnalysisOutput(AgentOutput):
         SV2-ENCAJE: también limpia ``dimensions``/``verdict`` malformados y
         descarta claves extra (StrictModel.extra=forbid) para no tumbar el job
         cuando Signal/LLM inventa campos.
+
+        SV2-BORRADOR: coacciona ``draft_offer`` de forma tolerante (o lo anula).
         """
 
         if not isinstance(value, dict):
@@ -369,108 +435,258 @@ class OpportunityAnalysisOutput(AgentOutput):
         fit = value.get("fit_assessment")
         if fit in (None, "", {}, []):
             value["fit_assessment"] = None
-            return value
-        if not isinstance(fit, dict):
+        elif not isinstance(fit, dict):
             value["fit_assessment"] = None
-            return value
-        statement = str(fit.get("statement") or "").strip()
-        declared = fit.get("declared_evidence_ids")
-        if not statement or not isinstance(declared, list) or not declared:
-            value["fit_assessment"] = None
-            return value
-
-        allowed_keys = {
-            "statement",
-            "declared_evidence_ids",
-            "official_evidence_ids",
-            "confidence",
-            "origin",
-            "dimensions",
-            "verdict",
-            "tender_ref",
-            "scoring_engine",
-            "scored_as_of",
-        }
-        cleaned: dict[str, Any] = {
-            key: fit[key] for key in allowed_keys if key in fit
-        }
-        cleaned["statement"] = statement[:4000]
-        cleaned["declared_evidence_ids"] = declared
-        # Normalizar origin desconocido al canónico declarado.
-        if cleaned.get("origin") not in {None, "", "declared_by_client"}:
-            cleaned["origin"] = "declared_by_client"
-        if "confidence" in cleaned:
-            cleaned["confidence"] = _coerce_confidence_0_100(cleaned["confidence"])
-
-        # Dimensiones: conservar solo dicts con campos mínimos válidos.
-        raw_dims = cleaned.get("dimensions")
-        if raw_dims is not None:
-            good_dims: list[dict[str, Any]] = []
-            if isinstance(raw_dims, list):
-                for dim in raw_dims:
-                    if not isinstance(dim, dict):
-                        continue
-                    status = str(dim.get("status") or "").strip()
-                    if status not in {"fit", "partial", "no_fit", "not_evaluable"}:
-                        continue
-                    req = str(dim.get("requirement") or "").strip()
-                    cap = str(dim.get("capability") or "").strip()
-                    reason = str(dim.get("status_reason") or "").strip()
-                    label = str(dim.get("label") or dim.get("key") or "dimensión").strip()
-                    if not (req and cap and reason and label):
-                        continue
-                    key = str(dim.get("key") or "other").strip()
-                    if key not in {"cpv", "solvency", "lots", "deadline", "other"}:
-                        key = "other"
-                    good_dims.append(
-                        {
-                            "key": key,
-                            "label": label[:200],
-                            "requirement": req[:2000],
-                            "requirement_origin": "official",
-                            "official_evidence_ids": dim.get("official_evidence_ids")
-                            if isinstance(dim.get("official_evidence_ids"), list)
-                            else [],
-                            "capability": cap[:2000],
-                            "capability_origin": "declared_by_client",
-                            "declared_evidence_ids": dim.get("declared_evidence_ids")
-                            if isinstance(dim.get("declared_evidence_ids"), list)
-                            else [],
-                            "status": status,
-                            "status_reason": reason[:1000],
-                        }
-                    )
-            cleaned["dimensions"] = good_dims
-
-        # Veredicto: solo si recommendation es conocida; si no, se omite.
-        raw_verdict = cleaned.get("verdict")
-        if raw_verdict is not None:
-            if isinstance(raw_verdict, dict):
-                rec = str(raw_verdict.get("recommendation") or "").strip()
-                rationale = str(raw_verdict.get("rationale") or "").strip()
-                if rec in {"go", "no_go", "go_conditioned"} and rationale:
-                    cleaned["verdict"] = {
-                        "recommendation": rec,
-                        "conditions": [
-                            str(c)[:500]
-                            for c in (raw_verdict.get("conditions") or [])
-                            if str(c).strip()
-                        ][:12]
-                        if isinstance(raw_verdict.get("conditions"), list)
-                        else [],
-                        "human_gate": "awaiting_user_confirmation",
-                        "rationale": rationale[:2000],
-                    }
-                else:
-                    cleaned.pop("verdict", None)
+        else:
+            statement = str(fit.get("statement") or "").strip()
+            declared = fit.get("declared_evidence_ids")
+            if not statement or not isinstance(declared, list) or not declared:
+                value["fit_assessment"] = None
             else:
-                cleaned.pop("verdict", None)
+                allowed_keys = {
+                    "statement",
+                    "declared_evidence_ids",
+                    "official_evidence_ids",
+                    "confidence",
+                    "origin",
+                    "dimensions",
+                    "verdict",
+                    "tender_ref",
+                    "scoring_engine",
+                    "scored_as_of",
+                }
+                cleaned: dict[str, Any] = {
+                    key: fit[key] for key in allowed_keys if key in fit
+                }
+                cleaned["statement"] = statement[:4000]
+                cleaned["declared_evidence_ids"] = declared
+                # Normalizar origin desconocido al canónico declarado.
+                if cleaned.get("origin") not in {None, "", "declared_by_client"}:
+                    cleaned["origin"] = "declared_by_client"
+                if "confidence" in cleaned:
+                    cleaned["confidence"] = _coerce_confidence_0_100(cleaned["confidence"])
 
-        for opt in ("tender_ref", "scoring_engine", "scored_as_of"):
-            if opt in cleaned and cleaned[opt] is not None:
-                cleaned[opt] = str(cleaned[opt])[:200 if opt == "tender_ref" else 80]
+                # Dimensiones: conservar solo dicts con campos mínimos válidos.
+                raw_dims = cleaned.get("dimensions")
+                if raw_dims is not None:
+                    good_dims: list[dict[str, Any]] = []
+                    if isinstance(raw_dims, list):
+                        for dim in raw_dims:
+                            if not isinstance(dim, dict):
+                                continue
+                            status = str(dim.get("status") or "").strip()
+                            if status not in {"fit", "partial", "no_fit", "not_evaluable"}:
+                                continue
+                            req = str(dim.get("requirement") or "").strip()
+                            cap = str(dim.get("capability") or "").strip()
+                            reason = str(dim.get("status_reason") or "").strip()
+                            label = str(dim.get("label") or dim.get("key") or "dimensión").strip()
+                            if not (req and cap and reason and label):
+                                continue
+                            key = str(dim.get("key") or "other").strip()
+                            if key not in {"cpv", "solvency", "lots", "deadline", "other"}:
+                                key = "other"
+                            good_dims.append(
+                                {
+                                    "key": key,
+                                    "label": label[:200],
+                                    "requirement": req[:2000],
+                                    "requirement_origin": "official",
+                                    "official_evidence_ids": dim.get("official_evidence_ids")
+                                    if isinstance(dim.get("official_evidence_ids"), list)
+                                    else [],
+                                    "capability": cap[:2000],
+                                    "capability_origin": "declared_by_client",
+                                    "declared_evidence_ids": dim.get("declared_evidence_ids")
+                                    if isinstance(dim.get("declared_evidence_ids"), list)
+                                    else [],
+                                    "status": status,
+                                    "status_reason": reason[:1000],
+                                }
+                            )
+                    cleaned["dimensions"] = good_dims
 
-        value["fit_assessment"] = cleaned
+                # Veredicto: solo si recommendation es conocida; si no, se omite.
+                raw_verdict = cleaned.get("verdict")
+                if raw_verdict is not None:
+                    if isinstance(raw_verdict, dict):
+                        rec = str(raw_verdict.get("recommendation") or "").strip()
+                        rationale = str(raw_verdict.get("rationale") or "").strip()
+                        if rec in {"go", "no_go", "go_conditioned"} and rationale:
+                            cleaned["verdict"] = {
+                                "recommendation": rec,
+                                "conditions": [
+                                    str(c)[:500]
+                                    for c in (raw_verdict.get("conditions") or [])
+                                    if str(c).strip()
+                                ][:12]
+                                if isinstance(raw_verdict.get("conditions"), list)
+                                else [],
+                                "human_gate": "awaiting_user_confirmation",
+                                "rationale": rationale[:2000],
+                            }
+                        else:
+                            cleaned.pop("verdict", None)
+                    else:
+                        cleaned.pop("verdict", None)
+
+                for opt in ("tender_ref", "scoring_engine", "scored_as_of"):
+                    if opt in cleaned and cleaned[opt] is not None:
+                        cleaned[opt] = str(cleaned[opt])[
+                            :200 if opt == "tender_ref" else 80
+                        ]
+
+                value["fit_assessment"] = cleaned
+
+        # SV2-BORRADOR: coaccionar draft_offer o anularlo sin tumbar el job.
+        value = cls._coerce_draft_offer(value)
+        return value
+
+    @staticmethod
+    def _coerce_draft_offer(value: dict[str, Any]) -> dict[str, Any]:
+        draft = value.get("draft_offer")
+        if draft in (None, "", {}, []):
+            value["draft_offer"] = None
+            return value
+        if not isinstance(draft, dict):
+            value["draft_offer"] = None
+            return value
+        statement = str(draft.get("statement") or "").strip()
+        banner = str(draft.get("banner") or "").strip()
+        sections = draft.get("sections")
+        if not statement or not banner or not isinstance(sections, list) or not sections:
+            value["draft_offer"] = None
+            return value
+
+        good_sections: list[dict[str, Any]] = []
+        for sec in sections:
+            if not isinstance(sec, dict):
+                continue
+            title = str(sec.get("title") or "").strip()
+            req = str(sec.get("requirement") or "").strip()
+            resp = str(sec.get("our_response_draft") or "").strip()
+            key = str(sec.get("key") or title or "section").strip()[:80]
+            if not (title and req and resp and key):
+                continue
+            gaps_raw = sec.get("gaps") if isinstance(sec.get("gaps"), list) else []
+            good_sections.append(
+                {
+                    "key": key,
+                    "title": title[:300],
+                    "points_hint": (
+                        str(sec.get("points_hint"))[:200]
+                        if sec.get("points_hint")
+                        else None
+                    ),
+                    "requirement": req[:2000],
+                    "requirement_origin": "official",
+                    "official_evidence_ids": sec.get("official_evidence_ids")
+                    if isinstance(sec.get("official_evidence_ids"), list)
+                    else [],
+                    "our_response_draft": resp[:2000],
+                    "response_origin": "declared_generated",
+                    "declared_evidence_ids": sec.get("declared_evidence_ids")
+                    if isinstance(sec.get("declared_evidence_ids"), list)
+                    else [],
+                    "gaps": [str(g)[:500] for g in gaps_raw if str(g).strip()][:12],
+                }
+            )
+        if not good_sections:
+            value["draft_offer"] = None
+            return value
+
+        checklist_raw = draft.get("administrative_checklist")
+        good_checklist: list[dict[str, Any]] = []
+        if isinstance(checklist_raw, list):
+            for item in checklist_raw:
+                if not isinstance(item, dict):
+                    continue
+                label = str(item.get("label") or "").strip()
+                desc = str(item.get("description") or "").strip()
+                ckey = str(item.get("key") or label or "item").strip()[:80]
+                status = str(item.get("status") or "pending").strip()
+                if status not in {"pending", "ready", "blocked"}:
+                    status = "pending"
+                if not (label and desc and ckey):
+                    continue
+                source = str(item.get("source") or "pliego").strip()
+                if source not in {"pliego", "admin"}:
+                    source = "pliego"
+                good_checklist.append(
+                    {
+                        "key": ckey,
+                        "label": label[:300],
+                        "description": desc[:500],
+                        "status": status,
+                        "source": source,
+                    }
+                )
+
+        gaps_raw = draft.get("gaps")
+        good_gaps: list[dict[str, Any]] = []
+        if isinstance(gaps_raw, list):
+            for g in gaps_raw:
+                if not isinstance(g, dict):
+                    continue
+                code = str(g.get("code") or "").strip()[:80]
+                desc = str(g.get("description") or "").strip()
+                if not (code and desc):
+                    continue
+                sev = str(g.get("severity") or "important").strip()
+                if sev not in {"blocking", "important", "info"}:
+                    sev = "important"
+                origin = str(g.get("origin") or "verdict_condition").strip()
+                if origin not in {"verdict_condition", "pliego", "profile"}:
+                    origin = "verdict_condition"
+                good_gaps.append(
+                    {
+                        "code": code,
+                        "description": desc[:800],
+                        "severity": sev,
+                        "origin": origin,
+                    }
+                )
+
+        gaps_summary = draft.get("gaps_summary")
+        if not isinstance(gaps_summary, list):
+            gaps_summary = [g["description"] for g in good_gaps]
+        else:
+            gaps_summary = [str(x)[:500] for x in gaps_summary if str(x).strip()][:12]
+
+        cleaned_draft: dict[str, Any] = {
+            "banner": banner[:500],
+            "human_gate": "draft_requires_human_edit",
+            "statement": statement[:4000],
+            "tender_ref": (
+                str(draft["tender_ref"])[:200] if draft.get("tender_ref") else None
+            ),
+            "lot_hint": (
+                str(draft["lot_hint"])[:200] if draft.get("lot_hint") else None
+            ),
+            "sections": good_sections,
+            "administrative_checklist": good_checklist,
+            "gaps_summary": gaps_summary,
+            "gaps": good_gaps,
+            "draft_engine": (
+                str(draft["draft_engine"])[:80] if draft.get("draft_engine") else None
+            ),
+            "drafted_as_of": (
+                str(draft["drafted_as_of"])[:40] if draft.get("drafted_as_of") else None
+            ),
+            "origin": "declared_draft",
+            "based_on_verdict": (
+                str(draft["based_on_verdict"])[:40]
+                if draft.get("based_on_verdict")
+                else None
+            ),
+            "official_evidence_ids": draft.get("official_evidence_ids")
+            if isinstance(draft.get("official_evidence_ids"), list)
+            else [],
+            "declared_evidence_ids": draft.get("declared_evidence_ids")
+            if isinstance(draft.get("declared_evidence_ids"), list)
+            else [],
+        }
+        value["draft_offer"] = cleaned_draft
         return value
 
 

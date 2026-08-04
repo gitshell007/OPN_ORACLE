@@ -199,6 +199,76 @@ const groundedArtifact = {
         rationale: "Propuesta con puerta humana; no es decisión automática.",
       },
     },
+    draft_offer: {
+      banner:
+        "BORRADOR COMERCIAL — no es documento presentable. Requiere edición humana antes de cualquier presentación o envío.",
+      human_gate: "draft_requires_human_edit",
+      statement:
+        "Borrador de oferta (esqueleto) para CONTR 2026 11077 · Lote 2: Red de agentes inteligentes.",
+      tender_ref: "CONTR 2026 11077",
+      lot_hint: "Lote 2: Red de agentes inteligentes",
+      draft_engine: "sv2_borrador_v1",
+      origin: "declared_draft",
+      based_on_verdict: "go_conditioned",
+      sections: [
+        {
+          key: "award_economic",
+          title: "Oferta económica (fórmulas)",
+          points_hint: "65/60 umbral PCAP · criterio económico",
+          requirement: "[oficial] Criterios evaluables mediante fórmulas (oferta económica).",
+          requirement_origin: "official",
+          official_evidence_ids: ["ev-1"],
+          our_response_draft:
+            "[borrador declarado — no es hecho] Semilla de oferta económica para Lote 2.",
+          response_origin: "declared_generated",
+          declared_evidence_ids: ["decl-own-offer"],
+          gaps: ["Solo si puede acreditar F.2 volumen ≥1,5×"],
+        },
+        {
+          key: "award_technical",
+          title: "Oferta técnica (juicio de valor)",
+          points_hint: "criterio técnico · juicio de valor",
+          requirement: "[oficial] Criterios evaluables mediante juicio de valor (oferta técnica).",
+          requirement_origin: "official",
+          official_evidence_ids: ["ev-1"],
+          our_response_draft:
+            "[borrador declarado — no es hecho] Semilla de memoria técnica orientada a Lote 2.",
+          response_origin: "declared_generated",
+          declared_evidence_ids: ["decl-own-offer"],
+          gaps: [],
+        },
+        {
+          key: "award_thresholds",
+          title: "Umbrales de puntuación 65/60",
+          points_hint: "65 puntos (1 licitador) · 60 p.p. (varios)",
+          requirement: "[oficial] Umbrales de puntuación del PCAP (65 / 60 puntos).",
+          requirement_origin: "official",
+          official_evidence_ids: ["ev-1"],
+          our_response_draft:
+            "[borrador declarado — no es hecho] Semilla sobre umbrales 65/60 del PCAP.",
+          response_origin: "declared_generated",
+          declared_evidence_ids: ["decl-own-offer"],
+          gaps: [],
+        },
+      ],
+      administrative_checklist: [
+        {
+          key: "deuc",
+          label: "DEUC / Documento Europeo Único de Contratación",
+          description: "Cumplimentar DEUC y firmar.",
+          status: "pending",
+          source: "pliego",
+        },
+        {
+          key: "solvencia_f2",
+          label: "Acreditación solvencia económica (F.2)",
+          description: "Volumen anual ≥ 1,5× valor estimado.",
+          status: "blocked",
+          source: "pliego",
+        },
+      ],
+      gaps_summary: ["Solo si puede acreditar F.2 volumen ≥1,5×"],
+    },
   },
 };
 
@@ -303,6 +373,40 @@ describe("DossierOpportunityAnalysisSection", () => {
     );
     expect(within(proposal).getByTestId("dossier-opportunity-fit-conditions")).toHaveTextContent(
       "Solo si puede acreditar F.2",
+    );
+  });
+
+  it("botón Preparar borrador de oferta muestra secciones, gaps y checklist", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    const proposal = await view.findByTestId("dossier-opportunity-proposal");
+    const btn = within(proposal).getByTestId("dossier-opportunity-prepare-draft-offer");
+    expect(btn).toHaveTextContent("Preparar borrador de oferta");
+    expect(within(proposal).queryByTestId("dossier-opportunity-draft-offer")).toBeNull();
+
+    fireEvent.click(btn);
+    const draft = within(proposal).getByTestId("dossier-opportunity-draft-offer");
+    expect(within(draft).getByTestId("dossier-opportunity-draft-banner")).toHaveTextContent(
+      "BORRADOR COMERCIAL",
+    );
+    expect(within(draft).getByTestId("dossier-opportunity-draft-human-gate")).toHaveTextContent(
+      "requiere edición humana",
+    );
+    expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_economic")).toHaveTextContent(
+      "Oferta económica",
+    );
+    expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_technical")).toHaveTextContent(
+      "juicio de valor",
+    );
+    expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_thresholds")).toHaveTextContent(
+      "65/60",
+    );
+    expect(within(draft).getByTestId("dossier-opportunity-draft-gaps")).toHaveTextContent("F.2");
+    expect(within(draft).getByTestId("dossier-opportunity-draft-check-deuc")).toHaveTextContent(
+      "pendiente",
+    );
+    expect(within(draft).getByTestId("dossier-opportunity-draft-check-solvencia_f2")).toHaveTextContent(
+      "bloqueado",
     );
   });
 });

@@ -97,6 +97,7 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [showDraftOffer, setShowDraftOffer] = useState(false);
 
   const output = artifact?.output ?? null;
   const facts = useMemo(() => groundedFacts(output), [output]);
@@ -631,6 +632,179 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                     {" · "}
                     Confianza {output.fit_assessment.confidence ?? "—"}%
                   </small>
+
+                  {output.fit_assessment.verdict ? (
+                    <div
+                      style={{ marginTop: "0.75rem" }}
+                      data-testid="dossier-opportunity-draft-offer-actions"
+                    >
+                      <button
+                        type="button"
+                        data-testid="dossier-opportunity-prepare-draft-offer"
+                        className="btn-secondary"
+                        onClick={() => setShowDraftOffer((v) => !v)}
+                        style={{
+                          padding: "0.4rem 0.75rem",
+                          borderRadius: "6px",
+                          border: "1px solid var(--border, #ccc)",
+                          background: "var(--surface, #f7f7f7)",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {showDraftOffer
+                          ? "Ocultar borrador de oferta"
+                          : "Preparar borrador de oferta"}
+                      </button>
+                      {!output.draft_offer ? (
+                        <small className="muted" style={{ display: "block", marginTop: "0.35rem" }}>
+                          El borrador se genera con el análisis cuando hay veredicto de encaje.
+                          Si no aparece, vuelve a ejecutar el análisis de oportunidad.
+                        </small>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {showDraftOffer && output.draft_offer ? (
+                    <div
+                      className="opportunity-draft-offer"
+                      data-testid="dossier-opportunity-draft-offer"
+                      style={{
+                        marginTop: "0.85rem",
+                        padding: "0.75rem",
+                        border: "1px dashed var(--border, #c9a227)",
+                        borderRadius: "6px",
+                        background: "var(--surface-muted, #fffbeb)",
+                      }}
+                    >
+                      <p
+                        data-testid="dossier-opportunity-draft-banner"
+                        style={{
+                          margin: "0 0 0.5rem",
+                          fontWeight: 700,
+                          color: "var(--warning-fg, #92400e)",
+                        }}
+                      >
+                        {output.draft_offer.banner}
+                      </p>
+                      <small
+                        className="muted"
+                        data-testid="dossier-opportunity-draft-human-gate"
+                      >
+                        Puerta humana:{" "}
+                        {output.draft_offer.human_gate === "draft_requires_human_edit" ||
+                        !output.draft_offer.human_gate
+                          ? "requiere edición humana (no es documento presentable)"
+                          : String(output.draft_offer.human_gate)}
+                        {output.draft_offer.tender_ref
+                          ? ` · ${output.draft_offer.tender_ref}`
+                          : ""}
+                        {output.draft_offer.lot_hint
+                          ? ` · ${output.draft_offer.lot_hint}`
+                          : ""}
+                      </small>
+                      <p
+                        data-testid="dossier-opportunity-draft-statement"
+                        style={{ margin: "0.5rem 0" }}
+                      >
+                        {output.draft_offer.statement}
+                      </p>
+
+                      {(output.draft_offer.sections || []).length > 0 ? (
+                        <div data-testid="dossier-opportunity-draft-sections">
+                          <h4 style={{ margin: "0.5rem 0 0.35rem" }}>
+                            Secciones (criterios del pliego)
+                          </h4>
+                          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                            {(output.draft_offer.sections || []).map((sec) => (
+                              <li
+                                key={sec.key}
+                                data-testid={`dossier-opportunity-draft-section-${sec.key}`}
+                                style={{
+                                  marginBottom: "0.65rem",
+                                  paddingBottom: "0.55rem",
+                                  borderBottom: "1px solid var(--border, #eee)",
+                                }}
+                              >
+                                <strong>{sec.title}</strong>
+                                {sec.points_hint ? (
+                                  <span className="muted"> · {sec.points_hint}</span>
+                                ) : null}
+                                <p style={{ margin: "0.25rem 0 0", fontSize: "0.92em" }}>
+                                  <span className="muted">Requisito (oficial): </span>
+                                  {sec.requirement}
+                                </p>
+                                <p style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}>
+                                  <span className="muted">
+                                    Respuesta semilla (borrador declarado):{" "}
+                                  </span>
+                                  {sec.our_response_draft}
+                                </p>
+                                {(sec.gaps || []).length > 0 ? (
+                                  <ul
+                                    data-testid={`dossier-opportunity-draft-section-gaps-${sec.key}`}
+                                    style={{ margin: "0.25rem 0 0", paddingLeft: "1.1rem" }}
+                                  >
+                                    {(sec.gaps || []).map((g) => (
+                                      <li key={g}>
+                                        <small>Gap: {g}</small>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {(output.draft_offer.gaps_summary || []).length > 0 ? (
+                        <div data-testid="dossier-opportunity-draft-gaps">
+                          <h4 style={{ margin: "0.5rem 0 0.35rem" }}>
+                            Gaps de solvencia / condiciones
+                          </h4>
+                          <ul>
+                            {(output.draft_offer.gaps_summary || []).map((g) => (
+                              <li key={g}>{g}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {(output.draft_offer.administrative_checklist || []).length > 0 ? (
+                        <div data-testid="dossier-opportunity-draft-checklist">
+                          <h4 style={{ margin: "0.5rem 0 0.35rem" }}>
+                            Checklist administrativa
+                          </h4>
+                          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                            {(output.draft_offer.administrative_checklist || []).map(
+                              (item) => (
+                                <li
+                                  key={item.key}
+                                  data-testid={`dossier-opportunity-draft-check-${item.key}`}
+                                  style={{ marginBottom: "0.35rem" }}
+                                >
+                                  <strong>
+                                    [
+                                    {item.status === "blocked"
+                                      ? "bloqueado"
+                                      : item.status === "ready"
+                                        ? "listo"
+                                        : "pendiente"}
+                                    ]{" "}
+                                    {item.label}
+                                  </strong>
+                                  <div>
+                                    <small className="muted">{item.description}</small>
+                                  </div>
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : null}

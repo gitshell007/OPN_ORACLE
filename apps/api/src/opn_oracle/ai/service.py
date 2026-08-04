@@ -1662,6 +1662,37 @@ def execute_agent(
                     f"{type(enrich_error).__name__}. Se conserva fit_assessment base."
                 )
                 output["warnings"] = warnings
+            # SV2-BORRADOR: esqueleto de oferta desde criterios del PCAP (coste 0).
+            # Solo si hay fit_assessment.verdict. No contamina facts oficiales.
+            try:
+                from opn_oracle.ai.draft_offer import (
+                    enrich_opportunity_draft_offer,
+                    strip_draft_from_official_facts,
+                )
+
+                output = enrich_opportunity_draft_offer(
+                    output,
+                    context_payload=context.payload
+                    if isinstance(context.payload, dict)
+                    else {},
+                )
+                output = strip_draft_from_official_facts(output)
+                output = validate_opportunity_origin_boundary(
+                    output,
+                    official_ids=allowed_evidence,
+                    declared_ids=declared_set,
+                )
+            except Exception as draft_error:  # noqa: BLE001 — no tumbar opportunity
+                warnings = (
+                    list(output["warnings"])
+                    if isinstance(output.get("warnings"), list)
+                    else []
+                )
+                warnings.append(
+                    "Borrador de oferta no aplicado: "
+                    f"{type(draft_error).__name__}."
+                )
+                output["warnings"] = warnings
             boundary_model = prompt.schema.model_validate_json(json.dumps(output))
             validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
             output = boundary_model.model_dump(mode="json")
