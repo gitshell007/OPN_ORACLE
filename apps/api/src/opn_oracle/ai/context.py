@@ -1033,6 +1033,333 @@ def _analysis_candidate_seed(
     }
 
 
+# ---------------------------------------------------------------------------
+# SV2-E2E-VIVO · bag de opportunity con pliego real (documentos + memory_signal)
+# ---------------------------------------------------------------------------
+# El bag genérico de build_context solo carga signal/document/procurement/entity_intel
+# ordenado por created_at. En vivo, el pin PLACSP es fino (sin F.2/F.3 ni 65/60) y
+# el extracto PCAP vive en document_chunks o memory_signal (bridge del 132) — fuera
+# del bag o sepultado por el portfolio. Opportunity necesita esos chunks para el
+# motor de encaje/borrador.
+
+_PLIEGO_DOC_NAME = re.compile(
+    r"(?i)(pcap|ppt|pliego|extracto|oferta.?contr|prescripciones)"
+)
+_PLIEGO_CHUNK_SIGNAL = re.compile(
+    r"(?i)("
+    r"CRITERIOS\s+DE\s+ADJUDICACI|"
+    r"F\.?\s*[23]\.|"
+    r"65\s*puntos|"
+    r"60\s*puntos|"
+    r"solvencia|"
+    r"volumen\s+anual\s+de\s+negocio|"
+    r"Lote\s*\d+|"
+    r"EXTRACTO\s+DEL\s+PCAP|"
+    r"juicio\s+de\s+valor|"
+    r"oferta\s+econ[oó]mica|"
+    r"oferta\s+t[eé]cnica|"
+    r"IDENTIFICACI[OÓ]N|"
+    r"CONTR\s*\d{4}\s*\d+"
+    r")"
+)
+_PLIEGO_FAMILY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "criteria",
+        re.compile(
+            r"(?i)CRITERIOS\s+DE\s+ADJUDICACI|65\s*puntos|60\s*puntos|juicio\s+de\s+valor"
+        ),
+    ),
+    ("f2", re.compile(r"(?i)F\.?\s*2|volumen\s+anual\s+de\s+negocio|solvencia\s+econ")),
+    (
+        "f3",
+        re.compile(
+            r"(?i)F\.?\s*3|certificados?\s+de\s+buena|servicios\s+ejecutados|solvencia\s+t[eé]c"
+        ),
+    ),
+    ("lots", re.compile(r"(?i)Lote\s*\d+")),
+    (
+        "identity",
+        re.compile(r"(?i)EXTRACTO\s+DEL\s+PCAP|IDENTIFICACI[OÓ]N|CONTR\s*\d{4}\s*\d+"),
+    ),
+    ("deadline", re.compile(r"(?i)deadline|plazo\s+de\s+presentaci|2026-0[89]-\d{2}")),
+)
+
+
+def pliego_evidence_richness(extract: str, *, source_kind: str | None = None) -> int:
+    """Score how useful an extract is for fit/draft (criteria, F.2/F.3, lots…)."""
+
+    text = extract or ""
+    score = 0
+    if re.search(r"(?i)F\.?\s*2|volumen\s+anual\s+de\s+negocio", text):
+        score += 5
+    if re.search(r"(?i)F\.?\s*3|certificados?\s+de\s+buena|servicios\s+ejecutados", text):
+        score += 5
+    if re.search(r"(?i)CRITERIOS\s+DE\s+ADJUDICACI|65\s*puntos|60\s*puntos", text):
+        score += 5
+    if re.search(r"(?i)juicio\s+de\s+valor|oferta\s+t[eé]cnica|oferta\s+econ[oó]mica", text):
+        score += 3
+    if re.search(r"(?i)Lote\s*\d+", text):
+        score += 3
+    if re.search(r"(?i)EXTRACTO\s+DEL\s+PCAP|pliego|PCAP", text):
+        score += 2
+    if re.search(r"(?i)CONTR\s*\d{4}\s*\d+", text):
+        score += 2
+    if re.search(r"(?i)deadline|plazo\s+de\s+presentaci|2026-0[89]-\d{2}", text):
+        score += 2
+    # Prefer durable document evidence slightly over rematerialized memory_signal.
+    if source_kind == "document":
+        score += 2
+    elif source_kind == "procurement":
+        score += 1
+    score += min(4, len(text) // 400)
+    return score
+
+
+def pliego_evidence_family(extract: str) -> str:
+    """Family tag for diversity (criteria / f2 / f3 / lots / …)."""
+
+    text = extract or ""
+    for name, pattern in _PLIEGO_FAMILY_PATTERNS:
+        if pattern.search(text):
+            return name
+    return "other"
+
+
+def rank_opportunity_evidence_items(
+    items: list[dict[str, Any]],
+    *,
+    char_budget: int,
+    max_items: int = 24,
+) -> list[dict[str, Any]]:
+    """Select pliego-rich evidence for opportunity within a character budget.
+
+    Pure function (unit-testable): ranks by richness, keeps family diversity for
+    the top pliego slots, then fills remaining budget with other official items.
+    """
+
+    if not items:
+        return []
+    budget = max(256, int(char_budget))
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            pliego_evidence_richness(
+                str(item.get("extract") or ""),
+                source_kind=str(item.get("source_kind") or "") or None,
+            ),
+            len(str(item.get("extract") or "")),
+        ),
+        reverse=True,
+    )
+    selected: list[dict[str, Any]] = []
+    used = 0
+    # Pass 1: up to 2 per pliego family among rich items.
+    for item in ranked:
+        extract = str(item.get("extract") or "")
+        if not extract:
+            continue
+        richness = pliego_evidence_richness(
+            extract, source_kind=str(item.get("source_kind") or "") or None
+        )
+        if richness < 3:
+            continue
+        family = pliego_evidence_family(extract)
+        family_count = sum(
+            1
+            for s in selected
+            if pliego_evidence_family(str(s.get("extract") or "")) == family
+        )
+        if family_count >= 2 and family != "other":
+            continue
+        take = extract if used + len(extract) <= budget else extract[: max(0, budget - used)]
+        if not take:
+            continue
+        entry = dict(item)
+        entry["extract"] = take
+        selected.append(entry)
+        used += len(take)
+        if used >= budget or len(selected) >= max_items:
+            return selected
+    # Pass 2: fill with remaining (procurement pins, etc.) without family cap.
+    selected_ids = {str(s.get("id")) for s in selected if s.get("id")}
+    for item in ranked:
+        eid = str(item.get("id") or "")
+        if eid and eid in selected_ids:
+            continue
+        extract = str(item.get("extract") or "")
+        if not extract:
+            continue
+        take = extract if used + len(extract) <= budget else extract[: max(0, budget - used)]
+        if not take:
+            continue
+        entry = dict(item)
+        entry["extract"] = take
+        selected.append(entry)
+        used += len(take)
+        if used >= budget or len(selected) >= max_items:
+            break
+    return selected
+
+
+def materialize_pliego_document_evidence(
+    dossier_id: uuid.UUID,
+    *,
+    max_new: int = 40,
+) -> list[Evidence]:
+    """Create ``source_kind=document`` Evidence from ready pliego document chunks.
+
+    Product path: upload extract/PCAP → process → chunks → **citable evidence**.
+    Idempotent: skips chunks that already have an Evidence row. Does not invent
+    text; only materializes what the parser already extracted.
+    """
+
+    from opn_oracle.documents.models import Document, DocumentChunk
+    from opn_oracle.documents.security import document_scan_provenance
+
+    tenant_id = require_tenant_id()
+    docs = list(
+        db.session.scalars(
+            select(Document).where(
+                Document.tenant_id == tenant_id,
+                Document.dossier_id == dossier_id,
+                Document.status == "ready",
+                Document.deleted_at.is_(None),
+            )
+        )
+    )
+    pliego_docs = [
+        doc
+        for doc in docs
+        if _PLIEGO_DOC_NAME.search(str(doc.original_filename or ""))
+        or _PLIEGO_DOC_NAME.search(str((doc.metadata_json or {}).get("title") or ""))
+    ]
+    if not pliego_docs:
+        return []
+
+    created: list[Evidence] = []
+    for doc in pliego_docs:
+        if len(created) >= max_new:
+            break
+        chunks = list(
+            db.session.scalars(
+                select(DocumentChunk)
+                .where(
+                    DocumentChunk.tenant_id == tenant_id,
+                    DocumentChunk.document_id == doc.id,
+                    DocumentChunk.dossier_id == dossier_id,
+                )
+                .order_by(DocumentChunk.sequence.asc())
+                .limit(80)
+            )
+        )
+        if not chunks:
+            continue
+        existing_chunk_ids = set(
+            db.session.scalars(
+                select(Evidence.document_chunk_id).where(
+                    Evidence.tenant_id == tenant_id,
+                    Evidence.source_kind == "document",
+                    Evidence.document_id == doc.id,
+                    Evidence.document_chunk_id.is_not(None),
+                )
+            )
+        )
+        for chunk in chunks:
+            if len(created) >= max_new:
+                break
+            if chunk.id in existing_chunk_ids:
+                continue
+            text = (chunk.text_content or "").strip()
+            if not text or not _PLIEGO_CHUNK_SIGNAL.search(text):
+                continue
+            extract = text[:4000]
+            evidence = Evidence(
+                tenant_id=tenant_id,
+                signal_id=None,
+                source_kind="document",
+                document_id=doc.id,
+                document_version_id=chunk.document_version_id,
+                document_chunk_id=chunk.id,
+                extract=extract,
+                locator={
+                    **(chunk.locator or {}),
+                    "chunk_start": 0,
+                    "chunk_end": len(extract),
+                    "materialized_for": "opportunity_pliego",
+                    "original_filename": doc.original_filename,
+                },
+                checksum=hashlib.sha256(extract.encode()).digest(),
+                classification=doc.classification,
+                provenance={
+                    "chunk_checksum": chunk.checksum.hex() if chunk.checksum else None,
+                    "immutable_version": True,
+                    "materialized_for": "sv2_e2e_vivo_opportunity",
+                    **document_scan_provenance(doc),
+                },
+            )
+            db.session.add(evidence)
+            db.session.flush()
+            db.session.add(
+                EvidenceDossier(
+                    tenant_id=tenant_id, evidence_id=evidence.id, dossier_id=dossier_id
+                )
+            )
+            created.append(evidence)
+            existing_chunk_ids.add(chunk.id)
+    if created:
+        db.session.commit()
+    return created
+
+
+def load_opportunity_pliego_evidence_rows(
+    dossier_id: uuid.UUID,
+    *,
+    limit: int = 80,
+) -> list[Evidence]:
+    """Load durable + pliego-rich memory_signal evidence for opportunity bag."""
+
+    tenant_id = require_tenant_id()
+    evidence_ids = select(EvidenceDossier.evidence_id).where(
+        EvidenceDossier.tenant_id == tenant_id, EvidenceDossier.dossier_id == dossier_id
+    )
+    durable = list(
+        db.session.scalars(
+            select(Evidence)
+            .where(
+                Evidence.id.in_(evidence_ids),
+                Evidence.tenant_id == tenant_id,
+                Evidence.source_kind.in_(("signal", "document", "procurement", "entity_intel")),
+            )
+            .order_by(Evidence.created_at.desc())
+            .limit(limit)
+        )
+    )
+    # memory_signal: only candidates that look like pliego (avoid flooding bag).
+    memory_candidates = list(
+        db.session.scalars(
+            select(Evidence)
+            .where(
+                Evidence.id.in_(evidence_ids),
+                Evidence.tenant_id == tenant_id,
+                Evidence.source_kind == "memory_signal",
+            )
+            .order_by(Evidence.created_at.desc())
+            .limit(200)
+        )
+    )
+    pliego_memory = [
+        row
+        for row in memory_candidates
+        if pliego_evidence_richness(row.extract or "", source_kind="memory_signal") >= 4
+        or _PLIEGO_CHUNK_SIGNAL.search(row.extract or "")
+    ]
+    # Dedup by id, prefer durable order then memory.
+    by_id: dict[uuid.UUID, Evidence] = {row.id: row for row in durable}
+    for row in pliego_memory:
+        by_id.setdefault(row.id, row)
+    return list(by_id.values())
+
+
 def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int) -> BuiltContext:
     """Contexto para el agente opportunity: expediente + evidencia + semilla candidata.
 
@@ -1047,7 +1374,17 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
     con ``source_kind=declared`` (IDs sintéticos, no filas ORM). Es citable solo
     en ``fit_assessment``; no en ``facts[]`` de fuente oficial. El lector distingue
     siempre lo declarado de lo oficial.
+
+    SV2-E2E-VIVO: materializa evidencia ``document`` desde chunks de pliego listos
+    y prioriza extractos ricos (F.2/F.3/65/60) —pin PLACSP fino + portfolio no
+    deben ocultar el PCAP del expediente.
     """
+
+    # Materialize document evidence from ready pliego uploads (idempotent).
+    try:
+        materialize_pliego_document_evidence(dossier_id)
+    except Exception:  # noqa: BLE001 — never block opportunity on materialization
+        db.session.rollback()
 
     base = build_context(dossier_id, max_tokens=max_tokens, include_living_summary=False)
     tenant_id = require_tenant_id()
@@ -1060,12 +1397,53 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
         raise ValueError("Expediente no disponible.")
     declared = build_declared_profile_evidence(dossier)
     declared_ids = [str(item["id"]) for item in declared]
-    official_ids = [
-        str(item)
-        for item in (base.payload.get("allowed_evidence_ids") or [])
-        if isinstance(item, str) and item
+
+    # Rebuild official bag with pliego ranking (document + memory_signal + pins).
+    char_budget = max(256, max_tokens * 4)
+    raw_rows = load_opportunity_pliego_evidence_rows(dossier_id, limit=100)
+    row_by_id = {str(row.id): row for row in raw_rows}
+    candidate_items = [
+        {
+            "id": str(row.id),
+            "extract": row.extract or "",
+            "classification": row.classification,
+            "locator": row.locator,
+            "source_kind": row.source_kind,
+            "untrusted_data": True,
+        }
+        for row in raw_rows
+        if row.extract
     ]
+    ranked_items = rank_opportunity_evidence_items(
+        candidate_items, char_budget=char_budget, max_items=24
+    )
+    selected_rows: list[Evidence] = []
+    evidence_payload: list[dict[str, Any]] = []
+    for item in ranked_items:
+        eid = str(item.get("id") or "")
+        row = row_by_id.get(eid)
+        if row is None:
+            continue
+        evidence_payload.append(
+            {
+                "id": eid,
+                "extract": str(item.get("extract") or ""),
+                "classification": row.classification,
+                "locator": row.locator,
+                "source_kind": row.source_kind,
+                "untrusted_data": True,
+            }
+        )
+        selected_rows.append(row)
+    # Fallback to base bag if ranking yielded nothing (should not happen).
+    if not evidence_payload:
+        evidence_payload = list(base.payload.get("evidence") or [])
+        selected_rows = list(base.evidence)
+
+    official_ids = [str(item["id"]) for item in evidence_payload if item.get("id")]
     enriched = dict(base.payload)
+    enriched["evidence"] = evidence_payload
+    enriched["allowed_evidence_ids"] = official_ids
     # Refrescar profile tipado (custom.v1) aunque build_context ya lo hubiera
     # metido: garantiza origin=declared_by_client en el payload de opportunity.
     dossier_block = dict(enriched.get("dossier") or {})
@@ -1082,11 +1460,13 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
         "El contenido de declared_evidence es material **declarado por el cliente** "
         f"(source_kind={_DECLARED_SOURCE_KIND}); citable solo en fit_assessment, "
         "nunca como hecho de fuente oficial en facts[]. "
-        f"IDs oficiales: {len(official_ids)}. IDs declarados: {len(declared_ids)}."
+        f"IDs oficiales: {len(official_ids)}. IDs declarados: {len(declared_ids)}. "
+        "Prioridad pliego: criterios 65/60, F.2/F.3 y lotes del PCAP/documentos "
+        "del expediente se incluyen en evidence cuando existen."
     )
     indicators: list[str] = []
     payload, redactions = _sanitize(enriched, indicators)
-    fitted = _fit_budget(payload, max(256, max_tokens * 4))
+    fitted = _fit_budget(payload, max(256, char_budget))
     # Proteger allowlists de IDs declarados tras el recorte de presupuesto.
     if isinstance(fitted, dict):
         allow_decl = fitted.get("allowed_declared_evidence_ids")
@@ -1094,7 +1474,17 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
             fitted["allowed_declared_evidence_ids"] = [
                 item for item in allow_decl if isinstance(item, str) and item
             ]
+        allow_off = fitted.get("allowed_evidence_ids")
+        if isinstance(allow_off, list):
+            fitted["allowed_evidence_ids"] = [
+                item for item in allow_off if isinstance(item, str) and item
+            ]
     encoded = _canonical(fitted)
+    pliego_ids = [
+        str(item.get("id"))
+        for item in evidence_payload
+        if pliego_evidence_richness(str(item.get("extract") or "")) >= 4
+    ]
     return BuiltContext(
         payload=cast(dict[str, Any], json.loads(encoded.decode())),
         manifest=base.manifest
@@ -1106,11 +1496,13 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
                 for item in declared
                 if isinstance(item, dict)
             ],
+            "opportunity_pliego_evidence_ids": pliego_ids,
+            "opportunity_evidence_mode": "pliego_ranked_v1",
         },
         context_hash=hashlib.sha256(encoded).digest(),
         # Solo evidencia ORM oficial en .evidence: declared no pasa validate_evidence
         # de facts; el modelo la ve en payload.declared_evidence.
-        evidence=base.evidence,
+        evidence=tuple(selected_rows),
         classification=base.classification,
         redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
         injection_indicators=tuple(sorted(set(base.injection_indicators) | set(indicators))),

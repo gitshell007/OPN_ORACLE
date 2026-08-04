@@ -233,7 +233,7 @@ def _select_primary_official_evidence(
     if primary_ref:
         # Normalize for fuzzy match (spaces)
         ref_compact = re.sub(r"\s+", "", primary_ref)
-        matched = []
+        matched: list[dict[str, Any]] = []
         for item in official_evidence:
             extract = str(item.get("extract") or "")
             locator = item.get("locator") if isinstance(item.get("locator"), dict) else {}
@@ -252,9 +252,27 @@ def _select_primary_official_evidence(
             if primary_ref in bag.upper() or ref_compact in bag_compact:
                 matched.append(item)
         if matched:
-            # Keep matched + any pliego-rich companions that cite same ref context
-            rich = [i for i in matched if _evidence_pliego_richness(i) >= 3]
-            return rich or matched
+            # Keep matched (rich first) + pliego-section companions without CONTR
+            # in their own extract (document chunks F.2 / 65 puntos / lotes).
+            # Without this, section-split PCAP extractos drop out of scoring and
+            # live opportunity falls back to the thin pin only (SV2-E2E-VIVO).
+            matched_ids = {id(i) for i in matched}
+            companions: list[dict[str, Any]] = []
+            for item in official_evidence:
+                if id(item) in matched_ids:
+                    continue
+                extract = str(item.get("extract") or "")
+                # Skip chunks that name a *different* CONTR ref (portfolio pollution).
+                other_refs = re.findall(r"CONTR\s*\d{4}\s*\d+", extract, flags=re.I)
+                if other_refs:
+                    other_compact = {re.sub(r"\s+", "", r.upper()) for r in other_refs}
+                    if other_compact and ref_compact not in other_compact:
+                        continue
+                if _evidence_pliego_richness(item) >= 4:
+                    companions.append(item)
+            combined = matched + companions
+            rich = [i for i in combined if _evidence_pliego_richness(i) >= 3]
+            return rich or combined
 
     # No CONTR ref: take top pliego-rich items if clearly richer than average
     ranked = sorted(
