@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from opn_oracle.ai.models import AIArtifact, AIContextEvidence, AIHumanReview
 from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, actor_canonical_key, clean_labels
+from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
 from opn_oracle.oracle.intent import (
     DossierIntentRevision,
     DossierOffering,
@@ -680,6 +681,12 @@ def _ensure_dossier_actor(
         merged_roles = list(dict.fromkeys([*link.roles, *roles]))
         if merged_roles != list(link.roles):
             link.roles = merged_roles
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session,
+            tenant_id=dossier.tenant_id,
+            dossier_id=dossier.id,
+            actor_ids={actor.id},
+        )
         return
     components = {
         "influence": 0,
@@ -707,6 +714,14 @@ def _ensure_dossier_actor(
             score_details=score.as_dict(),
             **components,
         )
+    )
+    session.flush()
+    # Actor nuevo/enlazado: si ya hay awards fijados con NIF, hidratar de inmediato.
+    hydrate_dossier_actor_tax_ids_from_awards(
+        session,
+        tenant_id=dossier.tenant_id,
+        dossier_id=dossier.id,
+        actor_ids={actor.id},
     )
 
 
@@ -1701,6 +1716,12 @@ def create_dossier_actor(
         if payload.get("notes"):
             existing_link.notes = str(payload["notes"])[:5000]
         existing_link.version += 1
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session,
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            actor_ids={linked_actor_id},
+        )
         session.commit()
         return existing_link
     components = {key: int(payload.get(key, 0)) for key in ACTOR_PRIORITY_WEIGHTS}
@@ -1727,6 +1748,13 @@ def create_dossier_actor(
         dossier_id=dossier_id,
         result="success",
         metadata={"created_from_name": payload.get("actor_id") is None},
+    )
+    # Al enlazar actor a expediente con awards ya fijados, hidratar CIF si es inequívoco.
+    hydrate_dossier_actor_tax_ids_from_awards(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        actor_ids={linked_actor_id},
     )
     session.commit()
     return row

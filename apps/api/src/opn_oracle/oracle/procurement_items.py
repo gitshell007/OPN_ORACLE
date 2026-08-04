@@ -33,6 +33,7 @@ from opn_oracle.oracle.links import (
     ReportEvidence,
     RiskEvidence,
 )
+from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Opportunity
 from opn_oracle.platform.audit import append_audit_event
 
@@ -638,6 +639,11 @@ def pin_procurement_item(
         result="success",
         metadata={"kind": normalized_kind, "folder_id": normalized_folder_id},
     )
+    # Menos sorprendente: al fijar un award, materializar CIF en actores emparejados.
+    if normalized_kind == "award":
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session, tenant_id=tenant_id, dossier_id=dossier_id
+        )
     return item, True
 
 
@@ -966,6 +972,11 @@ def refresh_procurement_item(
             ),
         },
     )
+    # Refresh puede traer NIF recién backfilleado en Signal; re-hidratar actores.
+    if item.kind == "award":
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session, tenant_id=tenant_id, dossier_id=dossier_id
+        )
     return item, evidence_meta
 
 
