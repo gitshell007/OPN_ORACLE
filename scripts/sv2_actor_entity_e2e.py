@@ -198,6 +198,7 @@ def main() -> int:
     ap_art = (ap["latest"].get("artifact") or {}) if isinstance(ap["latest"], dict) else {}
     ap_out = ap_art.get("output") if isinstance(ap_art, dict) else None
     print("ACTOR_PARTNERSHIP job", ap_job.get("status"), "artifact", ap_art.get("id"))
+    print("ACTOR_PARTNERSHIP_OUTPUT", json.dumps(ap_out if isinstance(ap_out, dict) else {}, ensure_ascii=False)[:1200])
     if ap_job.get("status") != "succeeded":
         print("ACTOR_PARTNERSHIP_FAIL", json.dumps(ap_job, ensure_ascii=False)[:500])
         report["agents"]["actor_partnership"] = {"status": "failed", "job": ap_job}
@@ -283,6 +284,7 @@ def main() -> int:
     er_art = (er["latest"].get("artifact") or {}) if isinstance(er["latest"], dict) else {}
     er_out = er_art.get("output") if isinstance(er_art, dict) else {}
     print("ENTITY_RESOLUTION job", er_job.get("status"), "artifact", er_art.get("id"))
+    print("ENTITY_RESOLUTION_OUTPUT", json.dumps(er_out if isinstance(er_out, dict) else {}, ensure_ascii=False)[:1200])
     if er_job.get("status") != "succeeded":
         print("ENTITY_RESOLUTION_FAIL", json.dumps(er_job, ensure_ascii=False)[:500])
         report["agents"]["entity_resolution"] = {"status": "failed", "job": er_job}
@@ -301,7 +303,7 @@ def main() -> int:
                 client,
                 str(er2_art["id"]),
                 "accepted",
-                decision=(er2_out or {}).get("decision") if isinstance(er2_out, dict) else None,
+                resolution_decision=(er2_out or {}).get("decision") if isinstance(er2_out, dict) else None,
                 matched_actor_id=(er2_out or {}).get("matched_actor_id")
                 if isinstance(er2_out, dict)
                 else None,
