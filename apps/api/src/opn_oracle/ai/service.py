@@ -1635,19 +1635,33 @@ def execute_agent(
             )
             # SV2-ENCAJE: puntuación dimensional determinista (coste 0) con citas
             # duales y veredicto con puerta humana. No sustituye facts oficiales.
-            from opn_oracle.ai.fit_scoring import enrich_opportunity_fit_assessment
+            # Si el motor dimensional falla, se conserva el fit_assessment previo
+            # (no tumbar el job de opportunity).
+            try:
+                from opn_oracle.ai.fit_scoring import enrich_opportunity_fit_assessment
 
-            output = enrich_opportunity_fit_assessment(
-                output,
-                context_payload=context.payload
-                if isinstance(context.payload, dict)
-                else {},
-            )
-            output = validate_opportunity_origin_boundary(
-                output,
-                official_ids=allowed_evidence,
-                declared_ids=declared_set,
-            )
+                output = enrich_opportunity_fit_assessment(
+                    output,
+                    context_payload=context.payload
+                    if isinstance(context.payload, dict)
+                    else {},
+                )
+                output = validate_opportunity_origin_boundary(
+                    output,
+                    official_ids=allowed_evidence,
+                    declared_ids=declared_set,
+                )
+            except Exception as enrich_error:  # noqa: BLE001 — no tumbar opportunity
+                warnings = (
+                    list(output["warnings"])
+                    if isinstance(output.get("warnings"), list)
+                    else []
+                )
+                warnings.append(
+                    "Encaje dimensional no aplicado: "
+                    f"{type(enrich_error).__name__}. Se conserva fit_assessment base."
+                )
+                output["warnings"] = warnings
             boundary_model = prompt.schema.model_validate_json(json.dumps(output))
             validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
             output = boundary_model.model_dump(mode="json")

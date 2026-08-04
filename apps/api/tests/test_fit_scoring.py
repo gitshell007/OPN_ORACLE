@@ -314,3 +314,65 @@ def test_no_invention_without_official_evidence() -> None:
     by_key = {d["key"]: d for d in scored["dimensions"]}
     assert by_key["solvency"]["status"] == "not_evaluable"
     assert by_key["deadline"]["status"] == "not_evaluable"
+
+
+def test_schema_tolerates_malformed_signal_fit_extras() -> None:
+    """Signal/LLM con campos extra o dimensiones rotas no tumba opportunity."""
+
+    import json
+
+    dossier_id = uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688")
+    declared = str(declared_evidence_id(dossier_id, "own_offer"))
+    payload = {
+        "title": "Oportunidad",
+        "recommendation": "investigate",
+        "scores": {
+            "strategic_fit": 50,
+            "urgency": 50,
+            "expected_value": 50,
+            "actionability": 50,
+            "relationship_leverage": 50,
+            "timing": 50,
+            "confidence": 50,
+            "execution_effort": 50,
+            "blocking_risk": 50,
+            "overall": 50,
+        },
+        "fit_assessment": {
+            "statement": "Encaje con oferta declarada",
+            "declared_evidence_ids": [declared],
+            "official_evidence_ids": [],
+            "confidence": 0.55,
+            "origin": "something_weird",
+            "invented_by_llm": True,
+            "dimensions": [
+                "not-a-dict",
+                {"key": "cpv", "status": "bogus"},
+                {
+                    "key": "solvency",
+                    "label": "Solvencia",
+                    "requirement": "[oficial] F.2",
+                    "capability": "[declarado] sin volumen",
+                    "status": "not_evaluable",
+                    "status_reason": "no evaluable con lo declarado",
+                    "extra_noise": 1,
+                },
+            ],
+            "verdict": {
+                "recommendation": "maybe",
+                "rationale": "inválido",
+            },
+        },
+        "facts": [],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 50,
+        "open_questions": [],
+        "warnings": [],
+    }
+    out = OpportunityAnalysisOutput.model_validate_json(json.dumps(payload))
+    assert out.fit_assessment is not None
+    assert out.fit_assessment.origin == "declared_by_client"
+    assert out.fit_assessment.verdict is None  # recommendation inválida
+    assert len(out.fit_assessment.dimensions) == 1
+    assert out.fit_assessment.dimensions[0].status == "not_evaluable"

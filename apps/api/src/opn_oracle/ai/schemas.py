@@ -357,7 +357,11 @@ class OpportunityAnalysisOutput(AgentOutput):
         """Tolera mocks/LLM que inventan un fit_assessment incompleto o vacío.
 
         En lugar de tumbar el job (ValidationError), se descarta el bloque y la
-        frontera de origen lo rellena o lo deja en null.
+        frontera de origen / motor dimensional lo rellenan o lo dejan en null.
+
+        SV2-ENCAJE: también limpia ``dimensions``/``verdict`` malformados y
+        descarta claves extra (StrictModel.extra=forbid) para no tumbar el job
+        cuando Signal/LLM inventa campos.
         """
 
         if not isinstance(value, dict):
@@ -374,13 +378,98 @@ class OpportunityAnalysisOutput(AgentOutput):
         if not statement or not isinstance(declared, list) or not declared:
             value["fit_assessment"] = None
             return value
-        cleaned = dict(fit)
-        cleaned["statement"] = statement
+
+        allowed_keys = {
+            "statement",
+            "declared_evidence_ids",
+            "official_evidence_ids",
+            "confidence",
+            "origin",
+            "dimensions",
+            "verdict",
+            "tender_ref",
+            "scoring_engine",
+            "scored_as_of",
+        }
+        cleaned: dict[str, Any] = {
+            key: fit[key] for key in allowed_keys if key in fit
+        }
+        cleaned["statement"] = statement[:4000]
+        cleaned["declared_evidence_ids"] = declared
         # Normalizar origin desconocido al canónico declarado.
         if cleaned.get("origin") not in {None, "", "declared_by_client"}:
             cleaned["origin"] = "declared_by_client"
         if "confidence" in cleaned:
             cleaned["confidence"] = _coerce_confidence_0_100(cleaned["confidence"])
+
+        # Dimensiones: conservar solo dicts con campos mínimos válidos.
+        raw_dims = cleaned.get("dimensions")
+        if raw_dims is not None:
+            good_dims: list[dict[str, Any]] = []
+            if isinstance(raw_dims, list):
+                for dim in raw_dims:
+                    if not isinstance(dim, dict):
+                        continue
+                    status = str(dim.get("status") or "").strip()
+                    if status not in {"fit", "partial", "no_fit", "not_evaluable"}:
+                        continue
+                    req = str(dim.get("requirement") or "").strip()
+                    cap = str(dim.get("capability") or "").strip()
+                    reason = str(dim.get("status_reason") or "").strip()
+                    label = str(dim.get("label") or dim.get("key") or "dimensión").strip()
+                    if not (req and cap and reason and label):
+                        continue
+                    key = str(dim.get("key") or "other").strip()
+                    if key not in {"cpv", "solvency", "lots", "deadline", "other"}:
+                        key = "other"
+                    good_dims.append(
+                        {
+                            "key": key,
+                            "label": label[:200],
+                            "requirement": req[:2000],
+                            "requirement_origin": "official",
+                            "official_evidence_ids": dim.get("official_evidence_ids")
+                            if isinstance(dim.get("official_evidence_ids"), list)
+                            else [],
+                            "capability": cap[:2000],
+                            "capability_origin": "declared_by_client",
+                            "declared_evidence_ids": dim.get("declared_evidence_ids")
+                            if isinstance(dim.get("declared_evidence_ids"), list)
+                            else [],
+                            "status": status,
+                            "status_reason": reason[:1000],
+                        }
+                    )
+            cleaned["dimensions"] = good_dims
+
+        # Veredicto: solo si recommendation es conocida; si no, se omite.
+        raw_verdict = cleaned.get("verdict")
+        if raw_verdict is not None:
+            if isinstance(raw_verdict, dict):
+                rec = str(raw_verdict.get("recommendation") or "").strip()
+                rationale = str(raw_verdict.get("rationale") or "").strip()
+                if rec in {"go", "no_go", "go_conditioned"} and rationale:
+                    cleaned["verdict"] = {
+                        "recommendation": rec,
+                        "conditions": [
+                            str(c)[:500]
+                            for c in (raw_verdict.get("conditions") or [])
+                            if str(c).strip()
+                        ][:12]
+                        if isinstance(raw_verdict.get("conditions"), list)
+                        else [],
+                        "human_gate": "awaiting_user_confirmation",
+                        "rationale": rationale[:2000],
+                    }
+                else:
+                    cleaned.pop("verdict", None)
+            else:
+                cleaned.pop("verdict", None)
+
+        for opt in ("tender_ref", "scoring_engine", "scored_as_of"):
+            if opt in cleaned and cleaned[opt] is not None:
+                cleaned[opt] = str(cleaned[opt])[:200 if opt == "tender_ref" else 80]
+
         value["fit_assessment"] = cleaned
         return value
 
