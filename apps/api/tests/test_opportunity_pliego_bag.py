@@ -273,3 +273,40 @@ def test_opportunity_materialization_flag() -> None:
     normal = _FakeEvidence("document", "upload normal")
     assert _is_opportunity_pliego_materialization(opp) is True
     assert _is_opportunity_pliego_materialization(normal) is False
+
+
+def test_oracle_authority_bag_excludes_opportunity_materializations() -> None:
+    """Preguntar authority (40 slots) must keep memory_signal after pliego materialize.
+
+    Without the filter, kind_rank document=1 fills all 40 slots with opportunity
+    chunks and Laura/admin markers vanish from the dual-ask authority block.
+    """
+
+    mat_docs = [
+        _FakeEvidence(
+            "document",
+            f"pliego materializado {i} NORAI criterios 65/60",
+            provenance={"materialized_for": "sv2_e2e_vivo_opportunity"},
+        )
+        for i in range(72)
+    ]
+    memory = [
+        _FakeEvidence(
+            "memory_signal",
+            f"[company:name:nexus] company.administrator: Laura Mendez fact {i}",
+        )
+        for i in range(20)
+    ]
+    proc = [_FakeEvidence("procurement", f"PLACSP pin {i}") for i in range(8)]
+    # Simulate authority pre-order: document before memory_signal (kind_rank).
+    candidates = mat_docs + proc + memory
+    filtered = [r for r in candidates if not _is_opportunity_pliego_materialization(r)]
+    selected = diversify_evidence_by_source_kind(filtered, limit=40, max_per_kind=12)
+    kinds = [r.source_kind for r in selected]
+    assert kinds.count("document") == 0  # all documents were opportunity-only
+    assert kinds.count("memory_signal") >= 12
+    assert kinds.count("procurement") == 8
+    assert any("Laura Mendez" in r.extract for r in selected)
+    assert not any(
+        _is_opportunity_pliego_materialization(r) for r in selected  # type: ignore[arg-type]
+    )

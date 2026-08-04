@@ -320,7 +320,18 @@ def load_oracle_authority_from_session(
     # memory_signal rematerializations. Ask injects dual-memory separately; if we
     # order only by created_at the 40-row cap fills with per-turn memory_signal
     # UUIDs and hides PLACSP awards the model (and build_context) already sees.
+    #
+    # SV2-E2E-VIVO: opportunity materializes ~70 document chunks for the fit/draft
+    # bag only. Those rows must not monopolize the 40-slot oracle_authority bag
+    # (kind_rank document=1 before memory_signal) or Preguntar loses Laura/admin
+    # and Capgemini markers. Fetch a wider pool, drop opportunity-only rows, then
+    # diversify by source_kind (same policy as build_context).
     from sqlalchemy import case
+
+    from opn_oracle.ai.context import (
+        _is_opportunity_pliego_materialization,
+        diversify_evidence_by_source_kind,
+    )
 
     kind_rank = case(
         (Evidence.source_kind == "procurement", 0),
@@ -329,15 +340,8 @@ def load_oracle_authority_from_session(
         (Evidence.source_kind == "signal", 3),
         else_=9,
     )
-    oracle_evidence = [
-        {
-            "id": str(row.id),
-            "source_kind": row.source_kind,
-            "extract": (row.extract or "")[:1200],
-            "classification": row.classification,
-            "checksum": row.checksum.hex() if row.checksum else None,
-        }
-        for row in session.scalars(
+    evidence_candidates = list(
+        session.scalars(
             select(Evidence)
             .where(
                 Evidence.id.in_(evidence_ids),
@@ -347,8 +351,26 @@ def load_oracle_authority_from_session(
                 ),
             )
             .order_by(kind_rank.asc(), Evidence.created_at.desc())
-            .limit(40)
+            .limit(200)
         )
+    )
+    evidence_candidates = [
+        row
+        for row in evidence_candidates
+        if not _is_opportunity_pliego_materialization(row)
+    ]
+    evidence_rows = diversify_evidence_by_source_kind(
+        evidence_candidates, limit=40, max_per_kind=12
+    )
+    oracle_evidence = [
+        {
+            "id": str(row.id),
+            "source_kind": row.source_kind,
+            "extract": (row.extract or "")[:1200],
+            "classification": row.classification,
+            "checksum": row.checksum.hex() if row.checksum else None,
+        }
+        for row in evidence_rows
     ]
 
     return build_oracle_authority_block(
