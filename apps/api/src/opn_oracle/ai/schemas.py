@@ -702,6 +702,31 @@ class RiskMitigation(StrictModel):
     trigger: str = Field(min_length=1, max_length=1000)
 
 
+class RiskContextDeclaredItem(StrictModel):
+    """Barrera/limitación declarada por el cliente, relevante al riesgo analizado.
+
+    SV2-RIESGO-DECL: canal separado de ``facts[]`` oficiales. Cada ítem cita
+    solo ``declared_evidence_ids`` (source_kind=declared) y lleva
+    ``origin=declared_by_client``. La frontera
+    ``validate_risk_origin_boundary`` impide que estos IDs contaminen facts
+    o escenarios oficiales.
+    """
+
+    statement: str = Field(min_length=1, max_length=2000)
+    category: Literal[
+        "barrier",
+        "solvency",
+        "deadline",
+        "homologation",
+        "competitive",
+        "capacity",
+        "other",
+    ] = "barrier"
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    origin: Literal["declared_by_client"] = "declared_by_client"
+    relevance: str = Field(default="", max_length=1000)
+
+
 class RiskAnalysisOutput(AgentOutput):
     title: str
     category: Literal[
@@ -724,6 +749,54 @@ class RiskAnalysisOutput(AgentOutput):
     suggested_review_date: JsonDate | None = None
     scenarios: list[RiskScenario] = Field(default_factory=list)
     mitigations: list[RiskMitigation] = Field(default_factory=list)
+    # SV2-RIESGO-DECL: barreras/limitaciones del perfil (canal declarado, no oficial).
+    risk_context_declared: list[RiskContextDeclaredItem] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_risk_context_declared(cls, value: Any) -> Any:
+        """Tolera mocks/LLM con risk_context_declared incompleto sin tumbar el job."""
+
+        if not isinstance(value, dict):
+            return value
+        raw = value.get("risk_context_declared")
+        if raw in (None, "", {}):
+            value["risk_context_declared"] = []
+            return value
+        if not isinstance(raw, list):
+            value["risk_context_declared"] = []
+            return value
+        allowed_categories = {
+            "barrier",
+            "solvency",
+            "deadline",
+            "homologation",
+            "competitive",
+            "capacity",
+            "other",
+        }
+        cleaned: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            statement = str(item.get("statement") or "").strip()
+            declared = item.get("declared_evidence_ids")
+            if not statement or not isinstance(declared, list) or not declared:
+                continue
+            cat = str(item.get("category") or "barrier").strip()
+            if cat not in allowed_categories:
+                cat = "other"
+            cleaned.append(
+                {
+                    "statement": statement[:2000],
+                    "category": cat,
+                    "declared_evidence_ids": declared,
+                    "origin": "declared_by_client",
+                    "relevance": str(item.get("relevance") or "")[:1000],
+                }
+            )
+        value["risk_context_declared"] = cleaned
+        return value
 
 
 class ActorScores(StrictModel):

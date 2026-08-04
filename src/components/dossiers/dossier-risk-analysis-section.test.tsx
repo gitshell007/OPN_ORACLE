@@ -150,6 +150,21 @@ const groundedArtifact = {
         trigger: "Faltan 5 días",
       },
     ],
+    risk_context_declared: [
+      {
+        statement: "Barrera declarada por el cliente: Homologación sectorial",
+        category: "homologation",
+        declared_evidence_ids: ["decl-barriers"],
+        origin: "declared_by_client",
+        relevance: "Contexto de riesgo del perfil",
+      },
+      {
+        statement: "Barrera declarada por el cliente: Solvencia económica limitada",
+        category: "solvency",
+        declared_evidence_ids: ["decl-barriers"],
+        origin: "declared_by_client",
+      },
+    ],
   },
 };
 
@@ -188,6 +203,10 @@ describe("DossierRiskAnalysisSection", () => {
     expect(within(proposal).getByTestId("dossier-risk-scenarios")).toHaveTextContent(
       "No se presenta a tiempo",
     );
+    const declared = within(proposal).getByTestId("dossier-risk-context-declared");
+    expect(declared).toHaveTextContent("Declarado por el cliente");
+    expect(declared).toHaveTextContent("Homologación sectorial");
+    expect(declared).toHaveTextContent("Solvencia económica limitada");
     fireEvent.click(view.getByTestId("dossier-risk-apply"));
     await waitFor(() => {
       expect(mocks.create).toHaveBeenCalledWith(

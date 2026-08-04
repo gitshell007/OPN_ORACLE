@@ -57,6 +57,7 @@ export type {
   RiskAnalysisArtifact,
   RiskAnalysisOutput,
   RiskAnalysisRunResponse,
+  RiskContextDeclaredItem,
   ActorAnalysisArtifact,
   ActorAnalysisOutput,
   ActorAnalysisRunResponse,

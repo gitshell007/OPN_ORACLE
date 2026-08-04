@@ -160,7 +160,7 @@ const groundedArtifact = {
     },
     fit_assessment: {
       statement:
-        "Encaje perfil declarado ↔ CONTR 2026 11077: propuesta GO CONDICIONADO (puerta humana).",
+        "Encaje perfil declarado ↔ CONTR 2026 11077: propuesta **GO CONDICIONADO** (puerta humana).",
       declared_evidence_ids: ["decl-own-offer"],
       official_evidence_ids: ["ev-1"],
       confidence: 48,
@@ -219,7 +219,7 @@ const groundedArtifact = {
           requirement_origin: "official",
           official_evidence_ids: ["ev-1"],
           our_response_draft:
-            "[borrador declarado — no es hecho] Semilla de oferta económica para Lote 2.",
+            "[borrador declarado — **no** es hecho] Semilla de oferta económica para Lote 2.",
           response_origin: "declared_generated",
           declared_evidence_ids: ["decl-own-offer"],
           gaps: ["Solo si puede acreditar F.2 volumen ≥1,5×"],
@@ -374,6 +374,11 @@ describe("DossierOpportunityAnalysisSection", () => {
     expect(within(proposal).getByTestId("dossier-opportunity-fit-conditions")).toHaveTextContent(
       "Solo si puede acreditar F.2",
     );
+    // SV2-RIESGO-DECL micro-fix: markdown **…** se renderiza, no se muestra crudo.
+    const statement = within(proposal).getByTestId("dossier-opportunity-fit-statement");
+    expect(statement).toHaveTextContent("GO CONDICIONADO");
+    expect(statement.textContent || "").not.toMatch(/\*\*GO CONDICIONADO\*\*/);
+    expect(statement.querySelector("strong")?.textContent).toBe("GO CONDICIONADO");
   });
 
   it("botón Preparar borrador de oferta muestra secciones, gaps y checklist", async () => {
@@ -395,6 +400,10 @@ describe("DossierOpportunityAnalysisSection", () => {
     expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_economic")).toHaveTextContent(
       "Oferta económica",
     );
+    const seed = within(draft).getByTestId("dossier-opportunity-draft-section-seed-award_economic");
+    expect(seed).toHaveTextContent("no es hecho");
+    expect(seed.textContent || "").not.toMatch(/\*\*no\*\*/);
+    expect(seed.querySelector("strong")?.textContent).toBe("no");
     expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_technical")).toHaveTextContent(
       "juicio de valor",
     );

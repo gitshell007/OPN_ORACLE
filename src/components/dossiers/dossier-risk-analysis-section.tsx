@@ -392,6 +392,50 @@ export function DossierRiskAnalysisSection({ dossierId }: { dossierId: string })
               </p>
             ) : null}
 
+            {Array.isArray(output?.risk_context_declared) &&
+            output.risk_context_declared.length > 0 ? (
+              <div
+                className="risk-context-declared"
+                data-testid="dossier-risk-context-declared"
+                style={{
+                  marginTop: "0.75rem",
+                  marginBottom: "0.75rem",
+                  padding: "0.65rem 0.75rem",
+                  border: "1px solid var(--border, #ccc)",
+                  borderRadius: "6px",
+                  background: "var(--surface-muted, #f8fafc)",
+                }}
+              >
+                <h3 style={{ margin: "0 0 0.35rem", fontSize: "1rem" }}>
+                  Contexto de riesgo declarado
+                </h3>
+                <small className="muted" data-testid="dossier-risk-context-declared-origin">
+                  Origen: Declarado por el cliente (perfil del expediente) · no es hecho oficial
+                </small>
+                <ul
+                  data-testid="dossier-risk-context-declared-list"
+                  style={{ margin: "0.45rem 0 0", paddingLeft: "1.1rem" }}
+                >
+                  {output.risk_context_declared.map((item, idx) => (
+                    <li
+                      key={`${item.statement}-${idx}`}
+                      data-testid={`dossier-risk-context-declared-item-${idx}`}
+                      data-origin={item.origin || "declared_by_client"}
+                      data-category={item.category || "barrier"}
+                    >
+                      <p style={{ margin: "0.2rem 0" }}>{item.statement}</p>
+                      <small className="muted">
+                        {item.category ? `${item.category} · ` : ""}
+                        Declarado por el cliente · IDs declarados:{" "}
+                        {(item.declared_evidence_ids || []).length}
+                        {item.relevance ? ` · ${item.relevance}` : ""}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {Array.isArray(output?.warnings) && output.warnings.length > 0 ? (
               <ul className="warning-list" data-testid="dossier-risk-warnings">
                 {output.warnings.map((item) => (

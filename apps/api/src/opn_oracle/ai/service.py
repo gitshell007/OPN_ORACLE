@@ -16,8 +16,10 @@ from sqlalchemy import delete, func, select, text
 from opn_oracle.ai.context import (
     BuiltContext,
     build_context,
+    enrich_risk_context_declared,
     validate_evidence,
     validate_opportunity_origin_boundary,
+    validate_risk_origin_boundary,
 )
 from opn_oracle.ai.models import (
     AIArtifact,
@@ -1681,6 +1683,41 @@ def execute_agent(
                     list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
                 )
                 warnings.append(f"Borrador de oferta no aplicado: {type(draft_error).__name__}.")
+                output["warnings"] = warnings
+            boundary_model = prompt.schema.model_validate_json(json.dumps(output))
+            validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
+            output = boundary_model.model_dump(mode="json")
+        elif agent == "risk":
+            # SV2-RIESGO-DECL: separar declarado de oficial antes de validate_evidence.
+            declared_set: set[uuid.UUID] = set()
+            for raw_id in context.manifest.get("declared_evidence_ids") or []:
+                try:
+                    declared_set.add(uuid.UUID(str(raw_id)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            output = validate_risk_origin_boundary(
+                output,
+                official_ids=allowed_evidence,
+                declared_ids=declared_set,
+            )
+            try:
+                output = enrich_risk_context_declared(
+                    output,
+                    context_payload=context.payload if isinstance(context.payload, dict) else {},
+                )
+                output = validate_risk_origin_boundary(
+                    output,
+                    official_ids=allowed_evidence,
+                    declared_ids=declared_set,
+                )
+            except Exception as enrich_error:
+                warnings = (
+                    list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
+                )
+                warnings.append(
+                    "Contexto de riesgo declarado no aplicado: "
+                    f"{type(enrich_error).__name__}. Se conservan facts oficiales."
+                )
                 output["warnings"] = warnings
             boundary_model = prompt.schema.model_validate_json(json.dumps(output))
             validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)

@@ -2071,6 +2071,23 @@ export interface RiskAnalysisMitigation {
   trigger: string;
 }
 
+/** Barrera/limitación del perfil (canal declarado; no contamina facts oficiales). */
+export interface RiskContextDeclaredItem {
+  statement: string;
+  category?:
+    | "barrier"
+    | "solvency"
+    | "deadline"
+    | "homologation"
+    | "competitive"
+    | "capacity"
+    | "other"
+    | string;
+  declared_evidence_ids: string[];
+  origin?: "declared_by_client" | string;
+  relevance?: string;
+}
+
 export interface RiskAnalysisOutput {
   title: string;
   category?: string;
@@ -2082,6 +2099,8 @@ export interface RiskAnalysisOutput {
   suggested_review_date?: string | null;
   scenarios?: RiskAnalysisScenario[];
   mitigations?: RiskAnalysisMitigation[];
+  /** Barreras/limitaciones declaradas por el cliente; origen etiquetado. */
+  risk_context_declared?: RiskContextDeclaredItem[];
   facts: IntakeFact[];
   inferences: IntakeInference[];
   recommendations: IntakeRecommendation[];

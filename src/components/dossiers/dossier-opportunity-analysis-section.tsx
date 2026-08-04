@@ -22,6 +22,7 @@ import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { PageHeader } from "@/components/ui/page-header";
+import { renderInlineEmphasis } from "@/lib/inline-emphasis";
 
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
 
@@ -644,7 +645,7 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                   ) : null}
 
                   <p data-testid="dossier-opportunity-fit-statement">
-                    {output.fit_assessment.statement}
+                    {renderInlineEmphasis(output.fit_assessment.statement)}
                   </p>
                   <small className="muted" data-testid="dossier-opportunity-fit-origin">
                     Origen:{" "}
@@ -738,7 +739,7 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                         data-testid="dossier-opportunity-draft-statement"
                         style={{ margin: "0.5rem 0" }}
                       >
-                        {output.draft_offer.statement}
+                        {renderInlineEmphasis(output.draft_offer.statement)}
                       </p>
 
                       {(output.draft_offer.sections || []).length > 0 ? (
@@ -779,7 +780,7 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                                   <span className="muted" data-origin="declared_draft">
                                     Respuesta semilla (borrador declarado):{" "}
                                   </span>
-                                  {sec.our_response_draft}
+                                  {renderInlineEmphasis(sec.our_response_draft)}
                                 </p>
                                 {(sec.gaps || []).length > 0 ? (
                                   <ul

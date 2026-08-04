@@ -612,6 +612,26 @@ class MockLLMProvider:
                     "controllability": 50,
                     "overall": 50,
                 },
+                **(
+                    {
+                        "risk_context_declared": [
+                            {
+                                "statement": (
+                                    "Barrera declarada por el cliente (mock): "
+                                    "homologación / solvencia del perfil."
+                                ),
+                                "category": "barrier",
+                                "declared_evidence_ids": [
+                                    str(request.context.get("allowed_declared_evidence_ids", [])[0])
+                                ],
+                                "origin": "declared_by_client",
+                                "relevance": "Contexto de riesgo del perfil (declarado).",
+                            }
+                        ]
+                    }
+                    if request.context.get("allowed_declared_evidence_ids")
+                    else {}
+                ),
             },
             "actor_partnership": {
                 "actor_id": None,
@@ -1119,6 +1139,40 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
         )
         if nested_warning not in warnings:
             warnings.append(nested_warning)
+
+    # SV2-RIESGO-DECL: risk_context_declared exige declared_evidence_ids (no evidence_ids).
+    # risk ya está en AGENTS_WITH_STRICT_FACTS; aquí se aplica la misma familia de
+    # drop+warning al canal declarado, sin relajar facts oficiales.
+    if agent == "risk":
+        raw_declared = candidate.get("risk_context_declared")
+        if isinstance(raw_declared, list):
+            kept_decl: list[Any] = []
+            dropped_decl = 0
+            decl_previews: list[str] = []
+            for item in raw_declared:
+                if not isinstance(item, dict):
+                    dropped_decl += 1
+                    continue
+                decl_ids = item.get("declared_evidence_ids")
+                if not isinstance(decl_ids, list) or len(decl_ids) == 0:
+                    dropped_decl += 1
+                    preview = _preview_cited_item(item)
+                    if preview:
+                        decl_previews.append(preview)
+                    continue
+                kept_decl.append(item)
+            if dropped_decl > 0:
+                changed = True
+                candidate["risk_context_declared"] = kept_decl
+                preview_blob = "; ".join(decl_previews)[:220]
+                decl_warning = (
+                    f"Se retiraron {dropped_decl} ítem(s) de risk_context_declared sin "
+                    f"declared_evidence_ids (no publicables"
+                    f"{f': {preview_blob}' if preview_blob else ''}). "
+                    "Un contexto declarado sin citas no es error fatal: se omite."
+                )
+                if decl_warning not in warnings:
+                    warnings.append(decl_warning)
 
     if not changed:
         return raw_output
