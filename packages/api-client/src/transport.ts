@@ -342,10 +342,14 @@ const tenantAdmin = {
 };
 
 const assignableUsers = {
-  list: () =>
-    request<components["schemas"]["AssignableUserListResponse"]>(
-      "/api/v1/assignable-users",
-    ),
+  list: (params?: { q?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.q?.trim()) search.set("q", params.q.trim());
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<components["schemas"]["AssignableUserListResponse"]>(
+      `/api/v1/assignable-users${suffix}`,
+    );
+  },
 };
 
 const platform = {

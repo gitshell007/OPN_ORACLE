@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from opn_oracle.oracle.policy import active_membership_exists
+from opn_oracle.oracle.policy import (
+    active_membership_exists,
+    dossier_access_clause,
+    dossier_accessible,
+)
 
 
 @pytest.mark.unit
@@ -58,3 +62,30 @@ def test_collaborator_put_domain_rule_accepts_same_org_member() -> None:
     same_tenant_member = True
     rejected = role not in allowed_roles or not same_tenant_member
     assert rejected is False
+
+
+@pytest.mark.unit
+def test_dossier_access_clause_is_tenant_bound() -> None:
+    """Listing always scopes by tenant_id; cross-tenant rows cannot match."""
+
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    clause = dossier_access_clause(tenant_id=tenant_id, user_id=user_id)
+    compiled = str(clause)
+    assert "strategic_dossiers.tenant_id" in compiled or "tenant_id" in compiled
+
+
+@pytest.mark.unit
+def test_dossier_accessible_requires_membership_first() -> None:
+    """Without active membership, collaborator rows are never consulted."""
+
+    session = MagicMock()
+    session.scalar.return_value = False  # no membership
+    dossier = MagicMock()
+    dossier.tenant_id = uuid.uuid4()
+    dossier.owner_user_id = uuid.uuid4()
+    dossier.id = uuid.uuid4()
+
+    assert dossier_accessible(session, dossier, uuid.uuid4(), write=False) is False
+    # Only the membership probe should run; no collaborator lookup after False.
+    assert session.scalar.call_count == 1

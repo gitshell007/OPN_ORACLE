@@ -42,13 +42,23 @@ describe("DossierCollaboratorsPanel", () => {
           dossier_id: "d1",
           user_id: "user-ana",
           role: "viewer",
+          display_name: "Ana Analista",
+          email: "ana@oracle.invalid",
         },
       ],
     });
     mocks.assignableList.mockResolvedValue({
       items: [
-        { id: "user-ana", display_name: "Ana Analista" },
-        { id: "user-borja", display_name: "Borja Editor" },
+        {
+          id: "user-ana",
+          display_name: "Ana Analista",
+          email: "ana@oracle.invalid",
+        },
+        {
+          id: "user-borja",
+          display_name: "Borja Editor",
+          email: "borja@oracle.invalid",
+        },
       ],
     });
     mocks.setCollaborator.mockResolvedValue({
@@ -56,6 +66,8 @@ describe("DossierCollaboratorsPanel", () => {
       dossier_id: "d1",
       user_id: "user-borja",
       role: "editor",
+      display_name: "Borja Editor",
+      email: "borja@oracle.invalid",
     });
   });
   afterEach(cleanup);
@@ -64,7 +76,7 @@ describe("DossierCollaboratorsPanel", () => {
     render(<DossierCollaboratorsPanel dossierId="d1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Ana Analista")).toBeTruthy();
+      expect(screen.getByText(/Ana Analista/)).toBeTruthy();
     });
     expect(
       screen.getByText(/No es posible compartir con usuarios de otra organización/i),
@@ -84,5 +96,30 @@ describe("DossierCollaboratorsPanel", () => {
       });
     });
     expect(mocks.success).toHaveBeenCalled();
+  });
+
+  it("busca miembros del tenant por email", async () => {
+    render(<DossierCollaboratorsPanel dossierId="d1" />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Buscar por email/i)).toBeTruthy();
+    });
+    mocks.assignableList.mockClear();
+    mocks.assignableList.mockResolvedValue({
+      items: [
+        {
+          id: "user-borja",
+          display_name: "Borja Editor",
+          email: "borja@oracle.invalid",
+        },
+      ],
+    });
+
+    fireEvent.change(screen.getByLabelText(/Buscar por email/i), {
+      target: { value: "borja@" },
+    });
+
+    await waitFor(() => {
+      expect(mocks.assignableList).toHaveBeenCalledWith({ q: "borja@" });
+    });
   });
 });

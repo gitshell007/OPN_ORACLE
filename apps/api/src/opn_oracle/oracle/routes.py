@@ -3087,10 +3087,21 @@ def actors_merge(target_id: uuid.UUID) -> Any:
 def collaborators_list(dossier_id: uuid.UUID) -> Any:
     if _dossier_manage_or_404(dossier_id) is None:
         return problem_response(404, detail="Expediente no encontrado.", code="not_found")
-    rows = db.session.scalars(
-        select(DossierCollaborator).where(DossierCollaborator.dossier_id == dossier_id)
-    )
-    return {"data": [_serialize(row) for row in rows]}
+    from opn_oracle.platform.models import User
+
+    rows = db.session.execute(
+        select(DossierCollaborator, User.email, User.display_name)
+        .outerjoin(User, User.id == DossierCollaborator.user_id)
+        .where(DossierCollaborator.dossier_id == dossier_id)
+        .order_by(User.display_name.nulls_last(), DossierCollaborator.user_id)
+    ).all()
+    payload: list[dict[str, Any]] = []
+    for row, email, display_name in rows:
+        item = _serialize(row)
+        item["email"] = email
+        item["display_name"] = display_name
+        payload.append(item)
+    return {"data": payload}
 
 
 @bp.put("/dossiers/<uuid:dossier_id>/collaborators/<uuid:user_id>")

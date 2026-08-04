@@ -203,10 +203,12 @@ describe("reports Vector", () => {
         {
           id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           display_name: "Ana Responsable",
+          email: "ana@example.test",
         },
         {
           id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           display_name: "Bruno Analista",
+          email: "bruno@example.test",
         },
       ],
     });

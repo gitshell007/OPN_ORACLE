@@ -707,10 +707,11 @@ def _response_schemas() -> dict[str, Any]:
         "AssignableUserResponse": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["id", "display_name"],
+            "required": ["id", "display_name", "email"],
             "properties": {
                 "id": uuid,
                 "display_name": {"type": "string"},
+                "email": {"type": "string", "format": "email"},
             },
         },
         "SessionListResponse": item_list("#/components/schemas/SessionResponse"),
@@ -3120,6 +3121,9 @@ def _oracle_schemas() -> dict[str, Any]:
         "user_id",
         "role",
     ]
+    collab_props = schemas["CollaboratorResource"].setdefault("properties", {})
+    collab_props["email"] = {"type": "string", "format": "email", "nullable": True}
+    collab_props["display_name"] = {"type": "string", "nullable": True}
     return schemas
 
 

@@ -27,6 +27,16 @@ function roleLabel(role: string): string {
   return ROLE_OPTIONS.find((item) => item.value === role)?.label ?? role;
 }
 
+function collaboratorLabel(item: DossierCollaborator, fallbackName?: string): string {
+  const name = item.display_name || fallbackName || item.user_id.slice(0, 8);
+  return item.email ? `${name} · ${item.email}` : name;
+}
+
+function assignableLabel(user: AssignableUser): string {
+  const name = user.display_name || user.id;
+  return user.email ? `${name} · ${user.email}` : name;
+}
+
 export function DossierCollaboratorsPanel({
   dossierId,
   disabled = false,
@@ -41,6 +51,8 @@ export function DossierCollaboratorsPanel({
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState("");
   const [role, setRole] = useState<DossierCollaboratorRole>("collaborator");
+  const [emailQuery, setEmailQuery] = useState("");
+  const [searching, setSearching] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,13 +77,38 @@ export function DossierCollaboratorsPanel({
     return () => window.clearTimeout(kickoff);
   }, [load]);
 
+  // Debounced server-side filter by email/name within the tenant.
+  useEffect(() => {
+    const needle = emailQuery.trim();
+    if (!needle) {
+      // Restore full catalog when the search box is cleared.
+      void api.assignableUsers
+        .list()
+        .then((result) => setAssignable(result.items ?? []))
+        .catch(() => undefined);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setSearching(true);
+      void api.assignableUsers
+        .list({ q: needle })
+        .then((result) => setAssignable(result.items ?? []))
+        .catch(() => setError("No se pudo buscar miembros por email."))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [emailQuery]);
+
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const user of assignable) {
       map.set(user.id, user.display_name || user.id);
     }
+    for (const item of collaborators) {
+      if (item.display_name) map.set(item.user_id, item.display_name);
+    }
     return map;
-  }, [assignable]);
+  }, [assignable, collaborators]);
 
   const availableToInvite = useMemo(() => {
     const already = new Set(collaborators.map((item) => item.user_id));
@@ -87,6 +124,7 @@ export function DossierCollaboratorsPanel({
       await api.dossiers.setCollaborator(dossierId, userId, { role });
       toast.success("Acceso concedido al compañero de la organización.");
       setUserId("");
+      setEmailQuery("");
       await load();
     } catch (reason) {
       setError(
@@ -149,8 +187,9 @@ export function DossierCollaboratorsPanel({
       <header>
         <h2 id="dossier-share-title">Compartir expediente</h2>
         <p>
-          Invita solo a compañeros de tu organización. No es posible compartir con
-          usuarios de otra organización: el aislamiento por tenant lo impide.
+          Invita solo a compañeros de tu organización buscando por email. No es
+          posible compartir con usuarios de otra organización: el aislamiento por
+          tenant lo impide.
         </p>
       </header>
 
@@ -181,13 +220,15 @@ export function DossierCollaboratorsPanel({
                 marginBottom: "0.75rem",
               }}
             >
-              <strong>{nameById.get(item.user_id) ?? item.user_id.slice(0, 8)}</strong>
+              <strong>
+                {collaboratorLabel(item, nameById.get(item.user_id))}
+              </strong>
               <PermissionGate
                 permission="dossier.write"
                 fallback={<span className="reporting-hint">{roleLabel(item.role)}</span>}
               >
                 <select
-                  aria-label={`Rol de ${nameById.get(item.user_id) ?? item.user_id}`}
+                  aria-label={`Rol de ${collaboratorLabel(item, nameById.get(item.user_id))}`}
                   value={item.role}
                   disabled={disabled || busy}
                   onChange={(event) =>
@@ -206,7 +247,7 @@ export function DossierCollaboratorsPanel({
                   disabled={disabled}
                   loading={busy}
                   onClick={() => void remove(item)}
-                  aria-label={`Quitar acceso a ${nameById.get(item.user_id) ?? item.user_id}`}
+                  aria-label={`Quitar acceso a ${collaboratorLabel(item, nameById.get(item.user_id))}`}
                 >
                   <X size={14} aria-hidden="true" /> Quitar
                 </AsyncActionButton>
@@ -226,25 +267,46 @@ export function DossierCollaboratorsPanel({
       >
         <form className="dossier-settings-form" onSubmit={(event) => void invite(event)}>
           <label className="field">
+            <span>Buscar por email</span>
+            <input
+              type="search"
+              value={emailQuery}
+              onChange={(event) => setEmailQuery(event.target.value)}
+              placeholder="analista@tu-org.com"
+              disabled={disabled || busy}
+              autoComplete="off"
+              aria-describedby="share-email-hint"
+            />
+            <small id="share-email-hint">
+              Filtra miembros activos del tenant por email o nombre. No se envían
+              invitaciones por correo en este flujo.
+            </small>
+          </label>
+          <label className="field">
             <span>Compañero de la organización</span>
             <select
               required
               value={userId}
               onChange={(event) => setUserId(event.target.value)}
-              disabled={disabled || busy || availableToInvite.length === 0}
+              disabled={disabled || busy || searching || availableToInvite.length === 0}
+              aria-busy={searching}
             >
               <option value="">
-                {availableToInvite.length === 0
-                  ? "No hay más miembros disponibles"
-                  : "Selecciona un miembro"}
+                {searching
+                  ? "Buscando…"
+                  : availableToInvite.length === 0
+                    ? emailQuery.trim()
+                      ? "Ningún miembro coincide con la búsqueda"
+                      : "No hay más miembros disponibles"
+                    : "Selecciona un miembro"}
               </option>
               {availableToInvite.map((user) => (
                 <option key={user.id} value={user.id}>
-                  {user.display_name || user.id}
+                  {assignableLabel(user)}
                 </option>
               ))}
             </select>
-            <small>La lista solo incluye miembros activos de tu organización (tenant).</small>
+            <small>Solo miembros activos de tu organización (tenant).</small>
           </label>
           <label className="field">
             <span>Nivel de acceso</span>

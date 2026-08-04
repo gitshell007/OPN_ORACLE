@@ -1563,7 +1563,10 @@ export interface paths {
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Filtrar por email o nombre (subcadena, sin distinguir mayúsculas). */
+                    q?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -31762,6 +31765,8 @@ export interface components {
             display_name: string;
             /** Format: uuid */
             id: string;
+            /** Format: email */
+            email: string;
         };
         AuditListResponse: {
             items: components["schemas"]["AuditResponse"][];
@@ -31881,6 +31886,9 @@ export interface components {
             updated_at?: string;
             /** Format: uuid */
             user_id: string;
+            /** Format: email */
+            email?: string | null;
+            display_name?: string | null;
         };
         CollaboratorWriteInput: {
             /** @enum {string} */
