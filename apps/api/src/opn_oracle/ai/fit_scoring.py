@@ -187,6 +187,89 @@ def _tender_ref(text: str, profile_hint: str | None = None) -> str | None:
     return None
 
 
+def _evidence_pliego_richness(item: dict[str, Any]) -> int:
+    """Score how pliego-like an extract is (solvency, lots, criteria, deadline)."""
+
+    extract = str(item.get("extract") or "")
+    score = 0
+    if _SOLVENCY_ECON.search(extract):
+        score += 4
+    if _SOLVENCY_TECH.search(extract):
+        score += 4
+    if _LOT_LINE.search(extract):
+        score += 3
+    if re.search(r"\b(F\.?\s*2|F\.?\s*3|PCAP|pliego|criterios\s+de\s+adjudic)", extract, re.I):
+        score += 2
+    if _DEADLINE_ISO.search(extract) or _DEADLINE_ES.search(extract):
+        score += 2
+    if re.search(r"CONTR\s*\d{4}\s*\d+", extract, re.I):
+        score += 2
+    if re.search(r"red\s+de\s+agentes|Baleares|GOIB", extract, re.I):
+        score += 2
+    # Prefer longer extracts (pins are short; pliego extracts are long)
+    score += min(4, len(extract) // 400)
+    return score
+
+
+def _select_primary_official_evidence(
+    official_evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Avoid portfolio pollution: score against the richest primary tender extract.
+
+    Opportunity contexts often mix many PLACSP pins. Taking the earliest deadline
+    or a random CPV across the portfolio produces false no-go/go. Prefer:
+
+    1. Items matching the first CONTR ref found, if any;
+    2. Otherwise the pliego-richest items (F.2/F.3/lotes/deadline);
+    3. Full list as last resort when nothing stands out.
+    """
+
+    if not official_evidence or len(official_evidence) <= 1:
+        return official_evidence
+
+    corpus = _all_official_text(official_evidence)
+    primary_ref = _tender_ref(corpus)
+
+    if primary_ref:
+        # Normalize for fuzzy match (spaces)
+        ref_compact = re.sub(r"\s+", "", primary_ref)
+        matched = []
+        for item in official_evidence:
+            extract = str(item.get("extract") or "")
+            locator = item.get("locator") if isinstance(item.get("locator"), dict) else {}
+            bag = " ".join(
+                str(x)
+                for x in (
+                    extract,
+                    locator.get("ref"),
+                    locator.get("tender_ref"),
+                    locator.get("external_id"),
+                    item.get("title"),
+                )
+                if x
+            )
+            bag_compact = re.sub(r"\s+", "", bag.upper())
+            if primary_ref in bag.upper() or ref_compact in bag_compact:
+                matched.append(item)
+        if matched:
+            # Keep matched + any pliego-rich companions that cite same ref context
+            rich = [i for i in matched if _evidence_pliego_richness(i) >= 3]
+            return rich or matched
+
+    # No CONTR ref: take top pliego-rich items if clearly richer than average
+    ranked = sorted(
+        official_evidence,
+        key=lambda i: _evidence_pliego_richness(i),
+        reverse=True,
+    )
+    top = _evidence_pliego_richness(ranked[0])
+    if top >= 6:
+        selected = [i for i in ranked if _evidence_pliego_richness(i) >= max(4, top - 2)]
+        return selected[:6] or ranked[:1]
+
+    return official_evidence
+
+
 def _dimension(
     *,
     key: DimensionKey,
@@ -959,32 +1042,34 @@ def score_profile_tender_fit(
         return None
 
     today = _as_of(as_of)
+    # Portfolio-safe: score against primary tender extract, not the whole bag of pins
+    primary_evidence = _select_primary_official_evidence(official_evidence)
     dims = [
         score_cpv_dimension(
             profile=profile,
             declared_by_field=declared_by_field,
-            official_evidence=official_evidence,
+            official_evidence=primary_evidence,
         ),
         score_solvency_dimension(
             profile=profile,
             declared_by_field=declared_by_field,
-            official_evidence=official_evidence,
+            official_evidence=primary_evidence,
         ),
         score_lots_dimension(
             profile=profile,
             declared_by_field=declared_by_field,
-            official_evidence=official_evidence,
+            official_evidence=primary_evidence,
         ),
         score_deadline_dimension(
             profile=profile,
             declared_by_field=declared_by_field,
-            official_evidence=official_evidence,
+            official_evidence=primary_evidence,
             as_of=today,
         ),
     ]
     verdict = _build_verdict(dims)
-    corpus = _all_official_text(official_evidence)
-    tender_ref = _tender_ref(corpus)
+    corpus = _all_official_text(primary_evidence)
+    tender_ref = _tender_ref(corpus) or _tender_ref(_all_official_text(official_evidence))
 
     # Collect ids
     declared_ids: list[str] = []

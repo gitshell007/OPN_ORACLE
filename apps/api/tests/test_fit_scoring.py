@@ -185,6 +185,38 @@ def test_closed_deadline_is_no_go() -> None:
     assert scored["verdict"]["recommendation"] == "no_go"
 
 
+def test_portfolio_pollution_does_not_steal_baleares_deadline() -> None:
+    """Otros pins con deadline cerrado no deben tumbar el encaje de Baleares."""
+
+    dossier_id = uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688")
+    baleares_id = uuid.UUID("d96614d3-aaaa-4bbb-8ccc-111111111111")
+    other_id = uuid.UUID("9cf1712d-bbbb-4ccc-8ddd-222222222222")
+    other_closed = {
+        "id": str(other_id),
+        "extract": (
+            "Licitación PLACSP 5832/2026 CPV 48442000, 72263000. "
+            "Deadline presentación ofertas: 2026-08-03. Estado PUB."
+        ),
+        "source_kind": "procurement",
+    }
+    scored = score_profile_tender_fit(
+        profile=NEXUS_PROFILE,
+        declared_by_field=_nexus_declared_fields(dossier_id),
+        official_evidence=[*_baleares_official(baleares_id), other_closed],
+        as_of=date(2026, 8, 4),
+    )
+    assert scored is not None
+    assert scored["tender_ref"] == "CONTR 2026 11077"
+    deadline = next(d for d in scored["dimensions"] if d["key"] == "deadline")
+    assert "2026-08-06" in deadline["requirement"]
+    assert deadline["status"] == "partial"  # 2 días, no cerrado
+    solv = next(d for d in scored["dimensions"] if d["key"] == "solvency")
+    assert solv["status"] == "not_evaluable"
+    assert "F.2" in solv["requirement"]
+    assert scored["verdict"]["recommendation"] == "go_conditioned"
+    assert scored["verdict"]["human_gate"] == "awaiting_user_confirmation"
+
+
 def test_schema_accepts_dimensional_fit() -> None:
     import json
 
