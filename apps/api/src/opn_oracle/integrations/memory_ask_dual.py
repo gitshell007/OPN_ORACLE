@@ -1057,9 +1057,12 @@ def load_dossier_citable_evidence_ids(
     from opn_oracle.oracle.links import EvidenceDossier
     from opn_oracle.oracle.models import Evidence
 
+    # Prefer durable non-bulk rows. Opportunity PCAP materializations
+    # (SV2-E2E-VIVO) remain citable on the opportunity path but should not
+    # flood the generic Preguntar allowlist (limit 200 by created_at desc).
     rows = list(
         session.scalars(
-            select(Evidence.id)
+            select(Evidence)
             .join(
                 EvidenceDossier,
                 (EvidenceDossier.evidence_id == Evidence.id)
@@ -1071,10 +1074,20 @@ def load_dossier_citable_evidence_ids(
                 Evidence.source_kind.in_(tuple(DOSSIER_CITABLE_SOURCE_KINDS)),
             )
             .order_by(Evidence.created_at.desc())
-            .limit(200)
+            .limit(400)
         )
     )
-    return [str(item) for item in rows]
+    out: list[str] = []
+    for row in rows:
+        prov = row.provenance if isinstance(row.provenance, dict) else {}
+        loc = row.locator if isinstance(row.locator, dict) else {}
+        materialized = prov.get("materialized_for") or loc.get("materialized_for")
+        if materialized in {"sv2_e2e_vivo_opportunity", "opportunity_pliego"}:
+            continue
+        out.append(str(row.id))
+        if len(out) >= 200:
+            break
+    return out
 
 
 def validate_material_evidence_allowlist(

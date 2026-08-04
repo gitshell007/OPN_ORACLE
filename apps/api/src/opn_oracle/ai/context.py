@@ -398,6 +398,28 @@ def build_tender_search_replan_context(
     )
 
 
+def _is_opportunity_pliego_materialization(row: Evidence) -> bool:
+    """True when evidence was bulk-materialized for opportunity PCAP bag only."""
+
+    prov = getattr(row, "provenance", None) or {}
+    loc = getattr(row, "locator", None) or {}
+    if not isinstance(prov, dict):
+        prov = {}
+    if not isinstance(loc, dict):
+        loc = {}
+    if prov.get("materialized_for") in {
+        "sv2_e2e_vivo_opportunity",
+        "opportunity_pliego",
+    }:
+        return True
+    if loc.get("materialized_for") in {
+        "sv2_e2e_vivo_opportunity",
+        "opportunity_pliego",
+    }:
+        return True
+    return False
+
+
 def diversify_evidence_by_source_kind(
     rows: list[Evidence],
     *,
@@ -536,6 +558,14 @@ def build_context(
             .limit(200)
         )
     )
+    # Opportunity-only materializations stay citable on the opportunity path
+    # (load_opportunity_pliego_evidence_rows). Keep them out of the generic bag
+    # so Preguntar is not flooded with PCAP chunks for every question.
+    evidence_candidates = [
+        row
+        for row in evidence_candidates
+        if not _is_opportunity_pliego_materialization(row)
+    ]
     evidence_rows = diversify_evidence_by_source_kind(
         evidence_candidates, limit=50, max_per_kind=15
     )

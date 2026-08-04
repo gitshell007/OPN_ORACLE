@@ -11,6 +11,7 @@ import uuid
 from datetime import date
 
 from opn_oracle.ai.context import (
+    _is_opportunity_pliego_materialization,
     diversify_evidence_by_source_kind,
     pliego_evidence_family,
     pliego_evidence_richness,
@@ -229,9 +230,18 @@ def test_pliego_bag_yields_full_fit_and_draft_sections() -> None:
 
 
 class _FakeEvidence:
-    def __init__(self, source_kind: str, extract: str) -> None:
+    def __init__(
+        self,
+        source_kind: str,
+        extract: str,
+        *,
+        provenance: dict | None = None,
+        locator: dict | None = None,
+    ) -> None:
         self.source_kind = source_kind
         self.extract = extract
+        self.provenance = provenance or {}
+        self.locator = locator or {}
 
 
 def test_diversify_prevents_document_flood_after_pliego_materialize() -> None:
@@ -252,3 +262,14 @@ def test_diversify_prevents_document_flood_after_pliego_materialize() -> None:
     assert kinds.count("document") <= 40  # residual fill after other kinds
     assert kinds.count("document") < 50
     assert len(selected) == 50
+
+
+def test_opportunity_materialization_flag() -> None:
+    opp = _FakeEvidence(
+        "document",
+        "pliego",
+        provenance={"materialized_for": "sv2_e2e_vivo_opportunity"},
+    )
+    normal = _FakeEvidence("document", "upload normal")
+    assert _is_opportunity_pliego_materialization(opp) is True
+    assert _is_opportunity_pliego_materialization(normal) is False
