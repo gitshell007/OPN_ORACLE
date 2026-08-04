@@ -221,7 +221,7 @@ def _batch_llm_polish(
 
 
 def polish_draft_offer_prose(
-    draft: dict[str, Any],
+    draft: Any,
     *,
     provider: _StructuredProvider | None = None,
     polish_fn: PolishFn | None = None,
@@ -235,7 +235,7 @@ def polish_draft_offer_prose(
     """
 
     if not isinstance(draft, dict):
-        return draft
+        return {}
     result = dict(draft)
     result["prose_engine"] = _PROSE_ENGINE
 

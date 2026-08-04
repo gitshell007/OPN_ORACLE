@@ -68,9 +68,7 @@ def unique_gap_strings(items: list[Any] | None, *, limit: int = 12) -> list[str]
     return out
 
 
-def unique_gap_records(
-    gaps: list[dict[str, Any]] | None, *, limit: int = 16
-) -> list[dict[str, Any]]:
+def unique_gap_records(gaps: list[Any] | None, *, limit: int = 16) -> list[dict[str, Any]]:
     """Dedup de gaps estructurados por description normalizada (conserva el primero)."""
 
     seen: set[str] = set()
