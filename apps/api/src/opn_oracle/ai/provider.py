@@ -864,11 +864,85 @@ class OllamaLLMProvider:
         return ProviderHealth("healthy", self.model)
 
 
-# SV2-PRIORIZA-FLAKE: un fact sin citas no es error fatal — se retira antes de
-# validar el schema. Menos de este mínimo tras sanear implica confianza degradada
-# (anti-incentivo de publicar con un único fact pobre).
-MIN_GROUNDED_FACTS_FOR_QUALITY = 2
+# SV2-SANEO-UNIFORME · un solo punto de defensa para todos los agentes con
+# ``facts[].evidence_ids`` estricto (min_length≥1). Un fact sin citas no es error
+# fatal: se retira antes de validar el schema. El **mecanismo es uno**; los
+# **mínimos de calidad** pueden variar por agente (documentados junto al número).
+#
+# Inventario agente × defensa (Oracle consumer; no toca contratos Signal RT-07/08/09/10):
+#
+# | Agente                              | facts[] estricto | Pasa por saneo | min fundados |
+# |-------------------------------------|------------------|----------------|--------------|
+# | actor_partnership                   | Fact             | sí             | 2            |
+# | opportunity                         | Fact             | sí             | 2            |
+# | risk                                | Fact             | sí             | 2            |
+# | entity_resolution                   | Fact             | sí             | 1            |
+# | dossier_situation_summary           | SituationFact    | sí             | 1            |
+# | meeting_briefing                    | Fact             | sí             | 2            |
+# | signal_triage                       | Fact             | sí             | 2            |
+# | intake                              | Fact             | sí             | 2            |
+# | report_writer                       | Fact             | sí (Oracle)    | 2            |
+# | competitive_procurement_intelligence| Fact             | sí (Oracle)    | 2            |
+# | entity_dossier_intelligence         | Fact             | sí (Oracle)    | 2            |
+# | memory_curator                      | Fact             | sí             | 2            |
+# | evidence_reviewer                   | Fact             | sí             | 2            |
+# | weekly_change                       | Fact             | sí             | 2            |
+# | dossier_question_answer             | Fact             | no (RT-07)     | n/a          |
+# | dossier_completion_wizard           | no               | no-op          | n/a          |
+# | tender_search_wizard                | no               | no-op          | n/a          |
+# | report_custom_brief_plan            | no               | no-op          | n/a          |
+#
+# RT-07/08/09/10 viven en Signal (contratos congelados). Aquí solo se defiende
+# el consumidor Oracle del schema local; report_* sí tienen ``facts: list[Fact]``
+# en Oracle y por eso entran al saneo sin tocar el contrato Signal.
+
+# Mínimo por defecto (análisis multi-fact: contrastar ≥2 anclas citadas).
+DEFAULT_MIN_GROUNDED_FACTS = 2
+# Alias retrocompatible con tests/importadores del turno 110.
+MIN_GROUNDED_FACTS_FOR_QUALITY = DEFAULT_MIN_GROUNDED_FACTS
 QUALITY_DEGRADED_CONFIDENCE_CAP = 40
+
+# Mínimos de calidad **por agente** (documentados junto al número, SV2-SANEO-UNIFORME).
+MIN_GROUNDED_FACTS_BY_AGENT: dict[str, int] = {
+    # 2: corridas buenas traen 3–4 facts PLACSP; 1 fact tras sanear es anémico.
+    "actor_partnership": 2,
+    # 2: go/investigate/no_go necesita más de un ancla citada.
+    "opportunity": 2,
+    # 2: escenarios de riesgo no se sostienen en un único fact fundado.
+    "risk": 2,
+    # 1: el valor está en decision+rationale; 1 fact citado puede bastar.
+    "entity_resolution": 1,
+    # 1: facts[] es opcional (default []); headline/executive_summary llevan valor.
+    "dossier_situation_summary": 1,
+    # 2: briefing usable requiere al menos dos hechos citados.
+    "meeting_briefing": 2,
+    # 2: triaje con un único fact fundado no contrasta relevancia/novedad.
+    "signal_triage": 2,
+    # 2: intake propone expediente; un solo fact pobre no basta.
+    "intake": 2,
+    # 2: informes Oracle (schema local); no toca contratos Signal RT-08/09/10.
+    "report_writer": 2,
+    "competitive_procurement_intelligence": 2,
+    "entity_dossier_intelligence": 2,
+    # 2: curaduría de memoria vive de masa de hechos citados.
+    "memory_curator": 2,
+    # 2: revisor de evidencia no se fía de un único fact.
+    "evidence_reviewer": 2,
+    # 2: cambio semanal exige contraste temporal.
+    "weekly_change": 2,
+}
+
+# Agentes cuyo schema Oracle valida ``facts[].evidence_ids`` con min_length≥1.
+# Ausentes = sin facts[] estricto → el saneo es no-op (no se fuerza).
+# dossier_question_answer tiene Fact pero se consume por el path RT-07 fail-closed
+# (no pasa por esta función; no mutar validated_output de Signal).
+AGENTS_WITH_STRICT_FACTS: frozenset[str] = frozenset(MIN_GROUNDED_FACTS_BY_AGENT)
+
+
+def min_grounded_facts_for_agent(agent: str) -> int:
+    """Mínimo de facts fundados tras sanear, por agente (default multi-fact = 2)."""
+
+    return MIN_GROUNDED_FACTS_BY_AGENT.get(agent, DEFAULT_MIN_GROUNDED_FACTS)
 
 
 class UncitedFactsError(ValueError):
@@ -878,17 +952,29 @@ class UncitedFactsError(ValueError):
 def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
     """Retira facts sin ``evidence_ids`` antes de la validación Pydantic.
 
-    Misma familia que la frontera del 095 y el saneo RT-07: la forma del modelo
-    no puede matar el job. Un fact sin citas se omite con aviso visible; si tras
-    el saneo no queda ninguno de los emitidos, falla con mensaje explícito
-    («el modelo no citó nada»), no con ``ValidationError: evidence_ids too_short``.
+    **Punto único** (SV2-SANEO-UNIFORME): se invoca desde el provider Signal para
+    todos los agentes con ``facts[].evidence_ids`` estricto. No hay copias por
+    agente; solo varía el mínimo de calidad (ver ``MIN_GROUNDED_FACTS_BY_AGENT``).
 
-    Si quedan 1..MIN_GROUNDED_FACTS_FOR_QUALITY-1 facts fundados, degrada
-    confianza y marca needs_review en warnings (coherente con gates de
-    fundamentación; no relaja el schema).
+    Misma familia que la frontera del 095: la forma del modelo no puede matar el
+    job. Un fact sin citas se omite con aviso visible; si tras el saneo no queda
+    ninguno de los emitidos, falla con mensaje explícito («el modelo no citó
+    nada»), no con ``ValidationError: evidence_ids too_short``.
+
+    Si quedan 1..min-1 facts fundados (min = por agente), degrada confianza y
+    marca needs_review en warnings (no relaja el schema).
+
+    Esquemas sin ``facts[]`` (wizards, plan) y el path RT-07 de Preguntar no
+    entran aquí.
     """
 
-    del agent  # reserved for agent-specific thresholds; policy is uniform for now
+    if agent not in AGENTS_WITH_STRICT_FACTS:
+        # No forzar saneo donde el schema no valida facts[].evidence_ids estricto
+        # (wizards, plan) ni en agentes RT-07 con path propio.
+        return raw_output
+
+    min_grounded = min_grounded_facts_for_agent(agent)
+
     try:
         candidate = json.loads(raw_output)
     except ValueError:
@@ -937,7 +1023,7 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
     if drop_warning not in warnings:
         warnings.append(drop_warning)
 
-    if len(kept) < MIN_GROUNDED_FACTS_FOR_QUALITY:
+    if len(kept) < min_grounded:
         conf_raw = candidate.get("confidence")
         try:
             conf_i = int(conf_raw)  # type: ignore[arg-type]
@@ -958,9 +1044,10 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
             candidate["decision"] = "needs_review"
         quality_warning = (
             f"Tras sanear facts sin citas quedan solo {len(kept)} fact(s) fundado(s) "
-            f"(mínimo razonable={MIN_GROUNDED_FACTS_FOR_QUALITY}). "
+            f"(mínimo razonable={min_grounded} para agente={agent}). "
             f"Confianza degradada a {new_conf}; se recomienda revisión humana "
-            "(needs_review). Publicar con un único fact pobre no es aceptable."
+            "(needs_review). Publicar por debajo del mínimo de calidad del agente "
+            "no es aceptable."
         )
         if quality_warning not in warnings:
             warnings.append(quality_warning)
@@ -1401,7 +1488,8 @@ class SignalGovernedLLMProvider:
         normalized_output = _normalize_signal_candidate_json(
             request, normalized_output, allowed_evidence_ids
         )
-        # SV2-PRIORIZA-FLAKE: retirar facts sin citas antes del schema (no matar el job).
+        # SV2-SANEO-UNIFORME: punto único — retirar facts sin citas antes del schema
+        # para todos los agentes con facts[].evidence_ids estricto (no matar el job).
         try:
             normalized_output = _sanitize_uncited_facts_json(
                 normalized_output, agent=request.agent
