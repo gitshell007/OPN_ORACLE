@@ -181,6 +181,45 @@ def grounded_facts(output: dict[str, Any] | None) -> list[dict[str, Any]]:
     return out
 
 
+
+def ensure_demo_actors(client: Client, dossier_id: str) -> list[dict[str, Any]]:
+    """Garantiza ≥2 actores en el expediente para que priorización/resolución tengan materia."""
+    code, page = client.request("GET", f"/api/v1/dossiers/{dossier_id}/actors?page=1&size=50")
+    existing = (page.get("data") or []) if code == 200 and isinstance(page, dict) else []
+    names = [
+        "Capgemini España S.L.",
+        "NTT DATA Spain S.L.U.",
+        "Inetum España S.A.",
+    ]
+    created: list[dict[str, Any]] = []
+    for name in names:
+        if len(existing) + len(created) >= 3:
+            break
+        if any(name.lower() in str(item.get("canonical_name") or item).lower() for item in existing):
+            continue
+        code, payload = client.request(
+            "POST",
+            f"/api/v1/dossiers/{dossier_id}/actors",
+            {
+                "canonical_name": name,
+                "actor_type": "organization",
+                "roles": ["competidor"],
+                "influence": 40,
+                "relevance_to_dossier": 55,
+                "relationship_strength": 20,
+                "accessibility": 40,
+                "strategic_alignment": 50,
+                "recent_activity": 60,
+            },
+        )
+        if code in {200, 201} and isinstance(payload, dict):
+            created.append(payload)
+    code, page = client.request("GET", f"/api/v1/dossiers/{dossier_id}/actors?page=1&size=50")
+    links = (page.get("data") or []) if code == 200 and isinstance(page, dict) else []
+    print("DEMO_ACTORS", len(links), "created_now", len(created))
+    return links
+
+
 def main() -> int:
     base = env("ORACLE_BASE_URL", DEFAULT_BASE)
     creds_path = Path(env("ORACLE_CREDS_PATH", DEFAULT_CREDS))
@@ -189,6 +228,8 @@ def main() -> int:
     email, password = parse_creds(creds_path.read_text(encoding="utf-8"))
     client = Client(base)
     client.login(email, password, tenant_id)
+
+    ensure_demo_actors(client, dossier_id)
 
     report: dict[str, Any] = {"dossier_id": dossier_id, "agents": {}}
 

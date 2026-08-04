@@ -1889,8 +1889,36 @@ def build_actor_partnership_context(dossier_id: uuid.UUID, *, max_tokens: int) -
     rows = _dossier_actors_for_analysis(dossier_id)
     serialized = [_serialize_dossier_actor_row(link, actor) for link, actor in rows]
     primary = serialized[0] if serialized else None
+    procurement_competitors: list[dict[str, Any]] = []
+    for item in (base.payload.get("evidence") or []) if isinstance(base.payload.get("evidence"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        locator = item.get("locator") if isinstance(item.get("locator"), dict) else {}
+        winner = (
+            locator.get("winner")
+            or locator.get("adjudicatario")
+            or locator.get("contractor")
+            or locator.get("winner_name")
+        )
+        tax = (
+            locator.get("winner_tax_id")
+            or locator.get("winner_identifier")
+            or locator.get("tax_id")
+            or locator.get("nif")
+            or locator.get("cif")
+        )
+        if winner or tax:
+            procurement_competitors.append(
+                {
+                    "name": str(winner or "").strip() or None,
+                    "tax_id": str(tax).strip().upper() if tax else None,
+                    "evidence_id": item.get("id"),
+                    "source_kind": item.get("source_kind"),
+                }
+            )
     enriched = dict(base.payload)
     enriched["actors"] = serialized
+    enriched["procurement_competitors"] = procurement_competitors[:20]
     enriched["actor"] = primary or {
         "instruction": (
             "No hay actores vinculados al expediente. Propón priorización solo si "
@@ -1992,13 +2020,22 @@ def build_entity_resolution_context(dossier_id: uuid.UUID, *, max_tokens: int) -
             }
             for item in serialized[1:6]
         ]
+    elif len(serialized) == 1:
+        entity = {
+            "actor_id": serialized[0]["actor_id"],
+            "name": serialized[0]["name"],
+            "tax_id": serialized[0].get("tax_id"),
+            "identifiers": serialized[0].get("identifiers") or {},
+            "basis": "single_dossier_actor",
+        }
+        candidates = []
     else:
         entity = {
             "name": None,
             "basis": "insufficient_actors",
             "instruction": (
-                "No hay suficientes actores en el expediente para resolver. "
-                "Devuelve needs_review o create_new solo con evidencia citada."
+                "No hay actores en el expediente para resolver. "
+                "Devuelve needs_review; no inventes NIFs ni fusions."
             ),
         }
         candidates = []

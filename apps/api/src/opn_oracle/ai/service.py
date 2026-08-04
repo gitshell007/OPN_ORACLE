@@ -858,7 +858,7 @@ def _is_conclusion_path(path: str) -> bool:
     normalized = str(path or "").strip()
     if not normalized:
         return False
-    conclusion_fields = (*_CONCLUSION_SCALAR_FIELDS, "recommendation", "recommended_status")
+    conclusion_fields = (*_CONCLUSION_SCALAR_FIELDS, "recommendation", "recommended_status", "rationale", "decision")
     for field in conclusion_fields:
         if normalized in {field, f"$.{field}", f"candidate_outline.{field}"}:
             return True
