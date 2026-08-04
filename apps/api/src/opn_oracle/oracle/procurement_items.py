@@ -21,6 +21,7 @@ from opn_oracle.integrations.procurement import (
     ProcurementProviderError,
     procurement_client_from_config,
 )
+from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
 from opn_oracle.oracle.links import (
     DecisionEvidence,
     DossierActorEvidence,
@@ -33,7 +34,6 @@ from opn_oracle.oracle.links import (
     ReportEvidence,
     RiskEvidence,
 )
-from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Opportunity
 from opn_oracle.platform.audit import append_audit_event
 
