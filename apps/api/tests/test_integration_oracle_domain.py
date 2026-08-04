@@ -3053,9 +3053,10 @@ def test_procurement_folder_resolution_uses_signal_lookup_endpoints(
         "Genesis Consulting SLP",
         "OPN Consultoría",
     ]
-    assert "Importe total adjudicado: 5000.00" in procurement_items.procurement_evidence_extract(
-        award
-    )
+    # Expectativa actualizada (079/099+): el extracto declara la ambigüedad base/IVA
+    # del amount PLACSP en lugar de fingir un «importe total» clasificado.
+    extract = procurement_items.procurement_evidence_extract(award)
+    assert "Importe total adjudicado (sin clasificación base/IVA en origen): 5000.00" in extract
 
 
 def test_procurement_listing_creates_no_ai_usage(
@@ -5930,6 +5931,26 @@ def test_report_generation_failures_never_publish_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
 ) -> None:
+    """Garantía de seguridad: un fallo de generación jamás publica artefacto.
+
+    Distinción de clases (084 — lenient/strip_claims vs hard-fail):
+
+    * **Seguridad / infraestructura del revisor** (excepción del evidence_reviewer,
+      provider caído, schema inválido): el informe queda ``failed``, sin revision,
+      sin artefactos, sin notificación ``report.ready`` y sin objetos en storage.
+      Esta es la garantía dura que este test protege.
+    * **Calidad** (verdict fail con claims anclables en agentes strip_claims/lenient):
+      *no* es este escenario. Ahí se publica con warnings y título honesto; otros
+      tests (``test_report_writer_strips_claims_…``) lo cubren.
+
+    Expectativa actualizada del mensaje del job (SV2-CI-INTEGRACION): el report
+    expone la clase de fallo al usuario (``falló la revisión obligatoria…`` vía
+    ``EvidenceReviewError``). El job durable, en cambio, guarda la causa raíz
+    para operadores (``_exception_cause_text`` camina ``__cause__`` hasta
+    ``RuntimeError: reviewer unavailable``). No se exige el texto español en el
+    job; sí se exige que no haya publicación.
+    """
+
     app, ids, _ = oracle_stack
     storage = LocalObjectStorage(tmp_path / f"report-failure-{scenario}")
     app.extensions["object_storage"] = storage
@@ -5980,9 +6001,11 @@ def test_report_generation_failures_never_publish_artifacts(
     report = client.get(f"/api/v1/reports/{report_id}").get_json()
     assert report["status"] == "failed"
     if scenario == "reviewer":
+        # Clase de fallo de revisión obligatoria: visible al usuario en el report.
         assert "falló la revisión obligatoria de evidencias" in report["error_message"]
     else:
         assert "No se pudo generar el informe" in report["error_message"]
+    # Garantía de seguridad: jamás hay artefacto ni revisión publicada.
     assert report["artifacts"] == []
     assert report["revision"] is None
     with (
@@ -5993,10 +6016,15 @@ def test_report_generation_failures_never_publish_artifacts(
         assert stored_report is not None and stored_report.background_job_id is not None
         failed_job = db.session.get(BackgroundJob, stored_report.background_job_id)
         assert failed_job is not None
+        job_msg = failed_job.error_message or ""
         if scenario == "reviewer":
-            assert "La revisión de evidencia falló" in (failed_job.error_message or "")
+            # Causa raíz operativa (no el wrapper español del report).
+            assert "reviewer unavailable" in job_msg
+            assert failed_job.status == "failed"
         else:
-            assert "La revisión de evidencia falló" not in (failed_job.error_message or "")
+            # Escenarios no-reviewer no deben camuflarse como fallo de revisión.
+            assert "revisión de evidencia" not in job_msg.lower()
+            assert "revisión obligatoria" not in job_msg.lower()
         assert not list(
             db.session.scalars(
                 select(ReportArtifact).where(ReportArtifact.report_id == uuid.UUID(report_id))
@@ -7021,9 +7049,14 @@ def test_reporting_api_validation_retry_revision_and_policy_states(
 
     report = generate(f"api-state-ready-{uuid.uuid4()}")
     assert report["status"] == "ready"
+    # Expectativa actualizada (SV2-CI-INTEGRACION / grounding de conclusiones):
+    # el mock ya no publica el título «Informe mock»; ``_ground_conclusions_to_facts``
+    # lo degrada al primer fact («Hecho sintético verificable.»). El filtro de
+    # búsqueda debe apuntar a texto que el producto realmente materializa.
+    search_token = "Hecho"
     filtered = client.get(
         "/api/v1/reports?filter[status]=ready&filter[template]=executive_dossier"
-        "&filter[search]=Informe&page[number]=1&page[size]=5"
+        f"&filter[search]={search_token}&page[number]=1&page[size]=5"
     )
     assert filtered.status_code == 200 and filtered.get_json()["meta"]["total"] >= 1
     assert (
@@ -7423,7 +7456,12 @@ def test_report_notification_export_end_to_end(
     assert link.status_code == 200
     downloaded = client.get(link.get_json()["url"])
     assert downloaded.status_code == 200
-    assert b"Informe mock" in downloaded.data and b"<script" not in downloaded.data.lower()
+    # Expectativa actualizada (SV2-CI-INTEGRACION): el HTML usa el título honesto
+    # fundado en facts del mock («Hecho sintético verificable.»), no el marketing
+    # «Informe mock» que _ground_conclusions_to_facts degrada. Sigue prohibido
+    # inyectar script en el artefacto publicado.
+    assert "Hecho sintético verificable".encode() in downloaded.data
+    assert b"<script" not in downloaded.data.lower()
 
     opportunity = client.post(
         f"/api/v1/dossiers/{dossier['id']}/opportunities",

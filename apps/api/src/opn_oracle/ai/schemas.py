@@ -5,14 +5,43 @@ from __future__ import annotations
 from datetime import date as CalendarDate
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+def _coerce_calendar_date(value: Any) -> Any:
+    """Accept ISO date strings after JSON storage under ``strict=True``.
+
+    Pydantic strict mode rejects ``str → date`` coercion. Agent outputs and AI
+    artifacts are persisted with ``model_dump(mode="json")`` and reloaded with
+    ``model_validate_json``; without this bridge, ``deadline`` /
+    ``due_date`` / ``suggested_review_date`` fail the roundtrip even though the
+    wire format is the canonical ISO date.
+    """
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        # LLM/mocks sometimes emit a full ISO datetime for a date-only field.
+        if "T" in text:
+            text = text.split("T", 1)[0]
+        try:
+            return CalendarDate.fromisoformat(text)
+        except ValueError:
+            return value
+    return value
+
+
+# Use on every CalendarDate field so JSON storage stays round-trippable without
+# weakening StrictModel.extra/forbid or removing the field from strict checks.
+JsonDate = Annotated[CalendarDate, BeforeValidator(_coerce_calendar_date)]
 
 
 def _coerce_confidence_0_100(value: Any) -> Any:
@@ -105,7 +134,7 @@ class SituationActor(StrictModel):
 
 class SituationMilestone(StrictModel):
     label: str = Field(min_length=1, max_length=500)
-    date: CalendarDate | None = None
+    date: JsonDate | None = None
     status: str = Field(min_length=1, max_length=200)
     evidence_ids: list[UUID] = Field(min_length=1)
 
@@ -237,7 +266,7 @@ class CandidateActor(StrictModel):
 class NextBestAction(StrictModel):
     action: str = Field(min_length=1, max_length=2000)
     owner_role: str = Field(min_length=1, max_length=500)
-    due_date: CalendarDate | None = None
+    due_date: JsonDate | None = None
     rationale: str = Field(min_length=1, max_length=4000)
 
 
@@ -276,7 +305,7 @@ class OpportunityAnalysisOutput(AgentOutput):
     summary: str = ""
     recommendation: Literal["go", "investigate", "hold", "no_go"]
     scores: OpportunityScores
-    deadline: CalendarDate | None = None
+    deadline: JsonDate | None = None
     confirmed_requirements: list[str] = Field(default_factory=list)
     unknown_requirements: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
@@ -362,7 +391,7 @@ class RiskAnalysisOutput(AgentOutput):
     scores: RiskScores
     leading_indicators: list[str] = Field(default_factory=list)
     suggested_owner_role: str = ""
-    suggested_review_date: CalendarDate | None = None
+    suggested_review_date: JsonDate | None = None
     scenarios: list[RiskScenario] = Field(default_factory=list)
     mitigations: list[RiskMitigation] = Field(default_factory=list)
 
