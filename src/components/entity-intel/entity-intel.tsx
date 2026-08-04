@@ -907,6 +907,7 @@ export function EntityGraphExplorer({
   const previousIsolatedNodeIdRef = useRef<string | null>(null);
   const isolationCameraIntentRef = useRef<IsolationCameraIntent | null>(null);
   const labelDensityRef = useRef<GraphLabelDensity>(defaultGraphLabelDensity(initialGraph));
+  const matchingNodeIdsRef = useRef<ReadonlySet<string>>(new Set());
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
@@ -1063,6 +1064,9 @@ export function EntityGraphExplorer({
     () => new Set(matchingNodeResults.map(({ id }) => id)),
     [matchingNodeResults],
   );
+  // Keep in sync during render so an in-flight cytoscape import can apply
+  // the latest search highlights the moment the instance is created.
+  matchingNodeIdsRef.current = matchingNodeIds;
   useEffect(() => {
     temporalBoundsRef.current = temporalBounds;
     timeRangeRef.current = timeRange;
@@ -1400,6 +1404,16 @@ export function EntityGraphExplorer({
         instance.on("viewport", onViewport);
         instance.on("layoutstop", applyInitialFocus);
         graphRef.current = instance;
+        // Re-apply search highlights if the user typed before cytoscape finished
+        // loading (matchingNodeIds effect only runs when the query changes).
+        const pendingSearchMatches = matchingNodeIdsRef.current;
+        if (pendingSearchMatches.size > 0) {
+          instance.batch(() => {
+            pendingSearchMatches.forEach((id) => {
+              instance.getElementById(id).addClass("is-search-match");
+            });
+          });
+        }
         focusTimer = window.setTimeout(applyInitialFocus, 900);
         cleanupHandlers = () => {
           container.removeEventListener("mouseleave", clearHover);

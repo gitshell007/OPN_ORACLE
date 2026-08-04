@@ -1172,15 +1172,18 @@ describe("EntityGraphExplorer", () => {
     expect(screen.getByText("2 de 2 enlaces visibles")).toBeInTheDocument();
     expect(screen.getByText("Vista recortada por Signal")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Buscar nodo del grafo"), {
-      target: { value: "burgos" },
-    });
+    // Cytoscape mounts via dynamic import; wait for the instance before search so
+    // the layout-effect that paints `is-search-match` has a live graphRef.
     await waitFor(() => expect(mocks.cytoscapeInstances).toHaveLength(1));
     const instance = mocks.cytoscapeInstances[0];
     const centerCalls = instance.center.mock.calls.length;
     const fitCalls = instance.fit.mock.calls.length;
     const zoomCalls = instance.zoom.mock.calls.length;
-    const results = screen.getByLabelText("Nodos encontrados");
+
+    fireEvent.change(screen.getByLabelText("Buscar nodo del grafo"), {
+      target: { value: "burgos" },
+    });
+    const results = await screen.findByLabelText("Nodos encontrados");
     expect(within(results).getByText(/1 de 1 coincidencias mostradas/)).toBeInTheDocument();
     await waitFor(() => expect(instance.nodesList[1].classes.has("is-search-match")).toBe(true));
     expect(instance.nodesList[0].classes.has("is-search-match")).toBe(false);
