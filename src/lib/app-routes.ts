@@ -333,6 +333,8 @@ export const DOSSIER_SECTION_GROUP = {
   intake: "analysis",
   "opportunity-analysis": "analysis",
   "risk-analysis": "analysis",
+  "actor-priority": "analysis",
+  "entity-resolution": "analysis",
   decisions: "decision",
   meetings: "decision",
   tasks: "decision",
