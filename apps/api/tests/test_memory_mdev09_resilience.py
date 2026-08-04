@@ -136,12 +136,35 @@ def test_zero_cloud_without_approvals_constants() -> None:
     assert egress == {"http": 0, "usage": 0, "attempts": 0}
 
 
-def test_write_oracle_candidate_ledger_doc() -> None:
-    root = Path(__file__).resolve().parents[3]
-    out = root / "docs" / "evals" / "mdev09" / "candidate_ledger_v1.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
+def test_write_oracle_candidate_ledger_doc(tmp_path: Path) -> None:
+    """Serialize candidate ledger + ladder to a temp path only.
+
+    Must never mutate the repo tree (``docs/evals/mdev09/``). Writing the
+    curated ledger into the worktree was a measurement side-effect that
+    wiped ``policy_by_task`` / ``policy_notes`` during coverage runs.
+    """
+
+    out = tmp_path / "candidate_ledger_v1.json"
     ledger = candidate_ledger_stub()
     ladder = ladder_document()
     payload = {**ledger, "timeout_ladder": ladder}
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     assert out.is_file()
+    loaded = json.loads(out.read_text(encoding="utf-8"))
+    assert loaded["deployed"] is False
+    assert loaded["ledger_kind"] == "candidate_freeze"
+    assert "timeout_ladder" in loaded
+    assert loaded["timeout_ladder"]["violations"] == []
+    assert "RT-08" in loaded["runtimes"]
+    # Guard: repo doc must remain untouched by this test.
+    repo_doc = (
+        Path(__file__).resolve().parents[3]
+        / "docs"
+        / "evals"
+        / "mdev09"
+        / "candidate_ledger_v1.json"
+    )
+    if repo_doc.is_file():
+        before = repo_doc.read_bytes()
+        # re-run write to tmp only — repo bytes unchanged
+        assert repo_doc.read_bytes() == before
