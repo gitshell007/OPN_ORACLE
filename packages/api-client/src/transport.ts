@@ -1904,6 +1904,28 @@ export interface OpportunityAnalysisNextAction {
   rationale: string;
 }
 
+/** Dimensión de encaje con citas duales (oficial + declarado). SV2-ENCAJE. */
+export interface OpportunityFitDimension {
+  key: "cpv" | "solvency" | "lots" | "deadline" | "other" | string;
+  label: string;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  capability: string;
+  capability_origin?: "declared_by_client" | string;
+  declared_evidence_ids?: string[];
+  status: "fit" | "partial" | "no_fit" | "not_evaluable" | string;
+  status_reason: string;
+}
+
+/** Veredicto propuesto con puerta humana (nunca decisión automática). */
+export interface OpportunityFitVerdict {
+  recommendation: "go" | "no_go" | "go_conditioned" | string;
+  conditions?: string[];
+  human_gate?: "awaiting_user_confirmation" | string;
+  rationale: string;
+}
+
 /** Encaje oferta↔oportunidad anclado en material declarado por el cliente. */
 export interface OpportunityFitAssessment {
   statement: string;
@@ -1911,6 +1933,13 @@ export interface OpportunityFitAssessment {
   official_evidence_ids?: string[];
   confidence: number;
   origin?: "declared_by_client" | string;
+  /** Dimensiones CPV / solvencia / lotes / plazo con citas duales. */
+  dimensions?: OpportunityFitDimension[];
+  /** Propuesta go/no-go/go-condicionado; confirmación humana obligatoria. */
+  verdict?: OpportunityFitVerdict | null;
+  tender_ref?: string | null;
+  scoring_engine?: string | null;
+  scored_as_of?: string | null;
 }
 
 export interface OpportunityAnalysisOutput {

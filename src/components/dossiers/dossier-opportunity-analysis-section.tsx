@@ -502,11 +502,115 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
 
             {output?.fit_assessment?.statement ? (
               <>
-                <h3>Encaje con oferta declarada</h3>
+                <h3>Encaje perfil ↔ pliego (¿pujamos?)</h3>
                 <div
                   className="opportunity-fit-assessment"
                   data-testid="dossier-opportunity-fit-assessment"
                 >
+                  {output.fit_assessment.verdict ? (
+                    <div
+                      className="opportunity-fit-verdict"
+                      data-testid="dossier-opportunity-fit-verdict"
+                      style={{
+                        marginBottom: "0.75rem",
+                        padding: "0.65rem 0.75rem",
+                        border: "1px solid var(--border, #ccc)",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      <p style={{ margin: 0, fontWeight: 600 }}>
+                        Propuesta:{" "}
+                        <span data-testid="dossier-opportunity-fit-verdict-rec">
+                          {output.fit_assessment.verdict.recommendation === "go"
+                            ? "GO"
+                            : output.fit_assessment.verdict.recommendation === "no_go"
+                              ? "NO-GO"
+                              : output.fit_assessment.verdict.recommendation ===
+                                  "go_conditioned"
+                                ? "GO CONDICIONADO"
+                                : String(output.fit_assessment.verdict.recommendation)}
+                        </span>
+                      </p>
+                      <small className="muted" data-testid="dossier-opportunity-fit-human-gate">
+                        Puerta humana:{" "}
+                        {output.fit_assessment.verdict.human_gate ===
+                          "awaiting_user_confirmation" ||
+                        !output.fit_assessment.verdict.human_gate
+                          ? "pendiente de confirmación del usuario (no es decisión automática)"
+                          : String(output.fit_assessment.verdict.human_gate)}
+                      </small>
+                      {output.fit_assessment.verdict.rationale ? (
+                        <p
+                          data-testid="dossier-opportunity-fit-verdict-rationale"
+                          style={{ margin: "0.4rem 0 0" }}
+                        >
+                          {output.fit_assessment.verdict.rationale}
+                        </p>
+                      ) : null}
+                      {(output.fit_assessment.verdict.conditions || []).length > 0 ? (
+                        <ul data-testid="dossier-opportunity-fit-conditions">
+                          {(output.fit_assessment.verdict.conditions || []).map((cond) => (
+                            <li key={cond}>{cond}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {(output.fit_assessment.dimensions || []).length > 0 ? (
+                    <div
+                      className="opportunity-fit-dimensions"
+                      data-testid="dossier-opportunity-fit-dimensions"
+                      style={{ marginBottom: "0.75rem" }}
+                    >
+                      <p className="muted" style={{ marginBottom: "0.35rem" }}>
+                        Dimensiones (requisito oficial vs capacidad declarada)
+                        {output.fit_assessment.tender_ref
+                          ? ` · ${output.fit_assessment.tender_ref}`
+                          : ""}
+                      </p>
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        {(output.fit_assessment.dimensions || []).map((dim) => (
+                          <li
+                            key={`${dim.key}-${dim.label}`}
+                            data-testid={`dossier-opportunity-fit-dim-${dim.key}`}
+                            style={{
+                              marginBottom: "0.55rem",
+                              paddingBottom: "0.55rem",
+                              borderBottom: "1px solid var(--border, #eee)",
+                            }}
+                          >
+                            <strong>
+                              {dim.label}{" "}
+                              <span className="muted">
+                                [
+                                {dim.status === "not_evaluable"
+                                  ? "no evaluable"
+                                  : dim.status === "no_fit"
+                                    ? "no encaja"
+                                    : dim.status === "partial"
+                                      ? "parcial"
+                                      : dim.status === "fit"
+                                        ? "encaja"
+                                        : dim.status}
+                                ]
+                              </span>
+                            </strong>
+                            <p style={{ margin: "0.25rem 0 0", fontSize: "0.92em" }}>
+                              <span className="muted">Requisito (oficial): </span>
+                              {dim.requirement}
+                            </p>
+                            <p style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}>
+                              <span className="muted">Capacidad (declarado): </span>
+                              {dim.capability}
+                            </p>
+                            <small className="muted">{dim.status_reason}</small>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
                   <p data-testid="dossier-opportunity-fit-statement">
                     {output.fit_assessment.statement}
                   </p>

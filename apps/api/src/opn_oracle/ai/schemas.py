@@ -270,6 +270,36 @@ class NextBestAction(StrictModel):
     rationale: str = Field(min_length=1, max_length=4000)
 
 
+class OpportunityFitDimension(StrictModel):
+    """Una dimensión de encaje con citas duales (oficial + declarado).
+
+    SV2-ENCAJE: CPV, solvencia, lotes, plazo. El requisito cita el pliego
+    (``requirement_origin=official``); la capacidad cita el perfil
+    (``capability_origin=declared_by_client``). ``not_evaluable`` es honesto
+    cuando el perfil no aporta el dato (p. ej. volumen anual).
+    """
+
+    key: Literal["cpv", "solvency", "lots", "deadline", "other"] = "other"
+    label: str = Field(min_length=1, max_length=200)
+    requirement: str = Field(min_length=1, max_length=2000)
+    requirement_origin: Literal["official"] = "official"
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    capability: str = Field(min_length=1, max_length=2000)
+    capability_origin: Literal["declared_by_client"] = "declared_by_client"
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    status: Literal["fit", "partial", "no_fit", "not_evaluable"]
+    status_reason: str = Field(min_length=1, max_length=1000)
+
+
+class OpportunityFitVerdict(StrictModel):
+    """Veredicto propuesto con puerta humana — nunca decisión automática."""
+
+    recommendation: Literal["go", "no_go", "go_conditioned"]
+    conditions: list[str] = Field(default_factory=list)
+    human_gate: Literal["awaiting_user_confirmation"] = "awaiting_user_confirmation"
+    rationale: str = Field(min_length=1, max_length=2000)
+
+
 class OpportunityFitAssessment(StrictModel):
     """Encaje oferta↔oportunidad anclado en material **declarado por el cliente**.
 
@@ -277,6 +307,9 @@ class OpportunityFitAssessment(StrictModel):
     (perfil del expediente). Los ``official_evidence_ids`` enlazan licitaciones u
     otras fuentes oficiales que el encaje menciona, sin convertir lo declarado
     en hecho verificado.
+
+    SV2-ENCAJE: ``dimensions`` (CPV/solvencia/lotes/plazo con citas duales) y
+    ``verdict`` (go / no-go / go-condicionado + puerta humana).
 
     La frontera de IDs se revalida en ``validate_opportunity_origin_boundary``:
     si no hay declared válido, el bloque se anula en post-proceso.
@@ -287,6 +320,11 @@ class OpportunityFitAssessment(StrictModel):
     official_evidence_ids: list[UUID] = Field(default_factory=list)
     confidence: int = Field(ge=0, le=100)
     origin: Literal["declared_by_client"] = "declared_by_client"
+    dimensions: list[OpportunityFitDimension] = Field(default_factory=list)
+    verdict: OpportunityFitVerdict | None = None
+    tender_ref: str | None = Field(default=None, max_length=200)
+    scoring_engine: str | None = Field(default=None, max_length=80)
+    scored_as_of: str | None = Field(default=None, max_length=40)
 
 
 class OpportunityAnalysisOutput(AgentOutput):

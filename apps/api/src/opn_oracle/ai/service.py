@@ -454,10 +454,27 @@ def _declared_fit_statements(output: dict[str, Any]) -> list[str]:
         return []
     if not fit.get("declared_evidence_ids"):
         return []
+    texts: list[str] = []
     text = fit.get("statement")
     if isinstance(text, str) and text.strip():
-        return [text.strip()]
-    return []
+        texts.append(text.strip())
+    # SV2-ENCAJE: dimensiones y veredicto también fundan prosa de encaje.
+    for dim in fit.get("dimensions") or []:
+        if not isinstance(dim, dict):
+            continue
+        for key in ("requirement", "capability", "status_reason", "label"):
+            part = dim.get(key)
+            if isinstance(part, str) and part.strip():
+                texts.append(part.strip())
+    verdict = fit.get("verdict")
+    if isinstance(verdict, dict):
+        rationale = verdict.get("rationale")
+        if isinstance(rationale, str) and rationale.strip():
+            texts.append(rationale.strip())
+        for cond in verdict.get("conditions") or []:
+            if isinstance(cond, str) and cond.strip():
+                texts.append(cond.strip())
+    return texts
 
 
 def _grounding_corpus_tokens(output: dict[str, Any], *, agent: str = "") -> set[str]:
@@ -1611,6 +1628,21 @@ def execute_agent(
                     declared_set.add(uuid.UUID(str(raw_id)))
                 except (ValueError, TypeError, AttributeError):
                     continue
+            output = validate_opportunity_origin_boundary(
+                output,
+                official_ids=allowed_evidence,
+                declared_ids=declared_set,
+            )
+            # SV2-ENCAJE: puntuación dimensional determinista (coste 0) con citas
+            # duales y veredicto con puerta humana. No sustituye facts oficiales.
+            from opn_oracle.ai.fit_scoring import enrich_opportunity_fit_assessment
+
+            output = enrich_opportunity_fit_assessment(
+                output,
+                context_payload=context.payload
+                if isinstance(context.payload, dict)
+                else {},
+            )
             output = validate_opportunity_origin_boundary(
                 output,
                 official_ids=allowed_evidence,

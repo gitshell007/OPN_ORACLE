@@ -1196,12 +1196,55 @@ def validate_opportunity_origin_boundary(
                 "(source_kind=declared)."
             )
         else:
-            result["fit_assessment"] = {
+            cleaned_fit: dict[str, Any] = {
                 **fit,
                 "declared_evidence_ids": [str(item) for item in declared_cited],
                 "official_evidence_ids": [str(item) for item in official_cited],
                 "origin": "declared_by_client",
             }
+            # SV2-ENCAJE: sanear IDs de dimensiones (citas duales por dimensión).
+            raw_dims = fit.get("dimensions")
+            if isinstance(raw_dims, list):
+                cleaned_dims: list[dict[str, Any]] = []
+                for dim in raw_dims:
+                    if not isinstance(dim, dict):
+                        continue
+                    dim_decl = [
+                        item
+                        for item in _as_uuids(dim.get("declared_evidence_ids"))
+                        if item in declared_ids
+                    ]
+                    dim_off = [
+                        item
+                        for item in _as_uuids(dim.get("official_evidence_ids"))
+                        if item in official_ids
+                    ]
+                    cleaned_dims.append(
+                        {
+                            **dim,
+                            "declared_evidence_ids": [str(item) for item in dim_decl],
+                            "official_evidence_ids": [str(item) for item in dim_off],
+                            "requirement_origin": "official",
+                            "capability_origin": "declared_by_client",
+                        }
+                    )
+                cleaned_fit["dimensions"] = cleaned_dims
+            # Veredicto: forzar puerta humana (nunca decisión automática).
+            raw_verdict = fit.get("verdict")
+            if isinstance(raw_verdict, dict):
+                rec = str(raw_verdict.get("recommendation") or "").strip()
+                if rec in {"go", "no_go", "go_conditioned"}:
+                    cleaned_fit["verdict"] = {
+                        **raw_verdict,
+                        "recommendation": rec,
+                        "human_gate": "awaiting_user_confirmation",
+                        "conditions": [
+                            str(c)
+                            for c in (raw_verdict.get("conditions") or [])
+                            if str(c).strip()
+                        ][:12],
+                    }
+            result["fit_assessment"] = cleaned_fit
     if stripped:
         warnings.append(
             f"Se retiraron o limpiaron {stripped} bloque(s) de facts/inferences que "

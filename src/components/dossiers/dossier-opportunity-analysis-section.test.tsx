@@ -158,6 +158,47 @@ const groundedArtifact = {
       owner_role: "captación",
       rationale: "Confirmar encaje",
     },
+    fit_assessment: {
+      statement:
+        "Encaje perfil declarado ↔ CONTR 2026 11077: propuesta GO CONDICIONADO (puerta humana).",
+      declared_evidence_ids: ["decl-own-offer"],
+      official_evidence_ids: ["ev-1"],
+      confidence: 48,
+      origin: "declared_by_client",
+      tender_ref: "CONTR 2026 11077",
+      dimensions: [
+        {
+          key: "cpv",
+          label: "CPV",
+          requirement: "[oficial] Ámbito: red de agentes inteligentes",
+          requirement_origin: "official",
+          official_evidence_ids: ["ev-1"],
+          capability: "[declarado] CPV 72000000, 72200000",
+          capability_origin: "declared_by_client",
+          declared_evidence_ids: ["decl-cpv"],
+          status: "partial",
+          status_reason: "Ámbito TI/IA alineado sin CPV numérico oficial exacto",
+        },
+        {
+          key: "solvency",
+          label: "Solvencia (F.2 / F.3)",
+          requirement: "[oficial] F.2 volumen ≥1,5×; F.3 servicios 3 años",
+          requirement_origin: "official",
+          official_evidence_ids: ["ev-1"],
+          capability: "[declarado] El perfil no declara volumen anual de negocio",
+          capability_origin: "declared_by_client",
+          declared_evidence_ids: ["decl-own-offer"],
+          status: "not_evaluable",
+          status_reason: "no evaluable con lo declarado",
+        },
+      ],
+      verdict: {
+        recommendation: "go_conditioned",
+        conditions: ["Solo si puede acreditar F.2 volumen ≥1,5×"],
+        human_gate: "awaiting_user_confirmation",
+        rationale: "Propuesta con puerta humana; no es decisión automática.",
+      },
+    },
   },
 };
 
@@ -238,5 +279,30 @@ describe("DossierOpportunityAnalysisSection", () => {
       );
       expect(mocks.create).not.toHaveBeenCalled();
     });
+  });
+
+  it("muestra encaje dimensional con puerta humana y no evaluable", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    const proposal = await view.findByTestId("dossier-opportunity-proposal");
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-assessment")).toBeInTheDocument();
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-verdict-rec")).toHaveTextContent(
+      "GO CONDICIONADO",
+    );
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-human-gate")).toHaveTextContent(
+      "pendiente de confirmación del usuario",
+    );
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-dim-solvency")).toHaveTextContent(
+      "no evaluable",
+    );
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-dim-cpv")).toHaveTextContent(
+      "Requisito (oficial)",
+    );
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-dim-cpv")).toHaveTextContent(
+      "Capacidad (declarado)",
+    );
+    expect(within(proposal).getByTestId("dossier-opportunity-fit-conditions")).toHaveTextContent(
+      "Solo si puede acreditar F.2",
+    );
   });
 });

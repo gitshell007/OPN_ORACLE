@@ -581,6 +581,20 @@ class MockLLMProvider:
                             "official_evidence_ids": [evidence[0]] if evidence else [],
                             "confidence": min(60, confidence),
                             "origin": "declared_by_client",
+                            # SV2-ENCAJE: el post-proceso dimensional rellena
+                            # dimensions/verdict; el mock deja el canal abierto.
+                            "dimensions": [],
+                            "verdict": {
+                                "recommendation": "go_conditioned",
+                                "conditions": [
+                                    "Solo si puede acreditar solvencia exigida en el pliego"
+                                ],
+                                "human_gate": "awaiting_user_confirmation",
+                                "rationale": (
+                                    "Propuesta mock con puerta humana; "
+                                    "no es decisión automática."
+                                ),
+                            },
                         }
                     }
                     if request.context.get("allowed_declared_evidence_ids")
