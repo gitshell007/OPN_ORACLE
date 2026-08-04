@@ -1,0 +1,382 @@
+{
+  "job": null,
+  "artifact": {
+    "id": "art-sv2-fit-draft-e2e",
+    "dossier_id": "dossier-sv2-e2e",
+    "agent": "opportunity",
+    "schema_name": "opportunity",
+    "schema_version": "v1",
+    "status": "pending_review",
+    "audit_log_id": "audit-sv2-fit-draft",
+    "created_at": "2026-08-04T12:00:00+00:00",
+    "updated_at": "2026-08-04T12:00:00+00:00",
+    "version": 1,
+    "output": {
+      "title": "CONTR 2026 11077 · Red de agentes inteligentes (demo E2E)",
+      "opportunity_type": "tender",
+      "summary": "Licitación demo Baleares × perfil Nexus (fixture anonimizado SV2-UI-E2E).",
+      "recommendation": "investigate",
+      "scores": {
+        "strategic_fit": 62,
+        "urgency": 55,
+        "expected_value": 70,
+        "actionability": 48,
+        "relationship_leverage": 40,
+        "timing": 50,
+        "confidence": 58,
+        "execution_effort": 55,
+        "blocking_risk": 52,
+        "overall": 55
+      },
+      "confidence": 58,
+      "facts": [
+        {
+          "statement": "Expediente CONTR 2026 11077 publicado con criterios de adjudicación y solvencia F.2/F.3.",
+          "evidence_ids": [
+            "ev-1"
+          ]
+        }
+      ],
+      "inferences": [
+        {
+          "statement": "El encaje es condicionado a acreditaciones de solvencia no declaradas en el perfil.",
+          "reasoning_summary": "Veredicto go_conditioned del motor sv2_encaje_v1.",
+          "confidence": 60,
+          "evidence_ids": [
+            "ev-1"
+          ]
+        }
+      ],
+      "recommendations": [],
+      "open_questions": [
+        "¿Puede Nexus acreditar F.2 volumen ≥1,5×?"
+      ],
+      "warnings": [
+        "Veredicto con puerta humana (go_conditioned) — no es decisión automática."
+      ],
+      "next_best_action": {
+        "action": "Confirmar condiciones de solvencia y plazo antes de pujar",
+        "owner_role": "director comercial",
+        "rationale": "Puerta humana obligatoria sobre el veredicto de encaje."
+      },
+      "fit_assessment": {
+        "confidence": 47,
+        "declared_evidence_ids": [
+          "ev-1",
+          "ev-2",
+          "ev-3"
+        ],
+        "dimensions": [
+          {
+            "capability": "[declarado] CPV de interés del perfil: 72000000, 72200000, 72212000, 72222300, 48000000.",
+            "capability_origin": "declared_by_client",
+            "declared_evidence_ids": [
+              "ev-1"
+            ],
+            "key": "cpv",
+            "label": "CPV",
+            "official_evidence_ids": [
+              "ev-1"
+            ],
+            "requirement": "[oficial] CPV del pliego/licitación: 72268000.",
+            "requirement_origin": "official",
+            "status": "partial",
+            "status_reason": "Misma división CPV (2 dígitos), sin solape fino."
+          },
+          {
+            "capability": "[declarado] El perfil **no** declara volumen anual de negocio. [declarado] El perfil **no** declara servicios de los últimos tres años ni certificados de buena ejecución. [declarado] Oferta propia (no es acreditación de solvencia): Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial para administraciones públicas y grandes cuentas (integración, analítica, agentes y modernización de sistemas).. [declarado] El perfil reconoce barreras de homologación/solvencia en AAPP.",
+            "capability_origin": "declared_by_client",
+            "declared_evidence_ids": [
+              "ev-1",
+              "ev-2"
+            ],
+            "key": "solvency",
+            "label": "Solvencia (F.2 / F.3)",
+            "official_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3",
+              "ev-4",
+              "ev-5",
+              "ev-6",
+              "ev-7",
+              "ev-8"
+            ],
+            "requirement": "[oficial] F.2 solvencia económica: volumen anual de negocio ≥ 1,5× valor estimado (106.00 EUR → umbral ≈ 159.00 EUR). [oficial] F.3 solvencia técnica: servicios ejecutados en los últimos tres años avalados por certificados de buena ejecución (o clasificación en subgrupos correspondientes).",
+            "requirement_origin": "official",
+            "status": "not_evaluable",
+            "status_reason": "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos."
+          },
+          {
+            "capability": "[declarado] Oferta propia orienta a Lote 1 (1.471.410,00 euros); también afinidad con Lote 2. Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial para administraciones públicas y grandes cuentas (integración, analítica, agentes y modernización de sistemas)..",
+            "capability_origin": "declared_by_client",
+            "declared_evidence_ids": [
+              "ev-1"
+            ],
+            "key": "lots",
+            "label": "Lotes",
+            "official_evidence_ids": [
+              "ev-1"
+            ],
+            "requirement": "[oficial] Lotes del pliego: Lote 1: 1.471.410,00 euros; Lote 2: 3.033.380,85 euros.",
+            "requirement_origin": "official",
+            "status": "partial",
+            "status_reason": "Recomendación de presentación: Lote 1 (1.471.410,00 euros) (propuesta, no decisión)."
+          },
+          {
+            "capability": "[declarado] El perfil advierte: «Plazos de licitación y documentación técnica». No declara capacidad de reacción (equipo, plantilla de oferta, UTE).",
+            "capability_origin": "declared_by_client",
+            "declared_evidence_ids": [
+              "ev-1"
+            ],
+            "key": "deadline",
+            "label": "Plazo de presentación",
+            "official_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3",
+              "ev-4"
+            ],
+            "requirement": "[oficial] Deadline de presentación de ofertas: 2026-08-14 (10 día(s) desde 2026-08-04).",
+            "requirement_origin": "official",
+            "status": "partial",
+            "status_reason": "Ventana de 10 día(s): ajustada. Capacidad de reacción no evaluable con lo declarado."
+          }
+        ],
+        "official_evidence_ids": [
+          "ev-1",
+          "ev-2",
+          "ev-3",
+          "ev-4",
+          "ev-5",
+          "ev-6",
+          "ev-7",
+          "ev-8",
+          "ev-9",
+          "ev-10",
+          "ev-11"
+        ],
+        "origin": "declared_by_client",
+        "scored_as_of": "2026-08-04",
+        "scoring_engine": "sv2_encaje_v1",
+        "statement": "Encaje perfil declarado ↔ CONTR 2026 11077: propuesta **GO CONDICIONADO** (puerta humana: awaiting_user_confirmation).\n- CPV: partial — Misma división CPV (2 dígitos), sin solape fino.\n- Solvencia (F.2 / F.3): not_evaluable — no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos.\n- Lotes: partial — Recomendación de presentación: Lote 1 (1.471.410,00 euros) (propuesta, no decisión).\n- Plazo de presentación: partial — Ventana de 10 día(s): ajustada. Capacidad de reacción no evaluable con lo declarado.\nCondiciones propuestas:\n  · Solo si puede acreditar F.2: volumen anual de negocio ≥ 1,5× el valor estimado del contrato (o del lote) en el año de mayor volumen de los tres últimos.\n  · Solo si puede acreditar F.3: relación de servicios de los últimos tres años con certificados de buena ejecución (o clasificación en subgrupos).\n  · Solo si el equipo de oferta puede preparar y presentar documentación antes del deadline oficial (capacidad de reacción no evaluable solo con el perfil).\n  · Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote.\n  · Presentarse al lote recomendado en la dimensión Lotes (Recomendación de presentación: Lote 1 (1.471.410,00 euros) (propuesta, no decisión).). Valorar UTE si falta solvencia.\nOrigen del perfil: declarado por el cliente. Requisitos: evidencia oficial del pliego.",
+        "tender_ref": "CONTR 2026 11077",
+        "verdict": {
+          "conditions": [
+            "Solo si puede acreditar F.2: volumen anual de negocio ≥ 1,5× el valor estimado del contrato (o del lote) en el año de mayor volumen de los tres últimos.",
+            "Solo si puede acreditar F.3: relación de servicios de los últimos tres años con certificados de buena ejecución (o clasificación en subgrupos).",
+            "Solo si el equipo de oferta puede preparar y presentar documentación antes del deadline oficial (capacidad de reacción no evaluable solo con el perfil).",
+            "Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote.",
+            "Presentarse al lote recomendado en la dimensión Lotes (Recomendación de presentación: Lote 1 (1.471.410,00 euros) (propuesta, no decisión).). Valorar UTE si falta solvencia."
+          ],
+          "human_gate": "awaiting_user_confirmation",
+          "rationale": "Propuesta go-condicionado: hay encaje de ámbito/lotes, pero faltan acreditaciones o la ventana es justa. El usuario debe confirmar las condiciones — nunca es decisión automática.",
+          "recommendation": "go_conditioned"
+        }
+      },
+      "draft_offer": {
+        "banner": "BORRADOR COMERCIAL — no es documento presentable. Requiere edición humana antes de cualquier presentación o envío.",
+        "human_gate": "draft_requires_human_edit",
+        "statement": "Borrador de oferta (esqueleto) para CONTR 2026 11077 · Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial.\nBase: veredicto de encaje «go_conditioned» con puerta humana de borrador «draft_requires_human_edit».\nSecciones desde criterios del PCAP: 5 (Oferta económica (fórmulas), Oferta técnica (juicio de valor), Umbrales de puntuación 65/60, Acreditación de solvencia (F.2 / F.3), Objeto y lote de presentación).\nGaps heredados del veredicto: 7 (F.2/F.3/plazo u otros).\nBORRADOR COMERCIAL — no es documento presentable. Requiere edición humana antes de cualquier presentación o envío.\nOrigen: semilla desde perfil declarado + requisitos oficiales del pliego. No contamina facts oficiales del análisis (frontera 095).",
+        "tender_ref": "CONTR 2026 11077",
+        "lot_hint": "Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial",
+        "draft_engine": "sv2_borrador_v1",
+        "origin": "declared_draft",
+        "based_on_verdict": "go_conditioned",
+        "sections": [
+          {
+            "declared_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3"
+            ],
+            "gaps": [
+              "Solo si puede acreditar F.2: volumen anual de negocio ≥ 1,5× el valor estimado del contrato (o del lote) en el año de mayor volumen de los tres últimos.",
+              "Solo si el equipo de oferta puede preparar y presentar documentación antes del deadline oficial (capacidad de reacción no evaluable solo con el perfil).",
+              "Presentarse al lote recomendado en la dimensión Lotes (Recomendación de presentación: Lote 1 (1.471.410,00 euros) (propuesta, no decisión).). Valorar UTE si falta solvencia.",
+              "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos."
+            ],
+            "key": "award_economic",
+            "official_evidence_ids": [
+              "ev-1"
+            ],
+            "our_response_draft": "[borrador declarado — no es hecho] Semilla de oferta económica para Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial. Partir del valor estimado del pliego y de la fórmula de puntuación publicada; la cifra final y el desglose son responsabilidad del equipo comercial (no generados aquí). Gap heredado: sin volumen anual acreditado el precio competitivo no sustituye la solvencia F.2. Edición humana obligatoria antes de presentar.",
+            "points_hint": "65/60 umbral PCAP · criterio económico",
+            "requirement": "[oficial] Criterios evaluables mediante fórmulas (oferta económica). Extracto: «a nube propuesto por el licitador en su oferta económica para el lote 2, de acuerdo con el modelo del anexo 1b de este pliego. En los despliegues íntegros que se realicen sobre la infraestructura interna del GOIB no existirá ningún tipo de consumo imputable. La elección de l».",
+            "requirement_origin": "official",
+            "response_origin": "declared_generated",
+            "title": "Oferta económica (fórmulas)"
+          },
+          {
+            "declared_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3"
+            ],
+            "gaps": [
+              "Solo si puede acreditar F.3: relación de servicios de los últimos tres años con certificados de buena ejecución (o clasificación en subgrupos).",
+              "Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote.",
+              "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos."
+            ],
+            "key": "award_technical",
+            "official_evidence_ids": [
+              "ev-1"
+            ],
+            "our_response_draft": "[borrador declarado — no es hecho] Semilla de memoria técnica / juicio de valor orientada a Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial. Oferta propia declarada: «Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial para administraciones públicas y grandes cuentas (integración, analítica, agentes y modernización de sistemas).». CPV de interés declarados: 72000000, 72200000, 72212000, 72222300, 48000000. Desarrollar arquitectura, agentes, integración, gobernanza y plan de implantación con evidencias propias (este texto no es memoria técnica). Edición humana obligatoria antes de presentar.",
+            "points_hint": "criterio técnico · juicio de valor",
+            "requirement": "[oficial] Criterios evaluables mediante juicio de valor (oferta técnica). Ver PCAP de adjudicación.",
+            "requirement_origin": "official",
+            "response_origin": "declared_generated",
+            "title": "Oferta técnica (juicio de valor)"
+          },
+          {
+            "declared_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3"
+            ],
+            "gaps": [
+              "Validar con el equipo si la estrategia de puntos técnicos supera umbrales del PCAP."
+            ],
+            "key": "award_thresholds",
+            "official_evidence_ids": [
+              "ev-1"
+            ],
+            "our_response_draft": "[borrador declarado — no es hecho] Semilla sobre umbrales 65/60 del PCAP: la estrategia de puntuación técnica vs económica debe validarse con el equipo de ofertas. No se asume superación automática de umbrales. Edición humana obligatoria antes de presentar.",
+            "points_hint": "65 puntos (1 licitador) · 60 p.p. (varios)",
+            "requirement": "[oficial] Umbrales de puntuación del PCAP (65 / 60 puntos). Si un único licitador: el otro criterio > 65 puntos; si varios: superior en 60 puntos porcentuales a la media del criterio no económico.",
+            "requirement_origin": "official",
+            "response_origin": "declared_generated",
+            "title": "Umbrales de puntuación 65/60"
+          },
+          {
+            "declared_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3"
+            ],
+            "gaps": [
+              "Solo si puede acreditar F.2: volumen anual de negocio ≥ 1,5× el valor estimado del contrato (o del lote) en el año de mayor volumen de los tres últimos.",
+              "Solo si puede acreditar F.3: relación de servicios de los últimos tres años con certificados de buena ejecución (o clasificación en subgrupos).",
+              "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos.",
+              "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos."
+            ],
+            "key": "solvency_accreditation",
+            "official_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3",
+              "ev-4",
+              "ev-5",
+              "ev-6",
+              "ev-7",
+              "ev-8"
+            ],
+            "our_response_draft": "[borrador declarado — no es hecho] Semilla de bloque de solvencia: la oferta propia declarada **no es** acreditación de F.2/F.3. Adjuntar volumen anual (año de mayor volumen de los tres últimos) y relación de servicios con certificados, o clasificación / UTE si procede. Barreras declaradas a mitigar: Homologación y solvencia técnica exigida en AAPP; Escala comercial frente a integradores globales; Plazos de licitación y documentación técnica. Edición humana obligatoria antes de presentar.",
+            "points_hint": "habilitación · no es criterio de puntos pero bloquea",
+            "requirement": "[oficial] Solvencia del pliego (habilitación / F.2 / F.3). F.2: «solvencia que se exigen en este pliego (F2 y F3). NO F.1. CLASIFICACIÓN DE LOS CONTRATISTAS (NO OBLIGATORIA) Grupo V Servicios de tecnologías de la información y telecomunicaciones Subgrupo 5 Explotación y control de sistemas informáticos e». F.3: «ncia que se exigen en este pliego (F2 y F3). NO F.1. CLASIFICACIÓN DE LOS CONTRATISTAS (NO OBLIGATORIA) Grupo V Servicios de tecnologías de la información y telecomunicaciones Subgrupo 5 Explotación y control de sistemas informáticos e infra».",
+            "requirement_origin": "official",
+            "response_origin": "declared_generated",
+            "title": "Acreditación de solvencia (F.2 / F.3)"
+          },
+          {
+            "declared_evidence_ids": [
+              "ev-1",
+              "ev-2",
+              "ev-3"
+            ],
+            "gaps": [
+              "Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote."
+            ],
+            "key": "lot_object",
+            "official_evidence_ids": [
+              "ev-1"
+            ],
+            "our_response_draft": "[borrador declarado — no es hecho] Semilla de alineación al objeto y a Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial. Base declarada: «Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial para administraciones públicas y grandes cuentas (integración, analítica, agentes y modernización de sistemas).». Confirmar alcance por lote y exclusiones del PPT. Edición humana obligatoria antes de presentar.",
+            "points_hint": "Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial",
+            "requirement": "[oficial] Objeto y lotes del expediente. Extracto: «sto máximo de cada lote (IVA excluido): Lote 1: 1.471.410,00 euros Lote 2: 3.033.380,85 euros Presupuesto de gasto máximo de la totalidad de los lotes (IVA excluido): 4.504.790,85 euros IVA Lote 1: 308.996,10 euros IVA Lote 2: 637.009,98 tación sin IVA entre el número de meses del pl». Recomendación de encaje: Lote 2: Oferta: Nexus Ibérica Sistemas: software, plataformas e inteligencia artificial.",
+            "requirement_origin": "official",
+            "response_origin": "declared_generated",
+            "title": "Objeto y lote de presentación"
+          }
+        ],
+        "administrative_checklist": [
+          {
+            "description": "Cumplimentar DEUC (o documento equivalente del pliego) y firmar.",
+            "key": "deuc",
+            "label": "DEUC / Documento Europeo Único de Contratación",
+            "source": "pliego",
+            "status": "pending"
+          },
+          {
+            "description": "Declaración de no estar incurso en prohibiciones de contratar y resto de declaraciones del PCAP.",
+            "key": "declaracion_responsable",
+            "label": "Declaración responsable",
+            "source": "pliego",
+            "status": "pending"
+          },
+          {
+            "description": "Volumen anual de negocio ≥ 1,5× valor estimado (año de mayor volumen de los tres últimos).",
+            "key": "solvencia_f2",
+            "label": "Acreditación solvencia económica (F.2)",
+            "source": "pliego",
+            "status": "blocked"
+          },
+          {
+            "description": "Relación de servicios de los últimos 3 años con certificados de buena ejecución (o clasificación en subgrupos).",
+            "key": "solvencia_f3",
+            "label": "Acreditación solvencia técnica (F.3)",
+            "source": "pliego",
+            "status": "blocked"
+          },
+          {
+            "description": "Oferta económica según fórmulas del PCAP.",
+            "key": "sobre_economico",
+            "label": "Sobre / archivo de oferta económica",
+            "source": "pliego",
+            "status": "pending"
+          },
+          {
+            "description": "Memoria técnica y documentación de juicio de valor.",
+            "key": "sobre_tecnico",
+            "label": "Sobre / archivo de oferta técnica",
+            "source": "pliego",
+            "status": "pending"
+          },
+          {
+            "description": "Registro electrónico / plataforma antes del cierre oficial.",
+            "key": "plazo_presentacion",
+            "label": "Presentación antes del deadline",
+            "source": "pliego",
+            "status": "blocked"
+          }
+        ],
+        "gaps_summary": [
+          "Solo si puede acreditar F.2: volumen anual de negocio ≥ 1,5× el valor estimado del contrato (o del lote) en el año de mayor volumen de los tres últimos.",
+          "Solo si puede acreditar F.3: relación de servicios de los últimos tres años con certificados de buena ejecución (o clasificación en subgrupos).",
+          "Solo si el equipo de oferta puede preparar y presentar documentación antes del deadline oficial (capacidad de reacción no evaluable solo con el perfil).",
+          "Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote.",
+          "Presentarse al lote recomendado en la dimensión Lotes (Recomendación de presentación: Lote 1 (1.471.410,00 euros) (propuesta, no decisión).). Valorar UTE si falta solvencia.",
+          "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos.",
+          "no evaluable con lo declarado: F.2 exige volumen ≥1,5× y F.3 servicios de 3 años; el perfil no aporta ninguno de esos datos."
+        ],
+        "declared_evidence_ids": [
+          "ev-1",
+          "ev-2",
+          "ev-3"
+        ],
+        "official_evidence_ids": [
+          "ev-1",
+          "ev-2",
+          "ev-3",
+          "ev-4",
+          "ev-5",
+          "ev-6",
+          "ev-7",
+          "ev-8",
+          "ev-9"
+        ]
+      }
+    }
+  }
+}

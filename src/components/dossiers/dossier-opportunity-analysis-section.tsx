@@ -521,7 +521,19 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                     >
                       <p style={{ margin: 0, fontWeight: 600 }}>
                         Propuesta:{" "}
-                        <span data-testid="dossier-opportunity-fit-verdict-rec">
+                        <span
+                          className="badge opportunity-fit-verdict-badge"
+                          data-testid="dossier-opportunity-fit-verdict-rec"
+                          data-verdict={output.fit_assessment.verdict.recommendation}
+                          style={{
+                            display: "inline-block",
+                            padding: "0.1rem 0.45rem",
+                            borderRadius: "999px",
+                            border: "1px solid var(--border, #ccc)",
+                            fontSize: "0.85em",
+                            letterSpacing: "0.02em",
+                          }}
+                        >
                           {output.fit_assessment.verdict.recommendation === "go"
                             ? "GO"
                             : output.fit_assessment.verdict.recommendation === "no_go"
@@ -583,10 +595,14 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                           >
                             <strong>
                               {dim.label}{" "}
-                              <span className="muted">
+                              <span
+                                className="muted"
+                                data-testid={`dossier-opportunity-fit-dim-status-${dim.key}`}
+                                data-status={dim.status}
+                              >
                                 [
                                 {dim.status === "not_evaluable"
-                                  ? "no evaluable"
+                                  ? "no evaluable con lo declarado"
                                   : dim.status === "no_fit"
                                     ? "no encaja"
                                     : dim.status === "partial"
@@ -597,15 +613,30 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                                 ]
                               </span>
                             </strong>
-                            <p style={{ margin: "0.25rem 0 0", fontSize: "0.92em" }}>
-                              <span className="muted">Requisito (oficial): </span>
+                            <p
+                              style={{ margin: "0.25rem 0 0", fontSize: "0.92em" }}
+                              data-testid={`dossier-opportunity-fit-dim-req-${dim.key}`}
+                            >
+                              <span className="muted" data-origin="official">
+                                Requisito (oficial):{" "}
+                              </span>
                               {dim.requirement}
                             </p>
-                            <p style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}>
-                              <span className="muted">Capacidad (declarado): </span>
+                            <p
+                              style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}
+                              data-testid={`dossier-opportunity-fit-dim-cap-${dim.key}`}
+                            >
+                              <span className="muted" data-origin="declared">
+                                Capacidad (declarado):{" "}
+                              </span>
                               {dim.capability}
                             </p>
-                            <small className="muted">{dim.status_reason}</small>
+                            <small
+                              className="muted"
+                              data-testid={`dossier-opportunity-fit-dim-reason-${dim.key}`}
+                            >
+                              {dim.status_reason}
+                            </small>
                           </li>
                         ))}
                       </ul>
@@ -726,16 +757,26 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                                   borderBottom: "1px solid var(--border, #eee)",
                                 }}
                               >
-                                <strong>{sec.title}</strong>
+                                <strong data-testid={`dossier-opportunity-draft-section-title-${sec.key}`}>
+                                  {sec.title}
+                                </strong>
                                 {sec.points_hint ? (
                                   <span className="muted"> · {sec.points_hint}</span>
                                 ) : null}
-                                <p style={{ margin: "0.25rem 0 0", fontSize: "0.92em" }}>
-                                  <span className="muted">Requisito (oficial): </span>
+                                <p
+                                  style={{ margin: "0.25rem 0 0", fontSize: "0.92em" }}
+                                  data-testid={`dossier-opportunity-draft-section-req-${sec.key}`}
+                                >
+                                  <span className="muted" data-origin="official">
+                                    Requisito (oficial):{" "}
+                                  </span>
                                   {sec.requirement}
                                 </p>
-                                <p style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}>
-                                  <span className="muted">
+                                <p
+                                  style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}
+                                  data-testid={`dossier-opportunity-draft-section-seed-${sec.key}`}
+                                >
+                                  <span className="muted" data-origin="declared_draft">
                                     Respuesta semilla (borrador declarado):{" "}
                                   </span>
                                   {sec.our_response_draft}
@@ -745,8 +786,8 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                                     data-testid={`dossier-opportunity-draft-section-gaps-${sec.key}`}
                                     style={{ margin: "0.25rem 0 0", paddingLeft: "1.1rem" }}
                                   >
-                                    {(sec.gaps || []).map((g) => (
-                                      <li key={g}>
+                                    {(sec.gaps || []).map((g, idx) => (
+                                      <li key={`${sec.key}-gap-${idx}`}>
                                         <small>Gap: {g}</small>
                                       </li>
                                     ))}
@@ -764,8 +805,8 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                             Gaps de solvencia / condiciones
                           </h4>
                           <ul>
-                            {(output.draft_offer.gaps_summary || []).map((g) => (
-                              <li key={g}>{g}</li>
+                            {(output.draft_offer.gaps_summary || []).map((g, idx) => (
+                              <li key={`draft-gap-${idx}`}>{g}</li>
                             ))}
                           </ul>
                         </div>

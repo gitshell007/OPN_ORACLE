@@ -363,7 +363,7 @@ describe("DossierOpportunityAnalysisSection", () => {
       "pendiente de confirmación del usuario",
     );
     expect(within(proposal).getByTestId("dossier-opportunity-fit-dim-solvency")).toHaveTextContent(
-      "no evaluable",
+      "no evaluable con lo declarado",
     );
     expect(within(proposal).getByTestId("dossier-opportunity-fit-dim-cpv")).toHaveTextContent(
       "Requisito (oficial)",

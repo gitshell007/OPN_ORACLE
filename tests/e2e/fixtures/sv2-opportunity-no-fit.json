@@ -1,0 +1,64 @@
+{
+  "job": null,
+  "artifact": {
+    "id": "art-sv2-no-fit",
+    "dossier_id": "dossier-sv2-e2e",
+    "agent": "opportunity",
+    "schema_name": "opportunity",
+    "schema_version": "v1",
+    "status": "pending_review",
+    "audit_log_id": "audit-sv2-fit-draft",
+    "created_at": "2026-08-04T12:00:00+00:00",
+    "updated_at": "2026-08-04T12:00:00+00:00",
+    "version": 1,
+    "output": {
+      "title": "Propuesta sin encaje (fixture vacío honesto)",
+      "opportunity_type": "tender",
+      "summary": "Licitación demo Baleares × perfil Nexus (fixture anonimizado SV2-UI-E2E).",
+      "recommendation": "investigate",
+      "scores": {
+        "strategic_fit": 62,
+        "urgency": 55,
+        "expected_value": 70,
+        "actionability": 48,
+        "relationship_leverage": 40,
+        "timing": 50,
+        "confidence": 58,
+        "execution_effort": 55,
+        "blocking_risk": 52,
+        "overall": 55
+      },
+      "confidence": 58,
+      "facts": [
+        {
+          "statement": "Expediente CONTR 2026 11077 publicado con criterios de adjudicación y solvencia F.2/F.3.",
+          "evidence_ids": [
+            "ev-1"
+          ]
+        }
+      ],
+      "inferences": [
+        {
+          "statement": "El encaje es condicionado a acreditaciones de solvencia no declaradas en el perfil.",
+          "reasoning_summary": "Veredicto go_conditioned del motor sv2_encaje_v1.",
+          "confidence": 60,
+          "evidence_ids": [
+            "ev-1"
+          ]
+        }
+      ],
+      "recommendations": [],
+      "open_questions": [
+        "¿Puede Nexus acreditar F.2 volumen ≥1,5×?"
+      ],
+      "warnings": [
+        "Veredicto con puerta humana (go_conditioned) — no es decisión automática."
+      ],
+      "next_best_action": {
+        "action": "Confirmar condiciones de solvencia y plazo antes de pujar",
+        "owner_role": "director comercial",
+        "rationale": "Puerta humana obligatoria sobre el veredicto de encaje."
+      }
+    }
+  }
+}
