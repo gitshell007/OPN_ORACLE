@@ -489,6 +489,80 @@ def resolve_procurement_snapshot(kind: ProcurementKind, folder_id: str) -> dict[
         client.close()
 
 
+def _entry_identifier(entry: dict[str, Any]) -> str | None:
+    for key in ("winner_identifier", "tax_id", "nif"):
+        value = entry.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()[:40]
+    return None
+
+
+def preserve_award_winner_identifiers(
+    previous: dict[str, Any] | None, new_snapshot: dict[str, Any]
+) -> dict[str, Any]:
+    """No borrar NIF del pin cuando Signal devuelve null (backfill incompleto).
+
+    Si el snapshot nuevo trae el identificador, gana. Si llega vacío y el pin
+    ya tenía uno, se conserva por nombre de adjudicatario (o a nivel colección).
+    """
+
+    if not isinstance(previous, dict) or not isinstance(new_snapshot, dict):
+        return new_snapshot
+    if new_snapshot.get("kind") != "award":
+        return new_snapshot
+
+    previous_entries = previous.get("entries")
+    new_entries = new_snapshot.get("entries")
+    if isinstance(previous_entries, list) and isinstance(new_entries, list) and new_entries:
+        prev_by_winner: dict[str, str] = {}
+        for entry in previous_entries:
+            if not isinstance(entry, dict):
+                continue
+            winner = " ".join(str(entry.get("winner") or "").strip().split()).casefold()
+            identifier = _entry_identifier(entry)
+            if winner and identifier:
+                prev_by_winner.setdefault(winner, identifier)
+        rebuilt: list[dict[str, Any]] = []
+        for entry in new_entries:
+            if not isinstance(entry, dict):
+                continue
+            updated = dict(entry)
+            if not _entry_identifier(updated):
+                winner = " ".join(str(updated.get("winner") or "").strip().split()).casefold()
+                restored = prev_by_winner.get(winner)
+                if restored:
+                    updated["winner_identifier"] = restored
+                    updated["tax_id"] = restored
+            rebuilt.append(updated)
+        new_snapshot = dict(new_snapshot)
+        new_snapshot["entries"] = rebuilt
+        # Re-aggregate collection-level identifiers from (possibly restored) entries.
+        identifiers: list[str] = []
+        seen: set[str] = set()
+        for entry in rebuilt:
+            text = _entry_identifier(entry)
+            if text and text.casefold() not in seen:
+                seen.add(text.casefold())
+                identifiers.append(text)
+        if identifiers:
+            joined = "; ".join(identifiers)
+            new_snapshot["winner_identifier"] = joined
+            new_snapshot["nif"] = joined
+            if len(identifiers) == 1:
+                new_snapshot["tax_id"] = identifiers[0]
+        return new_snapshot
+
+    # Snapshot plano sin entries: conservar top-level si el nuevo llega vacío.
+    if not _entry_identifier(new_snapshot):
+        restored = _entry_identifier(previous)
+        if restored:
+            new_snapshot = dict(new_snapshot)
+            new_snapshot["winner_identifier"] = restored
+            new_snapshot["tax_id"] = restored
+            new_snapshot["nif"] = restored
+    return new_snapshot
+
+
 def _decimal_or_none(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
@@ -874,7 +948,10 @@ def refresh_procurement_item(
     normalized_kind = cast(ProcurementKind, item.kind)
     previous_evidence_id = item.evidence_id
     previous_linked = item.linked_opportunity_id
+    previous_snapshot = item.snapshot if isinstance(item.snapshot, dict) else None
     snapshot = resolve_procurement_snapshot(normalized_kind, item.folder_id)
+    if normalized_kind == "award":
+        snapshot = preserve_award_winner_identifiers(previous_snapshot, snapshot)
     extract = procurement_evidence_extract(snapshot)
     new_checksum = _checksum(extract)
     new_source_url = _source_url(snapshot)

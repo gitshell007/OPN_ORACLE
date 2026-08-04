@@ -213,3 +213,47 @@ def test_pin_award_triggers_hydration(monkeypatch: pytest.MonkeyPatch) -> None:
         session, tenant_id=tenant_id, dossier_id=dossier_id
     )
     assert calls and calls[0]["dossier_id"] == dossier_id
+
+
+@pytest.mark.unit
+def test_preserve_award_winner_identifiers_when_signal_returns_null() -> None:
+    from opn_oracle.oracle.procurement_items import preserve_award_winner_identifiers
+
+    previous = {
+        "kind": "award",
+        "folder_id": "XP1228/2025",
+        "entries": [
+            {"winner": "CAPGEMINI ESPAÑA, S.L", "winner_identifier": "B08377715"},
+        ],
+        "winner_identifier": "B08377715",
+    }
+    new = {
+        "kind": "award",
+        "folder_id": "XP1228/2025",
+        "entries": [
+            {"winner": "CAPGEMINI ESPAÑA, S.L", "winner_identifier": None, "tax_id": None},
+        ],
+        "winner_identifier": None,
+        "nif": None,
+    }
+    merged = preserve_award_winner_identifiers(previous, new)
+    assert merged["entries"][0]["winner_identifier"] == "B08377715"
+    assert merged["entries"][0]["tax_id"] == "B08377715"
+    assert merged["winner_identifier"] == "B08377715"
+    assert merged["nif"] == "B08377715"
+
+
+@pytest.mark.unit
+def test_preserve_does_not_override_fresh_identifier() -> None:
+    from opn_oracle.oracle.procurement_items import preserve_award_winner_identifiers
+
+    previous = {
+        "kind": "award",
+        "entries": [{"winner": "ACME SL", "winner_identifier": "B08377715"}],
+    }
+    new = {
+        "kind": "award",
+        "entries": [{"winner": "ACME SL", "winner_identifier": "B82528558"}],
+    }
+    merged = preserve_award_winner_identifiers(previous, new)
+    assert merged["entries"][0]["winner_identifier"] == "B82528558"

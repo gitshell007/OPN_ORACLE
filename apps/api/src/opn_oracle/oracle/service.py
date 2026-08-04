@@ -1740,6 +1740,7 @@ def create_dossier_actor(
         **components,
     )
     session.add(row)
+    session.flush()
     append_audit_event(
         session,
         action="actor.linked",
