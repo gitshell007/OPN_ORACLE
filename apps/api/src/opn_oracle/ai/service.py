@@ -1689,16 +1689,16 @@ def execute_agent(
             output = boundary_model.model_dump(mode="json")
         elif agent == "risk":
             # SV2-RIESGO-DECL: separar declarado de oficial antes de validate_evidence.
-            declared_set: set[uuid.UUID] = set()
+            risk_declared_ids: set[uuid.UUID] = set()
             for raw_id in context.manifest.get("declared_evidence_ids") or []:
                 try:
-                    declared_set.add(uuid.UUID(str(raw_id)))
+                    risk_declared_ids.add(uuid.UUID(str(raw_id)))
                 except (ValueError, TypeError, AttributeError):
                     continue
             output = validate_risk_origin_boundary(
                 output,
                 official_ids=allowed_evidence,
-                declared_ids=declared_set,
+                declared_ids=risk_declared_ids,
             )
             try:
                 output = enrich_risk_context_declared(
@@ -1708,7 +1708,7 @@ def execute_agent(
                 output = validate_risk_origin_boundary(
                     output,
                     official_ids=allowed_evidence,
-                    declared_ids=declared_set,
+                    declared_ids=risk_declared_ids,
                 )
             except Exception as enrich_error:
                 warnings = (
