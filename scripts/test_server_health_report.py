@@ -59,7 +59,7 @@ class ServerHealthReportTest(unittest.TestCase):
                 "cpu_count": 2,
                 "load_1m": 0.2,
                 "memory": {"available_bytes": 200},
-                "disk": {"free_bytes": 100},
+                "disk": {"free_bytes": 100, "total_bytes": 1000, "used_bytes": 900},
                 "database": {"databases": [], "errors": []},
                 "tasks": {"rows": [], "errors": []},
                 "docker": {"containers": [{"name": "api"}], "errors": [], "summary": [
@@ -85,6 +85,9 @@ class ServerHealthReportTest(unittest.TestCase):
         self.assertIn("/var/lib/docker/volumes/data/pgdata: 20.00 GB", text)
         self.assertIn("Top 10 directorios por tamaño", rendered)
         self.assertIn("/var/lib/docker/volumes/data/pgdata", rendered)
+        self.assertIn("Disco raíz · libre frente a ocupado", rendered)
+        self.assertIn("Qué ocupa más · top 10 directorios", rendered)
+        self.assertEqual(rendered.count("<svg"), 2)
 
     def test_second_capture_contains_variation_against_first_capture(self) -> None:
         first = payload(disk_free=100, memory_available=200, database=1_000, tasks=4)

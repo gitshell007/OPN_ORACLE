@@ -372,6 +372,11 @@ Interfaz canónica: `CANONICAL_UI=vector`
   10 archivos más grandes, con tamaño y variación por ruta. La ejecución real terminó en `success`,
   envió el correo y persistió `10/10` entradas sin errores en los seis servidores. El escaneo tarda
   hasta ~90 segundos en Oracle por `containerd`/Docker; el timeout SSH del monitor es 180 segundos.
+- Gráficos inline desplegados en la release posterior: cada tarjeta muestra un donut de disco raíz
+  libre frente a ocupado y un donut con los 10 directorios de almacenamiento más grandes, incluyendo
+  el peso relativo y la variación diaria. Se usan directorios para evitar doble contabilización con
+  sus archivos hijos; la captura conserva además las listas textuales separadas de top 10 directorios
+  y top 10 archivos.
 - El timer sigue habilitado y activo: ejecución diaria a las 08:00 Europe/Madrid con dispersión de
   hasta 10 minutos; la siguiente ejecución observada por systemd es 08:00 local.
 
