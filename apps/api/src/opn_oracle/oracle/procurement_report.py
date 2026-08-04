@@ -104,28 +104,57 @@ def download_placsp_pdf(
     return bytes(payload)
 
 
+def _collect_document_refs(
+    documents: Any, *, seen: set[str], values: list[dict[str, str]]
+) -> None:
+    if not isinstance(documents, list):
+        return
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        uri = str(document.get("uri") or "").strip()
+        if not uri or uri in seen:
+            continue
+        seen.add(uri)
+        values.append(
+            {
+                "uri": uri,
+                "file_name": str(document.get("file_name") or "pliego-placsp.pdf"),
+                "doc_type": str(document.get("doc_type") or "additional"),
+            }
+        )
+
+
 def _referenced_documents(report: Report) -> list[dict[str, str]]:
+    """Collect CODICE attachment URIs from pinned awards *and* open tenders.
+
+    Awards nest documents under ``snapshot.entries[].documents``. Open tenders
+    (Signal ``placsp_open_tenders``) expose them at ``snapshot.documents``.
+    Both feed the same bounded PLACSP download path so a prospective bid can
+    pull pliegos without waiting for award.
+    """
     values: list[dict[str, str]] = []
     seen: set[str] = set()
     for item in report.source_snapshot.get("procurement_items", []):
-        if not isinstance(item, dict) or item.get("kind") != "award":
+        if not isinstance(item, dict):
             continue
+        kind = item.get("kind")
         snapshot = item.get("snapshot")
-        entries = snapshot.get("entries", []) if isinstance(snapshot, dict) else []
-        for entry in entries if isinstance(entries, list) else []:
-            for document in entry.get("documents", []) if isinstance(entry, dict) else []:
-                if not isinstance(document, dict):
-                    continue
-                uri = str(document.get("uri") or "").strip()
-                if uri and uri not in seen:
-                    seen.add(uri)
-                    values.append(
-                        {
-                            "uri": uri,
-                            "file_name": str(document.get("file_name") or "pliego-placsp.pdf"),
-                            "doc_type": str(document.get("doc_type") or "additional"),
-                        }
-                    )
+        if not isinstance(snapshot, dict):
+            continue
+        if kind == "award":
+            entries = snapshot.get("entries", [])
+            for entry in entries if isinstance(entries, list) else []:
+                if isinstance(entry, dict):
+                    _collect_document_refs(entry.get("documents"), seen=seen, values=values)
+        elif kind == "tender":
+            # Top-level documents (open tender pin).
+            _collect_document_refs(snapshot.get("documents"), seen=seen, values=values)
+            # Defensive: some providers may nest under entries.
+            entries = snapshot.get("entries", [])
+            for entry in entries if isinstance(entries, list) else []:
+                if isinstance(entry, dict):
+                    _collect_document_refs(entry.get("documents"), seen=seen, values=values)
     return values[:MAX_DOCUMENTS_PER_REPORT]
 
 

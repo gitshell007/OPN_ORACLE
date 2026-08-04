@@ -457,6 +457,48 @@ def test_procurement_items_resolve_tender_snapshot_with_mock_transport(
 
 
 @pytest.mark.unit
+def test_procurement_tender_snapshot_preserves_codice_documents() -> None:
+    """Open tenders must keep PLACSP document URIs for prospective bid prep."""
+    item = {
+        "folder_id": "CONTR 2026 11077",
+        "title": "red de agentes inteligentes",
+        "buyer": "Agencia Balear",
+        "status": "PUB",
+        "cpv": ["72230000", "72263000"],
+        "amount": "5450796.93",
+        "deadline": "2026-08-06T23:59:00Z",
+        "source_url": "https://contrataciondelestado.es/tender",
+        "documents": [
+            {
+                "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=legal",
+                "doc_type": "legal",
+                "file_name": "PCAP.pdf",
+            },
+            {
+                "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=tech",
+                "doc_type": "technical",
+                "file_name": "PPT.pdf",
+            },
+        ],
+    }
+    snapshot = procurement_items._snapshot("tender", item, "CONTR 2026 11077")
+    assert snapshot["kind"] == "tender"
+    assert snapshot["documents"] == [
+        {
+            "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=legal",
+            "doc_type": "legal",
+            "file_name": "PCAP.pdf",
+        },
+        {
+            "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=tech",
+            "doc_type": "technical",
+            "file_name": "PPT.pdf",
+        },
+    ]
+    assert "documents" not in procurement_items._unclassified_snapshot_keys("tender", item)
+
+
+@pytest.mark.unit
 def test_procurement_award_snapshot_classifies_signal_documents_and_ute(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
