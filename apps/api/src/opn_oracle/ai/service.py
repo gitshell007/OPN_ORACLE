@@ -1672,6 +1672,25 @@ def execute_agent(
                     output,
                     context_payload=context.payload if isinstance(context.payload, dict) else {},
                 )
+                # SV2-PROSA: pulido opcional de semillas (ollama_titan, coste 0).
+                # Fallback silencioso a semilla si timeout / task no autorizada / guardarraíl.
+                try:
+                    from opn_oracle.ai.draft_prose import polish_draft_offer_prose
+
+                    draft_block = output.get("draft_offer")
+                    if isinstance(draft_block, dict):
+                        output["draft_offer"] = polish_draft_offer_prose(
+                            draft_block,
+                            provider=provider,
+                        )
+                except Exception as prose_error:
+                    warnings = (
+                        list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
+                    )
+                    warnings.append(
+                        f"Pulido de prosa del borrador omitido: {type(prose_error).__name__}."
+                    )
+                    output["warnings"] = warnings
                 output = strip_draft_from_official_facts(output)
                 output = validate_opportunity_origin_boundary(
                     output,

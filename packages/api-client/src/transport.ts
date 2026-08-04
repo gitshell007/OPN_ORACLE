@@ -1959,9 +1959,13 @@ export interface DraftOfferSection {
   requirement_origin?: "official" | string;
   official_evidence_ids?: string[];
   our_response_draft: string;
+  /** Semilla determinista previa al pulido (SV2-PROSA). */
+  our_response_seed?: string | null;
   response_origin?: "declared_generated" | string;
   declared_evidence_ids?: string[];
   gaps?: string[];
+  prose_polished?: boolean;
+  prose_polish_reason?: string | null;
 }
 
 /** Ítem de checklist administrativa del borrador. */
@@ -1989,11 +1993,17 @@ export interface OpportunityDraftOffer {
   gaps_summary?: string[];
   gaps?: DraftOfferGap[];
   draft_engine?: string | null;
+  /** Motor de pulido de prosa (SV2-PROSA), p.ej. sv2_prosa_v1. */
+  prose_engine?: string | null;
   drafted_as_of?: string | null;
   origin?: "declared_draft" | string;
   based_on_verdict?: string | null;
   official_evidence_ids?: string[];
   declared_evidence_ids?: string[];
+  statement_seed?: string | null;
+  statement_prose_polished?: boolean;
+  statement_prose_polish_reason?: string | null;
+  prose_polished_count?: number;
 }
 
 export interface OpportunityAnalysisOutput {
@@ -2083,6 +2093,17 @@ export interface RiskContextDeclaredItem {
     | "capacity"
     | "other"
     | string;
+  /** Categories fusionadas cuando la misma barrera llega con etiquetas distintas (SV2-PROSA). */
+  categories?: Array<
+    | "barrier"
+    | "solvency"
+    | "deadline"
+    | "homologation"
+    | "competitive"
+    | "capacity"
+    | "other"
+    | string
+  >;
   declared_evidence_ids: string[];
   origin?: "declared_by_client" | string;
   relevance?: string;

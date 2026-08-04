@@ -1986,7 +1986,8 @@ def validate_risk_origin_boundary(
                 "origin": "declared_by_client",
             }
         )
-    result["risk_context_declared"] = cleaned_declared
+    # SV2-PROSA: un item por barrera normalizada (merge categories + evidence).
+    result["risk_context_declared"] = dedupe_risk_context_declared(cleaned_declared)
 
     if stripped:
         warnings.append(
@@ -2003,6 +2004,159 @@ def validate_risk_origin_boundary(
     return result
 
 
+_RISK_DECLARED_CATEGORY_ORDER = (
+    "solvency",
+    "homologation",
+    "deadline",
+    "competitive",
+    "capacity",
+    "barrier",
+    "other",
+)
+
+_RISK_DECLARED_PREFIXES = (
+    "barrera declarada por el cliente:",
+    "barreras declaradas:",
+    "presión competitiva declarada:",
+    "presion competitiva declarada:",
+    "capacidad/oferta declarada:",
+    "decisión a tomar declarada:",
+    "decision a tomar declarada:",
+    "objetivo de negocio declarado:",
+)
+
+
+def normalize_risk_declared_core(statement: str) -> str:
+    """Núcleo de barrera para dedup: quita prefijos de plantilla + casefold."""
+
+    text = " ".join(str(statement or "").strip().split())
+    if not text:
+        return ""
+    low = text.casefold()
+    for prefix in _RISK_DECLARED_PREFIXES:
+        if low.startswith(prefix):
+            text = text[len(prefix) :].strip(" :.-")
+            low = text.casefold()
+            break
+    return " ".join(low.split())
+
+
+def _risk_category_rank(cat: str) -> int:
+    try:
+        return _RISK_DECLARED_CATEGORY_ORDER.index(cat)
+    except ValueError:
+        return len(_RISK_DECLARED_CATEGORY_ORDER)
+
+
+def _preferred_risk_statement(a: str, b: str) -> str:
+    """Prefiere el statement más limpio (sin prefijo de plantilla) y más corto."""
+
+    a_s = str(a or "").strip()
+    b_s = str(b or "").strip()
+    if not a_s:
+        return b_s
+    if not b_s:
+        return a_s
+    a_pref = any(a_s.casefold().startswith(p) for p in _RISK_DECLARED_PREFIXES)
+    b_pref = any(b_s.casefold().startswith(p) for p in _RISK_DECLARED_PREFIXES)
+    if a_pref and not b_pref:
+        return b_s
+    if b_pref and not a_pref:
+        return a_s
+    return a_s if len(a_s) <= len(b_s) else b_s
+
+
+def dedupe_risk_context_declared(
+    items: list[Any] | None, *, limit: int = 12
+) -> list[dict[str, Any]]:
+    """Un ítem por barrera (núcleo normalizado); merge de categories + evidence_ids.
+
+    SV2-PROSA: el 138 dejó la misma barrera 2 veces con category distinta
+    (p.ej. homologation vs solvency). Aquí se fusionan en un solo item con
+    ``categories=[…]`` conservando ``category`` primaria (la de mayor peso).
+    """
+
+    buckets: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        statement = str(raw.get("statement") or "").strip()
+        eids_raw = raw.get("declared_evidence_ids")
+        if not statement or not isinstance(eids_raw, list) or not eids_raw:
+            continue
+        core = normalize_risk_declared_core(statement)
+        if not core:
+            continue
+
+        cats: list[str] = []
+        cat = str(raw.get("category") or "barrier").strip() or "barrier"
+        if cat not in _RISK_DECLARED_CATEGORY_ORDER:
+            cat = "other"
+        cats.append(cat)
+        extra = raw.get("categories")
+        if isinstance(extra, list):
+            for c in extra:
+                c_s = str(c or "").strip()
+                if not c_s:
+                    continue
+                if c_s not in _RISK_DECLARED_CATEGORY_ORDER:
+                    c_s = "other"
+                if c_s not in cats:
+                    cats.append(c_s)
+
+        eids = [str(x) for x in eids_raw if str(x).strip()]
+        if not eids:
+            continue
+
+        if core not in buckets:
+            buckets[core] = {
+                "statement": statement[:2000],
+                "category": cat,
+                "categories": list(cats),
+                "declared_evidence_ids": list(dict.fromkeys(eids)),
+                "origin": "declared_by_client",
+                "relevance": str(raw.get("relevance") or "")[:1000],
+            }
+            order.append(core)
+            continue
+
+        bucket = buckets[core]
+        bucket["statement"] = _preferred_risk_statement(bucket["statement"], statement)[:2000]
+        merged_cats = list(bucket.get("categories") or [])
+        for c in cats:
+            if c not in merged_cats:
+                merged_cats.append(c)
+        # Orden canónico de peso.
+        merged_cats = sorted(set(merged_cats), key=_risk_category_rank)
+        bucket["categories"] = merged_cats
+        bucket["category"] = merged_cats[0] if merged_cats else "barrier"
+        existing_eids = list(bucket.get("declared_evidence_ids") or [])
+        for eid in eids:
+            if eid not in existing_eids:
+                existing_eids.append(eid)
+        bucket["declared_evidence_ids"] = existing_eids
+        # Conserva relevance no vacía más informativa.
+        rel = str(raw.get("relevance") or "").strip()
+        if rel and len(rel) > len(str(bucket.get("relevance") or "")):
+            bucket["relevance"] = rel[:1000]
+
+    out: list[dict[str, Any]] = []
+    for core in order:
+        item = buckets[core]
+        cats = sorted(
+            set(item.get("categories") or [item.get("category") or "barrier"]),
+            key=_risk_category_rank,
+        )
+        item["categories"] = cats
+        item["category"] = cats[0] if cats else "barrier"
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def enrich_risk_context_declared(
     output: dict[str, Any],
     *,
@@ -2013,11 +2167,17 @@ def enrich_risk_context_declared(
     Usa barreras y otras piezas de ``declared_evidence`` del perfil. No toca
     facts/escenarios oficiales. Si el LLM ya aportó ítems con declared válido,
     se conservan y se completan huecos desde el perfil.
+
+    SV2-PROSA: al final aplica ``dedupe_risk_context_declared`` (merge de
+    categories por barrera normalizada).
     """
 
     result = dict(output)
     declared_list = context_payload.get("declared_evidence") or []
     if not isinstance(declared_list, list) or not declared_list:
+        existing = result.get("risk_context_declared")
+        if isinstance(existing, list) and existing:
+            result["risk_context_declared"] = dedupe_risk_context_declared(existing)
         return result
 
     by_field: dict[str, dict[str, Any]] = {}
@@ -2030,7 +2190,6 @@ def enrich_risk_context_declared(
 
     existing = result.get("risk_context_declared")
     kept: list[dict[str, Any]] = []
-    seen_statements: set[str] = set()
     if isinstance(existing, list):
         for item in existing:
             if not isinstance(item, dict):
@@ -2039,14 +2198,14 @@ def enrich_risk_context_declared(
             eids = item.get("declared_evidence_ids")
             if not statement or not isinstance(eids, list) or not eids:
                 continue
-            key = statement.casefold()
-            if key in seen_statements:
-                continue
-            seen_statements.add(key)
+            cat = str(item.get("category") or "barrier").strip() or "barrier"
+            cats = item.get("categories")
             kept.append(
                 {
                     **item,
                     "statement": statement[:2000],
+                    "category": cat,
+                    "categories": cats if isinstance(cats, list) else [cat],
                     "origin": "declared_by_client",
                     "declared_evidence_ids": [str(x) for x in eids],
                 }
@@ -2068,14 +2227,20 @@ def enrich_risk_context_declared(
         text = statement.strip()
         if not text:
             return
-        key = text.casefold()
-        if key in seen_statements:
-            return
-        seen_statements.add(key)
+        # Categoría heurística adicional si el texto mezcla solvencia+homologación.
+        cats = [category]
+        low = text.casefold()
+        if "solven" in low and "solvency" not in cats:
+            cats.append("solvency")
+        if "homolog" in low and "homologation" not in cats:
+            cats.append("homologation")
+        if ("plazo" in low or "deadline" in low) and "deadline" not in cats:
+            cats.append("deadline")
         kept.append(
             {
                 "statement": text[:2000],
-                "category": category,
+                "category": cats[0],
+                "categories": cats,
                 "declared_evidence_ids": [eid],
                 "origin": "declared_by_client",
                 "relevance": relevance[:1000],
@@ -2101,8 +2266,9 @@ def enrich_risk_context_declared(
                 cat = "solvency"
             if "plazo" in barrier.casefold() or "deadline" in barrier.casefold():
                 cat = "deadline"
+            # Statement limpio (sin prefijo); el dedup fusiona con ítems del LLM.
             _add(
-                f"Barrera declarada por el cliente: {barrier}",
+                barrier,
                 field="barriers",
                 category=cat,
                 relevance="Contexto de riesgo del perfil (no es hecho oficial).",
@@ -2116,7 +2282,7 @@ def enrich_risk_context_declared(
             names = extract.split("Competidores declarados:", 1)[-1].strip()
         if names:
             _add(
-                f"Presión competitiva declarada: {names}",
+                f"Presión competitiva: {names}",
                 field="competitors",
                 category="competitive",
                 relevance="Riesgo comercial según perfil del cliente (declarado).",
@@ -2134,7 +2300,8 @@ def enrich_risk_context_declared(
         if not extract:
             continue
         # Solo completar si aún hay pocos ítems (evitar muro de perfil).
-        if len(kept) >= 4:
+        # Tras dedup el techo real se aplica al final; aquí usamos núcleo.
+        if len(dedupe_risk_context_declared(kept)) >= 4:
             break
         body = extract.replace("[Declarado por el cliente]", "").strip()
         _add(
@@ -2144,7 +2311,7 @@ def enrich_risk_context_declared(
             relevance="Contexto de riesgo del perfil (declarado, no oficial).",
         )
 
-    result["risk_context_declared"] = kept
+    result["risk_context_declared"] = dedupe_risk_context_declared(kept, limit=12)
     return result
 
 

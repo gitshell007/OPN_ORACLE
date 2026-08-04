@@ -341,6 +341,10 @@ class DraftOfferSection(StrictModel):
 
     ``requirement`` es oficial; ``our_response_draft`` es semilla declarada/generada
     (nunca hecho). ``gaps`` lista lo que falta por acreditar en esa sección.
+
+    SV2-PROSA: ``our_response_seed`` conserva la semilla determinista; si el
+    pulido LLM pasa el guardarraíl, ``our_response_draft`` es la versión natural
+    y ``prose_polished=true``.
     """
 
     key: str = Field(min_length=1, max_length=80)
@@ -350,9 +354,12 @@ class DraftOfferSection(StrictModel):
     requirement_origin: Literal["official"] = "official"
     official_evidence_ids: list[UUID] = Field(default_factory=list)
     our_response_draft: str = Field(min_length=1, max_length=2000)
+    our_response_seed: str | None = Field(default=None, max_length=2000)
     response_origin: Literal["declared_generated"] = "declared_generated"
     declared_evidence_ids: list[UUID] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list)
+    prose_polished: bool = False
+    prose_polish_reason: str | None = Field(default=None, max_length=200)
 
 
 class DraftOfferChecklistItem(StrictModel):
@@ -383,11 +390,16 @@ class OpportunityDraftOffer(StrictModel):
     gaps_summary: list[str] = Field(default_factory=list)
     gaps: list[DraftOfferGap] = Field(default_factory=list)
     draft_engine: str | None = Field(default=None, max_length=80)
+    prose_engine: str | None = Field(default=None, max_length=80)
     drafted_as_of: str | None = Field(default=None, max_length=40)
     origin: Literal["declared_draft"] = "declared_draft"
     based_on_verdict: str | None = Field(default=None, max_length=40)
     official_evidence_ids: list[UUID] = Field(default_factory=list)
     declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    statement_seed: str | None = Field(default=None, max_length=4000)
+    statement_prose_polished: bool = False
+    statement_prose_polish_reason: str | None = Field(default=None, max_length=200)
+    prose_polished_count: int = Field(default=0, ge=0, le=50)
 
 
 class OpportunityAnalysisOutput(AgentOutput):
@@ -564,6 +576,27 @@ class OpportunityAnalysisOutput(AgentOutput):
                 continue
             sec_gaps_candidate = sec.get("gaps")
             sec_gaps: list[Any] = sec_gaps_candidate if isinstance(sec_gaps_candidate, list) else []
+            seed = str(sec.get("our_response_seed") or resp).strip()[:2000] or None
+            polished_flag = bool(sec.get("prose_polished")) if "prose_polished" in sec else False
+            polish_reason = (
+                str(sec.get("prose_polish_reason"))[:200]
+                if sec.get("prose_polish_reason")
+                else None
+            )
+            # Dedup gaps por statement normalizado (SV2-PROSA).
+            gap_seen: set[str] = set()
+            gap_out: list[str] = []
+            for g in sec_gaps:
+                g_text = str(g).strip()
+                if not g_text:
+                    continue
+                g_key = " ".join(g_text.casefold().split())
+                if g_key in gap_seen:
+                    continue
+                gap_seen.add(g_key)
+                gap_out.append(g_text[:500])
+                if len(gap_out) >= 12:
+                    break
             good_sections.append(
                 {
                     "key": key,
@@ -577,11 +610,14 @@ class OpportunityAnalysisOutput(AgentOutput):
                     if isinstance(sec.get("official_evidence_ids"), list)
                     else [],
                     "our_response_draft": resp[:2000],
+                    "our_response_seed": seed,
                     "response_origin": "declared_generated",
                     "declared_evidence_ids": sec.get("declared_evidence_ids")
                     if isinstance(sec.get("declared_evidence_ids"), list)
                     else [],
-                    "gaps": [str(g)[:500] for g in sec_gaps if str(g).strip()][:12],
+                    "gaps": gap_out,
+                    "prose_polished": polished_flag,
+                    "prose_polish_reason": polish_reason,
                 }
             )
         if not good_sections:
@@ -640,11 +676,32 @@ class OpportunityAnalysisOutput(AgentOutput):
                     }
                 )
 
-        gaps_summary = draft.get("gaps_summary")
-        if not isinstance(gaps_summary, list):
-            gaps_summary = [g["description"] for g in good_gaps]
-        else:
-            gaps_summary = [str(x)[:500] for x in gaps_summary if str(x).strip()][:12]
+        gaps_summary_raw = draft.get("gaps_summary")
+        if not isinstance(gaps_summary_raw, list):
+            gaps_summary_raw = [g["description"] for g in good_gaps]
+        # SV2-PROSA: dedup gaps_summary por statement normalizado.
+        gs_seen: set[str] = set()
+        gaps_summary: list[str] = []
+        for x in gaps_summary_raw:
+            t = str(x).strip()
+            if not t:
+                continue
+            k = " ".join(t.casefold().split())
+            if k in gs_seen:
+                continue
+            gs_seen.add(k)
+            gaps_summary.append(t[:500])
+            if len(gaps_summary) >= 12:
+                break
+        # También dedup good_gaps por description normalizada.
+        gap_rec_seen: set[str] = set()
+        unique_good_gaps: list[dict[str, Any]] = []
+        for g in good_gaps:
+            k = " ".join(str(g.get("description") or "").casefold().split())
+            if not k or k in gap_rec_seen:
+                continue
+            gap_rec_seen.add(k)
+            unique_good_gaps.append(g)
 
         cleaned_draft: dict[str, Any] = {
             "banner": banner[:500],
@@ -655,9 +712,12 @@ class OpportunityAnalysisOutput(AgentOutput):
             "sections": good_sections,
             "administrative_checklist": good_checklist,
             "gaps_summary": gaps_summary,
-            "gaps": good_gaps,
+            "gaps": unique_good_gaps,
             "draft_engine": (
                 str(draft["draft_engine"])[:80] if draft.get("draft_engine") else None
+            ),
+            "prose_engine": (
+                str(draft["prose_engine"])[:80] if draft.get("prose_engine") else None
             ),
             "drafted_as_of": (
                 str(draft["drafted_as_of"])[:40] if draft.get("drafted_as_of") else None
@@ -665,6 +725,21 @@ class OpportunityAnalysisOutput(AgentOutput):
             "origin": "declared_draft",
             "based_on_verdict": (
                 str(draft["based_on_verdict"])[:40] if draft.get("based_on_verdict") else None
+            ),
+            "statement_seed": (
+                str(draft["statement_seed"])[:4000] if draft.get("statement_seed") else None
+            ),
+            "statement_prose_polished": bool(draft.get("statement_prose_polished") or False),
+            "statement_prose_polish_reason": (
+                str(draft["statement_prose_polish_reason"])[:200]
+                if draft.get("statement_prose_polish_reason")
+                else None
+            ),
+            "prose_polished_count": (
+                int(draft["prose_polished_count"])
+                if str(draft.get("prose_polished_count") or "").isdigit()
+                or isinstance(draft.get("prose_polished_count"), int)
+                else 0
             ),
             "official_evidence_ids": draft.get("official_evidence_ids")
             if isinstance(draft.get("official_evidence_ids"), list)
@@ -710,6 +785,10 @@ class RiskContextDeclaredItem(StrictModel):
     ``origin=declared_by_client``. La frontera
     ``validate_risk_origin_boundary`` impide que estos IDs contaminen facts
     o escenarios oficiales.
+
+    SV2-PROSA: ``categories`` fusiona etiquetas cuando la misma barrera llega
+    con category distinta (p.ej. solvency + homologation); ``category`` es la
+    primaria (primera de ``categories`` ordenada por peso).
     """
 
     statement: str = Field(min_length=1, max_length=2000)
@@ -722,6 +801,17 @@ class RiskContextDeclaredItem(StrictModel):
         "capacity",
         "other",
     ] = "barrier"
+    categories: list[
+        Literal[
+            "barrier",
+            "solvency",
+            "deadline",
+            "homologation",
+            "competitive",
+            "capacity",
+            "other",
+        ]
+    ] = Field(default_factory=list)
     declared_evidence_ids: list[UUID] = Field(default_factory=list)
     origin: Literal["declared_by_client"] = "declared_by_client"
     relevance: str = Field(default="", max_length=1000)
@@ -786,10 +876,22 @@ class RiskAnalysisOutput(AgentOutput):
             cat = str(item.get("category") or "barrier").strip()
             if cat not in allowed_categories:
                 cat = "other"
+            cats_raw = item.get("categories")
+            cats: list[str] = []
+            if isinstance(cats_raw, list):
+                for c in cats_raw:
+                    c_s = str(c or "").strip()
+                    if c_s in allowed_categories and c_s not in cats:
+                        cats.append(c_s)
+            if cat not in cats:
+                cats.insert(0, cat)
+            if not cats:
+                cats = [cat]
             cleaned.append(
                 {
                     "statement": statement[:2000],
-                    "category": cat,
+                    "category": cats[0],
+                    "categories": cats,
                     "declared_evidence_ids": declared,
                     "origin": "declared_by_client",
                     "relevance": str(item.get("relevance") or "")[:1000],

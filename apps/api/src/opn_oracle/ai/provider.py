@@ -1143,6 +1143,7 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
     # SV2-RIESGO-DECL: risk_context_declared exige declared_evidence_ids (no evidence_ids).
     # risk ya está en AGENTS_WITH_STRICT_FACTS; aquí se aplica la misma familia de
     # drop+warning al canal declarado, sin relajar facts oficiales.
+    # SV2-PROSA: dedup por barrera normalizada + merge de categories.
     if agent == "risk":
         raw_declared = candidate.get("risk_context_declared")
         if isinstance(raw_declared, list):
@@ -1161,9 +1162,16 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
                         decl_previews.append(preview)
                     continue
                 kept_decl.append(item)
-            if dropped_decl > 0:
+            try:
+                from opn_oracle.ai.context import dedupe_risk_context_declared
+
+                deduped = dedupe_risk_context_declared(kept_decl)
+            except Exception:
+                deduped = kept_decl
+            if dropped_decl > 0 or len(deduped) != len(kept_decl):
                 changed = True
-                candidate["risk_context_declared"] = kept_decl
+                candidate["risk_context_declared"] = deduped
+            if dropped_decl > 0:
                 preview_blob = "; ".join(decl_previews)[:220]
                 decl_warning = (
                     f"Se retiraron {dropped_decl} ítem(s) de risk_context_declared sin "
@@ -1173,6 +1181,8 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
                 )
                 if decl_warning not in warnings:
                     warnings.append(decl_warning)
+            elif len(deduped) != len(kept_decl):
+                candidate["risk_context_declared"] = deduped
 
     if not changed:
         return raw_output

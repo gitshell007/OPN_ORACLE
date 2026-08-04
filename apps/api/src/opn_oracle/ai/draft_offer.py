@@ -33,6 +33,7 @@ DraftStatus = Literal["pending", "ready", "blocked"]
 GapSeverity = Literal["blocking", "important", "info"]
 
 _DRAFT_ENGINE = "sv2_borrador_v1"
+_PROSE_ENGINE = "sv2_prosa_v1"
 _HUMAN_GATE = "draft_requires_human_edit"
 _BANNER = (
     "BORRADOR COMERCIAL — no es documento presentable. "
@@ -40,6 +41,55 @@ _BANNER = (
 )
 _RESPONSE_TAG = "[borrador declarado — no es hecho]"
 _OFFICIAL_TAG = "[oficial]"
+
+
+def normalize_gap_statement(text: str) -> str:
+    """Clave de deduplicación de gaps: whitespace colapsado + casefold."""
+
+    return " ".join(str(text or "").casefold().split())
+
+
+def unique_gap_strings(items: list[Any] | None, *, limit: int = 12) -> list[str]:
+    """Devuelve gaps de texto únicos por statement normalizado (orden estable)."""
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in items or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        key = normalize_gap_statement(text)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(text[:500])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def unique_gap_records(
+    gaps: list[dict[str, Any]] | None, *, limit: int = 16
+) -> list[dict[str, Any]]:
+    """Dedup de gaps estructurados por description normalizada (conserva el primero)."""
+
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for gap in gaps or []:
+        if not isinstance(gap, dict):
+            continue
+        desc = str(gap.get("description") or "").strip()
+        if not desc:
+            continue
+        key = normalize_gap_statement(desc)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(gap)
+        if len(out) >= limit:
+            break
+    return out
+
 
 # Señales de criterios de adjudicación (PCAP / extracto 132).
 _CRITERIA_BLOCK = re.compile(
@@ -140,8 +190,10 @@ def _gaps_from_verdict(fit: dict[str, Any]) -> list[dict[str, Any]]:
     seen: set[str] = set()
 
     def _add(code: str, description: str, severity: GapSeverity) -> None:
-        key = code + "|" + description[:80]
-        if key in seen:
+        # SV2-PROSA: un gap por statement normalizado (no por code|desc parcial).
+        # Evita duplicar el mismo texto "no evaluable…" con codes f2 y f3.
+        key = normalize_gap_statement(description)
+        if not key or key in seen:
             return
         seen.add(key)
         gaps.append(
@@ -350,9 +402,10 @@ def _extract_award_sections(
                 " El PCAP fija umbrales de 65 puntos (único licitador) / 60 puntos "
                 "porcentuales sobre la media (varios licitadores) respecto al otro criterio."
             )
-        gap_msgs = [
-            g["description"] for g in gaps if g.get("code") in {"f2_volume", "deadline_capacity"}
-        ]
+        gap_msgs = unique_gap_strings(
+            [g["description"] for g in gaps if g.get("code") in {"f2_volume", "deadline_capacity"}],
+            limit=6,
+        )
         sections.append(
             {
                 "key": "award_economic",
@@ -369,7 +422,7 @@ def _extract_award_sections(
                 ),
                 "response_origin": "declared_generated",
                 "declared_evidence_ids": declared_ids[:8],
-                "gaps": gap_msgs[:6],
+                "gaps": gap_msgs,
             }
         )
 
@@ -380,11 +433,14 @@ def _extract_award_sections(
             f"{_OFFICIAL_TAG} Criterios evaluables mediante juicio de valor (oferta técnica). "
             + (f"Extracto: «{tech_snip}»." if tech_snip else "Ver PCAP de adjudicación.")
         )
-        gap_msgs = [
-            g["description"]
-            for g in gaps
-            if g.get("code") in {"f3_certificates", "lot_ute", "cpv_confirm"}
-        ]
+        gap_msgs = unique_gap_strings(
+            [
+                g["description"]
+                for g in gaps
+                if g.get("code") in {"f3_certificates", "lot_ute", "cpv_confirm"}
+            ],
+            limit=6,
+        )
         sections.append(
             {
                 "key": "award_technical",
@@ -401,7 +457,7 @@ def _extract_award_sections(
                 ),
                 "response_origin": "declared_generated",
                 "declared_evidence_ids": declared_ids[:8],
-                "gaps": gap_msgs[:6],
+                "gaps": gap_msgs,
             }
         )
 
@@ -472,12 +528,15 @@ def _extract_award_sections(
                 ),
                 "response_origin": "declared_generated",
                 "declared_evidence_ids": declared_ids[:8],
-                "gaps": [g["description"] for g in solv_gaps][:6]
-                or [
-                    g["description"]
-                    for g in gaps
-                    if g.get("code") in {"f2_volume", "f3_certificates"}
-                ][:6],
+                "gaps": unique_gap_strings(
+                    [g["description"] for g in solv_gaps]
+                    or [
+                        g["description"]
+                        for g in gaps
+                        if g.get("code") in {"f2_volume", "f3_certificates"}
+                    ],
+                    limit=6,
+                ),
             }
         )
 
@@ -505,9 +564,10 @@ def _extract_award_sections(
                 ),
                 "response_origin": "declared_generated",
                 "declared_evidence_ids": declared_ids[:4],
-                "gaps": [
-                    g["description"] for g in gaps if g.get("code") in {"lot_ute", "cpv_confirm"}
-                ][:4],
+                "gaps": unique_gap_strings(
+                    [g["description"] for g in gaps if g.get("code") in {"lot_ute", "cpv_confirm"}],
+                    limit=4,
+                ),
             }
         )
 
@@ -556,12 +616,15 @@ def _extract_award_sections(
                     ),
                     "response_origin": "declared_generated",
                     "declared_evidence_ids": declared_ids[:4],
-                    "gaps": [g["description"] for g in gaps][:4],
+                    "gaps": unique_gap_strings([g["description"] for g in gaps], limit=4),
                 }
             )
             if len(sections) >= 3:
                 break
 
+    # SV2-PROSA: re-dedup por si un builder intermedio repite statements.
+    for sec in sections:
+        sec["gaps"] = unique_gap_strings(sec.get("gaps") or [], limit=12)
     return sections
 
 
@@ -698,7 +761,7 @@ def build_draft_offer(
     tender_ref = tender_ref.strip() or None if isinstance(tender_ref, str) else None
 
     lot_hint = _lot_hint_from_fit(fit_assessment, corpus)
-    gaps = _gaps_from_verdict(fit_assessment)
+    gaps = unique_gap_records(_gaps_from_verdict(fit_assessment), limit=16)
     sections = _extract_award_sections(
         corpus=corpus,
         official_evidence=primary or official_evidence,
@@ -723,12 +786,19 @@ def build_draft_offer(
     official_ids: list[str] = []
     declared_ids: list[str] = []
     for sec in sections:
+        # Conservar semilla original para pulido / demo antes-después.
+        seed = str(sec.get("our_response_draft") or "")
+        if seed and not sec.get("our_response_seed"):
+            sec["our_response_seed"] = seed
+        sec.setdefault("prose_polished", False)
         for eid in sec.get("official_evidence_ids") or []:
             if eid and eid not in official_ids:
                 official_ids.append(str(eid))
         for eid in sec.get("declared_evidence_ids") or []:
             if eid and eid not in declared_ids:
                 declared_ids.append(str(eid))
+
+    gaps_summary = unique_gap_strings([g["description"] for g in gaps], limit=12)
 
     return {
         "banner": _BANNER,
@@ -738,9 +808,10 @@ def build_draft_offer(
         "lot_hint": lot_hint,
         "sections": sections,
         "administrative_checklist": checklist,
-        "gaps_summary": [g["description"] for g in gaps][:12],
+        "gaps_summary": gaps_summary,
         "gaps": gaps,
         "draft_engine": _DRAFT_ENGINE,
+        "prose_engine": _PROSE_ENGINE,
         "drafted_as_of": today.isoformat(),
         "origin": "declared_draft",
         "based_on_verdict": rec,

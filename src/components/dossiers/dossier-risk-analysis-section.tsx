@@ -425,7 +425,11 @@ export function DossierRiskAnalysisSection({ dossierId }: { dossierId: string })
                     >
                       <p style={{ margin: "0.2rem 0" }}>{item.statement}</p>
                       <small className="muted">
-                        {item.category ? `${item.category} · ` : ""}
+                        {Array.isArray(item.categories) && item.categories.length > 0
+                          ? `${item.categories.join(", ")} · `
+                          : item.category
+                            ? `${item.category} · `
+                            : ""}
                         Declarado por el cliente · IDs declarados:{" "}
                         {(item.declared_evidence_ids || []).length}
                         {item.relevance ? ` · ${item.relevance}` : ""}
