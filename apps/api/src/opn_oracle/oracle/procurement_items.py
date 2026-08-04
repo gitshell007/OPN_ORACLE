@@ -55,6 +55,10 @@ AWARD_SNAPSHOT_KEYS: tuple[str, ...] = (
     "title",
     "buyer",
     "winner",
+    # NIF/CIF del adjudicatario (Signal: winner_identifier; alias tax_id).
+    "winner_identifier",
+    "winner_identifier_scheme",
+    "tax_id",
     "award_amount",
     "cpv",
     "status",
@@ -334,6 +338,27 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         )
         if date:
             snapshot["award_date"] = str(date)
+        # NIF/CIF: prefer winner_identifier; accept tax_id/nif aliases from Signal.
+        identifier = (
+            snapshot.get("winner_identifier")
+            or item.get("winner_identifier")
+            or item.get("tax_id")
+            or item.get("nif")
+        )
+        if identifier is not None and str(identifier).strip():
+            cleaned = str(identifier).strip()[:40]
+            snapshot["winner_identifier"] = cleaned
+            snapshot["tax_id"] = cleaned
+        else:
+            snapshot.pop("winner_identifier", None)
+            snapshot.pop("tax_id", None)
+        scheme = snapshot.get("winner_identifier_scheme") or item.get(
+            "winner_identifier_scheme"
+        )
+        if snapshot.get("winner_identifier") and scheme is not None and str(scheme).strip():
+            snapshot["winner_identifier_scheme"] = str(scheme).strip()[:40]
+        else:
+            snapshot.pop("winner_identifier_scheme", None)
     return snapshot
 
 
@@ -371,6 +396,23 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
     )
     first_title = next((entry.get("title") for entry in entries if entry.get("title")), None)
     first_buyer = next((entry.get("buyer") for entry in entries if entry.get("buyer")), None)
+    winners = [
+        str(entry.get("winner")).strip()
+        for entry in entries
+        if str(entry.get("winner") or "").strip()
+    ]
+    winner_identifiers = []
+    seen_identifiers: set[str] = set()
+    for entry in entries:
+        identifier = (
+            entry.get("winner_identifier")
+            or entry.get("tax_id")
+            or entry.get("nif")
+        )
+        text = str(identifier).strip() if identifier is not None else ""
+        if text and text.casefold() not in seen_identifiers:
+            seen_identifiers.add(text.casefold())
+            winner_identifiers.append(text)
     amounts = [
         value
         for value in (_numeric_or_none(entry.get("award_amount")) for entry in entries)
@@ -395,6 +437,9 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
         "entries": entries,
         "title": first_title,
         "buyer": first_buyer,
+        "winner": "; ".join(winners) if winners else None,
+        "winner_identifier": "; ".join(winner_identifiers) if winner_identifiers else None,
+        "nif": "; ".join(winner_identifiers) if winner_identifiers else None,
         "award_amount": sum(amounts) if amounts else None,
         "award_date": award_date,
         "cpv": cpv_values,

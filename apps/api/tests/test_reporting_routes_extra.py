@@ -335,6 +335,7 @@ def test_procurement_export_datasets_resolve_snapshot_columns_and_scope_filters(
             "title": "Lote 1",
             "buyer": "Ayuntamiento",
             "winner": "Empresa S.A.",
+            "winner_identifier": "A12345678",
             "award_amount": 42_000,
             "award_date": "2026-06-01",
             "cpv": ["45000000"],
@@ -346,12 +347,108 @@ def test_procurement_export_datasets_resolve_snapshot_columns_and_scope_filters(
     assert (
         _export_cell_value(export_ns, award_row, "winner", watermark="w") == "Empresa S.A."
     )
+    assert _export_cell_value(export_ns, award_row, "nif", watermark="w") == "A12345678"
+    assert (
+        _export_cell_value(export_ns, award_row, "winner_identifier", watermark="w")
+        == "A12345678"
+    )
     assert _export_cell_value(export_ns, award_row, "award_amount", watermark="w") == 42_000
     assert (
         _export_cell_value(export_ns, award_row, "source_url", watermark="w")
         == "https://example.test/award"
     )
     assert csv_safe(_procurement_cell(award_row, "cpv")) == "45000000"
+    assert "nif" in DATASETS["awards"].default_columns
+
+    # Collection snapshots only store winners/NIF inside entries[] — export still resolves them.
+    multi_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        dossier_id=dossier_id,
+        folder_id="ADJ-MULTI",
+        source_url=None,
+        snapshot={
+            "kind": "award",
+            "entries": [
+                {
+                    "winner": "Capgemini España S.L.",
+                    "winner_identifier": "B82387770",
+                    "award_amount": 100_000,
+                    "award_date": "2025-03-01",
+                },
+                {
+                    "winner": "NTT DATA Spain S.L.U.",
+                    "tax_id": "B82533219",
+                    "award_amount": 50_000,
+                    "award_date": "2025-04-01",
+                },
+            ],
+        },
+    )
+    assert "Capgemini" in str(_procurement_cell(multi_entry, "winner"))
+    assert "NTT DATA" in str(_procurement_cell(multi_entry, "winner"))
+    nif_cell = str(_procurement_cell(multi_entry, "nif"))
+    assert "B82387770" in nif_cell and "B82533219" in nif_cell
+    assert _procurement_cell(multi_entry, "award_amount") == 150_000
+
+
+def test_procurement_export_query_scopes_to_export_tenant_not_foreign_dossiers() -> None:
+    """La query de export acota por tenant del export vía dossier_access_clause."""
+
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    user_a = uuid.uuid4()
+    dossier_a = uuid.uuid4()
+
+    export_a = SimpleNamespace(
+        dataset="tenders",
+        tenant_id=tenant_a,
+        requested_by_user_id=user_a,
+        dossier_id=dossier_a,
+        filters={},
+    )
+    export_b = SimpleNamespace(
+        dataset="awards",
+        tenant_id=tenant_b,
+        requested_by_user_id=user_a,
+        dossier_id=None,
+        filters={},
+    )
+
+    stmt_a = _query(export_a, DATASETS["tenders"])
+    stmt_b = _query(export_b, DATASETS["awards"])
+    sql_a = str(stmt_a).lower()
+    sql_b = str(stmt_b).lower()
+
+    # Access isolation always goes through strategic_dossiers.tenant_id + membership/owner.
+    assert "strategic_dossiers" in sql_a and "tenant_id" in sql_a
+    assert "strategic_dossiers" in sql_b and "tenant_id" in sql_b
+    assert "dossier_procurement_items" in sql_a and "dossier_procurement_items" in sql_b
+
+    # Bound parameters carry the exact tenant of the export — never a foreign one.
+    params_a = {str(value) for value in stmt_a.compile().params.values()}
+    params_b = {str(value) for value in stmt_b.compile().params.values()}
+    assert str(tenant_a) in params_a
+    assert str(tenant_b) in params_b
+    assert str(tenant_a) not in params_b
+    assert str(tenant_b) not in params_a
+    assert str(user_a) in params_a and str(user_a) in params_b
+    assert str(dossier_a) in params_a
+    assert str(dossier_a) not in params_b
+
+    # Kind filter separates the two datasets.
+    assert "kind" in sql_a and "kind" in sql_b
+    kind_values_a = {
+        str(value)
+        for value in stmt_a.compile().params.values()
+        if isinstance(value, str) and value in {"tender", "award"}
+    }
+    kind_values_b = {
+        str(value)
+        for value in stmt_b.compile().params.values()
+        if isinstance(value, str) and value in {"tender", "award"}
+    }
+    assert kind_values_a == {"tender"}
+    assert kind_values_b == {"award"}
 
 
 def test_csv_and_export_serialization_cover_typed_values_and_hide_non_audit_watermark() -> None:

@@ -107,6 +107,7 @@ describe("secure exports Vector", () => {
     });
     await waitFor(() => expect(screen.getByLabelText("award_amount")).toBeChecked());
     expect(screen.getByLabelText("winner")).toBeChecked();
+    expect(screen.getByLabelText("nif")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Generar CSV" }));
     await waitFor(() =>
       expect(mocks.create).toHaveBeenCalledWith(
@@ -117,6 +118,7 @@ describe("secure exports Vector", () => {
             "title",
             "buyer",
             "winner",
+            "nif",
             "award_amount",
             "source_url",
           ]),

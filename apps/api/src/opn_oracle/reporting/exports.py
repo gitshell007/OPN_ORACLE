@@ -251,6 +251,7 @@ DATASETS: dict[str, DatasetSpec] = {
             "title",
             "buyer",
             "winner",
+            "nif",
             "award_amount",
             "award_date",
             "cpv",
@@ -265,6 +266,8 @@ DATASETS: dict[str, DatasetSpec] = {
                 "title",
                 "buyer",
                 "winner",
+                "nif",
+                "winner_identifier",
                 "award_amount",
                 "award_date",
                 "cpv",
@@ -274,7 +277,7 @@ DATASETS: dict[str, DatasetSpec] = {
                 "created_at",
             }
         ),
-        ("folder_id", "title", "buyer", "winner"),
+        ("folder_id", "title", "buyer", "winner", "nif", "winner_identifier"),
     ),
 }
 
@@ -293,10 +296,14 @@ PROCUREMENT_SNAPSHOT_COLUMNS = frozenset(
         "status",
         "region",
         "winner",
+        "nif",
+        "winner_identifier",
         "award_amount",
         "award_date",
     }
 )
+# Virtual columns that live only in the PLACSP snapshot / entries, not ORM attrs.
+PROCUREMENT_VIRTUAL_COLUMNS = PROCUREMENT_SNAPSHOT_COLUMNS | {"nif", "winner_identifier"}
 
 
 def csv_safe(value: Any) -> str:
@@ -316,6 +323,32 @@ def csv_safe(value: Any) -> str:
     return raw
 
 
+def _snapshot_entries(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = snapshot.get("entries")
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _join_unique_texts(values: list[Any]) -> str | None:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        text = str(value).strip() if value is not None else ""
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(text)
+    return "; ".join(ordered) if ordered else None
+
+
+def _entry_identifier(entry: dict[str, Any]) -> Any:
+    return entry.get("winner_identifier") or entry.get("tax_id") or entry.get("nif")
+
+
 def _procurement_cell(row: DossierProcurementItem, column: str) -> Any:
     """Resolve a virtual export column from model attrs or the PLACSP snapshot."""
 
@@ -326,9 +359,48 @@ def _procurement_cell(row: DossierProcurementItem, column: str) -> Any:
     snapshot = row.snapshot if isinstance(row.snapshot, dict) else {}
     if column not in PROCUREMENT_SNAPSHOT_COLUMNS:
         return None
+    entries = _snapshot_entries(snapshot)
+
+    # NIF: top-level aliases first, then per-entry award winners.
+    if column in {"nif", "winner_identifier"}:
+        top = (
+            snapshot.get("nif")
+            or snapshot.get("winner_identifier")
+            or snapshot.get("tax_id")
+        )
+        if top is not None and str(top).strip():
+            return str(top).strip()
+        return _join_unique_texts([_entry_identifier(entry) for entry in entries])
+
+    # Winner: collection snapshots often only carry winners inside entries.
+    if column == "winner":
+        top = snapshot.get("winner")
+        if top is not None and str(top).strip():
+            return str(top).strip()
+        return _join_unique_texts([entry.get("winner") for entry in entries])
+
     value = snapshot.get(column)
     if column == "cpv" and isinstance(value, list):
         return "; ".join(str(item) for item in value if str(item).strip())
+    entry_fallback_columns = {
+        "title",
+        "buyer",
+        "award_amount",
+        "award_date",
+        "status",
+        "region",
+    }
+    if value is None and column in entry_fallback_columns:
+        if column == "award_amount":
+            amounts = [
+                amount
+                for amount in (entry.get("award_amount") for entry in entries)
+                if isinstance(amount, (int, float))
+            ]
+            if amounts:
+                return sum(amounts)
+            return None
+        return _join_unique_texts([entry.get(column) for entry in entries])
     return value
 
 
