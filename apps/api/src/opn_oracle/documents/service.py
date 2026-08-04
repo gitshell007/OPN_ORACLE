@@ -536,7 +536,7 @@ def process_document(
                     "status": str(staged.get("status") or "skipped"),
                     "error_code": staged.get("error_code"),
                 }
-        except Exception as exc:  # noqa: BLE001 — document ready must not fail on outbox
+        except Exception as exc:
             current_app.logger.warning(
                 "memory_outbox_stage_failed document_id=%s err=%s",
                 document.id,
@@ -557,7 +557,7 @@ def process_document(
                 if evt is not None:
                     dispatch_memory_outbox_event(evt)
                     memory_outbox_meta["dispatch"] = "queued"
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 current_app.logger.warning(
                     "memory_outbox_dispatch_failed outbox_id=%s err=%s",
                     staged_event_id,

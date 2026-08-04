@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pytest
 
-from opn_oracle.integrations.memory_http_client import MemoryHttpError, MockTransport
+from opn_oracle.integrations.memory_http_client import MemoryHttpError
 from opn_oracle.integrations.memory_outbox import (
     bilateral_outbox_enabled,
     build_envelope,
     items_from_document_chunks,
     publish_memory_bilateral_envelope,
     stage_document_ready_memory,
-    stage_memory_event,
 )
 
 
@@ -31,7 +29,7 @@ def test_items_from_document_chunks_maps_fields() -> None:
         sequence = 0
         text_content = "hola chunk"
         checksum = "abc"
-        locator = {"page": 1}
+        locator: ClassVar[dict[str, int]] = {"page": 1}
 
     doc_id = uuid.uuid4()
     ver_id = uuid.uuid4()
@@ -122,7 +120,7 @@ def test_publisher_success_bilateral_and_durable(monkeypatch: pytest.MonkeyPatch
     class Conn:
         id = uuid.uuid4()
         tenant_id = uuid.uuid4()
-        connection_metadata = {"external_tenant_id": "ext-tenant"}
+        connection_metadata: ClassVar[dict[str, str]] = {"external_tenant_id": "ext-tenant"}
 
     envelope = build_envelope(
         event_type="document.version.ready",
@@ -137,7 +135,9 @@ def test_publisher_success_bilateral_and_durable(monkeypatch: pytest.MonkeyPatch
     )
     assert result["status"] == "delivered"
     assert any("bilateral" in c["path"] for c in calls)
-    assert any(c["path"].endswith("/ingest") or c["path"] == "/api/v1/memory/v1/ingest" for c in calls)
+    assert any(
+        c["path"].endswith("/ingest") or c["path"] == "/api/v1/memory/v1/ingest" for c in calls
+    )
 
 
 def test_publisher_retry_on_temporary_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,7 +164,7 @@ def test_publisher_retry_on_temporary_failure(monkeypatch: pytest.MonkeyPatch) -
     class Conn:
         id = uuid.uuid4()
         tenant_id = uuid.uuid4()
-        connection_metadata = {"external_tenant_id": "ext"}
+        connection_metadata: ClassVar[dict[str, str]] = {"external_tenant_id": "ext"}
 
     envelope = build_envelope(
         event_type="document.version.ready",
@@ -202,7 +202,7 @@ def test_publisher_idempotent_replay_same_key(monkeypatch: pytest.MonkeyPatch) -
     class Conn:
         id = uuid.uuid4()
         tenant_id = uuid.uuid4()
-        connection_metadata = {"external_tenant_id": "ext"}
+        connection_metadata: ClassVar[dict[str, str]] = {"external_tenant_id": "ext"}
 
     envelope = build_envelope(
         event_type="document.version.ready",
@@ -255,9 +255,8 @@ def test_mutation_stage_caller_removed_returns_no_stage(
 
 def test_rt08_v102_optional_arrays_and_parser_defaults() -> None:
     """RT-08 v1.0.2: optional arrays + normalize missing → []."""
-    import json
-    from importlib.resources import files
     from copy import deepcopy
+    from importlib.resources import files
 
     from opn_oracle.oracle.custom_report_runtime_catalog import load_contractual_runtime_catalog
     from opn_oracle.oracle.custom_reports import (
@@ -265,8 +264,10 @@ def test_rt08_v102_optional_arrays_and_parser_defaults() -> None:
         normalize_brief_plan_output,
     )
 
-    text = files("opn_oracle.ai.prompts").joinpath("report_custom_brief_plan/v1.md").read_text(
-        encoding="utf-8"
+    text = (
+        files("opn_oracle.ai.prompts")
+        .joinpath("report_custom_brief_plan/v1.md")
+        .read_text(encoding="utf-8")
     )
     assert "1.0.2" in text
     assert "facts" in text and "claims" in text
@@ -326,15 +327,19 @@ def test_rt08_v102_optional_arrays_and_parser_defaults() -> None:
 
 
 def test_normalize_checksum_from_bytes() -> None:
-    from opn_oracle.integrations.memory_outbox import _normalize_checksum, items_from_document_chunks
     import uuid
+
+    from opn_oracle.integrations.memory_outbox import (
+        _normalize_checksum,
+        items_from_document_chunks,
+    )
 
     class Chunk:
         id = uuid.uuid4()
         sequence = 0
         text_content = "hola"
         checksum = b"\x01\x02\x03\x04"
-        locator = {}
+        locator: ClassVar[dict[str, object]] = {}
 
     items = items_from_document_chunks(
         [Chunk()], document_id=uuid.uuid4(), version_id=uuid.uuid4(), title="t"

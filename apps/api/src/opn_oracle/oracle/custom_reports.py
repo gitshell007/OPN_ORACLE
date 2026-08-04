@@ -55,9 +55,7 @@ def normalize_brief_plan_output(plan: Mapping[str, Any] | None) -> dict[str, Any
     else:
         out = dict(plan)
     for key in BRIEF_PLAN_OPTIONAL_ARRAY_KEYS:
-        if key not in out or out[key] is None:
-            out[key] = []
-        elif not isinstance(out[key], list):
+        if key not in out or out[key] is None or not isinstance(out[key], list):
             out[key] = []
     return out
 

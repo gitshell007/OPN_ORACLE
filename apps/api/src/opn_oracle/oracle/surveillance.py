@@ -608,8 +608,7 @@ def _try_stage_signal_monitor(
     ):
         return (
             False,
-            "SIGNAL-MONITOR-ABSENT: transporte apunta a Signal producción; "
-            "bloqueado en oracle-dev",
+            "SIGNAL-MONITOR-ABSENT: transporte apunta a Signal producción; bloqueado en oracle-dev",
             None,
         )
 
@@ -886,8 +885,7 @@ def confirm_surveillance_action(
             return
         target.degraded = True
         target.degraded_reason = reason or (
-            "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; "
-            "no vigila de verdad"
+            "SIGNAL-MONITOR-ABSENT: confirmación local sin monitor en Signal; no vigila de verdad"
         )
 
     if existing is not None:

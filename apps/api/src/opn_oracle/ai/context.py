@@ -657,9 +657,7 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             "version": version,
             "origin": "declared_by_client",
             "own_offer": _small_text(str(profile.get("own_offer", "")), 500),
-            "business_objective": _small_text(
-                str(profile.get("business_objective", "")), 1000
-            ),
+            "business_objective": _small_text(str(profile.get("business_objective", "")), 1000),
             "horizon": _small_text(str(profile.get("horizon", "")), 300),
             "segments": list(profile.get("segments", []))[:15],
             "geographies": list(profile.get("geographies", []))[:15],
@@ -671,9 +669,7 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             "participation_criteria": _small_text(
                 str(profile.get("participation_criteria", "")), 800
             ),
-            "exclusion_criteria": _small_text(
-                str(profile.get("exclusion_criteria", "")), 800
-            ),
+            "exclusion_criteria": _small_text(str(profile.get("exclusion_criteria", "")), 800),
             "success_indicators": list(profile.get("success_indicators", []))[:15],
         }
     # custom.v1 (y variantes ricas no tipadas): exponer oferta/decisión/competidores
@@ -690,9 +686,7 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             "origin": "declared_by_client",
             "own_offer": _small_text(str(profile.get("own_offer", "")), 500),
             "decision_to_make": _small_text(str(profile.get("decision_to_make", "")), 2000),
-            "business_objective": _small_text(
-                str(profile.get("business_objective", "")), 1000
-            ),
+            "business_objective": _small_text(str(profile.get("business_objective", "")), 1000),
             "horizon": _small_text(str(profile.get("horizon", "")), 300),
             "segments": list(profile.get("segments", []))[:15],
             "geographies": list(profile.get("geographies", []))[:15],
@@ -769,11 +763,9 @@ def build_declared_profile_evidence(
                 + ", ".join(competitors[:15]),
             )
         )
-    barriers = [
-        str(item).strip()
-        for item in (profile.get("barriers") or [])
-        if str(item).strip()
-    ][:15]
+    barriers = [str(item).strip() for item in (profile.get("barriers") or []) if str(item).strip()][
+        :15
+    ]
     if barriers:
         pieces.append(
             (
@@ -1013,23 +1005,20 @@ def build_dossier_situation_context(dossier_id: uuid.UUID, *, max_tokens: int) -
     )
 
 
-
 def _analysis_candidate_seed(
     payload: dict[str, Any], *, kind: Literal["opportunity", "risk"]
 ) -> dict[str, Any]:
     """Semilla revisable: el agente propone; la persona confirma. No es una entidad de negocio."""
 
-    dossier = payload.get("dossier") if isinstance(payload.get("dossier"), dict) else {}
-    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
+    raw_dossier = payload.get("dossier")
+    dossier: dict[str, Any] = raw_dossier if isinstance(raw_dossier, dict) else {}
+    raw_evidence = payload.get("evidence")
+    evidence: list[Any] = raw_evidence if isinstance(raw_evidence, list) else []
     evidence_ids = [
-        str(item.get("id"))
-        for item in evidence
-        if isinstance(item, dict) and item.get("id")
+        str(item.get("id")) for item in evidence if isinstance(item, dict) and item.get("id")
     ][:20]
     title = str(dossier.get("title") or "").strip()
-    description = str(
-        dossier.get("description") or dossier.get("strategic_goal") or ""
-    ).strip()
+    description = str(dossier.get("description") or dossier.get("strategic_goal") or "").strip()
     label = "oportunidad" if kind == "opportunity" else "riesgo"
     return {
         "kind": f"{kind}_from_evidence",
@@ -1124,9 +1113,7 @@ def build_opportunity_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int
         evidence=base.evidence,
         classification=base.classification,
         redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
-        injection_indicators=tuple(
-            sorted(set(base.injection_indicators) | set(indicators))
-        ),
+        injection_indicators=tuple(sorted(set(base.injection_indicators) | set(indicators))),
         estimated_tokens=max(1, len(encoded) // 4),
     )
 
@@ -1195,7 +1182,9 @@ def validate_opportunity_origin_boundary(
 
     fit = result.get("fit_assessment")
     if isinstance(fit, dict):
-        declared_cited = [item for item in _as_uuids(fit.get("declared_evidence_ids")) if item in declared_ids]
+        declared_cited = [
+            item for item in _as_uuids(fit.get("declared_evidence_ids")) if item in declared_ids
+        ]
         official_cited = [
             item for item in _as_uuids(fit.get("official_evidence_ids")) if item in official_ids
         ]
@@ -1242,9 +1231,7 @@ def build_risk_analysis_context(dossier_id: uuid.UUID, *, max_tokens: int) -> Bu
         evidence=base.evidence,
         classification=base.classification,
         redaction_summary={"matches": base.redaction_summary["matches"] + redactions},
-        injection_indicators=tuple(
-            sorted(set(base.injection_indicators) | set(indicators))
-        ),
+        injection_indicators=tuple(sorted(set(base.injection_indicators) | set(indicators))),
         estimated_tokens=max(1, len(encoded) // 4),
     )
 
@@ -1823,24 +1810,25 @@ def build_frozen_context(
     )
 
 
-
-def _dossier_actors_for_analysis(dossier_id: uuid.UUID, *, limit: int = 25) -> list[tuple[DossierActor, Actor]]:
+def _dossier_actors_for_analysis(
+    dossier_id: uuid.UUID, *, limit: int = 25
+) -> list[tuple[DossierActor, Actor]]:
     tenant_id = require_tenant_id()
-    return list(
-        db.session.execute(
-            select(DossierActor, Actor)
-            .join(Actor, Actor.id == DossierActor.actor_id)
-            .where(DossierActor.tenant_id == tenant_id, DossierActor.dossier_id == dossier_id)
-            .order_by(DossierActor.priority.desc(), DossierActor.updated_at.desc())
-            .limit(limit)
-        )
+    result = db.session.execute(
+        select(DossierActor, Actor)
+        .join(Actor, Actor.id == DossierActor.actor_id)
+        .where(DossierActor.tenant_id == tenant_id, DossierActor.dossier_id == dossier_id)
+        .order_by(DossierActor.priority.desc(), DossierActor.updated_at.desc())
+        .limit(limit)
     )
+    return [(link, actor) for link, actor in result.all()]
 
 
 def _actor_tax_id(actor: Actor) -> str | None:
     identifiers = actor.identifiers if isinstance(actor.identifiers, dict) else {}
     metadata = actor.actor_metadata if isinstance(actor.actor_metadata, dict) else {}
-    for source in (identifiers, metadata, metadata.get("profile") if isinstance(metadata.get("profile"), dict) else {}):
+    profile = metadata.get("profile") if isinstance(metadata.get("profile"), dict) else {}
+    for source in (identifiers, metadata, profile):
         if not isinstance(source, dict):
             continue
         for key in ("tax_id", "nif", "cif", "vat", "company_tax_id", "winner_identifier"):
@@ -1890,10 +1878,14 @@ def build_actor_partnership_context(dossier_id: uuid.UUID, *, max_tokens: int) -
     serialized = [_serialize_dossier_actor_row(link, actor) for link, actor in rows]
     primary = serialized[0] if serialized else None
     procurement_competitors: list[dict[str, Any]] = []
-    for item in (base.payload.get("evidence") or []) if isinstance(base.payload.get("evidence"), list) else []:
+    evidence_items = base.payload.get("evidence")
+    if not isinstance(evidence_items, list):
+        evidence_items = []
+    for item in evidence_items or []:
         if not isinstance(item, dict):
             continue
-        locator = item.get("locator") if isinstance(item.get("locator"), dict) else {}
+        raw_locator = item.get("locator")
+        locator: dict[str, Any] = raw_locator if isinstance(raw_locator, dict) else {}
         winner = (
             locator.get("winner")
             or locator.get("adjudicatario")
@@ -1984,7 +1976,7 @@ def build_entity_resolution_context(dossier_id: uuid.UUID, *, max_tokens: int) -
     entity: dict[str, Any]
     candidates: list[dict[str, Any]]
     if nif_groups:
-        group = nif_groups[0]["actors"]
+        group = cast(list[dict[str, Any]], nif_groups[0]["actors"])
         entity = {
             "actor_id": group[0]["actor_id"],
             "name": group[0]["name"],

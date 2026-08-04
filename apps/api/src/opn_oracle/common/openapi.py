@@ -1204,9 +1204,7 @@ def _declare_oracle_operation(
                     "description": "Ítem de contratación ya fijado (idempotente)",
                     "content": {
                         "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ProcurementItemResource"
-                            }
+                            "schema": {"$ref": "#/components/schemas/ProcurementItemResource"}
                         }
                     },
                 }

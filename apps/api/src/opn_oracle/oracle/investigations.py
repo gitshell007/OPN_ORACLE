@@ -1436,12 +1436,8 @@ def investigation_summary(session: Session, run: InvestigationRun) -> dict[str, 
             .order_by(ResearchClaim.claim_kind, ResearchClaim.subject)
         )
     )
-    completed_stages = {
-        step.stage for step in steps if step.status == "completed"
-    }
-    blocked_stages = {
-        step.stage for step in steps if step.status == "blocked"
-    }
+    completed_stages = {step.stage for step in steps if step.status == "completed"}
+    blocked_stages = {step.stage for step in steps if step.status == "blocked"}
     pending_stages = {
         step.stage for step in steps if step.status in {"pending", "ready", "running"}
     }
@@ -1455,9 +1451,7 @@ def investigation_summary(session: Session, run: InvestigationRun) -> dict[str, 
     if "P5" in blocked_stages:
         incomplete_reasons.append("P5_report_blocked_pending_human_publication_review")
     if pending_stages:
-        incomplete_reasons.append(
-            "stages_pending:" + ",".join(sorted(pending_stages))
-        )
+        incomplete_reasons.append("stages_pending:" + ",".join(sorted(pending_stages)))
     if completed_stages != set(MACRO_STAGES):
         missing = [stage for stage in MACRO_STAGES if stage not in completed_stages]
         incomplete_reasons.append("stages_not_completed:" + ",".join(missing))

@@ -523,9 +523,7 @@ def _humanize_structured_amount_text(text: str) -> str:
         formatted = _format_es_amount(raw_amount, currency)
         if not formatted:
             return match.group(0)
-        raw_note = f"amount={raw_amount}" + (
-            f", currency={currency.upper()}" if currency else ""
-        )
+        raw_note = f"amount={raw_amount}" + (f", currency={currency.upper()}" if currency else "")
         return f"tender.amount: {formatted} ({raw_note})"
 
     return pattern.sub(_replace, text)
@@ -661,9 +659,7 @@ def complete_answer_with_grounded_tender_facts(
             )
             present = str(deadline).lower() in lowered
             if day_month and not present:
-                present = (
-                    f"{day_month.group(1)} de {day_month.group(2)}".lower() in lowered
-                )
+                present = f"{day_month.group(1)} de {day_month.group(2)}".lower() in lowered
             if not present:
                 missing_bits.append(f"plazo {deadline}")
         if not missing_bits:
@@ -805,9 +801,9 @@ def materialize_augment_items(
             prior_tenant = str(prior.get("tenant_id") or tenant_id)
             prior_dossier = str(prior.get("dossier_id") or dossier_id)
             if prior_tenant == str(tenant_id) and prior_dossier == str(dossier_id):
-                evidence_id = str(
-                    prior.get("oracle_evidence_id") or prior.get("evidence_id") or ""
-                ) or None
+                evidence_id = (
+                    str(prior.get("oracle_evidence_id") or prior.get("evidence_id") or "") or None
+                )
                 prior_extract = _humanize_structured_memory_text(
                     str(prior.get("exact_excerpt") or prior.get("extract") or "")
                 )
@@ -986,9 +982,7 @@ def validate_citations_allowlist(
 # Dossier evidence kinds that are legitimately citable when linked via EvidenceDossier
 # and shown to the model (build_context / oracle_authority). Dual-memory memory_signal
 # IDs are always taken from the current materialization set, never bulk-imported.
-DOSSIER_CITABLE_SOURCE_KINDS = frozenset(
-    {"procurement", "document", "signal", "entity_intel"}
-)
+DOSSIER_CITABLE_SOURCE_KINDS = frozenset({"procurement", "document", "signal", "entity_intel"})
 
 
 def merge_ask_citation_allowlist(
@@ -1222,8 +1216,8 @@ def build_dual_ask_context(
             for item in list(signal_block.get("items") or [])
             if isinstance(item, dict) and str(item.get("evidence_id") or "").strip()
         ]
-        allowed = tuple(ordered_ids) if ordered_ids else tuple(
-            c.oracle_evidence_id for c in citations
+        allowed = (
+            tuple(ordered_ids) if ordered_ids else tuple(c.oracle_evidence_id for c in citations)
         )
     else:
         allowed = ()
@@ -1309,9 +1303,7 @@ def load_existing_memory_signal_mappings(
     for row in rows:
         provenance = row.provenance if isinstance(row.provenance, dict) else {}
         locator = row.locator if isinstance(row.locator, dict) else {}
-        source_ref = str(
-            provenance.get("source_ref") or locator.get("source_ref") or ""
-        ).strip()
+        source_ref = str(provenance.get("source_ref") or locator.get("source_ref") or "").strip()
         checksum_hex = str(provenance.get("checksum") or "").strip()
         if not checksum_hex and row.checksum:
             checksum_hex = row.checksum.hex()
@@ -1378,7 +1370,7 @@ def persist_memory_signal_evidence(
     dossier_id: uuid.UUID,
     citations: Sequence[MaterializedCitation],
     job_id: str | None = None,
-) -> list[str]:
+) -> dict[str, str] | list[str]:
     """Persist immutable Evidence rows (source_kind=memory_signal) + dossier links.
 
     Reuses an existing row when the requested id is already durable, or when the

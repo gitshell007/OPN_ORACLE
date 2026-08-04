@@ -716,10 +716,7 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
     ]
     extract = procurement_items.procurement_evidence_extract(snapshot)
     assert "Lotes: 2" in extract
-    assert (
-        "Importe total adjudicado (sin clasificación base/IVA en origen): 5000.00"
-        in extract
-    )
+    assert "Importe total adjudicado (sin clasificación base/IVA en origen): 5000.00" in extract
 
 
 @pytest.mark.unit
@@ -2075,12 +2072,10 @@ def test_dossier_procurement_delete_route_returns_evidence_disposition(
 def test_snapshot_deadline_parses_iso_date_and_datetime() -> None:
     from datetime import date
 
-    assert procurement_items._snapshot_deadline({"deadline": "2026-09-30"}) == date(
+    assert procurement_items._snapshot_deadline({"deadline": "2026-09-30"}) == date(2026, 9, 30)
+    assert procurement_items._snapshot_deadline({"deadline": "2026-09-30T23:59:00Z"}) == date(
         2026, 9, 30
     )
-    assert procurement_items._snapshot_deadline(
-        {"deadline": "2026-09-30T23:59:00Z"}
-    ) == date(2026, 9, 30)
     assert procurement_items._snapshot_deadline({"deadline_date": "2026-01-15"}) == date(
         2026, 1, 15
     )
@@ -2113,9 +2108,7 @@ def test_backfill_opportunity_deadlines_from_procurement_only_fills_nulls() -> N
         snapshot={"title": "Sin plazo en snapshot"},
     )
     opp_null = SimpleNamespace(id=linked_null, tenant_id=tenant_id, deadline=None)
-    opp_kept = SimpleNamespace(
-        id=linked_kept, tenant_id=tenant_id, deadline=date(2026, 1, 1)
-    )
+    opp_kept = SimpleNamespace(id=linked_kept, tenant_id=tenant_id, deadline=date(2026, 1, 1))
     opp_empty = SimpleNamespace(id=no_snapshot_date, tenant_id=tenant_id, deadline=None)
 
     # Query already filters Opportunity.deadline IS NULL, so only null rows are joined.

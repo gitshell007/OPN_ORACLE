@@ -449,9 +449,7 @@ class SignalMemoryHttpClient:
             headers["X-OPN-Dossier-ID"] = str(dossier_id)
         if idempotency_key:
             headers["Idempotency-Key"] = str(idempotency_key)[:200]
-        status, _hdrs, raw = self._request_with_retry(
-            "POST", path, headers=headers, json_body=body
-        )
+        status, _hdrs, raw = self._request_with_retry("POST", path, headers=headers, json_body=body)
         if len(raw) > self.config.max_bytes:
             raise MemoryHttpError("body_too_large", "response exceeds max bytes", retryable=False)
         data: dict[str, Any]

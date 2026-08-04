@@ -106,14 +106,21 @@ def assess_collection_honesty(
             degraded=True,
             degraded_reason=ABSENT_REASON,
         )
-    if not snapshot_available or snapshot is None:
+    if not snapshot_available:
+        return CollectionHonesty(
+            collection_state="unknown",
+            degraded=True,
+            degraded_reason=UNKNOWN_REASON,
+        )
+    if snapshot is None:
         return CollectionHonesty(
             collection_state="unknown",
             degraded=True,
             degraded_reason=UNKNOWN_REASON,
         )
 
-    health = snapshot.get("health") if isinstance(snapshot.get("health"), dict) else {}
+    raw_health = snapshot.get("health")
+    health = raw_health if isinstance(raw_health, dict) else {}
     health_state = health.get("state")
     if health_state is not None:
         health_state = str(health_state).strip().lower() or None
@@ -383,11 +390,7 @@ def build_dossier_activity(
         # Persist-on-read honesty: never emit clean «active» without collection proof.
         degraded = bool(action.degraded) or honesty.degraded
         degraded_reason = honesty.degraded_reason or action.degraded_reason
-        if (
-            is_watching
-            and product_state == "active"
-            and honesty.collection_state != "collecting"
-        ):
+        if is_watching and product_state == "active" and honesty.collection_state != "collecting":
             product_state = "needs_attention"
             degraded = True
             if not degraded_reason:

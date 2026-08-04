@@ -53,9 +53,7 @@ def list_assignable_users() -> dict[str, Any]:
                 User.display_name.ilike(pattern),
             )
         )
-    rows = db.session.execute(
-        query.order_by(func.lower(User.display_name), User.id)
-    ).all()
+    rows = db.session.execute(query.order_by(func.lower(User.display_name), User.id)).all()
     return {
         "items": [
             {

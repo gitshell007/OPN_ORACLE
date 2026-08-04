@@ -976,9 +976,7 @@ def start_generation(
     options["write_job_id"] = str(job.id)
     fence = None
     if isinstance(getattr(job, "input_payload", None), dict):
-        fence = job.input_payload.get("generation_fence") or job.input_payload.get(
-            "fence_token"
-        )
+        fence = job.input_payload.get("generation_fence") or job.input_payload.get("fence_token")
     options["fence_token"] = fence
     report.options = options
     report.background_job_id = job.id

@@ -285,9 +285,7 @@ def items_from_document_chunks(
     """Map DocumentChunk rows → bilateral envelope items (no paths/blobs/secrets)."""
     items: list[dict[str, Any]] = []
     for ch in chunks[:MAX_ITEMS]:
-        text = str(getattr(ch, "text_content", None) or getattr(ch, "text", None) or "")[
-            :MAX_TEXT
-        ]
+        text = str(getattr(ch, "text_content", None) or getattr(ch, "text", None) or "")[:MAX_TEXT]
         origin = str(getattr(ch, "id", None) or f"{document_id}:{getattr(ch, 'sequence', 0)}")
         locator = f"oracle://doc/{document_id}/v/{version_id}/seq/{getattr(ch, 'sequence', 0)}"
         items.append(
@@ -326,7 +324,7 @@ def items_from_document_chunks(
 
 def stage_document_ready_memory(
     *,
-    session: Session,
+    session: Any,
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
     document_id: uuid.UUID,
@@ -416,7 +414,9 @@ def publish_memory_bilateral_envelope(
 
     transport = HttpxTransport()
     client = build_client_for_connection(connection, transport=transport, require_https=True)
-    external = str(envelope.get("external_tenant_id") or external_tenant_from_connection(connection))
+    external = str(
+        envelope.get("external_tenant_id") or external_tenant_from_connection(connection)
+    )
     dossier_id = str(envelope.get("dossier_id") or "")
     corr = str(envelope.get("correlation_id") or "")
     idem = str(envelope.get("idempotency_key") or "")
@@ -436,9 +436,7 @@ def publish_memory_bilateral_envelope(
                     "origin_id": origin,
                     "title": str(it.get("title") or "")[:300],
                     "text": text,
-                    "checksum": _normalize_checksum(
-                        it.get("checksum"), origin=origin, text=text
-                    ),
+                    "checksum": _normalize_checksum(it.get("checksum"), origin=origin, text=text),
                     "source_type": str(it.get("source_type") or "document")[:40],
                 }
             )

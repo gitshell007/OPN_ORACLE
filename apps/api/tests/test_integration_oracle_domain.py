@@ -3478,9 +3478,7 @@ def test_procurement_refresh_preserves_pin_links_and_rotates_uncited_evidence(
             is not None
         )
         # Historical opportunity citation is not rewritten.
-        assert opportunity.score_details["confidence"]["evidence_ids"] == [
-            str(first_evidence_id)
-        ]
+        assert opportunity.score_details["confidence"]["evidence_ids"] == [str(first_evidence_id)]
 
 
 def test_procurement_delete_drops_uncited_evidence_keeps_cited(

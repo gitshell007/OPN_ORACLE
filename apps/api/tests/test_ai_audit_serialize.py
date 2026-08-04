@@ -111,9 +111,7 @@ def test_list_ai_audit_requires_authentication(app: Any) -> None:
 
 
 @pytest.mark.unit
-def test_list_ai_audit_serializes_visible_rows(
-    app: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_list_ai_audit_serializes_visible_rows(app: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     tenant = uuid.uuid4()
     failed = _audit(status="failed", agent="report", dossier_id=uuid.uuid4())
     ok = _audit(status="succeeded", agent="report", dossier_id=failed.dossier_id)

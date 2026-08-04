@@ -282,13 +282,13 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
     assert "status" not in pin_schema["properties"]
     assert "sectors" not in pin_schema["properties"]
     for status in ("200", "201"):
-        assert procurement_pin["responses"][status]["content"]["application/json"][
-            "schema"
-        ] == {"$ref": "#/components/schemas/ProcurementItemResource"}
+        assert procurement_pin["responses"][status]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ProcurementItemResource"
+        }
     procurement_list = spec["paths"]["/api/v1/dossiers/{dossier_id}/procurement"]["get"]
-    assert procurement_list["responses"]["200"]["content"]["application/json"][
-        "schema"
-    ] == {"$ref": "#/components/schemas/ProcurementItemListResponse"}
+    assert procurement_list["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProcurementItemListResponse"
+    }
     assert "409" in spec["paths"]["/api/v1/dossiers/{dossier_id}"]["patch"]["responses"]
     assert "OracleResource" not in schemas
     assert "OracleWriteInput" not in schemas

@@ -83,8 +83,6 @@ def _actor_identity_keys(actor: Actor) -> set[str]:
 def iter_award_winner_tax_sources(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     """Extrae pares (winner, tax_id, folder_id) de un snapshot de award fijado."""
 
-    if not isinstance(snapshot, dict):
-        return []
     folder_id = str(snapshot.get("folder_id") or "").strip()
     if not folder_id:
         return []

@@ -602,7 +602,7 @@ def _ground_conclusions_to_facts(
                 continue
             if _conclusion_supported(value, fact_tokens, min_ratio=0.35):
                 continue
-            seed = (grounding_statements or facts)
+            seed = grounding_statements or facts
             if seed:
                 updated[field] = _short_text(
                     f"Revisar a la luz de: {_short_text(seed[0], limit=220)}",
@@ -858,7 +858,13 @@ def _is_conclusion_path(path: str) -> bool:
     normalized = str(path or "").strip()
     if not normalized:
         return False
-    conclusion_fields = (*_CONCLUSION_SCALAR_FIELDS, "recommendation", "recommended_status", "rationale", "decision")
+    conclusion_fields = (
+        *_CONCLUSION_SCALAR_FIELDS,
+        "recommendation",
+        "recommended_status",
+        "rationale",
+        "decision",
+    )
     for field in conclusion_fields:
         if normalized in {field, f"$.{field}", f"candidate_outline.{field}"}:
             return True

@@ -17,7 +17,7 @@ import unicodedata
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import (
     Boolean,
@@ -33,7 +33,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
 from opn_oracle.extensions import Base
 from opn_oracle.platform.models import TimestampMixin, UUIDPrimaryKeyMixin
@@ -125,9 +125,7 @@ def graph_completeness(
     if truncated:
         reasons.append("signal_truncated_max_nodes_or_budget")
     if depth >= max_depth_cap:
-        reasons.append(
-            f"depth_capped_at_{max_depth_cap}_api_and_provider_default"
-        )
+        reasons.append(f"depth_capped_at_{max_depth_cap}_api_and_provider_default")
     nodes = payload.get("nodes")
     if not isinstance(nodes, list) or len(nodes) == 0:
         reasons.append("empty_graph")
@@ -149,10 +147,12 @@ def graph_completeness(
 
 
 def _canonical_graph_bytes(payload: Mapping[str, Any], *, depth: int, active_only: bool) -> bytes:
-    body = {
+    raw_nodes = payload.get("nodes")
+    raw_edges = payload.get("edges")
+    body: dict[str, Any] = {
         "center": payload.get("center"),
-        "nodes": payload.get("nodes") if isinstance(payload.get("nodes"), list) else [],
-        "edges": payload.get("edges") if isinstance(payload.get("edges"), list) else [],
+        "nodes": raw_nodes if isinstance(raw_nodes, list) else [],
+        "edges": raw_edges if isinstance(raw_edges, list) else [],
         "truncated": bool(payload.get("truncated")),
         "note": payload.get("note") if isinstance(payload.get("note"), str) else None,
         "depth": depth,
@@ -163,9 +163,7 @@ def _canonical_graph_bytes(payload: Mapping[str, Any], *, depth: int, active_onl
     )
 
 
-def content_hash_for_graph(
-    payload: Mapping[str, Any], *, depth: int, active_only: bool
-) -> bytes:
+def content_hash_for_graph(payload: Mapping[str, Any], *, depth: int, active_only: bool) -> bytes:
     return hashlib.sha256(
         _canonical_graph_bytes(payload, depth=depth, active_only=active_only)
     ).digest()
@@ -203,7 +201,7 @@ def annotate_graph_payload(
 
 
 def persist_entity_graph_snapshot(
-    session: Session,
+    session: Any,
     *,
     tenant_id: uuid.UUID,
     entity_name: str,
@@ -214,8 +212,10 @@ def persist_entity_graph_snapshot(
 ) -> EntityGraphSnapshot | None:
     """Insert a snapshot row. Returns None when persistence is unavailable."""
 
-    nodes = payload.get("nodes") if isinstance(payload.get("nodes"), list) else []
-    edges = payload.get("edges") if isinstance(payload.get("edges"), list) else []
+    raw_nodes = payload.get("nodes")
+    raw_edges = payload.get("edges")
+    nodes: list[Any] = raw_nodes if isinstance(raw_nodes, list) else []
+    edges: list[Any] = raw_edges if isinstance(raw_edges, list) else []
     completeness, reasons = graph_completeness(payload, depth=depth)
     digest = content_hash_for_graph(payload, depth=depth, active_only=active_only)
     captured_at = datetime.now(UTC)
@@ -235,12 +235,14 @@ def persist_entity_graph_snapshot(
         existing.captured_at = captured_at
         existing.updated_at = captured_at
         session.flush()
-        return existing
+        return cast(EntityGraphSnapshot | None, existing)
 
-    store_payload = {
+    store_nodes: list[dict[Any, Any]] = [item for item in nodes if isinstance(item, dict)]
+    store_edges: list[dict[Any, Any]] = [item for item in edges if isinstance(item, dict)]
+    store_payload: dict[str, Any] = {
         "center": payload.get("center"),
-        "nodes": [item for item in nodes if isinstance(item, dict)],
-        "edges": [item for item in edges if isinstance(item, dict)],
+        "nodes": store_nodes,
+        "edges": store_edges,
         "truncated": bool(payload.get("truncated")),
         "note": payload.get("note") if isinstance(payload.get("note"), str) else None,
     }
@@ -267,7 +269,7 @@ def persist_entity_graph_snapshot(
 
 
 def try_persist_entity_graph_snapshot(
-    session: Session,
+    session: Any,
     *,
     tenant_id: uuid.UUID,
     entity_name: str,
@@ -304,7 +306,7 @@ def try_persist_entity_graph_snapshot(
 
 
 def list_entity_graph_snapshots(
-    session: Session,
+    session: Any,
     *,
     tenant_id: uuid.UUID,
     entity_name: str,
@@ -327,16 +329,19 @@ def list_entity_graph_snapshots(
 
 
 def get_entity_graph_snapshot(
-    session: Session,
+    session: Any,
     *,
     tenant_id: uuid.UUID,
     snapshot_id: uuid.UUID,
 ) -> EntityGraphSnapshot | None:
-    return session.scalar(
-        select(EntityGraphSnapshot).where(
-            EntityGraphSnapshot.id == snapshot_id,
-            EntityGraphSnapshot.tenant_id == tenant_id,
-        )
+    return cast(
+        EntityGraphSnapshot | None,
+        session.scalar(
+            select(EntityGraphSnapshot).where(
+                EntityGraphSnapshot.id == snapshot_id,
+                EntityGraphSnapshot.tenant_id == tenant_id,
+            )
+        ),
     )
 
 

@@ -366,9 +366,7 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         else:
             snapshot.pop("winner_identifier", None)
             snapshot.pop("tax_id", None)
-        scheme = snapshot.get("winner_identifier_scheme") or item.get(
-            "winner_identifier_scheme"
-        )
+        scheme = snapshot.get("winner_identifier_scheme") or item.get("winner_identifier_scheme")
         if snapshot.get("winner_identifier") and scheme is not None and str(scheme).strip():
             snapshot["winner_identifier_scheme"] = str(scheme).strip()[:40]
         else:
@@ -418,11 +416,7 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
     winner_identifiers = []
     seen_identifiers: set[str] = set()
     for entry in entries:
-        identifier = (
-            entry.get("winner_identifier")
-            or entry.get("tax_id")
-            or entry.get("nif")
-        )
+        identifier = entry.get("winner_identifier") or entry.get("tax_id") or entry.get("nif")
         text = str(identifier).strip() if identifier is not None else ""
         if text and text.casefold() not in seen_identifiers:
             seen_identifiers.add(text.casefold())
@@ -837,12 +831,8 @@ def dispose_procurement_evidence(
     )
     session.flush()
 
-    cited = _evidence_cited_by_artifacts(
-        session, tenant_id=tenant_id, evidence_id=evidence_id
-    )
-    hard_refs = _evidence_has_hard_refs(
-        session, tenant_id=tenant_id, evidence_id=evidence_id
-    )
+    cited = _evidence_cited_by_artifacts(session, tenant_id=tenant_id, evidence_id=evidence_id)
+    hard_refs = _evidence_has_hard_refs(session, tenant_id=tenant_id, evidence_id=evidence_id)
     if cited or hard_refs:
         return {
             "evidence_id": str(evidence_id),

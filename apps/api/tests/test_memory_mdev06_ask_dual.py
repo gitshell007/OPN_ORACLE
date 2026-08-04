@@ -175,9 +175,7 @@ def test_signal_factual_items_omit_signal_item_id() -> None:
         tenant_id=str(uuid.uuid4()),
         dossier_id=str(uuid.uuid4()),
     )
-    block = build_signal_factual_block(
-        mode="augment", citations=[citation], observed_count=1
-    )
+    block = build_signal_factual_block(mode="augment", citations=[citation], observed_count=1)
     assert len(block["items"]) == 1
     assert "signal_item_id" not in block["items"][0]
     assert block["items"][0]["evidence_id"] == citation.oracle_evidence_id
@@ -601,9 +599,9 @@ def test_process_answer_augment_injects_allowlist(monkeypatch: pytest.MonkeyPatc
         ),
     )
 
-    def _persist(_session: Any, **kwargs: Any) -> list[str]:
+    def _persist(_session: Any, **kwargs: Any) -> dict[str, str]:
         citations = kwargs.get("citations") or []
-        return [c.oracle_evidence_id for c in citations]
+        return {c.oracle_evidence_id: c.oracle_evidence_id for c in citations}
 
     monkeypatch.setattr(
         "opn_oracle.integrations.memory_ask_dual.persist_memory_signal_evidence",
@@ -626,7 +624,7 @@ def test_process_answer_augment_injects_allowlist(monkeypatch: pytest.MonkeyPatc
 
     assert result["memory_mode"] == "augment"
     assert result["item_count"] == 1
-    # SV2-ASK-FLAKE: effective allowlist = dual materialization ∪ dossier-citable
+    # SV2-ASK-FLAKE: effective allowlist = dual materialization + dossier-citable
     # evidence taught via oracle_authority (here: document ev-oracle-1).
     assert len(result["allowed_evidence_ids"]) == 2
     assert "ev-oracle-1" in result["allowed_evidence_ids"]
@@ -1019,9 +1017,9 @@ def test_snapshot_fail_rebuilds_effective_manifest(monkeypatch: pytest.MonkeyPat
         ),
     )
 
-    def _persist(_session: Any, **kwargs: Any) -> list[str]:
+    def _persist(_session: Any, **kwargs: Any) -> dict[str, str]:
         citations = kwargs.get("citations") or []
-        return [c.oracle_evidence_id for c in citations]
+        return {c.oracle_evidence_id: c.oracle_evidence_id for c in citations}
 
     monkeypatch.setattr(
         "opn_oracle.integrations.memory_ask_dual.persist_memory_signal_evidence",
@@ -1133,9 +1131,7 @@ def test_humanize_structured_deadline_and_amount_for_llm_prompt() -> None:
             checksum="c4",
         ),
     )
-    block = build_signal_factual_block(
-        mode="augment", citations=citations, observed_count=4
-    )
+    block = build_signal_factual_block(mode="augment", citations=citations, observed_count=4)
     texts = [str(item["text"]) for item in block["items"]]
     ids = [str(item["evidence_id"]) for item in block["items"]]
     assert ids[0] == "e-ext"
@@ -1154,20 +1150,26 @@ def test_complete_answer_with_grounded_tender_facts_copies_deadline() -> None:
     items = [
         {
             "evidence_id": "e-ext",
-            "text": "[tender:proc:LIC-OATDA-2026-017] tender.external_id: {'id': 'LIC-OATDA-2026-017'}",
+            "text": (
+                "[tender:proc:LIC-OATDA-2026-017] tender.external_id: {'id': 'LIC-OATDA-2026-017'}"
+            ),
         },
         {
             "evidence_id": "e-amount",
-            "text": "[tender:proc:LIC-OATDA-2026-017] tender.amount: {'amount': 2400000, 'currency': 'EUR'}",
+            "text": (
+                "[tender:proc:LIC-OATDA-2026-017] tender.amount: "
+                "{'amount': 2400000, 'currency': 'EUR'}"
+            ),
         },
         {
             "evidence_id": "e-deadline",
-            "text": "[tender:proc:LIC-OATDA-2026-017] tender.deadline: {'datetime': '2026-04-15T14:00:00'}",
+            "text": (
+                "[tender:proc:LIC-OATDA-2026-017] tender.deadline: "
+                "{'datetime': '2026-04-15T14:00:00'}"
+            ),
         },
     ]
-    answer = (
-        "Nexus participa en LIC-OATDA-2026-017 con un importe de 2.400.000 EUR."
-    )
+    answer = "Nexus participa en LIC-OATDA-2026-017 con un importe de 2.400.000 EUR."
     completed, cites = complete_answer_with_grounded_tender_facts(
         answer, signal_items=items, citations=[{"evidence_id": "e-amount", "quote": "importe"}]
     )

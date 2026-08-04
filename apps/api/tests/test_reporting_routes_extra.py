@@ -241,14 +241,10 @@ def test_export_query_applies_scope_filters_and_rejects_invalid_dataset_filters(
         assert "ORDER BY" in sql and "DISTINCT" in sql
         assert "created_at" in sql
 
-    audit_with_status = SimpleNamespace(
-        **common, dataset="audit", filters={"status": "ready"}
-    )
+    audit_with_status = SimpleNamespace(**common, dataset="audit", filters={"status": "ready"})
     with pytest.raises(ExportError, match="estado"):
         _query(audit_with_status, DATASETS["audit"])
-    long_search = SimpleNamespace(
-        **common, dataset="tasks", filters={"search": "x" * 201}
-    )
+    long_search = SimpleNamespace(**common, dataset="tasks", filters={"search": "x" * 201})
     with pytest.raises(ExportError, match="demasiado largo"):
         _query(long_search, DATASETS["tasks"])
 
@@ -344,13 +340,10 @@ def test_procurement_export_datasets_resolve_snapshot_columns_and_scope_filters(
         },
     )
     export_ns = SimpleNamespace(dataset="awards")
-    assert (
-        _export_cell_value(export_ns, award_row, "winner", watermark="w") == "Empresa S.A."
-    )
+    assert _export_cell_value(export_ns, award_row, "winner", watermark="w") == "Empresa S.A."
     assert _export_cell_value(export_ns, award_row, "nif", watermark="w") == "A12345678"
     assert (
-        _export_cell_value(export_ns, award_row, "winner_identifier", watermark="w")
-        == "A12345678"
+        _export_cell_value(export_ns, award_row, "winner_identifier", watermark="w") == "A12345678"
     )
     assert _export_cell_value(export_ns, award_row, "award_amount", watermark="w") == 42_000
     assert (

@@ -315,9 +315,7 @@ def entity_graph_snapshots(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 @limiter.limit("30/minute")
 def entity_graph_snapshot_detail(snapshot_id: uuid.UUID) -> dict[str, Any] | Any:
     tenant_id = uuid.UUID(str(g.active_tenant_id))
-    row = get_entity_graph_snapshot(
-        db.session, tenant_id=tenant_id, snapshot_id=snapshot_id
-    )
+    row = get_entity_graph_snapshot(db.session, tenant_id=tenant_id, snapshot_id=snapshot_id)
     if row is None:
         return _problem_response_passthrough(
             404,

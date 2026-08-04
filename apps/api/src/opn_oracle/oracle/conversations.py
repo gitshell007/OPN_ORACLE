@@ -720,9 +720,7 @@ def process_dossier_question_answer(
     # Product mechanism: DossierMemoryProfile.mode via PUT /memory/profile.
     profile_mode = None
     profile_cfg: dict[str, Any] = {}
-    if memory_mode is None and not (
-        isinstance(payload, Mapping) and payload.get("memory_mode")
-    ):
+    if memory_mode is None and not (isinstance(payload, Mapping) and payload.get("memory_mode")):
         try:
             from sqlalchemy import select as sa_select
 
@@ -792,7 +790,7 @@ def process_dossier_question_answer(
         else:
             effective_mode = "disabled"
 
-    scope_hint = {
+    scope_hint: dict[str, Any] = {
         "tenant_id": str(tenant_id),
         "dossier_id": str(dossier_id),
         "conversation_id": str(conversation_id),
@@ -963,11 +961,11 @@ def process_dossier_question_answer(
                 citations=dual.citations,
                 job_id=str(job.id),
             )
-            # Prefer requested→durable map; accept list[str] from older mocks/tests.
+            # Real impl returns dict[str,str]; tests may still stub list[str].
             if isinstance(persist_result, dict):
                 id_map = {str(k): str(v) for k, v in persist_result.items()}
             else:
-                id_map = {str(x): str(x) for x in (persist_result or [])}
+                id_map = {str(x): str(x) for x in list(persist_result or [])}
             evidence_persisted = list(dict.fromkeys(id_map.values()))
         except Exception as persist_error:
             # Visible failure: exclude all materialised IDs, mark coverage failed.
@@ -1036,9 +1034,7 @@ def process_dossier_question_answer(
             if m.oracle_evidence_id in id_map
         )
         dropped = [
-            c.oracle_evidence_id
-            for c in dual.citations
-            if c.oracle_evidence_id not in id_map
+            c.oracle_evidence_id for c in dual.citations if c.oracle_evidence_id not in id_map
         ]
         if dropped:
             excluded = list(coverage.get("excluded") or [])
@@ -1160,9 +1156,7 @@ def process_dossier_question_answer(
     if persist_degraded:
         degraded_reasons.append("persistencia de evidencia degradada")
     if coverage_failed:
-        degraded_reasons.append(
-            f"cobertura de memoria reportó {len(coverage_failed)} fallo(s)"
-        )
+        degraded_reasons.append(f"cobertura de memoria reportó {len(coverage_failed)} fallo(s)")
     degraded_reason = "; ".join(degraded_reasons) if degraded_reasons else None
 
     if _signal_ai_enabled():
@@ -1205,9 +1199,7 @@ def process_dossier_question_answer(
                 allowed_ids,
             )
             if rejected:
-                raise ConversationError(
-                    format_allowlist_rejection(rejected, allowed_ids)
-                )
+                raise ConversationError(format_allowlist_rejection(rejected, allowed_ids))
             answer_payload["citations"] = accepted
             from opn_oracle.integrations.memory_ask_dual import (
                 validate_material_evidence_allowlist as _v_material,
@@ -1329,10 +1321,10 @@ def process_dossier_question_answer(
     if snapshot_id is not None:
         from opn_oracle.integrations.models import MemoryRetrievalSnapshot
 
-        row = session.get(MemoryRetrievalSnapshot, snapshot_id)
-        if row is not None:
+        snapshot_row = session.get(MemoryRetrievalSnapshot, snapshot_id)
+        if snapshot_row is not None:
             linked = link_snapshot_run_usage(
-                dict(row.payload or {}),
+                dict(snapshot_row.payload or {}),
                 run_id=str(signal_meta.get("artifact_id") or job.id),
                 usage_log_id=str(signal_meta.get("audit_log_id") or "") or None,
                 attempts=int(
@@ -1341,19 +1333,19 @@ def process_dossier_question_answer(
             )
             # payload core already frozen at insert; only post_links + ids columns.
             try:
-                row.run_id = (
+                snapshot_row.run_id = (
                     uuid.UUID(str(signal_meta.get("artifact_id") or job.id))
                     if (signal_meta.get("artifact_id") or job.id)
                     else None
                 )
             except (TypeError, ValueError):
-                row.run_id = None
+                snapshot_row.run_id = None
             if signal_meta.get("audit_log_id"):
-                row.usage_log_id = str(signal_meta["audit_log_id"])[:80]
+                snapshot_row.usage_log_id = str(signal_meta["audit_log_id"])[:80]
             # Keep payload immutable core: merge post_links only if payload had dual keys.
-            payload = dict(row.payload or {})
+            payload = dict(snapshot_row.payload or {})
             payload["post_links"] = linked.get("post_links") or {}
-            row.payload = payload
+            snapshot_row.payload = payload
 
     append_audit_event(
         session,
@@ -1463,11 +1455,10 @@ def _answer_via_signal(
     answer_text = str(output.get("answer_text") or "").strip()
     if not answer_text:
         raise ConversationError("La respuesta IA no incluye answer_text.")
-    from opn_oracle.integrations.memory_ask_dual import validate_material_evidence_allowlist
-
     from opn_oracle.integrations.memory_ask_dual import (
         format_allowlist_rejection,
         merge_ask_citation_allowlist,
+        validate_material_evidence_allowlist,
     )
 
     # Align with provider merge: dual IDs + dossier evidence taught via dual_blocks.
@@ -1488,9 +1479,7 @@ def _answer_via_signal(
     ) + validate_material_evidence_allowlist(claims_out, allowed, kind="claims")
     if material_rejected:
         raise ConversationError(
-            format_allowlist_rejection(
-                material_rejected, allowed, kind="facts/claims evidence_ids"
-            )
+            format_allowlist_rejection(material_rejected, allowed, kind="facts/claims evidence_ids")
         )
     validated_hash = (
         str(output.get("validated_output_sha256") or "").strip()

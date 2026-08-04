@@ -363,11 +363,7 @@ def _procurement_cell(row: DossierProcurementItem, column: str) -> Any:
 
     # NIF: top-level aliases first, then per-entry award winners.
     if column in {"nif", "winner_identifier"}:
-        top = (
-            snapshot.get("nif")
-            or snapshot.get("winner_identifier")
-            or snapshot.get("tax_id")
-        )
+        top = snapshot.get("nif") or snapshot.get("winner_identifier") or snapshot.get("tax_id")
         if top is not None and str(top).strip():
             return str(top).strip()
         return _join_unique_texts([_entry_identifier(entry) for entry in entries])
@@ -565,9 +561,7 @@ def _query(export: DataExport, spec: DatasetSpec) -> Select[tuple[Any]]:
         else:
             raise ExportError("Este dataset no admite filtro por expediente.")
     if export.dataset in PROCUREMENT_DATASETS:
-        statement = statement.where(
-            DossierProcurementItem.kind == PROCUREMENT_KIND[export.dataset]
-        )
+        statement = statement.where(DossierProcurementItem.kind == PROCUREMENT_KIND[export.dataset])
     status = export.filters.get("status")
     if status:
         if export.dataset in PROCUREMENT_DATASETS:
@@ -596,10 +590,7 @@ def _query(export: DataExport, spec: DatasetSpec) -> Select[tuple[Any]]:
         else:
             statement = statement.where(
                 or_(
-                    *(
-                        getattr(model, column).ilike(f"%{search}%")
-                        for column in spec.search_columns
-                    )
+                    *(getattr(model, column).ilike(f"%{search}%") for column in spec.search_columns)
                 )
             )
     if "selected_ids" in export.filters:

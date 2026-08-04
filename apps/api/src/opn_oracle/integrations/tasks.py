@@ -118,8 +118,10 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
             )
         external_id = str(event.payload.get("external_id") or event.payload.get("monitor_id"))
         try:
-            # Memory bilateral uses the Memory HTTP client + IC keyring — never the
-            # Signal-Avanza adapter (which fails closed when SIGNAL_AVANZA_CONTRACT_CONFIRMED=false).
+            # Memory bilateral uses the Memory HTTP client
+            # + IC keyring — never the
+            # Signal-Avanza adapter (fails closed when
+            # SIGNAL_AVANZA_CONTRACT_CONFIRMED=false).
             if str(event.event_type or "").startswith("memory.bilateral."):
                 from opn_oracle.integrations.memory_outbox import (
                     publish_memory_bilateral_envelope,
@@ -133,9 +135,7 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
                         tenant_id=tenant_uuid,
                         error_code="memory_envelope_missing",
                     )
-                target = str(
-                    payload.get("target_path") or "/api/v1/memory/v1/ingest/bilateral"
-                )
+                target = str(payload.get("target_path") or "/api/v1/memory/v1/ingest/bilateral")
                 publish_memory_bilateral_envelope(
                     connection=connection,
                     envelope=envelope,

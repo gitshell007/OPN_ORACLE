@@ -860,9 +860,7 @@ def list_ai_audit() -> Any:
         else_=2,
     )
     rows = list(
-        db.session.scalars(
-            query.order_by(failure_rank, AIAuditLog.created_at.desc()).limit(200)
-        )
+        db.session.scalars(query.order_by(failure_rank, AIAuditLog.created_at.desc()).limit(200))
     )
     # Aislamiento: sin expediente → visible en el tenant; con expediente → solo si accesible.
     visible = [

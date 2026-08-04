@@ -737,7 +737,7 @@ export function ReportLibrary({
         <header>
           <div>
             <span className="section-kicker">{reports.length} versiones accesibles</span>
-            <h2 id="report-library-title">Informes</h2>
+            <h2 id="report-library-title">Biblioteca de versiones</h2>
           </div>
           <button className="icon-button bordered" aria-label="Actualizar informes" onClick={() => void load()}>
             <RefreshCw size={16} />

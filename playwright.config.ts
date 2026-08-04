@@ -42,6 +42,9 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
+      // sv2-demo-walkthrough is remote-demo only (ORACLE_E2E_* + seed demo).
+      // Local CI harness has owner@oracle-e2e.test but not the Nexus guion data.
+      testIgnore: /sv2-demo-walkthrough\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
@@ -49,6 +52,7 @@ export default defineConfig({
     },
     {
       name: "mobile",
+      testIgnore: /sv2-demo-walkthrough\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 390, height: 844 },
@@ -56,5 +60,18 @@ export default defineConfig({
         hasTouch: true,
       },
     },
+    // Activated only when demo credentials are present (scripts/run-sv2-demo-e2e.sh).
+    ...(process.env.ORACLE_E2E_EMAIL
+      ? [
+          {
+            name: "sv2-demo",
+            testMatch: /sv2-demo-walkthrough\.spec\.ts/,
+            use: {
+              ...devices["Desktop Chrome"],
+              viewport: { width: 1440, height: 900 },
+            },
+          },
+        ]
+      : []),
   ],
 });

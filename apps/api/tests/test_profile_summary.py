@@ -132,9 +132,7 @@ def test_client_claim_cannot_appear_as_official_fact() -> None:
     """Una afirmación del cliente no puede quedar en facts[] como fuente oficial."""
 
     official = uuid.UUID("11111111-1111-1111-1111-111111111111")
-    declared = declared_evidence_id(
-        uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "own_offer"
-    )
+    declared = declared_evidence_id(uuid.UUID("ab7bba16-3e55-4f35-ad73-0c84e2850688"), "own_offer")
     output = {
         "facts": [
             {
