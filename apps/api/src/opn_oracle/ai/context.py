@@ -398,6 +398,67 @@ def build_tender_search_replan_context(
     )
 
 
+def diversify_evidence_by_source_kind(
+    rows: list[Evidence],
+    *,
+    limit: int = 50,
+    max_per_kind: int = 15,
+) -> list[Evidence]:
+    """Pick evidence with per-source_kind caps so bulk uploads cannot flood the bag.
+
+    Pure selection over an already-ordered candidate list (newest first).
+    Round-robin across kinds up to ``max_per_kind``, then fill remaining slots
+    without the cap. Preserves relative recency within each kind.
+    """
+
+    if not rows or limit <= 0:
+        return []
+    by_kind: dict[str, list[Evidence]] = {}
+    for row in rows:
+        kind = str(getattr(row, "source_kind", None) or "other")
+        by_kind.setdefault(kind, []).append(row)
+    selected: list[Evidence] = []
+    kind_counts: dict[str, int] = {k: 0 for k in by_kind}
+    pointers: dict[str, int] = {k: 0 for k in by_kind}
+    kinds = sorted(by_kind.keys())
+    # Pass 1: round-robin with per-kind cap.
+    while len(selected) < limit:
+        progressed = False
+        for kind in kinds:
+            if kind_counts[kind] >= max_per_kind:
+                continue
+            idx = pointers[kind]
+            bucket = by_kind[kind]
+            if idx >= len(bucket):
+                continue
+            selected.append(bucket[idx])
+            pointers[kind] = idx + 1
+            kind_counts[kind] += 1
+            progressed = True
+            if len(selected) >= limit:
+                break
+        if not progressed:
+            break
+    # Pass 2: fill remainder without cap only when under-subscribed kinds are
+    # exhausted — still prefer kinds below the cap first, then any remainder.
+    if len(selected) < limit:
+        for kind in kinds:
+            if kind_counts[kind] >= max_per_kind:
+                continue
+            bucket = by_kind[kind]
+            while pointers[kind] < len(bucket) and len(selected) < limit:
+                selected.append(bucket[pointers[kind]])
+                pointers[kind] += 1
+                kind_counts[kind] += 1
+    if len(selected) < limit:
+        for kind in kinds:
+            bucket = by_kind[kind]
+            while pointers[kind] < len(bucket) and len(selected) < limit:
+                selected.append(bucket[pointers[kind]])
+                pointers[kind] += 1
+    return selected
+
+
 def build_context(
     dossier_id: uuid.UUID, *, max_tokens: int, include_living_summary: bool = True
 ) -> BuiltContext:
@@ -458,7 +519,12 @@ def build_context(
     evidence_ids = select(EvidenceDossier.evidence_id).where(
         EvidenceDossier.tenant_id == tenant_id, EvidenceDossier.dossier_id == dossier_id
     )
-    evidence_rows = list(
+    # Fetch a wider candidate pool then diversify by source_kind. A bulk
+    # materialization of pliego document chunks (SV2-E2E-VIVO) must not
+    # monopolize the bag for Preguntar / generic agents — that displaced
+    # entity_intel/procurement and collapsed the memory baseline after
+    # opportunity jobs created ~70 document evidence rows.
+    evidence_candidates = list(
         db.session.scalars(
             select(Evidence)
             .where(
@@ -467,8 +533,11 @@ def build_context(
                 Evidence.source_kind.in_(("signal", "document", "procurement", "entity_intel")),
             )
             .order_by(Evidence.created_at.desc())
-            .limit(50)
+            .limit(200)
         )
+    )
+    evidence_rows = diversify_evidence_by_source_kind(
+        evidence_candidates, limit=50, max_per_kind=15
     )
     objectives = list(
         db.session.scalars(

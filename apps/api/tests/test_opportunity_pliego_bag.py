@@ -11,6 +11,7 @@ import uuid
 from datetime import date
 
 from opn_oracle.ai.context import (
+    diversify_evidence_by_source_kind,
     pliego_evidence_family,
     pliego_evidence_richness,
     rank_opportunity_evidence_items,
@@ -225,3 +226,29 @@ def test_pliego_bag_yields_full_fit_and_draft_sections() -> None:
     # Statement literal anchors PCAP criteria / tender.
     statement = str(draft.get("statement") or "")
     assert "CONTR 2026 11077" in statement or "borrador" in statement.lower()
+
+
+class _FakeEvidence:
+    def __init__(self, source_kind: str, extract: str) -> None:
+        self.source_kind = source_kind
+        self.extract = extract
+
+
+def test_diversify_prevents_document_flood_after_pliego_materialize() -> None:
+    """Regresión baseline: 70 document chunks no pueden borrar entity_intel del bag genérico."""
+
+    docs = [_FakeEvidence("document", f"pliego chunk {i}") for i in range(70)]
+    entity = [_FakeEvidence("entity_intel", f"Laura admin fact {i}") for i in range(5)]
+    proc = [_FakeEvidence("procurement", f"pin placsp {i}") for i in range(5)]
+    # Newest first: documents dominate like post-materialize created_at desc.
+    candidates = docs + entity + proc
+    selected = diversify_evidence_by_source_kind(candidates, limit=50, max_per_kind=15)
+    kinds = [r.source_kind for r in selected]
+    # Without diversify, limit=50 would be 50× document. With diversify, all
+    # non-document kinds are preserved and document is soft-capped first.
+    assert kinds.count("entity_intel") == 5
+    assert kinds.count("procurement") == 5
+    assert any("Laura" in r.extract for r in selected)
+    assert kinds.count("document") <= 40  # residual fill after other kinds
+    assert kinds.count("document") < 50
+    assert len(selected) == 50
