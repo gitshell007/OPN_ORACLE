@@ -90,6 +90,53 @@ def test_referenced_documents_deduplicates_and_limits_award_documents() -> None:
     assert result[0]["uri"].endswith("file-0.pdf")
 
 
+def test_referenced_documents_includes_open_tender_top_level_docs() -> None:
+    """Open tenders expose pliegos at snapshot.documents (Signal CODICE)."""
+    report = type(
+        "Report",
+        (),
+        {
+            "source_snapshot": {
+                "procurement_items": [
+                    {
+                        "kind": "tender",
+                        "snapshot": {
+                            "folder_id": "CONTR 2026 11077",
+                            "documents": [
+                                {
+                                    "uri": "https://contrataciondelestado.es/legal.pdf",
+                                    "file_name": "PCAP.pdf",
+                                    "doc_type": "legal",
+                                },
+                                {
+                                    "uri": "https://contrataciondelestado.es/tech.pdf",
+                                    "file_name": "PPT.pdf",
+                                    "doc_type": "technical",
+                                },
+                                {
+                                    # duplicate URI should be ignored
+                                    "uri": "https://contrataciondelestado.es/legal.pdf",
+                                    "file_name": "PCAP-dup.pdf",
+                                    "doc_type": "legal",
+                                },
+                            ],
+                        },
+                    },
+                    # award without documents must not block tender collection
+                    {"kind": "award", "snapshot": {"entries": [{"documents": []}]}},
+                ]
+            }
+        },
+    )()
+    result = _referenced_documents(report)
+    assert len(result) == 2
+    assert result[0]["uri"].endswith("legal.pdf")
+    assert result[0]["doc_type"] == "legal"
+    assert result[0]["file_name"] == "PCAP.pdf"
+    assert result[1]["uri"].endswith("tech.pdf")
+    assert result[1]["doc_type"] == "technical"
+
+
 def test_official_unscanned_policy_is_flagged_narrow_and_auditable() -> None:
     app = Flask(__name__)
     app.config.update(

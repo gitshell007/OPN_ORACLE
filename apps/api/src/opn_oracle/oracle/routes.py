@@ -1646,10 +1646,42 @@ def dossier_procurement_document_report(dossier_id: uuid.UUID) -> Any:
     items = list_procurement_items(
         db.session(), tenant_id=g.active_tenant_id, dossier_id=dossier.id
     )
-    if not any(item.kind == "award" for item in items):
+    # Open tenders with CODICE pliegos are enough for the documentary report
+    # (bid prep). Awards remain supported for post-award competitive study.
+    has_award = any(item.kind == "award" for item in items)
+    has_tender_docs = any(
+        item.kind == "tender"
+        and isinstance(item.snapshot, dict)
+        and (
+            (
+                isinstance(item.snapshot.get("documents"), list)
+                and any(
+                    isinstance(doc, dict) and str(doc.get("uri") or "").strip()
+                    for doc in item.snapshot.get("documents", [])
+                )
+            )
+            or (
+                isinstance(item.snapshot.get("entries"), list)
+                and any(
+                    isinstance(entry, dict)
+                    and isinstance(entry.get("documents"), list)
+                    and any(
+                        isinstance(doc, dict) and str(doc.get("uri") or "").strip()
+                        for doc in entry.get("documents", [])
+                    )
+                    for entry in item.snapshot.get("entries", [])
+                )
+            )
+        )
+        for item in items
+    )
+    if not has_award and not has_tender_docs:
         return problem_response(
             422,
-            detail="Fija al menos una adjudicación antes de generar el informe.",
+            detail=(
+                "Fija al menos una adjudicación o una licitación abierta con "
+                "pliegos CODICE antes de generar el informe."
+            ),
             code="domain_validation",
         )
     payload = _payload()

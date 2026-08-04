@@ -297,7 +297,30 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     "Cargando…"
                   )
                 }
-                disabled={!items.some((item) => item.kind === "award")}
+                disabled={
+                  !items.some((item) => {
+                    if (item.kind === "award") return true;
+                    if (item.kind !== "tender") return false;
+                    const snapshot = item.snapshot as
+                      | {
+                          documents?: Array<{ uri?: string }>;
+                          entries?: Array<{ documents?: Array<{ uri?: string }> }>;
+                        }
+                      | undefined;
+                    if (!snapshot) return false;
+                    const topLevel = Array.isArray(snapshot.documents)
+                      ? snapshot.documents.some((doc) => Boolean(doc?.uri?.trim()))
+                      : false;
+                    if (topLevel) return true;
+                    return Array.isArray(snapshot.entries)
+                      ? snapshot.entries.some(
+                          (entry) =>
+                            Array.isArray(entry?.documents) &&
+                            entry.documents.some((doc) => Boolean(doc?.uri?.trim())),
+                        )
+                      : false;
+                  })
+                }
               >
                 <FileText size={15} />
                 Informe documental

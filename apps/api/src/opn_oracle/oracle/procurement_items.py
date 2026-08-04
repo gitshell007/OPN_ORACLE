@@ -62,6 +62,8 @@ TENDER_SNAPSHOT_KEYS: tuple[str, ...] = (
     "llm_summary",
     "llm_summary_model",
     "llm_summary_at",
+    # URIs CODICE de pliegos (legal/técnico) para el caso prospectivo abierto.
+    "documents",
 )
 AWARD_SNAPSHOT_KEYS: tuple[str, ...] = (
     "folder_id",
@@ -310,6 +312,8 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         amount = _numeric_or_none(snapshot.get("amount"))
         if amount is not None:
             snapshot["amount"] = amount
+        if "documents" in snapshot:
+            snapshot["documents"] = _normalize_documents(snapshot.get("documents"))
     else:
         lot_id = _lot_id_or_none(snapshot.get("lot_id"))
         if lot_id:
