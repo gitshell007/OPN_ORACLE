@@ -754,19 +754,22 @@ def materialize_augment_items(
 ) -> tuple[list[MaterializedCitation], list[EvidenceMappingRow], list[dict[str, Any]]]:
     """Materialize citable Evidence mappings; rematerialize or exclude on checksum change.
 
-    Reuses an existing mapping only when tenant+dossier+source_ref+checksum+extract+locator
-    match exactly. A new checksum forces rematerialization (new evidence id).
+    Identity for reuse is tenant+dossier+source_ref+checksum (content fingerprint).
+    Locator is not part of the identity: the same fact rematerialized across turns
+    must keep one Evidence id. A new checksum forces rematerialization (new id).
+    Never rewrite a stored extract under an existing id.
     """
 
-    index: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    # First mapping per identity wins (caller should pass oldest-first for stability).
+    index: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in existing_mappings or []:
         key = (
             str(row.get("source_ref") or ""),
             str(row.get("checksum") or ""),
-            str(row.get("locator") or ""),
         )
-        if all(key):
-            index[key] = row
+        if not all(key) or key in index:
+            continue
+        index[key] = row
 
     citations: list[MaterializedCitation] = []
     mappings: list[EvidenceMappingRow] = []
@@ -795,23 +798,22 @@ def materialize_augment_items(
                 }
             )
             continue
-        key = (normalized["source_ref"], normalized["checksum"], normalized["locator"])
+        key = (normalized["source_ref"], normalized["checksum"])
         prior = index.get(key)
         evidence_id: str | None = None
         if prior is not None:
-            prior_extract = _humanize_structured_memory_text(
-                str(prior.get("exact_excerpt") or prior.get("extract") or "")
-            )
-            if (
-                str(prior.get("tenant_id") or "") == str(tenant_id)
-                and str(prior.get("dossier_id") or "") == str(dossier_id)
-                and prior_extract[:8000] == normalized["text"][:8000]
-            ):
-                evidence_id = str(prior.get("oracle_evidence_id") or prior.get("evidence_id") or "")
-                if not evidence_id:
-                    evidence_id = None
-                # Prefer humanized prose in the prompt even when reusing the row.
-                normalized["text"] = prior_extract[:8000] or normalized["text"]
+            prior_tenant = str(prior.get("tenant_id") or tenant_id)
+            prior_dossier = str(prior.get("dossier_id") or dossier_id)
+            if prior_tenant == str(tenant_id) and prior_dossier == str(dossier_id):
+                evidence_id = str(
+                    prior.get("oracle_evidence_id") or prior.get("evidence_id") or ""
+                ) or None
+                prior_extract = _humanize_structured_memory_text(
+                    str(prior.get("exact_excerpt") or prior.get("extract") or "")
+                )
+                # Keep the immutable stored extract in the prompt when reusing.
+                if prior_extract:
+                    normalized["text"] = prior_extract[:8000]
         try:
             citation = materialize_signal_item_to_evidence(
                 normalized,
@@ -840,6 +842,16 @@ def materialize_augment_items(
                 locator=citation.locator,
             )
         )
+        # Seed the index so later items in the same turn reuse the new id too.
+        if key not in index:
+            index[key] = {
+                "source_ref": citation.source_ref,
+                "checksum": citation.checksum,
+                "oracle_evidence_id": citation.oracle_evidence_id,
+                "tenant_id": tenant_id,
+                "dossier_id": dossier_id,
+                "exact_excerpt": citation.exact_excerpt,
+            }
     return citations, mappings, excluded
 
 
@@ -1257,6 +1269,108 @@ def dual_context_to_snapshot(ctx: DualAskContext) -> dict[str, Any]:
     }
 
 
+def load_existing_memory_signal_mappings(
+    session: Any,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    limit: int = 5000,
+) -> list[dict[str, Any]]:
+    """Load durable memory_signal Evidence for a dossier as reuse mappings.
+
+    Returns one mapping per source_ref+checksum (oldest row wins) so materialize
+    can reuse Evidence ids across Preguntar turns instead of minting uuid4 each time.
+    """
+
+    from sqlalchemy import select
+
+    from opn_oracle.oracle.links import EvidenceDossier
+    from opn_oracle.oracle.models import Evidence
+
+    rows = list(
+        session.scalars(
+            select(Evidence)
+            .join(
+                EvidenceDossier,
+                (EvidenceDossier.evidence_id == Evidence.id)
+                & (EvidenceDossier.tenant_id == Evidence.tenant_id),
+            )
+            .where(
+                Evidence.tenant_id == tenant_id,
+                EvidenceDossier.dossier_id == dossier_id,
+                Evidence.source_kind == "memory_signal",
+            )
+            .order_by(Evidence.created_at.asc())
+            .limit(max(1, min(int(limit), 20000)))
+        )
+    )
+    mappings: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        provenance = row.provenance if isinstance(row.provenance, dict) else {}
+        locator = row.locator if isinstance(row.locator, dict) else {}
+        source_ref = str(
+            provenance.get("source_ref") or locator.get("source_ref") or ""
+        ).strip()
+        checksum_hex = str(provenance.get("checksum") or "").strip()
+        if not checksum_hex and row.checksum:
+            checksum_hex = row.checksum.hex()
+        if not source_ref or not checksum_hex:
+            continue
+        key = (source_ref, checksum_hex)
+        if key in seen:
+            continue
+        seen.add(key)
+        locator_raw = locator.get("raw")
+        if isinstance(locator_raw, dict):
+            locator_s = json.dumps(locator_raw, sort_keys=True, separators=(",", ":"))
+        else:
+            locator_s = str(locator_raw or "")
+        mappings.append(
+            {
+                "source_ref": source_ref,
+                "checksum": checksum_hex,
+                "locator": locator_s,
+                "oracle_evidence_id": str(row.id),
+                "tenant_id": str(tenant_id),
+                "dossier_id": str(dossier_id),
+                "exact_excerpt": str(row.extract or "")[:8000],
+            }
+        )
+    return mappings
+
+
+def _find_memory_signal_by_identity(
+    session: Any,
+    *,
+    tenant_id: uuid.UUID,
+    source_ref: str,
+    checksum: bytes,
+) -> Any | None:
+    """Oldest memory_signal Evidence with the same source_ref+checksum (tenant scope)."""
+
+    from sqlalchemy import or_, select
+
+    from opn_oracle.oracle.models import Evidence
+
+    if not source_ref or len(checksum) != 32:
+        return None
+    return session.scalar(
+        select(Evidence)
+        .where(
+            Evidence.tenant_id == tenant_id,
+            Evidence.source_kind == "memory_signal",
+            Evidence.checksum == checksum,
+            or_(
+                Evidence.provenance["source_ref"].as_string() == source_ref,
+                Evidence.locator["source_ref"].as_string() == source_ref,
+            ),
+        )
+        .order_by(Evidence.created_at.asc())
+        .limit(1)
+    )
+
+
 def persist_memory_signal_evidence(
     session: Any,
     *,
@@ -1267,8 +1381,16 @@ def persist_memory_signal_evidence(
 ) -> list[str]:
     """Persist immutable Evidence rows (source_kind=memory_signal) + dossier links.
 
+    Reuses an existing row when the requested id is already durable, or when the
+    same tenant identity (source_ref+checksum) already exists. Never rewrites a
+    stored extract/checksum under a different content identity.
+
     Requires migration 0030. When the constraint is missing, raises so caller can
     fall back to mapping-only (fail-visible debt).
+
+    Returns mapping requested_citation_id → durable_evidence_id. When content
+    identity remaps a fresh uuid4 onto an older row, the durable id is the value
+    so callers can rewrite allowlists/citations without minting phantom rows.
     """
 
     from sqlalchemy import select
@@ -1276,23 +1398,34 @@ def persist_memory_signal_evidence(
     from opn_oracle.oracle.links import EvidenceDossier
     from opn_oracle.oracle.models import Evidence
 
-    ids: list[str] = []
+    # requested citation id → durable Evidence id (may remap on content-identity hit)
+    id_map: dict[str, str] = {}
     for c in citations:
-        evidence_id = uuid.UUID(str(c.oracle_evidence_id))
+        requested_key = str(c.oracle_evidence_id)
+        requested_id = uuid.UUID(requested_key)
         try:
             checksum = bytes.fromhex(c.checksum) if len(c.checksum) == 64 else b""
         except ValueError:
             checksum = b""
         if len(checksum) != 32:
             checksum = hashlib.sha256(c.exact_excerpt.encode("utf-8")).digest()
+
         existing = session.scalar(
-            select(Evidence).where(Evidence.id == evidence_id, Evidence.tenant_id == tenant_id)
+            select(Evidence).where(Evidence.id == requested_id, Evidence.tenant_id == tenant_id)
         )
         if existing is None:
-            # Checksum/version change uses a new evidence_id (caller rematerializes).
+            # Content-identity reuse: same fact rematerialized with a fresh uuid4.
+            existing = _find_memory_signal_by_identity(
+                session,
+                tenant_id=tenant_id,
+                source_ref=c.source_ref,
+                checksum=checksum,
+            )
+
+        if existing is None:
             session.add(
                 Evidence(
-                    id=evidence_id,
+                    id=requested_id,
                     tenant_id=tenant_id,
                     source_kind="memory_signal",
                     source_url=None,
@@ -1317,14 +1450,17 @@ def persist_memory_signal_evidence(
                 )
             )
             session.flush()
+            durable_id = requested_id
         else:
             # Never rewrite immutable extract/checksum; mismatch means exclude upstream.
             if existing.checksum != checksum:
                 continue
+            durable_id = existing.id
+
         link = session.scalar(
             select(EvidenceDossier).where(
                 EvidenceDossier.tenant_id == tenant_id,
-                EvidenceDossier.evidence_id == evidence_id,
+                EvidenceDossier.evidence_id == durable_id,
                 EvidenceDossier.dossier_id == dossier_id,
             )
         )
@@ -1332,10 +1468,10 @@ def persist_memory_signal_evidence(
             session.add(
                 EvidenceDossier(
                     tenant_id=tenant_id,
-                    evidence_id=evidence_id,
+                    evidence_id=durable_id,
                     dossier_id=dossier_id,
                 )
             )
             session.flush()
-        ids.append(str(evidence_id))
-    return ids
+        id_map[requested_key] = str(durable_id)
+    return id_map

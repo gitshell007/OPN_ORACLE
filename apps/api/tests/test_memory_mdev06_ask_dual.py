@@ -393,6 +393,56 @@ def test_checksum_change_rematerializes_new_evidence_id() -> None:
     assert m2[0].checksum == "c" * 64
 
 
+def test_source_ref_checksum_reuses_evidence_id_across_turns() -> None:
+    """SV2-EVIDENCIA-REUSO: identity is source_ref+checksum (locator ignored)."""
+    tenant = str(uuid.uuid4())
+    dossier = str(uuid.uuid4())
+    first = _item(
+        checksum="d" * 64,
+        tenant_id=tenant,
+        dossier_id=dossier,
+        source_ref="fact:39502",
+    )
+    c1, _m1, ex1 = materialize_augment_items([first], tenant_id=tenant, dossier_id=dossier)
+    assert len(c1) == 1 and not ex1
+    eid1 = c1[0].oracle_evidence_id
+
+    # Same identity, different locator string (as happens across retrieval turns).
+    second = dict(first)
+    second["locator"] = '{"page":9,"chunk":99}'
+    existing = [
+        {
+            "source_ref": first["source_ref"],
+            "checksum": first["checksum"],
+            "locator": first["locator"],
+            "oracle_evidence_id": eid1,
+            "tenant_id": tenant,
+            "dossier_id": dossier,
+            "exact_excerpt": first["text"],
+        }
+    ]
+    c2, m2, ex2 = materialize_augment_items(
+        [second],
+        tenant_id=tenant,
+        dossier_id=dossier,
+        existing_mappings=existing,
+    )
+    assert len(c2) == 1 and not ex2
+    assert c2[0].oracle_evidence_id == eid1
+    assert m2[0].oracle_evidence_id == eid1
+
+
+def test_same_turn_duplicate_items_share_one_evidence_id() -> None:
+    tenant = str(uuid.uuid4())
+    dossier = str(uuid.uuid4())
+    a = _item(item_id="sig-a", checksum="e" * 64, tenant_id=tenant, dossier_id=dossier)
+    b = _item(item_id="sig-b", checksum="e" * 64, tenant_id=tenant, dossier_id=dossier)
+    c, m, ex = materialize_augment_items([a, b], tenant_id=tenant, dossier_id=dossier)
+    assert not ex and len(c) == 2
+    assert c[0].oracle_evidence_id == c[1].oracle_evidence_id
+    assert m[0].oracle_evidence_id == m[1].oracle_evidence_id
+
+
 def test_tenant_mismatch_excludes_item() -> None:
     tenant = str(uuid.uuid4())
     dossier = str(uuid.uuid4())

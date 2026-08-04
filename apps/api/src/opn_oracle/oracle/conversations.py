@@ -640,6 +640,7 @@ def process_dossier_question_answer(
     from dataclasses import replace as dc_replace
 
     from opn_oracle.integrations.memory_ask_dual import (
+        EvidenceMappingRow,
         MemoryMode,
         PermanentMemoryAskError,
         RetryableMemoryAskError,
@@ -651,6 +652,7 @@ def process_dossier_question_answer(
         format_allowlist_rejection,
         link_snapshot_run_usage,
         load_dossier_citable_evidence_ids,
+        load_existing_memory_signal_mappings,
         load_oracle_authority_from_session,
         merge_ask_citation_allowlist,
         persist_memory_signal_evidence,
@@ -908,6 +910,18 @@ def process_dossier_question_answer(
         typed_mode = "disabled"
         effective_mode = "disabled"
 
+    # Reuse durable memory_signal Evidence by source_ref+checksum across turns
+    # so Preguntar does not mint a fresh uuid4 row per fact on every ask.
+    existing_ms_mappings: list[dict[str, Any]] = []
+    if typed_mode == "augment":
+        try:
+            existing_ms_mappings = load_existing_memory_signal_mappings(
+                session, tenant_id=tenant_id, dossier_id=dossier_id
+            )
+        except Exception:
+            # Fail-open for reuse only: materialize still works (may grow rows).
+            existing_ms_mappings = []
+
     # Build dual blocks + materialize allowlist (shadow injects zero items).
     dual = build_dual_ask_context(
         mode=typed_mode,
@@ -918,6 +932,7 @@ def process_dossier_question_answer(
         coverage_manifest=coverage,
         memory_policy=policy,
         oracle_authority=oracle_authority,
+        existing_mappings=existing_ms_mappings,
         job_id=str(job.id),
         message_id=str(message.id),
     )
@@ -941,18 +956,23 @@ def process_dossier_question_answer(
     # phantom allowed_evidence_ids: only successfully persisted+linked IDs remain.
     if typed_mode == "augment" and dual.citations:
         try:
-            evidence_persisted = list(
-                persist_memory_signal_evidence(
-                    session,
-                    tenant_id=tenant_id,
-                    dossier_id=dossier_id,
-                    citations=dual.citations,
-                    job_id=str(job.id),
-                )
+            persist_result = persist_memory_signal_evidence(
+                session,
+                tenant_id=tenant_id,
+                dossier_id=dossier_id,
+                citations=dual.citations,
+                job_id=str(job.id),
             )
+            # Prefer requested→durable map; accept list[str] from older mocks/tests.
+            if isinstance(persist_result, dict):
+                id_map = {str(k): str(v) for k, v in persist_result.items()}
+            else:
+                id_map = {str(x): str(x) for x in (persist_result or [])}
+            evidence_persisted = list(dict.fromkeys(id_map.values()))
         except Exception as persist_error:
             # Visible failure: exclude all materialised IDs, mark coverage failed.
             evidence_persisted = []
+            id_map = {}
             persist_degraded = True
             failed = list(coverage.get("failed") or [])
             failed.append(
@@ -989,13 +1009,36 @@ def process_dossier_question_answer(
             )
             coverage["failed"] = failed
 
-        # Rebuild allowlist/items/manifest from the effectively persisted set only.
-        kept_citations = tuple(c for c in dual.citations if c.oracle_evidence_id in persisted_set)
-        kept_mappings = tuple(m for m in dual.mappings if m.oracle_evidence_id in persisted_set)
+        # Rebuild allowlist/items/manifest from durable ids only. Remap citation
+        # ids when content-identity reuse returned an older Evidence row.
+        kept_citations_list = []
+        for c in dual.citations:
+            durable = id_map.get(c.oracle_evidence_id)
+            if not durable:
+                continue
+            if durable != c.oracle_evidence_id:
+                kept_citations_list.append(dc_replace(c, oracle_evidence_id=durable))
+            else:
+                kept_citations_list.append(c)
+        kept_citations = tuple(kept_citations_list)
+        kept_mappings = tuple(
+            EvidenceMappingRow(
+                signal_item_id=m.signal_item_id,
+                oracle_evidence_id=id_map.get(m.oracle_evidence_id, m.oracle_evidence_id),
+                source_ref=m.source_ref,
+                source_version=m.source_version,
+                checksum=m.checksum,
+                classification=m.classification,
+                locator=m.locator,
+                mapping_version=m.mapping_version,
+            )
+            for m in dual.mappings
+            if m.oracle_evidence_id in id_map
+        )
         dropped = [
             c.oracle_evidence_id
             for c in dual.citations
-            if c.oracle_evidence_id not in persisted_set
+            if c.oracle_evidence_id not in id_map
         ]
         if dropped:
             excluded = list(coverage.get("excluded") or [])
