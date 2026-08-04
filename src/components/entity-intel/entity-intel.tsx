@@ -1064,9 +1064,6 @@ export function EntityGraphExplorer({
     () => new Set(matchingNodeResults.map(({ id }) => id)),
     [matchingNodeResults],
   );
-  // Keep in sync during render so an in-flight cytoscape import can apply
-  // the latest search highlights the moment the instance is created.
-  matchingNodeIdsRef.current = matchingNodeIds;
   useEffect(() => {
     temporalBoundsRef.current = temporalBounds;
     timeRangeRef.current = timeRange;
@@ -1474,7 +1471,13 @@ export function EntityGraphExplorer({
     applyGraphLabelDensity(graphRef.current, labelDensity);
   }, [labelDensity]);
 
+  // Sync the ref in layout effect (legal) before painting highlights.
+  // Always write the ref even when graphRef is null so an in-flight cytoscape
+  // import can re-apply pending search matches at mount without racing this
+  // effect (layout effects run before the next macrotask where the import
+  // resolves). Writing during render is forbidden by react-hooks/refs.
   useLayoutEffect(() => {
+    matchingNodeIdsRef.current = matchingNodeIds;
     const instance = graphRef.current;
     if (!instance) return;
     instance.batch(() => {
