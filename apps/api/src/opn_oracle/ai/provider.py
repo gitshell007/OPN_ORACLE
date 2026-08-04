@@ -864,6 +864,111 @@ class OllamaLLMProvider:
         return ProviderHealth("healthy", self.model)
 
 
+# SV2-PRIORIZA-FLAKE: un fact sin citas no es error fatal — se retira antes de
+# validar el schema. Menos de este mínimo tras sanear implica confianza degradada
+# (anti-incentivo de publicar con un único fact pobre).
+MIN_GROUNDED_FACTS_FOR_QUALITY = 2
+QUALITY_DEGRADED_CONFIDENCE_CAP = 40
+
+
+class UncitedFactsError(ValueError):
+    """Todos los facts emitidos carecían de evidence_ids y se retiraron."""
+
+
+def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
+    """Retira facts sin ``evidence_ids`` antes de la validación Pydantic.
+
+    Misma familia que la frontera del 095 y el saneo RT-07: la forma del modelo
+    no puede matar el job. Un fact sin citas se omite con aviso visible; si tras
+    el saneo no queda ninguno de los emitidos, falla con mensaje explícito
+    («el modelo no citó nada»), no con ``ValidationError: evidence_ids too_short``.
+
+    Si quedan 1..MIN_GROUNDED_FACTS_FOR_QUALITY-1 facts fundados, degrada
+    confianza y marca needs_review en warnings (coherente con gates de
+    fundamentación; no relaja el schema).
+    """
+
+    del agent  # reserved for agent-specific thresholds; policy is uniform for now
+    try:
+        candidate = json.loads(raw_output)
+    except ValueError:
+        return raw_output
+    if not isinstance(candidate, dict):
+        return raw_output
+
+    facts = candidate.get("facts")
+    if not isinstance(facts, list):
+        return raw_output
+
+    kept: list[Any] = []
+    dropped = 0
+    dropped_previews: list[str] = []
+    for item in facts:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        evidence = item.get("evidence_ids")
+        if not isinstance(evidence, list) or len(evidence) == 0:
+            dropped += 1
+            preview = str(item.get("statement") or item.get("text") or "").strip()
+            if preview:
+                dropped_previews.append(preview[:100])
+            continue
+        kept.append(item)
+
+    if dropped == 0:
+        return raw_output
+
+    if not kept:
+        raise UncitedFactsError(
+            "el modelo no citó nada: todos los facts carecían de evidence_ids y se "
+            f"retiraron ({dropped} fact(s) sin citas). No se publica un análisis sin "
+            "fundamentación."
+        )
+
+    candidate["facts"] = kept
+    warnings = list(candidate["warnings"]) if isinstance(candidate.get("warnings"), list) else []
+    preview_blob = "; ".join(dropped_previews)[:220]
+    drop_warning = (
+        f"Se retiraron {dropped} fact(s) sin evidence_ids (no publicables"
+        f"{f': {preview_blob}' if preview_blob else ''}). "
+        "Un fact sin citas no es un error fatal del job: se omite y se publica lo fundado."
+    )
+    if drop_warning not in warnings:
+        warnings.append(drop_warning)
+
+    if len(kept) < MIN_GROUNDED_FACTS_FOR_QUALITY:
+        conf_raw = candidate.get("confidence")
+        try:
+            conf_i = int(conf_raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            conf_i = 50
+        new_conf = min(max(0, conf_i), QUALITY_DEGRADED_CONFIDENCE_CAP)
+        candidate["confidence"] = new_conf
+        scores = candidate.get("scores")
+        if isinstance(scores, dict) and "confidence" in scores:
+            try:
+                scores["confidence"] = min(
+                    max(0, int(scores["confidence"])), QUALITY_DEGRADED_CONFIDENCE_CAP
+                )
+            except (TypeError, ValueError):
+                scores["confidence"] = QUALITY_DEGRADED_CONFIDENCE_CAP
+        # entity_resolution: decision match/no_match sin masa de hechos → needs_review
+        if candidate.get("decision") in {"match", "no_match", "create_new"}:
+            candidate["decision"] = "needs_review"
+        quality_warning = (
+            f"Tras sanear facts sin citas quedan solo {len(kept)} fact(s) fundado(s) "
+            f"(mínimo razonable={MIN_GROUNDED_FACTS_FOR_QUALITY}). "
+            f"Confianza degradada a {new_conf}; se recomienda revisión humana "
+            "(needs_review). Publicar con un único fact pobre no es aceptable."
+        )
+        if quality_warning not in warnings:
+            warnings.append(quality_warning)
+
+    candidate["warnings"] = warnings
+    return json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
+
+
 def _merge_allowed_evidence_ids(context: dict[str, Any]) -> list[str]:
     """Union top-level allowlist with dual-memory IDs under requested_scope.
 
@@ -1296,12 +1401,21 @@ class SignalGovernedLLMProvider:
         normalized_output = _normalize_signal_candidate_json(
             request, normalized_output, allowed_evidence_ids
         )
+        # SV2-PRIORIZA-FLAKE: retirar facts sin citas antes del schema (no matar el job).
+        try:
+            normalized_output = _sanitize_uncited_facts_json(
+                normalized_output, agent=request.agent
+            )
+        except UncitedFactsError:
+            raise
         try:
             output = schema.model_validate_json(normalized_output)
             _validate_allowed_evidence(output, allowed_evidence_ids)
             if request.agent == "dossier_situation_summary" and not allowed_evidence_ids:
                 output = _safe_empty_evidence_summary(request, schema)
                 safe_fallback_used = True
+        except UncitedFactsError:
+            raise
         except ValueError as validation_error:
             repair_errors: list[dict[str, Any]]
             if isinstance(validation_error, ValidationError):
@@ -1358,7 +1472,12 @@ class SignalGovernedLLMProvider:
                 repaired_raw_output = _normalize_signal_candidate_json(
                     request, _signal_output(payload), allowed_evidence_ids
                 )
+                repaired_raw_output = _sanitize_uncited_facts_json(
+                    repaired_raw_output, agent=request.agent
+                )
                 repaired_output = schema.model_validate_json(repaired_raw_output)
+            except UncitedFactsError:
+                raise
             except ValueError:
                 if allowed_evidence_ids:
                     raise
