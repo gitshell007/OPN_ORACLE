@@ -91,8 +91,11 @@ class ReportAIUsageBinding(TenantDomainMixin, Base):
     usage_payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
-    attempts_payload: Mapped[Any] = mapped_column(
-        JSONB, nullable=False, default=None, server_default=text("null")
+    # Optional attempt trail: migration 0032 is nullable; null is a valid absence
+    # of provider-attempt detail (not an empty list). nullable=False here was a
+    # same-commit despiste that made `db check` fail (model NOT NULL vs DB NULL).
+    attempts_payload: Mapped[Any | None] = mapped_column(
+        JSONB, nullable=True, default=None, server_default=text("null")
     )
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
 
