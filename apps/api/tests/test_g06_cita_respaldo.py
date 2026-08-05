@@ -13,14 +13,19 @@ from opn_oracle.ai.source_url_policy import (
     SOURCE_URL_UNVERIFIED_LABEL,
     SOURCE_URL_UNVERIFIED_STATUS,
     annotate_source_urls,
+    apply_source_url_policy_to_candidates,
+    apply_source_url_policy_to_output,
     is_valid_http_source_url,
     sanitize_source_urls,
 )
 from opn_oracle.integrations.citation_support import (
     CITATION_DOES_NOT_SUPPORT,
+    build_evidence_text_index,
     claim_supported_by_evidence,
     enforce_citation_support,
+    evaluate_material_support,
     extract_support_anchors,
+    format_support_rejection_summary,
     is_person_role_claim,
 )
 
@@ -215,3 +220,221 @@ def test_market_competitor_candidate_rejects_garbage_urls_only() -> None:
     assert cand.source_urls == []
     assert cand.source_urls_meta == []
     assert cand.source_urls_label is None
+
+
+def test_source_url_rejects_credentials_and_malformed() -> None:
+    assert not is_valid_http_source_url("https://user:pass@evil.example/x")
+    assert not is_valid_http_source_url("https://")
+    assert not is_valid_http_source_url("http://.bad")
+    assert not is_valid_http_source_url("https://exa mple.com/x")
+    # urlparse ValueError path (control char in netloc-like forms is rare; empty after strip)
+    assert not is_valid_http_source_url("   ")
+    assert not is_valid_http_source_url("x" * 1600)
+
+
+def test_sanitize_source_urls_dedupes_and_caps() -> None:
+    urls = [
+        "https://www.alpha-one.es/a",
+        "https://www.alpha-one.es/a",
+        "ftp://ignored",
+        "https://www.beta-two.es/b",
+        "https://www.gamma-three.es/c",
+        "https://www.delta-four.es/d",
+        "https://www.epsilon-five.es/e",
+        "https://www.zeta-six.es/f",
+    ]
+    cleaned = sanitize_source_urls(urls, max_items=5)
+    assert cleaned == [
+        "https://www.alpha-one.es/a",
+        "https://www.beta-two.es/b",
+        "https://www.gamma-three.es/c",
+        "https://www.delta-four.es/d",
+        "https://www.epsilon-five.es/e",
+    ]
+
+
+def test_apply_source_url_policy_to_candidates_and_output() -> None:
+    candidates = apply_source_url_policy_to_candidates(
+        [
+            {
+                "name": "Acme",
+                "source_urls": [
+                    "https://www.acme-inventada.es/x",
+                    "not-url",
+                    "https://example.com/docs",
+                ],
+            },
+            "skip-me",
+            {"name": "Empty", "source_urls": []},
+        ]
+    )
+    assert candidates[0]["source_urls"] == ["https://www.acme-inventada.es/x"]
+    assert candidates[0]["source_urls_label"] == SOURCE_URL_UNVERIFIED_LABEL
+    assert candidates[0]["source_urls_status"] == SOURCE_URL_UNVERIFIED_STATUS
+    assert candidates[0]["source_urls_meta"][0]["verified"] is False
+    assert candidates[1]["source_urls"] == []
+    assert candidates[1]["source_urls_label"] is None
+
+    with_urls = apply_source_url_policy_to_output(
+        {
+            "candidates": [
+                {
+                    "name": "X",
+                    "source_urls": ["https://www.empresa-inventada-xyz.es/perfil"],
+                }
+            ],
+            "warnings": [],
+        }
+    )
+    assert with_urls["candidates"][0]["source_urls_label"] == SOURCE_URL_UNVERIFIED_LABEL
+    assert any(SOURCE_URL_UNVERIFIED_LABEL in w for w in with_urls["warnings"])
+
+    no_urls = apply_source_url_policy_to_output({"candidates": [{"name": "Y"}], "warnings": []})
+    assert no_urls["warnings"] == []
+
+    non_list = apply_source_url_policy_to_output({"candidates": "bad", "warnings": "also-bad"})
+    assert non_list["candidates"] == "bad"
+    assert non_list["warnings"] == []
+
+
+def test_extract_anchors_dates_and_role_only_names() -> None:
+    anchors = extract_support_anchors(
+        "El contrato se firmó el 15/03/2024 y el CPV es 33100000 con 12,5 millones."
+    )
+    assert any("2024" in d or "/" in d for d in anchors.dates + anchors.numbers)
+    assert any(n.startswith("12") or "125" in n or "33100000" in n for n in anchors.numbers)
+
+    # Solo rol genérico capitalizado → no es nombre propio crítico
+    role_only = extract_support_anchors("El Administrador Unico figura en el registro.")
+    assert role_only.proper_names == ()
+
+
+def test_claim_supported_content_ratio_and_empty_corpus() -> None:
+    ok, missing = claim_supported_by_evidence(
+        "Se describe un procedimiento abierto con lotes especiales",
+        ["Solo hay un sello de entrada sin más detalle."],
+        min_content_ratio=0.9,
+    )
+    assert not ok
+    assert missing
+
+    ok2, missing2 = claim_supported_by_evidence(
+        "Se describe un procedimiento abierto con lotes",
+        ["El procedimiento abierto con lotes se publica en el BOE."],
+        min_content_ratio=0.3,
+    )
+    assert ok2
+    assert missing2 == []
+
+    ok3, missing3 = claim_supported_by_evidence("Laura Méndez es administradora", [""])
+    assert not ok3
+    assert missing3
+
+    ok4, _ = claim_supported_by_evidence("ok", ["corpus vacío de anclajes no críticos"])
+    assert ok4  # sin anclajes críticos ni tokens de contenido ≥3 tras stopwords
+
+
+def test_build_evidence_text_index_merges_sources() -> None:
+    index = build_evidence_text_index(
+        memory_items=[
+            {"evidence_id": "e1", "text": "Fragmento memoria A"},
+            {"id": "e2", "extract": "Fragmento memoria B"},
+            "skip",
+            {"evidence_id": "", "text": "sin id"},
+        ],
+        signal_factual={
+            "items": [
+                {"evidence_id": "e1", "text": "extra e1"},
+                {"id": "e3", "extract": "signal only"},
+            ]
+        },
+        oracle_authority={
+            "oracle_evidence": [
+                {"id": "e4", "extract": "oracle pin"},
+                {"evidence_id": "e5", "text": "oracle text"},
+            ]
+        },
+        citations=[
+            {"evidence_id": "e1", "quote": "cita del modelo"},
+            {"evidence_id": "e6", "text": "quote text"},
+            "skip-cit",
+        ],
+    )
+    assert "e1" in index
+    assert "Fragmento memoria A" in index["e1"]
+    assert "cita del modelo" in index["e1"]
+    assert index["e3"] == "signal only"
+    assert "oracle pin" in index["e4"]
+    assert "e6" in index
+
+
+def test_evaluate_material_support_skips_without_statement_or_ids() -> None:
+    assert evaluate_material_support({}, {}, path="$.facts[0]") is None
+    assert evaluate_material_support({"statement": "x"}, {}, path="$.facts[0]") is None
+    assert (
+        evaluate_material_support(
+            {"statement": "El CPV es 12345678", "evidence_ids": "not-a-list"},
+            {},
+            path="$.facts[0]",
+        )
+        is None
+    )
+    # evidence_id singular
+    issue = evaluate_material_support(
+        {
+            "statement": "El administrador es Laura Méndez",
+            "evidence_id": "e-x",
+        },
+        {"e-x": "Solo licitación sin personas."},
+        path="$.facts[0]",
+    )
+    assert issue is not None
+    assert issue.action == "withdraw"
+    assert "Laura" in " ".join(issue.missing_anchors) or "laura" in issue.reason.casefold()
+
+
+def test_format_support_rejection_summary_and_non_mapping_items() -> None:
+    result = enforce_citation_support(
+        facts=["not-a-mapping", {"statement": "sin citas"}],
+        claims=[
+            {
+                "statement": "Importe 9.999.999 EUR y CPV 99999999",
+                "evidence_ids": ["e1"],
+            },
+            {
+                "statement": "El administrador es Laura Méndez",
+                "evidence_ids": ["e1"],
+            },
+        ],
+        evidence_text_by_id={"e1": "Licitación sin cifras ni personas."},
+    )
+    assert result.degraded_count >= 1
+    assert result.withdrawn_count >= 1
+    summary = format_support_rejection_summary(result)
+    assert summary is not None
+    assert CITATION_DOES_NOT_SUPPORT in summary
+    assert "retirada" in summary.casefold() or "cargo" in summary.casefold()
+
+    empty = enforce_citation_support(facts=[], claims=[], evidence_text_by_id={})
+    assert format_support_rejection_summary(empty) is None
+
+
+def test_claim_text_key_and_single_token_anchor() -> None:
+    """Cubre statement vía 'claim'/'text' y anclaje de un solo token."""
+    result = enforce_citation_support(
+        facts=[
+            {
+                "text": "Bilbao es la sede",
+                "evidence_ids": ["e1"],
+            }
+        ],
+        claims=[
+            {
+                "claim": "El NIF es B12345678",
+                "evidence_ids": ["e1"],
+            }
+        ],
+        evidence_text_by_id={"e1": "Sede social en Bilbao. NIF B12345678."},
+    )
+    assert result.kept_count == 2
+    assert result.warnings == []

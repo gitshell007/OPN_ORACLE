@@ -284,9 +284,12 @@ def _anchor_in_corpus(anchor: str, corpus_fold: str, corpus_digits: str) -> bool
     if re.fullmatch(r"\d+", a):
         return a in corpus_digits
     # Nombre multi-palabra: todos los tokens significativos deben aparecer.
+    # Tras quitar stopwords (El/La/…), un solo token restante se busca solo.
     tokens = [t for t in re.split(r"\s+", a) if t and _fold(t) not in _STOP]
     if len(tokens) >= 2:
         return all(_fold(t) in corpus_fold for t in tokens)
+    if len(tokens) == 1:
+        return _fold(tokens[0]) in corpus_fold
     return _fold(a) in corpus_fold
 
 
