@@ -643,9 +643,7 @@ def procurement_client_for_tenant_bound(
                 "Guarda la CTC del tenant en la conexión (no uses solo SIGNAL_AI_API_KEY)."
             ),
         )
-    base_url = (connection.base_url or "").strip() or str(
-        current_app.config["SIGNAL_AI_BASE_URL"]
-    )
+    base_url = (connection.base_url or "").strip() or str(current_app.config["SIGNAL_AI_BASE_URL"])
     allowed_hosts = frozenset(
         item.strip().lower()
         for item in current_app.config["SIGNAL_AI_ALLOWED_HOSTS"].split(",")

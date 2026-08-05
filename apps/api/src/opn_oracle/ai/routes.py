@@ -736,9 +736,7 @@ def _market_discovery_input(value: Any) -> dict[str, Any]:
         raise ValueError("La descripción debe tener entre 10 y 4000 caracteres.")
     knowledge = str(value.get("competitors_knowledge") or "known").strip().lower()
     if knowledge not in {"known", "unknown", "not_seeking"}:
-        raise ValueError(
-            "competitors_knowledge debe ser known, unknown o not_seeking."
-        )
+        raise ValueError("competitors_knowledge debe ser known, unknown o not_seeking.")
     known_names = _clean_list("known_names", limit=50) if knowledge == "known" else []
     return {
         "description": description,
