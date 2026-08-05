@@ -8,6 +8,7 @@ import json
 import re
 import unicodedata
 import uuid
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import UTC, date, datetime
 from typing import Any
@@ -1172,11 +1173,34 @@ def _frozen_report_context(report: Report, max_tokens: int) -> BuiltContext:
     )
 
 
+def _preserve_snapshot_overlays(
+    previous: Mapping[str, Any] | None, rebuilt: dict[str, Any]
+) -> dict[str, Any]:
+    """Reattach preprocessing fields that `_snapshot` does not rebuild.
+
+    Callers (e.g. procurement encrypted-PDF fallback) write overlays such as
+    ``document_notes`` / ``encrypted_pdf_fallback`` onto the draft snapshot.
+    A full replace of ``source_snapshot`` would erase them and leave the reader
+    without the honesty notice. Any key absent from the rebuilt payload is
+    treated as an overlay and kept; rebuilt keys always win.
+    """
+    if not previous:
+        return rebuilt
+    merged = dict(rebuilt)
+    for key, value in previous.items():
+        if key not in rebuilt:
+            merged[key] = value
+    return merged
+
+
 def refresh_report_snapshot(report: Report) -> None:
     """Replace a draft snapshot after a durable pre-processing step.
 
     Procurement document reports use this only before invoking the report
     writer, so the final snapshot remains immutable and reproducible.
+
+    Overlay fields written before the refresh (document notes, frozen
+    enrichments, flags) are preserved when `_snapshot` does not rebuild them.
     """
     if report.status not in {"draft", "generating"}:
         raise ReportWorkflowError("El snapshot solo se puede preparar antes de generar.")
@@ -1189,7 +1213,9 @@ def refresh_report_snapshot(report: Report) -> None:
     if dossier is None:
         raise ReportWorkflowError("Expediente no disponible para preparar el informe.")
     template = ReportTemplateRegistry().get(report.template_key, report.template_version)
+    previous_snapshot = dict(report.source_snapshot or {})
     snapshot, evidence = _snapshot(dossier, template, report.options)
+    snapshot = _preserve_snapshot_overlays(previous_snapshot, snapshot)
     db.session.execute(
         delete(ReportSnapshotEvidence).where(ReportSnapshotEvidence.report_id == report.id)
     )
@@ -1984,12 +2010,29 @@ def publish_report(report: Report, *, publisher_user_id: uuid.UUID) -> Report:
     return current
 
 
+def _document_notes_from_snapshot(source_snapshot: Mapping[str, Any] | None) -> list[str]:
+    """Readable honesty notes for the client (never internal codes alone)."""
+    raw = (source_snapshot or {}).get("document_notes") or []
+    notes: list[str] = []
+    if not isinstance(raw, list):
+        return notes
+    for item in raw:
+        if isinstance(item, str):
+            text = item.strip()
+            if text and text not in notes:
+                notes.append(text)
+    return notes
+
+
 def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
     revision = latest_revision(report.id)
     artifacts = []
     reviews = []
     evidence = []
     generation: dict[str, Any] | None = None
+    source_snapshot = getattr(report, "source_snapshot", None) or {}
+    document_notes = _document_notes_from_snapshot(source_snapshot)
+    encrypted_pdf_fallback = bool(source_snapshot.get("encrypted_pdf_fallback"))
     if getattr(report, "ai_artifact_id", None) is not None:
         generation_row = db.session.execute(
             select(AIAuditLog)
@@ -2032,6 +2075,29 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
                 .order_by(ReportSnapshotEvidence.evidence_id)
             )
         )
+    revision_payload: dict[str, Any] | None = None
+    if revision is not None:
+        content: dict[str, Any] | None = None
+        if detail:
+            content = _sanitize_report_content_for_ui(revision.content)
+            # Surface snapshot honesty notes inside content.warnings so legacy
+            # viewers that only render revision content still show the notice.
+            if document_notes and isinstance(content, dict):
+                content = dict(content)
+                warnings = list(content.get("warnings") or [])
+                for note in document_notes:
+                    if note not in warnings:
+                        warnings.append(note)
+                content["warnings"] = warnings
+        revision_payload = {
+            "id": str(revision.id),
+            "revision_no": revision.revision_no,
+            "status": revision.status,
+            "title": revision.title,
+            "content": content,
+            "change_summary": revision.change_summary,
+            "created_at": revision.created_at.isoformat(),
+        }
     return {
         "id": str(report.id),
         "dossier_id": str(report.dossier_id),
@@ -2052,19 +2118,9 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
         "error_message": getattr(report, "error_message", None),
         "generation": generation,
         "version": report.version,
-        "revision": (
-            {
-                "id": str(revision.id),
-                "revision_no": revision.revision_no,
-                "status": revision.status,
-                "title": revision.title,
-                "content": _sanitize_report_content_for_ui(revision.content) if detail else None,
-                "change_summary": revision.change_summary,
-                "created_at": revision.created_at.isoformat(),
-            }
-            if revision
-            else None
-        ),
+        "document_notes": document_notes,
+        "encrypted_pdf_fallback": encrypted_pdf_fallback,
+        "revision": revision_payload,
         "artifacts": [
             {
                 "id": str(item.id),

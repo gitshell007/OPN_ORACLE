@@ -30,6 +30,9 @@ from opn_oracle.extensions import db
 from opn_oracle.oracle.models import Evidence, Report
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.reporting.service import (
+    _sha256 as _snapshot_sha256,
+)
+from opn_oracle.reporting.service import (
     process_report,
     refresh_report_snapshot,
 )
@@ -457,7 +460,10 @@ def process_procurement_document_report(report_id: uuid.UUID, job: Any) -> dict[
             "El informe documental requiere la plantilla tender/v1."
         )
     outcome = _ingest_documents(report, job)
-    # Superficie el aviso de extracto en el snapshot del informe (visible al lector).
+    # Refresco primero: reincorpora la evidencia recién ingerida. El aviso de
+    # PDF cifrado se escribe DESPUÉS para no morir en el replace del snapshot
+    # (refresh también preserva overlays, por si se dispara desde otros caminos).
+    refresh_report_snapshot(report)
     warnings = list(outcome.get("warnings") or [])
     extract_warnings = [w for w in warnings if ENCRYPTED_PDF_EXTRACT_WARNING in w]
     if extract_warnings:
@@ -469,6 +475,6 @@ def process_procurement_document_report(report_id: uuid.UUID, job: Any) -> dict[
         snap["document_notes"] = notes
         snap["encrypted_pdf_fallback"] = True
         report.source_snapshot = snap
+        report.source_snapshot_hash = _snapshot_sha256(snap)
         db.session.commit()
-    refresh_report_snapshot(report)
     return {**process_report(report.id, job), "procurement_documents": outcome}
