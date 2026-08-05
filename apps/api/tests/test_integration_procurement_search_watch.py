@@ -270,7 +270,7 @@ def test_delete_saved_search_unlinks_profile_and_reuses_retired_watch(
     )
     monkeypatch.setattr(
         procurement,
-        "procurement_client_from_config",
+        "procurement_client_for_tenant_bound",
         FakeDeleteClient,
     )
     delete_request_id = uuid.uuid4().hex

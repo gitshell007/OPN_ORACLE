@@ -5,20 +5,28 @@ Signal AI service-to-service configuration and SSRF/error boundary already
 used by entity intelligence, while keeping the two authentication families
 separate:
 
-* global registry data: API key only;
-* saved tender searches: API key plus X-OPN-External-Tenant-ID.
+* global registry data: ``SIGNAL_AI_API_KEY`` only (no tenant header);
+* saved tender searches (tenant-bound Oracle namespace): active Signal connection
+  ``api_token`` (CTC) + ``X-OPN-External-Tenant-ID``.
+
+Do **not** send the AI pilot / global key to ``/api/v1/oracle/tender-searches``:
+that key often lacks ``signal:read`` / ``monitor:write`` and is not the CTC
+bound to the tenant connection.
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
 import httpx
-from flask import current_app
+from flask import current_app, g
+from sqlalchemy import select
 
+from opn_oracle.extensions import db
 from opn_oracle.integrations.entity_intel import (
     ENTITY_INTEL_MAX_BYTES as PROCUREMENT_MAX_BYTES,
 )
@@ -30,6 +38,8 @@ from opn_oracle.integrations.entity_intel import (
     _safe_host_allowed,
     resolve_signal_external_tenant_id,
 )
+from opn_oracle.integrations.service import active_secrets
+from opn_oracle.platform.models import IntegrationConnection
 
 ProcurementConfigurationError = EntityIntelConfigurationError
 ProcurementProviderError = EntityIntelProviderError
@@ -573,6 +583,8 @@ def procurement_client_from_config(
     *,
     transport: httpx.BaseTransport | None = None,
 ) -> ProcurementClient:
+    """Client for **global** Signal registry paths (no tenant-bound scopes)."""
+
     allowed_hosts = frozenset(
         item.strip().lower()
         for item in current_app.config["SIGNAL_AI_ALLOWED_HOSTS"].split(",")
@@ -581,6 +593,67 @@ def procurement_client_from_config(
     return ProcurementClient(
         base_url=current_app.config["SIGNAL_AI_BASE_URL"],
         api_key=current_app.config["SIGNAL_AI_API_KEY"],
+        allowed_hosts=allowed_hosts,
+        connect_timeout=current_app.config["SIGNAL_CONNECT_TIMEOUT_SECONDS"],
+        read_timeout=current_app.config["SIGNAL_AI_TIMEOUT_SECONDS"],
+        transport=transport,
+    )
+
+
+def _active_signal_avanza_connection(tenant_id: uuid.UUID) -> IntegrationConnection:
+    connection = db.session.scalar(
+        select(IntegrationConnection)
+        .where(
+            IntegrationConnection.tenant_id == tenant_id,
+            IntegrationConnection.provider == "signal-avanza",
+            IntegrationConnection.status == "active",
+        )
+        .order_by(IntegrationConnection.updated_at.desc(), IntegrationConnection.created_at.desc())
+        .limit(1)
+    )
+    if connection is None:
+        raise ProcurementProviderError(
+            status_code=409,
+            code="signal_connection_missing",
+            detail="Configura una conexión activa con Signal antes de guardar vigilancias.",
+        )
+    return connection
+
+
+def procurement_client_for_tenant_bound(
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> ProcurementClient:
+    """Client for tenant-bound Oracle tender-search APIs (CTC / connection token).
+
+    Uses the active ``signal-avanza`` connection's ``api_token`` so Signal resolves
+    ``auth_mode=tenant_credential`` with the scopes stored on the CTC — not the
+    global ``SIGNAL_AI_API_KEY`` (often a synthetic AI pilot without scopes).
+    """
+
+    tenant_id = g.active_tenant_id
+    connection = _active_signal_avanza_connection(tenant_id)
+    tokens = active_secrets(connection, "api_token", limit=1)
+    if not tokens:
+        raise ProcurementProviderError(
+            status_code=409,
+            code="signal_connection_token_missing",
+            detail=(
+                "La conexión Signal no tiene api_token activo. "
+                "Guarda la CTC del tenant en la conexión (no uses solo SIGNAL_AI_API_KEY)."
+            ),
+        )
+    base_url = (connection.base_url or "").strip() or str(
+        current_app.config["SIGNAL_AI_BASE_URL"]
+    )
+    allowed_hosts = frozenset(
+        item.strip().lower()
+        for item in current_app.config["SIGNAL_AI_ALLOWED_HOSTS"].split(",")
+        if item.strip()
+    )
+    return ProcurementClient(
+        base_url=base_url,
+        api_key=tokens[0],
         allowed_hosts=allowed_hosts,
         connect_timeout=current_app.config["SIGNAL_CONNECT_TIMEOUT_SECONDS"],
         read_timeout=current_app.config["SIGNAL_AI_TIMEOUT_SECONDS"],
@@ -753,7 +826,7 @@ def procurement_stats() -> dict[str, Any]:
 
 def list_tender_searches() -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
-    client = procurement_client_from_config()
+    client = procurement_client_for_tenant_bound()
     try:
         return client.list_searches(external_tenant_id=external_tenant_id)
     finally:
@@ -762,7 +835,7 @@ def list_tender_searches() -> dict[str, Any]:
 
 def create_tender_search(*, payload: Mapping[str, Any]) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
-    client = procurement_client_from_config()
+    client = procurement_client_for_tenant_bound()
     try:
         return client.create_search(payload=payload, external_tenant_id=external_tenant_id)
     finally:
@@ -771,7 +844,7 @@ def create_tender_search(*, payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def get_tender_search(*, search_id: str) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
-    client = procurement_client_from_config()
+    client = procurement_client_for_tenant_bound()
     try:
         return client.get_search(search_id=search_id, external_tenant_id=external_tenant_id)
     finally:
@@ -780,7 +853,7 @@ def get_tender_search(*, search_id: str) -> dict[str, Any]:
 
 def patch_tender_search(*, search_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
-    client = procurement_client_from_config()
+    client = procurement_client_for_tenant_bound()
     try:
         return client.patch_search(
             search_id=search_id,
@@ -797,7 +870,7 @@ def delete_tender_search(
     request_id: str | None = None,
 ) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
-    client = procurement_client_from_config()
+    client = procurement_client_for_tenant_bound()
     try:
         deleted = client.delete_search(search_id=search_id, external_tenant_id=external_tenant_id)
     finally:
@@ -805,7 +878,6 @@ def delete_tender_search(
     # Import lazily: the watch module reads saved searches through this module.
     # Retiring is deliberately local and deterministic; it disables the durable
     # schedule but leaves seen-state available to the 90-day retention task.
-    from opn_oracle.extensions import db
     from opn_oracle.oracle.procurement_search_watch import (
         retire_procurement_search_watch_for_tender_search,
     )
@@ -820,7 +892,7 @@ def delete_tender_search(
 
 def run_tender_search(*, search_id: str, limit: int, offset: int) -> dict[str, Any]:
     external_tenant_id = resolve_signal_external_tenant_id()
-    client = procurement_client_from_config()
+    client = procurement_client_for_tenant_bound()
     try:
         return client.run_search(
             search_id=search_id,

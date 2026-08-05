@@ -22,6 +22,7 @@ from opn_oracle.integrations.procurement import (
     cached_awards,
     cached_comparable_profile,
     cached_suggest,
+    list_tender_searches,
 )
 from opn_oracle.oracle import procurement_items
 from opn_oracle.oracle import routes as oracle_routes
@@ -193,6 +194,110 @@ def test_procurement_suggest_calls_global_registry_without_tenant_header() -> No
     }
     assert payload["suggestions"] == ["GENESIS CONSULTING SLP", "GENESIS BIOMED SL"]
     assert payload["cached_seconds"] == procurement.PROCUREMENT_SUGGEST_CACHE_TTL_SECONDS
+
+
+@pytest.mark.unit
+def test_list_tender_searches_uses_connection_token_not_signal_ai_key(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression SCOPE-403-VIGIL: saved searches must not use SIGNAL_AI_API_KEY.
+
+    That global key is often the MEMSOL AI pilot (empty connector_policy scopes).
+    Tenant-bound tender-search calls must use the active connection api_token (CTC).
+    """
+
+    seen: dict[str, Any] = {}
+    active_tenant = uuid.uuid4()
+    connection_id = uuid.uuid4()
+
+    class _Conn:
+        def __init__(self) -> None:
+            self.id = connection_id
+            self.base_url = "https://signal.example"
+            self.tenant_id = active_tenant
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["api_key"] = request.headers.get("X-API-Key")
+        seen["external_tenant"] = request.headers.get("X-OPN-External-Tenant-ID")
+        seen["path"] = request.url.path
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"items": []},
+        )
+
+    monkeypatch.setattr(procurement, "resolve_signal_external_tenant_id", lambda: "ext-tenant-sv2")
+    monkeypatch.setattr(
+        procurement,
+        "_active_signal_avanza_connection",
+        lambda _tid: _Conn(),
+    )
+    monkeypatch.setattr(
+        procurement,
+        "active_secrets",
+        lambda _conn, kind, limit=1: ["ctc-token-with-scopes"] if kind == "api_token" else [],
+    )
+
+    with app.app_context():
+        app.config.update(
+            SIGNAL_AI_BASE_URL="https://signal.example",
+            SIGNAL_AI_ALLOWED_HOSTS="signal.example",
+            SIGNAL_AI_API_KEY="WRONG-AI-PILOT-KEY-WITHOUT-SCOPES",
+            SIGNAL_CONNECT_TIMEOUT_SECONDS=2,
+            SIGNAL_AI_TIMEOUT_SECONDS=5,
+        )
+        g.active_tenant_id = active_tenant
+        # Force factory to inject mock transport
+        original = procurement.procurement_client_for_tenant_bound
+
+        def factory(*, transport: httpx.BaseTransport | None = None) -> ProcurementClient:
+            return original(transport=httpx.MockTransport(handler))
+
+        monkeypatch.setattr(procurement, "procurement_client_for_tenant_bound", factory)
+        payload = list_tender_searches()
+
+    assert payload == {"items": []}
+    assert seen["api_key"] == "ctc-token-with-scopes"
+    assert seen["api_key"] != "WRONG-AI-PILOT-KEY-WITHOUT-SCOPES"
+    assert seen["external_tenant"] == "ext-tenant-sv2"
+    assert seen["path"] == "/api/v1/oracle/tender-searches"
+
+
+@pytest.mark.unit
+def test_procurement_client_for_tenant_bound_fails_without_token(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active_tenant = uuid.uuid4()
+
+    class _Conn:
+        def __init__(self) -> None:
+            self.id = uuid.uuid4()
+            self.base_url = "https://signal.example"
+            self.tenant_id = active_tenant
+
+    monkeypatch.setattr(
+        procurement,
+        "_active_signal_avanza_connection",
+        lambda _tid: _Conn(),
+    )
+    monkeypatch.setattr(procurement, "active_secrets", lambda *_a, **_k: [])
+
+    with app.app_context():
+        app.config.update(
+            SIGNAL_AI_BASE_URL="https://signal.example",
+            SIGNAL_AI_ALLOWED_HOSTS="signal.example",
+            SIGNAL_AI_API_KEY="global-key",
+            SIGNAL_CONNECT_TIMEOUT_SECONDS=2,
+            SIGNAL_AI_TIMEOUT_SECONDS=5,
+        )
+        g.active_tenant_id = active_tenant
+        with pytest.raises(ProcurementProviderError) as excinfo:
+            procurement.procurement_client_for_tenant_bound()
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.code == "signal_connection_token_missing"
 
 
 @pytest.mark.unit
