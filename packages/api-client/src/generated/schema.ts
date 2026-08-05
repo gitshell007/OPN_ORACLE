@@ -10139,7 +10139,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Memory Effective */
+        /**
+         * Effective profile + host health. Single source of truth for public health.
+         * @description Capability is computed once; top-level publisher_* fields that the UI reads
+         *     are projected from that same capability so they cannot diverge.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -33408,6 +33412,8 @@ export interface components {
             website?: string;
         };
         CompetitiveProfileInput: {
+            /** @description Volumen anual de negocio declarado (EUR). Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            annual_turnover?: number;
             business_objective: string;
             competitors: components["schemas"]["CompetitiveCompetitorInput"][];
             cpv?: string[];
@@ -33417,6 +33423,8 @@ export interface components {
             keywords?: string[];
             own_offer: string;
             participation_criteria?: string;
+            /** @description Servicios similares de los últimos 3 años y su acreditación. Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            past_services?: string;
             segments?: string[];
             sources?: string[];
             success_indicators?: string[];
@@ -34492,6 +34500,11 @@ export interface components {
             version: number;
         };
         MarketCompetitorDiscoveryInput: {
+            /**
+             * @default known
+             * @enum {string}
+             */
+            competitors_knowledge: "known" | "unknown" | "not_seeking";
             /** @default [] */
             countries: string[];
             description: string;
@@ -34503,12 +34516,6 @@ export interface components {
             own_offer: string;
             /** @default [] */
             sectors: string[];
-            /**
-             * @description Honest intent passed to discovery agent.
-             * @default known
-             * @enum {string}
-             */
-            competitors_knowledge: "known" | "unknown" | "not_seeking";
         };
         MarketCompetitorDiscoveryLatestResponse: {
             artifact?: (Record<string, never> | null) | components["schemas"]["MarketCompetitorDiscoveryArtifact"];
@@ -34523,23 +34530,27 @@ export interface components {
             job: components["schemas"]["TenderSearchWizardJob"];
         };
         MarketProfileInput: {
+            /** @description Volumen anual de negocio declarado (EUR). Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            annual_turnover?: number;
             barriers?: string[];
             channels?: string[];
             competitors?: components["schemas"]["CompetitiveCompetitorInput"][];
+            /**
+             * @description Honest intent: known (names are exclusions for discovery), unknown (aún no lo sé), not_seeking (no busco competidores).
+             * @enum {string}
+             */
+            competitors_knowledge?: "known" | "unknown" | "not_seeking";
             decision_to_make: string;
             horizon?: string;
             keywords?: string[];
             own_offer: string;
             partners?: string[];
+            /** @description Servicios similares de los últimos 3 años y su acreditación. Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            past_services?: string;
             regulators?: string[];
             segments?: string[];
             success_indicators?: string[];
             target_buyers?: string[];
-            /**
-             * @description Honest intent: known (exclusion list), unknown, or not_seeking.
-             * @enum {string}
-             */
-            competitors_knowledge?: "known" | "unknown" | "not_seeking";
         };
         MeResponse: {
             /** Format: uuid */

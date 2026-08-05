@@ -17,6 +17,8 @@ const marketDraft: MarketProfileDraft = {
   barriers: "Permisos lentos",
   success_indicators: "pipeline",
   keywords: "almacenamiento",
+  annual_turnover: "",
+  past_services: "",
 };
 
 describe("DossierProfilePanel", () => {
@@ -76,6 +78,8 @@ describe("DossierProfilePanel", () => {
           participation_criteria: "",
           exclusion_criteria: "",
           success_indicators: "",
+          annual_turnover: "1500000",
+          past_services: "Limpieza hospitalaria 2023-2025 con certificados",
         }}
         onDraftChange={() => undefined}
         onSave={(event) => event.preventDefault()}
@@ -132,6 +136,8 @@ describe("DossierProfilePanel", () => {
           business_objective: "Ganar cuota IT pública",
           success_indicators: "pipeline",
           sources: "PLACSP",
+          annual_turnover: "",
+          past_services: "",
         }}
         onDraftChange={onDraftChange}
         onSave={onSave}
@@ -178,6 +184,8 @@ describe("DossierProfilePanel", () => {
           business_objective: "",
           success_indicators: "",
           sources: "",
+          annual_turnover: "2000000",
+          past_services: "Plataformas IA 2023-2025 con certificados de buena ejecución",
         }}
         onDraftChange={() => undefined}
         onSave={(event) => event.preventDefault()}
@@ -189,9 +197,47 @@ describe("DossierProfilePanel", () => {
     expect(screen.getByText("Software e IA Nexus")).toBeVisible();
     expect(screen.getByText("Capgemini, NTT DATA, Inetum")).toBeVisible();
     expect(screen.getByText("72000000")).toBeVisible();
+    expect(screen.getByText("2000000")).toBeVisible();
+    expect(
+      screen.getByText("Plataformas IA 2023-2025 con certificados de buena ejecución"),
+    ).toBeVisible();
     expect(screen.getByRole("link", { name: /Editar en configuración/ })).toHaveAttribute(
       "href",
       "/app/dossiers/ab7bba16/settings#dossier-profile",
     );
+  });
+
+  it("muestra campos de solvencia declarada editables con ayuda inequívoca", () => {
+    const onDraftChange = vi.fn();
+    const onSave = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+    render(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="market"
+        profileConfig={{ version: "market.v1", own_offer: "Integración de baterías" }}
+        draft={{ ...marketDraft, annual_turnover: "2000000.5", past_services: "Servicios EPC" }}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+      />,
+    );
+
+    const volume = screen.getByLabelText("Volumen anual de negocio declarado (EUR)");
+    const services = screen.getByLabelText("Servicios similares de los últimos 3 años");
+    expect(volume).toHaveValue("2000000.5");
+    expect(services).toHaveValue("Servicios EPC");
+    expect(
+      screen.getAllByText(/declarado por el cliente; no sustituye certificados/i).length,
+    ).toBeGreaterThanOrEqual(2);
+
+    fireEvent.change(volume, { target: { value: "2500000" } });
+    expect(onDraftChange).toHaveBeenCalled();
+    const last = onDraftChange.mock.calls.at(-1)?.[0] as MarketProfileDraft;
+    expect(last.annual_turnover).toBe("2500000");
+
+    fireEvent.change(services, {
+      target: { value: "Instalación de baterías 2023-2025 con certificados" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+    expect(onSave).toHaveBeenCalled();
   });
 });

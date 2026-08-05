@@ -1789,6 +1789,23 @@ def _oracle_schemas() -> dict[str, Any]:
                 "participation_criteria": {"type": "string", "maxLength": 3000},
                 "exclusion_criteria": {"type": "string", "maxLength": 3000},
                 "success_indicators": string_array,
+                "annual_turnover": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": (
+                        "Volumen anual de negocio declarado (EUR). Declarado por el cliente; "
+                        "no sustituye certificados ni documentación oficial."
+                    ),
+                },
+                "past_services": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": (
+                        "Servicios similares de los últimos 3 años y su acreditación. "
+                        "Declarado por el cliente; no sustituye certificados "
+                        "ni documentación oficial."
+                    ),
+                },
             },
         },
         "MarketProfileInput": {
@@ -1821,6 +1838,23 @@ def _oracle_schemas() -> dict[str, Any]:
                 "barriers": string_array,
                 "success_indicators": string_array,
                 "keywords": string_array,
+                "annual_turnover": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": (
+                        "Volumen anual de negocio declarado (EUR). Declarado por el cliente; "
+                        "no sustituye certificados ni documentación oficial."
+                    ),
+                },
+                "past_services": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": (
+                        "Servicios similares de los últimos 3 años y su acreditación. "
+                        "Declarado por el cliente; no sustituye certificados "
+                        "ni documentación oficial."
+                    ),
+                },
             },
         },
         "DossierCreateInput": {

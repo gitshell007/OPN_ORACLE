@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  annualTurnoverFromField,
   draftFromProfileConfig,
+  emptyCompetitiveDraft,
+  emptyCustomDraft,
+  emptyMarketDraft,
   listField,
   profileConfigFromDraft,
   profileHasContent,
@@ -92,5 +96,62 @@ describe("dossier-profile helpers", () => {
   it("detecta contenido útil ignorando solo version", () => {
     expect(profileHasContent({ version: "market.v1" })).toBe(false);
     expect(profileHasContent({ version: "market.v1", own_offer: "x" })).toBe(true);
+  });
+
+  it("round-trip vacío de solvencia no emite 0 ni cadenas fantasma (tres kinds)", () => {
+    for (const draft of [emptyMarketDraft(), emptyCompetitiveDraft(), emptyCustomDraft()]) {
+      const payload = profileConfigFromDraft(draft);
+      expect(payload).not.toHaveProperty("annual_turnover");
+      expect(payload).not.toHaveProperty("past_services");
+    }
+  });
+
+  it("round-trip de annual_turnover decimal y past_services en market", () => {
+    const draft = draftFromProfileConfig("market", {
+      version: "market.v1",
+      own_offer: "Baterías",
+      decision_to_make: "Entrar",
+      annual_turnover: 2_000_000.5,
+      past_services: "EPC 2023-2025 con certificados",
+    });
+    expect(draft && draft.kind === "market" && draft.annual_turnover).toBe("2000000.5");
+    expect(draft && draft.kind === "market" && draft.past_services).toBe(
+      "EPC 2023-2025 con certificados",
+    );
+    const payload = profileConfigFromDraft(draft!);
+    expect(payload.annual_turnover).toBe(2_000_000.5);
+    expect(payload.past_services).toBe("EPC 2023-2025 con certificados");
+  });
+
+  it("round-trip de solvencia en competitive_intelligence y custom", () => {
+    const ci = draftFromProfileConfig("competitive_intelligence", {
+      own_offer: "Oferta",
+      business_objective: "Ganar",
+      competitors: [{ name: "Rival" }],
+      annual_turnover: 1_500_000,
+      past_services: "Limpieza 2024",
+    });
+    expect(profileConfigFromDraft(ci!).annual_turnover).toBe(1_500_000);
+    expect(profileConfigFromDraft(ci!).past_services).toBe("Limpieza 2024");
+
+    const custom = draftFromProfileConfig("custom", {
+      version: "custom.v1",
+      own_offer: "Software",
+      competitors: [{ name: "Capgemini" }],
+      annual_turnover: 2_000_000,
+      past_services: "IA pública con certificados",
+    });
+    const customPayload = profileConfigFromDraft(custom!);
+    expect(customPayload.annual_turnover).toBe(2_000_000);
+    expect(customPayload.past_services).toBe("IA pública con certificados");
+  });
+
+  it("annualTurnoverFromField normaliza y rechaza vacío/ambiguo", () => {
+    expect(annualTurnoverFromField("")).toBeUndefined();
+    expect(annualTurnoverFromField("  ")).toBeUndefined();
+    expect(annualTurnoverFromField("2000000")).toBe(2_000_000);
+    expect(annualTurnoverFromField("2000000.50")).toBe(2000000.5);
+    expect(annualTurnoverFromField("1.000.000 EUR")).toBeUndefined();
+    expect(annualTurnoverFromField("NaN")).toBeUndefined();
   });
 });

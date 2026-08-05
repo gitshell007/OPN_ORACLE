@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import uuid
 from datetime import UTC, date, datetime
@@ -275,6 +276,97 @@ def _validated_competitors(raw_competitors: Any) -> list[dict[str, Any]]:
 
 _COMPETITORS_KNOWLEDGE_VALUES = frozenset({"known", "unknown", "not_seeking"})
 
+# Solvencia declarada por el cliente (G-08): no es evidencia oficial.
+_PAST_SERVICES_MAX_LEN = 4000
+_ANNUAL_TURNOVER_MAX = 1e15
+_CLEAN_NUMERIC_RE = re.compile(r"^\d+(?:\.\d+)?$")
+
+
+def _normalize_annual_turnover(raw: Any) -> int | float:
+    """Validate client-declared annual turnover (EUR). Returns finite number ≥0.
+
+    Rejects booleans, NaN/inf, negatives and ambiguous monetary strings.
+    Empty/null is handled by the caller as clean absence (no key).
+    """
+
+    if isinstance(raw, bool) or raw is None:
+        raise DomainValidationError(
+            "annual_turnover debe ser un número ≥0 en EUR (declarado por el cliente); "
+            "no se aceptan booleanos ni vacío ambiguo."
+        )
+    if isinstance(raw, (int, float)):
+        value = float(raw)
+    elif isinstance(raw, str):
+        cleaned = raw.strip().replace(" ", "").replace(",", ".")
+        if not cleaned or not _CLEAN_NUMERIC_RE.fullmatch(cleaned):
+            raise DomainValidationError(
+                "annual_turnover debe ser un número JSON válido ≥0 en EUR "
+                "(sin símbolos de moneda ni formatos ambiguos)."
+            )
+        value = float(cleaned)
+    else:
+        raise DomainValidationError(
+            "annual_turnover debe ser un número ≥0 en EUR (declarado por el cliente)."
+        )
+    if not math.isfinite(value) or value < 0 or value > _ANNUAL_TURNOVER_MAX:
+        raise DomainValidationError(
+            "annual_turnover debe ser un número finito ≥0 en EUR "
+            "(sin NaN, infinito ni valores negativos)."
+        )
+    # Normalización estable: enteros exactos como int, resto float.
+    if value == int(value) and abs(value) < 10**15:
+        return int(value)
+    return value
+
+
+def _normalize_past_services(raw: Any) -> str:
+    """Validate optional past_services text. Empty → raise (caller treats absence)."""
+
+    if isinstance(raw, bool) or raw is None:
+        raise DomainValidationError(
+            "past_services debe ser texto (servicios similares de los últimos 3 años); "
+            "no se aceptan booleanos."
+        )
+    if not isinstance(raw, str):
+        raise DomainValidationError(
+            "past_services debe ser texto con la descripción de servicios similares "
+            "y su acreditación (declarado por el cliente)."
+        )
+    text = " ".join(raw.split()).strip()
+    if not text:
+        raise DomainValidationError("past_services vacío se omite; no envíes cadena fantasma.")
+    if len(text) > _PAST_SERVICES_MAX_LEN:
+        raise DomainValidationError(
+            f"past_services supera el límite de {_PAST_SERVICES_MAX_LEN} caracteres."
+        )
+    return text
+
+
+def _validated_declared_solvency(value: dict[str, Any]) -> dict[str, Any]:
+    """Optional annual_turnover / past_services shared by market, CI and custom.
+
+    Empty / null / whitespace → clean absence (key omitted). Never stores 0, NaN
+    or ghost strings for empty inputs; 0 is a valid explicit volume only when
+    provided as a number.
+    """
+
+    out: dict[str, Any] = {}
+    if "annual_turnover" in value:
+        raw = value.get("annual_turnover")
+        if raw is not None and raw != "":
+            if isinstance(raw, str) and not raw.strip():
+                pass  # absence limpia
+            else:
+                out["annual_turnover"] = _normalize_annual_turnover(raw)
+    if "past_services" in value:
+        raw = value.get("past_services")
+        if raw is not None and raw != "":
+            if isinstance(raw, str) and not raw.strip():
+                pass  # absence limpia
+            else:
+                out["past_services"] = _normalize_past_services(raw)
+    return out
+
 
 def _validated_competitors_knowledge(
     value: dict[str, Any], *, competitors: list[dict[str, Any]]
@@ -319,7 +411,7 @@ def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
     knowledge = _validated_competitors_knowledge(value, competitors=competitors)
     if knowledge != "known":
         competitors = []
-    return {
+    profile = {
         "version": "market.v1",
         "own_offer": own_offer,
         "decision_to_make": decision_to_make,
@@ -337,6 +429,8 @@ def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
         ),
         "keywords": _profile_strings(value.get("keywords", []), "keywords", limit=60),
     }
+    profile.update(_validated_declared_solvency(value))
+    return profile
 
 
 def _validated_profile(value: Any, dossier_type: str) -> dict[str, Any]:
@@ -349,7 +443,12 @@ def _validated_profile(value: Any, dossier_type: str) -> dict[str, Any]:
     if dossier_type == "market":
         return _validated_market_profile(value)
     if dossier_type != "competitive_intelligence":
-        return dict(value)
+        # custom / opportunity / project / …: free-form JSONB + common solvency validation.
+        cleaned = dict(value)
+        cleaned.pop("annual_turnover", None)
+        cleaned.pop("past_services", None)
+        cleaned.update(_validated_declared_solvency(value))
+        return cleaned
     own_offer = " ".join(str(value.get("own_offer", "")).strip().split())[:500]
     business_objective = str(value.get("business_objective", "")).strip()[:3000]
     raw_competitors = value.get("competitors", [])
@@ -360,7 +459,7 @@ def _validated_profile(value: Any, dossier_type: str) -> dict[str, Any]:
     competitors = _validated_competitors(raw_competitors)
     if not competitors:
         raise DomainValidationError("Añade al menos un competidor.")
-    return {
+    profile = {
         "version": "competitive-intelligence.v1",
         "own_offer": own_offer,
         "competitors": competitors,
@@ -378,6 +477,8 @@ def _validated_profile(value: Any, dossier_type: str) -> dict[str, Any]:
             value.get("success_indicators", []), "success_indicators"
         ),
     }
+    profile.update(_validated_declared_solvency(value))
+    return profile
 
 
 def create_dossier(

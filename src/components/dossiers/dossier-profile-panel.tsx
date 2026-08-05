@@ -7,8 +7,11 @@ import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   type CompetitiveProfileDraft,
   type CustomProfileDraft,
+  type DeclaredSolvencyDraft,
   type MarketProfileDraft,
   type ProfileDraft,
+  PAST_SERVICES_MAX_LEN,
+  SOLVENCY_DECLARED_HINT,
   profileHasContent,
   profileKindFor,
 } from "@/lib/dossier-profile";
@@ -35,6 +38,8 @@ function Field({
   multiline,
   required,
   hint,
+  inputMode,
+  maxLength,
 }: {
   id: string;
   label: string;
@@ -44,6 +49,8 @@ function Field({
   multiline?: boolean;
   required?: boolean;
   hint?: string;
+  inputMode?: "decimal" | "text";
+  maxLength?: number;
 }) {
   return (
     <label className={`field${multiline ? " full" : ""}`}>
@@ -55,6 +62,7 @@ function Field({
           value={value}
           required={required}
           disabled={disabled}
+          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
         />
       ) : (
@@ -64,11 +72,47 @@ function Field({
           value={value}
           required={required}
           disabled={disabled}
+          inputMode={inputMode}
+          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
         />
       )}
       {hint ? <small>{hint}</small> : null}
     </label>
+  );
+}
+
+function SolvencyFields({
+  draft,
+  onChange,
+  disabled,
+}: {
+  draft: DeclaredSolvencyDraft;
+  onChange(patch: Partial<DeclaredSolvencyDraft>): void;
+  disabled?: boolean;
+}) {
+  return (
+    <>
+      <Field
+        id="profile-annual-turnover"
+        label="Volumen anual de negocio declarado (EUR)"
+        value={draft.annual_turnover}
+        inputMode="decimal"
+        disabled={disabled}
+        hint={SOLVENCY_DECLARED_HINT}
+        onChange={(value) => onChange({ annual_turnover: value })}
+      />
+      <Field
+        id="profile-past-services"
+        label="Servicios similares de los últimos 3 años"
+        value={draft.past_services}
+        multiline
+        disabled={disabled}
+        maxLength={PAST_SERVICES_MAX_LEN}
+        hint={SOLVENCY_DECLARED_HINT}
+        onChange={(value) => onChange({ past_services: value })}
+      />
+    </>
   );
 }
 
@@ -193,6 +237,11 @@ function MarketFields({
         hint="Separados por comas."
         disabled={disabled}
         onChange={(value) => set("success_indicators", value)}
+      />
+      <SolvencyFields
+        draft={draft}
+        disabled={disabled}
+        onChange={(patch) => onChange({ ...draft, ...patch })}
       />
     </>
   );
@@ -320,6 +369,11 @@ function CompetitiveFields({
         disabled={disabled}
         onChange={(value) => set("success_indicators", value)}
       />
+      <SolvencyFields
+        draft={draft}
+        disabled={disabled}
+        onChange={(patch) => onChange({ ...draft, ...patch })}
+      />
     </>
   );
 }
@@ -437,6 +491,26 @@ function CustomFields({
         disabled={disabled}
         onChange={(value) => set("success_indicators", value)}
       />
+      <SolvencyFields
+        draft={draft}
+        disabled={disabled}
+        onChange={(patch) => onChange({ ...draft, ...patch })}
+      />
+    </>
+  );
+}
+
+function readOnlySolvencyRows(draft: DeclaredSolvencyDraft) {
+  return (
+    <>
+      <ReadOnlyRow
+        label="Volumen anual de negocio declarado (EUR)"
+        value={draft.annual_turnover}
+      />
+      <ReadOnlyRow
+        label="Servicios similares de los últimos 3 años"
+        value={draft.past_services}
+      />
     </>
   );
 }
@@ -452,6 +526,7 @@ function readOnlyRows(draft: ProfileDraft) {
         <ReadOnlyRow label="Segmentos" value={draft.segments} />
         <ReadOnlyRow label="Canales" value={draft.channels} />
         <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
+        {readOnlySolvencyRows(draft)}
       </>
     );
   }
@@ -465,6 +540,7 @@ function readOnlyRows(draft: ProfileDraft) {
         <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
         <ReadOnlyRow label="Geografías" value={draft.geographies} />
         <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
+        {readOnlySolvencyRows(draft)}
       </>
     );
   }
@@ -479,6 +555,7 @@ function readOnlyRows(draft: ProfileDraft) {
       <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
       <ReadOnlyRow label="Geografías" value={draft.geographies} />
       <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
+      {readOnlySolvencyRows(draft)}
     </>
   );
 }

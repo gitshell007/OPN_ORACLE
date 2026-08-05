@@ -20,6 +20,14 @@ export type CompetitorDraft = {
   country?: string;
 };
 
+/** Shared solvency fields declared by the client (G-08). Stored as draft strings. */
+export type DeclaredSolvencyDraft = {
+  /** Volumen anual de negocio declarado (EUR); empty string = clean absence. */
+  annual_turnover: string;
+  /** Servicios similares de los últimos 3 años; empty string = clean absence. */
+  past_services: string;
+};
+
 export type MarketProfileDraft = {
   kind: "market";
   own_offer: string;
@@ -34,7 +42,7 @@ export type MarketProfileDraft = {
   barriers: string;
   success_indicators: string;
   keywords: string;
-};
+} & DeclaredSolvencyDraft;
 
 export type CompetitiveProfileDraft = {
   kind: "competitive_intelligence";
@@ -51,7 +59,7 @@ export type CompetitiveProfileDraft = {
   participation_criteria: string;
   exclusion_criteria: string;
   success_indicators: string;
-};
+} & DeclaredSolvencyDraft;
 
 /** Free-form strategic intake for custom/project and other non-typed dossier types. */
 export type CustomProfileDraft = {
@@ -68,7 +76,7 @@ export type CustomProfileDraft = {
   business_objective: string;
   success_indicators: string;
   sources: string;
-};
+} & DeclaredSolvencyDraft;
 
 export type ProfileDraft = MarketProfileDraft | CompetitiveProfileDraft | CustomProfileDraft;
 
@@ -120,6 +128,44 @@ export function stringsToField(value: unknown): string {
   return value.map(String).map((item) => item.trim()).filter(Boolean).join(", ");
 }
 
+/** Draft string for annual_turnover; empty when absent (never "0" from null). */
+export function annualTurnoverToField(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Number.isInteger(value) ? String(value) : String(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed;
+  }
+  return "";
+}
+
+/**
+ * Serialize draft annual_turnover to a finite number ≥0, or omit (undefined).
+ * Empty / whitespace → undefined (clean absence). Rejects NaN.
+ */
+export function annualTurnoverFromField(value: string): number | undefined {
+  const trimmed = value.trim().replace(/\s+/g, "");
+  if (!trimmed) return undefined;
+  const normalized = trimmed.replace(",", ".");
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return undefined;
+  const n = Number(normalized);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Number.isInteger(n) ? n : n;
+}
+
+export function pastServicesToField(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value;
+}
+
+/** Max length mirrored with backend `_PAST_SERVICES_MAX_LEN`. */
+export const PAST_SERVICES_MAX_LEN = 4000;
+
+export const SOLVENCY_DECLARED_HINT =
+  "Declarado por el cliente; no sustituye certificados ni documentación oficial.";
+
 export function emptyMarketDraft(): MarketProfileDraft {
   return {
     kind: "market",
@@ -135,6 +181,8 @@ export function emptyMarketDraft(): MarketProfileDraft {
     barriers: "",
     success_indicators: "",
     keywords: "",
+    annual_turnover: "",
+    past_services: "",
   };
 }
 
@@ -154,6 +202,8 @@ export function emptyCompetitiveDraft(): CompetitiveProfileDraft {
     participation_criteria: "",
     exclusion_criteria: "",
     success_indicators: "",
+    annual_turnover: "",
+    past_services: "",
   };
 }
 
@@ -172,7 +222,30 @@ export function emptyCustomDraft(): CustomProfileDraft {
     business_objective: "",
     success_indicators: "",
     sources: "",
+    annual_turnover: "",
+    past_services: "",
   };
+}
+
+function solvencyFromProfile(profile: Record<string, unknown>): DeclaredSolvencyDraft {
+  return {
+    annual_turnover: annualTurnoverToField(profile.annual_turnover),
+    past_services: pastServicesToField(profile.past_services),
+  };
+}
+
+/** Merge optional solvency keys into payload; empty → omit (no 0 / ghost string). */
+function solvencyToPayload(draft: DeclaredSolvencyDraft): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const turnover = annualTurnoverFromField(draft.annual_turnover);
+  if (turnover !== undefined) {
+    payload.annual_turnover = turnover;
+  }
+  const services = draft.past_services.trim();
+  if (services) {
+    payload.past_services = services.slice(0, PAST_SERVICES_MAX_LEN);
+  }
+  return payload;
 }
 
 function customDraftFromProfile(profile: Record<string, unknown>): CustomProfileDraft {
@@ -190,6 +263,7 @@ function customDraftFromProfile(profile: Record<string, unknown>): CustomProfile
     business_objective: String(profile.business_objective ?? ""),
     success_indicators: stringsToField(profile.success_indicators),
     sources: stringsToField(profile.sources),
+    ...solvencyFromProfile(profile),
   };
 }
 
@@ -213,6 +287,7 @@ export function draftFromProfileConfig(
       barriers: stringsToField(profile.barriers),
       success_indicators: stringsToField(profile.success_indicators),
       keywords: stringsToField(profile.keywords),
+      ...solvencyFromProfile(profile),
     };
   }
   if (dossierType === "competitive_intelligence") {
@@ -231,6 +306,7 @@ export function draftFromProfileConfig(
       participation_criteria: String(profile.participation_criteria ?? ""),
       exclusion_criteria: String(profile.exclusion_criteria ?? ""),
       success_indicators: stringsToField(profile.success_indicators),
+      ...solvencyFromProfile(profile),
     };
   }
   if (profileKindFor(dossierType, profileConfig) === "custom") {
@@ -254,6 +330,7 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
       barriers: listField(draft.barriers),
       success_indicators: listField(draft.success_indicators),
       keywords: listField(draft.keywords),
+      ...solvencyToPayload(draft),
     };
   }
   if (draft.kind === "competitive_intelligence") {
@@ -271,6 +348,7 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
       participation_criteria: draft.participation_criteria.trim(),
       exclusion_criteria: draft.exclusion_criteria.trim(),
       success_indicators: listField(draft.success_indicators),
+      ...solvencyToPayload(draft),
     };
   }
   // custom.v1: free-form strategic intake. Kept separate from market/CI schemas
@@ -289,6 +367,7 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
     business_objective: draft.business_objective.trim(),
     success_indicators: listField(draft.success_indicators),
     sources: listField(draft.sources),
+    ...solvencyToPayload(draft),
   };
 }
 

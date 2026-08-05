@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import uuid
 from dataclasses import dataclass
@@ -787,6 +788,37 @@ def _profile_competitors(profile: dict[str, Any]) -> list[str]:
     ][:20]
 
 
+def _profile_declared_solvency_fields(profile: dict[str, Any]) -> dict[str, Any]:
+    """Transport optional annual_turnover / past_services without inventing values.
+
+    Preserves origin boundary: only echoes what the client declared in profile_config.
+    """
+
+    out: dict[str, Any] = {}
+    raw_turnover = profile.get("annual_turnover")
+    if isinstance(raw_turnover, bool):
+        pass
+    elif isinstance(raw_turnover, (int, float)):
+        # Already normalized by API; still guard against NaN/inf in legacy rows.
+        if math.isfinite(float(raw_turnover)) and float(raw_turnover) >= 0:
+            value = float(raw_turnover)
+            out["annual_turnover"] = int(value) if value == int(value) else value
+    elif isinstance(raw_turnover, str) and raw_turnover.strip():
+        # Legacy rows only: clean numeric string; never invent from free text.
+        cleaned = raw_turnover.strip().replace(" ", "").replace(",", ".")
+        if cleaned.replace(".", "", 1).isdigit():
+            try:
+                value = float(cleaned)
+            except ValueError:
+                value = None
+            if value is not None and value >= 0:
+                out["annual_turnover"] = int(value) if value == int(value) else value
+    past = profile.get("past_services")
+    if isinstance(past, str) and past.strip():
+        out["past_services"] = _small_text(past.strip(), 4000)
+    return out
+
+
 def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
     """Resumen compacto y tipado del profile_config para los contextos de IA.
 
@@ -799,6 +831,7 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
     profile = dossier.profile_config or {}
     version = str(profile.get("version", ""))
     competitors = _profile_competitors(profile)
+    solvency = _profile_declared_solvency_fields(profile if isinstance(profile, dict) else {})
     if version == "market.v1":
         knowledge = str(profile.get("competitors_knowledge", "")).strip().lower()
         if knowledge not in {"known", "unknown", "not_seeking"}:
@@ -819,6 +852,7 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             "barriers": list(profile.get("barriers", []))[:15],
             "success_indicators": list(profile.get("success_indicators", []))[:15],
             "keywords": list(profile.get("keywords", []))[:30],
+            **solvency,
         }
     if version == "competitive-intelligence.v1":
         return {
@@ -839,6 +873,7 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             ),
             "exclusion_criteria": _small_text(str(profile.get("exclusion_criteria", "")), 800),
             "success_indicators": list(profile.get("success_indicators", []))[:15],
+            **solvency,
         }
     # custom.v1 (y variantes ricas no tipadas): exponer oferta/decisión/competidores
     # para que opportunity no quede ciego; origin sigue siendo declarado por el cliente.
@@ -865,10 +900,13 @@ def _profile_summary(dossier: StrategicDossier) -> dict[str, Any]:
             "cpv": list(profile.get("cpv", []))[:30],
             "sources": list(profile.get("sources", []))[:15],
             "success_indicators": list(profile.get("success_indicators", []))[:15],
+            **solvency,
         }
     if version:
-        return {"version": version, "origin": "declared_by_client"}
-    return {}
+        base = {"version": version, "origin": "declared_by_client"}
+        base.update(solvency)
+        return base
+    return {**solvency} if solvency else {}
 
 
 # Namespace estable para IDs sintéticos de material declarado (no son filas Evidence ORM).
@@ -947,6 +985,25 @@ def build_declared_profile_evidence(
             (
                 "cpv",
                 "[Declarado por el cliente] CPV de interés declarados: " + ", ".join(cpv),
+            )
+        )
+    solvency = _profile_declared_solvency_fields(profile)
+    if "annual_turnover" in solvency:
+        pieces.append(
+            (
+                "annual_turnover",
+                "[Declarado por el cliente] Volumen anual de negocio declarado: "
+                f"{solvency['annual_turnover']} EUR "
+                "(declarado por el cliente; no sustituye certificados ni documentación oficial).",
+            )
+        )
+    if "past_services" in solvency:
+        pieces.append(
+            (
+                "past_services",
+                "[Declarado por el cliente] Servicios similares de los últimos 3 años: "
+                f"{solvency['past_services']} "
+                "(declarado por el cliente; no sustituye certificados ni documentación oficial).",
             )
         )
     items: list[dict[str, Any]] = []

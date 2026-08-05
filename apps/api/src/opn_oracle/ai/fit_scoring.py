@@ -14,6 +14,7 @@ El veredicto es **propuesta** con puerta humana (nunca decisión automática).
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from datetime import UTC, date, datetime
@@ -154,6 +155,27 @@ def _profile_cpvs(profile: dict[str, Any]) -> list[str]:
 def _declared_field_id(declared_by_field: dict[str, str], field: str) -> list[str]:
     eid = declared_by_field.get(field)
     return [eid] if eid else []
+
+
+def _normalized_declared_volume(value: Any) -> float | None:
+    """Use the normalized numeric profile value; no ambiguous money text parsing."""
+
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+        return number if math.isfinite(number) and number >= 0 else None
+    if isinstance(value, str):
+        cleaned = value.strip().replace(" ", "")
+        # Only accept clean decimal/integer strings already stored as numbers-as-text.
+        if not cleaned or not re.fullmatch(r"\d+(?:[.,]\d+)?", cleaned):
+            return None
+        try:
+            number = float(cleaned.replace(",", "."))
+        except ValueError:
+            return None
+        return number if math.isfinite(number) and number >= 0 else None
+    return None
 
 
 def _official_ids_matching(
@@ -524,12 +546,18 @@ def score_solvency_dimension(
         declared_ids.extend(
             _declared_field_id(declared_by_field, "annual_turnover")
             or _declared_field_id(declared_by_field, "annual_volume")
+            or _declared_field_id(declared_by_field, "volumen_anual_negocio")
         )
     else:
         cap_parts.append("[declarado] El perfil **no** declara volumen anual de negocio.")
     if past_services is not None and str(past_services).strip():
         cap_parts.append(
             f"[declarado] Referencias técnicas declaradas: {str(past_services)[:300]}."
+        )
+        declared_ids.extend(
+            _declared_field_id(declared_by_field, "past_services")
+            or _declared_field_id(declared_by_field, "technical_references")
+            or _declared_field_id(declared_by_field, "servicios_ultimos_tres_anos")
         )
     else:
         cap_parts.append(
@@ -609,20 +637,18 @@ def score_solvency_dimension(
             status_reason=(f"{_NOT_EVALUABLE}: no hay servicios de 3 años declarados para F.3."),
         )
 
-    # Ambos evaluables: comparación simple
+    # Ambos evaluables: comparación simple sobre el número normalizado del perfil
+    # (sin heurística monetaria ambigua sobre texto libre).
     status: FitStatus = "fit"
     reason = "Los datos declarados cubren los umbrales F.2/F.3 localizados."
     if can_eval_econ and amount is not None:
-        try:
-            vol = float(str(annual_volume).replace(",", ".").replace(" ", ""))
-            if vol < amount * 1.5:
-                status = "no_fit"
-                reason = (
-                    f"Volumen declarado ({vol:,.0f}) < 1,5x valor estimado ({amount * 1.5:,.0f})."
-                )
-        except ValueError:
+        vol = _normalized_declared_volume(annual_volume)
+        if vol is None:
             status = "not_evaluable"
             reason = f"{_NOT_EVALUABLE}: volumen anual no numérico."
+        elif vol < amount * 1.5:
+            status = "no_fit"
+            reason = f"Volumen declarado ({vol:,.0f}) < 1,5x valor estimado ({amount * 1.5:,.0f})."
     return _dimension(
         key="solvency",
         label="Solvencia (F.2 / F.3)",
@@ -943,7 +969,9 @@ def _build_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
         conditions.append(
             "Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote."
         )
-    if statuses.get("lots") in {"partial", "fit"}:
+    # Solo condicionar cuando el lote no está en fit limpio (partial).
+    # Un lots=fit no debe bloquear un GO limpio de las cuatro dimensiones.
+    if statuses.get("lots") == "partial":
         lot_reason = str((by_key.get("lots") or {}).get("status_reason") or "")
         if "Recomendación" in lot_reason or "Lote" in lot_reason:
             conditions.append(
