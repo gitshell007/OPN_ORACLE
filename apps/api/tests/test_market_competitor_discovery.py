@@ -63,8 +63,50 @@ def test_build_market_competitor_discovery_context(monkeypatch: pytest.MonkeyPat
     assert context.payload["countries"] == ["ES", "PT"]
     assert context.payload["languages"] == ["es", "en"]
     assert context.payload["known_names"] == ["Acme SL"]
+    assert context.payload["competitors_knowledge"] == "known"
     assert context.payload["allowed_evidence_ids"] == []
     assert "no verificada" in context.payload["security_instruction"]
+
+
+def test_build_market_competitor_discovery_honest_unknown_clears_exclusions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(ai_context, "require_tenant_id", lambda: tenant_id)
+
+    context = build_market_competitor_discovery_context(
+        description="Grupos de investigación en Francia sin inventar rivales",
+        own_offer="Colaboración científica",
+        sectors=["I+D"],
+        countries=["FR"],
+        languages=["fr"],
+        known_names=["Laboratorio Falso como Competidor"],
+        competitors_knowledge="unknown",
+        max_tokens=800,
+    )
+    assert context.payload["competitors_knowledge"] == "unknown"
+    # Intención real: no hay lista de exclusión aunque el caller envíe basura.
+    assert context.payload["known_names"] == []
+
+
+def test_build_market_competitor_discovery_not_seeking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(ai_context, "require_tenant_id", lambda: tenant_id)
+
+    context = build_market_competitor_discovery_context(
+        description="Solo quiero partners, no competidores del mercado",
+        own_offer="Oferta",
+        sectors=[],
+        countries=["ES"],
+        languages=["es"],
+        known_names=["Alguien"],
+        competitors_knowledge="not_seeking",
+        max_tokens=400,
+    )
+    assert context.payload["competitors_knowledge"] == "not_seeking"
+    assert context.payload["known_names"] == []
 
 
 def test_mock_provider_labels_invented_source_urls() -> None:
@@ -108,6 +150,18 @@ def test_market_discovery_input_validation() -> None:
     assert clean["description"] == "Fabricamos baterías de litio"
     assert clean["countries"] == ["ES"]
     assert clean["languages"] == ["es"]
+    assert clean["competitors_knowledge"] == "known"
+    assert clean["known_names"] == ["X"]
+
+    honest = ai_routes._market_discovery_input(
+        {
+            "description": "Buscamos grupos de investigación en Francia",
+            "competitors_knowledge": "unknown",
+            "known_names": ["No deberían llegar como exclusión"],
+        }
+    )
+    assert honest["competitors_knowledge"] == "unknown"
+    assert honest["known_names"] == []
 
     with pytest.raises(ValueError, match="descripción"):
         ai_routes._market_discovery_input({"description": "corta"})

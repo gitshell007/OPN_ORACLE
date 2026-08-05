@@ -741,6 +741,9 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     countries=[str(item) for item in payload.get("countries", [])],
                     languages=[str(item) for item in payload.get("languages", [])],
                     known_names=[str(item) for item in payload.get("known_names", [])],
+                    competitors_knowledge=str(
+                        payload.get("competitors_knowledge", "known")
+                    ),
                     max_tokens=max_tokens,
                 ),
                 target_type="market_discovery",

@@ -7624,6 +7624,41 @@ html[data-font-scale="small"] .workspace-chip strong {
   font-size: 12px;
   line-height: 1.5;
 }
+.step-pending-requirements {
+  margin: 12px 0 0;
+  border: 1px solid #e6c487;
+  border-left: 3px solid #c48a1a;
+  border-radius: 8px;
+  background: #fff9ec;
+  padding: 10px 12px;
+  color: #775012;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.step-pending-requirements strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.step-pending-requirements ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.competitors-knowledge {
+  border: 1px solid var(--va-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+.competitors-knowledge legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+.competitors-knowledge-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
 .competitive-review dl div.full {
   grid-column: 1 / -1;
 }

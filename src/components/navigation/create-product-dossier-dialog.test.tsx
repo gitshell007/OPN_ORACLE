@@ -10,7 +10,10 @@ vi.mock("@oracle/api-client", () => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
-import { CreateProductDossierDialog } from "./create-product-dossier-dialog";
+import {
+  CreateProductDossierDialog,
+  marketStepBlockers,
+} from "./create-product-dossier-dialog";
 
 describe("CreateProductDossierDialog", () => {
   beforeEach(() => {
@@ -58,6 +61,71 @@ describe("CreateProductDossierDialog", () => {
     })));
   });
 
+  it("con el asistente de mercado vacío muestra los requisitos pendientes visibles", async () => {
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "market" } });
+
+    const pending = await screen.findByTestId("market-step-pending");
+    expect(pending).toHaveTextContent("Nombre del expediente");
+    expect(pending).toHaveTextContent("Objetivo estratégico");
+    // Continuar permanece accionable; al pulsar no avanza y reafirma el mensaje.
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/Falta|Completa lo pendiente/i);
+    expect(screen.getByText("Paso 1 de 4")).toBeInTheDocument();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("en el paso ecosistema no obliga a mentir: salida «aún no lo sé» y payload honesto", async () => {
+    sessionStorage.clear();
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "market" } });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Grupos de investigación Francia" } });
+    fireEvent.change(screen.getByLabelText("Objetivo estratégico"), { target: { value: "Encontrar laboratorios" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    expect(await screen.findByText("Paso 2 de 4")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Oferta o capacidades propias"), { target: { value: "Colaboración científica" } });
+    fireEvent.change(screen.getByLabelText("Sector"), { target: { value: "I+D" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    expect(await screen.findByText("Paso 3 de 4")).toBeInTheDocument();
+    const pendingEcosystem = screen.getByTestId("market-step-pending");
+    expect(pendingEcosystem).toHaveTextContent(/conoces competidores|aún no lo sabes|no los buscas/i);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Aún no lo sé" }));
+    expect(screen.getByTestId("competitors-unknown-hint")).toBeInTheDocument();
+    expect(screen.queryByTestId("market-step-pending")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    expect(await screen.findByText("Paso 4 de 4")).toBeInTheDocument();
+    // Sin decisión: mensaje visible y Crear expediente no envía.
+    expect(screen.getByTestId("market-step-pending")).toHaveTextContent("Decisión concreta");
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+    expect(mocks.create).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Decisión concreta"), {
+      target: { value: "Identificar grupos sin inventar rivales" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      type: "market",
+      profile_config: expect.objectContaining({
+        own_offer: "Colaboración científica",
+        decision_to_make: "Identificar grupos sin inventar rivales",
+        competitors: [],
+        competitors_knowledge: "unknown",
+      }),
+    })));
+
+    const stored = sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor");
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored as string)).toMatchObject({
+      competitors_knowledge: "unknown",
+      entities: [],
+    });
+  });
+
   it("guía el intake de mercado en cuatro pasos y deja preparada la vigilancia", async () => {
     sessionStorage.clear();
     render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
@@ -76,8 +144,10 @@ describe("CreateProductDossierDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
 
     expect(await screen.findByText("Paso 3 de 4")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
-    fireEvent.change(screen.getByPlaceholderText("Una o varias razones sociales, separadas por comas"), { target: { value: "Compañía Gamma, Compañía Delta" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Conozco competidores" }));
+    fireEvent.change(screen.getByLabelText("Nombres de competidores"), {
+      target: { value: "Compañía Gamma, Compañía Delta" },
+    });
     fireEvent.change(screen.getByLabelText("Posibles partners"), { target: { value: "Partner Local" } });
     fireEvent.change(screen.getByLabelText("Reguladores"), { target: { value: "CNMC" } });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
@@ -101,6 +171,7 @@ describe("CreateProductDossierDialog", () => {
       profile_config: expect.objectContaining({
         own_offer: "Integración de baterías",
         decision_to_make: "Entrar con partner local",
+        competitors_knowledge: "known",
         competitors: [
           { name: "Compañía Gamma", aliases: [] },
           { name: "Compañía Delta", aliases: [] },
@@ -117,6 +188,7 @@ describe("CreateProductDossierDialog", () => {
       geographies: ["ES", "DE"],
       languages: ["es", "de"],
       cadence: "daily",
+      competitors_knowledge: "known",
     });
     expect(mocks.push).toHaveBeenCalledWith("/app/dossiers/dossier-1/settings?wizard_prefill=monitor");
   });
@@ -143,5 +215,48 @@ describe("CreateProductDossierDialog", () => {
         competitors: [{ name: "Compañía Alfa", aliases: [] }, { name: "Compañía Beta", aliases: [] }],
       }),
     })));
+  });
+});
+
+describe("marketStepBlockers", () => {
+  it("lista lo pendiente sin interacción de campos", () => {
+    expect(
+      marketStepBlockers({
+        step: "ecosystem",
+        title: "x",
+        goal: "y",
+        ownOffer: "z",
+        marketCountries: ["ES"],
+        competitors: "",
+        competitorsKnowledge: "",
+        decisionToMake: "",
+      }),
+    ).toEqual([
+      "Indica si conoces competidores, aún no lo sabes o no los buscas",
+    ]);
+    expect(
+      marketStepBlockers({
+        step: "ecosystem",
+        title: "x",
+        goal: "y",
+        ownOffer: "z",
+        marketCountries: ["ES"],
+        competitors: "",
+        competitorsKnowledge: "unknown",
+        decisionToMake: "",
+      }),
+    ).toEqual([]);
+    expect(
+      marketStepBlockers({
+        step: "decision",
+        title: "x",
+        goal: "y",
+        ownOffer: "z",
+        marketCountries: ["ES"],
+        competitors: "",
+        competitorsKnowledge: "not_seeking",
+        decisionToMake: "",
+      }),
+    ).toEqual(["Decisión concreta a tomar"]);
   });
 });

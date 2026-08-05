@@ -33,6 +33,7 @@ def test_profile_summary_exposes_market_fields() -> None:
     )
     summary = _profile_summary(dossier)  # type: ignore[arg-type]
     assert summary["version"] == "market.v1"
+    assert summary.get("competitors_knowledge") in {"known", "unknown", "not_seeking"}
     assert summary["origin"] == "declared_by_client"
     assert summary["own_offer"] == "Baterías"
     assert summary["competitors"] == ["Gamma", "Delta"]

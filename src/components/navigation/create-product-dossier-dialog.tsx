@@ -30,7 +30,58 @@ const MARKET_STEPS = [
   ["decision", "Decisión y revisión", "Concreta la decisión a tomar y revisa la base."],
 ] as const;
 
+/** Intención honesta sobre competidores: viaja al perfil y al agente de descubrimiento. */
+export type CompetitorsKnowledge = "known" | "unknown" | "not_seeking";
+
 type MarketStep = (typeof MARKET_STEPS)[number][0];
+
+const COMPETITORS_KNOWLEDGE_LABELS: Record<CompetitorsKnowledge, string> = {
+  known: "Conozco competidores",
+  unknown: "Aún no lo sé",
+  not_seeking: "No busco competidores",
+};
+
+export function marketStepBlockers(input: {
+  step: MarketStep;
+  title: string;
+  goal: string;
+  ownOffer: string;
+  marketCountries: string[];
+  competitors: string;
+  competitorsKnowledge: CompetitorsKnowledge | "";
+  decisionToMake: string;
+}): string[] {
+  const list = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
+  if (input.step === "context") {
+    const blockers: string[] = [];
+    if (input.title.trim().length < 2) blockers.push("Nombre del expediente (mínimo 2 caracteres)");
+    if (!input.goal.trim()) blockers.push("Objetivo estratégico");
+    return blockers;
+  }
+  if (input.step === "scope") {
+    const blockers: string[] = [];
+    if (!input.ownOffer.trim()) blockers.push("Oferta o capacidades propias");
+    if (input.marketCountries.length === 0) blockers.push("Al menos un país objetivo");
+    return blockers;
+  }
+  if (input.step === "ecosystem") {
+    if (!input.competitorsKnowledge) {
+      return [
+        "Indica si conoces competidores, aún no lo sabes o no los buscas",
+      ];
+    }
+    if (input.competitorsKnowledge === "known" && list(input.competitors).length === 0) {
+      return [
+        "Añade al menos un competidor, o elige «Aún no lo sé» / «No busco competidores»",
+      ];
+    }
+    return [];
+  }
+  if (!input.decisionToMake.trim()) {
+    return ["Decisión concreta a tomar"];
+  }
+  return [];
+}
 
 export function CreateProductDossierDialog({
   open,
@@ -46,6 +97,7 @@ export function CreateProductDossierDialog({
   const [description, setDescription] = useState("");
   const [createStarterProfile, setCreateStarterProfile] = useState(true);
   const [competitors, setCompetitors] = useState("");
+  const [competitorsKnowledge, setCompetitorsKnowledge] = useState<CompetitorsKnowledge | "">("");
   const [ownOffer, setOwnOffer] = useState("");
   const [segments, setSegments] = useState("");
   const [geographies, setGeographies] = useState("");
@@ -80,12 +132,27 @@ export function CreateProductDossierDialog({
 
   const list = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
 
+  const marketBlockers = isMarket
+    ? marketStepBlockers({
+        step,
+        title,
+        goal,
+        ownOffer,
+        marketCountries,
+        competitors,
+        competitorsKnowledge,
+        decisionToMake,
+      })
+    : [];
+  const marketStepReady = marketBlockers.length === 0;
+
   function resetForm() {
     setTitle("");
     setGoal("");
     setDescription("");
     setCreateStarterProfile(true);
     setCompetitors("");
+    setCompetitorsKnowledge("");
     setOwnOffer("");
     setSegments("");
     setGeographies("");
@@ -118,6 +185,7 @@ export function CreateProductDossierDialog({
     setReviewing(false);
     setReadiness(null);
     setStep("context");
+    setCompetitorsKnowledge("");
   }
 
   function changeMarketCountries(next: string[]) {
@@ -127,17 +195,41 @@ export function CreateProductDossierDialog({
     }
   }
 
-  const marketStepReady =
-    step === "context"
-      ? title.trim().length >= 2 && Boolean(goal.trim())
-      : step === "scope"
-        ? Boolean(ownOffer.trim()) && marketCountries.length > 0
-        : step === "ecosystem"
-          ? list(competitors).length > 0
-          : Boolean(decisionToMake.trim());
+  function setCompetitorsText(value: string) {
+    setCompetitors(value);
+    if (value.trim()) {
+      setCompetitorsKnowledge("known");
+    }
+  }
+
+  function chooseCompetitorsKnowledge(value: CompetitorsKnowledge) {
+    setCompetitorsKnowledge(value);
+    if (value !== "known") {
+      setCompetitors("");
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (isMarket && !marketStepReady) {
+      setError(
+        marketBlockers.length === 1
+          ? `Falta: ${marketBlockers[0]}.`
+          : `Completa lo pendiente: ${marketBlockers.join("; ")}.`,
+      );
+      return;
+    }
+    if (
+      type === "competitive_intelligence" &&
+      (!title.trim() || !goal.trim() || !ownOffer.trim() || !competitors.trim())
+    ) {
+      setError("Completa nombre, objetivo, oferta propia y al menos un competidor.");
+      return;
+    }
+    if (!isMarket && type !== "competitive_intelligence" && (!title.trim() || !goal.trim())) {
+      setError("Completa el nombre y el objetivo estratégico.");
+      return;
+    }
     if (type === "competitive_intelligence" && !reviewing) {
       setBusy(true);
       setError(null);
@@ -172,6 +264,14 @@ export function CreateProductDossierDialog({
     setBusy(true);
     setError(null);
     try {
+      const knowledge: CompetitorsKnowledge =
+        competitorsKnowledge === "known" || list(competitors).length > 0
+          ? "known"
+          : competitorsKnowledge === "not_seeking"
+            ? "not_seeking"
+            : "unknown";
+      const competitorNames =
+        knowledge === "known" ? list(competitors).map((name) => ({ name, aliases: [] as string[] })) : [];
       const dossier = await api.dossiers.create({
         title: title.trim(),
         type,
@@ -207,7 +307,8 @@ export function CreateProductDossierDialog({
             segments: list(segments),
             channels: list(channels),
             target_buyers: list(buyers),
-            competitors: list(competitors).map((name) => ({ name, aliases: [] })),
+            competitors: competitorNames,
+            competitors_knowledge: knowledge,
             partners: list(partners),
             regulators: list(regulators),
             barriers: list(barriers),
@@ -220,17 +321,22 @@ export function CreateProductDossierDialog({
         try {
           // Prefill efímero de UX: no es memoria durable ni sustituye profile_config.
           // Si sessionStorage no está disponible, el expediente ya está creado con el perfil.
+          const entityNames =
+            knowledge === "known"
+              ? [...new Set([...list(competitors), ...list(partners), ...list(regulators)])]
+              : [...new Set([...list(partners), ...list(regulators)])];
           sessionStorage.setItem(
             `oracle:wizard-prefill:${dossier.id}:monitor`,
             JSON.stringify({
               name: `Radar de mercado: ${title.trim()}`.slice(0, 200),
               query: "",
               keywords: [...new Set([...list(keywords), ...list(segments), ...list(channels)])].slice(0, 50),
-              entities: [...new Set([...list(competitors), ...list(partners), ...list(regulators)])].slice(0, 50),
+              entities: entityNames.slice(0, 50),
               languages: list(marketLanguages).map((item) => item.toLowerCase()),
               geographies: marketCountries,
               source_types: ["news", "company_signal", "regulatory_signal", "official_publication"],
               cadence: "daily",
+              competitors_knowledge: knowledge,
             }),
           );
         } catch {
@@ -360,6 +466,23 @@ export function CreateProductDossierDialog({
     </label>
   );
 
+  const marketPendingSummary =
+    isMarket && marketBlockers.length > 0 ? (
+      <div
+        className="step-pending-requirements"
+        role="status"
+        aria-live="polite"
+        data-testid="market-step-pending"
+      >
+        <strong>Para continuar falta:</strong>
+        <ul>
+          {marketBlockers.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -374,7 +497,7 @@ export function CreateProductDossierDialog({
           <Dialog.Close className="dialog-close" aria-label="Cerrar">
             <X size={18} />
           </Dialog.Close>
-          <form onSubmit={submit}>
+          <form onSubmit={submit} noValidate={isMarket}>
             {isMarket && (
               <header className="market-wizard-progress" aria-live="polite">
                 <span className="eyebrow">Paso {stepIndex + 1} de {MARKET_STEPS.length}</span>
@@ -417,13 +540,55 @@ export function CreateProductDossierDialog({
               <section className="competitive-intake-fields" aria-labelledby="market-ecosystem-title">
                 <header>
                   <h2 id="market-ecosystem-title">Ecosistema del mercado</h2>
-                  <p>Los nombres propios son los que permiten vigilar el mercado: sin al menos una empresa nombrada, el radar no podrá producir señales.</p>
+                  <p>
+                    Si conoces competidores, nómbralos para excluirlos del descubrimiento.
+                    Si aún no lo sabes o no buscas competidores, dilo con honestidad: no hace
+                    falta inventar nombres.
+                  </p>
                 </header>
-                <label className="field full">
-                  <span>Competidores</span>
-                  <input required value={competitors} onChange={(event) => setCompetitors(event.target.value)} placeholder="Una o varias razones sociales, separadas por comas" />
-                  <small>Podrás resolver alias y variantes registrales después desde Actores.</small>
-                </label>
+                <fieldset className="field full competitors-knowledge" data-testid="competitors-knowledge">
+                  <legend>Competidores</legend>
+                  <div className="competitors-knowledge-options" role="radiogroup" aria-label="Conocimiento de competidores">
+                    {(Object.keys(COMPETITORS_KNOWLEDGE_LABELS) as CompetitorsKnowledge[]).map((value) => (
+                      <label key={value} className="checkbox-row">
+                        <input
+                          type="radio"
+                          name="competitors_knowledge"
+                          value={value}
+                          checked={competitorsKnowledge === value}
+                          onChange={() => chooseCompetitorsKnowledge(value)}
+                        />
+                        <span>{COMPETITORS_KNOWLEDGE_LABELS[value]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {competitorsKnowledge === "known" && (
+                    <>
+                      <input
+                        value={competitors}
+                        onChange={(event) => setCompetitorsText(event.target.value)}
+                        placeholder="Una o varias razones sociales, separadas por comas"
+                        aria-label="Nombres de competidores"
+                      />
+                      <small>
+                        Estos nombres se envían al agente de descubrimiento como lista de exclusión
+                        (no los volverá a proponer). Podrás resolver alias después desde Actores.
+                      </small>
+                    </>
+                  )}
+                  {competitorsKnowledge === "unknown" && (
+                    <small data-testid="competitors-unknown-hint">
+                      Se registrará la intención «aún no lo sé». El agente de descubrimiento
+                      buscará candidatos sin lista de exclusión inventada.
+                    </small>
+                  )}
+                  {competitorsKnowledge === "not_seeking" && (
+                    <small data-testid="competitors-not-seeking-hint">
+                      Se registrará la intención «no busco competidores». El agente no tratará
+                      una lista vacía como si hubieras declarado rivales.
+                    </small>
+                  )}
+                </fieldset>
                 <label className="field"><span>Clientes o compradores objetivo</span><input value={buyers} onChange={(event) => setBuyers(event.target.value)} placeholder="Ej. operadores de red, utilities" /></label>
                 <label className="field"><span>Canales de entrada</span><input value={channels} onChange={(event) => setChannels(event.target.value)} placeholder="Ej. licitación pública, partner local" /></label>
                 <label className="field"><span>Posibles partners</span><input value={partners} onChange={(event) => setPartners(event.target.value)} placeholder="Separados por comas" /></label>
@@ -454,7 +619,16 @@ export function CreateProductDossierDialog({
                   <dl>
                     <div><dt>Oferta propia</dt><dd>{ownOffer}</dd></div>
                     <div><dt>Países</dt><dd>{marketCountries.map(euCountryName).join(", ")}</dd></div>
-                    <div><dt>Competidores</dt><dd>{list(competitors).join(", ")}</dd></div>
+                    <div>
+                      <dt>Competidores</dt>
+                      <dd>
+                        {competitorsKnowledge === "known"
+                          ? list(competitors).join(", ") || "—"
+                          : competitorsKnowledge
+                            ? COMPETITORS_KNOWLEDGE_LABELS[competitorsKnowledge]
+                            : "—"}
+                      </dd>
+                    </div>
                     <div><dt>Estado inicial</dt><dd>{activeOnCreate ? "Activo" : "Borrador"}</dd></div>
                     <div className="full"><dt>Base generada</dt><dd>Objetivo, hipótesis, actores con roles, decisión propuesta, riesgos desde barreras, vigilancia preparada y tres tareas.</dd></div>
                   </dl>
@@ -505,6 +679,7 @@ export function CreateProductDossierDialog({
             {!isMarket && type !== "competitive_intelligence" && starterField}
             {isMarket && step === "decision" && starterField}
             {type === "competitive_intelligence" && reviewing && starterField}
+            {marketPendingSummary}
             {error && <p className="form-error" role="alert">{error}</p>}
             {type === "competitive_intelligence" && reviewing && (
               <section className="competitive-review" aria-labelledby="competitive-review-title">
@@ -544,10 +719,11 @@ export function CreateProductDossierDialog({
                 type="submit"
                 disabled={
                   isMarket
-                    ? !marketStepReady
+                    ? false
                     : !title.trim() || !goal.trim() || (type === "competitive_intelligence" && (!ownOffer.trim() || !competitors.trim()))
                 }
                 loading={busy}
+                aria-describedby={isMarket && !marketStepReady ? "market-step-pending-desc" : undefined}
               >
                 <FilePlus2 size={16} />
                 {busy
@@ -559,6 +735,11 @@ export function CreateProductDossierDialog({
                       : "Crear expediente"}
               </AsyncActionButton>
             </div>
+            {isMarket && !marketStepReady && (
+              <p id="market-step-pending-desc" className="sr-only">
+                Hay requisitos pendientes en este paso.
+              </p>
+            )}
           </form>
         </Dialog.Content>
       </Dialog.Portal>

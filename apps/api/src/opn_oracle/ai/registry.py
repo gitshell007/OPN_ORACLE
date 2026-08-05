@@ -141,6 +141,7 @@ INPUT_CONTRACTS = {
         "countries",
         "languages",
         "known_names",
+        "competitors_knowledge",
         "allowed_evidence_ids",
     ),
     "dossier_question_answer": (

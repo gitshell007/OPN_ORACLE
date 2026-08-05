@@ -148,6 +148,10 @@ class MarketCompetitorDiscoveryInputSchema(Schema):
     countries = List(String(validate=validate.Length(min=2, max=3)), load_default=[])
     languages = List(String(validate=validate.Length(max=10)), load_default=[])
     known_names = List(String(validate=validate.Length(max=300)), load_default=[])
+    competitors_knowledge = String(
+        load_default="known",
+        validate=validate.OneOf(["known", "unknown", "not_seeking"]),
+    )
 
 
 class SourceUrlMetaSchema(Schema):
@@ -730,13 +734,20 @@ def _market_discovery_input(value: Any) -> dict[str, Any]:
     description = " ".join(str(value.get("description") or "").split())
     if len(description) < 10 or len(description) > 4_000:
         raise ValueError("La descripción debe tener entre 10 y 4000 caracteres.")
+    knowledge = str(value.get("competitors_knowledge") or "known").strip().lower()
+    if knowledge not in {"known", "unknown", "not_seeking"}:
+        raise ValueError(
+            "competitors_knowledge debe ser known, unknown o not_seeking."
+        )
+    known_names = _clean_list("known_names", limit=50) if knowledge == "known" else []
     return {
         "description": description,
         "own_offer": " ".join(str(value.get("own_offer") or "").split())[:1000],
         "sectors": _clean_list("sectors", limit=10),
         "countries": _clean_list("countries", limit=27, upper=True),
         "languages": _clean_list("languages", limit=10, lower=True),
-        "known_names": _clean_list("known_names", limit=50),
+        "known_names": known_names,
+        "competitors_knowledge": knowledge,
     }
 
 

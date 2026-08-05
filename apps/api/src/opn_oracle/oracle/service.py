@@ -273,15 +273,52 @@ def _validated_competitors(raw_competitors: Any) -> list[dict[str, Any]]:
     return competitors
 
 
+_COMPETITORS_KNOWLEDGE_VALUES = frozenset({"known", "unknown", "not_seeking"})
+
+
+def _validated_competitors_knowledge(
+    value: dict[str, Any], *, competitors: list[dict[str, Any]]
+) -> str:
+    """Normalize honest intent about competitors for market intake.
+
+    ``known`` requires at least one named competitor (exclusion list for discovery).
+    ``unknown`` / ``not_seeking`` allow an empty list so the user is not forced to lie.
+    Legacy payloads with names but no field default to ``known``; empty list without
+    field remains invalid (must declare intent explicitly).
+    """
+
+    raw = str(value.get("competitors_knowledge", "")).strip().lower()
+    if raw in _COMPETITORS_KNOWLEDGE_VALUES:
+        knowledge = raw
+    elif competitors:
+        knowledge = "known"
+    else:
+        raise DomainValidationError(
+            "Indica si conoces competidores (known), aún no lo sabes (unknown) o no los "
+            "buscas (not_seeking)."
+        )
+    if knowledge == "known" and not competitors:
+        raise DomainValidationError(
+            "Si conoces competidores, añade al menos un nombre; si no, elige "
+            "«unknown» o «not_seeking»."
+        )
+    if knowledge != "known":
+        # Honest exit: never store invented exclusion names.
+        return knowledge
+    return knowledge
+
+
 def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
     own_offer = " ".join(str(value.get("own_offer", "")).strip().split())[:500]
     decision_to_make = str(value.get("decision_to_make", "")).strip()[:2000]
     competitors = _validated_competitors(value.get("competitors", []))
-    if not own_offer or not decision_to_make or not competitors:
+    if not own_offer or not decision_to_make:
         raise DomainValidationError(
-            "El expediente de mercado exige oferta propia, decisión a tomar y al menos "
-            "un competidor con nombre."
+            "El expediente de mercado exige oferta propia y decisión a tomar."
         )
+    knowledge = _validated_competitors_knowledge(value, competitors=competitors)
+    if knowledge != "known":
+        competitors = []
     return {
         "version": "market.v1",
         "own_offer": own_offer,
@@ -291,6 +328,7 @@ def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
         "channels": _profile_strings(value.get("channels", []), "channels"),
         "target_buyers": _profile_strings(value.get("target_buyers", []), "target_buyers"),
         "competitors": competitors,
+        "competitors_knowledge": knowledge,
         "partners": _profile_strings(value.get("partners", []), "partners"),
         "regulators": _profile_strings(value.get("regulators", []), "regulators"),
         "barriers": _profile_strings(value.get("barriers", []), "barriers"),

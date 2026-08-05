@@ -2541,6 +2541,8 @@ export interface MarketCompetitorDiscoveryInput {
   countries?: string[];
   languages?: string[];
   known_names?: string[];
+  /** Honest intent: known (exclude known_names), unknown, or not_seeking. */
+  competitors_knowledge?: "known" | "unknown" | "not_seeking";
 }
 
 export interface MarketCompetitorCandidate {
