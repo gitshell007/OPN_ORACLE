@@ -1481,6 +1481,36 @@ def _answer_via_signal(
         raise ConversationError(
             format_allowlist_rejection(material_rejected, allowed, kind="facts/claims evidence_ids")
         )
+    # G06-CITA-RESPALDO: allowlist ≠ respaldo. Exige solape afirmación ↔ span citado.
+    from opn_oracle.integrations.citation_support import (
+        build_evidence_text_index,
+        enforce_citation_support,
+        format_support_rejection_summary,
+    )
+
+    evidence_index = build_evidence_text_index(
+        memory_items=memory_items,
+        signal_factual=dict((dual_blocks or {}).get("signal_factual") or {}),
+        oracle_authority=dict((dual_blocks or {}).get("oracle_authority") or {}),
+        citations=accepted,
+    )
+    support = enforce_citation_support(
+        facts=facts_out,
+        claims=claims_out,
+        evidence_text_by_id=evidence_index,
+    )
+    facts_out = support.facts
+    claims_out = support.claims
+    warnings_out = list(output.get("warnings") or [])
+    for warning in support.warnings:
+        if warning not in warnings_out:
+            warnings_out.append(warning)
+    support_summary = format_support_rejection_summary(support)
+    if support_summary and support_summary not in warnings_out:
+        warnings_out.append(support_summary)
+    # Material degradado sin evidence_ids: claims OK; facts con schema estricto
+    # ya no están en support.facts si se retiraron. Los degradados (no person-role)
+    # salen de claims con evidence_ids=[] — permitido en DossierQuestionClaim.
     validated_hash = (
         str(output.get("validated_output_sha256") or "").strip()
         or str((artifact.output or {}).get("validated_output_sha256") or "").strip()
@@ -1500,7 +1530,23 @@ def _answer_via_signal(
             "citations": accepted,
             "allowed_evidence_ids": allowed,
             "confidence": output.get("confidence"),
-            "warnings": list(output.get("warnings") or []),
+            "warnings": warnings_out,
+            "citation_support": {
+                "withdrawn": support.withdrawn_count,
+                "degraded": support.degraded_count,
+                "kept": support.kept_count,
+                "issues": [
+                    {
+                        "path": issue.path,
+                        "action": issue.action,
+                        "reason": issue.reason,
+                        "missing_anchors": issue.missing_anchors,
+                        "evidence_ids": issue.evidence_ids,
+                        "claim_kind": issue.claim_kind,
+                    }
+                    for issue in support.issues
+                ],
+            },
             "job_id": str(job.id),
             "artifact_id": str(artifact.id),
             "audit_log_id": str(result.get("audit_log_id") or ""),
@@ -1520,5 +1566,7 @@ def _answer_via_signal(
             "task_key": "dossier_question_answer",
             "provider_path": "signal",
             "validated_output_sha256": validated_hash,
+            "citation_support_withdrawn": support.withdrawn_count,
+            "citation_support_degraded": support.degraded_count,
         },
     }

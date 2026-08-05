@@ -2525,6 +2525,63 @@ export type TenderSearchWizardLatestResponse =
   };
 export type TenderSearchWizardRunResponse =
   components["schemas"]["TenderSearchWizardRunResponse"];
+
+/** G06: source_urls always labelled «no verificada» (form validation only, no fetch). */
+export interface SourceUrlMeta {
+  url: string;
+  status: "no_verificada";
+  label: "no verificada";
+  verified: false;
+}
+
+export interface MarketCompetitorDiscoveryInput {
+  description: string;
+  own_offer?: string;
+  sectors?: string[];
+  countries?: string[];
+  languages?: string[];
+  known_names?: string[];
+}
+
+export interface MarketCompetitorCandidate {
+  name: string;
+  country: string;
+  rationale: string;
+  source_urls: string[];
+  source_urls_meta?: SourceUrlMeta[];
+  source_urls_status?: string | null;
+  source_urls_label?: string | null;
+  confidence: number;
+}
+
+export interface MarketCompetitorDiscoveryOutput {
+  candidates: MarketCompetitorCandidate[];
+  warnings: string[];
+}
+
+export interface MarketCompetitorDiscoveryArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: MarketCompetitorDiscoveryOutput;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface MarketCompetitorDiscoveryRunResponse {
+  job: TenderSearchWizardJob;
+  artifact: MarketCompetitorDiscoveryArtifact | null;
+}
+
+export interface MarketCompetitorDiscoveryLatestResponse {
+  job: TenderSearchWizardJob | null;
+  artifact: MarketCompetitorDiscoveryArtifact | null;
+}
+
 export type ProcurementSearchProfile =
   components["schemas"]["ProcurementSearchProfileResponse"];
 export type ProcurementSearchProfileList =
@@ -2910,6 +2967,19 @@ const tenderSearchWizard = {
   run: (input: TenderSearchWizardInput, idempotencyKey: string) =>
     request<TenderSearchWizardRunResponse>(
       "/api/v1/ai/tender-search-wizard/runs",
+      { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
+const marketCompetitorDiscovery = {
+  latest: () =>
+    request<MarketCompetitorDiscoveryLatestResponse>(
+      "/api/v1/ai/market-competitor-discovery/latest",
+      { retry: false },
+    ),
+  run: (input: MarketCompetitorDiscoveryInput, idempotencyKey: string) =>
+    request<MarketCompetitorDiscoveryRunResponse>(
+      "/api/v1/ai/market-competitor-discovery/runs",
       { method: "POST", body: input, idempotencyKey },
     ),
 };
@@ -3894,6 +3964,7 @@ export const api = {
   entityIntel,
   procurement,
   tenderSearchWizard,
+  marketCompetitorDiscovery,
   procurementSearchProfiles,
   procurementSearchWatches,
   dossierProcurement,

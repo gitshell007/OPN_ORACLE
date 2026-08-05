@@ -1271,6 +1271,67 @@ class ReportCustomBriefPlanOutput(StrictModel):
         return payload
 
 
+class SourceUrlMeta(StrictModel):
+    """URL de respaldo con etiqueta honesta: nunca se marca como verificada."""
+
+    url: str = Field(min_length=1, max_length=1500)
+    status: Literal["no_verificada"] = "no_verificada"
+    label: Literal["no verificada"] = "no verificada"
+    verified: bool = False
+
+
+class MarketCompetitorCandidate(StrictModel):
+    name: str = Field(min_length=1, max_length=300)
+    country: str = Field(default="", max_length=120)
+    rationale: str = Field(min_length=1, max_length=1000)
+    # list[str] sin AnyUrl a propósito histórico; la política en
+    # ``source_url_policy`` sanea forma http(s)+host y etiqueta «no verificada».
+    source_urls: list[str] = Field(default_factory=list, max_length=5)
+    source_urls_meta: list[SourceUrlMeta] = Field(default_factory=list, max_length=5)
+    source_urls_status: str | None = None
+    source_urls_label: str | None = None
+    confidence: int = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _apply_source_url_policy(self) -> MarketCompetitorCandidate:
+        from opn_oracle.ai.source_url_policy import (
+            SOURCE_URL_UNVERIFIED_LABEL,
+            SOURCE_URL_UNVERIFIED_STATUS,
+            annotate_source_urls,
+            sanitize_source_urls,
+        )
+
+        cleaned = sanitize_source_urls(self.source_urls, max_items=5)
+        meta = annotate_source_urls(cleaned, max_items=5)
+        self.source_urls = cleaned
+        self.source_urls_meta = [SourceUrlMeta.model_validate(item) for item in meta]
+        self.source_urls_status = SOURCE_URL_UNVERIFIED_STATUS if cleaned else None
+        self.source_urls_label = SOURCE_URL_UNVERIFIED_LABEL if cleaned else None
+        return self
+
+
+class MarketCompetitorDiscoveryOutput(StrictModel):
+    """Candidate competitors for a market; the user reviews and picks, never auto-added."""
+
+    candidates: list[MarketCompetitorCandidate] = Field(default_factory=list, max_length=15)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def _label_unverified_sources(self) -> MarketCompetitorDiscoveryOutput:
+        from opn_oracle.ai.source_url_policy import SOURCE_URL_UNVERIFIED_LABEL
+
+        has_urls = any(item.source_urls for item in self.candidates)
+        if not has_urls:
+            return self
+        note = (
+            "Las source_urls se validan solo en forma (http/https + host) y se etiquetan "
+            f"«{SOURCE_URL_UNVERIFIED_LABEL}»; no se comprueba su contenido en red."
+        )
+        if note not in self.warnings:
+            self.warnings = [*self.warnings, note][:10]
+        return self
+
+
 AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
@@ -1290,4 +1351,5 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "tender_search_wizard": TenderSearchWizardOutput,
     "dossier_question_answer": DossierQuestionAnswerOutput,
     "report_custom_brief_plan": ReportCustomBriefPlanOutput,
+    "market_competitor_discovery": MarketCompetitorDiscoveryOutput,
 }
