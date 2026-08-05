@@ -21,8 +21,7 @@ from opn_oracle.reporting.service import (
 )
 
 ENCRYPTED_NOTE = (
-    f"{ENCRYPTED_PDF_EXTRACT_WARNING} "
-    "(ref=PCAP_CONTR.pdf; No se admiten PDF cifrados.)"
+    f"{ENCRYPTED_PDF_EXTRACT_WARNING} (ref=PCAP_CONTR.pdf; No se admiten PDF cifrados.)"
 )
 
 
@@ -92,18 +91,14 @@ def test_refresh_report_snapshot_preserves_document_notes() -> None:
 
     with (
         patch("opn_oracle.reporting.service.db", SimpleNamespace(session=session)),
-        patch(
-            "opn_oracle.reporting.service.ReportTemplateRegistry"
-        ) as registry_cls,
+        patch("opn_oracle.reporting.service.ReportTemplateRegistry") as registry_cls,
         patch(
             "opn_oracle.reporting.service._snapshot",
             return_value=(rebuilt, []),
         ),
         patch("opn_oracle.reporting.service._sha256", return_value=b"\x11" * 32),
     ):
-        registry_cls.return_value.get.return_value = SimpleNamespace(
-            key="tender", version="v1"
-        )
+        registry_cls.return_value.get.return_value = SimpleNamespace(key="tender", version="v1")
         refresh_report_snapshot(report)
 
     assert report.source_snapshot["document_notes"] == [ENCRYPTED_NOTE]
