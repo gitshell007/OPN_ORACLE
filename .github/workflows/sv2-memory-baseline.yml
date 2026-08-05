@@ -1,0 +1,117 @@
+name: SV2 memory baseline
+
+# Corredor de evals de memoria. Unitario siempre (gratis, sin red a oracle-dev).
+# Corrida viva solo con secretos + workflow_dispatch / schedule — ver README.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/sv2_memory_baseline.py"
+      - "docs/evals/sv2_memory_baseline/**"
+      - "fixtures/sv2_memory_baseline/**"
+      - "tests/test_sv2_memory_baseline_scorer.py"
+      - ".github/workflows/sv2-memory-baseline.yml"
+  push:
+    branches:
+      - oracle-dev
+      - master
+    paths:
+      - "scripts/sv2_memory_baseline.py"
+      - "docs/evals/sv2_memory_baseline/**"
+      - "fixtures/sv2_memory_baseline/**"
+      - "tests/test_sv2_memory_baseline_scorer.py"
+      - ".github/workflows/sv2-memory-baseline.yml"
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: "Run live baseline against oracle-dev (requires secrets)"
+        required: false
+        default: false
+        type: boolean
+      limit:
+        description: "Limit questions (0 = full set)"
+        required: false
+        default: "0"
+  schedule:
+    # Nocturno 02:15 UTC — solo intenta live si hay secretos configurados.
+    - cron: "15 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sv2-memory-baseline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scorer-unit:
+    name: Scorer unit + dry-score
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+      - name: Scorer unit tests
+        run: python -m pytest -q tests/test_sv2_memory_baseline_scorer.py
+      - name: Dry-score (no network)
+        run: python3 scripts/sv2_memory_baseline.py --dry-score
+
+  live-baseline:
+    name: Live baseline (oracle-dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: scorer-unit
+    # Solo manual con flag, o schedule con secretos presentes.
+    if: >
+      (github.event_name == 'workflow_dispatch' && inputs.run_live == true)
+      || (github.event_name == 'schedule' && secrets.ORACLE_BASELINE_CREDS != '')
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Write credentials from secret
+        env:
+          ORACLE_BASELINE_CREDS: ${{ secrets.ORACLE_BASELINE_CREDS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ORACLE_BASELINE_CREDS:-}" ]; then
+            echo "ORACLE_BASELINE_CREDS secret missing — live run not viable from this runner."
+            exit 1
+          fi
+          printf '%s\n' "$ORACLE_BASELINE_CREDS" > "$RUNNER_TEMP/oracle_baseline_creds.txt"
+          chmod 600 "$RUNNER_TEMP/oracle_baseline_creds.txt"
+      - name: Run memory baseline
+        env:
+          ORACLE_BASE_URL: ${{ vars.ORACLE_BASE_URL }}
+          ORACLE_CREDS_PATH: ${{ runner.temp }}/oracle_baseline_creds.txt
+          SCORER_FREEZE_SHA: ${{ github.sha }}
+          OUT_DIR: ${{ github.workspace }}/docs/evals/sv2_memory_baseline/v1/runs
+        run: |
+          set -euo pipefail
+          export ORACLE_BASE_URL="${ORACLE_BASE_URL:-https://oracle-dev.opnconsultoria.com}"
+          limit="${{ github.event.inputs.limit }}"
+          limit="${limit:-0}"
+          args=()
+          if [ "$limit" != "0" ] && [ -n "$limit" ]; then
+            args+=(--limit "$limit")
+          fi
+          python3 scripts/sv2_memory_baseline.py "${args[@]}"
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sv2-memory-baseline-run
+          path: |
+            docs/evals/sv2_memory_baseline/v1/runs/run_*.json
+            docs/evals/sv2_memory_baseline/v1/runs/run_*.md
+          if-no-files-found: warn
+          retention-days: 30
