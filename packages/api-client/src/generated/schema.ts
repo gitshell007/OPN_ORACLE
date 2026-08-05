@@ -34492,12 +34492,6 @@ export interface components {
             version: number;
         };
         MarketCompetitorDiscoveryInput: {
-            /**
-             * @description Honest intent passed to discovery agent.
-             * @default known
-             * @enum {string}
-             */
-            competitors_knowledge?: "known" | "not_seeking" | "unknown";
             /** @default [] */
             countries: string[];
             description: string;
@@ -34509,6 +34503,12 @@ export interface components {
             own_offer: string;
             /** @default [] */
             sectors: string[];
+            /**
+             * @description Honest intent passed to discovery agent.
+             * @default known
+             * @enum {string}
+             */
+            competitors_knowledge: "known" | "unknown" | "not_seeking";
         };
         MarketCompetitorDiscoveryLatestResponse: {
             artifact?: (Record<string, never> | null) | components["schemas"]["MarketCompetitorDiscoveryArtifact"];
@@ -34526,8 +34526,6 @@ export interface components {
             barriers?: string[];
             channels?: string[];
             competitors?: components["schemas"]["CompetitiveCompetitorInput"][];
-            /** @description Honest intent: known (exclusion list), unknown, or not_seeking. */
-            competitors_knowledge?: "known" | "unknown" | "not_seeking";
             decision_to_make: string;
             horizon?: string;
             keywords?: string[];
@@ -34537,6 +34535,11 @@ export interface components {
             segments?: string[];
             success_indicators?: string[];
             target_buyers?: string[];
+            /**
+             * @description Honest intent: known (exclusion list), unknown, or not_seeking.
+             * @enum {string}
+             */
+            competitors_knowledge?: "known" | "unknown" | "not_seeking";
         };
         MeResponse: {
             /** Format: uuid */
