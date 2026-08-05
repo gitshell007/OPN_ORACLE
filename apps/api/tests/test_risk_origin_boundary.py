@@ -196,7 +196,9 @@ def test_sanitize_drops_risk_context_declared_without_evidence_id() -> None:
     assert len(data["risk_context_declared"]) == 1
     assert data["risk_context_declared"][0]["statement"] == "Barrera con id"
     assert any("risk_context_declared" in w for w in data["warnings"])
-    assert any("Se retiraron 1 fact" in w for w in data["warnings"])
+    assert any(
+        "Se retiraron 1 afirmación(es) sin respaldo documental" in w for w in data["warnings"]
+    )
 
 
 def test_enrich_risk_context_declared_from_profile_barriers() -> None:

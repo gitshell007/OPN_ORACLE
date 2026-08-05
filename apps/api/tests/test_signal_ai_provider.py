@@ -365,9 +365,17 @@ def test_signal_governed_provider_normalizes_report_writer_shape_drift(
     assert result.output.recommendations[0].priority == "medium"
     assert result.output.sections[0].paragraphs[0].kind == "inference"
     assert result.output.sections[0].paragraphs[0].evidence_ids == []
+    assert result.output.sections[0].paragraphs[0].confidence <= 70
     assert result.output.sections[0].paragraphs[1].kind == "inference"
     assert result.output.sections[0].paragraphs[1].evidence_ids == []
     assert result.output.source_index == []
+    # SV2-G05: el uncited ya no desaparece en silencio; warnings de producto visibles.
+    assert any("Hecho sin cita" in w for w in result.output.warnings)
+    assert any("sin respaldo documental" in w for w in result.output.warnings)
+    assert any(
+        "El proyecto avanza, pero esta frase venía sin cita" in w for w in result.output.warnings
+    )
+    assert any("Se degradó a inferencia" in w for w in result.output.warnings)
 
 
 def _dqa_safe_validated(*, answer_text: str = "Respuesta segura sin citas.") -> dict:

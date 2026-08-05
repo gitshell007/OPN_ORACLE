@@ -1095,6 +1095,10 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
     Nested (opportunities/risks/relevant_actors): elemento sin citas se retira
     con aviso; sublistado vacío **no** es fatal (campos opcionales default []).
 
+    Sections (report family): párrafo ``kind=fact`` sin citas se degrada a
+    ``inference`` (confianza ≤70) con warning de producto que nombra el texto;
+    no se publica como fact ni se inventan ``evidence_ids``.
+
     Esquemas sin ``facts[]`` (wizards, plan) y el path RT-07 de Preguntar no
     entran aquí.
     """
@@ -1130,10 +1134,12 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
                 )
             candidate["facts"] = kept
             preview_blob = "; ".join(dropped_previews)[:220]
+            # Español de producto: nombrar la retirada y un preview prudente del texto.
             drop_warning = (
-                f"Se retiraron {dropped} fact(s) sin evidence_ids (no publicables"
-                f"{f': {preview_blob}' if preview_blob else ''}). "
-                "Un fact sin citas no es un error fatal del job: se omite y se publica lo fundado."
+                f"Se retiraron {dropped} afirmación(es) sin respaldo documental"
+                f"{f': «{preview_blob}»' if preview_blob else ''}. "
+                "Una afirmación presentada como hecho sin citas no se publica; "
+                "se conserva lo fundado."
             )
             if drop_warning not in warnings:
                 warnings.append(drop_warning)
@@ -1179,10 +1185,10 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
         candidate[field_name] = kept_nested
         preview_blob = "; ".join(nested_previews)[:220]
         nested_warning = (
-            f"Se retiraron {dropped_nested} {label}(s) sin evidence_ids en {field_name} "
-            f"(no publicables{f': {preview_blob}' if preview_blob else ''}). "
-            "Un elemento sin citas no es un error fatal del job: se omite; "
-            "sublistado vacío es aceptable (campo opcional)."
+            f"Se retiraron {dropped_nested} {label}(s) sin respaldo documental en {field_name}"
+            f"{f': «{preview_blob}»' if preview_blob else ''}. "
+            "Un elemento sin citas no se publica; sublistado vacío es aceptable "
+            "(campo opcional)."
         )
         if nested_warning not in warnings:
             warnings.append(nested_warning)
@@ -1230,6 +1236,45 @@ def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
                     warnings.append(decl_warning)
             elif len(deduped) != len(kept_decl):
                 candidate["risk_context_declared"] = deduped
+
+    # --- sections[].paragraphs kind=fact sin citas (SV2-G05-HECHO-SIN-CITA) ---
+    # Política única para report_writer / competitive_procurement_intelligence /
+    # entity_dossier_intelligence: degradar a inference con warning visible.
+    # Nunca publicar como fact ni inventar evidence_ids. El normalizador de forma
+    # no debe haber convertido en silencio antes de este gate.
+    sections = candidate.get("sections")
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            paragraphs = section.get("paragraphs")
+            if not isinstance(paragraphs, list):
+                continue
+            for para in paragraphs:
+                if not isinstance(para, dict):
+                    continue
+                kind = para.get("kind")
+                evidence = para.get("evidence_ids")
+                has_ids = isinstance(evidence, list) and len(evidence) > 0
+                if kind != "fact" or has_ids:
+                    continue
+                changed = True
+                preview = _preview_cited_item(para)
+                para["kind"] = "inference"
+                try:
+                    conf_i = int(para.get("confidence", 70))
+                except (TypeError, ValueError):
+                    conf_i = 70
+                para["confidence"] = min(max(0, conf_i), 70)
+                # No inventar citas: lista vacía explícita.
+                para["evidence_ids"] = []
+                para_warning = (
+                    "Se degradó a inferencia una afirmación presentada como hecho sin citas"
+                    f"{f': «{preview}»' if preview else ''}. "
+                    "Sin respaldo documental no puede publicarse como hecho."
+                )
+                if para_warning not in warnings:
+                    warnings.append(para_warning)
 
     if not changed:
         return raw_output
@@ -1461,6 +1506,16 @@ def _normalize_signal_candidate_json(
         return cleaned
 
     def fact_items(value: Any) -> list[dict[str, Any]]:
+        """Preserve uncited statements so the honesty gate can warn and drop them.
+
+        SV2-G05-HECHO-SIN-CITA: previously required ``statement and ids``, which
+        erased uncited model claims before ``_sanitize_uncited_facts_json`` ran.
+        Shape normalization only coerces fields and allowlists evidence ids; it
+        must not silence honesty signals. Empty ``evidence_ids`` remain so the
+        central sanitize can withdraw them with a product warning (or fail-closed
+        when every emitted fact lacked citations).
+        """
+
         items: list[dict[str, Any]] = []
         for item in as_list(value):
             if isinstance(item, dict):
@@ -1469,7 +1524,7 @@ def _normalize_signal_candidate_json(
             else:
                 statement = as_text(item)
                 ids = []
-            if statement and ids:
+            if statement:
                 items.append({"statement": statement, "evidence_ids": ids})
         return items
 
@@ -1521,6 +1576,16 @@ def _normalize_signal_candidate_json(
         return items
 
     def paragraph_item(value: Any) -> dict[str, Any] | None:
+        """Coerce paragraph shape only; honesty policy lives in sanitize.
+
+        SV2-G05-HECHO-SIN-CITA: do **not** silently convert ``kind=fact`` without
+        citations into ``inference``. That hid the original claim from
+        ``_sanitize_uncited_facts_json`` and left the client without a specific
+        warning. Keep ``kind=fact`` + empty ``evidence_ids`` so the central gate
+        can degrade with a named product warning (or leave cited facts intact).
+        Allowlist filtering of ids still applies here.
+        """
+
         if isinstance(value, dict):
             text = as_text(value.get("text") or value.get("statement"))
             kind = as_text(value.get("kind"), "inference")
@@ -1533,9 +1598,6 @@ def _normalize_signal_candidate_json(
             ids = []
         if kind not in {"fact", "inference", "recommendation", "decision"}:
             kind = "inference"
-        if kind == "fact" and not ids:
-            kind = "inference"
-            confidence = min(confidence, 70)
         if not text:
             return None
         return {"text": text, "kind": kind, "confidence": confidence, "evidence_ids": ids}
