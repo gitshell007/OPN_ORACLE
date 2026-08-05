@@ -20,6 +20,18 @@ Reglas:
 - Tras mergear a `oracle-dev`, construir release con el SHA exacto y CI aceptable, y activar con symlink `current`.
 - No hacer `git pull` in-place sobre `/opt/opn-oracle/current`.
 
+## Ventana de congelación
+
+Cuando haya **grabación de vídeo o demo en curso**, **no se despliega** a oracle-dev.
+
+| Quién | Qué hace |
+|---|---|
+| Quien graba o demuestra | Fija el SHA (y el `CURRENT_RELEASE`) que está usando; no asume que `current` sea estable |
+| Quien despliega | Espera a que la ventana se cierre, o coordina un SHA explícito acordado con quien graba |
+| Ambos | Si se necesita un hotfix durante la ventana, se acuerda y se documenta el cambio de SHA antes de activar el release |
+
+Motivo: el agente de vídeo y las demos pierden trabajo si la UI o la API cambian debajo del sondeo (SHA distinto al que se estaba grabando). La congelación es operativa, no un candado en el script: la disciplina es humana y se anuncia en el canal de trabajo antes de empezar.
+
 ## Fingerprint SSH validado
 
 | Tipo | SHA256 |

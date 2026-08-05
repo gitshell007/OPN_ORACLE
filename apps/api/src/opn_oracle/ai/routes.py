@@ -20,7 +20,7 @@ from apiflask.fields import (
 from flask import Response, g, request
 from flask_login import current_user
 from marshmallow import validate
-from sqlalchemy import select
+from sqlalchemy import case, select
 
 from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
@@ -37,6 +37,11 @@ bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
 DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
+INTAKE_AGENT = "intake"
+OPPORTUNITY_AGENT = "opportunity"
+RISK_AGENT = "risk"
+ACTOR_PARTNERSHIP_AGENT = "actor_partnership"
+ENTITY_RESOLUTION_AGENT = "entity_resolution"
 TENDER_SEARCH_WIZARD_TARGET = "tenant_search_profile"
 
 
@@ -158,6 +163,77 @@ def _dossier(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier | None:
     return dossier
 
 
+def _audit_source_ids(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw if item is not None and str(item).strip()]
+
+
+def serialize_ai_audit_list_item(audit: AIAuditLog) -> dict[str, Any]:
+    """Campos de listado: sin inventar; nulos se omiten o quedan como null en JSON."""
+    return {
+        "id": str(audit.id),
+        "dossier_id": str(audit.dossier_id) if audit.dossier_id else None,
+        "background_job_id": str(audit.background_job_id) if audit.background_job_id else None,
+        "agent": audit.agent,
+        "action": audit.action,
+        "status": audit.status,
+        "error_code": audit.error_code,
+        "provider": audit.provider,
+        "model": audit.model,
+        "input_tokens": audit.input_tokens,
+        "output_tokens": audit.output_tokens,
+        "cost_micros": audit.actual_cost_micros,
+        "currency": audit.currency,
+        "latency_ms": audit.latency_ms,
+        "attempt_count": audit.attempt_count,
+        "source_ids": _audit_source_ids(audit.source_ids),
+        "data_classification": audit.data_classification,
+        "human_review_state": audit.human_review_state,
+        "created_at": audit.created_at.isoformat() if audit.created_at else None,
+        "started_at": audit.started_at.isoformat() if audit.started_at else None,
+        "completed_at": audit.completed_at.isoformat() if audit.completed_at else None,
+    }
+
+
+def serialize_ai_audit_detail(
+    audit: AIAuditLog, attempts: list[AIAttempt] | None = None
+) -> dict[str, Any]:
+    payload = serialize_ai_audit_list_item(audit)
+    payload.update(
+        {
+            "use_case": audit.use_case,
+            "prompt": {
+                "name": audit.prompt_name,
+                "version": audit.prompt_version,
+                "hash": audit.prompt_hash.hex() if audit.prompt_hash else None,
+            },
+            "schema": {"name": audit.schema_name, "version": audit.schema_version},
+            "usage": {
+                "input_tokens": audit.input_tokens,
+                "output_tokens": audit.output_tokens,
+                "cost_micros": audit.actual_cost_micros,
+                "currency": audit.currency,
+            },
+            "review_state": audit.human_review_state,
+            "attempts": [
+                {
+                    "number": item.attempt_number,
+                    "kind": item.kind,
+                    "status": item.status,
+                    "input_tokens": item.input_tokens,
+                    "output_tokens": item.output_tokens,
+                    "cost_micros": item.cost_micros,
+                    "latency_ms": item.latency_ms,
+                    "error_code": item.error_code,
+                }
+                for item in (attempts or [])
+            ],
+        }
+    )
+    return payload
+
+
 @bp.post("/dossiers/<uuid:dossier_id>/agents/<string:agent>/runs")
 @require_permission("ai.execute")
 def enqueue_agent(dossier_id: uuid.UUID, agent: str) -> Any:
@@ -179,6 +255,196 @@ def enqueue_agent(dossier_id: uuid.UUID, agent: str) -> Any:
     except ValueError as error:
         return problem_response(422, detail=str(error), code="validation_error")
     return {"job_id": str(job.id), "status": job.status}, 202
+
+
+def _latest_agent_artifact(dossier_id: uuid.UUID, agent: str) -> AIArtifact | None:
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id == dossier_id,
+            AIArtifact.agent == agent,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_agent_job(dossier_id: uuid.UUID, agent: str) -> BackgroundJob | None:
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id == dossier_id,
+            BackgroundJob.job_type == f"oracle.ai.{agent}",
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _serialize_agent_artifact(artifact: AIArtifact | None) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    return {
+        "id": str(artifact.id),
+        "dossier_id": str(artifact.dossier_id) if artifact.dossier_id else None,
+        "agent": artifact.agent,
+        "schema_name": artifact.schema_name,
+        "schema_version": artifact.schema_version,
+        "status": artifact.status,
+        "output": artifact.output,
+        "audit_log_id": str(artifact.audit_log_id) if artifact.audit_log_id else None,
+        "created_at": artifact.created_at.isoformat(),
+        "updated_at": artifact.updated_at.isoformat(),
+        "version": artifact.version,
+    }
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/intake/runs")
+@require_permission("ai.execute")
+def enqueue_intake(dossier_id: uuid.UUID) -> Any:
+    """Lanza el agente de intake: propone estructura; no muta el expediente."""
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return problem_response(
+            428,
+            detail="Idempotency-Key es obligatorio para lanzar el análisis de entrada.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{INTAKE_AGENT}",
+            payload={"dossier_id": str(dossier_id)},
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            dossier_id=dossier_id,
+            resource_type="strategic_dossier",
+            resource_id=dossier_id,
+        )
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_agent_artifact(_latest_agent_artifact(dossier_id, INTAKE_AGENT)),
+    }, 202
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/intake/latest")
+@require_permission("ai.execute")
+def latest_intake(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de intake del expediente (solo lectura; la persona confirma)."""
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    job = _latest_agent_job(dossier_id, INTAKE_AGENT)
+    artifact = _latest_agent_artifact(dossier_id, INTAKE_AGENT)
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_agent_artifact(artifact),
+    }
+
+
+def _enqueue_analysis_agent(dossier_id: uuid.UUID, agent: str, *, label: str) -> Any:
+    """Encola un agente de análisis: propone entidad; no la crea."""
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return problem_response(
+            428,
+            detail=f"Idempotency-Key es obligatorio para lanzar el análisis de {label}.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{agent}",
+            payload={"dossier_id": str(dossier_id)},
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            dossier_id=dossier_id,
+            resource_type="strategic_dossier",
+            resource_id=dossier_id,
+        )
+    except ValueError as error:
+        return problem_response(422, detail=str(error), code="validation_error")
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_agent_artifact(_latest_agent_artifact(dossier_id, agent)),
+    }, 202
+
+
+def _latest_analysis_agent(dossier_id: uuid.UUID, agent: str) -> Any:
+    """Última propuesta del agente (solo lectura; la persona confirma)."""
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    job = _latest_agent_job(dossier_id, agent)
+    artifact = _latest_agent_artifact(dossier_id, agent)
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_agent_artifact(artifact),
+    }
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/opportunity/runs")
+@require_permission("ai.execute")
+def enqueue_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
+    """Lanza el agente de oportunidad: propone; no crea la oportunidad."""
+    return _enqueue_analysis_agent(dossier_id, OPPORTUNITY_AGENT, label="oportunidad")
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/latest")
+@require_permission("ai.execute")
+def latest_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de oportunidad del expediente (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, OPPORTUNITY_AGENT)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/risk/runs")
+@require_permission("ai.execute")
+def enqueue_risk_analysis(dossier_id: uuid.UUID) -> Any:
+    """Lanza el agente de riesgo: propone; no crea el riesgo."""
+    return _enqueue_analysis_agent(dossier_id, RISK_AGENT, label="riesgo")
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/risk/latest")
+@require_permission("ai.execute")
+def latest_risk_analysis(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de riesgo del expediente (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, RISK_AGENT)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/actor-partnership/runs")
+@require_permission("ai.execute")
+def enqueue_actor_partnership(dossier_id: uuid.UUID) -> Any:
+    """Lanza priorización de actores: propone scores; no muta el expediente."""
+    return _enqueue_analysis_agent(
+        dossier_id, ACTOR_PARTNERSHIP_AGENT, label="priorización de actores"
+    )
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/actor-partnership/latest")
+@require_permission("ai.execute")
+def latest_actor_partnership(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de priorización de actores (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, ACTOR_PARTNERSHIP_AGENT)
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/entity-resolution/runs")
+@require_permission("ai.execute")
+def enqueue_entity_resolution(dossier_id: uuid.UUID) -> Any:
+    """Lanza resolución de entidades: propone match; no fusiona actores."""
+    return _enqueue_analysis_agent(
+        dossier_id, ENTITY_RESOLUTION_AGENT, label="resolución de entidades"
+    )
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/entity-resolution/latest")
+@require_permission("ai.execute")
+def latest_entity_resolution(dossier_id: uuid.UUID) -> Any:
+    """Última propuesta de resolución de entidades (solo lectura; la persona confirma)."""
+    return _latest_analysis_agent(dossier_id, ENTITY_RESOLUTION_AGENT)
 
 
 def _wizard_answers(value: Any) -> list[dict[str, str]]:
@@ -436,42 +702,7 @@ def get_audit(audit_id: uuid.UUID) -> Any:
             .order_by(AIAttempt.attempt_number)
         )
     )
-    return {
-        "id": str(audit.id),
-        "dossier_id": str(audit.dossier_id) if audit.dossier_id else None,
-        "background_job_id": (str(audit.background_job_id) if audit.background_job_id else None),
-        "agent": audit.agent,
-        "status": audit.status,
-        "error_code": audit.error_code,
-        "provider": audit.provider,
-        "model": audit.model,
-        "prompt": {
-            "name": audit.prompt_name,
-            "version": audit.prompt_version,
-            "hash": audit.prompt_hash.hex(),
-        },
-        "schema": {"name": audit.schema_name, "version": audit.schema_version},
-        "usage": {
-            "input_tokens": audit.input_tokens,
-            "output_tokens": audit.output_tokens,
-            "cost_micros": audit.actual_cost_micros,
-        },
-        "latency_ms": audit.latency_ms,
-        "review_state": audit.human_review_state,
-        "attempts": [
-            {
-                "number": item.attempt_number,
-                "kind": item.kind,
-                "status": item.status,
-                "input_tokens": item.input_tokens,
-                "output_tokens": item.output_tokens,
-                "cost_micros": item.cost_micros,
-                "latency_ms": item.latency_ms,
-                "error_code": item.error_code,
-            }
-            for item in attempts
-        ],
-    }
+    return serialize_ai_audit_detail(audit, attempts)
 
 
 @bp.post("/artifacts/<uuid:artifact_id>/reviews")
@@ -587,29 +818,54 @@ def review_ai_job(job_id: uuid.UUID) -> Any:
 @public_bp.get("/ai-audit")
 @require_permission("audit.read")
 def list_ai_audit() -> Any:
-    rows = db.session.scalars(
-        select(AIAuditLog)
-        .where(AIAuditLog.tenant_id == g.active_tenant_id)
-        .order_by(AIAuditLog.created_at.desc())
-        .limit(100)
+    """Listado de ejecuciones IA del tenant con filtros opcionales.
+
+    Query params:
+      - status: pending|running|succeeded|failed|denied
+      - agent: nombre de agente exacto
+      - dossier_id: UUID de expediente (404 si no es accesible)
+    Orden por defecto: fallidas/denegadas primero, luego created_at desc.
+    """
+    status_filter = (request.args.get("status") or "").strip() or None
+    agent_filter = (request.args.get("agent") or "").strip() or None
+    dossier_raw = (request.args.get("dossier_id") or "").strip() or None
+
+    query = select(AIAuditLog).where(AIAuditLog.tenant_id == g.active_tenant_id)
+
+    if dossier_raw is not None:
+        try:
+            dossier_id = uuid.UUID(dossier_raw)
+        except ValueError:
+            return problem_response(
+                422, detail="dossier_id no es un UUID válido.", code="validation_error"
+            )
+        if _dossier(dossier_id, write=False) is None:
+            return problem_response(404, detail="Expediente no disponible.", code="not_found")
+        query = query.where(AIAuditLog.dossier_id == dossier_id)
+
+    allowed_status = {"pending", "running", "succeeded", "failed", "denied"}
+    if status_filter is not None:
+        if status_filter not in allowed_status:
+            return problem_response(
+                422, detail="Estado de auditoría no válido.", code="validation_error"
+            )
+        query = query.where(AIAuditLog.status == status_filter)
+    if agent_filter is not None:
+        query = query.where(AIAuditLog.agent == agent_filter)
+
+    # Fallidas primero (es lo que se audita); luego denegadas; resto por fecha.
+    failure_rank = case(
+        (AIAuditLog.status == "failed", 0),
+        (AIAuditLog.status == "denied", 1),
+        else_=2,
     )
+    rows = list(
+        db.session.scalars(query.order_by(failure_rank, AIAuditLog.created_at.desc()).limit(200))
+    )
+    # Aislamiento: sin expediente → visible en el tenant; con expediente → solo si accesible.
     visible = [
         row
         for row in rows
-        if row.dossier_id is not None and _dossier(row.dossier_id, write=False) is not None
+        if row.dossier_id is None or _dossier(row.dossier_id, write=False) is not None
     ]
-    return {
-        "items": [
-            {
-                "id": str(row.id),
-                "dossier_id": str(row.dossier_id) if row.dossier_id else None,
-                "agent": row.agent,
-                "status": row.status,
-                "error_code": row.error_code,
-                "provider": row.provider,
-                "model": row.model,
-                "created_at": row.created_at.isoformat(),
-            }
-            for row in visible
-        ]
-    }
+    return {"items": [serialize_ai_audit_list_item(row) for row in visible]}

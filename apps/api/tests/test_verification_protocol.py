@@ -9,7 +9,7 @@ from dataclasses import fields
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal, get_args, get_origin
+from typing import Annotated, Any, Literal, get_args, get_origin
 
 import httpx
 import pytest
@@ -265,6 +265,9 @@ def _strict_model_classes() -> list[type[StrictModel]]:
 def _sample_value(annotation: Any, field_name: str) -> Any:
     origin = get_origin(annotation)
     args = get_args(annotation)
+    # Unwrap Annotated[T, ...] (e.g. JsonDate = Annotated[date, BeforeValidator(...)]).
+    if origin is Annotated:
+        return _sample_value(args[0], field_name)
     if origin is Literal:
         return next(item for item in args if item is not None)
     if origin in {types.UnionType, getattr(types, "UnionType", object)} or (
@@ -313,6 +316,8 @@ def test_strict_ai_models_roundtrip_after_json_storage(model: type[StrictModel])
     instance = model.model_validate(_sample_payload(model))
     stored_payload = instance.model_dump(mode="json")
 
+    # StrictModel + CalendarDate: JsonDate rehidrata ISO strings del storage JSON
+    # (deadline/due_date/suggested_review_date). No se elimina el campo del check.
     restored = model.model_validate_json(json.dumps(stored_payload))
 
     assert restored == instance
@@ -325,3 +330,9 @@ def test_strict_ai_models_roundtrip_after_json_storage(model: type[StrictModel])
     if model is NextBestAction:
         assert isinstance(stored_payload["due_date"], str)
         assert isinstance(restored.due_date, date)
+    if model.__name__ == "OpportunityAnalysisOutput":
+        assert isinstance(stored_payload["deadline"], str)
+        assert isinstance(restored.deadline, date)
+        assert restored.next_best_action is not None
+        assert isinstance(stored_payload["next_best_action"]["due_date"], str)
+        assert isinstance(restored.next_best_action.due_date, date)

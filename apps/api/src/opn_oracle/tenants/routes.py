@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from apiflask import APIBlueprint
-from flask import g
-from sqlalchemy import func, select
+from flask import g, request
+from sqlalchemy import func, or_, select
 
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.extensions import db
@@ -29,20 +29,38 @@ def list_assignable_users() -> dict[str, Any]:
     submit a report without exposing the administrative membership directory.
     The standard task-author roles also own this permission, so the same
     minimal catalog can be reused by task assignment controls.
+
+    Optional query ``q`` filters by email or display name (case-insensitive
+    substring) so share/assignment UIs can find a colleague by email without
+    exposing the full admin directory.
     """
 
-    rows = db.session.execute(
-        select(User.id, User.display_name)
+    query = (
+        select(User.id, User.display_name, User.email)
         .join(TenantMembership, TenantMembership.user_id == User.id)
         .where(
             TenantMembership.tenant_id == g.active_tenant_id,
             TenantMembership.status == "active",
             User.status == "active",
         )
-        .order_by(func.lower(User.display_name), User.id)
-    ).all()
+    )
+    needle = (request.args.get("q") or "").strip()
+    if needle:
+        pattern = f"%{needle}%"
+        query = query.where(
+            or_(
+                User.email.ilike(pattern),
+                User.display_name.ilike(pattern),
+            )
+        )
+    rows = db.session.execute(query.order_by(func.lower(User.display_name), User.id)).all()
     return {
         "items": [
-            {"id": str(user_id), "display_name": display_name} for user_id, display_name in rows
+            {
+                "id": str(user_id),
+                "display_name": display_name,
+                "email": email,
+            }
+            for user_id, display_name, email in rows
         ]
     }

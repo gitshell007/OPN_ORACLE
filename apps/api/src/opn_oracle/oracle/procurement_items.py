@@ -7,18 +7,33 @@ import json
 import logging
 import math
 import uuid
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, cast
 
-from sqlalchemy import select
+from sqlalchemy import Text, delete, select
+from sqlalchemy import cast as sa_cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from opn_oracle.ai.models import AIArtifact, AIContextEvidence
 from opn_oracle.integrations.procurement import (
     ProcurementProviderError,
     procurement_client_from_config,
 )
-from opn_oracle.oracle.links import EvidenceDossier, OpportunityEvidence
+from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
+from opn_oracle.oracle.links import (
+    DecisionEvidence,
+    DossierActorEvidence,
+    EvidenceDossier,
+    HypothesisEvidence,
+    InsightEvidence,
+    MeetingEvidence,
+    OpportunityEvidence,
+    RelationshipEvidence,
+    ReportEvidence,
+    RiskEvidence,
+)
 from opn_oracle.oracle.models import DossierProcurementItem, Evidence, Opportunity
 from opn_oracle.platform.audit import append_audit_event
 
@@ -47,6 +62,8 @@ TENDER_SNAPSHOT_KEYS: tuple[str, ...] = (
     "llm_summary",
     "llm_summary_model",
     "llm_summary_at",
+    # URIs CODICE de pliegos (legal/técnico) para el caso prospectivo abierto.
+    "documents",
 )
 AWARD_SNAPSHOT_KEYS: tuple[str, ...] = (
     "folder_id",
@@ -54,6 +71,10 @@ AWARD_SNAPSHOT_KEYS: tuple[str, ...] = (
     "title",
     "buyer",
     "winner",
+    # NIF/CIF del adjudicatario (Signal: winner_identifier; alias tax_id).
+    "winner_identifier",
+    "winner_identifier_scheme",
+    "tax_id",
     "award_amount",
     "cpv",
     "status",
@@ -291,6 +312,8 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         amount = _numeric_or_none(snapshot.get("amount"))
         if amount is not None:
             snapshot["amount"] = amount
+        if "documents" in snapshot:
+            snapshot["documents"] = _normalize_documents(snapshot.get("documents"))
     else:
         lot_id = _lot_id_or_none(snapshot.get("lot_id"))
         if lot_id:
@@ -333,6 +356,25 @@ def _snapshot(kind: ProcurementKind, item: dict[str, Any], folder_id: str) -> di
         )
         if date:
             snapshot["award_date"] = str(date)
+        # NIF/CIF: prefer winner_identifier; accept tax_id/nif aliases from Signal.
+        identifier = (
+            snapshot.get("winner_identifier")
+            or item.get("winner_identifier")
+            or item.get("tax_id")
+            or item.get("nif")
+        )
+        if identifier is not None and str(identifier).strip():
+            cleaned = str(identifier).strip()[:40]
+            snapshot["winner_identifier"] = cleaned
+            snapshot["tax_id"] = cleaned
+        else:
+            snapshot.pop("winner_identifier", None)
+            snapshot.pop("tax_id", None)
+        scheme = snapshot.get("winner_identifier_scheme") or item.get("winner_identifier_scheme")
+        if snapshot.get("winner_identifier") and scheme is not None and str(scheme).strip():
+            snapshot["winner_identifier_scheme"] = str(scheme).strip()[:40]
+        else:
+            snapshot.pop("winner_identifier_scheme", None)
     return snapshot
 
 
@@ -370,6 +412,19 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
     )
     first_title = next((entry.get("title") for entry in entries if entry.get("title")), None)
     first_buyer = next((entry.get("buyer") for entry in entries if entry.get("buyer")), None)
+    winners = [
+        str(entry.get("winner")).strip()
+        for entry in entries
+        if str(entry.get("winner") or "").strip()
+    ]
+    winner_identifiers = []
+    seen_identifiers: set[str] = set()
+    for entry in entries:
+        identifier = entry.get("winner_identifier") or entry.get("tax_id") or entry.get("nif")
+        text = str(identifier).strip() if identifier is not None else ""
+        if text and text.casefold() not in seen_identifiers:
+            seen_identifiers.add(text.casefold())
+            winner_identifiers.append(text)
     amounts = [
         value
         for value in (_numeric_or_none(entry.get("award_amount")) for entry in entries)
@@ -394,6 +449,9 @@ def _award_collection_snapshot(payload: dict[str, Any], folder_id: str) -> dict[
         "entries": entries,
         "title": first_title,
         "buyer": first_buyer,
+        "winner": "; ".join(winners) if winners else None,
+        "winner_identifier": "; ".join(winner_identifiers) if winner_identifiers else None,
+        "nif": "; ".join(winner_identifiers) if winner_identifiers else None,
         "award_amount": sum(amounts) if amounts else None,
         "award_date": award_date,
         "cpv": cpv_values,
@@ -427,6 +485,80 @@ def resolve_procurement_snapshot(kind: ProcurementKind, folder_id: str) -> dict[
             return _award_collection_snapshot(payload, folder_id)
     finally:
         client.close()
+
+
+def _entry_identifier(entry: dict[str, Any]) -> str | None:
+    for key in ("winner_identifier", "tax_id", "nif"):
+        value = entry.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()[:40]
+    return None
+
+
+def preserve_award_winner_identifiers(
+    previous: dict[str, Any] | None, new_snapshot: dict[str, Any]
+) -> dict[str, Any]:
+    """No borrar NIF del pin cuando Signal devuelve null (backfill incompleto).
+
+    Si el snapshot nuevo trae el identificador, gana. Si llega vacío y el pin
+    ya tenía uno, se conserva por nombre de adjudicatario (o a nivel colección).
+    """
+
+    if not isinstance(previous, dict) or not isinstance(new_snapshot, dict):
+        return new_snapshot
+    if new_snapshot.get("kind") != "award":
+        return new_snapshot
+
+    previous_entries = previous.get("entries")
+    new_entries = new_snapshot.get("entries")
+    if isinstance(previous_entries, list) and isinstance(new_entries, list) and new_entries:
+        prev_by_winner: dict[str, str] = {}
+        for entry in previous_entries:
+            if not isinstance(entry, dict):
+                continue
+            winner = " ".join(str(entry.get("winner") or "").strip().split()).casefold()
+            identifier = _entry_identifier(entry)
+            if winner and identifier:
+                prev_by_winner.setdefault(winner, identifier)
+        rebuilt: list[dict[str, Any]] = []
+        for entry in new_entries:
+            if not isinstance(entry, dict):
+                continue
+            updated = dict(entry)
+            if not _entry_identifier(updated):
+                winner = " ".join(str(updated.get("winner") or "").strip().split()).casefold()
+                restored = prev_by_winner.get(winner)
+                if restored:
+                    updated["winner_identifier"] = restored
+                    updated["tax_id"] = restored
+            rebuilt.append(updated)
+        new_snapshot = dict(new_snapshot)
+        new_snapshot["entries"] = rebuilt
+        # Re-aggregate collection-level identifiers from (possibly restored) entries.
+        identifiers: list[str] = []
+        seen: set[str] = set()
+        for entry in rebuilt:
+            text = _entry_identifier(entry)
+            if text and text.casefold() not in seen:
+                seen.add(text.casefold())
+                identifiers.append(text)
+        if identifiers:
+            joined = "; ".join(identifiers)
+            new_snapshot["winner_identifier"] = joined
+            new_snapshot["nif"] = joined
+            if len(identifiers) == 1:
+                new_snapshot["tax_id"] = identifiers[0]
+        return new_snapshot
+
+    # Snapshot plano sin entries: conservar top-level si el nuevo llega vacío.
+    if not _entry_identifier(new_snapshot):
+        restored = _entry_identifier(previous)
+        if restored:
+            new_snapshot = dict(new_snapshot)
+            new_snapshot["winner_identifier"] = restored
+            new_snapshot["tax_id"] = restored
+            new_snapshot["nif"] = restored
+    return new_snapshot
 
 
 def _decimal_or_none(value: Any) -> Decimal | None:
@@ -470,16 +602,19 @@ def procurement_evidence_extract(snapshot: dict[str, Any]) -> str:
             f"Órgano: {snapshot.get('buyer') or 'No indicado'}. "
             f"Lotes: {len(entries) or snapshot.get('total') or 'No indicado'}. "
             f"Adjudicatarios: {winner_summary}. "
-            "Importe total adjudicado: "
+            "Importe total adjudicado (sin clasificación base/IVA en origen): "
             f"{_money_text(total_amount)}. "
             f"CPV: {', '.join(_normalize_cpv(snapshot.get('cpv'))) or 'No indicado'}."
         )
     amount = snapshot.get("amount")
     deadline = snapshot.get("deadline")
+    # Signal/PLACSP publica un único campo `amount` sin indicar si es base de
+    # licitación o IVA incluido. No inventamos la etiqueta: el consumidor debe
+    # contrastar con el pliego hasta que el productor exponga ambos importes.
     return (
         f"Licitación PLACSP {snapshot.get('folder_id')}: {snapshot.get('title') or 'Sin título'}. "
         f"Órgano: {snapshot.get('buyer') or 'No indicado'}. "
-        f"Importe: {_money_text(amount)}. "
+        f"Importe publicado (campo amount PLACSP, sin clasificar base/IVA): {_money_text(amount)}. "
         f"Deadline: {deadline or 'No indicado'}. "
         f"Estado: {snapshot.get('status') or 'No indicado'}. "
         f"CPV: {', '.join(_normalize_cpv(snapshot.get('cpv'))) or 'No indicado'}."
@@ -576,6 +711,11 @@ def pin_procurement_item(
         result="success",
         metadata={"kind": normalized_kind, "folder_id": normalized_folder_id},
     )
+    # Menos sorprendente: al fijar un award, materializar CIF en actores emparejados.
+    if normalized_kind == "award":
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session, tenant_id=tenant_id, dossier_id=dossier_id
+        )
     return item, True
 
 
@@ -597,13 +737,139 @@ def list_procurement_items(
     )
 
 
+def _evidence_cited_by_artifacts(
+    session: Session, *, tenant_id: uuid.UUID, evidence_id: uuid.UUID
+) -> bool:
+    """True when any AI artifact output still references this evidence UUID."""
+
+    token = str(evidence_id)
+    # Artifacts store evidence_ids inside nested JSON; a text containment check is
+    # enough to preserve historical claim resolution without rewriting outputs.
+    return (
+        session.scalar(
+            select(AIArtifact.id)
+            .where(
+                AIArtifact.tenant_id == tenant_id,
+                sa_cast(AIArtifact.output, Text).like(f"%{token}%"),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _evidence_has_hard_refs(
+    session: Session, *, tenant_id: uuid.UUID, evidence_id: uuid.UUID
+) -> bool:
+    """True when product rows still need the Evidence row (joins / other pins)."""
+
+    join_tables = (
+        EvidenceDossier,
+        OpportunityEvidence,
+        HypothesisEvidence,
+        RiskEvidence,
+        ReportEvidence,
+        DecisionEvidence,
+        InsightEvidence,
+        MeetingEvidence,
+        RelationshipEvidence,
+        DossierActorEvidence,
+        AIContextEvidence,
+    )
+    for model in join_tables:
+        if (
+            session.scalar(
+                select(model.evidence_id)
+                .where(
+                    model.tenant_id == tenant_id,
+                    model.evidence_id == evidence_id,
+                )
+                .limit(1)
+            )
+            is not None
+        ):
+            return True
+    return (
+        session.scalar(
+            select(DossierProcurementItem.id)
+            .where(
+                DossierProcurementItem.tenant_id == tenant_id,
+                DossierProcurementItem.evidence_id == evidence_id,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def dispose_procurement_evidence(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Detach pin evidence from the dossier; drop only if uncited (098 rule).
+
+    - Always unlinks ``evidence_dossiers`` for this dossier so future agent
+      context cannot cite it.
+    - Clears ``ai_context_evidence`` for the same triple first (RESTRICT FK).
+    - If the Evidence row is still referenced by artifacts or other product
+      joins, the row is kept (historical citations remain resolvable).
+    - If nothing else needs it, the Evidence row is deleted.
+    """
+
+    session.execute(
+        delete(AIContextEvidence).where(
+            AIContextEvidence.tenant_id == tenant_id,
+            AIContextEvidence.dossier_id == dossier_id,
+            AIContextEvidence.evidence_id == evidence_id,
+        )
+    )
+    session.execute(
+        delete(EvidenceDossier).where(
+            EvidenceDossier.tenant_id == tenant_id,
+            EvidenceDossier.dossier_id == dossier_id,
+            EvidenceDossier.evidence_id == evidence_id,
+        )
+    )
+    session.flush()
+
+    cited = _evidence_cited_by_artifacts(session, tenant_id=tenant_id, evidence_id=evidence_id)
+    hard_refs = _evidence_has_hard_refs(session, tenant_id=tenant_id, evidence_id=evidence_id)
+    if cited or hard_refs:
+        return {
+            "evidence_id": str(evidence_id),
+            "disposition": "retained_uncitable",
+            "cited_by_artifacts": cited,
+            "hard_refs": hard_refs,
+        }
+
+    evidence = session.get(Evidence, evidence_id)
+    if evidence is not None and evidence.tenant_id == tenant_id:
+        session.delete(evidence)
+        session.flush()
+        return {
+            "evidence_id": str(evidence_id),
+            "disposition": "deleted",
+            "cited_by_artifacts": False,
+            "hard_refs": False,
+        }
+    return {
+        "evidence_id": str(evidence_id),
+        "disposition": "missing",
+        "cited_by_artifacts": False,
+        "hard_refs": False,
+    }
+
+
 def delete_procurement_item(
     session: Session,
     *,
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
     item_id: uuid.UUID,
-) -> bool:
+) -> bool | dict[str, Any]:
     item = session.scalar(
         select(DossierProcurementItem).where(
             DossierProcurementItem.id == item_id,
@@ -613,7 +879,17 @@ def delete_procurement_item(
     )
     if item is None:
         return False
+    evidence_id = item.evidence_id
+    kind = item.kind
+    folder_id = item.folder_id
     session.delete(item)
+    session.flush()
+    evidence_result = dispose_procurement_evidence(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        evidence_id=evidence_id,
+    )
     append_audit_event(
         session,
         action="procurement.unpinned",
@@ -621,9 +897,187 @@ def delete_procurement_item(
         resource_id=item_id,
         dossier_id=dossier_id,
         result="success",
-        metadata={"kind": item.kind, "folder_id": item.folder_id},
+        metadata={
+            "kind": kind,
+            "folder_id": folder_id,
+            "evidence": evidence_result,
+        },
     )
-    return True
+    return {
+        "deleted": True,
+        "id": str(item_id),
+        "evidence": evidence_result,
+    }
+
+
+def refresh_procurement_item(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    item_id: uuid.UUID,
+    actor_id: uuid.UUID | None = None,
+) -> tuple[DossierProcurementItem, dict[str, Any]]:
+    """Re-fetch Signal snapshot for a pin without changing its identity.
+
+    Preserves pin id, ``linked_opportunity_id`` and (when extract unchanged)
+    the existing evidence id. When the citable extract changes, creates a new
+    Evidence version and disposes the previous one under the 098 rule
+    (cited → keep unlinked; uncited → delete).
+    """
+
+    del actor_id  # reserved for future audit actor attribution
+    item = session.scalar(
+        select(DossierProcurementItem)
+        .where(
+            DossierProcurementItem.id == item_id,
+            DossierProcurementItem.tenant_id == tenant_id,
+            DossierProcurementItem.dossier_id == dossier_id,
+        )
+        .with_for_update()
+    )
+    if item is None:
+        raise ProcurementItemError("Referencia de contratación no encontrada.")
+
+    normalized_kind = cast(ProcurementKind, item.kind)
+    previous_evidence_id = item.evidence_id
+    previous_linked = item.linked_opportunity_id
+    previous_snapshot = item.snapshot if isinstance(item.snapshot, dict) else None
+    snapshot = resolve_procurement_snapshot(normalized_kind, item.folder_id)
+    if normalized_kind == "award":
+        snapshot = preserve_award_winner_identifiers(previous_snapshot, snapshot)
+    extract = procurement_evidence_extract(snapshot)
+    new_checksum = _checksum(extract)
+    new_source_url = _source_url(snapshot)
+    snapshot_sha = hashlib.sha256(_canonical(snapshot)).hexdigest()
+
+    item.snapshot = snapshot
+    item.source_url = new_source_url
+
+    evidence_meta: dict[str, Any] = {
+        "previous_evidence_id": str(previous_evidence_id),
+        "evidence_rotated": False,
+        "previous_disposition": None,
+    }
+
+    previous_evidence = session.get(Evidence, previous_evidence_id)
+    same_content = (
+        previous_evidence is not None
+        and previous_evidence.tenant_id == tenant_id
+        and previous_evidence.checksum == new_checksum
+    )
+    if same_content and previous_evidence is not None:
+        # Snapshot fields may change without altering the citable extract (e.g. NIF
+        # added to structured snapshot but extract still has the same prose). Update
+        # provenance pointers only — never mutate extract/checksum of an existing row.
+        provenance = dict(previous_evidence.provenance or {})
+        provenance["snapshot_sha256"] = snapshot_sha
+        provenance["refreshed_at"] = datetime.now(UTC).isoformat()
+        previous_evidence.provenance = provenance
+        if new_source_url and previous_evidence.source_url != new_source_url:
+            previous_evidence.source_url = new_source_url
+        evidence_meta["current_evidence_id"] = str(previous_evidence_id)
+    else:
+        new_evidence = Evidence(
+            tenant_id=tenant_id,
+            source_kind="procurement",
+            source_url=new_source_url,
+            extract=extract[:20000],
+            locator={
+                "kind": "placsp_procurement",
+                "procurement_kind": normalized_kind,
+                "folder_id": item.folder_id,
+                "source_url": new_source_url,
+            },
+            checksum=new_checksum,
+            classification="internal",
+            provenance={
+                "source_kind": "procurement",
+                "procurement_kind": normalized_kind,
+                "folder_id": item.folder_id,
+                "snapshot_sha256": snapshot_sha,
+                "supersedes_evidence_id": str(previous_evidence_id),
+            },
+        )
+        session.add(new_evidence)
+        session.flush()
+        item.evidence_id = new_evidence.id
+        session.add(
+            EvidenceDossier(
+                tenant_id=tenant_id,
+                evidence_id=new_evidence.id,
+                dossier_id=dossier_id,
+            )
+        )
+        session.flush()
+        previous_disposition = dispose_procurement_evidence(
+            session,
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            evidence_id=previous_evidence_id,
+        )
+        evidence_meta.update(
+            {
+                "current_evidence_id": str(new_evidence.id),
+                "evidence_rotated": True,
+                "previous_disposition": previous_disposition,
+            }
+        )
+
+    # Identity invariants: pin id and opportunity link must not change on refresh.
+    assert item.linked_opportunity_id == previous_linked
+
+    append_audit_event(
+        session,
+        action="procurement.refreshed",
+        resource_type="dossier_procurement_item",
+        resource_id=item.id,
+        dossier_id=dossier_id,
+        result="success",
+        metadata={
+            "kind": item.kind,
+            "folder_id": item.folder_id,
+            "evidence": evidence_meta,
+            "linked_opportunity_id": (
+                str(item.linked_opportunity_id) if item.linked_opportunity_id else None
+            ),
+        },
+    )
+    # Refresh puede traer NIF recién backfilleado en Signal; re-hidratar actores.
+    if item.kind == "award":
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session, tenant_id=tenant_id, dossier_id=dossier_id
+        )
+    return item, evidence_meta
+
+
+def _snapshot_deadline(snapshot: dict[str, Any]) -> date | None:
+    """Copy a tender closing date into Opportunity.deadline when parseable.
+
+    PLACSP/Signal may store a plain ISO date or a datetime. Unparseable values
+    are ignored (None) so promotion never fails solely because of date shape.
+    """
+
+    raw = snapshot.get("deadline")
+    if raw in (None, ""):
+        raw = snapshot.get("deadline_date")
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, datetime):
+        return raw.date()
+    if isinstance(raw, date):
+        return raw
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        if "T" in text or " " in text or "+" in text[10:]:
+            return datetime.fromisoformat(text).date()
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
 
 
 def promote_procurement_to_opportunity(
@@ -656,12 +1110,13 @@ def promote_procurement_to_opportunity(
         if existing is not None:
             return existing, False
     title = str(item.snapshot.get("title") or f"Contratación {item.folder_id}")[:300]
+    snapshot = item.snapshot if isinstance(item.snapshot, dict) else {}
     opportunity = Opportunity(
         tenant_id=tenant_id,
         dossier_id=dossier_id,
         opportunity_type="public_procurement",
         title=title,
-        description=procurement_evidence_extract(item.snapshot)[:10000],
+        description=procurement_evidence_extract(snapshot)[:10000],
         confidence=70,
         overall_score=0,
         score_details={
@@ -673,6 +1128,7 @@ def promote_procurement_to_opportunity(
                 "evidence_ids": [str(item.evidence_id)],
             }
         },
+        deadline=_snapshot_deadline(snapshot),
         next_action="Completar la evaluación participar/no participar.",
         owner_user_id=actor_id,
     )
@@ -696,6 +1152,48 @@ def promote_procurement_to_opportunity(
         metadata={"procurement_item_id": str(item.id), "folder_id": item.folder_id},
     )
     return opportunity, True
+
+
+def backfill_opportunity_deadlines_from_procurement(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID | None = None,
+) -> int:
+    """Fill Opportunity.deadline from the linked tender snapshot when still null.
+
+    Safe contract:
+    - only rows with ``linked_opportunity_id`` (promoted from procurement);
+    - never overwrites a non-null ``Opportunity.deadline``;
+    - ignores unparseable snapshot dates;
+    - agent/manual opportunities without a linked tender stay null (no date to recover).
+
+    Returns the number of opportunities updated.
+    """
+
+    query = (
+        select(DossierProcurementItem, Opportunity)
+        .join(
+            Opportunity,
+            (Opportunity.id == DossierProcurementItem.linked_opportunity_id)
+            & (Opportunity.tenant_id == DossierProcurementItem.tenant_id),
+        )
+        .where(
+            DossierProcurementItem.linked_opportunity_id.is_not(None),
+            Opportunity.deadline.is_(None),
+        )
+    )
+    if tenant_id is not None:
+        query = query.where(DossierProcurementItem.tenant_id == tenant_id)
+
+    updated = 0
+    for item, opportunity in session.execute(query).all():
+        snapshot = item.snapshot if isinstance(item.snapshot, dict) else {}
+        deadline = _snapshot_deadline(snapshot)
+        if deadline is None:
+            continue
+        opportunity.deadline = deadline
+        updated += 1
+    return updated
 
 
 def serialize_procurement_item(item: DossierProcurementItem) -> dict[str, Any]:

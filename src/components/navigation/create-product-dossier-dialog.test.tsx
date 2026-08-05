@@ -85,12 +85,15 @@ describe("CreateProductDossierDialog", () => {
     expect(await screen.findByText("Paso 4 de 4")).toBeInTheDocument();
     expect(mocks.readiness).toHaveBeenCalled();
     expect(screen.getByText("La política IA está desactivada.")).toBeInTheDocument();
+    // Casilla de base inicial solo en el último paso del wizard de mercado.
+    expect(screen.getByRole("checkbox", { name: /Crear una base inicial/i })).toBeChecked();
     fireEvent.change(screen.getByLabelText("Decisión concreta"), { target: { value: "Entrar con partner local" } });
     fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       type: "market",
       accept_creation_intent: true,
+      create_starter_profile: true,
       initial_status: "active",
       geography: ["ES", "DE"],
       languages: ["es", "de"],

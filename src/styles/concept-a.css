@@ -69,6 +69,10 @@
 .dossier-summary-list ul { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
 .dossier-summary-list li { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid var(--va-border); padding-top: 8px; }
 .dossier-summary-list li span, .dossier-summary-list > p { color: var(--va-muted); font-size: 11px; }
+.dossier-summary-empty { display: grid; gap: 6px; margin-top: 12px; }
+.dossier-summary-empty strong { font-size: 12px; color: var(--va-text); }
+.dossier-summary-empty p { margin: 0; color: var(--va-muted); font-size: 11px; line-height: 1.45; }
+.dossier-summary-empty a { color: var(--va-primary); font-size: 11px; font-weight: 700; width: fit-content; }
 @media (max-width: 680px) { .dossier-summary-grid, .oracle-summary-head, .oracle-summary-grid, .oracle-feedback { grid-template-columns: 1fr; } .dossier-summary-list li, .oracle-history li { align-items: flex-start; flex-direction: column; } .oracle-summary-panel > header { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 680px) { .dossier-settings-form, .dossier-monitor-create { grid-template-columns: 1fr; } .dossier-settings-form header, .dossier-settings-form .full, .dossier-monitor-create .full, .dossier-monitor-create-heading { grid-column: auto; } .monitor-source-types > div { grid-template-columns: 1fr; } .monitor-settings-list article { align-items: flex-start; flex-direction: column; } }
 
@@ -2142,7 +2146,7 @@
     cursor: pointer;
     list-style: none;
     padding: 11px 14px;
-    color: #647286;
+    color: var(--nav-muted, #556272);
     font-size: 13px;
     font-weight: 700;
   }
@@ -2715,6 +2719,7 @@
   align-items: flex-start;
   margin-bottom: 19px;
 }
+/* Microcopy admin/sección: antes #53657a/#66758a (~4:1). --nav-muted → 5.28:1. */
 .eyebrow,
 .section-kicker {
   display: block;
@@ -2722,7 +2727,7 @@
   letter-spacing: 0.1em;
   font-size: 9px;
   font-weight: 800;
-  color: #53657a;
+  color: var(--nav-muted, #556272);
   margin-bottom: 6px;
 }
 .page-heading h1,
@@ -7731,6 +7736,56 @@ html[data-font-scale="small"] .workspace-chip strong {
 }
 .dossier-page > .back-link { margin-bottom: 0; }
 .dossier-page > .dossier-header { margin-bottom: 0; }
+
+/* --- Preguntar: respuesta y citas no deben ensanchar el body ---------------
+   Culpable medido (SV2-DEMO-VISIBLE): pre.answer-block y metadatos con UUIDs /
+   líneas largas sin espacios (scrollWidth ~3–4k px a viewport 1440). */
+.ask-result,
+.ask-result .stack-form,
+.ask-answer-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+.ask-result p,
+.ask-result .muted {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.answer-block {
+  display: block;
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0.5rem 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--va-border, #d5deea);
+  border-radius: 8px;
+  background: var(--va-bg, #f5f7fa);
+  color: var(--va-text, #1a2332);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.citation-list {
+  min-width: 0;
+  max-width: 100%;
+  padding-left: 1.1rem;
+}
+.citation-list li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.citation-link {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.citation-quote {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 /* --- Cabecera única de página ------------------------------------------- */
 .opn-page-header {

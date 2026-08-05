@@ -495,11 +495,80 @@ def process_document(
         if settled is None:
             db.session.rollback()
             return {"ignored": True, "reason": "lost_or_expired_lease"}
+        # SV2-BRIDGE / MDEV-05: pre-commit stage bilateral outbox (flag default OFF).
+        memory_outbox_meta: dict[str, Any] = {"status": "skipped"}
+        staged_event_id: uuid.UUID | None = None
+        try:
+            from opn_oracle.integrations.memory_outbox import (
+                stage_document_ready_memory,
+            )
+            from opn_oracle.integrations.models import IntegrationOutboxEvent
+
+            # Reload chunks just written for envelope items (in-session objects).
+            ready_chunks = list(
+                db.session.scalars(
+                    select(DocumentChunk)
+                    .where(DocumentChunk.document_version_id == version.id)
+                    .order_by(DocumentChunk.sequence.asc())
+                ).all()
+            )
+            staged = stage_document_ready_memory(
+                session=db.session,
+                tenant_id=document.tenant_id,
+                dossier_id=document.dossier_id,
+                document_id=document.id,
+                version_id=version.id,
+                chunks=ready_chunks,
+                title=str(getattr(document, "original_filename", None) or ""),
+                classification=str(getattr(document, "classification", None) or "internal"),
+                parser_version=str(parsed.parser_version or "parser.v1"),
+                chunker_version=str(CHUNKER_VERSION),
+            )
+            if isinstance(staged, IntegrationOutboxEvent):
+                staged_event_id = staged.id
+                memory_outbox_meta = {
+                    "status": "staged",
+                    "outbox_id": str(staged.id),
+                    "idempotency_key": staged.idempotency_key,
+                }
+            elif isinstance(staged, dict):
+                memory_outbox_meta = {
+                    "status": str(staged.get("status") or "skipped"),
+                    "error_code": staged.get("error_code"),
+                }
+        except Exception as exc:
+            current_app.logger.warning(
+                "memory_outbox_stage_failed document_id=%s err=%s",
+                document.id,
+                type(exc).__name__,
+            )
+            memory_outbox_meta = {
+                "status": "stage_error",
+                "error_code": type(exc).__name__,
+            }
         db.session.commit()
+        # Post-commit publish (outbox pattern)
+        if staged_event_id is not None:
+            try:
+                from opn_oracle.integrations.memory_outbox import dispatch_memory_outbox_event
+                from opn_oracle.integrations.models import IntegrationOutboxEvent as _IOE
+
+                evt = db.session.get(_IOE, staged_event_id)
+                if evt is not None:
+                    dispatch_memory_outbox_event(evt)
+                    memory_outbox_meta["dispatch"] = "queued"
+            except Exception as exc:
+                current_app.logger.warning(
+                    "memory_outbox_dispatch_failed outbox_id=%s err=%s",
+                    staged_event_id,
+                    type(exc).__name__,
+                )
+                memory_outbox_meta["dispatch"] = "queue_error"
         return {
             "document_id": str(document.id),
             "version_id": str(version.id),
             "chunks": len(chunks),
+            "memory_outbox": memory_outbox_meta,
         }
     except (DocumentError, ParseError, ScannerUnavailable, StorageError, OSError) as exc:
         db.session.rollback()

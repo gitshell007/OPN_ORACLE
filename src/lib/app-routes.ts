@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  ScrollText,
   UserRound,
   Users,
   Workflow,
@@ -228,6 +229,14 @@ export const ACCOUNT_ROUTES = [
 export const AUXILIARY_ROUTES = [
   { id: "notifications", label: "Notificaciones", href: "/app/notifications", group: "account", icon: Bell, permission: "notifications.read" },
   { id: "exports", label: "Exportaciones", href: "/app/exports", group: "execution", icon: FileSearch, permission: "export.create" },
+  {
+    id: "actors-duplicates",
+    label: "Candidatos a fusión",
+    href: "/app/actors/duplicates",
+    group: "intelligence",
+    icon: Network,
+    permission: "actor.read",
+  },
 ] as const satisfies readonly AppRouteDefinition[];
 
 export const ADMIN_ROUTES = [
@@ -239,6 +248,7 @@ export const ADMIN_ROUTES = [
   { id: "admin-integrations", label: "Integraciones", href: "/app/admin/integrations", group: "admin", icon: PlugZap, permission: "tenant.integrations.manage" },
   { id: "admin-signal", label: "Signal Avanza", href: "/app/admin/integrations/signal-avanza", group: "admin", icon: RadioTower, permission: "tenant.integrations.manage" },
   { id: "admin-audit", label: "Auditoría", href: "/app/admin/audit", group: "admin", icon: SearchCheck, permission: "audit.read" },
+  { id: "admin-ai-audit", label: "Auditoría de IA", href: "/app/admin/ai-audit", group: "admin", icon: ScrollText, permission: "audit.read" },
 ] as const satisfies readonly AppRouteDefinition[];
 
 export const PLATFORM_ROUTES = [
@@ -258,6 +268,11 @@ export const DOSSIER_TABS = [
   { id: "summary", label: "Resumen", segment: "", permission: "dossier.read" },
   { id: "activity", label: "Actividad", segment: "activity", permission: "dossier.read" },
   { id: "ask", label: "Preguntar", segment: "ask", permission: "ai.execute" },
+  { id: "intake", label: "Entrada", segment: "intake", permission: "ai.execute" },
+  { id: "opportunity-analysis", label: "Oportunidad IA", segment: "opportunity-analysis", permission: "ai.execute" },
+  { id: "risk-analysis", label: "Riesgo IA", segment: "risk-analysis", permission: "ai.execute" },
+  { id: "actor-priority", label: "Prioridad actores", segment: "actor-priority", permission: "ai.execute" },
+  { id: "entity-resolution", label: "Resolución entidades", segment: "entity-resolution", permission: "ai.execute" },
   { id: "signals", label: "Señales", segment: "signals", permission: "signal.read" },
   { id: "opportunities", label: "Oportunidades", segment: "opportunities", permission: "opportunity.read" },
   { id: "procurement", label: "Licitaciones", segment: "procurement", permission: "opportunity.read" },
@@ -289,7 +304,7 @@ export const DOSSIER_GROUPS = [
     label: "Vigilancia",
     sections: ["signals", "opportunities", "procurement", "risks"],
   },
-  { id: "analysis", label: "Análisis", sections: ["actors", "investigations", "ask"] },
+  { id: "analysis", label: "Análisis", sections: ["actors", "investigations", "ask", "intake", "opportunity-analysis", "risk-analysis", "actor-priority", "entity-resolution"] },
   { id: "decision", label: "Decisión", sections: ["decisions", "meetings", "tasks"] },
   {
     id: "deliverables",
@@ -315,6 +330,11 @@ export const DOSSIER_SECTION_GROUP = {
   actors: "analysis",
   investigations: "analysis",
   ask: "analysis",
+  intake: "analysis",
+  "opportunity-analysis": "analysis",
+  "risk-analysis": "analysis",
+  "actor-priority": "analysis",
+  "entity-resolution": "analysis",
   decisions: "decision",
   meetings: "decision",
   tasks: "decision",
@@ -370,6 +390,12 @@ const ALL_ROUTES: readonly AppRouteDefinition[] = [
 ];
 
 export function breadcrumbsForPath(pathname: string): BreadcrumbItem[] {
+  if (pathname === "/app/actors/duplicates" || pathname.startsWith("/app/actors/duplicates/")) {
+    return [
+      { label: "Actores", href: "/app/actors" },
+      { label: "Candidatos a fusión" },
+    ];
+  }
   const entityMatch = pathname.match(/^\/app\/actors\/entity\/([^/]+)\/(.+)$/);
   if (entityMatch) {
     const [, , encodedName] = entityMatch;

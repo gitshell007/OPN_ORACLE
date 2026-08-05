@@ -5,14 +5,43 @@ from __future__ import annotations
 from datetime import date as CalendarDate
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+def _coerce_calendar_date(value: Any) -> Any:
+    """Accept ISO date strings after JSON storage under ``strict=True``.
+
+    Pydantic strict mode rejects ``str → date`` coercion. Agent outputs and AI
+    artifacts are persisted with ``model_dump(mode="json")`` and reloaded with
+    ``model_validate_json``; without this bridge, ``deadline`` /
+    ``due_date`` / ``suggested_review_date`` fail the roundtrip even though the
+    wire format is the canonical ISO date.
+    """
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        # LLM/mocks sometimes emit a full ISO datetime for a date-only field.
+        if "T" in text:
+            text = text.split("T", 1)[0]
+        try:
+            return CalendarDate.fromisoformat(text)
+        except ValueError:
+            return value
+    return value
+
+
+# Use on every CalendarDate field so JSON storage stays round-trippable without
+# weakening StrictModel.extra/forbid or removing the field from strict checks.
+JsonDate = Annotated[CalendarDate, BeforeValidator(_coerce_calendar_date)]
 
 
 def _coerce_confidence_0_100(value: Any) -> Any:
@@ -105,7 +134,7 @@ class SituationActor(StrictModel):
 
 class SituationMilestone(StrictModel):
     label: str = Field(min_length=1, max_length=500)
-    date: CalendarDate | None = None
+    date: JsonDate | None = None
     status: str = Field(min_length=1, max_length=200)
     evidence_ids: list[UUID] = Field(min_length=1)
 
@@ -237,8 +266,140 @@ class CandidateActor(StrictModel):
 class NextBestAction(StrictModel):
     action: str = Field(min_length=1, max_length=2000)
     owner_role: str = Field(min_length=1, max_length=500)
-    due_date: CalendarDate | None = None
+    due_date: JsonDate | None = None
     rationale: str = Field(min_length=1, max_length=4000)
+
+
+class OpportunityFitDimension(StrictModel):
+    """Una dimensión de encaje con citas duales (oficial + declarado).
+
+    SV2-ENCAJE: CPV, solvencia, lotes, plazo. El requisito cita el pliego
+    (``requirement_origin=official``); la capacidad cita el perfil
+    (``capability_origin=declared_by_client``). ``not_evaluable`` es honesto
+    cuando el perfil no aporta el dato (p. ej. volumen anual).
+    """
+
+    key: Literal["cpv", "solvency", "lots", "deadline", "other"] = "other"
+    label: str = Field(min_length=1, max_length=200)
+    requirement: str = Field(min_length=1, max_length=2000)
+    requirement_origin: Literal["official"] = "official"
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    capability: str = Field(min_length=1, max_length=2000)
+    capability_origin: Literal["declared_by_client"] = "declared_by_client"
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    status: Literal["fit", "partial", "no_fit", "not_evaluable"]
+    status_reason: str = Field(min_length=1, max_length=1000)
+
+
+class OpportunityFitVerdict(StrictModel):
+    """Veredicto propuesto con puerta humana — nunca decisión automática."""
+
+    recommendation: Literal["go", "no_go", "go_conditioned"]
+    conditions: list[str] = Field(default_factory=list)
+    human_gate: Literal["awaiting_user_confirmation"] = "awaiting_user_confirmation"
+    rationale: str = Field(min_length=1, max_length=2000)
+
+
+class OpportunityFitAssessment(StrictModel):
+    """Encaje oferta↔oportunidad anclado en material **declarado por el cliente**.
+
+    Distinto de ``facts[]``: los ``declared_evidence_ids`` tienen ``source_kind=declared``
+    (perfil del expediente). Los ``official_evidence_ids`` enlazan licitaciones u
+    otras fuentes oficiales que el encaje menciona, sin convertir lo declarado
+    en hecho verificado.
+
+    SV2-ENCAJE: ``dimensions`` (CPV/solvencia/lotes/plazo con citas duales) y
+    ``verdict`` (go / no-go / go-condicionado + puerta humana).
+
+    La frontera de IDs se revalida en ``validate_opportunity_origin_boundary``:
+    si no hay declared válido, el bloque se anula en post-proceso.
+    """
+
+    statement: str = Field(min_length=1, max_length=4000)
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    confidence: int = Field(ge=0, le=100)
+    origin: Literal["declared_by_client"] = "declared_by_client"
+    dimensions: list[OpportunityFitDimension] = Field(default_factory=list)
+    verdict: OpportunityFitVerdict | None = None
+    tender_ref: str | None = Field(default=None, max_length=200)
+    scoring_engine: str | None = Field(default=None, max_length=80)
+    scored_as_of: str | None = Field(default=None, max_length=40)
+
+
+class DraftOfferGap(StrictModel):
+    """Gap a acreditar (suele heredarse del veredicto de encaje)."""
+
+    code: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=800)
+    severity: Literal["blocking", "important", "info"] = "important"
+    origin: Literal["verdict_condition", "pliego", "profile"] = "verdict_condition"
+
+
+class DraftOfferSection(StrictModel):
+    """Sección del borrador = criterio del PCAP (o bloque de habilitación).
+
+    ``requirement`` es oficial; ``our_response_draft`` es semilla declarada/generada
+    (nunca hecho). ``gaps`` lista lo que falta por acreditar en esa sección.
+
+    SV2-PROSA: ``our_response_seed`` conserva la semilla determinista; si el
+    pulido LLM pasa el guardarraíl, ``our_response_draft`` es la versión natural
+    y ``prose_polished=true``.
+    """
+
+    key: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=300)
+    points_hint: str | None = Field(default=None, max_length=200)
+    requirement: str = Field(min_length=1, max_length=2000)
+    requirement_origin: Literal["official"] = "official"
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    our_response_draft: str = Field(min_length=1, max_length=2000)
+    our_response_seed: str | None = Field(default=None, max_length=2000)
+    response_origin: Literal["declared_generated"] = "declared_generated"
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    prose_polished: bool = False
+    prose_polish_reason: str | None = Field(default=None, max_length=200)
+
+
+class DraftOfferChecklistItem(StrictModel):
+    """Ítem de checklist administrativa (DEUC, sobres, solvencia…)."""
+
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=300)
+    description: str = Field(min_length=1, max_length=500)
+    status: Literal["pending", "ready", "blocked"] = "pending"
+    source: Literal["pliego", "admin"] = "pliego"
+
+
+class OpportunityDraftOffer(StrictModel):
+    """Borrador de oferta guiado por el pliego (SV2-BORRADOR).
+
+    Solo se genera si existe ``fit_assessment.verdict``. Es material **declarado/
+    generado** (``origin=declared_draft``): no contamina ``facts[]`` oficiales
+    (frontera 095). Puerta humana propia: ``draft_requires_human_edit``.
+    """
+
+    banner: str = Field(min_length=1, max_length=500)
+    human_gate: Literal["draft_requires_human_edit"] = "draft_requires_human_edit"
+    statement: str = Field(min_length=1, max_length=4000)
+    tender_ref: str | None = Field(default=None, max_length=200)
+    lot_hint: str | None = Field(default=None, max_length=200)
+    sections: list[DraftOfferSection] = Field(default_factory=list)
+    administrative_checklist: list[DraftOfferChecklistItem] = Field(default_factory=list)
+    gaps_summary: list[str] = Field(default_factory=list)
+    gaps: list[DraftOfferGap] = Field(default_factory=list)
+    draft_engine: str | None = Field(default=None, max_length=80)
+    prose_engine: str | None = Field(default=None, max_length=80)
+    drafted_as_of: str | None = Field(default=None, max_length=40)
+    origin: Literal["declared_draft"] = "declared_draft"
+    based_on_verdict: str | None = Field(default=None, max_length=40)
+    official_evidence_ids: list[UUID] = Field(default_factory=list)
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    statement_seed: str | None = Field(default=None, max_length=4000)
+    statement_prose_polished: bool = False
+    statement_prose_polish_reason: str | None = Field(default=None, max_length=200)
+    prose_polished_count: int = Field(default=0, ge=0, le=50)
 
 
 class OpportunityAnalysisOutput(AgentOutput):
@@ -257,12 +418,338 @@ class OpportunityAnalysisOutput(AgentOutput):
     summary: str = ""
     recommendation: Literal["go", "investigate", "hold", "no_go"]
     scores: OpportunityScores
-    deadline: CalendarDate | None = None
+    deadline: JsonDate | None = None
     confirmed_requirements: list[str] = Field(default_factory=list)
     unknown_requirements: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
     candidate_actors: list[CandidateActor] = Field(default_factory=list)
     next_best_action: NextBestAction | None = None
+    fit_assessment: OpportunityFitAssessment | None = None
+    draft_offer: OpportunityDraftOffer | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_invalid_fit_assessment(cls, value: Any) -> Any:
+        """Tolera mocks/LLM que inventan un fit_assessment incompleto o vacío.
+
+        En lugar de tumbar el job (ValidationError), se descarta el bloque y la
+        frontera de origen / motor dimensional lo rellenan o lo dejan en null.
+
+        SV2-ENCAJE: también limpia ``dimensions``/``verdict`` malformados y
+        descarta claves extra (StrictModel.extra=forbid) para no tumbar el job
+        cuando Signal/LLM inventa campos.
+
+        SV2-BORRADOR: coacciona ``draft_offer`` de forma tolerante (o lo anula).
+        """
+
+        if not isinstance(value, dict):
+            return value
+        fit = value.get("fit_assessment")
+        if fit in (None, "", {}, []) or not isinstance(fit, dict):
+            value["fit_assessment"] = None
+        else:
+            statement = str(fit.get("statement") or "").strip()
+            declared = fit.get("declared_evidence_ids")
+            if not statement or not isinstance(declared, list) or not declared:
+                value["fit_assessment"] = None
+            else:
+                allowed_keys = {
+                    "statement",
+                    "declared_evidence_ids",
+                    "official_evidence_ids",
+                    "confidence",
+                    "origin",
+                    "dimensions",
+                    "verdict",
+                    "tender_ref",
+                    "scoring_engine",
+                    "scored_as_of",
+                }
+                cleaned: dict[str, Any] = {key: fit[key] for key in allowed_keys if key in fit}
+                cleaned["statement"] = statement[:4000]
+                cleaned["declared_evidence_ids"] = declared
+                # Normalizar origin desconocido al canónico declarado.
+                if cleaned.get("origin") not in {None, "", "declared_by_client"}:
+                    cleaned["origin"] = "declared_by_client"
+                if "confidence" in cleaned:
+                    cleaned["confidence"] = _coerce_confidence_0_100(cleaned["confidence"])
+
+                # Dimensiones: conservar solo dicts con campos mínimos válidos.
+                raw_dims = cleaned.get("dimensions")
+                if raw_dims is not None:
+                    good_dims: list[dict[str, Any]] = []
+                    if isinstance(raw_dims, list):
+                        for dim in raw_dims:
+                            if not isinstance(dim, dict):
+                                continue
+                            status = str(dim.get("status") or "").strip()
+                            if status not in {"fit", "partial", "no_fit", "not_evaluable"}:
+                                continue
+                            req = str(dim.get("requirement") or "").strip()
+                            cap = str(dim.get("capability") or "").strip()
+                            reason = str(dim.get("status_reason") or "").strip()
+                            label = str(dim.get("label") or dim.get("key") or "dimensión").strip()
+                            if not (req and cap and reason and label):
+                                continue
+                            key = str(dim.get("key") or "other").strip()
+                            if key not in {"cpv", "solvency", "lots", "deadline", "other"}:
+                                key = "other"
+                            good_dims.append(
+                                {
+                                    "key": key,
+                                    "label": label[:200],
+                                    "requirement": req[:2000],
+                                    "requirement_origin": "official",
+                                    "official_evidence_ids": dim.get("official_evidence_ids")
+                                    if isinstance(dim.get("official_evidence_ids"), list)
+                                    else [],
+                                    "capability": cap[:2000],
+                                    "capability_origin": "declared_by_client",
+                                    "declared_evidence_ids": dim.get("declared_evidence_ids")
+                                    if isinstance(dim.get("declared_evidence_ids"), list)
+                                    else [],
+                                    "status": status,
+                                    "status_reason": reason[:1000],
+                                }
+                            )
+                    cleaned["dimensions"] = good_dims
+
+                # Veredicto: solo si recommendation es conocida; si no, se omite.
+                raw_verdict = cleaned.get("verdict")
+                if raw_verdict is not None:
+                    if isinstance(raw_verdict, dict):
+                        rec = str(raw_verdict.get("recommendation") or "").strip()
+                        rationale = str(raw_verdict.get("rationale") or "").strip()
+                        if rec in {"go", "no_go", "go_conditioned"} and rationale:
+                            cleaned["verdict"] = {
+                                "recommendation": rec,
+                                "conditions": [
+                                    str(c)[:500]
+                                    for c in (raw_verdict.get("conditions") or [])
+                                    if str(c).strip()
+                                ][:12]
+                                if isinstance(raw_verdict.get("conditions"), list)
+                                else [],
+                                "human_gate": "awaiting_user_confirmation",
+                                "rationale": rationale[:2000],
+                            }
+                        else:
+                            cleaned.pop("verdict", None)
+                    else:
+                        cleaned.pop("verdict", None)
+
+                for opt in ("tender_ref", "scoring_engine", "scored_as_of"):
+                    if opt in cleaned and cleaned[opt] is not None:
+                        cleaned[opt] = str(cleaned[opt])[: 200 if opt == "tender_ref" else 80]
+
+                value["fit_assessment"] = cleaned
+
+        # SV2-BORRADOR: coaccionar draft_offer o anularlo sin tumbar el job.
+        value = cls._coerce_draft_offer(value)
+        return value
+
+    @staticmethod
+    def _coerce_draft_offer(value: dict[str, Any]) -> dict[str, Any]:
+        draft = value.get("draft_offer")
+        if draft in (None, "", {}, []):
+            value["draft_offer"] = None
+            return value
+        if not isinstance(draft, dict):
+            value["draft_offer"] = None
+            return value
+        statement = str(draft.get("statement") or "").strip()
+        banner = str(draft.get("banner") or "").strip()
+        sections = draft.get("sections")
+        if not statement or not banner or not isinstance(sections, list) or not sections:
+            value["draft_offer"] = None
+            return value
+
+        good_sections: list[dict[str, Any]] = []
+        for sec in sections:
+            if not isinstance(sec, dict):
+                continue
+            title = str(sec.get("title") or "").strip()
+            req = str(sec.get("requirement") or "").strip()
+            resp = str(sec.get("our_response_draft") or "").strip()
+            key = str(sec.get("key") or title or "section").strip()[:80]
+            if not (title and req and resp and key):
+                continue
+            sec_gaps_candidate = sec.get("gaps")
+            sec_gaps: list[Any] = sec_gaps_candidate if isinstance(sec_gaps_candidate, list) else []
+            seed = str(sec.get("our_response_seed") or resp).strip()[:2000] or None
+            polished_flag = bool(sec.get("prose_polished")) if "prose_polished" in sec else False
+            polish_reason = (
+                str(sec.get("prose_polish_reason"))[:200]
+                if sec.get("prose_polish_reason")
+                else None
+            )
+            # Dedup gaps por statement normalizado (SV2-PROSA).
+            gap_seen: set[str] = set()
+            gap_out: list[str] = []
+            for g in sec_gaps:
+                g_text = str(g).strip()
+                if not g_text:
+                    continue
+                g_key = " ".join(g_text.casefold().split())
+                if g_key in gap_seen:
+                    continue
+                gap_seen.add(g_key)
+                gap_out.append(g_text[:500])
+                if len(gap_out) >= 12:
+                    break
+            good_sections.append(
+                {
+                    "key": key,
+                    "title": title[:300],
+                    "points_hint": (
+                        str(sec.get("points_hint"))[:200] if sec.get("points_hint") else None
+                    ),
+                    "requirement": req[:2000],
+                    "requirement_origin": "official",
+                    "official_evidence_ids": sec.get("official_evidence_ids")
+                    if isinstance(sec.get("official_evidence_ids"), list)
+                    else [],
+                    "our_response_draft": resp[:2000],
+                    "our_response_seed": seed,
+                    "response_origin": "declared_generated",
+                    "declared_evidence_ids": sec.get("declared_evidence_ids")
+                    if isinstance(sec.get("declared_evidence_ids"), list)
+                    else [],
+                    "gaps": gap_out,
+                    "prose_polished": polished_flag,
+                    "prose_polish_reason": polish_reason,
+                }
+            )
+        if not good_sections:
+            value["draft_offer"] = None
+            return value
+
+        checklist_raw = draft.get("administrative_checklist")
+        good_checklist: list[dict[str, Any]] = []
+        if isinstance(checklist_raw, list):
+            for item in checklist_raw:
+                if not isinstance(item, dict):
+                    continue
+                label = str(item.get("label") or "").strip()
+                desc = str(item.get("description") or "").strip()
+                ckey = str(item.get("key") or label or "item").strip()[:80]
+                status = str(item.get("status") or "pending").strip()
+                if status not in {"pending", "ready", "blocked"}:
+                    status = "pending"
+                if not (label and desc and ckey):
+                    continue
+                source = str(item.get("source") or "pliego").strip()
+                if source not in {"pliego", "admin"}:
+                    source = "pliego"
+                good_checklist.append(
+                    {
+                        "key": ckey,
+                        "label": label[:300],
+                        "description": desc[:500],
+                        "status": status,
+                        "source": source,
+                    }
+                )
+
+        gaps_raw = draft.get("gaps")
+        good_gaps: list[dict[str, Any]] = []
+        if isinstance(gaps_raw, list):
+            for g in gaps_raw:
+                if not isinstance(g, dict):
+                    continue
+                code = str(g.get("code") or "").strip()[:80]
+                desc = str(g.get("description") or "").strip()
+                if not (code and desc):
+                    continue
+                sev = str(g.get("severity") or "important").strip()
+                if sev not in {"blocking", "important", "info"}:
+                    sev = "important"
+                origin = str(g.get("origin") or "verdict_condition").strip()
+                if origin not in {"verdict_condition", "pliego", "profile"}:
+                    origin = "verdict_condition"
+                good_gaps.append(
+                    {
+                        "code": code,
+                        "description": desc[:800],
+                        "severity": sev,
+                        "origin": origin,
+                    }
+                )
+
+        gaps_summary_raw = draft.get("gaps_summary")
+        if not isinstance(gaps_summary_raw, list):
+            gaps_summary_raw = [g["description"] for g in good_gaps]
+        # SV2-PROSA: dedup gaps_summary por statement normalizado.
+        gs_seen: set[str] = set()
+        gaps_summary: list[str] = []
+        for x in gaps_summary_raw:
+            t = str(x).strip()
+            if not t:
+                continue
+            k = " ".join(t.casefold().split())
+            if k in gs_seen:
+                continue
+            gs_seen.add(k)
+            gaps_summary.append(t[:500])
+            if len(gaps_summary) >= 12:
+                break
+        # También dedup good_gaps por description normalizada.
+        gap_rec_seen: set[str] = set()
+        unique_good_gaps: list[dict[str, Any]] = []
+        for g in good_gaps:
+            k = " ".join(str(g.get("description") or "").casefold().split())
+            if not k or k in gap_rec_seen:
+                continue
+            gap_rec_seen.add(k)
+            unique_good_gaps.append(g)
+
+        cleaned_draft: dict[str, Any] = {
+            "banner": banner[:500],
+            "human_gate": "draft_requires_human_edit",
+            "statement": statement[:4000],
+            "tender_ref": (str(draft["tender_ref"])[:200] if draft.get("tender_ref") else None),
+            "lot_hint": (str(draft["lot_hint"])[:200] if draft.get("lot_hint") else None),
+            "sections": good_sections,
+            "administrative_checklist": good_checklist,
+            "gaps_summary": gaps_summary,
+            "gaps": unique_good_gaps,
+            "draft_engine": (
+                str(draft["draft_engine"])[:80] if draft.get("draft_engine") else None
+            ),
+            "prose_engine": (
+                str(draft["prose_engine"])[:80] if draft.get("prose_engine") else None
+            ),
+            "drafted_as_of": (
+                str(draft["drafted_as_of"])[:40] if draft.get("drafted_as_of") else None
+            ),
+            "origin": "declared_draft",
+            "based_on_verdict": (
+                str(draft["based_on_verdict"])[:40] if draft.get("based_on_verdict") else None
+            ),
+            "statement_seed": (
+                str(draft["statement_seed"])[:4000] if draft.get("statement_seed") else None
+            ),
+            "statement_prose_polished": bool(draft.get("statement_prose_polished") or False),
+            "statement_prose_polish_reason": (
+                str(draft["statement_prose_polish_reason"])[:200]
+                if draft.get("statement_prose_polish_reason")
+                else None
+            ),
+            "prose_polished_count": (
+                int(draft["prose_polished_count"])
+                if str(draft.get("prose_polished_count") or "").isdigit()
+                or isinstance(draft.get("prose_polished_count"), int)
+                else 0
+            ),
+            "official_evidence_ids": draft.get("official_evidence_ids")
+            if isinstance(draft.get("official_evidence_ids"), list)
+            else [],
+            "declared_evidence_ids": draft.get("declared_evidence_ids")
+            if isinstance(draft.get("declared_evidence_ids"), list)
+            else [],
+        }
+        value["draft_offer"] = cleaned_draft
+        return value
 
 
 class RiskScores(StrictModel):
@@ -290,6 +777,46 @@ class RiskMitigation(StrictModel):
     trigger: str = Field(min_length=1, max_length=1000)
 
 
+class RiskContextDeclaredItem(StrictModel):
+    """Barrera/limitación declarada por el cliente, relevante al riesgo analizado.
+
+    SV2-RIESGO-DECL: canal separado de ``facts[]`` oficiales. Cada ítem cita
+    solo ``declared_evidence_ids`` (source_kind=declared) y lleva
+    ``origin=declared_by_client``. La frontera
+    ``validate_risk_origin_boundary`` impide que estos IDs contaminen facts
+    o escenarios oficiales.
+
+    SV2-PROSA: ``categories`` fusiona etiquetas cuando la misma barrera llega
+    con category distinta (p.ej. solvency + homologation); ``category`` es la
+    primaria (primera de ``categories`` ordenada por peso).
+    """
+
+    statement: str = Field(min_length=1, max_length=2000)
+    category: Literal[
+        "barrier",
+        "solvency",
+        "deadline",
+        "homologation",
+        "competitive",
+        "capacity",
+        "other",
+    ] = "barrier"
+    categories: list[
+        Literal[
+            "barrier",
+            "solvency",
+            "deadline",
+            "homologation",
+            "competitive",
+            "capacity",
+            "other",
+        ]
+    ] = Field(default_factory=list)
+    declared_evidence_ids: list[UUID] = Field(default_factory=list)
+    origin: Literal["declared_by_client"] = "declared_by_client"
+    relevance: str = Field(default="", max_length=1000)
+
+
 class RiskAnalysisOutput(AgentOutput):
     title: str
     category: Literal[
@@ -309,9 +836,69 @@ class RiskAnalysisOutput(AgentOutput):
     scores: RiskScores
     leading_indicators: list[str] = Field(default_factory=list)
     suggested_owner_role: str = ""
-    suggested_review_date: CalendarDate | None = None
+    suggested_review_date: JsonDate | None = None
     scenarios: list[RiskScenario] = Field(default_factory=list)
     mitigations: list[RiskMitigation] = Field(default_factory=list)
+    # SV2-RIESGO-DECL: barreras/limitaciones del perfil (canal declarado, no oficial).
+    risk_context_declared: list[RiskContextDeclaredItem] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_risk_context_declared(cls, value: Any) -> Any:
+        """Tolera mocks/LLM con risk_context_declared incompleto sin tumbar el job."""
+
+        if not isinstance(value, dict):
+            return value
+        raw = value.get("risk_context_declared")
+        if raw in (None, "", {}):
+            value["risk_context_declared"] = []
+            return value
+        if not isinstance(raw, list):
+            value["risk_context_declared"] = []
+            return value
+        allowed_categories = {
+            "barrier",
+            "solvency",
+            "deadline",
+            "homologation",
+            "competitive",
+            "capacity",
+            "other",
+        }
+        cleaned: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            statement = str(item.get("statement") or "").strip()
+            declared = item.get("declared_evidence_ids")
+            if not statement or not isinstance(declared, list) or not declared:
+                continue
+            cat = str(item.get("category") or "barrier").strip()
+            if cat not in allowed_categories:
+                cat = "other"
+            cats_raw = item.get("categories")
+            cats: list[str] = []
+            if isinstance(cats_raw, list):
+                for c in cats_raw:
+                    c_s = str(c or "").strip()
+                    if c_s in allowed_categories and c_s not in cats:
+                        cats.append(c_s)
+            if cat not in cats:
+                cats.insert(0, cat)
+            if not cats:
+                cats = [cat]
+            cleaned.append(
+                {
+                    "statement": statement[:2000],
+                    "category": cats[0],
+                    "categories": cats,
+                    "declared_evidence_ids": declared,
+                    "origin": "declared_by_client",
+                    "relevance": str(item.get("relevance") or "")[:1000],
+                }
+            )
+        value["risk_context_declared"] = cleaned
+        return value
 
 
 class ActorScores(StrictModel):
@@ -597,11 +1184,30 @@ class DossierQuestionCitation(StrictModel):
     quote: str = Field(default="", max_length=500)
 
 
+class DossierQuestionClaim(StrictModel):
+    statement: str = Field(min_length=1, max_length=4000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=10)
+    confidence: int = Field(default=50, ge=0, le=100)
+
+
+class DossierQuestionConflict(StrictModel):
+    statement: str = Field(min_length=1, max_length=4000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=10)
+    confidence: int = Field(default=50, ge=0, le=100)
+
+
 class DossierQuestionAnswerOutput(AgentOutput):
-    """Respuesta a Preguntar a Oracle con citas acotadas a evidence_ids permitidos."""
+    """Respuesta a Preguntar a Oracle con citas acotadas a evidence_ids permitidos.
+
+    Separa hechos (facts), claims, conflicts, unknowns (open_questions) y citations.
+    Cada citation.evidence_id debe pertenecer a allowed_evidence_ids del input.
+    """
 
     answer_text: str = Field(min_length=1, max_length=8000)
     citations: list[DossierQuestionCitation] = Field(default_factory=list, max_length=20)
+    claims: list[DossierQuestionClaim] = Field(default_factory=list, max_length=10)
+    conflicts: list[DossierQuestionConflict] = Field(default_factory=list, max_length=10)
+    unknowns: list[str] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="before")
     @classmethod
@@ -622,6 +1228,11 @@ class DossierQuestionAnswerOutput(AgentOutput):
                 else:
                     fixed.append(item)
             payload["inferences"] = fixed
+        if "unknowns" not in payload and isinstance(payload.get("open_questions"), list):
+            payload["unknowns"] = list(payload["open_questions"])
+        for key in ("unknowns", "warnings", "open_questions"):
+            if key in payload:
+                payload[key] = _coerce_str_list(payload[key])
         return payload
 
 

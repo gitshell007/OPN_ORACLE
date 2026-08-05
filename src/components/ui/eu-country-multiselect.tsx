@@ -3,10 +3,10 @@
 import { X } from "lucide-react";
 import { FormEvent, useId, useMemo, useState } from "react";
 import {
-  PRESET_COUNTRIES,
+  PRESET_GEOGRAPHIES,
   PRIORITY_COUNTRY_CODES,
   euCountryName,
-  isIsoAlpha2,
+  isIsoGeographyCode,
 } from "@/lib/eu-countries";
 
 export function EuCountryMultiSelect({
@@ -31,20 +31,31 @@ export function EuCountryMultiSelect({
 
   const options = useMemo(() => {
     const priority = priorityCodes
-      .map((code) => PRESET_COUNTRIES.find((country) => country.code === code))
-      .filter((country): country is (typeof PRESET_COUNTRIES)[number] => Boolean(country));
-    const rest = PRESET_COUNTRIES.filter((country) => !priorityCodes.includes(country.code)).sort(
+      .map((code) => PRESET_GEOGRAPHIES.find((country) => country.code === code))
+      .filter((country): country is (typeof PRESET_GEOGRAPHIES)[number] => Boolean(country));
+    const rest = PRESET_GEOGRAPHIES.filter((country) => !priorityCodes.includes(country.code)).sort(
       (a, b) => a.name.localeCompare(b.name, "es"),
     );
     const ordered = [...priority, ...rest];
+    // Valores ya seleccionados que no están en el catálogo (p. ej. API → ES-VC legado
+    // o códigos custom) siguen siendo visibles y quitables.
+    const known = new Set(ordered.map((item) => item.code));
+    const orphanSelected = value
+      .filter((code) => !known.has(code.toUpperCase()) && !known.has(code))
+      .map((code) => ({
+        code: code.toUpperCase(),
+        name: euCountryName(code),
+        languages: [] as readonly string[],
+      }));
+    const withOrphans = [...orphanSelected, ...ordered];
     const needle = filter.trim().toLowerCase();
-    if (!needle) return ordered;
-    return ordered.filter(
+    if (!needle) return withOrphans;
+    return withOrphans.filter(
       (country) =>
         country.name.toLowerCase().includes(needle) ||
         country.code.toLowerCase().includes(needle),
     );
-  }, [filter, priorityCodes]);
+  }, [filter, priorityCodes, value]);
 
   function toggle(code: string) {
     onChange(value.includes(code) ? value.filter((item) => item !== code) : [...value, code]);
@@ -53,8 +64,8 @@ export function EuCountryMultiSelect({
   function addCustomCode(event: FormEvent) {
     event.preventDefault();
     const code = customCode.trim().toUpperCase();
-    if (!isIsoAlpha2(code)) {
-      setCustomError("Usa un código ISO de dos letras (p. ej. US, MX, JP).");
+    if (!isIsoGeographyCode(code)) {
+      setCustomError("Usa ISO de país (ES) o subdivisión (ES-VC, ES-MD).");
       return;
     }
     setCustomError(null);
@@ -88,7 +99,7 @@ export function EuCountryMultiSelect({
         value={filter}
         disabled={disabled}
         onChange={(event) => setFilter(event.target.value)}
-        placeholder="Filtrar países…"
+        placeholder="Filtrar países o CCAA…"
         aria-label={`Filtrar ${label}`}
       />
       <div
@@ -116,24 +127,24 @@ export function EuCountryMultiSelect({
       </div>
       <div className="eu-country-custom">
         <label>
-          <span className="sr-only">Añadir país por código ISO</span>
+          <span className="sr-only">Añadir ámbito por código ISO</span>
           <input
             type="text"
             inputMode="text"
-            maxLength={2}
+            maxLength={6}
             disabled={disabled}
             value={customCode}
             onChange={(event) => {
               setCustomCode(event.target.value.toUpperCase());
               setCustomError(null);
             }}
-            placeholder="ISO (p. ej. US)"
-            aria-label="Código ISO de país no listado"
+            placeholder="ISO (ES o ES-VC)"
+            aria-label="Código ISO de país o subdivisión no listado"
             aria-invalid={customError ? true : undefined}
           />
         </label>
         <button type="button" disabled={disabled} onClick={addCustomCode}>
-          Añadir país
+          Añadir ámbito
         </button>
       </div>
       {customError && (

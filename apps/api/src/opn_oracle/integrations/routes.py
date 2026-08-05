@@ -20,10 +20,12 @@ from opn_oracle.integrations.service import (
     IdempotencyConflict,
     canonical_hash,
     lock_idempotency_key,
+    monitor_spec_from_payload,
+    stage_dossier_monitor_create,
     stage_outbox,
     store_credential,
+    watchlist_config_from_spec,
 )
-from opn_oracle.integrations.signal_avanza import MonitorSpec
 from opn_oracle.jobs.service import enqueue_job
 from opn_oracle.oracle.models import SignalMonitor, StrategicDossier, Watchlist
 from opn_oracle.oracle.policy import dossier_accessible
@@ -32,54 +34,9 @@ from opn_oracle.platform.models import IntegrationConnection
 
 bp = APIBlueprint("signal_integrations", __name__, url_prefix="/api/v1")
 
-_MONITOR_CONFIG_FIELDS = (
-    "query",
-    "keywords",
-    "entities",
-    "languages",
-    "geographies",
-    "source_types",
-    "cadence",
-    "retention_days",
-)
-_DEFAULT_MONITOR_CONFIG: dict[str, Any] = {
-    "query": "",
-    "keywords": [],
-    "entities": [],
-    "languages": [],
-    "geographies": [],
-    "source_types": ["news", "company_signal", "official_publication"],
-    "cadence": "daily",
-    "retention_days": 365,
-}
-
-
-def _monitor_spec_from_payload(
-    payload: dict[str, Any],
-    *,
-    oracle_monitor_id: str,
-    desired_status: str,
-    defaults: dict[str, Any] | None = None,
-) -> MonitorSpec:
-    """Build a complete, producer-compatible monitor snapshot.
-
-    The provider accepts PATCH requests, but Oracle persists immutable full
-    snapshots. Applying defaults here keeps partial user edits from silently
-    dropping keywords, entities or source restrictions.
-    """
-
-    baseline = {**_DEFAULT_MONITOR_CONFIG, **(defaults or {})}
-    config = {
-        field: payload[field] if field in payload else baseline[field]
-        for field in _MONITOR_CONFIG_FIELDS
-    }
-    return MonitorSpec.model_validate(
-        {
-            "oracle_monitor_id": oracle_monitor_id,
-            "status": desired_status,
-            **config,
-        }
-    )
+# Back-compat aliases for tests/callers that imported private helpers.
+_monitor_spec_from_payload = monitor_spec_from_payload
+_watchlist_config = watchlist_config_from_spec
 
 
 def _monitor_validation_problem(error: ValidationError) -> Any:
@@ -90,11 +47,6 @@ def _monitor_validation_problem(error: ValidationError) -> Any:
         detail=f"Configuración del monitor no válida: {detail}",
         code="signal_monitor_config_invalid",
     )
-
-
-def _watchlist_config(spec: MonitorSpec) -> dict[str, Any]:
-    snapshot = spec.model_dump(mode="json")
-    return {field: snapshot[field] for field in _MONITOR_CONFIG_FIELDS}
 
 
 def _connection_payload(item: IntegrationConnection) -> dict[str, Any]:
@@ -416,86 +368,31 @@ def create_dossier_monitor(dossier_id: uuid.UUID) -> Any:
     except ValidationError as error:
         return _monitor_validation_problem(error)
     watchlist_name = str(payload.get("name", "Monitor Signal"))[:200]
-    intention_hash = canonical_hash(
-        {
-            "operation": "monitor.create",
-            "tenant_id": str(dossier.tenant_id),
-            "dossier_id": str(dossier.id),
-            "connection_id": str(connection.id),
-            "name": watchlist_name,
-            "config": _watchlist_config(requested_spec),
-        }
-    )
-    lock_idempotency_key(tenant_id=dossier.tenant_id, idempotency_key=key)
-    existing_event = db.session.scalar(
-        select(IntegrationOutboxEvent).where(
-            IntegrationOutboxEvent.tenant_id == dossier.tenant_id,
-            IntegrationOutboxEvent.idempotency_key == key,
-        )
-    )
-    if existing_event is not None:
-        if existing_event.intention_hash != intention_hash:
-            return problem_response(
-                409,
-                detail="Idempotency-Key ya usada con otra solicitud.",
-                code="idempotency_conflict",
-            )
-        return jsonify(
-            {
-                "id": str(existing_event.monitor_id),
-                "outbox_event_id": str(existing_event.id),
-                "duplicate": True,
-            }
-        ), 202
-    watchlist = Watchlist(
-        tenant_id=dossier.tenant_id,
-        dossier_id=dossier.id,
-        name=watchlist_name,
-        query_config=_watchlist_config(requested_spec),
-        cadence=requested_spec.cadence,
-        status="active",
-    )
-    db.session.add(watchlist)
-    db.session.flush()
-    monitor = SignalMonitor(
-        tenant_id=dossier.tenant_id,
-        watchlist_id=watchlist.id,
-        connection_id=connection.id,
-        provider="signal-avanza",
-        status="active",
-        desired_status="active",
-        observed_status="pending",
-    )
-    db.session.add(monitor)
-    db.session.flush()
-    snapshot = {
-        **requested_spec.model_copy(update={"oracle_monitor_id": str(monitor.id)}).model_dump(
-            mode="json"
-        ),
-        "oracle_watchlist_name": watchlist_name,
-        "config_version": 1,
-    }
-    db.session.add(
-        SignalMonitorConfigVersion(
-            tenant_id=dossier.tenant_id,
-            monitor_id=monitor.id,
-            version=1,
-            snapshot=snapshot,
-            snapshot_hash=canonical_hash(snapshot),
+    try:
+        monitor, event, duplicate = stage_dossier_monitor_create(
+            dossier=dossier,
+            connection=connection,
+            name=watchlist_name,
+            spec=requested_spec,
+            idempotency_key=key,
             created_by_user_id=current_user.id,
         )
-    )
-    event = stage_outbox(
-        connection=connection,
-        monitor=monitor,
-        event_type="monitor.create",
-        payload=snapshot,
-        idempotency_key=key,
-        intention_hash=intention_hash,
-    )
+    except IdempotencyConflict:
+        return problem_response(
+            409,
+            detail="Idempotency-Key ya usada con otra solicitud.",
+            code="idempotency_conflict",
+        )
     db.session.commit()
-    _dispatch(event)
-    return jsonify({"id": str(monitor.id), "outbox_event_id": str(event.id)}), 202
+    if not duplicate:
+        _dispatch(event)
+    return jsonify(
+        {
+            "id": str(monitor.id),
+            "outbox_event_id": str(event.id),
+            **({"duplicate": True} if duplicate else {}),
+        }
+    ), 202
 
 
 @bp.get("/signal-monitors/<uuid:monitor_id>/health")

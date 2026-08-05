@@ -818,12 +818,26 @@ def test_assignable_users_are_minimal_active_tenant_scoped_and_authorized(
         tenant_a = tenant_a_client.get("/api/v1/assignable-users")
         assert tenant_a.status_code == 200
         tenant_a_items = tenant_a.get_json()["items"]
-        assert all(set(item) == {"id", "display_name"} for item in tenant_a_items)
+        assert all(set(item) == {"id", "display_name", "email"} for item in tenant_a_items)
         tenant_a_user_ids = {item["id"] for item in tenant_a_items}
         assert str(test_ids["active_a"]) in tenant_a_user_ids
         assert str(test_ids["suspended_a"]) not in tenant_a_user_ids
         assert str(test_ids["disabled_a"]) not in tenant_a_user_ids
         assert str(test_ids["active_b"]) not in tenant_a_user_ids
+        ana = next(item for item in tenant_a_items if item["id"] == str(test_ids["active_a"]))
+        assert ana["email"] == "assignable-a@example.test"
+
+        by_email = tenant_a_client.get("/api/v1/assignable-users?q=assignable-a@")
+        assert by_email.status_code == 200
+        by_email_ids = {item["id"] for item in by_email.get_json()["items"]}
+        assert str(test_ids["active_a"]) in by_email_ids
+        # Owner is present in the tenant but does not match the email needle.
+        owner_hits = [
+            item
+            for item in by_email.get_json()["items"]
+            if "owner@" in str(item.get("email", "")).lower()
+        ]
+        assert owner_hits == []
 
         tenant_b_client = app.test_client()
         assert (

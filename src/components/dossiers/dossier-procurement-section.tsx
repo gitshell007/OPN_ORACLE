@@ -26,6 +26,7 @@ import {
   snapshotNumber,
   snapshotText,
 } from "@/components/procurement/procurement-helpers";
+import { ExportMenu } from "@/components/reporting/exports";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 import { JobProgress } from "@/components/reporting/job-progress";
 
@@ -276,6 +277,10 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
               <RefreshCw size={15} />
               Actualizar
             </button>
+            <PermissionGate permission="export.create">
+              <ExportMenu dataset="tenders" dossierId={dossierId} />
+              <ExportMenu dataset="awards" dossierId={dossierId} />
+            </PermissionGate>
             <PermissionGate permission="report.generate">
               <AsyncActionButton
                 className="vector-secondary"
@@ -292,7 +297,30 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     "Cargando…"
                   )
                 }
-                disabled={!items.some((item) => item.kind === "award")}
+                disabled={
+                  !items.some((item) => {
+                    if (item.kind === "award") return true;
+                    if (item.kind !== "tender") return false;
+                    const snapshot = item.snapshot as
+                      | {
+                          documents?: Array<{ uri?: string }>;
+                          entries?: Array<{ documents?: Array<{ uri?: string }> }>;
+                        }
+                      | undefined;
+                    if (!snapshot) return false;
+                    const topLevel = Array.isArray(snapshot.documents)
+                      ? snapshot.documents.some((doc) => Boolean(doc?.uri?.trim()))
+                      : false;
+                    if (topLevel) return true;
+                    return Array.isArray(snapshot.entries)
+                      ? snapshot.entries.some(
+                          (entry) =>
+                            Array.isArray(entry?.documents) &&
+                            entry.documents.some((doc) => Boolean(doc?.uri?.trim())),
+                        )
+                      : false;
+                  })
+                }
               >
                 <FileText size={15} />
                 Informe documental
@@ -419,8 +447,26 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
                     <dd>{formatDate(snapshotDeadline(item))}</dd>
                   </div>
                   <div>
-                    <dt>Importe</dt>
-                    <dd>{formatMoney(snapshotAmount(item))}</dd>
+                    <dt
+                      title={
+                        item.kind === "tender"
+                          ? "Campo amount de PLACSP: el origen no indica si es base de licitación o IVA incluido"
+                          : "Campo award_amount de PLACSP: el origen no indica si es base o IVA incluido"
+                      }
+                    >
+                      {item.kind === "tender"
+                        ? "Importe publicado"
+                        : "Importe adjudicado publicado"}
+                    </dt>
+                    <dd>
+                      {formatMoney(snapshotAmount(item))}
+                      {snapshotAmount(item) != null ? (
+                        <small className="procurement-amount-note">
+                          {" "}
+                          (PLACSP; sin clasificar base/IVA)
+                        </small>
+                      ) : null}
+                    </dd>
                   </div>
                   <div>
                     <dt>Evidencia</dt>

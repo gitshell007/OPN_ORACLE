@@ -135,14 +135,16 @@ describe("DossierWorkSection", () => {
     );
   });
 
-  it("abre el detalle de tareas desde la fila con teclado", async () => {
+  it("abre el detalle de tareas desde la fila (sin role=button anidado)", async () => {
     render(<DossierWorkSection dossierId="dossier-1" kind="tasks" />);
 
-    const row = await screen.findByRole("button", {
-      name: "Abrir detalle de Preparar propuesta",
-    });
+    const opens = await screen.findAllByRole("link", { name: /Abrir/i });
+    const open = opens.find((el) => el.closest("tr.interactive-row")) ?? opens[0];
+    const row = open.closest("tr");
     expect(row).toHaveClass("interactive-row");
-    fireEvent.keyDown(row, { key: "Enter" });
+    expect(row).not.toHaveAttribute("role", "button");
+    // Atajo de ratón en la fila; teclado/AT usan el enlace Abrir.
+    fireEvent.click(row!);
 
     await waitFor(() =>
       expect(mocks.replace).toHaveBeenCalledWith(

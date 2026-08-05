@@ -3,6 +3,25 @@
 Actualizado: 2026-08-01
 Rama: `mdev/01-rework2`
 
+
+## MDEV-06 REWORK-1 (2026-08-02)
+- branch `mdev/06-ask-dual-memory` · authority PG load (intent/requirements/offering/objectives/decisions/evidence)
+- durable Evidence+snapshot: no silent except; allowlist only persisted IDs; no synthetic://mock
+- fail-closed mode default disabled; mock→augment only under TESTING
+- CI: mypy unused-ignore fixed; DossierMessage.updated_at on client; RT-07 wired on Signal `/ai/run`
+- tests: unit/service + RT-07 HTTP; mig 0030 marked integration (needs TEST_DATABASE_URL)
+- debt: Celery worker real E2E, full PG mig roundtrip if no TEST_DATABASE_URL, OpenAPI regen, Playwright
+- no deploy / no merge / no production
+
+## MDEV-06 provisional dual-memory ask (2026-08-02)
+- branch `mdev/06-ask-dual-memory` from published MDEV-04 tip `55e9320` + cherry-pick MDEV-05 `f20b0fb` (resolved STATUS)
+- vertical: persist→Celery→dual blocks→materialize Evidence/allowlist→input_manifest→deterministic/Signal task→poll
+- modes disabled/shadow/augment distinct; shadow injects 0; checksum rematerialize; tenant filter; retryable 408/429/5xx
+- migration `20260802_0030` source_kind=memory_signal; UI Vector citas/coverage/degradación/cancel
+- tests `test_memory_mdev06_ask_dual.py` + mutations allowlist/retryable/tenant/checksum
+- inherited debt MDEV-02/03/04/05 (in-process Signal store, no full PG/Celery E2E, no OpenRouter)
+- no deploy / no merge / no production
+
 ## MDEV-01 · **PASS Codex** (2026-08-01)
 
 - Codex decision: **PASS MDEV-01**.
@@ -160,6 +179,19 @@ Rama: `mdev/01-rework2`
 - Producción: **no** desplegada · **no lista**.
 - Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
 
+## Memoria Sol · smoke Celery `ai` Oracle Dev re-verificado (2026-07-31 21:48)
+
+- Release Dev: `20260731T192559Z-native-96250a4` (SHA `96250a4`).
+- Migraciones: head `20260731_0028`.
+- Re-medida run_tag **`20260731T194745Z`** con transcript HTTP completo:
+  - pregunta job `c6293b76-…` queue `ai` → succeeded
+  - brief job `9c538ca6-…` → plan proposed
+  - permanent_fail job `ad6d0d67-…` → failed/permanent_failure
+  - cancel job `edbee997-…` → 428 sin If-Match · 202 cancelled · 409 retry
+- Vitest Actividad+Ask+Brief: **7 passed**. Playwright MEMSOL: **not run** (blocked log).
+- Producción: **no** desplegada · **no lista**.
+- Ledger: `docs/implementation/MEMSOL_EXECUTION_LEDGER.md`.
+
 ## Memoria Sol · verificación final con Postgres real (2026-07-31)
 
 - oracle_test migrado a `20260731_0028`; backfill dry-run midió 0 dossiers/0 revisiones.
@@ -189,22 +221,6 @@ Rama: `mdev/01-rework2`
 
 Rama observada: `master` / `memsol/execution`
 Interfaz canónica: `CANONICAL_UI=vector`
-
-## Sistema vivo de planificación (2026-07-31)
-
-- Se creó `docs/development/oracle-roadmap.json` como fuente estructurada de estado, dependencias,
-  criterios, evidencias y próximos trabajos; el dashboard HTML es un artefacto generado.
-- Auditoría inicial: 10 módulos y 31 funcionalidades, con estados separados entre implementado,
-  validado, desplegado, en revisión, bloqueado y diferido. No se desarrolló nueva funcionalidad de
-  negocio en esta fase.
-- El snapshot de auditoría se tomó en `oracle-dev`; el commit de gobernanza se integró en `master`
-  sin incluir cambios funcionales ajenos de otras sesiones.
-- Comprobaciones realizadas: `python3 scripts/generate-development-dashboard.py --check`, generación
-  determinista del HTML, parser HTML estándar, sintaxis JavaScript y protección contra sobrescritura
-  con roadmap inválido. La inspección visual mediante navegador integrado no se pudo ejecutar porque
-  la política del navegador bloquea abrir `file://`; no se sorteó esa restricción.
-- Fuente y uso: `docs/development/oracle-architecture.md`, `oracle-decisions.md` y
-  `oracle-progress.md`. Regenerar con `python3 scripts/generate-development-dashboard.py`.
 
 ## MEMSOL-05 · MemoryContextAdapter Oracle (2026-07-31)
 
@@ -4378,3 +4394,37 @@ Verificación posterior: punteros, `ORACLE_RELEASE` e imágenes de los seis serv
 liveness, readiness, login HTTPS, Celery ping, beat único y smoke público correctos. La evidencia
 del backup y restore queda bajo el backup local de producción; el recibo off-host sigue siendo
 recomendado, no gate estricto activo.
+
+## MDEV-04 REWORK-1 (2026-08-02)
+- candidate_verdict: implemented_with_debt (REWORK attempt 1)
+- branch: mdev/04-oracle-adapter-settings · PR Oracle #16
+- test-connection: real Httpx unless MEMORY_CONTEXT_TEST_TRANSPORT / mock mode (synthetic flagged)
+- GET profile/effective: no silent create; ephemeral defaults + persisted=false
+- unique scope: uq_dmp_scope_nulls NULLS NOT DISTINCT
+- strict memory.v1 validation; SSRF rebind per-request; retry 408/429/5xx
+- snapshot writer persist_retrieval_snapshot in retrieve path; shadow returns zero items
+- TS client dossierMemory + UI section Memoria in dossier settings
+- unit tests test_memory_mdev04_adapter.py: 17 passed
+- residual debt: Flask/PG two-tenant HTTP, migration roundtrip PG, OpenAPI regen full, Playwright/Vitest axe, Celery cancel, full suite+CI green
+
+## MDEV-04 REWORK-2 (2026-08-02)
+- commit on mdev/04-oracle-adapter-settings PR #16
+- Fixed real API signatures: dossier_accessible(session,dossier,user_id,write=), problem_response keyword-only, append_audit_event resource_*
+- Permissions: dossier.read / dossier.write (dot form)
+- Snapshot: no except-pass; persist_retrieval_snapshot(session) no internal commit; orchestrator helper persist_snapshot_from_retrieve_result
+- Model/migration: Index uq_dmp_scope_nulls postgresql_nulls_not_distinct=True; dossier tenant-scoped FKs
+- HTTP unit tests: test_memory_mdev04_http.py (client get/put/post) + adapter tests → 30 passed
+- TS export DossierMemoryProfile; UI Memoria filters (sources/kinds/classifications/limit/token_budget)
+- Residual debt: PG multi-tenant integration, OpenAPI regen, Playwright/Vitest, full suite/CI, Celery cancel, schema freeze full memory.v1
+
+## MDEV-04 attempt-4 (2026-08-02)
+- RLS FORCE + tenant_isolation policy + oracle_app grants on dossier_memory_profiles / memory_retrieval_snapshots
+- mutation subprocess strips ORACLE_RUN_INTEGRATION/TEST_* URLs + --no-cov (mutation-J pattern)
+- residual: full PG HTTP e2e, OpenAPI, Playwright, coverage gate, CI conclusion
+
+## MDEV-05 provisional bilateral ingest (2026-08-02)
+- branch mdev/05-bilateral-ingest from 304ea27 (MDEV-04 tip), integrated after 55e9320 on mdev/06
+- memory_outbox.py: envelopes + stage_outbox; flag MEMORY_BILATERAL_OUTBOX_ENABLED default OFF
+- GET /dossiers/{id}/memory/outbox safe status
+- unit tests test_memory_mdev05_outbox.py
+- inherited debt MDEV-02/03/04; no deploy

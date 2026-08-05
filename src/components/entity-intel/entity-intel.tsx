@@ -907,6 +907,7 @@ export function EntityGraphExplorer({
   const previousIsolatedNodeIdRef = useRef<string | null>(null);
   const isolationCameraIntentRef = useRef<IsolationCameraIntent | null>(null);
   const labelDensityRef = useRef<GraphLabelDensity>(defaultGraphLabelDensity(initialGraph));
+  const matchingNodeIdsRef = useRef<ReadonlySet<string>>(new Set());
   const returnFocusRef = useRef<HTMLDivElement | null>(null);
   const [activeOnly, setActiveOnly] = useState(false);
   const [graph, setGraph] = useState<EntityIntelGraphResponse | null>(initialGraph);
@@ -1400,6 +1401,16 @@ export function EntityGraphExplorer({
         instance.on("viewport", onViewport);
         instance.on("layoutstop", applyInitialFocus);
         graphRef.current = instance;
+        // Re-apply search highlights if the user typed before cytoscape finished
+        // loading (matchingNodeIds effect only runs when the query changes).
+        const pendingSearchMatches = matchingNodeIdsRef.current;
+        if (pendingSearchMatches.size > 0) {
+          instance.batch(() => {
+            pendingSearchMatches.forEach((id) => {
+              instance.getElementById(id).addClass("is-search-match");
+            });
+          });
+        }
         focusTimer = window.setTimeout(applyInitialFocus, 900);
         cleanupHandlers = () => {
           container.removeEventListener("mouseleave", clearHover);
@@ -1460,7 +1471,13 @@ export function EntityGraphExplorer({
     applyGraphLabelDensity(graphRef.current, labelDensity);
   }, [labelDensity]);
 
+  // Sync the ref in layout effect (legal) before painting highlights.
+  // Always write the ref even when graphRef is null so an in-flight cytoscape
+  // import can re-apply pending search matches at mount without racing this
+  // effect (layout effects run before the next macrotask where the import
+  // resolves). Writing during render is forbidden by react-hooks/refs.
   useLayoutEffect(() => {
+    matchingNodeIdsRef.current = matchingNodeIds;
     const instance = graphRef.current;
     if (!instance) return;
     instance.batch(() => {
@@ -1519,6 +1536,18 @@ export function EntityGraphExplorer({
             <span>{visibleNodeCount} de {graph?.nodes.length ?? 0} nodos visibles</span>
             <span>{visibleEdgeCount} de {graph?.edges.length ?? 0} enlaces visibles</span>
             {graph?.truncated && <span>Vista recortada por Signal</span>}
+            {graph?.completeness === "incomplete" && (
+              <span role="status">Grafo incompleto</span>
+            )}
+            {graph?.captured_at && (
+              <span title={graph.captured_at}>
+                Capturado{" "}
+                {new Date(graph.captured_at).toLocaleString("es-ES", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+              </span>
+            )}
             {graph?.cache_hit && <span>Caché activo</span>}
             <button className="vector-secondary small" disabled={loading} onClick={() => void loadGraph()}>
               <RefreshCw size={14} />
@@ -1923,6 +1952,15 @@ export function EntityGraphExplorer({
                   <small>Signal vía Flask</small>
                 </summary>
                 <div className="entity-graph-disclosure-body">
+                  {graph.completeness === "incomplete" && (
+                    <p className="entity-graph-warning" role="status">
+                      <Sparkles size={14} />
+                      Grafo incompleto: no es el mapa societario entero.
+                      {(graph.incompleteness_reasons?.length ?? 0) > 0
+                        ? ` Motivos: ${graph.incompleteness_reasons?.join(", ")}.`
+                        : ""}
+                    </p>
+                  )}
                   {graph.truncated && (
                     <p className="entity-graph-warning">
                       <Sparkles size={14} />

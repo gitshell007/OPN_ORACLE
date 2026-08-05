@@ -3053,9 +3053,10 @@ def test_procurement_folder_resolution_uses_signal_lookup_endpoints(
         "Genesis Consulting SLP",
         "OPN Consultoría",
     ]
-    assert "Importe total adjudicado: 5000.00" in procurement_items.procurement_evidence_extract(
-        award
-    )
+    # Expectativa actualizada (079/099+): el extracto declara la ambigüedad base/IVA
+    # del amount PLACSP en lugar de fingir un «importe total» clasificado.
+    extract = procurement_items.procurement_evidence_extract(award)
+    assert "Importe total adjudicado (sin clasificación base/IVA en origen): 5000.00" in extract
 
 
 def test_procurement_listing_creates_no_ai_usage(
@@ -3276,6 +3277,9 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
         assert promoted_again is False
         assert replay.id == opportunity.id
         assert opportunity.confidence == 70
+        # Ola 0 · punto 3: la fecha límite de la licitación debe copiarse a la oportunidad.
+        assert opportunity.deadline is not None
+        assert opportunity.deadline.isoformat() == "2026-09-30"
         assert (
             db.session.get(
                 OpportunityEvidence,
@@ -3337,6 +3341,330 @@ def test_procurement_pin_is_idempotent_and_tenant_scoped_with_real_database(
     )
     assert replayed.status_code == 200
     assert replayed.get_json()["replayed"] is True
+
+
+def test_procurement_refresh_preserves_pin_links_and_rotates_uncited_evidence(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refresh updates snapshot/NIF without re-pin; rotates evidence only if extract changes."""
+
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Procurement refresh higiene")
+    dossier_id = uuid.UUID(dossier["id"])
+    state = {"phase": "initial"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/AWARD_REFRESH_1")
+        base = {
+            "folder_id": "AWARD_REFRESH_1",
+            "title": "Suministro plataforma IA",
+            "buyer": "Organismo demo",
+            "winner": "Capgemini España S.L",
+            "award_amount": "250000",
+            "award_date": "2026-06-23",
+            "cpv": ["48180000"],
+            "status": "ADJ",
+            "source_url": "https://contrataciondelestado.es/award/AWARD_REFRESH_1",
+        }
+        if state["phase"] == "with_nif":
+            base = {
+                **base,
+                "winner_identifier": "B08377715",
+                "tax_id": "B08377715",
+            }
+        elif state["phase"] == "title_change":
+            base = {
+                **base,
+                "title": "Suministro plataforma IA multiagente (actualizado)",
+                "winner_identifier": "B08377715",
+                "tax_id": "B08377715",
+            }
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"total": 1, "items": [base]},
+        )
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        transport = httpx.MockTransport(handler)
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        pinned, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="award",
+            folder_id="AWARD_REFRESH_1",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        pin_id = pinned.id
+        first_evidence_id = pinned.evidence_id
+        opportunity, promoted = procurement_items.promote_procurement_to_opportunity(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=pin_id,
+            actor_id=ids["user"],
+        )
+        assert promoted is True
+        linked_opp = opportunity.id
+        db.session.commit()
+        assert not (pinned.snapshot or {}).get("winner_identifier")
+
+        # NIF-only refresh: extract prose is unchanged (NIF not in extract), so evidence
+        # is reused; pin identity and opportunity link stay put.
+        state["phase"] = "with_nif"
+        refreshed, meta = procurement_items.refresh_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=pin_id,
+            actor_id=ids["user"],
+        )
+        db.session.commit()
+
+        assert refreshed.id == pin_id
+        assert refreshed.linked_opportunity_id == linked_opp
+        assert refreshed.folder_id == "AWARD_REFRESH_1"
+        assert refreshed.snapshot.get("winner_identifier") == "B08377715"
+        assert meta["evidence_rotated"] is False
+        assert refreshed.evidence_id == first_evidence_id
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], first_evidence_id, dossier_id),
+            )
+            is not None
+        )
+
+        # Title change alters the citable extract → new evidence version; old disposed
+        # under 098 (opportunity_evidence hard-ref keeps it as retained_uncitable).
+        state["phase"] = "title_change"
+        rotated, rot_meta = procurement_items.refresh_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=pin_id,
+            actor_id=ids["user"],
+        )
+        db.session.commit()
+
+        assert rotated.id == pin_id
+        assert rotated.linked_opportunity_id == linked_opp
+        assert "multiagente" in str(rotated.snapshot.get("title") or "")
+        assert rot_meta["evidence_rotated"] is True
+        assert rotated.evidence_id != first_evidence_id
+        assert rot_meta["previous_disposition"]["disposition"] == "retained_uncitable"
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], first_evidence_id, dossier_id),
+            )
+            is None
+        )
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], rotated.evidence_id, dossier_id),
+            )
+            is not None
+        )
+        # Historical opportunity citation is not rewritten.
+        assert opportunity.score_details["confidence"]["evidence_ids"] == [str(first_evidence_id)]
+
+
+def test_procurement_delete_drops_uncited_evidence_keeps_cited(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unpin: uncited evidence is deleted; artifact-cited evidence is retained unlinked."""
+
+    app, ids, _ = oracle_stack
+    client = _client(oracle_stack)
+    dossier = _create_dossier(client, ids, "Procurement delete higiene")
+    dossier_id = uuid.UUID(dossier["id"])
+
+    def award_handler(folder_id: str, title: str) -> Any:
+        def handler(request: httpx.Request) -> httpx.Response:
+            del request
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "total": 1,
+                    "items": [
+                        {
+                            "folder_id": folder_id,
+                            "title": title,
+                            "buyer": "Organismo demo",
+                            "winner": "Empresa Demo SA",
+                            "winner_identifier": "A12345678",
+                            "award_amount": "1000",
+                            "award_date": "2026-01-01",
+                            "cpv": ["72000000"],
+                            "status": "ADJ",
+                            "source_url": f"https://contrataciondelestado.es/award/{folder_id}",
+                        }
+                    ],
+                },
+            )
+
+        return handler
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user"])),
+    ):
+        # --- Uncited path ---
+        transport = httpx.MockTransport(award_handler("AWARD_DEL_UNCITED", "Sin citas"))
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        uncited, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="award",
+            folder_id="AWARD_DEL_UNCITED",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        uncited_id = uncited.id
+        uncited_evidence = uncited.evidence_id
+        db.session.commit()
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], uncited_evidence, dossier_id),
+            )
+            is not None
+        )
+
+        result = procurement_items.delete_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=uncited_id,
+        )
+        db.session.commit()
+        assert isinstance(result, dict)
+        assert result["evidence"]["disposition"] == "deleted"
+        assert db.session.get(Evidence, uncited_evidence) is None
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], uncited_evidence, dossier_id),
+            )
+            is None
+        )
+
+        # --- Cited path: evidence referenced by AI artifact output ---
+        transport = httpx.MockTransport(award_handler("AWARD_DEL_CITED", "Con citas"))
+        monkeypatch.setattr(
+            procurement_items,
+            "procurement_client_from_config",
+            lambda: _procurement_folder_client(transport),
+        )
+        cited, created = procurement_items.pin_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            kind="award",
+            folder_id="AWARD_DEL_CITED",
+            actor_id=ids["user"],
+        )
+        assert created is True
+        cited_id = cited.id
+        cited_evidence = cited.evidence_id
+        now = datetime.now(UTC)
+        digest = hashlib.sha256(b"cited-procurement-artifact").digest()
+        audit = AIAuditLog(
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            requested_by_user_id=ids["user"],
+            use_case="dossier_summary",
+            agent="dossier_situation_summary",
+            action="generate",
+            provider="mock",
+            model="mock-v1",
+            prompt_name="summary",
+            prompt_version="v1",
+            prompt_hash=digest,
+            context_hash=digest,
+            schema_name="DossierSituationSummary",
+            schema_version="v1",
+            input_hash=digest,
+            output_hash=digest,
+            source_ids=[str(cited_evidence)],
+            status="succeeded",
+            data_classification="internal",
+            redaction_applied=False,
+            redaction_summary={},
+            input_tokens=0,
+            output_tokens=0,
+            actual_cost_micros=0,
+            currency="EUR",
+            attempt_count=1,
+            started_at=now,
+            completed_at=now,
+            human_review_state="not_required",
+        )
+        db.session.add(audit)
+        db.session.flush()
+        artifact = AIArtifact(
+            tenant_id=ids["tenant_a"],
+            audit_log_id=audit.id,
+            dossier_id=dossier_id,
+            target_type="dossier",
+            target_id=dossier_id,
+            agent="dossier_situation_summary",
+            schema_name="DossierSituationSummary",
+            schema_version="v1",
+            output={
+                "facts": [
+                    {
+                        "statement": "Adjudicación citada históricamente.",
+                        "evidence_ids": [str(cited_evidence)],
+                    }
+                ]
+            },
+            output_hash=digest,
+            status="valid",
+            version=1,
+        )
+        db.session.add(artifact)
+        db.session.commit()
+
+        result = procurement_items.delete_procurement_item(
+            db.session,
+            tenant_id=ids["tenant_a"],
+            dossier_id=dossier_id,
+            item_id=cited_id,
+        )
+        db.session.commit()
+        assert isinstance(result, dict)
+        assert result["evidence"]["disposition"] == "retained_uncitable"
+        assert result["evidence"]["cited_by_artifacts"] is True
+        kept = db.session.get(Evidence, cited_evidence)
+        assert kept is not None
+        assert (
+            db.session.get(
+                EvidenceDossier,
+                (ids["tenant_a"], cited_evidence, dossier_id),
+            )
+            is None
+        )
 
 
 def test_tender_report_context_cites_pinned_procurement_evidence(
@@ -3811,7 +4139,13 @@ def test_dossier_create_uses_active_default_workspace(
         headers={"X-CSRF-Token": _csrf(client)},
     )
     assert response.status_code == 201
-    assert response.get_json()["workspace_id"] == str(ids["workspace_a"])
+    body = response.get_json()
+    assert body["workspace_id"] == str(ids["workspace_a"])
+    # Empty dossier: opportunity/risk means are 0; health is neutral 50, not "worst" 0.
+    assert body["opportunity_score"] == 0
+    assert body["risk_score"] == 0
+    assert body["health_score"] == 50
+    assert body["score_explanation"]["algorithm_version"] == "oracle-scoring-v1"
 
 
 def test_dossier_creation_can_apply_an_editable_type_specific_starter_profile(
@@ -4749,6 +5083,70 @@ def test_resource_policy_membership_and_archived_child_guard(
     )
 
 
+def test_collaborator_invite_rejects_user_from_other_organization(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Cross-tenant isolation: cannot invite a member of another organization."""
+
+    app, ids, password = oracle_stack
+    owner = _client(oracle_stack)
+    dossier = _create_dossier(owner, ids, "Expediente aislamiento colaboradores")
+    foreign_user = uuid.uuid4()
+    foreign_membership = uuid.uuid4()
+    foreign_role = uuid.uuid4()
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users(id,email,display_name,password_hash,status,email_verified_at,created_at,updated_at) "
+                "VALUES (:id,'foreign-org@example.test','Foreign Org',:password,'active',now(),now(),now())"
+            ),
+            {"id": foreign_user, "password": PasswordHasher().hash(password)},
+        )
+        # Membership only on tenant_b — not on tenant_a where the dossier lives.
+        connection.execute(
+            text(
+                "INSERT INTO tenant_memberships(id,tenant_id,user_id,status,accepted_at,settings,created_at,updated_at) "
+                "VALUES (:id,:tenant,:user,'active',now(),'{}',now(),now())"
+            ),
+            {"id": foreign_membership, "tenant": ids["tenant_b"], "user": foreign_user},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO roles(id,tenant_id,key,name,description,is_system,created_at,updated_at) "
+                "VALUES (:id,:tenant,'foreign_owner','Foreign','x',false,now(),now())"
+            ),
+            {"id": foreign_role, "tenant": ids["tenant_b"]},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO membership_roles(tenant_id,membership_id,role_id) "
+                "VALUES (:tenant,:membership,:role)"
+            ),
+            {
+                "tenant": ids["tenant_b"],
+                "membership": foreign_membership,
+                "role": foreign_role,
+            },
+        )
+    engine.dispose()
+
+    attempt = owner.put(
+        f"/api/v1/dossiers/{dossier['id']}/collaborators/{foreign_user}",
+        json={"role": "viewer"},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert attempt.status_code == 422, attempt.get_json()
+    body = attempt.get_json()
+    detail = str(body.get("detail") or body.get("title") or body).lower()
+    assert "válido" in detail or "colaborador" in detail or "valid" in detail
+
+    listed = owner.get(f"/api/v1/dossiers/{dossier['id']}/collaborators")
+    assert listed.status_code == 200
+    assert all(row["user_id"] != str(foreign_user) for row in listed.get_json()["data"])
+    del app
+
+
 def test_configured_scoring_override_actor_and_evidence_policy(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
@@ -5533,6 +5931,26 @@ def test_report_generation_failures_never_publish_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
 ) -> None:
+    """Garantía de seguridad: un fallo de generación jamás publica artefacto.
+
+    Distinción de clases (084 — lenient/strip_claims vs hard-fail):
+
+    * **Seguridad / infraestructura del revisor** (excepción del evidence_reviewer,
+      provider caído, schema inválido): el informe queda ``failed``, sin revision,
+      sin artefactos, sin notificación ``report.ready`` y sin objetos en storage.
+      Esta es la garantía dura que este test protege.
+    * **Calidad** (verdict fail con claims anclables en agentes strip_claims/lenient):
+      *no* es este escenario. Ahí se publica con warnings y título honesto; otros
+      tests (``test_report_writer_strips_claims_…``) lo cubren.
+
+    Expectativa actualizada del mensaje del job (SV2-CI-INTEGRACION): el report
+    expone la clase de fallo al usuario (``falló la revisión obligatoria…`` vía
+    ``EvidenceReviewError``). El job durable, en cambio, guarda la causa raíz
+    para operadores (``_exception_cause_text`` camina ``__cause__`` hasta
+    ``RuntimeError: reviewer unavailable``). No se exige el texto español en el
+    job; sí se exige que no haya publicación.
+    """
+
     app, ids, _ = oracle_stack
     storage = LocalObjectStorage(tmp_path / f"report-failure-{scenario}")
     app.extensions["object_storage"] = storage
@@ -5583,9 +6001,11 @@ def test_report_generation_failures_never_publish_artifacts(
     report = client.get(f"/api/v1/reports/{report_id}").get_json()
     assert report["status"] == "failed"
     if scenario == "reviewer":
+        # Clase de fallo de revisión obligatoria: visible al usuario en el report.
         assert "falló la revisión obligatoria de evidencias" in report["error_message"]
     else:
         assert "No se pudo generar el informe" in report["error_message"]
+    # Garantía de seguridad: jamás hay artefacto ni revisión publicada.
     assert report["artifacts"] == []
     assert report["revision"] is None
     with (
@@ -5596,10 +6016,15 @@ def test_report_generation_failures_never_publish_artifacts(
         assert stored_report is not None and stored_report.background_job_id is not None
         failed_job = db.session.get(BackgroundJob, stored_report.background_job_id)
         assert failed_job is not None
+        job_msg = failed_job.error_message or ""
         if scenario == "reviewer":
-            assert "La revisión de evidencia falló" in (failed_job.error_message or "")
+            # Causa raíz operativa (no el wrapper español del report).
+            assert "reviewer unavailable" in job_msg
+            assert failed_job.status == "failed"
         else:
-            assert "La revisión de evidencia falló" not in (failed_job.error_message or "")
+            # Escenarios no-reviewer no deben camuflarse como fallo de revisión.
+            assert "revisión de evidencia" not in job_msg.lower()
+            assert "revisión obligatoria" not in job_msg.lower()
         assert not list(
             db.session.scalars(
                 select(ReportArtifact).where(ReportArtifact.report_id == uuid.UUID(report_id))
@@ -6624,9 +7049,14 @@ def test_reporting_api_validation_retry_revision_and_policy_states(
 
     report = generate(f"api-state-ready-{uuid.uuid4()}")
     assert report["status"] == "ready"
+    # Expectativa actualizada (SV2-CI-INTEGRACION / grounding de conclusiones):
+    # el mock ya no publica el título «Informe mock»; ``_ground_conclusions_to_facts``
+    # lo degrada al primer fact («Hecho sintético verificable.»). El filtro de
+    # búsqueda debe apuntar a texto que el producto realmente materializa.
+    search_token = "Hecho"
     filtered = client.get(
         "/api/v1/reports?filter[status]=ready&filter[template]=executive_dossier"
-        "&filter[search]=Informe&page[number]=1&page[size]=5"
+        f"&filter[search]={search_token}&page[number]=1&page[size]=5"
     )
     assert filtered.status_code == 200 and filtered.get_json()["meta"]["total"] >= 1
     assert (
@@ -7026,7 +7456,12 @@ def test_report_notification_export_end_to_end(
     assert link.status_code == 200
     downloaded = client.get(link.get_json()["url"])
     assert downloaded.status_code == 200
-    assert b"Informe mock" in downloaded.data and b"<script" not in downloaded.data.lower()
+    # Expectativa actualizada (SV2-CI-INTEGRACION): el HTML usa el título honesto
+    # fundado en facts del mock («Hecho sintético verificable.»), no el marketing
+    # «Informe mock» que _ground_conclusions_to_facts degrada. Sigue prohibido
+    # inyectar script en el artefacto publicado.
+    assert "Hecho sintético verificable".encode() in downloaded.data
+    assert b"<script" not in downloaded.data.lower()
 
     opportunity = client.post(
         f"/api/v1/dossiers/{dossier['id']}/opportunities",

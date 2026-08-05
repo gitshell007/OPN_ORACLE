@@ -100,6 +100,32 @@ def _as_float(value: str | float, *, name: str, minimum: float = 0.0) -> float:
     return parsed
 
 
+def resolve_release_from_tree(*, start: Path | None = None) -> str | None:
+    """Identidad de release desde el árbol instalado (fuente única preferida).
+
+    En deploy nativo cada release materializa ``RELEASE_ID`` en la raíz del
+    release (junto a ``RELEASE_GIT_SHA``). El symlink ``current`` apunta a ese
+    árbol; leer el fichero evita el desajuste histórico env vs código servido
+    (SV2-SANEO-ANIDADO / familia CMS del 107 en la identidad del deploy).
+
+    Recorre padres desde ``start`` (por defecto este módulo) hasta encontrar
+    ``RELEASE_ID``. En desarrollo local sin release materializado devuelve None.
+    """
+
+    here = (start or Path(__file__)).resolve()
+    for parent in [here, *here.parents]:
+        candidate = parent / "RELEASE_ID"
+        try:
+            if not candidate.is_file():
+                continue
+            text = candidate.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            continue
+        if text:
+            return text
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Validated settings loaded from environment or explicit test overrides."""
@@ -275,7 +301,12 @@ class Settings:
             frontend_origin=str(values.get("FRONTEND_ORIGIN", "http://localhost:3000")),
             openapi_enabled=_as_bool(values.get("OPENAPI_ENABLED", app_env != "production")),
             app_version=str(values.get("APP_VERSION", "0.1.0")),
-            release=str(values.get("RELEASE", "development")),
+            # Prefer tree RELEASE_ID (immutable release identity) over env so
+            # /api/v1/meta cannot lag behind the code symlink serves.
+            release=(
+                resolve_release_from_tree()
+                or str(values.get("RELEASE") or values.get("ORACLE_RELEASE") or "development")
+            ),
             sqlalchemy_pool_size=_as_int(
                 values.get("SQLALCHEMY_POOL_SIZE", 5), name="SQLALCHEMY_POOL_SIZE", minimum=1
             ),

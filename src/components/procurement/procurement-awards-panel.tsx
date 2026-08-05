@@ -273,8 +273,18 @@ function AwardCard({ item }: { item: ProcurementAwardItem }) {
           <dd>{item.winner || "No publicado"}</dd>
         </div>
         <div>
-          <dt>Importe</dt>
-          <dd>{formatMoney(item.award_amount)}</dd>
+          <dt title="Campo award_amount de PLACSP: el origen no indica si es base o IVA incluido">
+            Importe adjudicado publicado
+          </dt>
+          <dd>
+            {formatMoney(item.award_amount)}
+            {item.award_amount != null && Number.isFinite(item.award_amount) ? (
+              <small className="procurement-amount-note">
+                {" "}
+                (PLACSP; sin clasificar base/IVA)
+              </small>
+            ) : null}
+          </dd>
         </div>
         <div>
           <dt>Fecha</dt>

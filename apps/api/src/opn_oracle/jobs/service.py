@@ -32,6 +32,8 @@ TASK_QUEUES = {
     "oracle.entity_dossier_report.generate": "ai",
     "oracle.dossier_question.answer": "ai",
     "oracle.report.custom_brief.plan": "ai",
+    "oracle.report.custom_brief.write": "ai",
+    "oracle.report.custom_brief.review": "ai",
     "oracle.investigation.run": "signals",
     "oracle.export.generate": "documents",
     "oracle.document.process": "documents",

@@ -237,7 +237,7 @@ test("Vector F11 abre informes, notificaciones, preferencias y exportaciones", a
   await page.getByRole("button", { name: "Entrar en Oracle" }).click();
   await expect(page).toHaveURL(/\/app\/reports$/);
   await expect(
-    page.getByRole("heading", { name: "Informes", exact: true }),
+    page.getByTestId("page-header").getByRole("heading", { name: "Informes", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Aún no hay informes")).toBeVisible();
   // El 401 de /auth/me previo al login y el 409 de selección de tenant son

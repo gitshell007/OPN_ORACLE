@@ -2207,7 +2207,15 @@ def test_report_writer_strips_claims_on_negative_reviewer_verdict(
     jobs_stack: tuple[Any, dict[str, uuid.UUID]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """report_writer uses strip_claims: a scoped reviewer fail must not erase the report."""
+    """report_writer uses strip_claims: a scoped reviewer fail must not erase the report.
+
+    Expectativa actualizada (SV2-CI-INTEGRACION / 084+095):
+    strip_claims publica con warnings, pero ``_ground_conclusions_to_facts`` degrada
+    título/resumen no fundados cuando no quedan hechos citados. El título vistoso
+    «Informe sujeto a revisión» ya no se conserva: se sustituye por el honesto
+    «Análisis sin hechos citados». Eso no es regresión de publicación — el artefacto
+    sigue en ``succeeded`` con política ``strip_claims``.
+    """
 
     app, ids = jobs_stack
     rejected: dict[str, str] = {}
@@ -2303,8 +2311,9 @@ def test_report_writer_strips_claims_on_negative_reviewer_verdict(
 
         artifact = db.session.get(AIArtifact, uuid.UUID(result["artifact_id"]))
         assert artifact is not None
-        assert artifact.output["title"] == "Informe sujeto a revisión"
-        assert artifact.output["executive_summary"] == "Síntesis ejecutiva conservable."
+        # Sin facts citados tras el strip: título honesto, no el marketing del mock.
+        assert artifact.output["title"] == "Análisis sin hechos citados"
+        assert "hechos citados" in artifact.output["executive_summary"].lower()
         # The only reviewable claim lived in the section paragraph; after strip the section
         # may remain empty of that paragraph.
         dumped = json.dumps(artifact.output, ensure_ascii=False)
@@ -2544,7 +2553,15 @@ def test_long_report_reviewer_uses_compact_claim_package(
         assert "candidate_output" not in review_context
         assert "requested_scope" not in review_context
         assert "computed_analysis" not in review_context
-        assert len(review_context["candidate_claims"]) == 14
+        # Expectativa actualizada (SV2-CI-INTEGRACION / 095): el paquete compacto
+        # incluye las 14 claims de párrafo *y* las conclusiones de producto
+        # (title + executive_summary, kind=conclusion). Antes el revisor solo
+        # veía claims con evidence_ids; ahora también juzga títulos/resúmenes.
+        claims = review_context["candidate_claims"]
+        assert len(claims) == 16
+        conclusion_paths = {item["path"] for item in claims if item.get("kind") == "conclusion"}
+        assert "$.title" in conclusion_paths
+        assert "$.executive_summary" in conclusion_paths
         audit_id = db.session.scalar(
             select(AIArtifact.audit_log_id).where(AIArtifact.id == uuid.UUID(result["artifact_id"]))
         )

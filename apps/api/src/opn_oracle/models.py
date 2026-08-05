@@ -10,8 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from opn_oracle.ai.models import AI_MODELS
 from opn_oracle.documents.models import DOCUMENT_MODELS
 from opn_oracle.extensions import Base
+from opn_oracle.integrations.entity_graph_snapshots import ENTITY_GRAPH_SNAPSHOT_MODELS
 from opn_oracle.integrations.models import INTEGRATION_MODELS
 from opn_oracle.oracle.conversations import CONVERSATION_MODELS
+from opn_oracle.oracle.custom_report_usage import CUSTOM_REPORT_USAGE_MODELS
 from opn_oracle.oracle.intent import INTENT_MODELS
 from opn_oracle.oracle.investigations import INVESTIGATION_MODELS
 from opn_oracle.oracle.jobs import JOB_MODELS
@@ -22,6 +24,7 @@ from opn_oracle.oracle.procurement_search_feedback import (
 )
 from opn_oracle.oracle.procurement_search_profiles import PROCUREMENT_SEARCH_PROFILE_MODELS
 from opn_oracle.oracle.procurement_search_watch import PROCUREMENT_SEARCH_WATCH_MODELS
+from opn_oracle.oracle.surveillance import DossierSurveillanceAction  # noqa: F401
 from opn_oracle.platform.backups import BACKUP_MODELS
 from opn_oracle.platform.models import (
     ApiCredential,
@@ -83,6 +86,7 @@ MODEL_REGISTRY = (
     PlatformSourceActivity,
     *BACKUP_MODELS,
     *INTEGRATION_MODELS,
+    *ENTITY_GRAPH_SNAPSHOT_MODELS,
     *ORACLE_MODELS,
     *INTENT_MODELS,
     *CONVERSATION_MODELS,
@@ -93,6 +97,7 @@ MODEL_REGISTRY = (
     *LINK_MODELS,
     *JOB_MODELS,
     *AI_MODELS,
+    *CUSTOM_REPORT_USAGE_MODELS,
     *DOCUMENT_MODELS,
     *REPORTING_MODELS,
 )

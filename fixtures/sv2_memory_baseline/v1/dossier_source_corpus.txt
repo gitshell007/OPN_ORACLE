@@ -1,0 +1,151 @@
+Informe comercial interno — Nexus Ibérica Sistemas S.L.
+Confidencial · borrador para demo de memoria · 2026-03-18
+1. Identidad de la empresa
+Nexus Ibérica Sistemas S.L. (en adelante, «Nexus») es una sociedad de responsabilidad
+limitada con domicilio social en Calle de Alcalá 480, 28027 Madrid (España) y CIF
+B-87994512. Su objeto social principal es el desarrollo e implantación de software de
+inteligencia comercial y vigilancia de mercados para el sector de la energía y las
+infraestructuras. La empresa fue constituida el 12 de septiembre de 2018 con un capital
+social de 120.000 euros, íntegramente desembolsado. El CNAE principal declarado es
+6201 (actividades de programación informática).
+2. Órgano de administración y equipo directivo
+Según el libro de actas y la última inscripción en el Registro Mercantil de Madrid,
+el administrador único es Laura Méndez Ortega, con DNI 45.221.908-K, nombrada el
+4 de febrero de 2022 por un plazo de seis años. El director general (CEO operativo)
+es Carlos Ruiz Navarro, que reporta al administrador único. La directora financiera
+(CFO) es Ana Belén Soto García, incorporada el 1 de octubre de 2023. El responsable
+de desarrollo de negocio para el sur de Europa es Miguel Ángel Prieto López.
+3. Contratos y relaciones comerciales relevantes
+3.1 Contrato marco con IberVolt Energía S.A.
+El 15 de enero de 2025 Nexus firmó un contrato marco de servicios de software con
+IberVolt Energía S.A. (CIF A-28033441), con sede en Bilbao. El importe máximo del
+marco es de 1.850.000 euros (sin IVA), con vigencia inicial de 36 meses y prórroga
+tácita por 12 meses adicionales salvo denuncia con 90 días de antelación. El primer
+pedido de trabajo (WO-2025-014) se emitió el 3 de febrero de 2025 por 420.000 euros
+para el módulo de vigilancia de licitaciones energéticas.
+3.2 Acuerdo de mantenimiento con Puerto Atlántico Logística
+El 22 de noviembre de 2024 Nexus cerró un acuerdo de mantenimiento y soporte premium
+con Puerto Atlántico Logística S.A. por 96.000 euros anuales, facturable trimestralmente
+en tramos de 24.000 euros. La fecha de inicio de servicio fue el 1 de diciembre de 2024
+y la renovación automática se produce cada 1 de diciembre.
+3.3 Subcontratación con DataForge Analytics
+Para la capa de modelos de lenguaje, Nexus subcontrató a DataForge Analytics B.V.
+(Países Bajos) un paquete de 180.000 euros (SOW firmado el 8 de marzo de 2025) con
+entrega prevista en dos hitos: 40 % a la aceptación de arquitectura (abril 2025) y
+60 % a la entrega de modelos fine-tuneados (julio 2025).
+4. Licitación pública en curso
+Nexus presenta oferta a la licitación «Plataforma de vigilancia de mercados y
+contratación pública del sector eléctrico» publicada por el Organismo Autónomo de
+Transformación Digital de la Administración (OATDA) el 28 de febrero de 2026, con
+expediente LIC-OATDA-2026-017 y CPV principal 72000000 (servicios TI). El presupuesto
+base de licitación es de 2.400.000 euros (IVA excluido). El plazo de presentación de
+ofertas finaliza el 15 de abril de 2026 a las 14:00 (hora peninsular). Nexus se presenta
+en UTE con Orion Cloud Partners S.L., ostentando Nexus la condición de representante
+de la UTE con una participación del 55 %.
+5. Riesgo material identificado
+El comité de riesgos de Nexus, reunido el 10 de marzo de 2026, calificó como «alto»
+el riesgo de concentración de ingresos en IberVolt Energía S.A., que representó el
+48 % de la facturación de 2025. Una resolución anticipada del contrato marco o una
+reducción del backlog de pedidos superiores al 30 % en un trimestre pondría en tensión
+la tesorería y podría retrasar el hito de DataForge. Como mitigación, se ha aprobado
+un plan de diversificación comercial con objetivo de bajar la dependencia de IberVolt
+por debajo del 30 % antes del 31 de diciembre de 2026, y se ha contratado un seguro
+de crédito por 600.000 euros con la aseguradora Fianza Norte.
+6. Hechos verificables de contacto
+El correo corporativo del administrador es laura.mendez@nexus-iberica.example y el
+teléfono de centralita es +34 91 555 01 22. La web corporativa es
+https://www.nexus-iberica.example. La cuenta bancaria operativa declarada para cobros
+de la Administración es ES21 2100 4455 6677 8899 0011 (CaixaBank), a nombre de Nexus
+Ibérica Sistemas S.L.
+7. Cierre
+Este documento se emite únicamente a efectos de demostración de extracción de hechos
+estructurados. Todos los nombres de empresas, personas, importes, fechas y referencias
+de expediente son ficticios y no corresponden a entidades reales. Queda prohibido su
+uso como fuente de due diligence real.
+# Informe de mercado público (datos abiertos PLACSP + BORME) — sector software / plataformas / IA
+Fuente: conectores oficiales Signal (PLACSP adjudicaciones y licitaciones abiertas; BORME actos mercantiles).
+Coste de obtención: 0 €. Fecha de extracción: 2026-08-03.
+Cliente demo (ficticio): Nexus Ibérica Sistemas S.L. — sociedad de ejemplo; los hechos de mercado siguientes son reales.
+## 1. Licitaciones abiertas relevantes (PLACSP, estado PUB/EV)
+| Folder | Objeto (extracto) | Órgano | Importe € | Plazo |
+|--------|-------------------|--------|-----------|-------|
+| CONTR 2026 11077 | Diseño, desarrollo e implantación de una red de agentes inteligentes en el Gobierno de las Illes Balears | Agencia Balear de Tecnologías | 5.450.796,93 | 2026-08-06 |
+| 26840045700 | Soporte informático y seguridad de la información de la infraestructura servidores (AEAT) | Agencia Estatal Administración Tributaria | 4.103.516,65 | 2026-09-07 |
+| 2601CTRDT001 | Gestión integral del Centro Especializado de Soporte a Usuarios del MIVAU | Ministerio de Vivienda y Agenda Urbana | 907.715,06 | 2026-08-21 |
+| 016/2026/SER/DG | Desarrollo e implementación de intranet | LogiRail S.A. | 105.875,00 | 2026-11-12 |
+| 2026044323 | Plataforma de gestión del padrón
+intranet | LogiRail S.A. | 105.875,00 | 2026-11-12 |
+| 2026044323 | Plataforma de gestión del padrón municipal y módulo de procesos | Ayuntamiento de Sagunto | 92.555,00 | 2026-08-06 |
+| 302026 | Renovación de licencias Business Central y Power Apps | (órgano de administración) | 106.480,00 | 2026-08-14 |
+| 5832/2026 | Suministro e implantación de sistema (Ayuntamiento de El Campello) | Alcaldía El Campello | 128.502,00 | 2026-08-03 |
+Nota: la licitación 2026-0072 (impermeabilización cubiertas EMT Valencia, 886.799,64 €, CPV obras) permanece anclada por histórico de demo pero es **ajena al sector software/energía** de Nexus; no debe usarse como oportunidad principal.
+## 2. Adjudicaciones recientes a competidores reales (PLACSP)
+| Folder | Adjudicatario | Objeto (extracto) | Importe € | Fecha |
+|--------|---------------|-------------------|-----------|-------|
+| 102/2026 | Babel Sistemas de Información, S.L.U | Operación Oficina de Arquitectura Técnica / DevSecOps (MUTUALIDAD) | 869.205,39 | 2026-07-23 |
+| XP1228/2025 | Capgemini España, S.L. | Software acceso remoto seguro ZTNA | 318.550,00 | 2026-07-22 |
+| X260033SSODE | NTT DATA Spain | Mantenimiento y evolución sistema central nacional EES | 4.869.050,32 | 2026-07-08 |
+| CG-2026/2815/0061 | Capgemini España S.L. | Plataforma multiagente de IA para análisis de historia clínica | 125.000,00 | 2026-06-23 |
+| 1DGT2AP00041 | Inetum España S.A. - Capgemini España S.L. | Analítica de datos Oficina del Dato (Gerencia Informática SS) | 1.620.540,00 | 2026-06-23 |
+Señales de competencia: Capgemini y NTT DATA ganan contratos de software seguro, IA multiagente y sistemas nacionales de gran importe. Babel concentra contratos de arquitectura técnica y evolución de sistemas. Indra Sistemas S.A. mantiene volumen alto de adjudicaciones (cientos de lotes en el corpus PLACSP de Signal).
+## 3. Actos mercantiles BORME (competidor Indra Sistemas S.A.)
+- 2026-07-28: modificación de artículos estatutarios (INDRA SISTEMAS SA).
+- 2026-07-09: reelección de consejero externo SIMON GRIMALDOS ANGEL; fijación del número de miembros del consejo.
+- 2025-12-22: reelecciones de consejeras independientes (AMATRIAIN CORBI, ARCE PERALTA, entre otras).
+- 2026-08-03: actos de disolución/fusión/extinción sobre **INDRA SISTEMAS AEREOS AUTONOMOS SL** (filial distinta de la cabecera).
+Fuente: conector BORME de Signal (datos abiertos Registro Mercantil / BORME).
+## 4. Lectura de mercado (hechos, no recomendaciones de inventiva)
+1. Hay al menos tres licitaciones abiertas de **software / agentes inteligentes / soporte IT** con importes entre ~0,1 M€ y ~5,5 M€ y plazos en agosto–noviembre 2026.
+2. Los grandes integradores (Capgemini, NTT DATA, Babel, Indra, Inetum) están activos en adjudicaciones 2026 de software, IA y sistemas nacionales.
+3. Un expediente de demo limitado a una sola obra de impermeabilización **no** representa el mercado de software; con el corpus anterior el análisis puede contrastar competencia real y ventanas de presentación reales.
+Fin del extracto estructurado. Todos los importes y folder_id provienen del corpus PLACSP/BORME ingerido en signal-dev sin búsqueda de pago.
+{"classification":"internal","kind":"document","metadata":{"probe":"direct_before_stage_fix","prompt":"SV2-CMS-INGESTA"},"origin_id":"sv2-cms-ingesta-104-c9e3a2ea","origin_table":"api_ingest_probe","source_type":"structured","title":"sv2-cms-ingesta-104-direct-probe"}
+# Extracto PLACSP — prueba SV2-CMS-INGESTA (PROMPT_000104)
+# Identificador de prueba: sv2-cms-ingesta-104 · 2026-08-04
+# Fuente: licitaciones fijadas demo (texto real de expediente)
+Licitación: CONTR 2026 11077
+Título: servicio de diseño, desarrollo e implantación de una red de agentes inteligentes
+en el Govern de les Illes Balears (GOIB), en 2 lotes (Lote 1: Gobernanza de la IA /
+Lote 2: Red de agentes inteligentes).
+Órgano de contratación: Dirección General de la Agencia Balear de Digitalización,
+Ciberseguridad y Telecomunicaciones.
+Importe estimado: 5.450.796,93 EUR
+CPV: 72230000; 72263000
+Estado: PUB
+Fecha límite presentación: 2026-08-06T23:59:00Z
+URL: https://contrataciondelestado.es/
+Licitación: 26840045700
+Título: Servicios de soporte informático y seguridad de la información de la
+infraestructura servidora y puesto de trabajo del Departamento de Informática Tributaria
+Órgano: Dirección General de la Agencia Estatal de Administración Tributaria (AEAT)
+Importe estimado: 4.103.516,65 EUR
+CPV: 72315200; 79417000; 72250000
+Estado: PUB
+Fecha límite: 2026-09-07T15:00:00Z
+Nota de contexto para memoria dual demo Nexus Ibérica: este extracto documenta
+oportunidades PLACSP de software/IA relevantes para el perfil del expediente.
+Adjudicatarios de referencia en memoria histórica del expediente incluyen Capgemini
+en expedientes XP1228/2025 y CG-2026/2815/0061.
+{"classification":"internal","kind":"document","metadata":{"probe":"post_stage_on","prompt":"SV2-CMS-INGESTA"},"origin_id":"sv2-cms-ingesta-104b-838efb11","origin_table":"api_ingest_probe","source_type":"structured","title":"sv2-cms-ingesta-104b-post-stages"}
+# Extracto PLACSP — prueba SV2-CMS-INGESTA post-stages (PROMPT_000104b)
+# Identificador: sv2-cms-ingesta-104b · 2026-08-04
+# Tras reactivar stages extract/ingest/consolidate/summaries/retrieve en CMS c:64
+Licitación: 2601CTRDT001
+Título: Gestión Integral del Centro Especializado de Soporte a Usuarios del MIVAU
+en el marco de los servicios de Tecnologías de la Información (CESUS)
+Órgano: Ministerio de Vivienda y Agenda Urbana
+Importe estimado: 907.715,06 EUR
+CPV: 72253200
+Estado: PUB
+Fecha límite: 2026-08-21T18:00:00Z
+Licitación: CMAYOR/2026/SGISE/0003
+Título: Suministro de vestuario de formación física
+Órgano: Consejo Ejecutivo de la Sociedad Valenciana de Gestión Integral de
+Servicios de Emergencia
+Importe estimado: 992.200 EUR
+CPV: 18412000
+Estado: PUB
+Fecha límite: 2026-08-24T15:00:00Z
+Contexto demo Nexus Ibérica / expediente ab7bba16: oportunidades PLACSP reales
+para vigilancia de mercado. Marcador único de prueba: PLACSP-INGESTA-104B-GOIB.
+Administrador de referencia en memoria: Laura Mendez. Adjudicatario real histórico: Capgemini.

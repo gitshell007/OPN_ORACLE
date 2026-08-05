@@ -103,6 +103,7 @@ from opn_oracle.oracle.procurement_items import (
     list_procurement_items,
     pin_procurement_item,
     promote_procurement_to_opportunity,
+    refresh_procurement_item,
     serialize_procurement_item,
 )
 from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
@@ -115,8 +116,11 @@ from opn_oracle.oracle.service import (
     create_dossier_actor,
     create_scored_resource,
     delete_dossiers,
+    ensure_dossier_aggregates,
+    ensure_dossier_aggregates_many,
     list_page,
     merge_actors,
+    order_with_nulls_last,
     promote_signal_link,
     record_status_change,
     review_signal_link,
@@ -399,7 +403,7 @@ def _global_dossier_resource_page(model: type[Any]) -> dict[str, Any]:
         .join(StrategicDossier, StrategicDossier.id == model.dossier_id)
         .where(*criteria)
     )
-    order = sortable[sort].desc() if desc else sortable[sort].asc()
+    order = order_with_nulls_last(sortable[sort], descending=desc)
     rows = list(
         db.session.execute(
             query.order_by(order, model.id.asc()).offset((page - 1) * size).limit(size)
@@ -1012,6 +1016,7 @@ def dossiers_list() -> Any:
                 *_typed_list_criteria(StrategicDossier),
             ),
         )
+        rows = ensure_dossier_aggregates_many(db.session(), rows)
         return {
             "data": [_serialize(row) for row in rows],
             "meta": {"page": page, "size": size, "total": total},
@@ -1279,6 +1284,7 @@ def dossier_get(dossier_id: uuid.UUID) -> Any:
     dossier = _dossier_or_404(dossier_id)
     if dossier is None:
         return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    dossier = ensure_dossier_aggregates(db.session(), dossier)
     return _serialize(dossier), 200, {"ETag": f'W/"{dossier.version}"'}
 
 
@@ -1640,10 +1646,42 @@ def dossier_procurement_document_report(dossier_id: uuid.UUID) -> Any:
     items = list_procurement_items(
         db.session(), tenant_id=g.active_tenant_id, dossier_id=dossier.id
     )
-    if not any(item.kind == "award" for item in items):
+    # Open tenders with CODICE pliegos are enough for the documentary report
+    # (bid prep). Awards remain supported for post-award competitive study.
+    has_award = any(item.kind == "award" for item in items)
+    has_tender_docs = any(
+        item.kind == "tender"
+        and isinstance(item.snapshot, dict)
+        and (
+            (
+                isinstance(item.snapshot.get("documents"), list)
+                and any(
+                    isinstance(doc, dict) and str(doc.get("uri") or "").strip()
+                    for doc in item.snapshot.get("documents", [])
+                )
+            )
+            or (
+                isinstance(item.snapshot.get("entries"), list)
+                and any(
+                    isinstance(entry, dict)
+                    and isinstance(entry.get("documents"), list)
+                    and any(
+                        isinstance(doc, dict) and str(doc.get("uri") or "").strip()
+                        for doc in entry.get("documents", [])
+                    )
+                    for entry in item.snapshot.get("entries", [])
+                )
+            )
+        )
+        for item in items
+    )
+    if not has_award and not has_tender_docs:
         return problem_response(
             422,
-            detail="Fija al menos una adjudicación antes de generar el informe.",
+            detail=(
+                "Fija al menos una adjudicación o una licitación abierta con "
+                "pliegos CODICE antes de generar el informe."
+            ),
             code="domain_validation",
         )
     payload = _payload()
@@ -1688,7 +1726,47 @@ def dossier_procurement_delete(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any
     if not deleted:
         return problem_response(404, detail="Ítem de contratación no encontrado.", code="not_found")
     db.session.commit()
+    if isinstance(deleted, dict):
+        return deleted
     return {"deleted": True, "id": str(item_id)}
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>/refresh")
+@require_permission("opportunity.write")
+def dossier_procurement_refresh(dossier_id: uuid.UUID, item_id: uuid.UUID) -> Any:
+    """Re-fetch Signal snapshot for a pin; preserve pin id, links and evidence policy."""
+
+    dossier = _dossier_or_404(dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="not_found")
+    if dossier.status == "archived":
+        return problem_response(
+            422, detail="Un expediente archivado es de solo lectura.", code="domain_validation"
+        )
+    try:
+        item, evidence_meta = refresh_procurement_item(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            dossier_id=dossier.id,
+            item_id=item_id,
+            actor_id=current_user.id,
+        )
+        db.session.commit()
+        payload = serialize_procurement_item(item)
+        payload["refresh"] = evidence_meta
+        return payload
+    except ProcurementItemError as error:
+        db.session.rollback()
+        detail = str(error)
+        if "no encontrada" in detail.lower() or "no se encontró" in detail.lower():
+            return problem_response(404, detail=detail, code="not_found")
+        return problem_response(422, detail=detail, code="domain_validation")
+    except ProcurementConfigurationError as error:
+        db.session.rollback()
+        return problem_response(503, detail=str(error), code="procurement_not_configured")
+    except ProcurementProviderError as error:
+        db.session.rollback()
+        return problem_response(error.status_code, detail=error.detail, code=error.code)
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/procurement/<uuid:item_id>/promote")
@@ -1757,6 +1835,7 @@ def _model_page(model: type[Any], *, criteria: tuple[Any, ...] = ()) -> dict[str
             "status",
             "overall_score",
             "due_date",
+            "deadline",
             "scheduled_at",
             "decided_at",
             "priority",
@@ -3040,10 +3119,21 @@ def actors_merge(target_id: uuid.UUID) -> Any:
 def collaborators_list(dossier_id: uuid.UUID) -> Any:
     if _dossier_manage_or_404(dossier_id) is None:
         return problem_response(404, detail="Expediente no encontrado.", code="not_found")
-    rows = db.session.scalars(
-        select(DossierCollaborator).where(DossierCollaborator.dossier_id == dossier_id)
-    )
-    return {"data": [_serialize(row) for row in rows]}
+    from opn_oracle.platform.models import User
+
+    rows = db.session.execute(
+        select(DossierCollaborator, User.email, User.display_name)
+        .outerjoin(User, User.id == DossierCollaborator.user_id)
+        .where(DossierCollaborator.dossier_id == dossier_id)
+        .order_by(User.display_name.nulls_last(), DossierCollaborator.user_id)
+    ).all()
+    payload: list[dict[str, Any]] = []
+    for row, email, display_name in rows:
+        item = _serialize(row)
+        item["email"] = email
+        item["display_name"] = display_name
+        payload.append(item)
+    return {"data": payload}
 
 
 @bp.put("/dossiers/<uuid:dossier_id>/collaborators/<uuid:user_id>")

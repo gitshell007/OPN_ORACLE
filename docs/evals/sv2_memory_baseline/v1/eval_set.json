@@ -1,0 +1,429 @@
+{
+  "schema": "sv2-memory-baseline-eval-set-v1",
+  "version": "1.0.0",
+  "id": "sv2-memory-baseline-nexus-demo-v1",
+  "title": "Baseline de recuperación de memoria · expediente demo Nexus Ibérica",
+  "created_at": "2026-08-04",
+  "prompt_tag": "SV2-BASELINE-MEMORIA",
+  "dossier": {
+    "id": "ab7bba16-3e55-4f35-ad73-0c84e2850688",
+    "tenant_id": "a6edb3c8-0611-4d7a-a6e1-e882c7460539",
+    "name": "Nexus Ibérica Sistemas S.L.",
+    "notes": "Hechos verificados contra memory.memory_facts + chunks en signal-dev (tenant c:64|t:<tenant_id>) el 2026-08-04. Corpus fuente versionado en fixtures/sv2_memory_baseline/v1/dossier_source_corpus.txt."
+  },
+  "scoring": {
+    "must_all": "Todas las cadenas must_contain (case-insensitive, acentos flexibles en nombres) deben aparecer en la respuesta.",
+    "must_any": "Al menos un grupo de must_any_groups debe tener todos sus tokens presentes.",
+    "trap": "La respuesta debe abstenerse (indicar que no consta / no hay evidencia / no se dispone) y NO inventar hechos concretos de la lista forbidden_claims.",
+    "citations": "Se reporta el número de citas del answer_payload; no bloquea el acierto factual salvo require_citations=true."
+  },
+  "questions": [
+    {
+      "id": "Q01",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Quién es el administrador único de Nexus Ibérica Sistemas S.L.?",
+      "criteria": {
+        "must_contain": [
+          "Laura",
+          "Mendez"
+        ],
+        "accept_name_variants": [
+          "Laura Méndez",
+          "Laura Mendez",
+          "Laura Méndez Ortega",
+          "Laura Mendez Ortega"
+        ],
+        "notes": "memory_facts company.administrator name=Laura Mendez / Laura Méndez Ortega"
+      }
+    },
+    {
+      "id": "Q02",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el CIF de Nexus Ibérica Sistemas S.L.?",
+      "criteria": {
+        "must_contain": [
+          "B-87994512"
+        ],
+        "accept_normalized": [
+          "B87994512",
+          "B-87994512"
+        ],
+        "notes": "En corpus demo: CIF B-87994512"
+      }
+    },
+    {
+      "id": "Q03",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Cuál es el domicilio social de Nexus Ibérica?",
+      "criteria": {
+        "must_contain": [
+          "Alcalá",
+          "480"
+        ],
+        "must_any_groups": [
+          [
+            "Madrid"
+          ],
+          [
+            "28027"
+          ]
+        ],
+        "notes": "company.registered_address Calle de Alcalá 480, 28027 Madrid"
+      }
+    },
+    {
+      "id": "Q04",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Cuál es el capital social de Nexus Ibérica Sistemas S.L.?",
+      "criteria": {
+        "must_any_groups": [
+          [
+            "120.000"
+          ],
+          [
+            "120000"
+          ],
+          [
+            "120 000"
+          ]
+        ],
+        "notes": "company.share_capital amount=120000 EUR"
+      }
+    },
+    {
+      "id": "Q05",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Qué CNAE principal declara Nexus Ibérica?",
+      "criteria": {
+        "must_contain": [
+          "6201"
+        ],
+        "notes": "company.cnae code=6201"
+      }
+    },
+    {
+      "id": "Q06",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el identificador de expediente de la licitación de la plataforma de vigilancia de mercados del sector eléctrico en la que participa Nexus?",
+      "criteria": {
+        "must_contain": [
+          "LIC-OATDA-2026-017"
+        ],
+        "notes": "tender.external_id LIC-OATDA-2026-017"
+      }
+    },
+    {
+      "id": "Q07",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Cuál es el presupuesto base de licitación de la plataforma de vigilancia de mercados y contratación pública del sector eléctrico (LIC-OATDA)?",
+      "criteria": {
+        "must_any_groups": [
+          [
+            "2.400.000"
+          ],
+          [
+            "2400000"
+          ],
+          [
+            "2 400 000"
+          ]
+        ],
+        "notes": "tender.amount 2400000 EUR"
+      }
+    },
+    {
+      "id": "Q08",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Hasta cuándo se pueden presentar ofertas a la licitación de la plataforma de vigilancia de mercados del sector eléctrico?",
+      "criteria": {
+        "must_any_groups": [
+          [
+            "15 de abril",
+            "2026"
+          ],
+          [
+            "2026-04-15"
+          ],
+          [
+            "15/04/2026"
+          ],
+          [
+            "15-04-2026"
+          ],
+          [
+            "15 abril 2026"
+          ]
+        ],
+        "notes": "tender.deadline 2026-04-15T14:00:00"
+      }
+    },
+    {
+      "id": "Q09",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Quién es el director general o CEO operativo de Nexus Ibérica?",
+      "criteria": {
+        "must_contain": [
+          "Carlos",
+          "Ruiz"
+        ],
+        "notes": "company.officer Carlos Ruiz Navarro CEO"
+      }
+    },
+    {
+      "id": "Q10",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Qué adjudicatario real de PLACSP aparece en las adjudicaciones del expediente relacionado con software de acceso remoto seguro ZTNA?",
+      "criteria": {
+        "must_contain": [
+          "Capgemini"
+        ],
+        "notes": "XP1228/2025 Capgemini; tender.awarded_to Capgemini"
+      }
+    },
+    {
+      "id": "Q11",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Cuál es el CPV principal de la licitación de la plataforma de vigilancia de mercados del sector eléctrico?",
+      "criteria": {
+        "must_contain": [
+          "72000000"
+        ],
+        "notes": "tender.cpv 72000000"
+      }
+    },
+    {
+      "id": "Q12",
+      "difficulty": "synthesis",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Quién es el administrador único de Nexus y qué importe tiene la licitación pública de la plataforma de vigilancia de mercados del sector eléctrico en la que participa?",
+      "criteria": {
+        "must_contain": [
+          "Laura"
+        ],
+        "must_any_groups": [
+          [
+            "2.400.000"
+          ],
+          [
+            "2400000"
+          ],
+          [
+            "2 400 000"
+          ]
+        ],
+        "notes": "Síntesis: admin + importe LIC-OATDA"
+      }
+    },
+    {
+      "id": "Q13",
+      "difficulty": "synthesis",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "Indica el CIF de Nexus Ibérica y el CNAE de su actividad principal.",
+      "criteria": {
+        "must_any_groups": [
+          [
+            "B-87994512",
+            "6201"
+          ],
+          [
+            "B87994512",
+            "6201"
+          ]
+        ],
+        "notes": "Síntesis: CIF + CNAE"
+      }
+    },
+    {
+      "id": "Q14",
+      "difficulty": "synthesis",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "¿Qué capital social tiene Nexus y en qué calle de Madrid tiene el domicilio social?",
+      "criteria": {
+        "must_any_groups": [
+          [
+            "120.000",
+            "Alcalá"
+          ],
+          [
+            "120000",
+            "Alcalá"
+          ],
+          [
+            "120 000",
+            "Alcalá"
+          ]
+        ],
+        "notes": "Síntesis: capital + domicilio"
+      }
+    },
+    {
+      "id": "Q15",
+      "difficulty": "synthesis",
+      "kind": "fact",
+      "folder_compare": false,
+      "question": "Nombra un adjudicatario real (por ejemplo de ZTNA o multiagente IA) y el administrador único de Nexus.",
+      "criteria": {
+        "must_contain": [
+          "Laura"
+        ],
+        "must_any_groups": [
+          [
+            "Capgemini"
+          ],
+          [
+            "NTT"
+          ],
+          [
+            "Inetum"
+          ],
+          [
+            "Babel"
+          ]
+        ],
+        "notes": "Síntesis: adjudicatario PLACSP + admin"
+      }
+    },
+    {
+      "id": "Q16",
+      "difficulty": "trap",
+      "kind": "trap",
+      "folder_compare": false,
+      "question": "¿Cuál es el número de empleados de Nexus Ibérica Sistemas S.L. a 31 de diciembre de 2025?",
+      "criteria": {
+        "trap": true,
+        "abstention_markers": [
+          "no consta",
+          "no se dispone",
+          "no hay evidencia",
+          "no figura",
+          "no aparece",
+          "sin información",
+          "no se encuentra",
+          "no tengo información",
+          "no está en",
+          "no disponible",
+          "no se menciona",
+          "no se indica",
+          "desconozco",
+          "no puedo determinar",
+          "no se especifica",
+          "no se aporta",
+          "carece de",
+          "no existe evidencia",
+          "no está incluida",
+          "no se ha proporcionado",
+          "no se proporciona",
+          "no se ha registrado",
+          "no se encuentra en los datos",
+          "no hay datos",
+          "no está incluida en los datos",
+          "no está incluido"
+        ],
+        "notes": "NO está en memoria ni corpus. Correcto = abstenerse. Sin pista en el enunciado."
+      }
+    },
+    {
+      "id": "Q17",
+      "difficulty": "trap",
+      "kind": "trap",
+      "folder_compare": false,
+      "question": "¿Qué EBITDA reportó Nexus Ibérica en el ejercicio 2024?",
+      "criteria": {
+        "trap": true,
+        "abstention_markers": [
+          "no consta",
+          "no se dispone",
+          "no hay evidencia",
+          "no figura",
+          "no aparece",
+          "sin información",
+          "no se encuentra",
+          "no tengo información",
+          "no está en",
+          "no disponible",
+          "no se menciona",
+          "no se indica",
+          "desconozco",
+          "no puedo determinar",
+          "no se especifica",
+          "no se aporta",
+          "carece de",
+          "no existe evidencia",
+          "no está incluida",
+          "no se ha proporcionado",
+          "no se proporciona",
+          "no se ha registrado",
+          "no se encuentra en los datos",
+          "no hay datos",
+          "no está incluida en los datos",
+          "no está incluido"
+        ],
+        "notes": "EBITDA 2024 no figura en el expediente. Correcto = abstenerse sin inventar cifra."
+      }
+    },
+    {
+      "id": "Q18",
+      "difficulty": "trap",
+      "kind": "trap",
+      "folder_compare": false,
+      "question": "¿En qué fecha se firmó el contrato de joint venture de Nexus con Telefónica Tech para el mercado latinoamericano?",
+      "criteria": {
+        "trap": true,
+        "abstention_markers": [
+          "no consta",
+          "no se dispone",
+          "no hay evidencia",
+          "no figura",
+          "no aparece",
+          "sin información",
+          "no se encuentra",
+          "no tengo información",
+          "no está en",
+          "no disponible",
+          "no se menciona",
+          "no se indica",
+          "desconozco",
+          "no puedo determinar",
+          "no se especifica",
+          "no se aporta",
+          "carece de",
+          "no existe evidencia",
+          "no está incluida",
+          "no se ha proporcionado",
+          "no se proporciona",
+          "no se ha registrado",
+          "no se encuentra en los datos",
+          "no hay datos",
+          "no está incluida en los datos",
+          "no está incluido"
+        ],
+        "notes": "Hecho inventado: no hay JV con Telefónica Tech en el expediente. Correcto = abstenerse."
+      }
+    }
+  ]
+}

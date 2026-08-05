@@ -33,7 +33,9 @@ export type ExportDataset =
   | "actors"
   | "tasks"
   | "reports"
-  | "audit";
+  | "audit"
+  | "tenders"
+  | "awards";
 
 const datasetLabel: Record<ExportDataset, string> = {
   signals: "Señales",
@@ -43,6 +45,8 @@ const datasetLabel: Record<ExportDataset, string> = {
   tasks: "Tareas",
   reports: "Informes",
   audit: "Auditoría",
+  tenders: "Licitaciones",
+  awards: "Adjudicaciones",
 };
 
 const columns: Record<ExportDataset, string[]> = {
@@ -108,6 +112,33 @@ const columns: Record<ExportDataset, string[]> = {
     "result",
     "request_id",
   ],
+  tenders: [
+    "folder_id",
+    "title",
+    "buyer",
+    "amount",
+    "deadline",
+    "cpv",
+    "status",
+    "source_url",
+    "dossier_id",
+    "region",
+  ],
+  awards: [
+    "folder_id",
+    "title",
+    "buyer",
+    "winner",
+    "nif",
+    "winner_identifier",
+    "award_amount",
+    "award_date",
+    "cpv",
+    "status",
+    "source_url",
+    "dossier_id",
+    "region",
+  ],
 };
 
 const initialColumns: Record<ExportDataset, string[]> = {
@@ -131,6 +162,28 @@ const initialColumns: Record<ExportDataset, string[]> = {
     "action",
     "resource_type",
     "result",
+  ],
+  tenders: [
+    "folder_id",
+    "title",
+    "buyer",
+    "amount",
+    "deadline",
+    "cpv",
+    "status",
+    "source_url",
+  ],
+  awards: [
+    "folder_id",
+    "title",
+    "buyer",
+    "winner",
+    "nif",
+    "award_amount",
+    "award_date",
+    "cpv",
+    "status",
+    "source_url",
   ],
 };
 

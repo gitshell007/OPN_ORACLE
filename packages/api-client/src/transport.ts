@@ -145,7 +145,7 @@ interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
   retry?: boolean;
-  ifMatch?: number;
+  ifMatch?: number | string;
   idempotencyKey?: string;
 }
 
@@ -163,8 +163,13 @@ async function request<T>(
       const id = requestId();
       if (id) headers.set("X-Request-ID", id);
       if (mutation) headers.set("X-CSRF-Token", csrfToken ?? "");
-      if (options.ifMatch !== undefined)
-        headers.set("If-Match", `W/"${options.ifMatch}"`);
+      if (options.ifMatch !== undefined) {
+        const match =
+          typeof options.ifMatch === "string"
+            ? options.ifMatch
+            : `W/"${options.ifMatch}"`;
+        headers.set("If-Match", match);
+      }
       if (options.idempotencyKey)
         headers.set("Idempotency-Key", options.idempotencyKey);
       const multipart =
@@ -337,10 +342,14 @@ const tenantAdmin = {
 };
 
 const assignableUsers = {
-  list: () =>
-    request<components["schemas"]["AssignableUserListResponse"]>(
-      "/api/v1/assignable-users",
-    ),
+  list: (params?: { q?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.q?.trim()) search.set("q", params.q.trim());
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request<components["schemas"]["AssignableUserListResponse"]>(
+      `/api/v1/assignable-users${suffix}`,
+    );
+  },
 };
 
 const platform = {
@@ -804,7 +813,33 @@ const dossiers = {
       "/api/v1/dossiers/bulk-delete",
       { method: "POST", body: { dossier_ids: dossierIds } },
     ),
+  listCollaborators: (dossierId: string) =>
+    request<{ data: DossierCollaborator[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/collaborators`,
+    ),
+  setCollaborator: (
+    dossierId: string,
+    userId: string,
+    input: { role: DossierCollaboratorRole },
+  ) =>
+    request<DossierCollaborator>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/collaborators/${encodeURIComponent(userId)}`,
+      { method: "PUT", body: input },
+    ),
+  removeCollaborator: (dossierId: string, userId: string) =>
+    request<void>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/collaborators/${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    ),
 };
+
+export type DossierCollaboratorRole =
+  | "owner"
+  | "editor"
+  | "collaborator"
+  | "viewer";
+
+export type DossierCollaborator = components["schemas"]["CollaboratorResource"];
 
 export type OracleSummaryCurrent =
   components["schemas"]["OracleSummaryCurrentResponse"];
@@ -1295,6 +1330,23 @@ const actors = {
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
     ),
+  /** Propose-only detector: organizations that share a normalized identity key. */
+  aliasCandidates: () =>
+    request<{ items: ActorAliasCandidate[] }>(
+      "/api/v1/actors/alias-candidates",
+    ),
+  /**
+   * Human-confirmed merge. Source actor is archived/deleted after links move
+   * to the target; audit event `actor.merged` records who/when/why.
+   */
+  merge: (
+    targetId: string,
+    input: { source_actor_id: string; reason: string },
+  ) =>
+    request<OracleActor>(
+      `/api/v1/actors/${encodeURIComponent(targetId)}/merge`,
+      { method: "POST", body: input },
+    ),
 };
 
 const entityIntel = {
@@ -1357,6 +1409,24 @@ const entityIntel = {
       `/api/v1/entity-intel/graph?${query.toString()}`,
     );
   },
+  graphSnapshots: (input: {
+    name: string;
+    type?: EntityIntelKind;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams({
+      name: input.name,
+      type: input.type ?? "company",
+      limit: String(input.limit ?? 10),
+    });
+    return request<EntityIntelGraphSnapshotListResponse>(
+      `/api/v1/entity-intel/graph/snapshots?${query.toString()}`,
+    );
+  },
+  graphSnapshot: (snapshotId: string) =>
+    request<EntityIntelGraphResponse>(
+      `/api/v1/entity-intel/graph/snapshots/${encodeURIComponent(snapshotId)}`,
+    ),
   reports: (input: {
     name: string;
     type?: EntityIntelKind;
@@ -1609,6 +1679,33 @@ export interface EntityIntelGraphResponse {
   note?: string | null;
   cached_seconds: number;
   cache_hit: boolean;
+  /** complete | incomplete — never treat truncated graphs as full maps */
+  completeness?: "complete" | "incomplete";
+  incompleteness_reasons?: string[];
+  captured_at?: string | null;
+  graph_origin?: "live" | "snapshot" | string | null;
+  requested_depth?: number | null;
+  snapshot_id?: string | null;
+}
+
+export interface EntityIntelGraphSnapshotMeta {
+  id: string;
+  entity_name: string;
+  entity_kind: string;
+  depth: number;
+  active_only: boolean;
+  truncated: boolean;
+  completeness: "complete" | "incomplete" | string;
+  incompleteness_reasons: string[];
+  node_count: number;
+  edge_count: number;
+  captured_at: string;
+  source: string;
+}
+
+export interface EntityIntelGraphSnapshotListResponse {
+  items: EntityIntelGraphSnapshotMeta[];
+  total: number;
 }
 
 export type JobResponse = components["schemas"]["JobResponse"];
@@ -1709,6 +1806,577 @@ const dossierCompletionWizard = {
     request<DossierWizardRoundResponse>(
       `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/completion-wizard/runs`,
       { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
+/** Propuesta estructurada del agente intake (pliego/correo → expediente). No muta el negocio. */
+export type IntakeDossierType =
+  | "project"
+  | "strategic_account"
+  | "market"
+  | "technology"
+  | "tender_or_grant"
+  | "investment"
+  | "partnership"
+  | "product_launch"
+  | "regulatory_affair"
+  | "risk_watch"
+  | "competitive_intelligence"
+  | "custom";
+
+export interface IntakeFact {
+  statement: string;
+  evidence_ids: string[];
+}
+
+export interface IntakeInference {
+  statement: string;
+  reasoning_summary: string;
+  confidence: number;
+  evidence_ids?: string[];
+}
+
+export interface IntakeRecommendation {
+  action: string;
+  rationale: string;
+  priority: "low" | "medium" | "high" | "critical";
+}
+
+export interface IntakeOutput {
+  proposed_title: string;
+  proposed_description: string;
+  dossier_type: IntakeDossierType | string;
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface IntakeArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "intake" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: IntakeOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface IntakeRunResponse {
+  job: JobResponse | null;
+  artifact: IntakeArtifact | null;
+}
+
+
+/** Análisis IA de oportunidad (propuesta con citas; la persona confirma y crea la entidad). */
+export type OpportunityAnalysisRecommendation = "go" | "investigate" | "hold" | "no_go";
+
+export interface OpportunityAnalysisScores {
+  strategic_fit: number;
+  urgency: number;
+  expected_value: number;
+  actionability: number;
+  relationship_leverage: number;
+  timing: number;
+  confidence: number;
+  execution_effort: number;
+  blocking_risk: number;
+  overall: number;
+}
+
+export interface OpportunityAnalysisCandidateActor {
+  actor_id?: string | null;
+  name: string;
+  role: string;
+  evidence_ids?: string[];
+}
+
+export interface OpportunityAnalysisNextAction {
+  action: string;
+  owner_role: string;
+  due_date?: string | null;
+  rationale: string;
+}
+
+/** Dimensión de encaje con citas duales (oficial + declarado). SV2-ENCAJE. */
+export interface OpportunityFitDimension {
+  key: "cpv" | "solvency" | "lots" | "deadline" | "other" | string;
+  label: string;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  capability: string;
+  capability_origin?: "declared_by_client" | string;
+  declared_evidence_ids?: string[];
+  status: "fit" | "partial" | "no_fit" | "not_evaluable" | string;
+  status_reason: string;
+}
+
+/** Veredicto propuesto con puerta humana (nunca decisión automática). */
+export interface OpportunityFitVerdict {
+  recommendation: "go" | "no_go" | "go_conditioned" | string;
+  conditions?: string[];
+  human_gate?: "awaiting_user_confirmation" | string;
+  rationale: string;
+}
+
+/** Encaje oferta↔oportunidad anclado en material declarado por el cliente. */
+export interface OpportunityFitAssessment {
+  statement: string;
+  declared_evidence_ids: string[];
+  official_evidence_ids?: string[];
+  confidence: number;
+  origin?: "declared_by_client" | string;
+  /** Dimensiones CPV / solvencia / lotes / plazo con citas duales. */
+  dimensions?: OpportunityFitDimension[];
+  /** Propuesta go/no-go/go-condicionado; confirmación humana obligatoria. */
+  verdict?: OpportunityFitVerdict | null;
+  tender_ref?: string | null;
+  scoring_engine?: string | null;
+  scored_as_of?: string | null;
+}
+
+/** Gap a acreditar en el borrador (suele heredarse del veredicto de encaje). */
+export interface DraftOfferGap {
+  code: string;
+  description: string;
+  severity?: "blocking" | "important" | "info" | string;
+  origin?: "verdict_condition" | "pliego" | "profile" | string;
+}
+
+/** Sección del borrador = criterio del PCAP. */
+export interface DraftOfferSection {
+  key: string;
+  title: string;
+  points_hint?: string | null;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  our_response_draft: string;
+  /** Semilla determinista previa al pulido (SV2-PROSA). */
+  our_response_seed?: string | null;
+  response_origin?: "declared_generated" | string;
+  declared_evidence_ids?: string[];
+  gaps?: string[];
+  prose_polished?: boolean;
+  prose_polish_reason?: string | null;
+}
+
+/** Ítem de checklist administrativa del borrador. */
+export interface DraftOfferChecklistItem {
+  key: string;
+  label: string;
+  description: string;
+  status?: "pending" | "ready" | "blocked" | string;
+  source?: "pliego" | "admin" | string;
+}
+
+/**
+ * Borrador de oferta guiado por el pliego (SV2-BORRADOR).
+ * Material declarado/generado — no contamina facts oficiales.
+ * Puerta humana: draft_requires_human_edit.
+ */
+export interface OpportunityDraftOffer {
+  banner: string;
+  human_gate?: "draft_requires_human_edit" | string;
+  statement: string;
+  tender_ref?: string | null;
+  lot_hint?: string | null;
+  sections?: DraftOfferSection[];
+  administrative_checklist?: DraftOfferChecklistItem[];
+  gaps_summary?: string[];
+  gaps?: DraftOfferGap[];
+  draft_engine?: string | null;
+  /** Motor de pulido de prosa (SV2-PROSA), p.ej. sv2_prosa_v1. */
+  prose_engine?: string | null;
+  drafted_as_of?: string | null;
+  origin?: "declared_draft" | string;
+  based_on_verdict?: string | null;
+  official_evidence_ids?: string[];
+  declared_evidence_ids?: string[];
+  statement_seed?: string | null;
+  statement_prose_polished?: boolean;
+  statement_prose_polish_reason?: string | null;
+  prose_polished_count?: number;
+}
+
+export interface OpportunityAnalysisOutput {
+  title: string;
+  opportunity_type?: string;
+  summary?: string;
+  recommendation: OpportunityAnalysisRecommendation | string;
+  scores: OpportunityAnalysisScores;
+  deadline?: string | null;
+  confirmed_requirements?: string[];
+  unknown_requirements?: string[];
+  blockers?: string[];
+  candidate_actors?: OpportunityAnalysisCandidateActor[];
+  next_best_action?: OpportunityAnalysisNextAction | null;
+  /** Encaje con perfil declarado; distinto de facts[] oficiales. */
+  fit_assessment?: OpportunityFitAssessment | null;
+  /** Esqueleto de oferta desde criterios del PCAP; no es documento presentable. */
+  draft_offer?: OpportunityDraftOffer | null;
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface OpportunityAnalysisArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "opportunity" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: OpportunityAnalysisOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface OpportunityAnalysisRunResponse {
+  job: JobResponse | null;
+  artifact: OpportunityAnalysisArtifact | null;
+}
+
+/** Análisis IA de riesgo (propuesta con citas; la persona confirma y crea la entidad). */
+export type RiskAnalysisRecommendedStatus =
+  | "watch"
+  | "mitigate"
+  | "accept_candidate"
+  | "dismiss_candidate";
+
+export interface RiskAnalysisScores {
+  impact: number;
+  likelihood: number;
+  velocity: number;
+  exposure: number;
+  uncertainty: number;
+  controllability: number;
+  overall: number;
+}
+
+export interface RiskAnalysisScenario {
+  name: string;
+  description: string;
+  probability: number;
+  impact: number;
+  evidence_ids?: string[];
+}
+
+export interface RiskAnalysisMitigation {
+  action: string;
+  owner_role: string;
+  effectiveness: number;
+  trigger: string;
+}
+
+/** Barrera/limitación del perfil (canal declarado; no contamina facts oficiales). */
+export interface RiskContextDeclaredItem {
+  statement: string;
+  category?:
+    | "barrier"
+    | "solvency"
+    | "deadline"
+    | "homologation"
+    | "competitive"
+    | "capacity"
+    | "other"
+    | string;
+  /** Categories fusionadas cuando la misma barrera llega con etiquetas distintas (SV2-PROSA). */
+  categories?: Array<
+    | "barrier"
+    | "solvency"
+    | "deadline"
+    | "homologation"
+    | "competitive"
+    | "capacity"
+    | "other"
+    | string
+  >;
+  declared_evidence_ids: string[];
+  origin?: "declared_by_client" | string;
+  relevance?: string;
+}
+
+export interface RiskAnalysisOutput {
+  title: string;
+  category?: string;
+  description?: string;
+  recommended_status: RiskAnalysisRecommendedStatus | string;
+  scores: RiskAnalysisScores;
+  leading_indicators?: string[];
+  suggested_owner_role?: string;
+  suggested_review_date?: string | null;
+  scenarios?: RiskAnalysisScenario[];
+  mitigations?: RiskAnalysisMitigation[];
+  /** Barreras/limitaciones declaradas por el cliente; origen etiquetado. */
+  risk_context_declared?: RiskContextDeclaredItem[];
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface RiskAnalysisArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "risk" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: RiskAnalysisOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface RiskAnalysisRunResponse {
+  job: JobResponse | null;
+  artifact: RiskAnalysisArtifact | null;
+}
+
+export type AiArtifactReviewDecision = "accepted" | "rejected" | "changes_requested";
+
+export interface AiArtifactReviewResponse {
+  review_id: string;
+  artifact_status: string;
+}
+
+
+export interface ActorAnalysisScores {
+  influence: number;
+  relevance: number;
+  relationship_strength: number;
+  accessibility: number;
+  strategic_alignment: number;
+  recent_activity: number;
+  overall_priority: number;
+}
+
+export interface ActorAnalysisRole {
+  role: string;
+  basis: "fact" | "inference";
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ActorAnalysisRelationship {
+  counterpart_actor_id?: string | null;
+  counterpart_name: string;
+  relationship_type: string;
+  basis: "fact" | "inference";
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ActorEngagementAction {
+  action: string;
+  channel: string;
+  objective: string;
+  priority: "low" | "medium" | "high" | "critical";
+}
+
+export interface ActorAnalysisOutput {
+  actor_id?: string | null;
+  roles: ActorAnalysisRole[];
+  scores: ActorAnalysisScores;
+  confirmed_relationships: string[];
+  inferred_relationships: string[];
+  observable_interests: string[];
+  information_gaps: string[];
+  relationships: ActorAnalysisRelationship[];
+  engagement_actions: ActorEngagementAction[];
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface ActorAnalysisArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "actor_partnership" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: ActorAnalysisOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface ActorAnalysisRunResponse {
+  job: JobResponse | null;
+  artifact: ActorAnalysisArtifact | null;
+}
+
+export interface EntityResolutionOutput {
+  decision: "match" | "no_match" | "needs_review" | "create_new";
+  matched_actor_id?: string | null;
+  rationale: string;
+  facts: IntakeFact[];
+  inferences: IntakeInference[];
+  recommendations: IntakeRecommendation[];
+  confidence: number;
+  open_questions: string[];
+  warnings: string[];
+}
+
+export interface EntityResolutionArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: "entity_resolution" | string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: EntityResolutionOutput;
+  audit_log_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface EntityResolutionRunResponse {
+  job: JobResponse | null;
+  artifact: EntityResolutionArtifact | null;
+}
+
+const dossierIntake = {
+  latest: (dossierId: string) =>
+    request<IntakeRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/intake/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<IntakeRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/intake/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+
+const dossierOpportunityAnalysis = {
+  latest: (dossierId: string) =>
+    request<OpportunityAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<OpportunityAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+
+const dossierActorPartnership = {
+  latest: (dossierId: string) =>
+    request<ActorAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/actor-partnership/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<ActorAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/actor-partnership/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+const dossierEntityResolution = {
+  latest: (dossierId: string) =>
+    request<EntityResolutionRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/entity-resolution/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<EntityResolutionRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/entity-resolution/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
+    ),
+};
+
+const dossierRiskAnalysis = {
+  latest: (dossierId: string) =>
+    request<RiskAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/risk/latest`,
+    ),
+  run: (dossierId: string, idempotencyKey: string) =>
+    request<RiskAnalysisRunResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/risk/runs`,
+      { method: "POST", body: {}, idempotencyKey },
+    ),
+  review: (
+    artifactId: string,
+    input: {
+      decision: AiArtifactReviewDecision;
+      reason?: string;
+      override?: Record<string, unknown>;
+    },
+  ) =>
+    request<AiArtifactReviewResponse>(
+      `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
+      { method: "POST", body: input },
     ),
 };
 
@@ -2370,9 +3038,37 @@ const dossierProcurement = {
       { method: "POST", body: input },
     ),
   remove: (dossierId: string, itemId: string) =>
-    request<{ deleted: boolean; id: string }>(
+    request<{
+      deleted: boolean;
+      id: string;
+      evidence?: {
+        evidence_id: string;
+        disposition: string;
+        cited_by_artifacts: boolean;
+        hard_refs: boolean;
+      };
+    }>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}`,
       { method: "DELETE" },
+    ),
+  refresh: (dossierId: string, itemId: string) =>
+    request<
+      DossierProcurementItem & {
+        refresh?: {
+          previous_evidence_id: string;
+          current_evidence_id?: string;
+          evidence_rotated: boolean;
+          previous_disposition?: {
+            evidence_id: string;
+            disposition: string;
+            cited_by_artifacts: boolean;
+            hard_refs: boolean;
+          } | null;
+        };
+      }
+    >(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/${encodeURIComponent(itemId)}/refresh`,
+      { method: "POST" },
     ),
   promote: (dossierId: string, itemId: string) =>
     request<{ opportunity: OracleOpportunity; replayed: boolean }>(
@@ -2733,9 +3429,43 @@ export interface DossierActivityItem {
   last_success_at?: string | null;
   last_attempt_at?: string | null;
   last_error?: string | null;
+  intent_revision_id?: string | null;
+  requirement_id?: string | null;
   alignment_state?: string | null;
   provider_ref?: string | null;
   target?: Record<string, unknown>;
+}
+
+/** MDEV-07 human-confirmed surveillance action. */
+export interface SurveillanceAction {
+  id: string;
+  dossier_id: string;
+  action_type:
+    | "news_mentions"
+    | "official_publications"
+    | "actor_tenders"
+    | "offering_tenders"
+    | "research_digest"
+    | "no_follow"
+    | string;
+  status: string;
+  alignment_state: string;
+  cadence: "manual" | "hourly" | "daily" | "weekly" | string;
+  timezone: string;
+  actor_id?: string | null;
+  offering_id?: string | null;
+  requirement_id?: string | null;
+  intent_revision_id?: string | null;
+  effective_scope_hash: string;
+  origin: string;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_error?: string | null;
+  retry_count: number;
+  retry_after?: string | null;
+  row_version: number;
+  degraded?: boolean;
+  degraded_reason?: string | null;
 }
 
 export interface DossierIntentRevision {
@@ -2806,6 +3536,8 @@ export interface DossierMessage {
   error_code?: string | null;
   error_message?: string | null;
   created_at?: string | null;
+  /** Present when API serializes TimestampMixin.updated_at (dossier messages). */
+  updated_at?: string | null;
 }
 
 export interface CustomBriefAccepted {
@@ -2825,15 +3557,30 @@ export interface CustomBriefDetail {
   template_key: string;
   template_version: string;
   generation_version: number;
+  version?: number;
+  etag?: string;
   brief_request: string;
   plan_status: string;
+  lifecycle_state?: string;
   proposed_plan?: Record<string, unknown> | null;
+  accepted_plan?: Record<string, unknown> | null;
+  accepted_snapshot_hash?: string | null;
+  memory_degraded?: boolean;
+  memory_degraded_reason?: string | null;
+  accepted_degraded?: boolean;
+  generation_blocked?: boolean;
+  generation_blocked_code?: string | null;
+  generation_blocked_reason?: string | null;
+  coverage?: Record<string, unknown> | null;
+  ready_artifact?: Record<string, unknown> | null;
+  downloadable?: boolean;
   background_job_id?: string | null;
   error_code?: string | null;
   error_message?: string | null;
   requested_by_user_id: string;
   created_at?: string | null;
   updated_at?: string | null;
+  ready_at?: string | null;
 }
 
 const dossierActivity = {
@@ -2849,12 +3596,56 @@ const dossierActivity = {
   },
 };
 
+/** MDEV-07 surveillance confirm / list (mutations require backend permission). */
+const surveillanceActions = {
+  list: (dossierId: string, query?: { action_type?: string; actor_id?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.action_type) params.set("action_type", query.action_type);
+    if (query?.actor_id) params.set("actor_id", query.actor_id);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<{ dossier_id: string; items: SurveillanceAction[]; total: number }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/surveillance-actions${suffix}`,
+    );
+  },
+  confirm: (
+    dossierId: string,
+    input: Record<string, unknown>,
+    idempotencyKey: string,
+  ) =>
+    request<SurveillanceAction & { duplicate?: boolean }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/surveillance-actions/confirm`,
+      { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
 const dossierConversations = {
+  /** Latest conversations for a dossier (API is durable source of truth). */
+  list: (dossierId: string, opts: { limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return request<{ items: DossierConversation[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations${qs ? `?${qs}` : ""}`,
+    );
+  },
   create: (dossierId: string, input: { title?: string } = {}) =>
     request<DossierConversation>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations`,
       { method: "POST", body: input },
     ),
+  /** Messages of a conversation, latest sequence first. */
+  listMessages: (
+    dossierId: string,
+    conversationId: string,
+    opts: { limit?: number } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return request<{ items: DossierMessage[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`,
+    );
+  },
   enqueueMessage: (
     dossierId: string,
     conversationId: string,
@@ -2872,6 +3663,15 @@ const dossierConversations = {
 };
 
 const customBriefs = {
+  /** Latest custom briefs for a dossier (API is durable source of truth). */
+  list: (dossierId: string, opts: { limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return request<{ items: CustomBriefDetail[] }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom${qs ? `?${qs}` : ""}`,
+    );
+  },
   create: (dossierId: string, input: { brief_request: string }, idempotencyKey: string) =>
     request<CustomBriefAccepted>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom`,
@@ -2881,7 +3681,186 @@ const customBriefs = {
     request<CustomBriefDetail>(
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}`,
     ),
+  acceptPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    body: { proposed_plan?: Record<string, unknown>; start_generation?: boolean } = {},
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/accept`,
+      { method: "POST", body, ifMatch },
+    ),
+  editPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    proposed_plan: Record<string, unknown>,
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/edit`,
+      { method: "POST", body: { proposed_plan }, ifMatch },
+    ),
+  rejectPlan: (
+    dossierId: string,
+    reportId: string,
+    ifMatch: number | string,
+    reason = "",
+  ) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/plan/reject`,
+      { method: "POST", body: { reason }, ifMatch },
+    ),
+  cancel: (dossierId: string, reportId: string, ifMatch: number | string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/cancel`,
+      { method: "POST", body: {}, ifMatch },
+    ),
+  retry: (dossierId: string, reportId: string, ifMatch: number | string) =>
+    request<CustomBriefDetail>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/retry`,
+      { method: "POST", body: {}, ifMatch },
+    ),
+  downloadUrl: (dossierId: string, reportId: string) =>
+    `/api/v1/dossiers/${encodeURIComponent(dossierId)}/reports/custom/${encodeURIComponent(reportId)}/download`,
 };
+
+
+export type DossierMemoryProfile = {
+  id: string | null;
+  tenant_id: string;
+  dossier_id: string;
+  connection_id: string | null;
+  mode: "disabled" | "shadow" | "augment";
+  mode_label_es?: string;
+  version: number;
+  etag: string;
+  sources: string[];
+  kinds: string[];
+  classifications_allowed: string[];
+  token_budget: number;
+  limit: number;
+  status: string;
+  provenance: string;
+  last_test_at: string | null;
+  last_test_status: string | null;
+  last_error: string | null;
+  last_coverage: Record<string, unknown> | null;
+  updated_at: string | null;
+  persisted?: boolean;
+  publisher_reliable?: boolean;
+  actions_reliable?: boolean;
+  capability?: Record<string, unknown>;
+};
+
+export interface AiAuditListItem {
+  id: string;
+  dossier_id: string | null;
+  background_job_id?: string | null;
+  agent: string;
+  action?: string | null;
+  status: string;
+  error_code?: string | null;
+  provider: string;
+  model: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cost_micros?: number | null;
+  currency?: string | null;
+  latency_ms?: number | null;
+  attempt_count?: number | null;
+  source_ids?: string[];
+  data_classification?: string | null;
+  human_review_state?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface AiAuditDetail extends AiAuditListItem {
+  use_case?: string | null;
+  prompt?: {
+    name?: string | null;
+    version?: string | null;
+    hash?: string | null;
+  };
+  schema?: { name?: string | null; version?: string | null };
+  usage?: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cost_micros?: number | null;
+    currency?: string | null;
+  };
+  review_state?: string | null;
+  attempts?: Array<{
+    number: number;
+    kind: string;
+    status: string;
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cost_micros?: number | null;
+    latency_ms?: number | null;
+    error_code?: string | null;
+  }>;
+}
+
+export interface AiAuditListQuery {
+  status?: string;
+  agent?: string;
+  dossier_id?: string;
+}
+
+const aiAudit = {
+  list: (params: AiAuditListQuery = {}) => {
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.agent) query.set("agent", params.agent);
+    if (params.dossier_id) query.set("dossier_id", params.dossier_id);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request<{ items: AiAuditListItem[] }>(`/api/v1/ai-audit${suffix}`);
+  },
+  get: (auditId: string) =>
+    request<AiAuditDetail>(
+      `/api/v1/ai/audits/${encodeURIComponent(auditId)}`,
+    ),
+};
+
+const dossierMemory = {
+  getProfile: (dossierId: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile`,
+    ),
+  getEffective: (dossierId: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/effective`,
+    ),
+  putProfile: (
+    dossierId: string,
+    input: Partial<DossierMemoryProfile> & { mode: DossierMemoryProfile["mode"] },
+    etag: string,
+  ) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile`,
+      {
+        method: "PUT",
+        body: input,
+        ifMatch: etag,
+      },
+    ),
+  testConnection: (dossierId: string) =>
+    request<{
+      ok: boolean;
+      status: string;
+      synthetic?: boolean;
+      publisher_reliable?: boolean;
+      message?: string;
+    }>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/test-connection`,
+      { method: "POST" },
+    ),
+  capability: () => request<Record<string, unknown>>("/api/v1/memory/capability"),
+};
+
 
 export const api = {
   auth,
@@ -2890,9 +3869,16 @@ export const api = {
   platform,
   jobs,
   signalAvanza,
+  aiAudit,
+  dossierMemory,
   dossiers,
   oracleSummary,
   dossierCompletionWizard,
+  dossierIntake,
+  dossierOpportunityAnalysis,
+  dossierRiskAnalysis,
+  dossierActorPartnership,
+  dossierEntityResolution,
   dossierSignals,
   objectives,
   hypotheses,
@@ -2915,6 +3901,7 @@ export const api = {
   documents,
   investigations,
   dossierActivity,
+  surveillanceActions,
   dossierConversations,
   customBriefs,
   reports,

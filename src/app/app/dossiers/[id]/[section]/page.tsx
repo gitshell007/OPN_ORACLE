@@ -12,6 +12,11 @@ import { DossierActivitySection } from "@/components/dossiers/dossier-activity-s
 import { DossierAskSection } from "@/components/dossiers/dossier-ask-section";
 import { DossierCustomBriefSection } from "@/components/dossiers/dossier-custom-brief-section";
 import { DossierDocumentsSection } from "@/components/dossiers/dossier-documents-section";
+import { DossierIntakeSection } from "@/components/dossiers/dossier-intake-section";
+import { DossierOpportunityAnalysisSection } from "@/components/dossiers/dossier-opportunity-analysis-section";
+import { DossierRiskAnalysisSection } from "@/components/dossiers/dossier-risk-analysis-section";
+import { DossierActorPartnershipSection } from "@/components/dossiers/dossier-actor-partnership-section";
+import { DossierEntityResolutionSection } from "@/components/dossiers/dossier-entity-resolution-section";
 import { DossierInvestigationsSection } from "@/components/dossiers/dossier-investigations-section";
 import { DossierProcurementSection } from "@/components/dossiers/dossier-procurement-section";
 import { DossierSettingsSection } from "@/components/dossiers/dossier-settings-section";
@@ -20,6 +25,26 @@ import { DOSSIER_TABS } from "@/lib/app-routes";
 const sectionCopy: Record<string, { description: string; api: string }> = {
   activity: { description: "Vigilancias, monitores y jobs del expediente.", api: "GET /api/v1/dossiers/{id}/activity" },
   ask: { description: "Preguntas durables a Oracle con citas.", api: "POST /api/v1/dossiers/{id}/conversations/.../messages" },
+  intake: {
+    description: "Propuesta de expediente a partir de pliego o documentos (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/intake/runs",
+  },
+  "opportunity-analysis": {
+    description: "Propuesta de oportunidad con citas a evidencia (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/opportunity/runs",
+  },
+  "risk-analysis": {
+    description: "Propuesta de riesgo con citas a evidencia (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/risk/runs",
+  },
+  "actor-priority": {
+    description: "Priorización de actores con scores citados (confirmación humana).",
+    api: "POST /api/v1/ai/dossiers/{id}/actor-partnership/runs",
+  },
+  "entity-resolution": {
+    description: "Resolución de entidades con NIF preferente (sin fusión automática).",
+    api: "POST /api/v1/ai/dossiers/{id}/entity-resolution/runs",
+  },
   "custom-brief": { description: "Brief libre y plan de informe personalizado.", api: "POST /api/v1/dossiers/{id}/reports/custom" },
   signals: { description: "Señales asociadas a este expediente.", api: "GET /api/v1/dossiers/{id}/signals" },
   opportunities: { description: "Oportunidades y puntuación del expediente.", api: "GET /api/v1/dossiers/{id}/opportunities" },
@@ -66,6 +91,16 @@ export default async function DossierSectionPage({
         <DossierActivitySection dossierId={id} />
       ) : section === "ask" ? (
         <DossierAskSection dossierId={id} />
+      ) : section === "intake" ? (
+        <DossierIntakeSection dossierId={id} />
+      ) : section === "opportunity-analysis" ? (
+        <DossierOpportunityAnalysisSection dossierId={id} />
+      ) : section === "risk-analysis" ? (
+        <DossierRiskAnalysisSection dossierId={id} />
+      ) : section === "actor-priority" ? (
+        <DossierActorPartnershipSection dossierId={id} />
+      ) : section === "entity-resolution" ? (
+        <DossierEntityResolutionSection dossierId={id} />
       ) : section === "custom-brief" ? (
         <DossierCustomBriefSection dossierId={id} />
       ) : (

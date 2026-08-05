@@ -18,17 +18,46 @@ from opn_oracle.integrations.crypto import IntegrationKeyring, credential_aad
 from opn_oracle.integrations.models import (
     IntegrationOutboxEvent,
     SignalIngestionRecord,
+    SignalMonitorConfigVersion,
     SignalSyncRun,
 )
 from opn_oracle.integrations.signal_avanza import (
     HttpSignalAvanzaAdapter,
+    MonitorSpec,
     SignalAvanzaAdapter,
     SignalItem,
 )
 from opn_oracle.jobs.service import stage_job
 from opn_oracle.oracle.actor_candidates import extract_signal_entities
-from opn_oracle.oracle.models import DossierSignal, Signal, SignalMonitor, Watchlist
+from opn_oracle.oracle.models import (
+    DossierSignal,
+    Signal,
+    SignalMonitor,
+    StrategicDossier,
+    Watchlist,
+)
 from opn_oracle.platform.models import ApiCredential, IntegrationConnection
+
+_MONITOR_CONFIG_FIELDS = (
+    "query",
+    "keywords",
+    "entities",
+    "languages",
+    "geographies",
+    "source_types",
+    "cadence",
+    "retention_days",
+)
+_DEFAULT_MONITOR_CONFIG: dict[str, Any] = {
+    "query": "",
+    "keywords": [],
+    "entities": [],
+    "languages": [],
+    "geographies": [],
+    "source_types": ["news", "company_signal", "official_publication"],
+    "cadence": "daily",
+    "retention_days": 365,
+}
 
 
 class IdempotencyConflict(RuntimeError):
@@ -49,6 +78,21 @@ TRACKING_QUERY_KEYS = frozenset(
 )
 
 
+def normalize_signal_avanza_base_url(base_url: str) -> str:
+    """ICs may store the host root (shared with memory) or the full oracle path.
+
+    July production used ``…/api/v1/oracle``. Demo ICs for memory use the host
+    root; the HTTP adapter always talks under the oracle namespace.
+    """
+
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return base
+    if base.endswith("/api/v1/oracle"):
+        return base
+    return f"{base}/api/v1/oracle"
+
+
 def adapter_for_connection(connection: IntegrationConnection) -> SignalAvanzaAdapter:
     if connection.adapter_mode == "mock":
         return cast(SignalAvanzaAdapter, current_app.extensions["signal_avanza_adapter"])
@@ -61,7 +105,7 @@ def adapter_for_connection(connection: IntegrationConnection) -> SignalAvanzaAda
         if part.strip()
     )
     return HttpSignalAvanzaAdapter(
-        base_url=connection.base_url or "",
+        base_url=normalize_signal_avanza_base_url(connection.base_url or ""),
         api_version=connection.api_version,
         token=tokens[0],
         external_tenant_id=str(connection.tenant_id),
@@ -243,6 +287,133 @@ def active_secrets(connection: IntegrationConnection, kind: str, *, limit: int =
         )
         for item in credentials
     ]
+
+
+def monitor_spec_from_payload(
+    payload: dict[str, Any],
+    *,
+    oracle_monitor_id: str,
+    desired_status: str,
+    defaults: dict[str, Any] | None = None,
+) -> MonitorSpec:
+    """Build a complete producer-compatible MonitorSpec from a partial payload."""
+
+    baseline = {**_DEFAULT_MONITOR_CONFIG, **(defaults or {})}
+    config = {
+        field: payload[field] if field in payload else baseline[field]
+        for field in _MONITOR_CONFIG_FIELDS
+    }
+    return MonitorSpec.model_validate(
+        {
+            "oracle_monitor_id": oracle_monitor_id,
+            "status": desired_status,
+            **config,
+        }
+    )
+
+
+def watchlist_config_from_spec(spec: MonitorSpec) -> dict[str, Any]:
+    snapshot = spec.model_dump(mode="json")
+    return {field: snapshot[field] for field in _MONITOR_CONFIG_FIELDS}
+
+
+def stage_dossier_monitor_create(
+    *,
+    dossier: StrategicDossier,
+    connection: IntegrationConnection,
+    name: str,
+    spec: MonitorSpec,
+    idempotency_key: str,
+    created_by_user_id: uuid.UUID | None,
+    session: Any | None = None,
+) -> tuple[SignalMonitor, IntegrationOutboxEvent, bool]:
+    """Create watchlist + SignalMonitor + outbox ``monitor.create`` (July path).
+
+    Shared by ``POST …/signal-monitors`` and surveillance confirm. Does **not**
+    commit or dispatch: callers own the transaction and Celery enqueue.
+    Returns ``(monitor, event, duplicate)``.
+    """
+
+    sess = session if session is not None else db.session
+    if connection.provider != "signal-avanza" or connection.status != "active":
+        raise ValueError("La conexión Signal no está activa.")
+    if connection.tenant_id != dossier.tenant_id:
+        raise ValueError("La conexión no pertenece al tenant del expediente.")
+
+    watchlist_name = name[:200] or "Monitor Signal"
+    intention_hash = canonical_hash(
+        {
+            "operation": "monitor.create",
+            "tenant_id": str(dossier.tenant_id),
+            "dossier_id": str(dossier.id),
+            "connection_id": str(connection.id),
+            "name": watchlist_name,
+            "config": watchlist_config_from_spec(spec),
+        }
+    )
+    # Advisory lock uses the active Flask session when available.
+    if sess is db.session or session is None:
+        lock_idempotency_key(tenant_id=dossier.tenant_id, idempotency_key=idempotency_key)
+    existing_event = sess.scalar(
+        select(IntegrationOutboxEvent).where(
+            IntegrationOutboxEvent.tenant_id == dossier.tenant_id,
+            IntegrationOutboxEvent.idempotency_key == idempotency_key,
+        )
+    )
+    if existing_event is not None:
+        if existing_event.intention_hash != intention_hash:
+            raise IdempotencyConflict("Idempotency-Key ya usada con otra solicitud.")
+        monitor = sess.get(SignalMonitor, existing_event.monitor_id)
+        if monitor is None:
+            raise RuntimeError("Evento outbox de monitor sin fila local.")
+        return monitor, existing_event, True
+
+    watchlist = Watchlist(
+        tenant_id=dossier.tenant_id,
+        dossier_id=dossier.id,
+        name=watchlist_name,
+        query_config=watchlist_config_from_spec(spec),
+        cadence=spec.cadence,
+        status="active",
+    )
+    sess.add(watchlist)
+    sess.flush()
+    monitor = SignalMonitor(
+        tenant_id=dossier.tenant_id,
+        watchlist_id=watchlist.id,
+        connection_id=connection.id,
+        provider="signal-avanza",
+        status="active",
+        desired_status="active",
+        observed_status="pending",
+    )
+    sess.add(monitor)
+    sess.flush()
+    snapshot = {
+        **spec.model_copy(update={"oracle_monitor_id": str(monitor.id)}).model_dump(mode="json"),
+        "oracle_watchlist_name": watchlist_name,
+        "config_version": 1,
+    }
+    sess.add(
+        SignalMonitorConfigVersion(
+            tenant_id=dossier.tenant_id,
+            monitor_id=monitor.id,
+            version=1,
+            snapshot=snapshot,
+            snapshot_hash=canonical_hash(snapshot),
+            created_by_user_id=created_by_user_id,
+        )
+    )
+    # stage_outbox uses the Flask scoped session (same unit of work as production callers).
+    event = stage_outbox(
+        connection=connection,
+        monitor=monitor,
+        event_type="monitor.create",
+        payload=snapshot,
+        idempotency_key=idempotency_key,
+        intention_hash=intention_hash,
+    )
+    return monitor, event, False
 
 
 def stage_outbox(

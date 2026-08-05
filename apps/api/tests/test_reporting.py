@@ -414,11 +414,14 @@ def test_csv_formula_injection_is_neutralized() -> None:
 
 
 def test_export_dataset_columns_are_real_mapped_attributes() -> None:
-    for spec in DATASETS.values():
+    from opn_oracle.reporting.exports import PROCUREMENT_DATASETS, PROCUREMENT_VIRTUAL_COLUMNS
+
+    for name, spec in DATASETS.items():
         mapped = set(inspect(spec.model).attrs.keys())
-        assert set(spec.default_columns) - {"_watermark"} <= mapped
-        assert set(spec.allowed_columns) - {"_watermark"} <= mapped
-        assert set(spec.search_columns) <= mapped
+        virtual = PROCUREMENT_VIRTUAL_COLUMNS if name in PROCUREMENT_DATASETS else frozenset()
+        assert set(spec.default_columns) - {"_watermark"} - virtual <= mapped
+        assert set(spec.allowed_columns) - {"_watermark"} - virtual <= mapped
+        assert set(spec.search_columns) - virtual <= mapped
 
 
 def test_internal_links_reject_open_redirects_and_control_characters() -> None:

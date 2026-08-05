@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { EntitySearchPanel } from "@/components/entity-intel/entity-intel";
 import { ProcurementAwardsPanel } from "@/components/procurement/procurement-awards-panel";
+import { entityRoute } from "@/lib/entity-route";
 import { productActorTypeLabel, productResourceKindLabel, productSignalTypeLabel, productStatusLabel } from "@/lib/product-copy";
 
 export type GlobalResourceSection =
@@ -36,6 +37,15 @@ interface Row {
   score?: number;
   date?: string | null;
   updatedAt?: string;
+  /** Ficha 360º de entidad (solo actores con nombre usable). */
+  entityHref?: string | null;
+}
+
+function actorEntityHref(actor: OracleActor): string | null {
+  const name = (actor.canonical_name || "").trim();
+  if (name.length < 3) return null;
+  if (actor.actor_type === "person") return entityRoute("person", name);
+  return entityRoute("company", name);
 }
 
 const sectionCopy: Record<GlobalResourceSection, { title: string; description: string }> = {
@@ -142,6 +152,7 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
           status: "Activo",
           kind: productActorTypeLabel(item.actor_type),
           updatedAt: item.updated_at,
+          entityHref: actorEntityHref(item),
         })));
         setTotal(result.meta?.total ?? result.data.length);
       } else {
@@ -194,6 +205,11 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
         <>
           <EntitySearchPanel compact />
           <ProcurementAwardsPanel />
+          <p className="reporting-hint">
+            ¿Posibles duplicados en el directorio?{" "}
+            <Link href="/app/actors/duplicates">Revisar candidatos a fusión</Link>
+            {" "}(la persona decide; el sistema solo propone).
+          </p>
         </>
       )}
       <form className="global-inventory-toolbar" role="search" onSubmit={submit}>
@@ -206,8 +222,8 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
       <section className="global-inventory-panel" aria-busy={loading}>
         {loading ? <p className="global-inventory-state" role="status">Cargando {copy.title.toLowerCase()}…</p> : rows.length ? (
           <>
-            <div className="table-scroll global-inventory-table"><table><thead><tr><th>Elemento</th><th>Expediente</th><th>Estado / tipo</th><th>Puntuación / fecha</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className={row.id === selectedId ? "selected-resource" : undefined} aria-selected={row.id === selectedId}><td><strong>{row.title}</strong><small>{row.updatedAt ? `Actualizado ${new Date(row.updatedAt).toLocaleDateString("es-ES")}` : "Sin fecha registrada"}</small></td><td>{row.dossierId ? <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link> : "Todos los expedientes"}</td><td><span className="status">{productStatusLabel(row.status)}</span><small>{row.kind}</small></td><td>{row.score === undefined ? "—" : row.score}{row.date && <small>{new Date(row.date).toLocaleDateString("es-ES")}</small>}</td></tr>)}</tbody></table></div>
-            <div className="global-inventory-cards">{rows.map((row) => <article key={row.id} className={row.id === selectedId ? "selected-resource" : undefined}><header><strong>{row.title}</strong><span className="status">{productStatusLabel(row.status)}</span></header><p>{row.kind}{row.score === undefined ? "" : ` · Puntuación ${row.score}`}</p>{row.dossierId && <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link>}</article>)}</div>
+            <div className="table-scroll global-inventory-table"><table><thead><tr><th>Elemento</th><th>Expediente</th><th>Estado / tipo</th><th>Puntuación / fecha</th>{section === "actors" ? <th>Ficha</th> : null}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className={row.id === selectedId ? "selected-resource" : undefined} aria-selected={row.id === selectedId}><td>{row.entityHref ? <Link href={row.entityHref}><strong>{row.title}</strong></Link> : <strong>{row.title}</strong>}<small>{row.updatedAt ? `Actualizado ${new Date(row.updatedAt).toLocaleDateString("es-ES")}` : "Sin fecha registrada"}</small></td><td>{row.dossierId ? <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link> : section === "actors" ? "—" : "Todos los expedientes"}</td><td><span className="status">{productStatusLabel(row.status)}</span><small>{row.kind}</small></td><td>{row.score === undefined ? "—" : row.score}{row.date && <small>{new Date(row.date).toLocaleDateString("es-ES")}</small>}</td>{section === "actors" ? <td>{row.entityHref ? <Link className="vector-secondary compact" href={row.entityHref}>Ficha 360º</Link> : "—"}</td> : null}</tr>)}</tbody></table></div>
+            <div className="global-inventory-cards">{rows.map((row) => <article key={row.id} className={row.id === selectedId ? "selected-resource" : undefined}><header><strong>{row.title}</strong><span className="status">{productStatusLabel(row.status)}</span></header><p>{row.kind}{row.score === undefined ? "" : ` · Puntuación ${row.score}`}</p>{row.dossierId && <Link href={`/app/dossiers/${row.dossierId}`}>{row.dossierTitle || "Abrir expediente"}</Link>}{row.entityHref && <Link href={row.entityHref}>Abrir ficha 360º</Link>}</article>)}</div>
           </>
         ) : <div className="global-inventory-state"><strong>No hay resultados</strong><p>Ajusta los filtros o revisa otro expediente.</p></div>}
       </section>

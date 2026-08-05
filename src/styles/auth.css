@@ -85,7 +85,9 @@
   width: min(440px, 100%);
 }
 .auth-eyebrow {
-  color: var(--opn-gold-text);
+  /* --opn-gold-text (#8A6B2F) sobre porcelain mide 4.22:1 (AA fail a 12px).
+     Dorado más oscuro local: mantiene acento de marca sin tocar el token. 6.10:1. */
+  color: #6b5424;
   font-size: 12px;
   letter-spacing: 0.13em;
   font-weight: 800;
@@ -316,7 +318,8 @@
   padding: 11px 14px;
   font-size: 13px;
   font-weight: 700;
-  color: #647286;
+  /* Antes #647286 (4.15:1). --nav-muted #556272 → 5.28:1 sobre porcelain. */
+  color: var(--nav-muted, #556272);
   white-space: nowrap;
   border-bottom: 2px solid transparent;
 }
@@ -413,7 +416,13 @@
   color: inherit;
 }
 .admin-heading p {
-  color: #66758a;
+  /* Antes #66758a (3.98:1). Alineado con --nav-muted (5.28:1). */
+  color: var(--nav-muted, #556272);
+}
+.admin-table th.numeric-col,
+.admin-table td.numeric-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .admin-table th.numeric-col,
 .admin-table td.numeric-col {
@@ -884,7 +893,7 @@
   margin-bottom: 8px;
 }
 .reauth-dialog > p {
-  color: #66758a;
+  color: var(--nav-muted, #556272);
   font-size: 14px;
 }
 .reauth-dialog form {

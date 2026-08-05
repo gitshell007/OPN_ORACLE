@@ -113,6 +113,7 @@ const opportunity = {
   status: "identified",
   overall_score: 84,
   score_details: { confidence: 72, strategic_fit: 90 },
+  deadline: "2026-08-06",
   version: 4,
   updated_at: "2026-07-11T09:00:00Z",
 };
@@ -163,11 +164,13 @@ describe("DossierIntelligenceSection", () => {
     render(<DossierIntelligenceSection dossierId="dossier-1" kind="signals" />);
 
     expect((await screen.findAllByText("Publicada una nueva convocatoria"))[0]).toBeVisible();
-    const row = screen.getByRole("button", {
-      name: "Abrir detalle de Publicada una nueva convocatoria",
+    const open = screen.getByRole("button", {
+      name: "Inspeccionar Publicada una nueva convocatoria",
     });
+    const row = open.closest("tr");
     expect(row).toHaveClass("interactive-row");
-    fireEvent.click(row);
+    expect(row).not.toHaveAttribute("role", "button");
+    fireEvent.click(open);
     const detail = await screen.findByRole("dialog", {
       name: "Publicada una nueva convocatoria",
     });
@@ -312,6 +315,39 @@ describe("DossierIntelligenceSection", () => {
     );
   });
 
+  it("muestra la columna de vencimiento y pide sort=deadline en oportunidades del expediente", async () => {
+    mocks.opportunityList.mockResolvedValue({
+      data: [
+        opportunity,
+        {
+          ...opportunity,
+          id: "op-null",
+          title: "Sin plazo conocido",
+          deadline: null,
+        },
+      ],
+      meta: { page: 1, size: 25, total: 2 },
+    });
+
+    render(
+      <DossierIntelligenceSection dossierId="dossier-1" kind="opportunities" />,
+    );
+
+    expect(await screen.findByRole("columnheader", { name: "Vencimiento" })).toBeVisible();
+    // Locale-dependent date string; assert on time@dateTime for stability.
+    const dueCells = document.querySelectorAll("td time[datetime='2026-08-06']");
+    expect(dueCells.length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sin fecha").length).toBeGreaterThan(0);
+
+    await waitFor(() =>
+      expect(mocks.opportunityList).toHaveBeenCalledWith("dossier-1", {
+        page: 1,
+        size: 25,
+        sort: "deadline",
+      }),
+    );
+  });
+
   it("carga evidencia y aplica una transición permitida con versión", async () => {
     render(
       <DossierIntelligenceSection dossierId="dossier-1" kind="opportunities" />,
@@ -358,6 +394,7 @@ describe("DossierIntelligenceSection", () => {
       expect(mocks.signalList).toHaveBeenLastCalledWith("dossier-1", {
         page: 1,
         size: 25,
+        sort: "-updated_at",
         status: "reviewed",
         search: "convocatoria",
         scoreMin: 70,

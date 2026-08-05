@@ -18,7 +18,11 @@ from flask import current_app
 from sqlalchemy import delete, or_, select, update
 
 from opn_oracle.ai.context import (
+    build_actor_partnership_context,
     build_dossier_completion_context,
+    build_entity_resolution_context,
+    build_opportunity_analysis_context,
+    build_risk_analysis_context,
     build_tender_search_replan_context,
     build_tender_search_wizard_context,
 )
@@ -57,6 +61,10 @@ from opn_oracle.oracle.conversations import (
     ConversationError,
     ConversationNotFound,
     process_dossier_question_answer,
+)
+from opn_oracle.oracle.custom_report_lifecycle import (
+    process_custom_brief_review,
+    process_custom_brief_write,
 )
 from opn_oracle.oracle.custom_reports import (
     CustomReportError,
@@ -127,8 +135,32 @@ AI_RETRY_CAUSE_JOB_TYPES = {
     "oracle.weekly_change.refresh",
     "oracle.memory.refresh",
     "oracle.dossier_summary.refresh",
+    # Preguntar dual-memory: without this, PermanentJobError('permanent_failure') from
+    # None hides AIUnavailable / ConversationError and blocks demo diagnosis.
+    "oracle.dossier_question.answer",
 }
 logger = logging.getLogger(__name__)
+
+
+def _exception_cause_text(error: BaseException) -> str:
+    """Type + message of the deepest __cause__, falling back to the outer error.
+
+    Celery re-raises with `from None` so the public log is generic; the durable job
+    row must still keep the operator-facing root cause (type + message).
+    """
+
+    seen: set[int] = set()
+    current: BaseException = error
+    while current.__cause__ is not None and id(current.__cause__) not in seen:
+        seen.add(id(current))
+        current = current.__cause__
+    text = redact(str(current)).strip()
+    type_name = type(current).__name__
+    if not text:
+        return type_name
+    if text.startswith(type_name):
+        return text
+    return f"{type_name}: {text}"
 
 
 def _ai_handler(agent: str) -> Handler:
@@ -186,15 +218,14 @@ def _permanent_failure_message(job: BackgroundJob, error: Exception) -> str:
     """Igual que `_retry_exhausted_message`: la causa solo para jobs de IA.
 
     Los jobs de IA exponen la causa porque el operador la necesita para diagnosticar
-    (es lo que permitió ver el "Invalid JSON: EOF" del informe de entidad). Para el
-    resto, el mensaje debe quedar genérico: el texto de una excepción cualquiera puede
-    arrastrar fragmentos del payload. La versión anterior lo filtraba para todos los
-    tipos de job, y el test de integración que lo cubre no se estaba ejecutando.
+    (es lo que permitió ver el "Invalid JSON: EOF" del informe de entidad y el
+    allowlist dual de Preguntar). Para el resto, el mensaje debe quedar genérico: el
+    texto de una excepción cualquiera puede arrastrar fragmentos del payload.
     """
 
     if not (job.job_type.startswith("oracle.ai.") or job.job_type in AI_RETRY_CAUSE_JOB_TYPES):
         return "El job no pudo completarse."
-    cause = redact(str(error)).strip()
+    cause = _exception_cause_text(error)
     if not cause:
         return "El job no pudo completarse."
     return f"El job no pudo completarse. Causa: {cause}"[:500]
@@ -410,6 +441,8 @@ HANDLERS: dict[str, Handler] = {
     "oracle.report.generate": lambda payload, job: _generate_report(payload, job),
     "oracle.dossier_question.answer": lambda payload, job: _answer_dossier_question(payload, job),
     "oracle.report.custom_brief.plan": lambda payload, job: _plan_custom_brief(payload, job),
+    "oracle.report.custom_brief.write": lambda payload, job: _write_custom_brief(payload, job),
+    "oracle.report.custom_brief.review": lambda payload, job: _review_custom_brief(payload, job),
     "oracle.procurement_document_report.generate": (
         lambda payload, job: _generate_procurement_document_report(payload, job)
     ),
@@ -465,12 +498,23 @@ def _generate_report(payload: dict[str, Any], job: BackgroundJob) -> dict[str, A
 
 
 def _answer_dossier_question(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
-    """Settle Preguntar a Oracle without paid providers (MEMSOL residual workers)."""
+    """Settle Preguntar a Oracle (MDEV-06 dual memory). Retryable vs permanent classified."""
+
+    from opn_oracle.integrations.memory_ask_dual import (
+        PermanentMemoryAskError,
+        RetryableMemoryAskError,
+    )
 
     try:
+        # Local lookup keeps mutation/monkeypatch of module attribute effective.
         return process_dossier_question_answer(db.session(), payload, job)
     except CancelledJobError:
         raise
+    except RetryableMemoryAskError as error:
+        # 408/429/5xx/timeout must keep backoff/deadline — never Permanent early.
+        raise RetriableJobError(str(error)) from error
+    except PermanentMemoryAskError as error:
+        raise PermanentJobError(str(error)) from error
     except (ConversationNotFound, ConversationConflict, ConversationError) as error:
         raise PermanentJobError(str(error)) from error
     except (KeyError, ValueError) as error:
@@ -490,6 +534,32 @@ def _plan_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str,
         raise PermanentJobError(str(error)) from error
     except Exception as error:
         raise RetriableJobError("La planificación del brief falló temporalmente.") from error
+
+
+def _write_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """MDEV-08 writer using frozen accepted_snapshot."""
+
+    try:
+        return process_custom_brief_write(db.session(), payload, job)
+    except (CustomReportNotFound, CustomReportError) as error:
+        raise PermanentJobError(str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError("La redacción del informe falló temporalmente.") from error
+
+
+def _review_custom_brief(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """MDEV-08 review + atomic ready artifact."""
+
+    try:
+        return process_custom_brief_review(db.session(), payload, job)
+    except (CustomReportNotFound, CustomReportError) as error:
+        raise PermanentJobError(str(error)) from error
+    except (KeyError, ValueError) as error:
+        raise PermanentJobError(str(error)) from error
+    except Exception as error:
+        raise RetriableJobError("La revisión del informe falló temporalmente.") from error
 
 
 def _generate_procurement_document_report(
@@ -674,6 +744,50 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     answers=payload.get("answers", []),
                 ),
                 target_type="dossier_completion_wizard",
+                target_id=dossier_id,
+            )
+        if agent == "opportunity":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_opportunity_analysis_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="opportunity_analysis",
+                target_id=dossier_id,
+            )
+        if agent == "risk":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_risk_analysis_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="risk_analysis",
+                target_id=dossier_id,
+            )
+        if agent == "actor_partnership":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_actor_partnership_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="actor_partnership_analysis",
+                target_id=dossier_id,
+            )
+        if agent == "entity_resolution":
+            return execute_agent(
+                agent=agent,
+                dossier_id=dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_entity_resolution_context(
+                    dossier_id, max_tokens=max_tokens
+                ),
+                target_type="entity_resolution_analysis",
                 target_id=dossier_id,
             )
         return execute_agent(agent=agent, dossier_id=dossier_id, job=job)
@@ -1059,6 +1173,8 @@ weekly_change_refresh = _durable_task("oracle.weekly_change.refresh")
 report_generate = _durable_task("oracle.report.generate")
 dossier_question_answer = _durable_task("oracle.dossier_question.answer")
 report_custom_brief_plan = _durable_task("oracle.report.custom_brief.plan")
+report_custom_brief_write = _durable_task("oracle.report.custom_brief.write")
+report_custom_brief_review = _durable_task("oracle.report.custom_brief.review")
 procurement_document_report_generate = _durable_task("oracle.procurement_document_report.generate")
 competitive_procurement_report_generate = _durable_task(
     "oracle.competitive_procurement_report.generate"

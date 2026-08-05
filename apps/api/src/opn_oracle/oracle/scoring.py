@@ -154,7 +154,19 @@ def score_actor_priority(
 def aggregate_dossier_scores(
     opportunity_scores: list[int], risk_scores: list[int]
 ) -> dict[str, int]:
-    """Mean aggregates; health rewards opportunity while subtracting risk pressure."""
+    """Aggregate open item scores into dossier-level opportunity, risk and health.
+
+    Formula (demo-explainable, 0-100):
+
+    - ``opportunity`` = arithmetic mean of opportunity ``overall_score`` values;
+      **0** when the dossier has no opportunities.
+    - ``risk`` = arithmetic mean of risk ``overall_score`` values;
+      **0** when the dossier has no risks.
+    - ``health`` = ``clamp(50 + 0.5*opportunity - 0.5*risk, 0, 100)``.
+
+    An empty dossier is **health 50** (neutral), not 0 (worst). Opportunity
+    lifts health; risk pressure lowers it, with equal half-weights.
+    """
 
     opportunity = (
         round(sum(opportunity_scores) / len(opportunity_scores)) if opportunity_scores else 0

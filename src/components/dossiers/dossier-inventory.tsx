@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -31,17 +31,17 @@ import { CreateProductDossierDialog } from "@/components/navigation/create-produ
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 
 const STATUS_OPTIONS = ["draft", "active", "paused", "archived"] as const;
+/** Tipos ofrecidos al filtrar: alineados con los creables en el diálogo «Nuevo expediente».
+ *  Los legados (technology, investment, product_launch, risk_watch) siguen en TYPE_LABELS
+ *  para mostrar filas históricas, pero no se ofrecen como filtro muerto que devuelve cero. */
 const TYPE_OPTIONS = [
   "project",
   "strategic_account",
   "market",
-  "technology",
   "tender_or_grant",
-  "investment",
   "partnership",
-  "product_launch",
   "regulatory_affair",
-  "risk_watch",
+  "competitive_intelligence",
   "custom",
 ] as const;
 const SORT_OPTIONS: readonly DossierSort[] = [
@@ -81,6 +81,7 @@ const TYPE_LABELS: Record<string, string> = {
   product_launch: "Lanzamiento",
   regulatory_affair: "Asunto regulatorio",
   risk_watch: "Vigilancia de riesgo",
+  competitive_intelligence: "Inteligencia competitiva",
   custom: "Otro",
 };
 const COLUMN_LABELS: Record<OptionalColumn, string> = {
@@ -146,11 +147,6 @@ function nextDeleteChallenge(): DeleteChallenge {
   };
 }
 
-function isActivationKey(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" && event.key !== " ") return false;
-  event.preventDefault();
-  return true;
-}
 
 export function DossierInventory() {
   const router = useRouter();
@@ -492,13 +488,9 @@ export function DossierInventory() {
                     <tr
                       key={item.id}
                       className={selected.includes(item.id) ? "selected interactive-row" : "interactive-row"}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Abrir expediente ${item.title}`}
+                      /* Sin role=button: la fila es atajo de ratón; teclado/AT usan el
+                         Link del título y el checkbox de selección (evita nested-interactive). */
                       onClick={() => router.push(`/app/dossiers/${item.id}`)}
-                      onKeyDown={(event) => {
-                        if (isActivationKey(event)) router.push(`/app/dossiers/${item.id}`);
-                      }}
                     >
                       <td
                         className="selection-column"

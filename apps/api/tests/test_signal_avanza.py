@@ -80,7 +80,8 @@ def test_monitor_spec_normalizes_rich_config_and_rejects_unsupported_source_type
             "keywords": [" CATL ", "CATL"],
             "entities": [{"type": "company", "name": "BYD"}],
             "languages": ["ES", "es"],
-            "geographies": ["es", "ES"],
+            # Subdivisiones ISO 3166-2 se aplanan a país hacia Signal.
+            "geographies": ["es", "ES", "ES-VC", "es-md"],
             "source_types": ["NEWS", "company_signal", "news"],
             "cadence": "daily",
             "retention_days": 30,

@@ -24,24 +24,28 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/ui/page-header";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
+import { entityRoute } from "@/lib/entity-route";
 import { productLinkedResourceLabel } from "@/lib/product-copy";
 import { DossierActorCandidates } from "./dossier-actor-candidates";
+
+function actorEntityHref(actor: OracleActor | undefined): string | null {
+  if (!actor) return null;
+  const name = (actor.canonical_name || "").trim();
+  if (name.length < 3) return null;
+  if (actor.actor_type === "person") return entityRoute("person", name);
+  return entityRoute("company", name);
+}
 
 export type DossierWorkKind = "actors" | "meetings" | "tasks" | "decisions";
 type ActorType = "person" | "organization" | "institution" | "program" | "other";
 type RawResource = OracleDossierActor | OracleMeeting | OracleTask | OracleDecision;
 
-function isActivationKey(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" && event.key !== " ") return false;
-  event.preventDefault();
-  return true;
-}
 
 interface WorkRow {
   id: string;
@@ -718,34 +722,41 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
           <div className="work-table-wrap">
             <table className="work-table">
               <thead><tr><th>{kind === "actors" ? "Actor" : "Título"}</th><th>Estado</th><th>Contexto</th><th>Actualización</th><th><span className="sr-only">Acciones</span></th></tr></thead>
-              <tbody>{rows.map((row) => (
+              <tbody>{rows.map((row) => {
+                const entityHref = kind === "actors" ? actorEntityHref(row.actor) : null;
+                return (
                 <tr
                   key={row.id}
                   className="interactive-row"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Abrir detalle de ${row.title}`}
                   onClick={() => openRowDetail(row.id)}
-                  onKeyDown={(event) => {
-                    if (isActivationKey(event)) openRowDetail(row.id);
-                  }}
                 >
                   <td><strong>{row.title}</strong><small>{row.secondary}</small></td>
                   <td><span className={`intelligence-status status-${row.status}`}>{LABELS[row.status] ?? row.status}</span></td>
                   <td>{row.detail}{row.labels?.length ? <div className="actor-labels">{row.labels.map((label) => <span key={label}>{label}</span>)}</div> : null}</td>
                   <td>{formatDate(row.updatedAt)}</td>
                   <td>
-                    <Link
-                      className="vector-secondary compact"
-                      href={`${pathname}?selected=${encodeURIComponent(row.id)}`}
-                      scroll={false}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      Abrir <ArrowRight size={13} />
-                    </Link>
+                    {entityHref ? (
+                      <Link
+                        className="vector-secondary compact"
+                        href={entityHref}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Ficha 360º <ArrowRight size={13} />
+                      </Link>
+                    ) : (
+                      <Link
+                        className="vector-secondary compact"
+                        href={`${pathname}?selected=${encodeURIComponent(row.id)}`}
+                        scroll={false}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Abrir <ArrowRight size={13} />
+                      </Link>
+                    )}
                   </td>
                 </tr>
-              ))}</tbody>
+                );
+              })}</tbody>
             </table>
           </div>
           <div className="work-mobile-list">{rows.map((row) => (
@@ -815,6 +826,15 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
             <dl className="intelligence-facts"><div><dt>Estado</dt><dd>{LABELS[selected.status] ?? selected.status}</dd></div><div><dt>Versión auditada</dt><dd>{selected.version}</dd></div><div><dt>Actualización</dt><dd>{formatDate(selected.updatedAt)}</dd></div><div><dt>Origen</dt><dd>{kind === "decisions" ? "Decisión humana" : "Registro operativo"}</dd></div></dl>
             <section className="intelligence-detail-block"><h2>Contexto</h2><p>{selected.detail}</p><p>{selected.secondary}</p></section>
             {kind === "actors" && <section className="intelligence-detail-block"><h2>Confianza y procedencia</h2><p>{actorConfidence(selected.raw as OracleDossierActor) === null ? "La confianza no está documentada todavía." : `${actorConfidence(selected.raw as OracleDossierActor)} % de confianza registrada.`}</p><p>{selected.actor?.provenance && Object.keys(selected.actor.provenance).length ? Object.entries(selected.actor.provenance).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") : "Sin procedencia explícita. No uses este actor como hecho verificado hasta añadir una fuente."}</p></section>}
+            {kind === "actors" && actorEntityHref(selected.actor) && (
+              <section className="intelligence-detail-block">
+                <h2>Ficha 360º de entidad</h2>
+                <p>Consulta adjudicaciones, relaciones y noticias de esta entidad sin pasar por el buscador global.</p>
+                <Link className="vector-primary" href={actorEntityHref(selected.actor) as string}>
+                  Abrir ficha 360º
+                </Link>
+              </section>
+            )}
             {kind === "actors" && <PermissionGate permission="actor.write"><section className="intelligence-detail-block"><h2>Ajustar contexto</h2><p>Aumenta diez puntos la relevancia para este expediente, sin modificar la ficha canónica del actor.</p><AsyncActionButton className="vector-secondary" disabled={((selected.raw as OracleDossierActor).relevance_to_dossier ?? 0) >= 100} loading={busy} onClick={() => void reinforceActorRelevance()}>Reforzar relevancia</AsyncActionButton></section></PermissionGate>}
             {kind === "actors" && <PermissionGate permission="signal.review"><section className="intelligence-detail-block"><h2>Seguimiento proactivo</h2><p>Prepara una vigilancia de noticias y actividad corporativa para este actor. Podrás revisar la cadencia y las fuentes antes de activarla.</p><button className="vector-primary" type="button" onClick={prepareActorMonitor}>Preparar vigilancia del actor</button></section></PermissionGate>}
             {kind === "meetings" && <section className="intelligence-detail-block"><h2>Preparación de la reunión</h2>{briefingRunning && <p role="status">Generando briefing con Oracle… La versión anterior seguirá disponible.</p>}{briefingsLoading ? <p role="status">Cargando la preparación…</p> : briefings.length ? <div className="work-briefings">{briefings.map((briefing) => { const output = briefingOutput(briefing); return <article key={briefing.id}><header><FileCheck2 size={15} /><span>Briefing v{briefing.version ?? 1}</span><small>{formatDate(briefing.created_at)}</small></header>{output ? <><p>{String(output.meeting_objective ?? "Objetivo pendiente de documentar.")}</p><ul>{(Array.isArray(output.key_messages) ? output.key_messages : []).slice(0, 3).map((item) => <li key={String(item)}>{String(item)}</li>)}</ul><small>Confianza {String(output.confidence ?? "—")} % · {Array.isArray(output.questions) ? output.questions.length : 0} preguntas preparadas</small></> : <p>Preparación en curso o pendiente de publicar.</p>}</article>; })}</div> : <p>Aún no hay una preparación. Cuando la crees, mantendrá separados los hechos, las interpretaciones y las recomendaciones.</p>}<PermissionGate permission="meeting.write"><AsyncActionButton className="vector-secondary" disabled={briefingRunning} loading={busy} onClick={() => void createBriefing()}><FileCheck2 size={15} /> {briefingRunning ? "Preparando…" : "Preparar reunión"}</AsyncActionButton></PermissionGate></section>}

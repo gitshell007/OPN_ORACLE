@@ -1,18 +1,69 @@
 "use client";
 
-import { ApiError, api, type BackendDossier, type OracleDecision, type OracleOpportunity, type OracleRisk, type OracleTask } from "@oracle/api-client";
+import {
+  ApiError,
+  api,
+  type BackendDossier,
+  type OracleDecision,
+  type OracleOpportunity,
+  type OracleRisk,
+  type OracleTask,
+} from "@oracle/api-client";
 import { ArrowLeft, FileText, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DossierOracleSummaryPanel } from "@/components/dossiers/dossier-oracle-summary-panel";
 import { DossierContextPanel } from "@/components/dossiers/dossier-context-panel";
+import { DossierProfilePanel } from "@/components/dossiers/dossier-profile-panel";
 import { PageHeader } from "@/components/ui/page-header";
+import { draftFromProfileConfig } from "@/lib/dossier-profile";
 import {
   productDossierTypeLabel,
   productResourceKindLabel,
   productStatusLabel,
 } from "@/lib/product-copy";
+
+type PanelLoadState = "idle" | "ok" | "error";
+
+type SummaryPanelConfig = {
+  title: string;
+  href: string;
+  emptyTitle: string;
+  emptyDescription: string;
+  ctaLabel: string;
+};
+
+const PANEL_COPY = {
+  opportunities: {
+    emptyTitle: "Aún no hay oportunidades registradas",
+    emptyDescription:
+      "Registra oportunidades, lanza el Análisis de oportunidad (Análisis → Oportunidad IA) o promueve una recomendación del Oráculo. No es un error de permisos.",
+    ctaLabel: "Abrir oportunidades",
+  },
+  risks: {
+    emptyTitle: "Aún no hay riesgos registrados",
+    emptyDescription:
+      "Añade riesgos, lanza el Análisis de riesgo (Análisis → Riesgo IA) o promueve una recomendación del Oráculo. El panel está vacío porque no hay filas de negocio.",
+    ctaLabel: "Abrir riesgos",
+  },
+  tasks: {
+    emptyTitle: "No hay siguientes acciones pendientes",
+    emptyDescription:
+      "Crea tareas en el expediente o convierte en tarea una acción recomendada por el Oráculo.",
+    ctaLabel: "Abrir tareas",
+  },
+  decisions: {
+    emptyTitle: "No hay decisiones registradas",
+    emptyDescription:
+      "Documenta decisiones del expediente o promueve una decisión pendiente del Oráculo.",
+    ctaLabel: "Abrir decisiones",
+  },
+} as const;
+
+function listErrorMessage(reason: unknown, fallback: string): string {
+  return reason instanceof ApiError ? reason.problem.detail : fallback;
+}
 
 export function ProductDossier() {
   const { id } = useParams<{ id: string }>();
@@ -23,9 +74,26 @@ export function ProductDossier() {
   const [risks, setRisks] = useState<OracleRisk[]>([]);
   const [tasks, setTasks] = useState<OracleTask[]>([]);
   const [decisions, setDecisions] = useState<OracleDecision[]>([]);
+  const [opportunityState, setOpportunityState] = useState<PanelLoadState>("idle");
+  const [riskState, setRiskState] = useState<PanelLoadState>("idle");
+  const [taskState, setTaskState] = useState<PanelLoadState>("idle");
+  const [decisionState, setDecisionState] = useState<PanelLoadState>("idle");
+  const [opportunityError, setOpportunityError] = useState<string | null>(null);
+  const [riskError, setRiskError] = useState<string | null>(null);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setOpportunityState("idle");
+    setRiskState("idle");
+    setTaskState("idle");
+    setDecisionState("idle");
+    setOpportunityError(null);
+    setRiskError(null);
+    setTaskError(null);
+    setDecisionError(null);
     try {
       const resource = await api.dossiers.get(id);
       setDossier(resource);
@@ -35,10 +103,42 @@ export function ProductDossier() {
         api.tasks.list(id, { page: 1, size: 10, sort: "due_date" }),
         api.decisions.list(id, { page: 1, size: 10, sort: "-updated_at" }),
       ]);
-      setOpportunities(opportunityResult.status === "fulfilled" ? opportunityResult.value.data : []);
-      setRisks(riskResult.status === "fulfilled" ? riskResult.value.data : []);
-      setTasks(taskResult.status === "fulfilled" ? taskResult.value.data : []);
-      setDecisions(decisionResult.status === "fulfilled" ? decisionResult.value.data : []);
+      if (opportunityResult.status === "fulfilled") {
+        setOpportunities(opportunityResult.value.data);
+        setOpportunityState("ok");
+      } else {
+        setOpportunities([]);
+        setOpportunityState("error");
+        setOpportunityError(
+          listErrorMessage(opportunityResult.reason, "No se pudieron cargar las oportunidades."),
+        );
+      }
+      if (riskResult.status === "fulfilled") {
+        setRisks(riskResult.value.data);
+        setRiskState("ok");
+      } else {
+        setRisks([]);
+        setRiskState("error");
+        setRiskError(listErrorMessage(riskResult.reason, "No se pudieron cargar los riesgos."));
+      }
+      if (taskResult.status === "fulfilled") {
+        setTasks(taskResult.value.data);
+        setTaskState("ok");
+      } else {
+        setTasks([]);
+        setTaskState("error");
+        setTaskError(listErrorMessage(taskResult.reason, "No se pudieron cargar las tareas."));
+      }
+      if (decisionResult.status === "fulfilled") {
+        setDecisions(decisionResult.value.data);
+        setDecisionState("ok");
+      } else {
+        setDecisions([]);
+        setDecisionState("error");
+        setDecisionError(
+          listErrorMessage(decisionResult.reason, "No se pudieron cargar las decisiones."),
+        );
+      }
     } catch (reason) {
       setDossier(null);
       setError(
@@ -109,6 +209,21 @@ export function ProductDossier() {
         }
       />
       <DossierOracleSummaryPanel dossierId={id} />
+      {(dossier.dossier_type === "market" ||
+        dossier.dossier_type === "competitive_intelligence" ||
+        dossier.dossier_type === "custom" ||
+        dossier.dossier_type === "project" ||
+        (dossier.profile_config && Object.keys(dossier.profile_config).length > 0)) && (
+        <DossierProfilePanel
+          dossierId={id}
+          dossierType={dossier.dossier_type}
+          profileConfig={dossier.profile_config}
+          draft={draftFromProfileConfig(dossier.dossier_type, dossier.profile_config ?? null)}
+          onDraftChange={() => undefined}
+          onSave={(event) => event.preventDefault()}
+          readOnly
+        />
+      )}
       <section className="vector-panel situation-panel">
         <header>
           <div>
@@ -121,9 +236,31 @@ export function ProductDossier() {
             "El expediente todavía no tiene una descripción consolidada."}
         </p>
         <dl className="placeholder-contract">
-          <div><dt>Salud</dt><dd>{dossier.health_score}</dd></div>
-          <div><dt>Oportunidad</dt><dd>{dossier.opportunity_score}</dd></div>
-          <div><dt>Riesgo</dt><dd>{dossier.risk_score}</dd></div>
+          <div>
+            <dt title="Media de oportunidades y riesgos: salud = clamp(50 + 0,5·oportunidad − 0,5·riesgo)">
+              Salud
+            </dt>
+            <dd>
+              {dossier.health_score}
+              {dossier.opportunity_score === 0 &&
+              dossier.risk_score === 0 &&
+              dossier.health_score === 50 ? (
+                <small> · neutro (sin oportunidades ni riesgos)</small>
+              ) : null}
+            </dd>
+          </div>
+          <div>
+            <dt title="Media de overall_score de oportunidades del expediente (0 si no hay)">
+              Oportunidad
+            </dt>
+            <dd>{dossier.opportunity_score}</dd>
+          </div>
+          <div>
+            <dt title="Media de overall_score de riesgos del expediente (0 si no hay)">
+              Riesgo
+            </dt>
+            <dd>{dossier.risk_score}</dd>
+          </div>
         </dl>
         <div className="placeholder-actions">
           <Link className="vector-secondary" href={`/app/dossiers/${id}/signals`}>Señales</Link>
@@ -134,15 +271,112 @@ export function ProductDossier() {
       </section>
       <section className="dossier-summary-grid" aria-label="Prioridades del expediente">
         <DossierContextPanel dossierId={id} />
-        <SummaryList title="Oportunidades principales" href={`/app/dossiers/${id}/opportunities`} items={opportunities.slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${productStatusLabel(item.status)} · Puntuación ${item.overall_score ?? "—"}` }))} />
-        <SummaryList title="Riesgos principales" href={`/app/dossiers/${id}/risks`} items={risks.slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${productStatusLabel(item.status)} · Puntuación ${item.overall_score ?? "—"}` }))} />
-        <SummaryList title="Siguientes acciones" href={`/app/dossiers/${id}/tasks`} items={tasks.filter((item) => !["done", "cancelled"].includes(item.status || "")).slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: `${productResourceKindLabel(item.priority || "medium")} · ${item.due_date || "sin fecha"}` }))} />
-        <SummaryList title="Decisiones recientes" href={`/app/dossiers/${id}/decisions`} items={decisions.slice(0, 3).map((item) => ({ id: item.id, title: item.title || "Sin título", meta: productStatusLabel(item.status || "proposed") }))} />
+        <SummaryList
+          title="Oportunidades principales"
+          href={`/app/dossiers/${id}/opportunities`}
+          state={opportunityState}
+          errorMessage={opportunityError}
+          emptyTitle={PANEL_COPY.opportunities.emptyTitle}
+          emptyDescription={PANEL_COPY.opportunities.emptyDescription}
+          ctaLabel={PANEL_COPY.opportunities.ctaLabel}
+          items={opportunities.slice(0, 3).map((item) => ({
+            id: item.id,
+            title: item.title || "Sin título",
+            meta: `${productStatusLabel(item.status)} · Puntuación ${item.overall_score ?? "—"}`,
+          }))}
+        />
+        <SummaryList
+          title="Riesgos principales"
+          href={`/app/dossiers/${id}/risks`}
+          state={riskState}
+          errorMessage={riskError}
+          emptyTitle={PANEL_COPY.risks.emptyTitle}
+          emptyDescription={PANEL_COPY.risks.emptyDescription}
+          ctaLabel={PANEL_COPY.risks.ctaLabel}
+          items={risks.slice(0, 3).map((item) => ({
+            id: item.id,
+            title: item.title || "Sin título",
+            meta: `${productStatusLabel(item.status)} · Puntuación ${item.overall_score ?? "—"}`,
+          }))}
+        />
+        <SummaryList
+          title="Siguientes acciones"
+          href={`/app/dossiers/${id}/tasks`}
+          state={taskState}
+          errorMessage={taskError}
+          emptyTitle={PANEL_COPY.tasks.emptyTitle}
+          emptyDescription={PANEL_COPY.tasks.emptyDescription}
+          ctaLabel={PANEL_COPY.tasks.ctaLabel}
+          items={tasks
+            .filter((item) => !["done", "cancelled"].includes(item.status || ""))
+            .slice(0, 3)
+            .map((item) => ({
+              id: item.id,
+              title: item.title || "Sin título",
+              meta: `${productResourceKindLabel(item.priority || "medium")} · ${item.due_date || "sin fecha"}`,
+            }))}
+        />
+        <SummaryList
+          title="Decisiones recientes"
+          href={`/app/dossiers/${id}/decisions`}
+          state={decisionState}
+          errorMessage={decisionError}
+          emptyTitle={PANEL_COPY.decisions.emptyTitle}
+          emptyDescription={PANEL_COPY.decisions.emptyDescription}
+          ctaLabel={PANEL_COPY.decisions.ctaLabel}
+          items={decisions.slice(0, 3).map((item) => ({
+            id: item.id,
+            title: item.title || "Sin título",
+            meta: productStatusLabel(item.status || "proposed"),
+          }))}
+        />
       </section>
     </div>
   );
 }
 
-function SummaryList({ title, href, items }: { title: string; href: string; items: Array<{ id: string; title: string; meta: string }> }) {
-  return <article className="vector-panel dossier-summary-list"><header><h2>{title}</h2><Link href={href}>Ver todo</Link></header>{items.length ? <ul>{items.map((item) => <li key={item.id}><strong>{item.title}</strong><span>{item.meta}</span></li>)}</ul> : <p>No hay elementos accesibles.</p>}</article>;
+export function SummaryList({
+  title,
+  href,
+  items,
+  state = "ok",
+  errorMessage,
+  emptyTitle = "Sin elementos todavía",
+  emptyDescription = "Este panel se llena con registros del expediente, no con el análisis automático.",
+  ctaLabel = "Abrir sección",
+}: SummaryPanelConfig & {
+  items: Array<{ id: string; title: string; meta: string }>;
+  state?: PanelLoadState;
+  errorMessage?: string | null;
+}) {
+  return (
+    <article className="vector-panel dossier-summary-list">
+      <header>
+        <h2>{title}</h2>
+        <Link href={href}>Ver todo</Link>
+      </header>
+      {state === "error" ? (
+        <div className="dossier-summary-empty" role="alert">
+          <strong>No se pudo cargar este panel</strong>
+          <p>{errorMessage || "Error al consultar el servidor."}</p>
+          <Link href={href}>{ctaLabel}</Link>
+        </div>
+      ) : items.length ? (
+        <ul>
+          {items.map((item) => (
+            <li key={item.id}>
+              <strong>{item.title}</strong>
+              <span>{item.meta}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="dossier-summary-empty">
+          <strong>{emptyTitle}</strong>
+          <p>{emptyDescription}</p>
+          <Link href={href}>{ctaLabel}</Link>
+        </div>
+      )}
+    </article>
+  );
 }

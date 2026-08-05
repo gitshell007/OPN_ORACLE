@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -12,7 +13,14 @@ from typing import Any, cast
 from flask import current_app
 from sqlalchemy import delete, func, select, text
 
-from opn_oracle.ai.context import BuiltContext, build_context, validate_evidence
+from opn_oracle.ai.context import (
+    BuiltContext,
+    build_context,
+    enrich_risk_context_declared,
+    validate_evidence,
+    validate_opportunity_origin_boundary,
+    validate_risk_origin_boundary,
+)
 from opn_oracle.ai.models import (
     AIArtifact,
     AIAttempt,
@@ -23,7 +31,12 @@ from opn_oracle.ai.models import (
 )
 from opn_oracle.ai.provider import LLMRequest, provider_from_config
 from opn_oracle.ai.registry import PromptRegistry
-from opn_oracle.ai.schemas import AgentOutput, EvidenceReviewerOutput, SignalTriageOutput
+from opn_oracle.ai.schemas import (
+    AgentOutput,
+    ClaimIssue,
+    EvidenceReviewerOutput,
+    SignalTriageOutput,
+)
 from opn_oracle.ai.tender_search_wizard import postvalidate_tender_search_plan
 from opn_oracle.extensions import db
 from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
@@ -171,6 +184,520 @@ def _short_text(value: Any, *, limit: int = 900) -> str:
     return text_value[: limit - 1].rstrip() + "…"
 
 
+# Tokens too generic to prove that a conclusion is grounded in cited facts.
+_CONCLUSION_STOPWORDS = frozenset(
+    {
+        "el",
+        "la",
+        "los",
+        "las",
+        "un",
+        "una",
+        "unos",
+        "unas",
+        "de",
+        "del",
+        "en",
+        "y",
+        "o",
+        "u",
+        "a",
+        "al",
+        "para",
+        "por",
+        "con",
+        "sin",
+        "sobre",
+        "entre",
+        "que",
+        "se",
+        "su",
+        "sus",
+        "lo",
+        "le",
+        "les",
+        "me",
+        "te",
+        "nos",
+        "os",
+        "como",
+        "más",
+        "mas",
+        "muy",
+        "ya",
+        "no",
+        "si",
+        "sí",
+        "the",
+        "and",
+        "or",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "with",
+        "from",
+        "as",
+        "is",
+        "are",
+        "be",
+        "this",
+        "that",
+        "an",
+        "at",
+        "by",
+        "its",
+        "into",
+        "over",
+        "under",
+        "riesgo",
+        "riesgos",
+        "oportunidad",
+        "oportunidades",
+        "análisis",
+        "analisis",
+        "evaluación",
+        "evaluacion",
+        "propuesta",
+        "candidato",
+        "candidata",
+        "demo",
+        "sv2",
+        "prueba",
+        "risk",
+        "risks",
+        "opportunity",
+        "opportunities",
+        "analysis",
+        "proposal",
+        "candidate",
+        "informe",
+        "resumen",
+        "summary",
+        "título",
+        "titulo",
+        "title",
+        "status",
+        "estado",
+        "watch",
+        "mitigate",
+        "investigate",
+        "hold",
+        "other",
+        "high",
+        "medium",
+        "low",
+        "critical",
+    }
+)
+
+# Top-level prose that is a product conclusion, not a cited fact block.
+_CONCLUSION_SCALAR_FIELDS = (
+    "title",
+    "headline",
+    "summary",
+    "description",
+    "executive_summary",
+)
+
+_CONCLUSION_GROUNDING_AGENTS = frozenset(
+    {
+        "opportunity",
+        "risk",
+        "actor_partnership",
+        "entity_resolution",
+        "report_writer",
+        "dossier_situation_summary",
+    }
+)
+
+# Assertion-class stems / exact forms that attribute an outcome or legal fact.
+# Token overlap alone measures *topic* (de qué se habla); this layer measures
+# *claim predicates* (qué se afirma). A title may reuse tender vocabulary and
+# still invent a win, sanction, breach, etc. that no cited fact supports.
+#
+# Why a closed set is enough *here*: the commercial damage is concrete false
+# claims about real firms ("X gana la licitación"), not open-ended rhetoric.
+# What it leaves out: paraphrase without these stems ("se alza con", "es la
+# elegida", "queda fuera") — residual for a semantic reviewer / product decision.
+_ASSERTION_EXACT = frozenset(
+    {
+        "gana",
+        "ganó",
+        "gano",
+        "ganar",
+        "ganando",
+        "ganada",
+        "ganado",
+        "ganadas",
+        "ganados",
+        "ganador",
+        "ganadora",
+        "ganadores",
+        "ganadoras",
+        "vence",
+        "venció",
+        "vencio",
+        "vencer",
+        "vencedor",
+        "vencedora",
+        "vencedores",
+        "vencedoras",
+        "quiebra",
+        "quiebras",
+        "quebró",
+        "quebro",
+        "quebrar",
+        "quebrado",
+        "quebrada",
+        "quebrados",
+        "quebradas",
+    }
+)
+
+# Long enough that accidental topic words (garantía, ganadería…) do not match.
+_ASSERTION_STEMS = (
+    "adjudic",  # adjudica, adjudicado, adjudicación, adjudicataria…
+    "incumpl",  # incumple, incumplimiento…
+    "sancion",  # sanciona, sanción → normalizado sin tilde en tokens
+    "sanció",  # sanción as content token may keep accent depending on source
+    "demandar",
+    "demandó",
+    "demandad",  # demandado/a/s
+    "demandas",  # demandas (lawsuit plural; "demanda" alone is ambiguous)
+)
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Meaningful tokens for grounding checks (no stopwords, min length 3)."""
+
+    tokens: set[str] = set()
+    for match in re.findall(r"[0-9a-záéíóúüñA-ZÁÉÍÓÚÜÑ]{3,}", str(text or "").lower()):
+        if match in _CONCLUSION_STOPWORDS:
+            continue
+        tokens.add(match)
+    return tokens
+
+
+def _assertion_family(token: str) -> str | None:
+    """Return a canonical family id if ``token`` is an assertion-class predicate."""
+
+    if token in _ASSERTION_EXACT:
+        if token.startswith("gan"):
+            return "gan"
+        if token.startswith("venc"):
+            return "venc"
+        if token.startswith("quiebr") or token.startswith("quebr"):
+            return "quebr"
+        return token
+    for stem in _ASSERTION_STEMS:
+        if token.startswith(stem) or token == stem:
+            # Collapse closely related stems into one family.
+            if stem.startswith("adjudic"):
+                return "adjudic"
+            if stem.startswith("incumpl"):
+                return "incumpl"
+            if stem.startswith("sanci"):
+                return "sancion"
+            if stem.startswith("demand"):
+                return "demand"
+            if stem.startswith("quebr") or stem.startswith("quiebr"):
+                return "quebr"
+            return stem
+    return None
+
+
+def _assertion_families(text: str) -> set[str]:
+    families: set[str] = set()
+    for token in _content_tokens(text):
+        family = _assertion_family(token)
+        if family is not None:
+            families.add(family)
+    return families
+
+
+def _unsupported_assertion_families(text: str, fact_corpus: str) -> set[str]:
+    """Assertion families present in ``text`` but absent from the cited fact corpus."""
+
+    title_families = _assertion_families(text)
+    if not title_families:
+        return set()
+    fact_families = _assertion_families(fact_corpus)
+    return title_families - fact_families
+
+
+def _fact_statements(output: dict[str, Any]) -> list[str]:
+    statements: list[str] = []
+    for fact in output.get("facts") or []:
+        if not isinstance(fact, dict):
+            continue
+        text = fact.get("statement") or fact.get("text")
+        if isinstance(text, str) and text.strip():
+            statements.append(text.strip())
+    # Risk scenarios with evidence also count as grounded material for titles.
+    for scenario in output.get("scenarios") or []:
+        if not isinstance(scenario, dict) or not scenario.get("evidence_ids"):
+            continue
+        for key in ("name", "description"):
+            text = scenario.get(key)
+            if isinstance(text, str) and text.strip():
+                statements.append(text.strip())
+    return statements
+
+
+def _declared_fit_statements(output: dict[str, Any]) -> list[str]:
+    """Prosa de encaje anclada en material declarado (origin distinto del oficial)."""
+
+    fit = output.get("fit_assessment")
+    if not isinstance(fit, dict):
+        return []
+    if fit.get("origin") not in {None, "declared_by_client"}:
+        return []
+    if not fit.get("declared_evidence_ids"):
+        return []
+    texts: list[str] = []
+    text = fit.get("statement")
+    if isinstance(text, str) and text.strip():
+        texts.append(text.strip())
+    # SV2-ENCAJE: dimensiones y veredicto también fundan prosa de encaje.
+    for dim in fit.get("dimensions") or []:
+        if not isinstance(dim, dict):
+            continue
+        for key in ("requirement", "capability", "status_reason", "label"):
+            part = dim.get(key)
+            if isinstance(part, str) and part.strip():
+                texts.append(part.strip())
+    verdict = fit.get("verdict")
+    if isinstance(verdict, dict):
+        rationale = verdict.get("rationale")
+        if isinstance(rationale, str) and rationale.strip():
+            texts.append(rationale.strip())
+        for cond in verdict.get("conditions") or []:
+            if isinstance(cond, str) and cond.strip():
+                texts.append(cond.strip())
+    return texts
+
+
+def _grounding_corpus_tokens(output: dict[str, Any], *, agent: str = "") -> set[str]:
+    tokens: set[str] = set()
+    for statement in _fact_statements(output):
+        tokens |= _content_tokens(statement)
+    # SV2-PERFIL-EVIDENCIA: el gate de fundamentación puede usar la oferta
+    # declarada como fundamento del *encaje*, con origen distinto (fit_assessment).
+    # No se mezcla con facts oficiales: los tokens entran etiquetados vía el
+    # campo separado, no como si fueran extractos PLACSP.
+    if agent == "opportunity":
+        for statement in _declared_fit_statements(output):
+            tokens |= _content_tokens(statement)
+    return tokens
+
+
+def _conclusion_supported(
+    text: str,
+    fact_tokens: set[str],
+    *,
+    min_ratio: float = 0.45,
+    fact_corpus: str = "",
+    require_assertion_grounding: bool = False,
+) -> bool:
+    """True when the conclusion is grounded in cited facts.
+
+    Layer 1 — token overlap: enough content words of the conclusion appear in
+    facts (topic grounding: *de qué se habla*).
+
+    Layer 2 — assertion predicates (titles/headlines only when requested): verbs
+    that attribute an outcome (ganar, adjudicar, sancionar…) must also appear
+    in the fact corpus (*qué se afirma*). Overlap alone accepts
+    «Nexus gana la licitación PLACSP…» when the fact only describes the tender.
+    """
+
+    tokens = _content_tokens(text)
+    if not tokens:
+        return True
+    if not fact_tokens:
+        return False
+    overlap = tokens & fact_tokens
+    if (len(overlap) / len(tokens)) < min_ratio:
+        return False
+    # Layer 2 only for titles/headlines: unsupported assertion predicates fail.
+    if not require_assertion_grounding or not fact_corpus:
+        return True
+    return not _unsupported_assertion_families(text, fact_corpus)
+
+
+def _honest_title_from_facts(facts: list[str], *, agent: str) -> str:
+    """Prefer a poor honest title over a flashy unfounded one."""
+
+    if not facts:
+        if agent == "risk":
+            return "Riesgo sin hechos citados"
+        if agent == "opportunity":
+            return "Oportunidad sin hechos citados"
+        return "Análisis sin hechos citados"
+    core = _short_text(facts[0], limit=140)
+    # Surface the gap when the only grounded material is a procurement fact
+    # without competition data — typical residual of the local model demo.
+    lower = core.lower()
+    if agent == "risk" and not any(
+        token in lower for token in ("compet", "rival", "adversar", "amenaza")
+    ):
+        short = _short_text(core, limit=100)
+        return f"{short}: sin datos de competencia" if len(short) < 110 else short
+    return core
+
+
+def _honest_prose_from_facts(facts: list[str], *, limit: int = 800) -> str:
+    if not facts:
+        return "No hay hechos citados que sostengan una conclusión."
+    body = " ".join(_short_text(item, limit=260) for item in facts[:3])
+    return _short_text(
+        f"{body} Conclusión limitada a los hechos citados; no se afirma más de lo "
+        "que la evidencia permite.",
+        limit=limit,
+    )
+
+
+def _ground_conclusions_to_facts(
+    output: dict[str, Any],
+    *,
+    agent: str,
+) -> dict[str, Any]:
+    """Make title/summary/description answer for the cited facts.
+
+    Design hole closed here (not only model quality): the evidence reviewer
+    historically audited claim blocks with ``evidence_ids``, while the product
+    title/recommendation/summary could invent a theme the facts never support.
+    This gate is deterministic, always runs for conclusion agents, and degrades
+    unfounded prose instead of failing the job (agents stay ``succeeded``).
+    """
+
+    if agent not in _CONCLUSION_GROUNDING_AGENTS:
+        return output
+
+    facts = _fact_statements(output)
+    declared_fit = _declared_fit_statements(output)
+    # Corpus de fundamentación: facts oficiales + (solo opportunity) encaje declarado.
+    grounding_statements = [*facts, *declared_fit]
+    fact_tokens = _grounding_corpus_tokens(output, agent=agent)
+    fact_corpus = " ".join(grounding_statements)
+    result = dict(output)
+    warnings = list(result["warnings"]) if isinstance(result.get("warnings"), list) else []
+    degraded: list[str] = []
+
+    for field in _CONCLUSION_SCALAR_FIELDS:
+        value = result.get(field)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        # Titles are judged more strictly: every flashy orphan word is product damage.
+        # They also require assertion-predicate grounding (SV2-TITULO-FALSO).
+        is_title = field in {"title", "headline"}
+        ratio = 0.5 if is_title else 0.35
+        if _conclusion_supported(
+            value,
+            fact_tokens,
+            min_ratio=ratio,
+            fact_corpus=fact_corpus,
+            require_assertion_grounding=is_title,
+        ):
+            continue
+        if is_title:
+            honest = _honest_title_from_facts(grounding_statements or facts, agent=agent)
+        else:
+            honest = _honest_prose_from_facts(
+                grounding_statements or facts, limit=800 if field != "summary" else 600
+            )
+        degraded.append(
+            f"{field} («{_short_text(value, limit=72)}» → «{_short_text(honest, limit=72)}»)"
+        )
+        result[field] = honest
+
+    nba = result.get("next_best_action")
+    if isinstance(nba, dict):
+        updated = dict(nba)
+        for field in ("action", "rationale"):
+            value = updated.get(field)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            if _conclusion_supported(value, fact_tokens, min_ratio=0.35):
+                continue
+            seed = grounding_statements or facts
+            if seed:
+                updated[field] = _short_text(
+                    f"Revisar a la luz de: {_short_text(seed[0], limit=220)}",
+                    limit=500 if field == "action" else 800,
+                )
+            else:
+                updated[field] = "Sin hechos citados; se requiere revisión humana."
+            degraded.append(f"next_best_action.{field}")
+        result["next_best_action"] = updated
+
+    if degraded:
+        warnings.append(
+            "Conclusión no fundada en hechos citados: se degradó "
+            + "; ".join(degraded)
+            + ". Se publica un título/resumen honesto en lugar de uno vistoso sin base."
+        )
+        result["warnings"] = warnings
+        if isinstance(result.get("confidence"), int):
+            result["confidence"] = min(int(result["confidence"]), 45)
+
+    return result
+
+
+def _conclusion_review_claims(output: dict[str, Any]) -> list[dict[str, Any]]:
+    """Surface title/summary/etc. as reviewable claims (they lack evidence_ids)."""
+
+    claims: list[dict[str, Any]] = []
+    for field in _CONCLUSION_SCALAR_FIELDS:
+        value = output.get(field)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        claims.append(
+            {
+                "path": f"$.{field}",
+                "kind": "conclusion",
+                "confidence": output.get("confidence"),
+                "evidence_ids": [],
+                "claim": _short_text(value, limit=900),
+                "grounding_note": (
+                    "Conclusión de producto: debe sostenerse en los facts citados "
+                    "(candidate_claims con evidence_ids) o marcarse unsupported."
+                ),
+            }
+        )
+    recommendation = output.get("recommendation")
+    if isinstance(recommendation, str) and recommendation.strip():
+        claims.append(
+            {
+                "path": "$.recommendation",
+                "kind": "conclusion",
+                "confidence": output.get("confidence"),
+                "evidence_ids": [],
+                "claim": f"recommendation={recommendation.strip()}",
+                "grounding_note": (
+                    "La recomendación debe ser coherente con los facts citados; "
+                    "no inventes urgencia o go/no_go sin base."
+                ),
+            }
+        )
+    recommended_status = output.get("recommended_status")
+    if isinstance(recommended_status, str) and recommended_status.strip():
+        claims.append(
+            {
+                "path": "$.recommended_status",
+                "kind": "conclusion",
+                "confidence": output.get("confidence"),
+                "evidence_ids": [],
+                "claim": f"recommended_status={recommended_status.strip()}",
+                "grounding_note": (
+                    "El estado recomendado debe ser coherente con los facts citados."
+                ),
+            }
+        )
+    return claims
+
+
 def _review_candidate_claims(value: Any, *, path: str = "$") -> list[dict[str, Any]]:
     """Extract reviewable material claims without sending the whole generated artifact.
 
@@ -270,6 +797,28 @@ def _review_evidence_index(context: BuiltContext) -> list[dict[str, Any]]:
                 "extract": _short_text(row.extract, limit=1_200),
             }
         )
+    # Evidencia declarada (perfil): visible para el revisor con source_kind propio.
+    manifest = context.manifest if isinstance(getattr(context, "manifest", None), dict) else {}
+    declared_ids = {str(item) for item in (manifest.get("declared_evidence_ids") or [])}
+    payload = getattr(context, "payload", None)
+    declared_items = payload.get("declared_evidence") if isinstance(payload, dict) else None
+    for raw in declared_items or []:
+        if not isinstance(raw, dict):
+            continue
+        rid = str(raw.get("id") or "")
+        if not rid or (declared_ids and rid not in declared_ids):
+            continue
+        items.append(
+            {
+                "id": rid,
+                "source_kind": str(raw.get("source_kind") or "declared"),
+                "classification": str(raw.get("classification") or "internal"),
+                "locator": raw.get("locator") if isinstance(raw.get("locator"), dict) else {},
+                "extract": _short_text(raw.get("extract"), limit=1_200),
+                "origin": "declared_by_client",
+                "label": raw.get("label") or "Declarado por el cliente",
+            }
+        )
     return items
 
 
@@ -280,13 +829,21 @@ def _reviewer_context(
     context: BuiltContext,
     output: dict[str, Any],
 ) -> dict[str, Any]:
-    claims = _review_candidate_claims(output)
+    # Material claims (with evidence_ids) plus product conclusions (title/summary/…).
+    # Without the latter the reviewer cannot judge a flashy unfounded title even when
+    # the outline already carries it — the old instruction told it to ignore outline.
+    claims = [*_review_candidate_claims(output), *_conclusion_review_claims(output)]
     return {
         "review_task": {
             "candidate_agent": agent,
             "candidate_schema": prompt.output_schema_name,
             "instruction": (
-                "Revisa solo estos claims compactos, sus evidence_ids y el índice de evidencia. "
+                "Revisa claims compactos (con evidence_ids) y conclusiones de producto "
+                "(kind=conclusion: title, summary, description, recommendation). "
+                "Cada conclusión debe sostenerse en los facts citados: si el título o el "
+                "resumen inventan un tema ausente en los facts (p. ej. 'competencia en "
+                "software' con facts solo de impermeabilización), márcalo en "
+                "unsupported_claims con path $.title / $.summary. "
                 "No reescribas el informe y no repitas claims válidos."
             ),
         },
@@ -314,6 +871,27 @@ def _reviewer_output_budget(
     return min(desired, policy_tokens)
 
 
+def _is_conclusion_path(path: str) -> bool:
+    """True when the reviewer is pointing at a product conclusion (title/summary/…)."""
+
+    normalized = str(path or "").strip()
+    if not normalized:
+        return False
+    conclusion_fields = (
+        *_CONCLUSION_SCALAR_FIELDS,
+        "recommendation",
+        "recommended_status",
+        "rationale",
+        "decision",
+    )
+    for field in conclusion_fields:
+        if normalized in {field, f"$.{field}", f"candidate_outline.{field}"}:
+            return True
+        if normalized.endswith(f".{field}") or normalized.endswith(f"['{field}']"):
+            return True
+    return False
+
+
 def _strip_reviewer_rejected_claims(
     output: dict[str, Any],
     reviewer: EvidenceReviewerOutput,
@@ -326,93 +904,160 @@ def _strip_reviewer_rejected_claims(
     package. A direct path is trusted only when it names a claim Oracle actually sent and carries
     the same text. Otherwise an exact, unique text match recovers the original output path.
 
-    With ``lenient=False`` (resumen nocturno), ambiguity or unscoped safety objections keep the
-    historical fail-closed behaviour. With ``lenient=True`` (``report_writer``), unanchorable
-    scoped objections become visible warnings and the report still publishes so a demo or
-    analyst is not left without an artifact after a successful generation.
+    Objection classes (never mixed):
+
+    * **Quality** (``confidence_issues``, ``classification_errors``): with ``lenient=True``
+      (report_writer, opportunity, risk) degrade to visible warnings so a successful generate
+      still yields a proposal for the human gate. Strict mode stays fail-closed.
+    * **Security** (``privacy_or_security_issues``, ``prompt_injection_indicators``): always
+      fail-closed. Open-source ingestion must not publish when the reviewer suspects injection
+      or a privacy/security issue, even for lenient agents.
+    * **Scoped claims** that the reviewer flags but cannot be uniquely anchored: fail-closed
+      always. Publishing the claim with a footnote would leave content the reviewer rejected.
+      Fuzzy path/text matching is the recovery path; if it fails, refuse to publish.
+    * **Conclusion fields** (title/summary/…): never stripped here. They are degraded by
+      ``_ground_conclusions_to_facts`` so an unfounded title becomes honest instead of killing
+      the job.
     """
 
-    scoped_issues = [
-        *reviewer.unsupported_claims,
-        *reviewer.misused_evidence,
-        *reviewer.missing_evidence,
+    scoped_issues: list[ClaimIssue] = [
+        issue
+        for issue in (
+            *reviewer.unsupported_claims,
+            *reviewer.misused_evidence,
+            *reviewer.missing_evidence,
+        )
+        if not _is_conclusion_path(issue.path)
     ]
-    unscoped_issues = [
+    conclusion_issues: list[ClaimIssue] = [
+        issue
+        for issue in (
+            *reviewer.unsupported_claims,
+            *reviewer.misused_evidence,
+            *reviewer.missing_evidence,
+        )
+        if _is_conclusion_path(issue.path)
+    ]
+    quality_issues: list[str] = [
         *reviewer.classification_errors,
-        *reviewer.privacy_or_security_issues,
-        *reviewer.prompt_injection_indicators,
         *reviewer.confidence_issues,
     ]
-    if unscoped_issues or not scoped_issues:
+    security_issues: list[str] = [
+        *reviewer.privacy_or_security_issues,
+        *reviewer.prompt_injection_indicators,
+    ]
+    unanchored: list[ClaimIssue] = []
+
+    if security_issues:
+        detail = "; ".join(
+            _short_text(str(sec_note), limit=200) for sec_note in security_issues[:6]
+        )
+        raise EvidenceReviewError(
+            "El revisor rechazó el output por objeciones de seguridad "
+            f"(privacidad o inyección de prompt): {detail}"
+        )
+
+    if not scoped_issues:
+        # Solo calidad, conclusiones de producto, o fail vacío: en lenient publicar con
+        # advertencia (las conclusiones las degrada _ground_conclusions_to_facts). Estricto falla
+        # salvo cuando las únicas objeciones scoped eran conclusiones (path $.title etc.).
+        if lenient or conclusion_issues:
+            warnings = output.get("warnings")
+            if not isinstance(warnings, list):
+                raise EvidenceReviewError("El informe no permite declarar el recorte del revisor.")
+            warnings = list(warnings)
+            if quality_issues:
+                warnings.append(
+                    "Revisión de evidencia: el revisor objetó con motivos de calidad no "
+                    f"retirables por claim ({len(quality_issues)}); la propuesta se publica "
+                    "con advertencia."
+                )
+                for quality_note in quality_issues[:12]:
+                    warnings.append(
+                        f"Objeción de calidad: {_short_text(str(quality_note), limit=800)}"
+                    )
+            if conclusion_issues:
+                warnings.append(
+                    "Revisión de evidencia: el revisor objetó conclusiones de producto "
+                    f"({len(conclusion_issues)}); se degradarán al fundarse en hechos citados."
+                )
+                for conclusion_issue in conclusion_issues[:8]:
+                    warnings.append(
+                        "Conclusión objetada: "
+                        f"{_short_text(conclusion_issue.claim, limit=400)} "
+                        f"Motivo: {_short_text(conclusion_issue.reason, limit=400)}"
+                    )
+            if not quality_issues and not conclusion_issues:
+                warnings.append(
+                    "Revisión de evidencia: veredicto fail sin claims anclables ni objeciones "
+                    "de seguridad; la propuesta se publica con advertencia."
+                )
+            return {**output, "warnings": warnings}
         raise EvidenceReviewError(
             "El revisor rechazó el resumen con objeciones que no se pueden retirar por claim."
         )
+    if quality_issues and not lenient:
+        raise EvidenceReviewError(
+            "El revisor rechazó el resumen con objeciones de calidad que no se pueden retirar "
+            "por claim."
+        )
 
     candidates = _review_candidate_claims(output)
-    resolved: dict[str, Any] = {}
-    unanchored: list[Any] = []
-    for issue in scoped_issues:
+    resolved: dict[str, ClaimIssue] = {}
+    for claim_issue in scoped_issues:
         direct = [
             candidate
             for candidate in candidates
-            if candidate["path"] == issue.path and candidate["claim"] == issue.claim
+            if candidate["path"] == claim_issue.path and candidate["claim"] == claim_issue.claim
         ]
-        exact_text = [candidate for candidate in candidates if candidate["claim"] == issue.claim]
+        exact_text = [
+            candidate for candidate in candidates if candidate["claim"] == claim_issue.claim
+        ]
         # Reviewer paths over the compact package often miss the original JSON path; fall back
         # to a unique path suffix or unique substring match before giving up.
         path_suffix = [
             candidate
             for candidate in candidates
-            if issue.path
+            if claim_issue.path
             and (
-                str(candidate["path"]).endswith(issue.path)
-                or issue.path.endswith(str(candidate["path"]))
+                str(candidate["path"]).endswith(claim_issue.path)
+                or claim_issue.path.endswith(str(candidate["path"]))
             )
             and (
-                candidate["claim"] == issue.claim
-                or issue.claim in str(candidate["claim"])
-                or str(candidate["claim"]) in issue.claim
+                candidate["claim"] == claim_issue.claim
+                or claim_issue.claim in str(candidate["claim"])
+                or str(candidate["claim"]) in claim_issue.claim
             )
         ]
         fuzzy_text = [
             candidate
             for candidate in candidates
-            if issue.claim
-            and (issue.claim in str(candidate["claim"]) or str(candidate["claim"]) in issue.claim)
+            if claim_issue.claim
+            and (
+                claim_issue.claim in str(candidate["claim"])
+                or str(candidate["claim"]) in claim_issue.claim
+            )
         ]
         matches = direct or exact_text or path_suffix
         if not matches and len({str(c["path"]) for c in fuzzy_text}) == 1:
             matches = fuzzy_text
         unique_paths = {str(candidate["path"]) for candidate in matches}
         if len(unique_paths) != 1 or "$" in unique_paths:
-            if lenient:
-                unanchored.append(issue)
-                continue
-            raise EvidenceReviewError(
-                "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
-            )
-        resolved[next(iter(unique_paths))] = issue
+            # Claim señalada y no anclable: fail-closed siempre (también en indulgente).
+            # Publicar la afirmación con una nota al pie no es defendible.
+            unanchored.append(claim_issue)
+            continue
+        resolved[next(iter(unique_paths))] = claim_issue
 
-    if not resolved and unanchored and lenient:
-        warnings = output.get("warnings")
-        if not isinstance(warnings, list):
-            raise EvidenceReviewError("El informe no permite declarar el recorte del revisor.")
-        warnings = list(warnings)
-        warnings.append(
-            "Revisión de evidencia: el revisor objetó "
-            f"{len(unanchored)} "
-            f"{'afirmación' if len(unanchored) == 1 else 'afirmaciones'} "
-            "que no se pudieron anclar de forma única; el informe se publica con advertencia."
+    if unanchored:
+        sample = unanchored[0]
+        raise EvidenceReviewError(
+            "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única "
+            f"({len(unanchored)} objeción(es) sin ancla). No se publica el contenido objetado. "
+            f"Ejemplo: {_short_text(sample.claim, limit=300)}"
         )
-        for issue in unanchored[:12]:
-            warnings.append(
-                "Objeción no anclada: "
-                f"{_short_text(issue.claim, limit=500)} "
-                f"Motivo: {_short_text(issue.reason, limit=500)}"
-            )
-        return {**output, "warnings": warnings}
 
-    if not resolved and not lenient:
+    if not resolved:
         raise EvidenceReviewError(
             "El revisor rechazó el resumen, pero su claim no se pudo anclar de forma única."
         )
@@ -436,7 +1081,7 @@ def _strip_reviewer_rejected_claims(
             return [item for item in cleaned_items if item is not dropped]
         return value
 
-    cleaned_output = clean(output) if resolved else dict(output)
+    cleaned_output = clean(output)
     if not isinstance(cleaned_output, dict):
         raise EvidenceReviewError("El revisor objetó el resumen completo; no se puede publicar.")
     warnings = cleaned_output.get("warnings")
@@ -448,23 +1093,30 @@ def _strip_reviewer_rejected_claims(
     if count:
         label = "afirmación objetada" if count == 1 else "afirmaciones objetadas"
         warnings.append(f"Revisión de evidencia: se retiraron {count} {label} antes de publicar.")
-    for issue in resolved.values():
+    for resolved_issue in resolved.values():
         warnings.append(
             "Afirmación retirada: "
-            f"{_short_text(issue.claim, limit=500)} Motivo: {_short_text(issue.reason, limit=500)}"
+            f"{_short_text(resolved_issue.claim, limit=500)} "
+            f"Motivo: {_short_text(resolved_issue.reason, limit=500)}"
         )
-    if unanchored:
+    # Calidad residual junto a claims anclados: en indulgente se documenta; no bloquea el recorte.
+    if quality_issues and lenient:
         warnings.append(
-            "Revisión de evidencia: "
-            f"{len(unanchored)} "
-            f"{'objeción' if len(unanchored) == 1 else 'objeciones'} "
-            "no se anclaron de forma única y se conservan con advertencia."
+            "Revisión de evidencia: además se conservan "
+            f"{len(quality_issues)} objeción(es) de calidad como advertencia."
         )
-        for issue in unanchored[:12]:
+        for quality_note in quality_issues[:12]:
+            warnings.append(f"Objeción de calidad: {_short_text(str(quality_note), limit=800)}")
+    if conclusion_issues:
+        warnings.append(
+            "Revisión de evidencia: el revisor objetó conclusiones de producto "
+            f"({len(conclusion_issues)}); se degradarán al fundarse en hechos citados."
+        )
+        for conclusion_issue in conclusion_issues[:8]:
             warnings.append(
-                "Objeción no anclada: "
-                f"{_short_text(issue.claim, limit=500)} "
-                f"Motivo: {_short_text(issue.reason, limit=500)}"
+                "Conclusión objetada: "
+                f"{_short_text(conclusion_issue.claim, limit=400)} "
+                f"Motivo: {_short_text(conclusion_issue.reason, limit=400)}"
             )
     return cleaned_output
 
@@ -959,11 +1611,146 @@ def execute_agent(
         db.session.commit()
         provider = provider_from_config(current_app.config)
         result = provider.generate_structured(request, prompt.schema)
-        validate_evidence(cast(AgentOutput, result.output), {item.id for item in context.evidence})
+        allowed_evidence = {item.id for item in context.evidence}
+        # SV2-AUG: dual-memory allowlist lives in supplemental_context, not only
+        # build_context oracle evidence rows.
+        if agent == "dossier_question_answer" and supplemental_context:
+            for raw_id in supplemental_context.get("allowed_evidence_ids") or []:
+                try:
+                    allowed_evidence.add(uuid.UUID(str(raw_id)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+        # SV2-PERFIL-EVIDENCIA: primero separar declarado de oficial; si no, un
+        # fact que cite UUID declared tumba validate_evidence (solo ORM oficial).
+        output = result.output.model_dump(mode="json")
+        if agent == "opportunity":
+            declared_set: set[uuid.UUID] = set()
+            for raw_id in context.manifest.get("declared_evidence_ids") or []:
+                try:
+                    declared_set.add(uuid.UUID(str(raw_id)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            output = validate_opportunity_origin_boundary(
+                output,
+                official_ids=allowed_evidence,
+                declared_ids=declared_set,
+            )
+            # SV2-ENCAJE: puntuación dimensional determinista (coste 0) con citas
+            # duales y veredicto con puerta humana. No sustituye facts oficiales.
+            # Si el motor dimensional falla, se conserva el fit_assessment previo
+            # (no tumbar el job de opportunity).
+            try:
+                from opn_oracle.ai.fit_scoring import enrich_opportunity_fit_assessment
+
+                output = enrich_opportunity_fit_assessment(
+                    output,
+                    context_payload=context.payload if isinstance(context.payload, dict) else {},
+                )
+                output = validate_opportunity_origin_boundary(
+                    output,
+                    official_ids=allowed_evidence,
+                    declared_ids=declared_set,
+                )
+            except Exception as enrich_error:
+                warnings = (
+                    list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
+                )
+                warnings.append(
+                    "Encaje dimensional no aplicado: "
+                    f"{type(enrich_error).__name__}. Se conserva fit_assessment base."
+                )
+                output["warnings"] = warnings
+            # SV2-BORRADOR: esqueleto de oferta desde criterios del PCAP (coste 0).
+            # Solo si hay fit_assessment.verdict. No contamina facts oficiales.
+            try:
+                from opn_oracle.ai.draft_offer import (
+                    enrich_opportunity_draft_offer,
+                    strip_draft_from_official_facts,
+                )
+
+                output = enrich_opportunity_draft_offer(
+                    output,
+                    context_payload=context.payload if isinstance(context.payload, dict) else {},
+                )
+                # SV2-PROSA: pulido opcional de semillas (ollama_titan, coste 0).
+                # Fallback silencioso a semilla si timeout / task no autorizada / guardarraíl.
+                try:
+                    from opn_oracle.ai.draft_prose import polish_draft_offer_prose
+
+                    draft_block = output.get("draft_offer")
+                    if isinstance(draft_block, dict):
+                        output["draft_offer"] = polish_draft_offer_prose(
+                            draft_block,
+                            provider=provider,
+                        )
+                except Exception as prose_error:
+                    warnings = (
+                        list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
+                    )
+                    warnings.append(
+                        f"Pulido de prosa del borrador omitido: {type(prose_error).__name__}."
+                    )
+                    output["warnings"] = warnings
+                output = strip_draft_from_official_facts(output)
+                output = validate_opportunity_origin_boundary(
+                    output,
+                    official_ids=allowed_evidence,
+                    declared_ids=declared_set,
+                )
+            except Exception as draft_error:
+                warnings = (
+                    list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
+                )
+                warnings.append(f"Borrador de oferta no aplicado: {type(draft_error).__name__}.")
+                output["warnings"] = warnings
+            boundary_model = prompt.schema.model_validate_json(json.dumps(output))
+            validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
+            output = boundary_model.model_dump(mode="json")
+        elif agent == "risk":
+            # SV2-RIESGO-DECL: separar declarado de oficial antes de validate_evidence.
+            risk_declared_ids: set[uuid.UUID] = set()
+            for raw_id in context.manifest.get("declared_evidence_ids") or []:
+                try:
+                    risk_declared_ids.add(uuid.UUID(str(raw_id)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            output = validate_risk_origin_boundary(
+                output,
+                official_ids=allowed_evidence,
+                declared_ids=risk_declared_ids,
+            )
+            try:
+                output = enrich_risk_context_declared(
+                    output,
+                    context_payload=context.payload if isinstance(context.payload, dict) else {},
+                )
+                output = validate_risk_origin_boundary(
+                    output,
+                    official_ids=allowed_evidence,
+                    declared_ids=risk_declared_ids,
+                )
+            except Exception as enrich_error:
+                warnings = (
+                    list(output["warnings"]) if isinstance(output.get("warnings"), list) else []
+                )
+                warnings.append(
+                    "Contexto de riesgo declarado no aplicado: "
+                    f"{type(enrich_error).__name__}. Se conservan facts oficiales."
+                )
+                output["warnings"] = warnings
+            boundary_model = prompt.schema.model_validate_json(json.dumps(output))
+            validate_evidence(cast(AgentOutput, boundary_model), allowed_evidence)
+            output = boundary_model.model_dump(mode="json")
+        else:
+            validate_evidence(cast(AgentOutput, result.output), allowed_evidence)
+            output = result.output.model_dump(mode="json")
     except Exception as error:
         fail(error, active_attempt_id=attempt_id)
         raise
-    output = result.output.model_dump(mode="json")
+    # Preserve bilateral trust hash from Signal validated_output (MDEV-06).
+    vo_hash = getattr(result, "validated_output_sha256", None)
+    if vo_hash:
+        output["validated_output_sha256"] = str(vo_hash)
     try:
         if agent == "dossier_completion_wizard":
             validate_dossier_completion_output(output, context)
@@ -1128,7 +1915,16 @@ def execute_agent(
                     cleaned_output = _strip_reviewer_rejected_claims(
                         output,
                         reviewer,
-                        lenient=(agent == "report_writer"),
+                        lenient=(
+                            agent
+                            in {
+                                "report_writer",
+                                "opportunity",
+                                "risk",
+                                "actor_partnership",
+                                "entity_resolution",
+                            }
+                        ),
                     )
                     cleaned_model = prompt.schema.model_validate_json(json.dumps(cleaned_output))
                     validate_evidence(
@@ -1143,6 +1939,20 @@ def execute_agent(
                 fail(rejection_error, active_attempt_id=reviewer_attempt_id)
                 raise rejection_error
         checked_reviewer.status = "succeeded"
+    # Conclusiones (título/resumen/recomendación) deben responder de los facts citados.
+    # Corre siempre — no solo cuando el revisor falla — porque el revisor puede pasar
+    # claims bien citados y dejar un título inventado.
+    if agent in _CONCLUSION_GROUNDING_AGENTS:
+        output = _ground_conclusions_to_facts(output, agent=agent)
+        try:
+            grounded_model = prompt.schema.model_validate_json(json.dumps(output))
+            validate_evidence(
+                cast(AgentOutput, grounded_model), {item.id for item in context.evidence}
+            )
+            output = grounded_model.model_dump(mode="json")
+        except Exception as error:
+            fail(error, active_attempt_id=reviewer_attempt_id or attempt_id)
+            raise
     if soft_budget_warning:
         output["warnings"] = [
             *output.get("warnings", []),

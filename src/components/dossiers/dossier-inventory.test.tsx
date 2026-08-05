@@ -120,16 +120,18 @@ describe("DossierInventory", () => {
     expect(screen.getByLabelText("Filtrar por estado")).toHaveValue("active");
   });
 
-  it("abre el expediente desde la fila con teclado", async () => {
+  it("abre el expediente desde el enlace del título (teclado/AT)", async () => {
     render(<DossierInventory />);
 
-    const row = await screen.findByRole("button", {
-      name: "Abrir expediente Expansión Delta",
+    const links = await screen.findAllByRole("link", {
+      name: /Expansión Delta/i,
     });
+    const link = links.find((el) => el.closest("tr.interactive-row")) ?? links[0];
+    const row = link.closest("tr");
     expect(row).toHaveClass("interactive-row");
-    fireEvent.keyDown(row, { key: "Enter" });
-
-    expect(mocks.push).toHaveBeenCalledWith(`/app/dossiers/${dossier.id}`);
+    // La fila ya no es role=button (nested-interactive); el Link es el target de teclado.
+    expect(row).not.toHaveAttribute("role", "button");
+    expect(link).toHaveAttribute("href", `/app/dossiers/${dossier.id}`);
   });
 
   it("codifica búsqueda y sort en una URL compartible", async () => {

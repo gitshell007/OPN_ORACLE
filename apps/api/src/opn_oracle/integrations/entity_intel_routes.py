@@ -21,6 +21,14 @@ from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.common.request_context import get_correlation_id, get_request_id
 from opn_oracle.extensions import db, limiter
+from opn_oracle.integrations.entity_graph_snapshots import (
+    annotate_graph_payload,
+    get_entity_graph_snapshot,
+    list_entity_graph_snapshots,
+    serialize_snapshot_meta,
+    serialize_snapshot_payload,
+    try_persist_entity_graph_snapshot,
+)
 from opn_oracle.integrations.entity_intel import (
     EntityIntelConfigurationError,
     EntityIntelProviderError,
@@ -80,6 +88,27 @@ class EntityGraphResponseSchema(Schema):
     note = String(required=False, allow_none=True)
     cached_seconds = Integer(required=True)
     cache_hit = Boolean(required=True)
+    completeness = String(
+        required=False,
+        load_default="complete",
+        validate=validate.OneOf(["complete", "incomplete"]),
+    )
+    incompleteness_reasons = List(String(), required=False, load_default=list)
+    captured_at = String(required=False, allow_none=True)
+    graph_origin = String(required=False, allow_none=True)
+    requested_depth = Integer(required=False, allow_none=True)
+    snapshot_id = String(required=False, allow_none=True)
+
+
+class EntityGraphSnapshotListQuerySchema(Schema):
+    name = String(required=True, validate=validate.Length(min=2, max=300))
+    type = String(load_default="company", validate=validate.OneOf(["company", "person"]))
+    limit = Integer(load_default=10, validate=validate.Range(min=1, max=20))
+
+
+class EntityGraphSnapshotListResponseSchema(Schema):
+    items = List(Dict(keys=String(), values=Raw()), required=True)
+    total = Integer(required=True)
 
 
 class EntityRegistryQuerySchema(Schema):
@@ -225,20 +254,76 @@ def suggest_entities(query_data: dict[str, Any]) -> dict[str, Any] | Any:
 @limiter.limit("30/minute")
 def entity_graph(query_data: dict[str, Any]) -> dict[str, Any] | Any:
     tenant_id = str(g.active_tenant_id)
+    name = cast(str, query_data["name"]).strip()
+    kind = cast(Any, query_data["type"])
+    depth = int(query_data["depth"])
+    active_only = bool(query_data["active_only"])
     try:
         external_tenant_id = resolve_signal_external_tenant_id()
-        return cached_graph(
+        live = cached_graph(
             tenant_id=tenant_id,
-            name=cast(str, query_data["name"]).strip(),
-            kind=cast(Any, query_data["type"]),
-            depth=int(query_data["depth"]),
-            active_only=bool(query_data["active_only"]),
+            name=name,
+            kind=kind,
+            depth=depth,
+            active_only=active_only,
             external_tenant_id=external_tenant_id,
         )
     except EntityIntelConfigurationError as exc:
         return _configuration_error_response(exc)
     except EntityIntelProviderError as exc:
         return _provider_error_response(exc)
+
+    snapshot = try_persist_entity_graph_snapshot(
+        db.session,
+        tenant_id=uuid.UUID(tenant_id),
+        entity_name=name,
+        entity_kind=str(kind),
+        depth=depth,
+        active_only=active_only,
+        payload=live,
+    )
+    return annotate_graph_payload(
+        live,
+        depth=depth,
+        captured_at=snapshot.captured_at if snapshot is not None else None,
+        snapshot_id=str(snapshot.id) if snapshot is not None else None,
+        origin="live",
+    )
+
+
+@bp.get("/graph/snapshots")
+@require_permission("actor.read")
+@bp.input(EntityGraphSnapshotListQuerySchema, location="query")
+@bp.output(EntityGraphSnapshotListResponseSchema)
+@limiter.limit("30/minute")
+def entity_graph_snapshots(query_data: dict[str, Any]) -> dict[str, Any] | Any:
+    tenant_id = uuid.UUID(str(g.active_tenant_id))
+    rows = list_entity_graph_snapshots(
+        db.session,
+        tenant_id=tenant_id,
+        entity_name=cast(str, query_data["name"]).strip(),
+        entity_kind=str(query_data["type"]),
+        limit=int(query_data["limit"]),
+    )
+    items = [serialize_snapshot_meta(row) for row in rows]
+    return {"items": items, "total": len(items)}
+
+
+@bp.get("/graph/snapshots/<uuid:snapshot_id>")
+@require_permission("actor.read")
+@bp.output(EntityGraphResponseSchema)
+@limiter.limit("30/minute")
+def entity_graph_snapshot_detail(snapshot_id: uuid.UUID) -> dict[str, Any] | Any:
+    tenant_id = uuid.UUID(str(g.active_tenant_id))
+    row = get_entity_graph_snapshot(db.session, tenant_id=tenant_id, snapshot_id=snapshot_id)
+    if row is None:
+        return _problem_response_passthrough(
+            404,
+            title="Snapshot de grafo no encontrado",
+            detail="No hay un grafo societario guardado con ese identificador en este tenant.",
+            code="entity_graph_snapshot_not_found",
+        )
+    return serialize_snapshot_payload(row)
 
 
 @bp.get("/registry")

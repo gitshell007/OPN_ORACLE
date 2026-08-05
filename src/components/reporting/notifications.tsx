@@ -31,6 +31,7 @@ import {
 
 const typeLabel: Record<string, string> = {
   "*": "Todas las notificaciones",
+  "procurement.watch": "Alertas de licitaciones (vigilancia)",
   "report.ready": "Informes disponibles",
   "export.ready": "Exportaciones disponibles",
   "security.password_changed": "Cambio de contraseña",
@@ -450,7 +451,11 @@ export function NotificationPreferences() {
         <div>
           <span className="section-kicker">Cuenta · canales y digests</span>
           <h1>Notificaciones</h1>
-          <p>Controla frecuencia, canal, severidad mínima y horas silenciosas.</p>
+          <p>
+            Controla frecuencia, canal, severidad mínima y horas silenciosas.
+            Para correo solo de licitaciones usa «Alertas de licitaciones
+            (vigilancia)» sin activar «Todas las notificaciones».
+          </p>
         </div>
       </header>
       {showAccountTabs && <SettingsHeader active="notifications" />}

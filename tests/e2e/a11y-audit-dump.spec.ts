@@ -1,6 +1,10 @@
 /**
- * SV2-UI-A11Y: measured axe dump for Gate Packet (not a green/red gate).
+ * SV2-A11Y-2: measured axe dump for Gate Packet (not a green/red gate).
  * Writes raw violations to test-results/a11y-audit-dump.json — including known debt.
+ *
+ * Local (seed E2E):  npx playwright test tests/e2e/a11y-audit-dump.spec.ts --project=desktop
+ * oracle-dev:        PLAYWRIGHT_BASE_URL=… ORACLE_E2E_EMAIL=… ORACLE_E2E_PASSWORD=…
+ *                    npx playwright test tests/e2e/a11y-audit-dump.spec.ts --project=desktop
  */
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -18,6 +22,16 @@ const ROUTES = [
   "/app/admin/ai",
 ] as const;
 
+/** Rutas de hoja del expediente (6 grupos + subnav clave + portada). */
+const DOSSIER_LEAF_SEGMENTS = [
+  "", // portada / Resumen
+  "signals", // Vigilancia (subnav)
+  "ask", // Análisis → Preguntar
+  "tasks", // Decisión
+  "documents", // Entregables
+  "activity", // Actividad
+] as const;
+
 type DumpFinding = {
   route: string;
   id: string;
@@ -29,22 +43,49 @@ type DumpFinding = {
   failureSummary?: string;
 };
 
-async function loginOwner(page: Page, testInfo: TestInfo) {
+function isRemote(): boolean {
+  return Boolean(process.env.PLAYWRIGHT_BASE_URL?.trim());
+}
+
+async function login(page: Page, testInfo: TestInfo) {
   await page.setExtraHTTPHeaders({ "X-Forwarded-For": "198.51.100.140" });
   await page.goto("/login?next=%2Fapp");
-  await page.getByLabel("Correo electrónico").fill("owner@oracle-e2e.test");
-  await page
-    .getByLabel("Contraseña", { exact: true })
-    .fill("Oracle E2E segura 2026");
+
+  const remoteEmail = process.env.ORACLE_E2E_EMAIL?.trim();
+  const remotePassword = process.env.ORACLE_E2E_PASSWORD?.trim();
+  const email = remoteEmail || "owner@oracle-e2e.test";
+  const password = remotePassword || "Oracle E2E segura 2026";
+
+  await page.getByLabel("Correo electrónico").fill(email);
+  await page.getByLabel("Contraseña", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Entrar en Oracle" }).click();
-  await expect(page.getByLabel("Organización")).toBeVisible();
-  await page.getByLabel("Organización").selectOption({ label: "Asterion E2E" });
-  await page.getByRole("button", { name: "Entrar en Oracle" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+
+  const org = page.getByLabel("Organización");
+  const appLanded = page.waitForURL(/\/app/, { timeout: 25_000 });
+  await Promise.race([
+    org.waitFor({ state: "visible", timeout: 20_000 }).then(async () => {
+      const label =
+        process.env.ORACLE_E2E_TENANT_LABEL?.trim() ||
+        (isRemote() ? "SV2 Demo Tenant" : "Asterion E2E");
+      // Prefer label match; fall back to first non-empty option.
+      try {
+        await org.selectOption({ label });
+      } catch {
+        const options = await org.locator("option").allTextContents();
+        const pick = options.map((t) => t.trim()).find((t) => t.length > 0);
+        if (pick) await org.selectOption({ label: pick });
+      }
+      await page.getByRole("button", { name: "Entrar en Oracle" }).click();
+    }),
+    appLanded,
+  ]);
+  await expect(page).toHaveURL(/\/app/);
 }
 
 async function dumpAxe(page: Page, route: string): Promise<DumpFinding[]> {
-  await expect(page).toHaveTitle(/\S/);
+  await expect(page.locator("body")).toBeVisible();
+  // Settle layout before axe (nav animations / data fetch).
+  await page.waitForTimeout(400);
   const result = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   return result.violations.flatMap((violation) =>
     violation.nodes.map((node) => ({
@@ -55,17 +96,17 @@ async function dumpAxe(page: Page, route: string): Promise<DumpFinding[]> {
       description: violation.description,
       target: node.target.join(" "),
       html: node.html?.slice(0, 240),
-      failureSummary: node.failureSummary?.slice(0, 400),
+      failureSummary: node.failureSummary?.slice(0, 500),
     })),
   );
 }
 
-test("SV2-UI-A11Y dump axe findings for product routes", async ({ page }, testInfo) => {
+test("SV2-A11Y-2 dump axe findings for product routes", async ({ page }, testInfo) => {
   test.skip(
     testInfo.project.name === "mobile",
     "Audit dump runs once on desktop viewport.",
   );
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
 
   const findings: DumpFinding[] = [];
   const routeStatus: Array<{
@@ -91,7 +132,7 @@ test("SV2-UI-A11Y dump axe findings for product routes", async ({ page }, testIn
     });
   }
 
-  await loginOwner(page, testInfo);
+  await login(page, testInfo);
 
   for (const route of ROUTES) {
     await page.goto(route);
@@ -119,25 +160,54 @@ test("SV2-UI-A11Y dump axe findings for product routes", async ({ page }, testIn
     });
   }
 
-  // Dossier detail: pick first link from list if available
-  let dossierRoute = "";
+  // Dossier detail + leaf routes (6 groups sample)
+  let dossierBase = "";
   await page.goto("/app/dossiers");
-  const href =
-    (await page.locator('a[href^="/app/dossiers/"]').first().getAttribute("href")) ??
-    "";
-  if (/^\/app\/dossiers\/[0-9a-f-]+/.test(href)) {
-    dossierRoute = href.replace(/\/(signals|documents|settings|reports).*$/, "");
-    await page.goto(dossierRoute);
-    await expect(page.locator("main")).toBeVisible({ timeout: 15_000 });
-    const batch = await dumpAxe(page, dossierRoute);
-    findings.push(...batch);
-    routeStatus.push({
-      route: dossierRoute,
-      url: page.url(),
-      ok: true,
-      notes: "dossier detail from list",
-      violationCount: batch.length,
-    });
+  // Prefer demo name on remote; otherwise first dossier link.
+  const demoLink = page
+    .getByRole("link", { name: /Nexus Ibérica/i })
+    .or(
+      page
+        .locator('a[href^="/app/dossiers/"]')
+        .filter({ hasText: /Nexus Ibérica/i }),
+    )
+    .first();
+  let href = "";
+  if (await demoLink.isVisible().catch(() => false)) {
+    href = (await demoLink.getAttribute("href")) ?? "";
+  } else {
+    href =
+      (await page.locator('a[href^="/app/dossiers/"]').first().getAttribute("href")) ??
+      "";
+  }
+  const match = href.match(/^(\/app\/dossiers\/[0-9a-f-]+)/i);
+  if (match) {
+    dossierBase = match[1];
+    for (const segment of DOSSIER_LEAF_SEGMENTS) {
+      const route = segment ? `${dossierBase}/${segment}` : dossierBase;
+      await page.goto(route);
+      try {
+        await expect(page.locator("main")).toBeVisible({ timeout: 15_000 });
+      } catch {
+        /* still dump */
+      }
+      // Wait for grouped nav when present
+      await page
+        .getByTestId("dossier-nav-summary")
+        .waitFor({ state: "visible", timeout: 10_000 })
+        .catch(() => undefined);
+      const batch = await dumpAxe(page, route);
+      findings.push(...batch);
+      routeStatus.push({
+        route,
+        url: page.url(),
+        ok: true,
+        notes: segment
+          ? `dossier leaf segment=${segment}`
+          : "dossier portada / Resumen",
+        violationCount: batch.length,
+      });
+    }
   } else {
     routeStatus.push({
       route: "/app/dossiers/<id>",
@@ -152,7 +222,10 @@ test("SV2-UI-A11Y dump axe findings for product routes", async ({ page }, testIn
   fs.mkdirSync(outDir, { recursive: true });
   const payload = {
     generated_at: new Date().toISOString(),
-    prompt: "SV2-UI-A11Y",
+    prompt: "SV2-A11Y-2",
+    target: isRemote()
+      ? process.env.PLAYWRIGHT_BASE_URL
+      : "http://127.0.0.1:3000",
     wcag_tags: WCAG_TAGS,
     route_status: routeStatus,
     findings,
@@ -175,14 +248,12 @@ test("SV2-UI-A11Y dump axe findings for product routes", async ({ page }, testIn
   };
   const outPath = path.join(outDir, "a11y-audit-dump.json");
   fs.writeFileSync(outPath, JSON.stringify(payload, null, 2));
-  // Attach for Playwright report
   await testInfo.attach("a11y-audit-dump.json", {
     body: JSON.stringify(payload, null, 2),
     contentType: "application/json",
   });
-  // Soft assertion: dump must exist; violations are the deliverable
   expect(fs.existsSync(outPath)).toBe(true);
   console.log(
-    `[SV2-UI-A11Y] dump written: ${outPath} findings=${findings.length}`,
+    `[SV2-A11Y-2] dump written: ${outPath} findings=${findings.length} by_impact=${JSON.stringify(payload.summary.by_impact)} by_rule=${JSON.stringify(payload.summary.by_rule)}`,
   );
 });

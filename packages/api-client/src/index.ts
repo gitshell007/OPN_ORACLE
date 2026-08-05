@@ -12,8 +12,18 @@ export type {
   SignalMonitorEntityInput,
   SignalMonitorSourceType,
 } from "./transport";
+export type { DossierMemoryProfile } from "./transport";
+export type {
+  AiAuditDetail,
+  AiAuditListItem,
+  AiAuditListQuery,
+} from "./transport";
 export type { DocumentSearchResult, OracleDocument } from "./transport";
 export type { BackendDossier } from "./transport";
+export type {
+  DossierCollaborator,
+  DossierCollaboratorRole,
+} from "./transport";
 export type { OracleSummaryCurrent, OracleSummaryVersion } from "./transport";
 export type {
   PlatformBackup,
@@ -32,6 +42,28 @@ export type {
   DossierWizardPrefill,
   DossierWizardRecommendedAction,
   DossierWizardRoundResponse,
+  AiArtifactReviewDecision,
+  AiArtifactReviewResponse,
+  IntakeArtifact,
+  IntakeDossierType,
+  IntakeFact,
+  IntakeInference,
+  IntakeOutput,
+  IntakeRecommendation,
+  IntakeRunResponse,
+  OpportunityAnalysisArtifact,
+  OpportunityAnalysisOutput,
+  OpportunityAnalysisRunResponse,
+  RiskAnalysisArtifact,
+  RiskAnalysisOutput,
+  RiskAnalysisRunResponse,
+  RiskContextDeclaredItem,
+  ActorAnalysisArtifact,
+  ActorAnalysisOutput,
+  ActorAnalysisRunResponse,
+  EntityResolutionArtifact,
+  EntityResolutionOutput,
+  EntityResolutionRunResponse,
   DossierResourcePage,
   DossierResourceQuery,
   DossierSignalEnvelope,
@@ -59,6 +91,8 @@ export type {
   EntityIntelGraphEdge,
   EntityIntelGraphNode,
   EntityIntelGraphResponse,
+  EntityIntelGraphSnapshotMeta,
+  EntityIntelGraphSnapshotListResponse,
   EntityIntelDossierResponse,
   EntityIntelKind,
   EntityIntelReportJob,
@@ -81,6 +115,7 @@ export type {
   CustomBriefDetail,
   DossierActivityItem,
   DossierActivityResponse,
+  SurveillanceAction,
   DossierIntentRevision,
   DossierIntelligenceRequirement,
   DossierOffering,

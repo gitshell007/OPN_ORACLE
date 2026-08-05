@@ -262,3 +262,30 @@ def test_smtp_sender_is_at_most_once_per_delivery_key(monkeypatch: pytest.Monkey
     assert sender.supports_idempotency is False
     assert len(sent) == 1
     assert "password-reset-stable@oracle.opnconsultoria.com" in sent[0]
+
+
+def test_permanent_failure_message_keeps_root_cause_for_dossier_question() -> None:
+    """SV2-REGRESION-ASK: job.error_message must retain type+msg despite from None."""
+    from types import SimpleNamespace
+
+    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.jobs.tasks import _permanent_failure_message
+
+    root = ValueError("El JSON candidato cita evidence_ids no autorizados")
+    mid = AIUnavailable(
+        "Signal validated_output no cumple schema/allowlist de dossier_question_answer."
+    )
+    mid.__cause__ = root
+    outer = RuntimeError(
+        "Fallo IA gobernada (Signal): Signal validated_output no cumple schema/allowlist."
+    )
+    outer.__cause__ = mid
+
+    job = SimpleNamespace(job_type="oracle.dossier_question.answer")
+    msg = _permanent_failure_message(job, outer)  # type: ignore[arg-type]
+    assert msg.startswith("El job no pudo completarse. Causa:")
+    assert "ValueError" in msg
+    assert "evidence_ids no autorizados" in msg
+
+    generic_job = SimpleNamespace(job_type="notifications.send_email")
+    assert _permanent_failure_message(generic_job, outer) == "El job no pudo completarse."  # type: ignore[arg-type]

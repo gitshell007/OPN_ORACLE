@@ -143,4 +143,7 @@ chown root:opn-oracle "$RELEASE_DIR/RELEASE_SHA256SUMS"
 chmod 0640 "$RELEASE_DIR/RELEASE_SHA256SUMS"
 
 echo "Release ready: $RELEASE_DIR"
-echo "Activate with: ln -sfn $RELEASE_DIR /opt/opn-oracle/current"
+# NEVER activate with bare `ln -sfn` alone: that diverges oracle.env (ORACLE_RELEASE/
+# RELEASE) from the code symlink and makes /api/v1/meta lie (SV2-SANEO-ANIDADO).
+echo "Activate with: bash ${RELEASE_DIR}/infra/native-dev/activate-release.sh ${RELEASE_ID}"
+echo "  (symlink + env + CURRENT_RELEASE updated together; fails loud on divergence)"

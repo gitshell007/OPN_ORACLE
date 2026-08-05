@@ -251,6 +251,7 @@ def test_signal_question_adapter_persists_structured_answer_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, dossier_id, message_id, artifact_id = (uuid.uuid4() for _ in range(4))
+    evidence_id = str(uuid.uuid4())
     job = _job()
     message = SimpleNamespace(
         id=message_id, content_text="¿Qué evidencia hay?", tenant_id=tenant_id
@@ -261,13 +262,14 @@ def test_signal_question_adapter_persists_structured_answer_metadata(
         model="qwen3.5:9b",
         output={
             "answer_text": "Hay una evidencia autorizada.",
-            "citations": [{"evidence_id": str(uuid.uuid4()), "quote": "fragmento"}],
-            "facts": [{"statement": "Hecho", "evidence_ids": []}],
+            "citations": [{"evidence_id": evidence_id, "quote": "fragmento"}],
+            "facts": [{"statement": "Hecho", "evidence_ids": [evidence_id]}],
             "inferences": [],
             "recommendations": [],
             "confidence": 72,
             "open_questions": ["¿Confirmar fecha?"],
             "warnings": [],
+            "validated_output_sha256": "a" * 64,
         },
     )
     session = MagicMock()
@@ -288,6 +290,7 @@ def test_signal_question_adapter_persists_structured_answer_metadata(
         memory_items=[{"text": "fragmento"}],
         coverage={"version": "coverage_manifest.v1"},
         memory_policy="memory.v1",
+        allowed_evidence_ids=[evidence_id],
     )
 
     assert calls[0]["agent"] == "dossier_question_answer"
@@ -295,6 +298,7 @@ def test_signal_question_adapter_persists_structured_answer_metadata(
     assert result["answer_text"] == "Hay una evidencia autorizada."
     assert result["answer_payload"]["provider_path"] == "signal"
     assert result["answer_payload"]["signal_model"] == "qwen3.5:9b"
+    assert result["answer_payload"]["validated_output_sha256"] == "a" * 64
 
 
 def test_signal_brief_adapter_persists_revisable_plan_metadata(

@@ -457,6 +457,48 @@ def test_procurement_items_resolve_tender_snapshot_with_mock_transport(
 
 
 @pytest.mark.unit
+def test_procurement_tender_snapshot_preserves_codice_documents() -> None:
+    """Open tenders must keep PLACSP document URIs for prospective bid prep."""
+    item = {
+        "folder_id": "CONTR 2026 11077",
+        "title": "red de agentes inteligentes",
+        "buyer": "Agencia Balear",
+        "status": "PUB",
+        "cpv": ["72230000", "72263000"],
+        "amount": "5450796.93",
+        "deadline": "2026-08-06T23:59:00Z",
+        "source_url": "https://contrataciondelestado.es/tender",
+        "documents": [
+            {
+                "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=legal",
+                "doc_type": "legal",
+                "file_name": "PCAP.pdf",
+            },
+            {
+                "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=tech",
+                "doc_type": "technical",
+                "file_name": "PPT.pdf",
+            },
+        ],
+    }
+    snapshot = procurement_items._snapshot("tender", item, "CONTR 2026 11077")
+    assert snapshot["kind"] == "tender"
+    assert snapshot["documents"] == [
+        {
+            "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=legal",
+            "doc_type": "legal",
+            "file_name": "PCAP.pdf",
+        },
+        {
+            "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?id=tech",
+            "doc_type": "technical",
+            "file_name": "PPT.pdf",
+        },
+    ]
+    assert "documents" not in procurement_items._unclassified_snapshot_keys("tender", item)
+
+
+@pytest.mark.unit
 def test_procurement_award_snapshot_classifies_signal_documents_and_ute(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -716,7 +758,7 @@ def test_procurement_items_resolve_award_snapshot_with_mock_transport(
     ]
     extract = procurement_items.procurement_evidence_extract(snapshot)
     assert "Lotes: 2" in extract
-    assert "Importe total adjudicado: 5000.00" in extract
+    assert "Importe total adjudicado (sin clasificación base/IVA en origen): 5000.00" in extract
 
 
 @pytest.mark.unit
@@ -1951,3 +1993,178 @@ def test_dossier_procurement_routes_pin_list_delete_and_replay(
         g.active_tenant_id = tenant_id
         deleted = oracle_routes.dossier_procurement_delete(dossier_id, item_id)
     assert deleted == {"deleted": True, "id": str(item_id)}
+
+
+@pytest.mark.unit
+def test_dossier_procurement_refresh_route_preserves_identity(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    linked_opp = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        email="writer@example.com",
+        display_name="Writer",
+        status="active",
+    )
+    pinned = _FakePinnedItem(item_id=item_id, tenant_id=tenant_id, dossier_id=dossier_id)
+    pinned.linked_opportunity_id = linked_opp
+    pinned.evidence_id = evidence_id
+    pinned.snapshot = {
+        "kind": "award",
+        "folder_id": "P_6_26",
+        "winner_identifier": "B08377715",
+    }
+    refresh_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset({"opportunity.write"}),
+    )
+    monkeypatch.setattr(
+        oracle_routes,
+        "_dossier_or_404",
+        lambda value, write=False: _FakeDossier(value),
+    )
+
+    def fake_refresh(session: Any, **kwargs: Any) -> tuple[_FakePinnedItem, dict[str, Any]]:
+        del session
+        refresh_calls.append(kwargs)
+        return pinned, {
+            "previous_evidence_id": str(evidence_id),
+            "current_evidence_id": str(evidence_id),
+            "evidence_rotated": False,
+            "previous_disposition": None,
+        }
+
+    monkeypatch.setattr(oracle_routes, "refresh_procurement_item", fake_refresh)
+
+    with app.test_request_context(
+        f"/api/v1/dossiers/{dossier_id}/procurement/{item_id}/refresh",
+        method="POST",
+    ):
+        login_user(user)
+        g.active_tenant_id = tenant_id
+        response = oracle_routes.dossier_procurement_refresh(dossier_id, item_id)
+
+    assert response["id"] == str(item_id)
+    assert response["linked_opportunity_id"] == str(linked_opp)
+    assert response["evidence_id"] == str(evidence_id)
+    assert response["snapshot"]["winner_identifier"] == "B08377715"
+    assert response["refresh"]["evidence_rotated"] is False
+    assert refresh_calls[0]["item_id"] == item_id
+    assert refresh_calls[0]["tenant_id"] == tenant_id
+
+
+@pytest.mark.unit
+def test_dossier_procurement_delete_route_returns_evidence_disposition(
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        email="writer@example.com",
+        display_name="Writer",
+        status="active",
+    )
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset({"opportunity.write"}),
+    )
+    monkeypatch.setattr(
+        oracle_routes,
+        "_dossier_or_404",
+        lambda value, write=False: _FakeDossier(value),
+    )
+    monkeypatch.setattr(
+        oracle_routes,
+        "delete_procurement_item",
+        lambda session, **kwargs: {
+            "deleted": True,
+            "id": str(item_id),
+            "evidence": {
+                "evidence_id": str(evidence_id),
+                "disposition": "deleted",
+                "cited_by_artifacts": False,
+                "hard_refs": False,
+            },
+        },
+    )
+
+    with app.test_request_context(
+        f"/api/v1/dossiers/{dossier_id}/procurement/{item_id}", method="DELETE"
+    ):
+        login_user(user)
+        g.active_tenant_id = tenant_id
+        deleted = oracle_routes.dossier_procurement_delete(dossier_id, item_id)
+    assert deleted["deleted"] is True
+    assert deleted["evidence"]["disposition"] == "deleted"
+
+
+def test_snapshot_deadline_parses_iso_date_and_datetime() -> None:
+    from datetime import date
+
+    assert procurement_items._snapshot_deadline({"deadline": "2026-09-30"}) == date(2026, 9, 30)
+    assert procurement_items._snapshot_deadline({"deadline": "2026-09-30T23:59:00Z"}) == date(
+        2026, 9, 30
+    )
+    assert procurement_items._snapshot_deadline({"deadline_date": "2026-01-15"}) == date(
+        2026, 1, 15
+    )
+    assert procurement_items._snapshot_deadline({"deadline": None}) is None
+    assert procurement_items._snapshot_deadline({"deadline": "sin-fecha"}) is None
+    assert procurement_items._snapshot_deadline({}) is None
+
+
+@pytest.mark.unit
+def test_backfill_opportunity_deadlines_from_procurement_only_fills_nulls() -> None:
+    """Recover deadline from linked tender snapshot; never overwrite non-null."""
+
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    tenant_id = uuid.uuid4()
+    linked_null = uuid.uuid4()
+    linked_kept = uuid.uuid4()
+    no_snapshot_date = uuid.uuid4()
+
+    item_fill = SimpleNamespace(
+        linked_opportunity_id=linked_null,
+        tenant_id=tenant_id,
+        snapshot={"deadline": "2026-08-06", "title": "Licitación con plazo"},
+    )
+    item_empty = SimpleNamespace(
+        linked_opportunity_id=no_snapshot_date,
+        tenant_id=tenant_id,
+        snapshot={"title": "Sin plazo en snapshot"},
+    )
+    opp_null = SimpleNamespace(id=linked_null, tenant_id=tenant_id, deadline=None)
+    opp_kept = SimpleNamespace(id=linked_kept, tenant_id=tenant_id, deadline=date(2026, 1, 1))
+    opp_empty = SimpleNamespace(id=no_snapshot_date, tenant_id=tenant_id, deadline=None)
+
+    # Query already filters Opportunity.deadline IS NULL, so only null rows are joined.
+    session = MagicMock()
+    session.execute.return_value.all.return_value = [
+        (item_fill, opp_null),
+        (item_empty, opp_empty),
+    ]
+
+    updated = procurement_items.backfill_opportunity_deadlines_from_procurement(session)
+
+    assert updated == 1
+    assert opp_null.deadline == date(2026, 8, 6)
+    assert opp_empty.deadline is None
+    # Non-null row is outside the query result set — still protected by contract.
+    assert opp_kept.deadline == date(2026, 1, 1)
+    session.execute.assert_called_once()

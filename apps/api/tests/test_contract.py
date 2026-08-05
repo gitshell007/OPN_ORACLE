@@ -263,8 +263,33 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
         assert procurement_promote["responses"][status]["content"]["application/json"][
             "schema"
         ] == {"$ref": "#/components/schemas/ProcurementPromotionResponse"}
-    assert "409" in spec["paths"]["/api/v1/dossiers/{dossier_id}"]["patch"]["responses"]
+
+    # Pin procurement: schema must match routes.dossier_procurement_pin body
+    # (kind + folder_id), not DossierWriteInput (title/sectors/status).
     schemas = spec["components"]["schemas"]
+    procurement_pin = spec["paths"]["/api/v1/dossiers/{dossier_id}/procurement"]["post"]
+    assert procurement_pin["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProcurementPinInput"
+    }
+    pin_schema = schemas["ProcurementPinInput"]
+    assert pin_schema["additionalProperties"] is False
+    assert set(pin_schema["required"]) == {"kind", "folder_id"}
+    assert pin_schema["properties"]["kind"]["enum"] == ["tender", "award"]
+    assert pin_schema["properties"]["folder_id"]["minLength"] == 1
+    assert pin_schema["properties"]["folder_id"]["maxLength"] == 240
+    # Guard against regression to the dossier write schema.
+    assert "title" not in pin_schema["properties"]
+    assert "status" not in pin_schema["properties"]
+    assert "sectors" not in pin_schema["properties"]
+    for status in ("200", "201"):
+        assert procurement_pin["responses"][status]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ProcurementItemResource"
+        }
+    procurement_list = spec["paths"]["/api/v1/dossiers/{dossier_id}/procurement"]["get"]
+    assert procurement_list["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProcurementItemListResponse"
+    }
+    assert "409" in spec["paths"]["/api/v1/dossiers/{dossier_id}"]["patch"]["responses"]
     assert "OracleResource" not in schemas
     assert "OracleWriteInput" not in schemas
     for name in (

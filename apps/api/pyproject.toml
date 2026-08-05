@@ -18,7 +18,10 @@ dependencies = [
   "argon2-cffi>=23.1.0,<26.0.0",
   "redis>=6.0.0,<8.0.0",
   "celery[redis]>=5.5.0,<6.0.0",
-  "cryptography>=48.0.1,<49.0.0",
+  # 50 es la primera serie libre de GHSA-m2h6-j472-rp4c / GHSA-jwv3-5hgf-82ww
+  # (parche 49.0.0) y de GHSA-g6cj-pr64-35w5 (PKCS#7 oracle, parche 50.0.0).
+  # Pin previo >=48.0.1,<49 dejaba pip-audit en rojo en el gate Security/SBOM.
+  "cryptography>=50.0.0,<51.0.0",
   "httpx>=0.28.0,<1.0.0",
   "pydantic>=2.11.0,<3.0.0",
   "pypdf>=5.7.0,<7.0.0",
@@ -89,9 +92,23 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["opn_oracle"]
+# Ops / measurement / thin entrypoints: measuring them does not protect product runtime.
+# Justified in PR #23 body (SV2-COV-84). Scripts under repo scripts/ are outside source.
+omit = [
+  "*/opn_oracle/evals/*",
+  "*/opn_oracle/cli/*",
+  "*/opn_oracle/wsgi.py",
+  "*/opn_oracle/celery_entry.py",
+]
 
 [tool.coverage.report]
 exclude_also = [
   "if TYPE_CHECKING:",
   "if __name__ == .__main__.:",
+]
+omit = [
+  "*/opn_oracle/evals/*",
+  "*/opn_oracle/cli/*",
+  "*/opn_oracle/wsgi.py",
+  "*/opn_oracle/celery_entry.py",
 ]

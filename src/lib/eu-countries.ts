@@ -1,13 +1,13 @@
 /**
- * Presets de países para el intake de Mercado.
+ * Presets de geografías para el intake de Mercado.
  *
- * Oracle es transversal/global: la API acepta cualquier ISO 3166-1 alpha-2.
+ * Oracle es transversal/global: la API acepta ISO 3166-1 alpha-2 e ISO 3166-2.
  * Esta lista solo mejora el UX (búsqueda y chips); no es una restricción de dominio.
  * Se mantiene el nombre de módulo por compatibilidad con imports existentes.
  */
 
 export interface EuCountry {
-  /** Código ISO 3166-1 alpha-2, en mayúsculas. */
+  /** Código ISO 3166-1 alpha-2 o ISO 3166-2, en mayúsculas. */
   code: string;
   name: string;
   /** Idiomas oficiales principales (ISO 639-1, minúsculas). */
@@ -70,26 +70,78 @@ export const EXTRA_COUNTRIES: readonly EuCountry[] = [
   { code: "TR", name: "Turquía", languages: ["tr"] },
 ];
 
-/** Catálogo de presets UI: UE + mercados extra. La API acepta cualquier ISO-2. */
+/**
+ * Comunidades y ciudades autónomas de España (ISO 3166-2).
+ * Útiles en contratación pública: el ámbito autonómico define a quién le interesa el contrato.
+ */
+export const ES_AUTONOMOUS_COMMUNITIES: readonly EuCountry[] = [
+  { code: "ES-AN", name: "Andalucía", languages: ["es"] },
+  { code: "ES-AR", name: "Aragón", languages: ["es"] },
+  { code: "ES-AS", name: "Asturias", languages: ["es"] },
+  { code: "ES-IB", name: "Illes Balears", languages: ["es", "ca"] },
+  { code: "ES-CN", name: "Canarias", languages: ["es"] },
+  { code: "ES-CB", name: "Cantabria", languages: ["es"] },
+  { code: "ES-CL", name: "Castilla y León", languages: ["es"] },
+  { code: "ES-CM", name: "Castilla-La Mancha", languages: ["es"] },
+  { code: "ES-CT", name: "Cataluña", languages: ["es", "ca"] },
+  { code: "ES-VC", name: "Comunidad Valenciana", languages: ["es", "ca"] },
+  { code: "ES-EX", name: "Extremadura", languages: ["es"] },
+  { code: "ES-GA", name: "Galicia", languages: ["es", "gl"] },
+  { code: "ES-MD", name: "Madrid", languages: ["es"] },
+  { code: "ES-MC", name: "Murcia", languages: ["es"] },
+  { code: "ES-NC", name: "Navarra", languages: ["es", "eu"] },
+  { code: "ES-PV", name: "País Vasco", languages: ["es", "eu"] },
+  { code: "ES-RI", name: "La Rioja", languages: ["es"] },
+  { code: "ES-CE", name: "Ceuta", languages: ["es"] },
+  { code: "ES-ML", name: "Melilla", languages: ["es"] },
+];
+
+/** Catálogo de presets UI: UE + mercados extra (solo países). */
 export const PRESET_COUNTRIES: readonly EuCountry[] = [...EU_COUNTRIES, ...EXTRA_COUNTRIES];
+
+/**
+ * Catálogo UI completo: países + CCAA españolas.
+ * La API acepta cualquier ISO-2 / ISO 3166-2 bien formado, no solo este preset.
+ */
+export const PRESET_GEOGRAPHIES: readonly EuCountry[] = [
+  ...PRESET_COUNTRIES,
+  ...ES_AUTONOMOUS_COMMUNITIES,
+];
 
 /** Mercados prioritarios del producto: se muestran primero y preseleccionados. */
 export const PRIORITY_COUNTRY_CODES: readonly string[] = ["ES", "DE"];
 
-const byCode = new Map(PRESET_COUNTRIES.map((country) => [country.code, country]));
+const byCode = new Map(PRESET_GEOGRAPHIES.map((country) => [country.code, country]));
 
 export function euCountryName(code: string): string {
   return byCode.get(code.toUpperCase())?.name ?? code.toUpperCase();
 }
 
-/** Idiomas sugeridos (sin duplicados, en orden de selección) para los países dados. */
+/** Idiomas sugeridos (sin duplicados, en orden de selección) para los códigos dados. */
 export function languagesForCountries(codes: readonly string[]): string[] {
   return [
-    ...new Set(codes.flatMap((code) => byCode.get(code.toUpperCase())?.languages ?? [])),
+    ...new Set(
+      codes.flatMap((code) => {
+        const upper = code.toUpperCase();
+        const direct = byCode.get(upper)?.languages;
+        if (direct) return direct;
+        // ES-VC → idiomas de ES si no hay entrada de subdivisión (no debería pasar con CCAA).
+        const country = upper.split("-")[0];
+        return byCode.get(country)?.languages ?? [];
+      }),
+    ),
   ];
 }
 
 /** True si el valor es un código ISO 3166-1 alpha-2 bien formado. */
 export function isIsoAlpha2(code: string): boolean {
   return /^[A-Za-z]{2}$/.test(code.trim());
+}
+
+/**
+ * True si el valor es ISO 3166-1 alpha-2 o ISO 3166-2 (subdivisión).
+ * Alineado con la validación de la API (`_ISO_GEOGRAPHY`).
+ */
+export function isIsoGeographyCode(code: string): boolean {
+  return /^[A-Za-z]{2}(-[A-Za-z0-9]{1,3})?$/.test(code.trim());
 }

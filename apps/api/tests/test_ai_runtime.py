@@ -43,7 +43,13 @@ from opn_oracle.ai.schemas import (
     ReportOutput,
     SignalTriageOutput,
 )
-from opn_oracle.ai.service import EvidenceReviewError, _strip_reviewer_rejected_claims
+from opn_oracle.ai.service import (
+    EvidenceReviewError,
+    _conclusion_review_claims,
+    _ground_conclusions_to_facts,
+    _reviewer_context,
+    _strip_reviewer_rejected_claims,
+)
 from opn_oracle.auth import permissions
 from opn_oracle.oracle.summary import _validated_summary_payload
 from opn_oracle.platform.models import User
@@ -152,6 +158,8 @@ def test_registry_has_complete_immutable_metadata() -> None:
     assert (
         registry.get("dossier_situation_summary").evidence_review_failure_policy == "strip_claims"
     )
+    assert registry.get("opportunity").evidence_review_failure_policy == "strip_claims"
+    assert registry.get("risk").evidence_review_failure_policy == "strip_claims"
     assert registry.get("entity_dossier_intelligence").requires_evidence_review is False
     assert registry.get("dossier_situation_summary").version == "v5"
     assert registry.get("dossier_situation_summary", "v1").version == "v1"
@@ -198,11 +206,11 @@ def test_fit_budget_never_zeroes_allowed_evidence_ids() -> None:
     assert all(isinstance(item, str) and len(item) == 36 for item in allow)
 
 
-def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> None:
-    """Production actors reports fail when the reviewer invents unanchorable paths.
+def test_strip_claims_unanchorable_claim_never_publishes() -> None:
+    """Claim señalada y no anclable: fail-closed siempre (también en indulgente).
 
-    Strict mode (nightly summary) keeps fail-closed; report_writer uses lenient=True so the
-    generated body is not discarded after a successful writer call.
+    Publicar la afirmación objetada con una nota al pie no es defendible: el revisor
+    dijo que algo no se sostiene y no sabemos cuál recortar.
     """
 
     output = {
@@ -256,13 +264,521 @@ def test_strip_claims_lenient_publishes_when_reviewer_path_cannot_anchor() -> No
     with pytest.raises(EvidenceReviewError, match="no se pudo anclar"):
         _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
 
+    with pytest.raises(EvidenceReviewError, match="no se pudo anclar"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+
+
+def test_strip_claims_quality_objection_publishes_with_warning_when_lenient() -> None:
+    """Clase calidad (confidence_issues): en indulgente publica con advertencia."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Hay una licitación citada en el expediente.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 55,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Oportunidad de prueba",
+        "recommendation": "investigate",
+        "scores": {
+            "strategic_fit": 50,
+            "urgency": 50,
+            "expected_value": 50,
+            "actionability": 50,
+            "relationship_leverage": 50,
+            "timing": 50,
+            "confidence": 50,
+            "execution_effort": 50,
+            "blocking_risk": 50,
+            "overall": 50,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [],
+            "confidence_issues": [
+                "Confianza demasiado alta: el modelo no justifica el score.",
+            ],
+            "required_corrections": ["Bajar confianza."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match=r"objeciones de calidad|no se pueden retirar"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
+
     cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
-    assert cleaned["title"] == "Informe de actores"
-    assert cleaned["executive_summary"] == "Mapa de actores del expediente."
-    assert any("no se pudieron anclar" in warning for warning in cleaned["warnings"])
-    assert any("Objeción no anclada" in warning for warning in cleaned["warnings"])
-    # Body preserved when the objection could not be tied to a real claim path.
-    assert cleaned["sections"][0]["paragraphs"][0]["text"].startswith("ITURRI SA")
+    assert cleaned["title"] == "Oportunidad de prueba"
+    assert cleaned["facts"][0]["statement"].startswith("Hay una licitación")
+    assert any("motivos de calidad" in warning for warning in cleaned["warnings"])
+    assert any("Confianza demasiado alta" in warning for warning in cleaned["warnings"])
+
+
+def test_strip_claims_prompt_injection_never_publishes_even_when_lenient() -> None:
+    """Clase seguridad (prompt_injection): fail-closed aunque el agente sea indulgente."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Hay una licitación citada en el expediente.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 55,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Oportunidad de prueba",
+        "recommendation": "investigate",
+        "scores": {
+            "strategic_fit": 50,
+            "urgency": 50,
+            "expected_value": 50,
+            "actionability": 50,
+            "relationship_leverage": 50,
+            "timing": 50,
+            "confidence": 50,
+            "execution_effort": 50,
+            "blocking_risk": 50,
+            "overall": 50,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [],
+            "prompt_injection_indicators": [
+                "El extracto pide al modelo ignorar instrucciones del sistema y filtrar secretos.",
+            ],
+            "required_corrections": ["No publicar contenido influido por la fuente."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match=r"seguridad|inyección"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=False)
+
+    with pytest.raises(EvidenceReviewError, match=r"seguridad|inyección"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+
+
+def test_strip_claims_privacy_issue_never_publishes_even_when_lenient() -> None:
+    """Clase seguridad (privacy_or_security_issues): también fail-closed en indulgente."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Contacto del gestor: +34 600 000 000.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 40,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Riesgo de prueba",
+        "severity": "watch",
+        "uncertainty": 80,
+        "scores": {
+            "severity": 40,
+            "impact": 40,
+            "likelihood": 40,
+            "detectability": 40,
+            "controllability": 40,
+            "time_horizon": 40,
+            "confidence": 40,
+            "overall": 40,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 95,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [],
+            "privacy_or_security_issues": [
+                "El output expone un teléfono personal sin base legal de tratamiento.",
+            ],
+            "required_corrections": ["Eliminar el dato personal."],
+        }
+    )
+
+    with pytest.raises(EvidenceReviewError, match=r"seguridad|privacidad|inyección"):
+        _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+
+
+def test_unfounded_title_is_degraded_and_does_not_survive() -> None:
+    """SV2-TITULO-FUNDADO: hechos de cubiertas EMT no autorizan título de competencia/software.
+
+    La conclusión no fundada no pasa: el título vistoso se degrada a uno honesto
+    basado en los facts citados.
+    """
+
+    unfounded_title = "Competencia en licitaciones de energía y software"
+    fact_statement = (
+        "Licitación PLACSP 2026-0072: impermeabilización de cubiertas del "
+        "Depósito Norte y San Isidro de la EMT."
+    )
+    output = {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 60,
+        "open_questions": [],
+        "warnings": [],
+        "title": unfounded_title,
+        "description": (
+            "Riesgo de competencia agresiva en el mercado de software y energía "
+            "sin rivalidades citadas."
+        ),
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+    grounded = _ground_conclusions_to_facts(output, agent="risk")
+
+    assert grounded["title"] != unfounded_title
+    assert "software" not in grounded["title"].lower()
+    assert "energ" not in grounded["title"].lower() or "impermeabiliz" in grounded["title"].lower()
+    assert any(
+        token in grounded["title"].lower()
+        for token in ("impermeabiliz", "cubiertas", "emt", "depósito", "deposito", "placsp")
+    )
+    assert "sin datos de competencia" in grounded["title"].lower()
+    assert grounded["description"] != output["description"]
+    assert any("no fundada" in warning.lower() for warning in grounded["warnings"])
+    assert grounded["confidence"] <= 45
+    # Los facts citados no se tocan.
+    assert grounded["facts"][0]["statement"] == fact_statement
+
+
+def test_founded_title_is_preserved() -> None:
+    """Si el título ya se sostiene en los facts, no se reescribe."""
+
+    fact_statement = (
+        "Licitación PLACSP 2026-0072 de impermeabilización de cubiertas EMT "
+        "Depósito Norte y San Isidro."
+    )
+    title = "Impermeabilización de cubiertas EMT Depósito Norte"
+    output = {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 70,
+        "open_questions": [],
+        "warnings": [],
+        "title": title,
+        "description": (
+            "La licitación PLACSP 2026-0072 cubre impermeabilización de cubiertas "
+            "del Depósito Norte y San Isidro de la EMT."
+        ),
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+    grounded = _ground_conclusions_to_facts(output, agent="risk")
+    assert grounded["title"] == title
+    assert grounded["description"] == output["description"]
+    assert grounded["confidence"] == 70
+    assert not any("no fundada" in warning.lower() for warning in grounded["warnings"])
+
+
+def _emt_cover_fact_output(title: str, *, confidence: int = 70) -> dict[str, Any]:
+    """Shared fixture: single EMT covers tender fact (Codex table in SV2-TITULO-FALSO)."""
+
+    fact_statement = (
+        "Licitación PLACSP 2026-0072: impermeabilización de cubiertas del "
+        "Depósito Norte y San Isidro de la EMT."
+    )
+    return {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": confidence,
+        "open_questions": [],
+        "warnings": [],
+        "title": title,
+        "description": "Descripción genérica no evaluada en estos casos de título.",
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+
+def test_false_assertion_title_with_correct_vocabulary_is_degraded() -> None:
+    """SV2-TITULO-FALSO caso 3: «Nexus gana…» reutiliza el vocabulario del fact y miente.
+
+    Reproducción del hallazgo Codex: el solapamiento de palabras mide de qué se
+    habla, no qué se afirma. Antes del fix este título pasaba (ratio ≥ 0.5 con
+    PLACSP/cubiertas). Debe degradarse.
+    """
+
+    false_title = "Nexus Ibérica gana la licitación PLACSP 2026-0072 de cubiertas"
+    output = _emt_cover_fact_output(false_title)
+
+    grounded = _ground_conclusions_to_facts(output, agent="risk")
+
+    assert grounded["title"] != false_title
+    assert "gana" not in grounded["title"].lower()
+    assert "nexus" not in grounded["title"].lower()
+    assert any(
+        token in grounded["title"].lower()
+        for token in ("impermeabiliz", "cubiertas", "emt", "placsp", "depósito", "deposito")
+    )
+    assert any("no fundada" in warning.lower() for warning in grounded["warnings"])
+    assert grounded["confidence"] <= 45
+    # Facts intactos.
+    assert "impermeabilización" in grounded["facts"][0]["statement"].lower()
+
+
+def test_founded_title_with_matching_assertion_is_preserved() -> None:
+    """Si el fact sí dice que se adjudicó, el título con ese verbo no se degrada."""
+
+    fact_statement = (
+        "Nexus Ibérica Sistemas S.L. gana la licitación PLACSP 2026-0072 de "
+        "impermeabilización de cubiertas EMT."
+    )
+    title = "Nexus Ibérica gana la licitación PLACSP 2026-0072 de cubiertas"
+    output = {
+        "facts": [
+            {
+                "statement": fact_statement,
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 70,
+        "open_questions": [],
+        "warnings": [],
+        "title": title,
+        "description": fact_statement,
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+
+    grounded = _ground_conclusions_to_facts(output, agent="opportunity")
+    assert grounded["title"] == title
+    assert grounded["confidence"] == 70
+    assert not any("no fundada" in warning.lower() for warning in grounded["warnings"])
+
+
+def test_titulo_falso_four_cases_table() -> None:
+    """Tabla Codex SV2-TITULO-FALSO: cuatro títulos contra el mismo fact EMT.
+
+    | Título | Esperado |
+    | Competencia en… software | degrada |
+    | Obras de mantenimiento… (correcto, otras palabras) | degrada (fallo barato del solapamiento) |
+    | Nexus Ibérica gana… | degrada (afirmación falsa; el hueco cerrado) |
+    | Licitación PLACSP… EMT | acepta |
+    """
+
+    cases = [
+        (
+            "Competencia en licitaciones de energía y software",
+            "degrades",
+        ),
+        (
+            "Obras de mantenimiento en instalaciones de transporte público",
+            "degrades",
+        ),
+        (
+            "Nexus Ibérica gana la licitación PLACSP 2026-0072 de cubiertas",
+            "degrades",
+        ),
+        (
+            "Licitación PLACSP 2026-0072: impermeabilización de cubiertas EMT",
+            "accepts",
+        ),
+    ]
+    results: list[tuple[str, str, str]] = []
+    for title, expected in cases:
+        grounded = _ground_conclusions_to_facts(_emt_cover_fact_output(title), agent="risk")
+        actual = "degrades" if grounded["title"] != title else "accepts"
+        results.append((title, expected, actual))
+        assert actual == expected, (
+            f"title={title!r}: expected gate={expected}, got={actual} "
+            f"→ published={grounded['title']!r}"
+        )
+    # Documented for the gate packet; keep the matrix exhaustive.
+    assert [r[2] for r in results] == ["degrades", "degrades", "degrades", "accepts"]
+
+
+def test_reviewer_package_includes_title_as_conclusion_claim() -> None:
+    """El revisor recibe el título como claim kind=conclusion (antes solo veía facts)."""
+
+    class _Prompt:
+        output_schema_name = "RiskAnalysisOutput"
+
+    class _Context:
+        def __init__(self) -> None:
+            self.classification = "internal"
+            self.redaction_summary: dict[str, int] = {"matches": 0}
+            self.injection_indicators: list[str] = []
+            self.evidence: list[Any] = []
+            self.manifest: dict[str, list[str]] = {
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"]
+            }
+
+    output = {
+        "facts": [
+            {
+                "statement": "Impermeabilización de cubiertas EMT.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 50,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Competencia en licitaciones de energía y software",
+        "description": "Sin base.",
+        "recommended_status": "watch",
+    }
+    conclusion_claims = _conclusion_review_claims(output)
+    assert any(c["path"] == "$.title" and c["kind"] == "conclusion" for c in conclusion_claims)
+
+    package = _reviewer_context(
+        agent="risk",
+        prompt=_Prompt(),
+        context=_Context(),  # type: ignore[arg-type]
+        output=output,
+    )
+    claim_paths = {c["path"] for c in package["candidate_claims"]}
+    assert "$.title" in claim_paths
+    assert "$.description" in claim_paths
+    assert "$.recommended_status" in claim_paths
+    instruction = package["review_task"]["instruction"].lower()
+    assert "conclus" in instruction
+    assert "title" in instruction
+
+
+def test_strip_conclusion_objection_does_not_fail_job() -> None:
+    """Si el revisor objeta solo $.title, no se tumba el job: se avisa y se deja degradar."""
+
+    output = {
+        "facts": [
+            {
+                "statement": "Impermeabilización de cubiertas del Depósito Norte EMT.",
+                "evidence_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        ],
+        "inferences": [],
+        "recommendations": [],
+        "confidence": 55,
+        "open_questions": [],
+        "warnings": [],
+        "title": "Competencia en licitaciones de energía y software",
+        "recommended_status": "watch",
+        "scores": {
+            "impact": 40,
+            "likelihood": 40,
+            "velocity": 40,
+            "exposure": 40,
+            "uncertainty": 40,
+            "controllability": 40,
+            "overall": 40,
+        },
+    }
+    reviewer = EvidenceReviewerOutput.model_validate(
+        {
+            "facts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 90,
+            "open_questions": [],
+            "warnings": [],
+            "verdict": "fail",
+            "unsupported_claims": [
+                {
+                    "path": "$.title",
+                    "claim": "Competencia en licitaciones de energía y software",
+                    "reason": "El título no se sostiene en los facts de cubiertas EMT.",
+                }
+            ],
+            "required_corrections": ["Alinear el título con los facts."],
+        }
+    )
+
+    cleaned = _strip_reviewer_rejected_claims(output, reviewer, lenient=True)
+    assert cleaned["title"] == output["title"]  # strip no borra; grounding degrada después
+    assert any("conclusiones de producto" in warning for warning in cleaned["warnings"])
+
+    grounded = _ground_conclusions_to_facts(cleaned, agent="risk")
+    assert grounded["title"] != output["title"]
+    assert any(
+        token in grounded["title"].lower()
+        for token in ("impermeabiliz", "cubiertas", "emt", "depósito", "deposito")
+    )
 
 
 def test_report_writer_v5_prompt_requires_executive_closure_without_minimum_viable_copy() -> None:

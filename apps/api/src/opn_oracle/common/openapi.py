@@ -298,6 +298,14 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "200",
             "CompetitiveReadinessResponse",
         ),
+        ("/api/v1/dossiers/{dossier_id}/procurement", "post"): (
+            "201",
+            "ProcurementItemResource",
+        ),
+        ("/api/v1/dossiers/{dossier_id}/procurement", "get"): (
+            "200",
+            "ProcurementItemListResponse",
+        ),
         ("/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote", "post"): (
             "201",
             "ProcurementPromotionResponse",
@@ -448,6 +456,74 @@ def _response_schemas() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "properties": {},
+        },
+        "ProcurementPinInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["kind", "folder_id"],
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["tender", "award"],
+                    "description": (
+                        "Tipo de ítem PLACSP a fijar. El manejador exige exactamente "
+                        "'tender' o 'award'."
+                    ),
+                },
+                "folder_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240,
+                    "description": (
+                        "Identificador de expediente PLACSP. Obligatorio; máximo 240 "
+                        "caracteres tras strip."
+                    ),
+                },
+            },
+        },
+        "ProcurementItemResource": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "id",
+                "tenant_id",
+                "dossier_id",
+                "kind",
+                "folder_id",
+                "snapshot",
+                "evidence_id",
+                "created_at",
+                "updated_at",
+            ],
+            "properties": {
+                "id": uuid,
+                "tenant_id": uuid,
+                "dossier_id": uuid,
+                "kind": {"type": "string", "enum": ["tender", "award"]},
+                "folder_id": {"type": "string"},
+                "snapshot": {"$ref": "#/components/schemas/JsonObject"},
+                "source_url": {"type": "string", "nullable": True},
+                "evidence_id": uuid,
+                "pinned_by_user_id": {"type": "string", "format": "uuid", "nullable": True},
+                "linked_opportunity_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": True,
+                },
+                "created_at": {"type": "string", "format": "date-time"},
+                "updated_at": {"type": "string", "format": "date-time"},
+            },
+        },
+        "ProcurementItemListResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["data"],
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/ProcurementItemResource"},
+                }
+            },
         },
         "MembershipIdResponse": {
             "type": "object",
@@ -631,10 +707,11 @@ def _response_schemas() -> dict[str, Any]:
         "AssignableUserResponse": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["id", "display_name"],
+            "required": ["id", "display_name", "email"],
             "properties": {
                 "id": uuid,
                 "display_name": {"type": "string"},
+                "email": {"type": "string", "format": "email"},
             },
         },
         "SessionListResponse": item_list("#/components/schemas/SessionResponse"),
@@ -959,6 +1036,8 @@ def _declare_oracle_operation(
             schema = "DossierPatchInput"
         elif path.endswith("/review"):
             schema = "SignalReviewInput"
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement" and method == "post":
+            schema = "ProcurementPinInput"
         elif path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
             schema = "ProcurementPromoteInput"
         elif path.endswith("/promote"):
@@ -1073,6 +1152,10 @@ def _declare_oracle_operation(
             response = {"$ref": "#/components/schemas/LinkMutationResponse"}
         elif path == "/api/v1/dossiers/bulk-delete":
             response = {"$ref": "#/components/schemas/DossierBulkDeleteResponse"}
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement" and method == "post":
+            response = {"$ref": "#/components/schemas/ProcurementItemResource"}
+        elif path == "/api/v1/dossiers/{dossier_id}/procurement" and method == "get":
+            response = {"$ref": "#/components/schemas/ProcurementItemListResponse"}
         elif path == "/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote":
             response = {"$ref": "#/components/schemas/ProcurementPromotionResponse"}
         elif path.endswith("/promote"):
@@ -1113,6 +1196,15 @@ def _declare_oracle_operation(
                     "content": {
                         "application/json": {
                             "schema": {"$ref": "#/components/schemas/ActorResource"}
+                        }
+                    },
+                }
+            if path == "/api/v1/dossiers/{dossier_id}/procurement":
+                operation["responses"]["200"] = {
+                    "description": "Ítem de contratación ya fijado (idempotente)",
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/ProcurementItemResource"}
                         }
                     },
                 }
@@ -1574,6 +1666,24 @@ def _oracle_schemas() -> dict[str, Any]:
     json_object = {"$ref": "#/components/schemas/JsonObject"}
     json_array = {"$ref": "#/components/schemas/JsonArray"}
     string_array = {"type": "array", "items": string}
+    # Ámbito de expediente: ISO 3166-1 alpha-2 o ISO 3166-2 (p. ej. ES-VC).
+    # El servidor normaliza a mayúsculas; hacia Signal se proyecta solo el país.
+    geography_code = {
+        "type": "string",
+        "pattern": r"^[A-Za-z]{2}(-[A-Za-z0-9]{1,3})?$",
+        "description": (
+            "Código ISO 3166-1 alpha-2 o ISO 3166-2 (subdivisión). "
+            "Ejemplos: ES, ES-VC (Comunidad Valenciana), DE, US. "
+            "Oracle conserva la subdivisión; la proyección a monitores Signal usa el país."
+        ),
+        "examples": ["ES", "ES-VC", "DE"],
+    }
+    geography_array = {
+        "type": "array",
+        "items": geography_code,
+        "maxItems": 50,
+        "description": "Ámbitos geográficos del expediente (país y/o subdivisión ISO).",
+    }
     uuid_array = {"type": "array", "items": uuid}
     common = {
         "id": uuid,
@@ -1717,7 +1827,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 "strategic_goal": {"type": "string"},
                 "owner_user_id": uuid,
                 "collaborator_user_ids": uuid_array,
-                "geography": string_array,
+                "geography": geography_array,
                 "sectors": string_array,
                 "languages": string_array,
                 "scoring_config": json_object,
@@ -1744,7 +1854,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 },
                 "owner_user_id": uuid,
                 "scoring_config": json_object,
-                "geography": string_array,
+                "geography": geography_array,
                 "sectors": string_array,
                 "languages": string_array,
                 "profile_config": {
@@ -2073,7 +2183,7 @@ def _oracle_schemas() -> dict[str, Any]:
             "strategic_goal": string,
             "owner_user_id": nullable_uuid,
             "collaborator_user_ids": uuid_array,
-            "geography": string_array,
+            "geography": geography_array,
             "sectors": string_array,
             "languages": string_array,
             "score_explanation": json_object,
@@ -3009,6 +3119,9 @@ def _oracle_schemas() -> dict[str, Any]:
         "user_id",
         "role",
     ]
+    collab_props = schemas["CollaboratorResource"].setdefault("properties", {})
+    collab_props["email"] = {"type": "string", "format": "email", "nullable": True}
+    collab_props["display_name"] = {"type": "string", "nullable": True}
     return schemas
 
 
@@ -3374,6 +3487,8 @@ def _reporting_schemas() -> dict[str, Any]:
                         "tasks",
                         "reports",
                         "audit",
+                        "tenders",
+                        "awards",
                     ],
                 },
                 "dossier_id": nullable_uuid,

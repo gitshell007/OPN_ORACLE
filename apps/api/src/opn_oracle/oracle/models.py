@@ -82,7 +82,10 @@ class StrategicDossier(TenantDomainMixin, Base):
     )
     scoring_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     profile_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Neutral empty-dossier health is 50 (see aggregate_dossier_scores). ORM default
+    # matches that; create_dossier still calls _refresh_dossier_aggregates so
+    # score_explanation is populated. DB column default remains 0 until a migration.
+    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     opportunity_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     risk_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     score_explanation: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -430,7 +433,10 @@ class Evidence(TenantDomainMixin, Base):
             'AND provenance @> \'{"source_kind":"procurement"}\'::jsonb) OR '
             "(source_kind='entity_intel' AND signal_id IS NULL AND document_id IS NULL "
             "AND document_version_id IS NULL AND document_chunk_id IS NULL "
-            'AND provenance @> \'{"source_kind":"entity_intel"}\'::jsonb)',
+            'AND provenance @> \'{"source_kind":"entity_intel"}\'::jsonb) OR '
+            "(source_kind='memory_signal' AND signal_id IS NULL AND document_id IS NULL "
+            "AND document_version_id IS NULL AND document_chunk_id IS NULL "
+            'AND provenance @> \'{"source_kind":"memory_signal"}\'::jsonb)',
             name="evidence_source_shape",
         ),
     )

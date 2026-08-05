@@ -156,10 +156,13 @@ test("F13 recorre rutas productivas sin violaciones WCAG ni errores de consola",
   await page.goto(dossierHref);
   await expect(page).toHaveURL(new RegExp(`${dossierHref.replaceAll("/", "\\/")}$`));
   await expectWcagAA(page, dossierHref);
+  // Tras la nav por grupos (Entregables/Análisis/…), /documents y /settings
+  // no son enlaces de primer nivel en la portada del expediente: se validan
+  // por URL directa (sigue midiendo WCAG y headers de cada ruta productiva).
   for (const suffix of ["", "/signals", "/documents", "/settings"]) {
     const route = `${dossierHref}${suffix}`;
     if (suffix) {
-      await page.locator(`a[href="${route}"]`).first().evaluate((element: HTMLElement) => element.click());
+      await page.goto(route);
       await expect(page).toHaveURL(new RegExp(`${route.replaceAll("/", "\\/")}$`));
     }
     await expect(page.locator("main")).toBeVisible();

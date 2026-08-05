@@ -53,6 +53,8 @@ class LLMResult:
     model: str | None = None
     fallback_used: bool = False
     safe_fallback_used: bool = False
+    # Canonical SHA-256 of Signal validated_output (dossier_question_answer only).
+    validated_output_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -564,6 +566,39 @@ class MockLLMProvider:
                     "blocking_risk": 50,
                     "overall": 50,
                 },
+                **(
+                    {
+                        "fit_assessment": {
+                            "statement": (
+                                "Encaje (mock) con la oferta declarada por el cliente; "
+                                "no es un hecho de fuente oficial."
+                            ),
+                            "declared_evidence_ids": [
+                                uuid.UUID(
+                                    str(request.context.get("allowed_declared_evidence_ids", [])[0])
+                                )
+                            ],
+                            "official_evidence_ids": [evidence[0]] if evidence else [],
+                            "confidence": min(60, confidence),
+                            "origin": "declared_by_client",
+                            # SV2-ENCAJE: el post-proceso dimensional rellena
+                            # dimensions/verdict; el mock deja el canal abierto.
+                            "dimensions": [],
+                            "verdict": {
+                                "recommendation": "go_conditioned",
+                                "conditions": [
+                                    "Solo si puede acreditar solvencia exigida en el pliego"
+                                ],
+                                "human_gate": "awaiting_user_confirmation",
+                                "rationale": (
+                                    "Propuesta mock con puerta humana; no es decisión automática."
+                                ),
+                            },
+                        }
+                    }
+                    if request.context.get("allowed_declared_evidence_ids")
+                    else {}
+                ),
             },
             "risk": {
                 "title": "Riesgo candidato",
@@ -577,6 +612,26 @@ class MockLLMProvider:
                     "controllability": 50,
                     "overall": 50,
                 },
+                **(
+                    {
+                        "risk_context_declared": [
+                            {
+                                "statement": (
+                                    "Barrera declarada por el cliente (mock): "
+                                    "homologación / solvencia del perfil."
+                                ),
+                                "category": "barrier",
+                                "declared_evidence_ids": [
+                                    str(request.context.get("allowed_declared_evidence_ids", [])[0])
+                                ],
+                                "origin": "declared_by_client",
+                                "relevance": "Contexto de riesgo del perfil (declarado).",
+                            }
+                        ]
+                    }
+                    if request.context.get("allowed_declared_evidence_ids")
+                    else {}
+                ),
             },
             "actor_partnership": {
                 "actor_id": None,
@@ -836,6 +891,342 @@ class OllamaLLMProvider:
         except httpx.HTTPError:
             return ProviderHealth("unavailable", self.model)
         return ProviderHealth("healthy", self.model)
+
+
+# SV2-SANEO-UNIFORME / SV2-SANEO-ANIDADO · un solo punto de defensa para todos
+# los agentes con ``facts[].evidence_ids`` estricto (min_length≥1) y, para
+# ``dossier_situation_summary``, también los sublistados opcionales con
+# ``evidence_ids`` estricto (opportunities / risks / relevant_actors). Un
+# elemento sin citas no es error fatal: se retira antes de validar el schema.
+# El **mecanismo es uno**; los **mínimos de calidad** de facts varían por agente.
+#
+# Inventario agente x defensa (Oracle consumer; no toca RT-07/08/09/10 Signal):
+#
+# agent / facts schema / saneo / min grounded / nested
+# actor_partnership                    Fact            yes  2  -
+# opportunity                          Fact            yes  2  -
+# risk                                 Fact            yes  2  -
+# entity_resolution                    Fact            yes  1  -
+# dossier_situation_summary            SituationFact   yes  1  opp/risk/actors
+# meeting_briefing                     Fact            yes  2  -
+# signal_triage                        Fact            yes  2  -
+# intake                               Fact            yes  2  -
+# report_writer                        Fact (Oracle)   yes  2  -
+# competitive_procurement_intelligence Fact (Oracle)   yes  2  -
+# entity_dossier_intelligence          Fact (Oracle)   yes  2  -
+# memory_curator                       Fact            yes  2  -
+# evidence_reviewer                    Fact            yes  2  -
+# weekly_change                        Fact            yes  2  -
+# dossier_question_answer              Fact            no   n/a (RT-07)
+# dossier_completion_wizard            none            noop n/a
+# tender_search_wizard                 none            noop n/a
+# report_custom_brief_plan             none            noop n/a
+#
+# Nested (situation summary): sublistados opcionales; elemento sin citas se
+# retira con aviso; lista vacia tras saneo **no** es fatal (a diferencia de
+# facts[] cuando el modelo si emitio facts y todos carecian de citas).
+#
+# RT-07/08/09/10 viven en Signal (contratos congelados). Aqui solo se defiende
+# el consumidor Oracle del schema local; report_* si tienen ``facts: list[Fact]``
+# en Oracle y por eso entran al saneo sin tocar el contrato Signal.
+
+# Mínimo por defecto (análisis multi-fact: contrastar ≥2 anclas citadas).
+DEFAULT_MIN_GROUNDED_FACTS = 2
+# Alias retrocompatible con tests/importadores del turno 110.
+MIN_GROUNDED_FACTS_FOR_QUALITY = DEFAULT_MIN_GROUNDED_FACTS
+QUALITY_DEGRADED_CONFIDENCE_CAP = 40
+
+# Mínimos de calidad **por agente** (documentados junto al número, SV2-SANEO-UNIFORME).
+MIN_GROUNDED_FACTS_BY_AGENT: dict[str, int] = {
+    # 2: corridas buenas traen 3-4 facts PLACSP; 1 fact tras sanear es anemico.
+    "actor_partnership": 2,
+    # 2: go/investigate/no_go necesita más de un ancla citada.
+    "opportunity": 2,
+    # 2: escenarios de riesgo no se sostienen en un único fact fundado.
+    "risk": 2,
+    # 1: el valor está en decision+rationale; 1 fact citado puede bastar.
+    "entity_resolution": 1,
+    # 1: facts[] es opcional (default []); headline/executive_summary llevan valor.
+    "dossier_situation_summary": 1,
+    # 2: briefing usable requiere al menos dos hechos citados.
+    "meeting_briefing": 2,
+    # 2: triaje con un único fact fundado no contrasta relevancia/novedad.
+    "signal_triage": 2,
+    # 2: intake propone expediente; un solo fact pobre no basta.
+    "intake": 2,
+    # 2: informes Oracle (schema local); no toca contratos Signal RT-08/09/10.
+    "report_writer": 2,
+    "competitive_procurement_intelligence": 2,
+    "entity_dossier_intelligence": 2,
+    # 2: curaduría de memoria vive de masa de hechos citados.
+    "memory_curator": 2,
+    # 2: revisor de evidencia no se fía de un único fact.
+    "evidence_reviewer": 2,
+    # 2: cambio semanal exige contraste temporal.
+    "weekly_change": 2,
+}
+
+# Agentes cuyo schema Oracle valida ``facts[].evidence_ids`` con min_length≥1.
+# Ausentes = sin facts[] estricto → el saneo es no-op (no se fuerza).
+# dossier_question_answer tiene Fact pero se consume por el path RT-07 fail-closed
+# (no pasa por esta función; no mutar validated_output de Signal).
+AGENTS_WITH_STRICT_FACTS: frozenset[str] = frozenset(MIN_GROUNDED_FACTS_BY_AGENT)
+
+# Sublistados con ``evidence_ids`` estricto (min_length≥1) fuera de ``facts[]``.
+# Mismo mecanismo de drop+warning; lista vacía tras saneo es aceptable (opcionales).
+# Clave de schema → (campo JSON, etiqueta en warning).
+NESTED_STRICT_EVIDENCE_LISTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "dossier_situation_summary": (
+        ("opportunities", "opportunity"),
+        ("risks", "risk"),
+        ("relevant_actors", "actor"),  # schema: relevant_actors (prompt: actors)
+    ),
+}
+
+
+def min_grounded_facts_for_agent(agent: str) -> int:
+    """Mínimo de facts fundados tras sanear, por agente (default multi-fact = 2)."""
+
+    return MIN_GROUNDED_FACTS_BY_AGENT.get(agent, DEFAULT_MIN_GROUNDED_FACTS)
+
+
+class UncitedFactsError(ValueError):
+    """Todos los facts emitidos carecían de evidence_ids y se retiraron."""
+
+
+def _preview_cited_item(item: dict[str, Any]) -> str:
+    """Texto corto para warnings al retirar un elemento sin citas."""
+
+    for key in ("statement", "text", "title", "name", "change", "decision", "action"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()[:100]
+    return ""
+
+
+def _filter_uncited_items(
+    items: list[Any],
+) -> tuple[list[Any], int, list[str]]:
+    """Misma regla de citas: conserva solo dicts con ``evidence_ids`` no vacío."""
+
+    kept: list[Any] = []
+    dropped = 0
+    dropped_previews: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        evidence = item.get("evidence_ids")
+        if not isinstance(evidence, list) or len(evidence) == 0:
+            dropped += 1
+            preview = _preview_cited_item(item)
+            if preview:
+                dropped_previews.append(preview)
+            continue
+        kept.append(item)
+    return kept, dropped, dropped_previews
+
+
+def _sanitize_uncited_facts_json(raw_output: str, *, agent: str) -> str:
+    """Retira facts (y nested situation) sin ``evidence_ids`` antes de validar.
+
+    **Punto único** (SV2-SANEO-UNIFORME + SV2-SANEO-ANIDADO): se invoca desde el
+    provider Signal para todos los agentes con ``facts[].evidence_ids`` estricto.
+    No hay copias por agente ni un segundo sistema para nested; solo varía el
+    mínimo de calidad de facts (``MIN_GROUNDED_FACTS_BY_AGENT``) y, para
+    situation summary, se aplican los mismos filtros a sublistados opcionales
+    (``NESTED_STRICT_EVIDENCE_LISTS``).
+
+    Misma familia que la frontera del 095: la forma del modelo no puede matar el
+    job. Un elemento sin citas se omite con aviso visible.
+
+    Facts: si tras el saneo no queda ninguno de los emitidos, falla con mensaje
+    explícito («el modelo no citó nada»), no con ``ValidationError: evidence_ids
+    too_short``. Si quedan 1..min-1 facts fundados, degrada confianza y marca
+    needs_review (no relaja el schema).
+
+    Nested (opportunities/risks/relevant_actors): elemento sin citas se retira
+    con aviso; sublistado vacío **no** es fatal (campos opcionales default []).
+
+    Esquemas sin ``facts[]`` (wizards, plan) y el path RT-07 de Preguntar no
+    entran aquí.
+    """
+
+    if agent not in AGENTS_WITH_STRICT_FACTS:
+        # No forzar saneo donde el schema no valida facts[].evidence_ids estricto
+        # (wizards, plan) ni en agentes RT-07 con path propio.
+        return raw_output
+
+    min_grounded = min_grounded_facts_for_agent(agent)
+
+    try:
+        candidate = json.loads(raw_output)
+    except ValueError:
+        return raw_output
+    if not isinstance(candidate, dict):
+        return raw_output
+
+    changed = False
+    warnings = list(candidate["warnings"]) if isinstance(candidate.get("warnings"), list) else []
+
+    # --- facts[] (requeridos para fundamentación cuando el modelo emite facts) ---
+    facts = candidate.get("facts")
+    if isinstance(facts, list):
+        kept, dropped, dropped_previews = _filter_uncited_items(facts)
+        if dropped > 0:
+            changed = True
+            if not kept:
+                raise UncitedFactsError(
+                    "el modelo no citó nada: todos los facts carecían de evidence_ids y se "
+                    f"retiraron ({dropped} fact(s) sin citas). No se publica un análisis sin "
+                    "fundamentación."
+                )
+            candidate["facts"] = kept
+            preview_blob = "; ".join(dropped_previews)[:220]
+            drop_warning = (
+                f"Se retiraron {dropped} fact(s) sin evidence_ids (no publicables"
+                f"{f': {preview_blob}' if preview_blob else ''}). "
+                "Un fact sin citas no es un error fatal del job: se omite y se publica lo fundado."
+            )
+            if drop_warning not in warnings:
+                warnings.append(drop_warning)
+
+            if len(kept) < min_grounded:
+                conf_raw = candidate.get("confidence")
+                try:
+                    conf_i = int(conf_raw)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    conf_i = 50
+                new_conf = min(max(0, conf_i), QUALITY_DEGRADED_CONFIDENCE_CAP)
+                candidate["confidence"] = new_conf
+                scores = candidate.get("scores")
+                if isinstance(scores, dict) and "confidence" in scores:
+                    try:
+                        scores["confidence"] = min(
+                            max(0, int(scores["confidence"])), QUALITY_DEGRADED_CONFIDENCE_CAP
+                        )
+                    except (TypeError, ValueError):
+                        scores["confidence"] = QUALITY_DEGRADED_CONFIDENCE_CAP
+                # entity_resolution: decision match/no_match sin masa de hechos → needs_review
+                if candidate.get("decision") in {"match", "no_match", "create_new"}:
+                    candidate["decision"] = "needs_review"
+                quality_warning = (
+                    f"Tras sanear facts sin citas quedan solo {len(kept)} fact(s) fundado(s) "
+                    f"(mínimo razonable={min_grounded} para agente={agent}). "
+                    f"Confianza degradada a {new_conf}; se recomienda revisión humana "
+                    "(needs_review). Publicar por debajo del mínimo de calidad del agente "
+                    "no es aceptable."
+                )
+                if quality_warning not in warnings:
+                    warnings.append(quality_warning)
+
+    # --- nested opcionales (mismo filtro; vacío no es fatal) ---
+    for field_name, label in NESTED_STRICT_EVIDENCE_LISTS.get(agent, ()):
+        raw_list = candidate.get(field_name)
+        if not isinstance(raw_list, list):
+            continue
+        kept_nested, dropped_nested, nested_previews = _filter_uncited_items(raw_list)
+        if dropped_nested == 0:
+            continue
+        changed = True
+        candidate[field_name] = kept_nested
+        preview_blob = "; ".join(nested_previews)[:220]
+        nested_warning = (
+            f"Se retiraron {dropped_nested} {label}(s) sin evidence_ids en {field_name} "
+            f"(no publicables{f': {preview_blob}' if preview_blob else ''}). "
+            "Un elemento sin citas no es un error fatal del job: se omite; "
+            "sublistado vacío es aceptable (campo opcional)."
+        )
+        if nested_warning not in warnings:
+            warnings.append(nested_warning)
+
+    # SV2-RIESGO-DECL: risk_context_declared exige declared_evidence_ids (no evidence_ids).
+    # risk ya está en AGENTS_WITH_STRICT_FACTS; aquí se aplica la misma familia de
+    # drop+warning al canal declarado, sin relajar facts oficiales.
+    # SV2-PROSA: dedup por barrera normalizada + merge de categories.
+    if agent == "risk":
+        raw_declared = candidate.get("risk_context_declared")
+        if isinstance(raw_declared, list):
+            kept_decl: list[Any] = []
+            dropped_decl = 0
+            decl_previews: list[str] = []
+            for item in raw_declared:
+                if not isinstance(item, dict):
+                    dropped_decl += 1
+                    continue
+                decl_ids = item.get("declared_evidence_ids")
+                if not isinstance(decl_ids, list) or len(decl_ids) == 0:
+                    dropped_decl += 1
+                    preview = _preview_cited_item(item)
+                    if preview:
+                        decl_previews.append(preview)
+                    continue
+                kept_decl.append(item)
+            try:
+                from opn_oracle.ai.context import dedupe_risk_context_declared
+
+                deduped = dedupe_risk_context_declared(kept_decl)
+            except Exception:
+                deduped = kept_decl
+            if dropped_decl > 0 or len(deduped) != len(kept_decl):
+                changed = True
+                candidate["risk_context_declared"] = deduped
+            if dropped_decl > 0:
+                preview_blob = "; ".join(decl_previews)[:220]
+                decl_warning = (
+                    f"Se retiraron {dropped_decl} ítem(s) de risk_context_declared sin "
+                    f"declared_evidence_ids (no publicables"
+                    f"{f': {preview_blob}' if preview_blob else ''}). "
+                    "Un contexto declarado sin citas no es error fatal: se omite."
+                )
+                if decl_warning not in warnings:
+                    warnings.append(decl_warning)
+            elif len(deduped) != len(kept_decl):
+                candidate["risk_context_declared"] = deduped
+
+    if not changed:
+        return raw_output
+
+    candidate["warnings"] = warnings
+    return json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
+
+
+def _merge_allowed_evidence_ids(context: dict[str, Any]) -> list[str]:
+    """Union top-level allowlist with dual-memory IDs under requested_scope.
+
+    SV2-AUG nests dual-memory `allowed_evidence_ids` under `requested_scope` while
+    `build_context` may still publish a non-empty top-level allowlist (often a
+    single oracle Evidence row). Using only the top-level list when it is non-empty
+    drops the dual-memory IDs that the model is instructed to cite, so RT-07 and
+    local `_validate_allowed_evidence` disagree and Preguntar fails closed with
+    AIUnavailable despite Signal returning HTTP 200.
+
+    SV2-PERFIL-EVIDENCIA: también une ``allowed_declared_evidence_ids`` (perfil
+    del cliente, source_kind=declared). El modelo puede citarlos durante la
+    generación; ``validate_opportunity_origin_boundary`` los saca de ``facts[]``
+    después y solo los deja en ``fit_assessment``.
+    """
+
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: Any) -> None:
+        if not isinstance(raw, list):
+            return
+        for item in raw:
+            value = str(item).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+
+    _add(context.get("allowed_evidence_ids"))
+    _add(context.get("allowed_declared_evidence_ids"))
+    scope = context.get("requested_scope")
+    if isinstance(scope, dict):
+        _add(scope.get("allowed_evidence_ids"))
+        _add(scope.get("allowed_declared_evidence_ids"))
+    return merged
 
 
 def _validate_allowed_evidence(output: BaseModel, allowed_values: list[str]) -> None:
@@ -1172,9 +1563,7 @@ class SignalGovernedLLMProvider:
             schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")
         )
         context_json = json.dumps(request.context, ensure_ascii=False, separators=(",", ":"))
-        allowed_evidence_ids = [
-            str(item) for item in request.context.get("allowed_evidence_ids", [])
-        ]
+        allowed_evidence_ids = _merge_allowed_evidence_ids(request.context)
         allowed_evidence_json = json.dumps(
             allowed_evidence_ids, ensure_ascii=False, separators=(",", ":")
         )
@@ -1186,6 +1575,7 @@ class SignalGovernedLLMProvider:
         )
         body: dict[str, Any] = {
             "task_key": request.agent,
+            "allowed_evidence_ids": allowed_evidence_ids,
             "input": {
                 "messages": [
                     {
@@ -1206,22 +1596,47 @@ class SignalGovernedLLMProvider:
                 ],
                 "format": "json",
                 "max_output_tokens": request.max_output_tokens,
+                "allowed_evidence_ids": allowed_evidence_ids,
+                "requested_scope": (
+                    request.context.get("requested_scope")
+                    if isinstance(request.context.get("requested_scope"), dict)
+                    else {"allowed_evidence_ids": allowed_evidence_ids}
+                ),
             },
         }
         started = time.monotonic()
         safe_fallback_used = False
         payload = self._run(body)
+        usage = _usage(payload)
+        # MDEV-06 trust chain: dossier_question_answer must consume exactly the
+        # RT-07 validated_output object — never payload.result (raw provider).
+        if request.agent == "dossier_question_answer":
+            return self._consume_validated_dossier_question(
+                request=request,
+                schema=schema,
+                payload=payload,
+                allowed_evidence_ids=allowed_evidence_ids,
+                usage=usage,
+                started=started,
+            )
         normalized_output = _signal_output(payload)
         normalized_output = _normalize_signal_candidate_json(
             request, normalized_output, allowed_evidence_ids
         )
-        usage = _usage(payload)
+        # SV2-SANEO-UNIFORME: punto único — retirar facts sin citas antes del schema
+        # para todos los agentes con facts[].evidence_ids estricto (no matar el job).
+        try:
+            normalized_output = _sanitize_uncited_facts_json(normalized_output, agent=request.agent)
+        except UncitedFactsError:
+            raise
         try:
             output = schema.model_validate_json(normalized_output)
             _validate_allowed_evidence(output, allowed_evidence_ids)
             if request.agent == "dossier_situation_summary" and not allowed_evidence_ids:
                 output = _safe_empty_evidence_summary(request, schema)
                 safe_fallback_used = True
+        except UncitedFactsError:
+            raise
         except ValueError as validation_error:
             repair_errors: list[dict[str, Any]]
             if isinstance(validation_error, ValidationError):
@@ -1278,7 +1693,12 @@ class SignalGovernedLLMProvider:
                 repaired_raw_output = _normalize_signal_candidate_json(
                     request, _signal_output(payload), allowed_evidence_ids
                 )
+                repaired_raw_output = _sanitize_uncited_facts_json(
+                    repaired_raw_output, agent=request.agent
+                )
                 repaired_output = schema.model_validate_json(repaired_raw_output)
+            except UncitedFactsError:
+                raise
             except ValueError:
                 if allowed_evidence_ids:
                     raise
@@ -1312,6 +1732,106 @@ class SignalGovernedLLMProvider:
             fallback_used=bool(payload.get("fallback_used", False)),
             safe_fallback_used=safe_fallback_used,
         )
+
+    def _consume_validated_dossier_question(
+        self,
+        *,
+        request: LLMRequest,
+        schema: type[T],
+        payload: dict[str, Any],
+        allowed_evidence_ids: list[str],
+        usage: dict[str, Any],
+        started: float,
+    ) -> LLMResult:
+        """Fail-closed consumer of Signal RT-07 validated_output (never payload.result)."""
+
+        validated = payload.get("validated_output")
+        if not isinstance(validated, dict) or not validated:
+            raise AIUnavailable(
+                "Signal no devolvió validated_output válido para dossier_question_answer."
+            )
+        # Drop Signal envelope helpers that are not part of the agent schema.
+        candidate = {
+            key: value
+            for key, value in validated.items()
+            if key not in {"citation_count", "schema_version", "validated_output_sha256"}
+        }
+        if not candidate.get("answer_text"):
+            raise AIUnavailable(
+                "Signal validated_output carece de answer_text para dossier_question_answer."
+            )
+        # Canonical hash of the exact validated object Signal returned (pre-local schema).
+        canonical = json.dumps(
+            candidate, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+        )
+        vo_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        # Optional runtime integrity when Signal attaches RT-07 meta.
+        runtime = payload.get("runtime")
+        if isinstance(runtime, dict):
+            for required in ("runtime_id", "prompt_sha256", "schema_sha256"):
+                if not str(runtime.get(required) or "").strip():
+                    raise AIUnavailable(
+                        f"Signal runtime incompleto para dossier_question_answer ({required})."
+                    )
+        try:
+            # No normalize/repair path and never payload.result: schema drift fails closed.
+            # model_validate_json preserves UUID coercion from the JSON wire format.
+            output = schema.model_validate_json(canonical)
+            _validate_allowed_evidence(output, allowed_evidence_ids)
+        except (ValidationError, ValueError, TypeError) as error:
+            raise AIUnavailable(
+                "Signal validated_output no cumple schema/allowlist de dossier_question_answer."
+            ) from error
+        # Detect mutation: re-dump must re-validate and preserve answer_text + citations.
+        re_dumped = output.model_dump(mode="json")
+        try:
+            re_output = schema.model_validate_json(
+                json.dumps(re_dumped, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            )
+            if str(getattr(re_output, "answer_text", "")) != str(
+                getattr(output, "answer_text", "")
+            ):
+                raise AIUnavailable("Signal validated_output mutó al re-serializar (answer_text).")
+            out_cites = [
+                str(c.get("evidence_id") if isinstance(c, dict) else getattr(c, "evidence_id", ""))
+                for c in (re_dumped.get("citations") or [])
+            ]
+            in_cites = [
+                str(c.get("evidence_id") or "")
+                for c in (candidate.get("citations") or [])
+                if isinstance(c, dict)
+            ]
+            if out_cites != in_cites:
+                raise AIUnavailable("Signal validated_output mutó al re-serializar (citations).")
+        except AIUnavailable:
+            raise
+        except (ValidationError, ValueError, TypeError) as error:
+            raise AIUnavailable(
+                "Signal validated_output inestable tras normalización local."
+            ) from error
+        elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
+        return LLMResult(
+            output=output,
+            input_tokens=_usage_tokens(usage, "input"),
+            output_tokens=_usage_tokens(usage, "output"),
+            cost_micros=_non_negative_int(usage.get("cost_micros") or payload.get("cost_micros")),
+            latency_ms=_non_negative_int(payload.get("latency_ms")) or elapsed_ms,
+            provider=str(payload.get("provider") or payload.get("actual_provider") or "signal"),
+            model=str(payload.get("model") or payload.get("actual_model") or request.model),
+            fallback_used=bool(payload.get("fallback_used", False)),
+            safe_fallback_used=False,
+            validated_output_sha256=vo_hash,
+        )
+
+    def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Public governed boundary for Signal `/api/v1/ai/run`.
+
+        Preserves request_id/run_id, usage, attempts, provider, model and fallback
+        metadata for durable audit bindings. Product code must call this instead of
+        the private ``_run`` transport helper.
+        """
+
+        return self._run(body)
 
     def _run(self, body: dict[str, Any]) -> dict[str, Any]:
         try:

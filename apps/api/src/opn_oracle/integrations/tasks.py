@@ -118,49 +118,73 @@ def dispatch_outbox(self: Any, *, event_id: str, tenant_id: str) -> dict[str, An
             )
         external_id = str(event.payload.get("external_id") or event.payload.get("monitor_id"))
         try:
-            adapter = adapter_for_connection(connection)
-            if event.event_type == "monitor.pause":
-                adapter.pause_monitor(external_id, idempotency_key=event.idempotency_key)
-            elif event.event_type == "monitor.resume":
-                adapter.resume_monitor(external_id, idempotency_key=event.idempotency_key)
-            elif event.event_type == "monitor.create":
-                spec_payload = {
-                    key: value
-                    for key, value in event.payload.items()
-                    if key in MonitorSpec.model_fields
-                }
-                created = adapter.create_monitor(
-                    MonitorSpec.model_validate(spec_payload),
-                    idempotency_key=event.idempotency_key,
+            # Memory bilateral uses the Memory HTTP client
+            # + IC keyring — never the
+            # Signal-Avanza adapter (fails closed when
+            # SIGNAL_AVANZA_CONTRACT_CONFIRMED=false).
+            if str(event.event_type or "").startswith("memory.bilateral."):
+                from opn_oracle.integrations.memory_outbox import (
+                    publish_memory_bilateral_envelope,
                 )
-                if event.monitor_id:
-                    monitor = db.session.get(SignalMonitor, event.monitor_id)
-                    if monitor is not None:
-                        monitor.external_id = created.id
-            elif event.event_type == "monitor.update":
-                spec_payload = {
-                    key: value
-                    for key, value in event.payload.items()
-                    if key in MonitorSpec.model_fields
-                }
-                if "oracle_monitor_id" not in spec_payload and event.payload.get(
-                    "client_monitor_id"
-                ):
-                    spec_payload["oracle_monitor_id"] = event.payload["client_monitor_id"]
-                adapter.update_monitor(
-                    external_id,
-                    MonitorSpec.model_validate(spec_payload),
-                    idempotency_key=event.idempotency_key,
+
+                payload = event.payload if isinstance(event.payload, dict) else {}
+                envelope = payload.get("envelope")
+                if not isinstance(envelope, dict):
+                    return _mark_permanent_outbox_failure(
+                        event_id=event_uuid,
+                        tenant_id=tenant_uuid,
+                        error_code="memory_envelope_missing",
+                    )
+                target = str(payload.get("target_path") or "/api/v1/memory/v1/ingest/bilateral")
+                publish_memory_bilateral_envelope(
+                    connection=connection,
+                    envelope=envelope,
+                    target_path=target,
                 )
-            elif event.event_type == "connection.test":
-                connection.last_health_at = datetime.now(UTC)
-                if not adapter.health():
-                    raise SignalTemporaryError("Signal respondió en estado degradado.")
-                connection.last_success_at = datetime.now(UTC)
-                connection.last_error = None
-                connection.status = "active"
             else:
-                raise ValueError("Tipo de evento outbox no soportado.")
+                adapter = adapter_for_connection(connection)
+                if event.event_type == "monitor.pause":
+                    adapter.pause_monitor(external_id, idempotency_key=event.idempotency_key)
+                elif event.event_type == "monitor.resume":
+                    adapter.resume_monitor(external_id, idempotency_key=event.idempotency_key)
+                elif event.event_type == "monitor.create":
+                    spec_payload = {
+                        key: value
+                        for key, value in event.payload.items()
+                        if key in MonitorSpec.model_fields
+                    }
+                    created = adapter.create_monitor(
+                        MonitorSpec.model_validate(spec_payload),
+                        idempotency_key=event.idempotency_key,
+                    )
+                    if event.monitor_id:
+                        monitor = db.session.get(SignalMonitor, event.monitor_id)
+                        if monitor is not None:
+                            monitor.external_id = created.id
+                elif event.event_type == "monitor.update":
+                    spec_payload = {
+                        key: value
+                        for key, value in event.payload.items()
+                        if key in MonitorSpec.model_fields
+                    }
+                    if "oracle_monitor_id" not in spec_payload and event.payload.get(
+                        "client_monitor_id"
+                    ):
+                        spec_payload["oracle_monitor_id"] = event.payload["client_monitor_id"]
+                    adapter.update_monitor(
+                        external_id,
+                        MonitorSpec.model_validate(spec_payload),
+                        idempotency_key=event.idempotency_key,
+                    )
+                elif event.event_type == "connection.test":
+                    connection.last_health_at = datetime.now(UTC)
+                    if not adapter.health():
+                        raise SignalTemporaryError("Signal respondió en estado degradado.")
+                    connection.last_success_at = datetime.now(UTC)
+                    connection.last_error = None
+                    connection.status = "active"
+                else:
+                    raise ValueError("Tipo de evento outbox no soportado.")
         except SignalTemporaryError as exc:
             event = db.session.get(IntegrationOutboxEvent, event_uuid)
             assert event is not None

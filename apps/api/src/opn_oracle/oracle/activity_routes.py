@@ -29,7 +29,13 @@ class ActivityQuerySchema(Schema):
     kind = String(
         load_default=None,
         validate=validate.OneOf(
-            ["watchlist", "signal_monitor", "procurement_watch", "background_job"]
+            [
+                "watchlist",
+                "signal_monitor",
+                "procurement_watch",
+                "background_job",
+                "surveillance_action",
+            ]
         ),
         allow_none=True,
     )

@@ -187,17 +187,18 @@ EVIDENCE_REVIEW_REQUIRED = {
 # Respuesta al veredicto `fail`, declarada por agente y consultada directamente.
 # - reject_output: fallo duro (triage, competitive y agentes de decisión).
 # - strip_claims: retira solo claims anclados y publica con avisos visibles. Aplica al
-#   resumen nocturno y a report_writer (plantillas actors/action_plan/executive/…): en
-#   producción el revisor tumba informes con evidencia real y deja al usuario sin
-#   entregable; el recorte quirúrgico conserva la validación estructural de citas.
+#   resumen nocturno, report_writer, oportunidad/riesgo y priorización/resolución
+#   de actores: el revisor semántico con modelos locales a menudo tumba salidas
+#   con citas reales y deja al usuario sin
+#   propuesta; el recorte conserva validación estructural de citas y la puerta humana.
 # - not_required: el agente no invoca al revisor semántico.
 EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "intake": "reject_output",
     "signal_triage": "reject_output",
-    "entity_resolution": "reject_output",
-    "opportunity": "reject_output",
-    "risk": "reject_output",
-    "actor_partnership": "reject_output",
+    "entity_resolution": "strip_claims",
+    "opportunity": "strip_claims",
+    "risk": "strip_claims",
+    "actor_partnership": "strip_claims",
     "meeting_briefing": "reject_output",
     "report_writer": "strip_claims",
     "competitive_procurement_intelligence": "reject_output",
@@ -251,6 +252,10 @@ def _max_output_tokens(name: str, version: str) -> int:
         # Signal pisa este valor para tareas gobernadas, pero mandarlo correcto evita que el
         # límite real dependa de ese parche.
         return 16000
+    if name in {"opportunity", "risk"}:
+        # Expediente con varias piezas PLACSP: con 2000 el JSON de salida se corta a media
+        # cadena (ValidationError EOF) y el job muere aunque Titan haya respondido a coste 0.
+        return 6000
     if name == "dossier_completion_wizard":
         return 4500
     if name == "tender_search_wizard":

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from opn_oracle.ai.models import AIArtifact, AIContextEvidence, AIHumanReview
 from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, actor_canonical_key, clean_labels
+from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
 from opn_oracle.oracle.intent import (
     DossierIntentRevision,
     DossierOffering,
@@ -56,6 +57,7 @@ from opn_oracle.oracle.policy import (
 )
 from opn_oracle.oracle.scoring import (
     ACTOR_PRIORITY_WEIGHTS,
+    ALGORITHM_VERSION,
     OPPORTUNITY_WEIGHTS,
     RISK_WEIGHTS,
     SIGNAL_WEIGHTS,
@@ -89,42 +91,10 @@ DOSSIER_TYPES = frozenset(
         "custom",
     }
 )
-# Preset de conveniencia (UE-27). El dominio es global: la validación admite
-# cualquier código ISO 3166-1 alpha-2, no solo este conjunto.
-EU_COUNTRY_CODES = frozenset(
-    {
-        "AT",
-        "BE",
-        "BG",
-        "CY",
-        "CZ",
-        "DE",
-        "DK",
-        "EE",
-        "ES",
-        "FI",
-        "FR",
-        "GR",
-        "HR",
-        "HU",
-        "IE",
-        "IT",
-        "LT",
-        "LU",
-        "LV",
-        "MT",
-        "NL",
-        "PL",
-        "PT",
-        "RO",
-        "SE",
-        "SI",
-        "SK",
-    }
-)
-# Formato ISO 3166-1 alpha-2. No se valida contra un catálogo cerrado de estados
-# para no hardcodear regiones ni bloquear mercados fuera de la UE.
-_ISO_ALPHA2 = re.compile(r"^[A-Z]{2}$")
+# ISO 3166-1 alpha-2 o ISO 3166-2 (subdivisión). Sin catálogo cerrado de estados
+# ni de CCAA: el formato basta; mercados fuera de la UE y subdivisiones ES-* son válidos.
+# La proyección hacia Signal aplana a país (ver geography_codes_for_signal).
+_ISO_GEOGRAPHY = re.compile(r"^[A-Z]{2}(-[A-Z0-9]{1,3})?$")
 DOSSIER_TRANSITIONS = {
     "draft": frozenset({"active", "archived"}),
     "active": frozenset({"paused", "archived"}),
@@ -236,15 +206,42 @@ def _profile_strings(value: Any, field: str, *, limit: int = 30) -> list[str]:
 
 
 def _geography_codes(value: Any) -> list[str]:
-    """Normaliza códigos de geografía a ISO 3166-1 alpha-2 (ámbito global)."""
+    """Normaliza códigos de geografía a ISO 3166-1 alpha-2 o ISO 3166-2.
+
+    Oracle conserva la subdivisión (p. ej. ES-VC). La proyección hacia Signal
+    debe usar geography_codes_for_signal para enviar solo el país.
+    """
     codes = [item.upper() for item in _profile_strings(value, "geography", limit=50)]
-    invalid = sorted(code for code in codes if not _ISO_ALPHA2.fullmatch(code))
+    invalid = sorted(code for code in codes if not _ISO_GEOGRAPHY.fullmatch(code))
     if invalid:
         raise DomainValidationError(
-            "geography solo admite códigos ISO 3166-1 alpha-2 (p. ej. ES, DE, US, MX); "
-            "no válidos: " + ", ".join(invalid)
+            "geography solo admite ISO 3166-1 alpha-2 o ISO 3166-2 "
+            "(p. ej. ES, ES-VC, DE, US); no válidos: " + ", ".join(invalid)
         )
     return codes
+
+
+def geography_codes_for_signal(codes: list[str] | None) -> list[str]:
+    """Aplana ISO 3166-2 a país alpha-2 para monitores Signal (deduplicado, orden estable).
+
+    Signal acepta cualquier string en geographies y no filtra web_search por él;
+    aun así se proyecta solo el país para no enviar subdivisiones que el receptor
+    no interpreta (procurement country_code es String(2); monitores no validan
+    formato pero tampoco consumen subdivisiones).
+    """
+    countries: list[str] = []
+    seen: set[str] = set()
+    for raw in codes or []:
+        code = str(raw).strip().upper()
+        if not code:
+            continue
+        country = code.split("-", 1)[0]
+        if len(country) != 2 or not country.isalpha():
+            continue
+        if country not in seen:
+            seen.add(country)
+            countries.append(country)
+    return countries
 
 
 def _language_codes(value: Any) -> list[str]:
@@ -450,6 +447,9 @@ def create_dossier(
             "profile_version": profile_config.get("version") if profile_config else None,
         },
     )
+    # Column defaults are 0/0/0; without a refresh an empty dossier reads as
+    # health=0 (worst) instead of the neutral aggregate (health=50).
+    _refresh_dossier_aggregates(session, dossier.id)
     session.commit()
     return dossier
 
@@ -681,6 +681,12 @@ def _ensure_dossier_actor(
         merged_roles = list(dict.fromkeys([*link.roles, *roles]))
         if merged_roles != list(link.roles):
             link.roles = merged_roles
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session,
+            tenant_id=dossier.tenant_id,
+            dossier_id=dossier.id,
+            actor_ids={actor.id},
+        )
         return
     components = {
         "influence": 0,
@@ -708,6 +714,14 @@ def _ensure_dossier_actor(
             score_details=score.as_dict(),
             **components,
         )
+    )
+    session.flush()
+    # Actor nuevo/enlazado: si ya hay awards fijados con NIF, hidratar de inmediato.
+    hydrate_dossier_actor_tax_ids_from_awards(
+        session,
+        tenant_id=dossier.tenant_id,
+        dossier_id=dossier.id,
+        actor_ids={actor.id},
     )
 
 
@@ -838,7 +852,8 @@ def _apply_market_profile(
             "keywords": keywords or list(watchlist.query_config.get("keywords", [])),
             "entities": [{"type": "company", "name": name} for name in entity_names],
             "languages": [str(item).lower() for item in dossier.languages],
-            "geographies": [str(item).upper() for item in dossier.geography],
+            # Subdivisiones ISO 3166-2 se conservan en dossier.geography; Signal recibe país.
+            "geographies": geography_codes_for_signal(list(dossier.geography or [])),
             "cadence": "daily",
         }
     rationale_parts = []
@@ -1701,6 +1716,12 @@ def create_dossier_actor(
         if payload.get("notes"):
             existing_link.notes = str(payload["notes"])[:5000]
         existing_link.version += 1
+        hydrate_dossier_actor_tax_ids_from_awards(
+            session,
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            actor_ids={linked_actor_id},
+        )
         session.commit()
         return existing_link
     components = {key: int(payload.get(key, 0)) for key in ACTOR_PRIORITY_WEIGHTS}
@@ -1719,6 +1740,7 @@ def create_dossier_actor(
         **components,
     )
     session.add(row)
+    session.flush()
     append_audit_event(
         session,
         action="actor.linked",
@@ -1727,6 +1749,13 @@ def create_dossier_actor(
         dossier_id=dossier_id,
         result="success",
         metadata={"created_from_name": payload.get("actor_id") is None},
+    )
+    # Al enlazar actor a expediente con awards ya fijados, hidratar CIF si es inequívoco.
+    hydrate_dossier_actor_tax_ids_from_awards(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        actor_ids={linked_actor_id},
     )
     session.commit()
     return row
@@ -1954,10 +1983,63 @@ def _refresh_dossier_aggregates(session: Session, dossier_id: uuid.UUID) -> None
     dossier.opportunity_score = aggregate["opportunity_score"]
     dossier.risk_score = aggregate["risk_score"]
     dossier.score_explanation = {
-        "algorithm_version": "oracle-scoring-v1",
+        "algorithm_version": ALGORITHM_VERSION,
         "aggregate": "arithmetic mean; health=50+0.5*opportunity-0.5*risk",
+        "opportunity_count": len(opportunities),
+        "risk_count": len(risks),
         **aggregate,
     }
+
+
+def _dossier_aggregates_stale(dossier: StrategicDossier) -> bool:
+    explanation = dossier.score_explanation if isinstance(dossier.score_explanation, dict) else {}
+    return explanation.get("algorithm_version") != ALGORITHM_VERSION
+
+
+def ensure_dossier_aggregates(
+    session: Session, dossier: StrategicDossier, *, commit: bool = True
+) -> StrategicDossier:
+    """Self-heal dossiers created before aggregates were refreshed on create.
+
+    Proof of a successful run is ``score_explanation.algorithm_version``. An empty
+    ``{}`` means the row still carries column defaults (health 0) and must be
+    recomputed from current opportunities/risks.
+    """
+
+    if not _dossier_aggregates_stale(dossier):
+        return dossier
+    _refresh_dossier_aggregates(session, dossier.id)
+    if commit:
+        session.commit()
+        session.refresh(dossier)
+    return dossier
+
+
+def ensure_dossier_aggregates_many(
+    session: Session, dossiers: list[StrategicDossier]
+) -> list[StrategicDossier]:
+    """Batch self-heal for list endpoints (single commit)."""
+
+    stale = [row for row in dossiers if _dossier_aggregates_stale(row)]
+    if not stale:
+        return dossiers
+    for row in stale:
+        _refresh_dossier_aggregates(session, row.id)
+    session.commit()
+    for row in stale:
+        session.refresh(row)
+    return dossiers
+
+
+def order_with_nulls_last(column: Any, *, descending: bool) -> Any:
+    """Product contract: rows without a sort value never cover those that have one.
+
+    Applies to deadline/due_date (and any other nullable sort column): ascending or
+    descending, nulls stay at the end so the working week stays legible.
+    """
+
+    base = column.desc() if descending else column.asc()
+    return base.nulls_last()
 
 
 def list_page(
@@ -1990,7 +2072,7 @@ def list_page(
         term = f"%{search[:100]}%"
         criterion = __import__("sqlalchemy").or_(*(column.ilike(term) for column in search_columns))
         query, count_query = query.where(criterion), count_query.where(criterion)
-    order = allow_sort[sort_key].desc() if descending else allow_sort[sort_key].asc()
+    order = order_with_nulls_last(allow_sort[sort_key], descending=descending)
     total = int(session.scalar(count_query) or 0)
     rows = list(session.scalars(query.order_by(order).offset((page - 1) * size).limit(size)))
     return rows, total

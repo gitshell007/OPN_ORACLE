@@ -17,6 +17,8 @@ from opn_oracle.oracle.conversations import (
     can_transition_message,
     create_conversation,
     enqueue_user_message,
+    list_conversations,
+    list_messages,
     mark_message_failed,
     serialize_message,
     transition_message_status,
@@ -222,3 +224,51 @@ def test_serialize_message_includes_status() -> None:
     assert payload["status"] == "queued"
     assert payload["content_text"] == "hola"
     assert payload["background_job_id"] == str(message.background_job_id)
+
+
+def test_list_conversations_orders_by_updated_and_caps_limit() -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    older = SimpleNamespace(id=uuid.uuid4(), dossier_id=dossier_id)
+    newer = SimpleNamespace(id=uuid.uuid4(), dossier_id=dossier_id)
+    session = MagicMock()
+    scalars_result = MagicMock()
+    scalars_result.all.return_value = [newer, older]
+    session.scalars.return_value = scalars_result
+
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        rows = list_conversations(session, dossier_id=dossier_id, limit=500)
+
+    assert rows == [newer, older]
+    session.scalars.assert_called_once()
+
+
+def test_list_messages_requires_conversation_and_returns_latest_first() -> None:
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    conversation = SimpleNamespace(
+        id=conversation_id,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        status="open",
+    )
+    msg_new = SimpleNamespace(id=uuid.uuid4(), sequence=2)
+    msg_old = SimpleNamespace(id=uuid.uuid4(), sequence=1)
+    session = MagicMock()
+    session.scalar.return_value = conversation
+    scalars_result = MagicMock()
+    scalars_result.all.return_value = [msg_new, msg_old]
+    session.scalars.return_value = scalars_result
+
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=uuid.uuid4())):
+        rows = list_messages(
+            session,
+            dossier_id=dossier_id,
+            conversation_id=conversation_id,
+            limit=1,
+        )
+
+    assert rows == [msg_new, msg_old]
+    session.scalar.assert_called()
+    session.scalars.assert_called_once()

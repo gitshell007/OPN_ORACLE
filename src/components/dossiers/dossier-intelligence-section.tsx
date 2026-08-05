@@ -27,7 +27,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
@@ -40,11 +40,6 @@ export type IntelligenceSectionKind = "signals" | "opportunities" | "risks";
 type ScoredResource = OracleOpportunity | OracleRisk;
 type SelectedItem = DossierSignalEnvelope | ScoredResource;
 
-function isActivationKey(event: KeyboardEvent<HTMLElement>) {
-  if (event.key !== "Enter" && event.key !== " ") return false;
-  event.preventDefault();
-  return true;
-}
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Nueva",
@@ -170,6 +165,21 @@ function formatDate(value?: string | null): string {
   }).format(date);
 }
 
+/** Date-only label matching home `due_at` (no time; "Sin fecha" when empty). */
+function formatDueDate(value?: string | null): string {
+  if (!value) return "Sin fecha";
+  const date = new Date(value.includes("T") ? value : `${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
+  return date.toLocaleDateString("es-ES");
+}
+
+function opportunityDeadline(item: SelectedItem): string | null {
+  if (isSignal(item)) return null;
+  if (!("deadline" in item)) return null;
+  const value = (item as OracleOpportunity).deadline;
+  return typeof value === "string" && value ? value : null;
+}
+
 function formatSourceDate(value?: string | null): string {
   return value ? formatDate(value) : "Fecha no disponible en la fuente";
 }
@@ -267,6 +277,8 @@ export function DossierIntelligenceSection({
       const input = {
         page,
         size: 25 as const,
+        // Opportunities: soonest deadline first (API nulls last so undated never cover dated).
+        sort: kind === "opportunities" ? "deadline" : ("-updated_at" as const),
         status: statusFilter || undefined,
         search: appliedQuery || undefined,
         scoreMin: minimumScore ? Number(minimumScore) : undefined,
@@ -762,6 +774,7 @@ export function DossierIntelligenceSection({
                     <th scope="col">Estado</th>
                     <th scope="col">Puntuación</th>
                     <th scope="col">Confianza</th>
+                    {kind === "opportunities" && <th scope="col">Vencimiento</th>}
                     <th scope="col">Actualización</th>
                     <th scope="col"><span className="sr-only">Acciones</span></th>
                   </tr>
@@ -771,13 +784,7 @@ export function DossierIntelligenceSection({
                     <tr
                       key={isSignal(item) ? item.link.id : item.id}
                       className="interactive-row"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Abrir detalle de ${title(item)}`}
                       onClick={() => void openDetail(item)}
-                      onKeyDown={(event) => {
-                        if (isActivationKey(event)) void openDetail(item);
-                      }}
                     >
                       <td>
                         <strong>{title(item)}</strong>
@@ -790,6 +797,13 @@ export function DossierIntelligenceSection({
                       <td><span className={`intelligence-status status-${status(item)}`}>{STATUS_LABELS[status(item)] ?? status(item)}</span></td>
                       <td><strong className="intelligence-score">{scoreLabel(item)}</strong>{isSignal(item) && signalScoringState(item) === "provisional" && <small>Provisional</small>}</td>
                       <td>{confidenceLabel(item)}</td>
+                      {kind === "opportunities" && (
+                        <td>
+                          <time dateTime={opportunityDeadline(item) ?? undefined}>
+                            {formatDueDate(opportunityDeadline(item))}
+                          </time>
+                        </td>
+                      )}
                       <td>{formatDate(isSignal(item) ? item.link.updated_at : item.updated_at)}</td>
                       <td>
                         <button
@@ -817,6 +831,9 @@ export function DossierIntelligenceSection({
                   </header>
                   <h2>{title(item)}</h2>
                   <p>Confianza {confidenceLabel(item).toLowerCase()}</p>
+                  {kind === "opportunities" && (
+                    <p>Vencimiento {formatDueDate(opportunityDeadline(item))}</p>
+                  )}
                   <button className="vector-secondary" onClick={() => void openDetail(item)}>
                     Inspeccionar
                   </button>
@@ -912,6 +929,16 @@ export function DossierIntelligenceSection({
                     <div><dt>Estado</dt><dd>{STATUS_LABELS[status(selected)] ?? status(selected)}</dd></div>
                     <div><dt>Puntuación</dt><dd>{isSignal(selected) && signalScoringState(selected) === "pending" ? "Sin puntuar" : `${scoreLabel(selected)} / 100`}</dd></div>
                     <div><dt>Confianza</dt><dd>{confidenceLabel(selected)}</dd></div>
+                    {kind === "opportunities" && !isSignal(selected) && (
+                      <div>
+                        <dt>Vencimiento</dt>
+                        <dd>
+                          <time dateTime={opportunityDeadline(selected) ?? undefined}>
+                            {formatDueDate(opportunityDeadline(selected))}
+                          </time>
+                        </dd>
+                      </div>
+                    )}
                     <div><dt>Actualización</dt><dd>{formatDate(isSignal(selected) ? selected.link.updated_at : selected.updated_at)}</dd></div>
                   </dl>
 

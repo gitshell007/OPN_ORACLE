@@ -1334,8 +1334,18 @@ export function ProcurementWorkspace() {
                         <dd>{formatDate(item.deadline)}</dd>
                       </div>
                       <div>
-                        <dt>Importe</dt>
-                        <dd>{formatMoney(item.amount)}</dd>
+                        <dt title="Campo amount de PLACSP: el origen no indica si es base de licitación o IVA incluido">
+                          Importe publicado
+                        </dt>
+                        <dd>
+                          {formatMoney(item.amount)}
+                          {item.amount != null && Number.isFinite(item.amount) ? (
+                            <small className="procurement-amount-note">
+                              {" "}
+                              (PLACSP; sin clasificar base/IVA)
+                            </small>
+                          ) : null}
+                        </dd>
                       </div>
                       <div>
                         <dt>CPV</dt>
