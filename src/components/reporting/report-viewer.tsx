@@ -329,16 +329,35 @@ export function ReportViewer({
                 </ul>
               </section>
             )}
-            {!!content.warnings.length && (
-              <section className="report-warnings" role="note">
-                <h2>Advertencias metodológicas</h2>
-                <ul>
-                  {content.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </section>
-            )}
+            {(() => {
+              const snapshotNotes = Array.isArray(report.document_notes)
+                ? report.document_notes.filter(
+                    (note): note is string =>
+                      typeof note === "string" && note.trim().length > 0,
+                  )
+                : [];
+              const warnings = [
+                ...snapshotNotes,
+                ...content.warnings.filter((warning) => !snapshotNotes.includes(warning)),
+              ];
+              if (!warnings.length) return null;
+              return (
+                <section className="report-warnings" role="note">
+                  <h2>Advertencias metodológicas</h2>
+                  {!!report.encrypted_pdf_fallback && (
+                    <p className="report-document-note-lead">
+                      El pliego original no se pudo leer porque el PDF está cifrado;
+                      el análisis se basó en extractos ya presentes en el expediente.
+                    </p>
+                  )}
+                  <ul>
+                    {warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })()}
           </main>
           <aside className="report-source-index">
             <span className="section-kicker">Snapshot reproducible</span>

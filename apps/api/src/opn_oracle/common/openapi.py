@@ -3195,6 +3195,21 @@ def _reporting_schemas() -> dict[str, Any]:
             "error_message": {"type": "string", "nullable": True},
             "generation": {"oneOf": [generation, {"type": "null"}]},
             "version": {"type": "integer", "minimum": 1},
+            "document_notes": {
+                "type": "array",
+                "items": string,
+                "description": (
+                    "Avisos legibles para el cliente (p. ej. análisis sobre extracto "
+                    "porque el PDF original del pliego está cifrado)."
+                ),
+            },
+            "encrypted_pdf_fallback": {
+                "type": "boolean",
+                "description": (
+                    "True cuando el informe se basó en extractos del expediente "
+                    "porque el PDF oficial venía cifrado."
+                ),
+            },
             "revision": {"oneOf": [json_object, {"type": "null"}]},
             "artifacts": {"type": "array", "items": artifact},
             "reviews": {"type": "array", "items": json_object},

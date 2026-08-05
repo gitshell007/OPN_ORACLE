@@ -59,6 +59,9 @@ PURPOSES = {
     "tender_search_wizard": (
         "Proponer un plan de búsqueda de licitaciones revisable sin ejecutar ni aceptar búsquedas."
     ),
+    "market_competitor_discovery": (
+        "Proponer competidores candidatos de un mercado con URLs de respaldo para revisión humana."
+    ),
     "dossier_question_answer": (
         "Responder una pregunta de expediente con citas a evidencia autorizada "
         "(Preguntar a Oracle)."
@@ -130,6 +133,16 @@ INPUT_CONTRACTS = {
         "feedback_digest",
         "allowed_evidence_ids",
     ),
+    "market_competitor_discovery": (
+        "tenant_id",
+        "description",
+        "own_offer",
+        "sectors",
+        "countries",
+        "languages",
+        "known_names",
+        "allowed_evidence_ids",
+    ),
     "dossier_question_answer": (
         "tenant_id",
         "dossier_id",
@@ -161,6 +174,9 @@ INPUT_CONTRACTS = {
 #   - `tender_search_wizard`: propone filtros candidatos, no afirmaciones sobre hechos.
 #     Oracle valida de forma determinista CPV y términos y ninguna propuesta se acepta,
 #     ejecuta o guarda sin una acción humana posterior.
+#   - `market_competitor_discovery`: propone candidatos pre-creación (sin expediente ni
+#     evidencia interna que citar); las URLs van en la propia salida con etiqueta
+#     «no verificada» y el usuario decide uno a uno qué añadir.
 EVIDENCE_REVIEW_REQUIRED = {
     "intake": True,
     "signal_triage": True,
@@ -178,6 +194,7 @@ EVIDENCE_REVIEW_REQUIRED = {
     "dossier_situation_summary": True,
     "dossier_completion_wizard": False,
     "tender_search_wizard": False,
+    "market_competitor_discovery": False,
     # Preguntar/Informe libre: citas validadas por allowlist en el handler; sin revisor semántico
     # extra (el contrato es JSON estricto + evidence_ids en allowlist).
     "dossier_question_answer": False,
@@ -209,6 +226,7 @@ EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "dossier_situation_summary": "strip_claims",
     "dossier_completion_wizard": "not_required",
     "tender_search_wizard": "not_required",
+    "market_competitor_discovery": "not_required",
     "dossier_question_answer": "not_required",
     "report_custom_brief_plan": "not_required",
 }
@@ -260,6 +278,8 @@ def _max_output_tokens(name: str, version: str) -> int:
         return 4500
     if name == "tender_search_wizard":
         return 3000
+    if name == "market_competitor_discovery":
+        return 2500
     if name == "dossier_question_answer":
         return 2500
     if name == "report_custom_brief_plan":

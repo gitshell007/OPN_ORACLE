@@ -445,6 +445,22 @@ describe("reports Vector", () => {
     expect(click).toHaveBeenCalled();
   });
 
+  it("muestra el aviso legible de PDF cifrado desde document_notes del informe", async () => {
+    const note =
+      "análisis sobre extracto; PDF original cifrado (ref=PCAP.pdf; No se admiten PDF cifrados.)";
+    mocks.get.mockResolvedValueOnce({
+      ...baseReport,
+      document_notes: [note],
+      encrypted_pdf_fallback: true,
+    });
+    render(<ReportViewer reportId="report-1" routeBase="/app" />);
+    expect(await screen.findByText("Advertencias metodológicas")).toBeVisible();
+    expect(
+      screen.getByText(/El pliego original no se pudo leer porque el PDF está cifrado/),
+    ).toBeVisible();
+    expect(screen.getByText(note)).toBeVisible();
+  });
+
   it("presenta fragmentos cortos de una sección como un resumen narrativo único", async () => {
     mocks.get.mockResolvedValueOnce({
       ...baseReport,

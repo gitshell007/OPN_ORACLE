@@ -329,6 +329,17 @@ export function DossierAskSection({ dossierId }: { dossierId: string }) {
                     No se ocultan ausencias.
                   </p>
                 ) : null}
+                {Array.isArray(message.answer_payload?.warnings) &&
+                message.answer_payload.warnings.length > 0 ? (
+                  <div role="status" className="form-error" data-testid="ask-citation-warnings">
+                    <strong>Avisos de citas</strong>
+                    <ul className="warning-list">
+                      {message.answer_payload.warnings.map((warning: unknown, idx: number) => (
+                        <li key={`ask-warning-${idx}`}>{String(warning)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <div className="ask-answer-wrap">
                   <strong>Respuesta</strong>
                   <pre className="answer-block">
