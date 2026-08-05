@@ -115,7 +115,7 @@ def _effective_defaults(
         "last_coverage": None,
         "updated_at": None,
         "persisted": False,
-        "publisher_reliable": True,
+        # Config defaults only — no host health claim (see memory_effective).
     }
 
 
@@ -298,6 +298,11 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
 @bp.get("/dossiers/<uuid:dossier_id>/memory/effective")
 @require_permission("dossier.read")
 def memory_effective(dossier_id: uuid.UUID) -> Any:
+    """Effective profile + host health. Single source of truth for public health.
+
+    Capability is computed once; top-level publisher_* fields that the UI reads
+    are projected from that same capability so they cannot diverge.
+    """
     session = _session()
     dossier = _load_accessible_dossier(session, dossier_id, write=False)
     if dossier is None:
@@ -310,9 +315,14 @@ def memory_effective(dossier_id: uuid.UUID) -> Any:
     else:
         pub = profile_to_public(row)
         pub["persisted"] = True
-    pub["capability"] = capability_payload(
+    # Single source of truth: capability owns host health; project UI fields from it.
+    capability = capability_payload(
         host_mode=host_mode, connection_healthy=host_mode in {"http", "mock"}
     )
+    pub["capability"] = capability
+    pub["publisher_reliable"] = capability["publisher_reliable"]
+    pub["publisher_status"] = capability["publisher_status"]
+    pub["message"] = capability["message"]
     return jsonify(pub)
 
 

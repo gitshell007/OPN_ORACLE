@@ -3798,6 +3798,15 @@ const customBriefs = {
 };
 
 
+/** Host/publisher health from GET /memory/capability and nested under /memory/effective. */
+export type MemoryCapability = {
+  host_mode: string;
+  effective_mode: string;
+  publisher_reliable: boolean;
+  publisher_status: "ok" | "unavailable" | string;
+  message: string;
+};
+
 export type DossierMemoryProfile = {
   id: string | null;
   tenant_id: string;
@@ -3820,9 +3829,16 @@ export type DossierMemoryProfile = {
   last_coverage: Record<string, unknown> | null;
   updated_at: string | null;
   persisted?: boolean;
-  /** Host/publisher health for UI banners — never derive from internal engineering debt. */
+  /**
+   * Host/publisher health for UI banners.
+   * On GET /memory/effective this is projected from `capability` (single source of truth).
+   * On GET/PUT /memory/profile it may be absent — profile endpoints do not know host health.
+   */
   publisher_reliable?: boolean;
-  capability?: Record<string, unknown>;
+  publisher_status?: string;
+  message?: string;
+  /** Nested capability — same publisher_reliable as top-level when present on /effective. */
+  capability?: MemoryCapability;
 };
 
 export interface AiAuditListItem {
@@ -3930,7 +3946,7 @@ const dossierMemory = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/test-connection`,
       { method: "POST" },
     ),
-  capability: () => request<Record<string, unknown>>("/api/v1/memory/capability"),
+  capability: () => request<MemoryCapability>("/api/v1/memory/capability"),
 };
 
 

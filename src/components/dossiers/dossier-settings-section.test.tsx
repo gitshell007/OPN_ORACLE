@@ -400,14 +400,20 @@ describe("DossierSettingsSection", () => {
     expect(sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor")).toBeNull();
   });
 
-  const healthyMemoryProfile = {
+  /**
+   * Exact shapes produced by GET /dossiers/<id>/memory/effective after SV2-HONESTIDAD-SALUD-E2E:
+   * top-level publisher_* projected from nested capability (single source of truth).
+   * Fixtures are endpoint-shaped — not independent invented objects.
+   */
+  const effectiveHttpPersisted = {
     id: "mem-1",
     tenant_id: "tenant-1",
     dossier_id: "dossier-1",
     connection_id: null,
     mode: "augment" as const,
+    mode_label_es: "Usar para responder",
     version: 2,
-    etag: "etag-mem-2",
+    etag: 'W/"dmp-v2-test"',
     sources: ["document"],
     kinds: ["fact"],
     classifications_allowed: ["public"],
@@ -422,29 +428,79 @@ describe("DossierSettingsSection", () => {
     updated_at: "2026-08-06T00:00:00Z",
     persisted: true,
     publisher_reliable: true,
+    publisher_status: "ok",
+    message: "Memory retrieve path operational.",
+    capability: {
+      host_mode: "http",
+      effective_mode: "disabled",
+      publisher_reliable: true,
+      publisher_status: "ok",
+      message: "Memory retrieve path operational.",
+    },
   };
 
-  it("perfil de memoria saludable no muestra «servicio degradado»", async () => {
-    mocks.memoryGet.mockResolvedValue(healthyMemoryProfile);
+  const effectiveDisabledDefaults = {
+    id: null,
+    tenant_id: "tenant-1",
+    dossier_id: "dossier-1",
+    connection_id: null,
+    mode: "disabled" as const,
+    mode_label_es: "Desactivada",
+    version: 0,
+    etag: 'W/"dmp-v0-default"',
+    sources: ["document", "signal"],
+    kinds: ["fact", "chunk", "summary"],
+    classifications_allowed: ["public", "internal"],
+    token_budget: 4000,
+    limit: 20,
+    status: "ephemeral_default",
+    provenance: "effective_default_not_persisted",
+    last_test_at: null,
+    last_test_status: null,
+    last_error: null,
+    last_coverage: null,
+    updated_at: null,
+    persisted: false,
+    publisher_reliable: false,
+    publisher_status: "unavailable",
+    message: "Memory publisher unavailable (host disabled or connection unhealthy).",
+    capability: {
+      host_mode: "disabled",
+      effective_mode: "disabled",
+      publisher_reliable: false,
+      publisher_status: "unavailable",
+      message: "Memory publisher unavailable (host disabled or connection unhealthy).",
+    },
+  };
+
+  it("endpoint http/persisted: top-level healthy → no «servicio degradado»", async () => {
+    // Coherent top-level + nested (as real /memory/effective produces).
+    expect(effectiveHttpPersisted.publisher_reliable).toBe(
+      effectiveHttpPersisted.capability.publisher_reliable,
+    );
+    mocks.memoryGet.mockResolvedValue(effectiveHttpPersisted);
     render(<DossierSettingsSection dossierId="dossier-1" />);
     const section = await screen.findByTestId("dossier-memory-settings");
     await waitFor(() =>
       expect(within(section).getByRole("status")).toHaveTextContent(/Versión 2/),
     );
     expect(within(section).queryByText(/servicio degradado/i)).not.toBeInTheDocument();
-    // No depende de actions_reliable (campo público eliminado).
-    expect(healthyMemoryProfile).not.toHaveProperty("actions_reliable");
+    expect(effectiveHttpPersisted).not.toHaveProperty("actions_reliable");
+    expect(effectiveHttpPersisted).not.toHaveProperty("deferred_blockers");
   });
 
-  it("perfil de memoria no saludable muestra banner de servicio degradado", async () => {
-    mocks.memoryGet.mockResolvedValue({
-      ...healthyMemoryProfile,
-      publisher_reliable: false,
-    });
+  it("endpoint disabled/defaults: top-level degraded → banner servicio degradado", async () => {
+    // Coherent top-level + nested (bug on 9cfb529 had top=true nested=false).
+    expect(effectiveDisabledDefaults.publisher_reliable).toBe(
+      effectiveDisabledDefaults.capability.publisher_reliable,
+    );
+    expect(effectiveDisabledDefaults.publisher_reliable).toBe(false);
+    mocks.memoryGet.mockResolvedValue(effectiveDisabledDefaults);
     render(<DossierSettingsSection dossierId="dossier-1" />);
     const section = await screen.findByTestId("dossier-memory-settings");
     await waitFor(() =>
       expect(within(section).getByText(/Banner: servicio degradado/i)).toBeInTheDocument(),
     );
+    expect(within(section).getByRole("status")).toHaveTextContent(/defaults no persistidos/);
   });
 });

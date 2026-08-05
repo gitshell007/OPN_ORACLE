@@ -136,7 +136,7 @@ def profile_to_public(row: Any) -> dict[str, Any]:
         "last_error": row.last_error,
         "last_coverage": row.last_coverage,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        # Publisher debt (CAS/fencing/requeue) closed 2026-08-02; do not lie.
+        # Profile DTO describes configuration only — never invent host health.
+        # `publisher_reliable` is projected by memory_effective() from capability_payload().
         # Internals (deferred_blockers / actions_reliable / *-MDEV*) stay out of public DTO.
-        "publisher_reliable": True,
     }

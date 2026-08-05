@@ -79,13 +79,14 @@ def test_profile_and_defaults_public_without_internal_accounting() -> None:
         updated_at=now,
     )
     pub = profile_to_public(row)
-    assert pub["publisher_reliable"] is True
+    # Profile DTO does not invent host health (absent preferred over false claim).
+    assert "publisher_reliable" not in pub
     _assert_public_clean(pub)
 
     defaults = _effective_defaults(
         tenant_id=uuid.uuid4(), dossier_id=uuid.uuid4(), connection_id=None
     )
-    assert defaults["publisher_reliable"] is True
+    assert "publisher_reliable" not in defaults
     assert defaults["persisted"] is False
     _assert_public_clean(defaults)
 

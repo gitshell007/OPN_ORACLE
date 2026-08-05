@@ -447,7 +447,8 @@ def test_default_profile_and_public_dto() -> None:
     assert pub["mode_label_es"] == MODE_ES["shadow"]
     assert pub["token_budget"] == 1200
     assert pub["limit"] == 7
-    assert pub["publisher_reliable"] is True
+    # Profile DTO is configuration-only; host health lives on /memory/effective.
+    assert "publisher_reliable" not in pub
     assert "actions_reliable" not in pub
     assert "deferred_blockers" not in pub
     assert not re.search(r"(RACE|DB|SEC|MIG)-MDEV", json.dumps(pub))
