@@ -96,6 +96,12 @@ class EntityIntelCache:
                 value=value,
             )
 
+    def clear(self) -> None:
+        """Drop all entries. Used by tests to prevent process-local cache bleed."""
+
+        with self._lock:
+            self._values.clear()
+
 
 _CACHE = EntityIntelCache()
 

@@ -106,6 +106,36 @@ jobs:
         # (mutation subprocess must not inherit integration lock env — see
         # tests/test_memory_v1_mutations.py).
         run: uv run pytest -vv --durations=40
+      - name: Report family isolation (joint selection, both orders)
+        working-directory: apps/api
+        # SV2-TESTS-AISLADOS: la familia de informes debe pasar junta con
+        # ORACLE_RUN_INTEGRATION=1 (heredado del job) en dos órdenes — no basta
+        # con que cada fichero pase aislado. Selección mínima que cubre la
+        # clase de contaminación logging/caché + regresión explícita.
+        run: |
+          set -eu
+          FAMILY="tests/test_reporting.py \
+            tests/test_reporting_routes_extra.py \
+            tests/test_procurement.py \
+            tests/test_procurement_analytics.py \
+            tests/test_procurement_document_report.py \
+            tests/test_procurement_encrypted_pdf_fallback.py \
+            tests/test_procurement_pdfcif_document_notes.py \
+            tests/test_procurement_search_feedback.py \
+            tests/test_procurement_search_preview.py \
+            tests/test_procurement_search_watch.py \
+            tests/test_uncited_facts_sanitize.py \
+            tests/test_isolation_report_family.py"
+          echo "=== order: natural (reporting → procurement → uncited → isolation) ==="
+          uv run pytest --no-cov -q $FAMILY
+          echo "=== order: uncited first (stress residual state) ==="
+          uv run pytest --no-cov -q \
+            tests/test_uncited_facts_sanitize.py \
+            tests/test_isolation_report_family.py \
+            tests/test_reporting.py \
+            tests/test_reporting_routes_extra.py \
+            tests/test_procurement.py \
+            tests/test_procurement_document_report.py
       - name: Migration drift
         working-directory: apps/api
         env:
