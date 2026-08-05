@@ -399,4 +399,52 @@ describe("DossierSettingsSection", () => {
     expect(screen.getByRole("button", { name: "Quitar Alemania" })).toBeInTheDocument();
     expect(sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor")).toBeNull();
   });
+
+  const healthyMemoryProfile = {
+    id: "mem-1",
+    tenant_id: "tenant-1",
+    dossier_id: "dossier-1",
+    connection_id: null,
+    mode: "augment" as const,
+    version: 2,
+    etag: "etag-mem-2",
+    sources: ["document"],
+    kinds: ["fact"],
+    classifications_allowed: ["public"],
+    token_budget: 4000,
+    limit: 20,
+    status: "active",
+    provenance: "tenant_default",
+    last_test_at: null,
+    last_test_status: null,
+    last_error: null,
+    last_coverage: null,
+    updated_at: "2026-08-06T00:00:00Z",
+    persisted: true,
+    publisher_reliable: true,
+  };
+
+  it("perfil de memoria saludable no muestra «servicio degradado»", async () => {
+    mocks.memoryGet.mockResolvedValue(healthyMemoryProfile);
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    await waitFor(() =>
+      expect(within(section).getByRole("status")).toHaveTextContent(/Versión 2/),
+    );
+    expect(within(section).queryByText(/servicio degradado/i)).not.toBeInTheDocument();
+    // No depende de actions_reliable (campo público eliminado).
+    expect(healthyMemoryProfile).not.toHaveProperty("actions_reliable");
+  });
+
+  it("perfil de memoria no saludable muestra banner de servicio degradado", async () => {
+    mocks.memoryGet.mockResolvedValue({
+      ...healthyMemoryProfile,
+      publisher_reliable: false,
+    });
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    await waitFor(() =>
+      expect(within(section).getByText(/Banner: servicio degradado/i)).toBeInTheDocument(),
+    );
+  });
 });

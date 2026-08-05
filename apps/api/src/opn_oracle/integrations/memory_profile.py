@@ -136,12 +136,7 @@ def profile_to_public(row: Any) -> dict[str, Any]:
         "last_error": row.last_error,
         "last_coverage": row.last_coverage,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        "deferred_blockers": [
-            "RACE-MDEV02-003",
-            "DB-MDEV02-001",
-            "SEC-MDEV03-001",
-        ],
         # Publisher debt (CAS/fencing/requeue) closed 2026-08-02; do not lie.
+        # Internals (deferred_blockers / actions_reliable / *-MDEV*) stay out of public DTO.
         "publisher_reliable": True,
-        "actions_reliable": False,
     }

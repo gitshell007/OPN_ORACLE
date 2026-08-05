@@ -520,7 +520,7 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
                   ? ` · Última prueba: ${memoryProfile.last_test_status}`
                   : " · Sin prueba reciente"}
                 {memoryProfile.last_error ? ` · Error: ${memoryProfile.last_error}` : ""}
-                {memoryProfile.publisher_reliable === false || memoryProfile.actions_reliable === false
+                {memoryProfile.publisher_reliable === false
                   ? " · Banner: servicio degradado"
                   : ""}
               </p>

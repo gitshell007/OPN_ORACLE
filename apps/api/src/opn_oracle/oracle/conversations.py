@@ -1486,6 +1486,7 @@ def _answer_via_signal(
         build_evidence_text_index,
         enforce_citation_support,
         format_support_rejection_summary,
+        issue_to_public,
     )
 
     evidence_index = build_evidence_text_index(
@@ -1535,17 +1536,8 @@ def _answer_via_signal(
                 "withdrawn": support.withdrawn_count,
                 "degraded": support.degraded_count,
                 "kept": support.kept_count,
-                "issues": [
-                    {
-                        "path": issue.path,
-                        "action": issue.action,
-                        "reason": issue.reason,
-                        "missing_anchors": issue.missing_anchors,
-                        "evidence_ids": issue.evidence_ids,
-                        "claim_kind": issue.claim_kind,
-                    }
-                    for issue in support.issues
-                ],
+                # Público: sin path JSON ni missing_anchors crudos (telemetría interna).
+                "issues": [issue_to_public(issue) for issue in support.issues],
             },
             "job_id": str(job.id),
             "artifact_id": str(artifact.id),

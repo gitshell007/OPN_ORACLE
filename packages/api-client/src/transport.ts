@@ -3820,8 +3820,8 @@ export type DossierMemoryProfile = {
   last_coverage: Record<string, unknown> | null;
   updated_at: string | null;
   persisted?: boolean;
+  /** Host/publisher health for UI banners — never derive from internal engineering debt. */
   publisher_reliable?: boolean;
-  actions_reliable?: boolean;
   capability?: Record<string, unknown>;
 };
 

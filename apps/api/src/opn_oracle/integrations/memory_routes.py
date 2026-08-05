@@ -116,8 +116,6 @@ def _effective_defaults(
         "updated_at": None,
         "persisted": False,
         "publisher_reliable": True,
-        "actions_reliable": False,
-        "deferred_blockers": ["RACE-MDEV02-003", "DB-MDEV02-001", "SEC-MDEV03-001"],
     }
 
 

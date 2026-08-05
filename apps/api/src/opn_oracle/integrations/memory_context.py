@@ -414,18 +414,13 @@ def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str,
     host = str(host_mode or "").strip().lower() or "disabled"
     host_enabled = host not in {"disabled", "mock"}
     publisher_ok = bool(connection_healthy and host_enabled)
+    # Público: solo señales de salud comprensibles. Códigos internos de deuda
+    # (RACE/DB/SEC/MIG-MDEV*) y actions_reliable quedan fuera del contrato cliente.
     return {
         "host_mode": host_mode,
         "effective_mode": eff.mode,
         "publisher_reliable": publisher_ok,
         "publisher_status": "ok" if publisher_ok else "unavailable",
-        "deferred_blockers": [
-            "RACE-MDEV02-003",
-            "DB-MDEV02-001",
-            "MIG-MDEV02-002",
-            "SEC-MDEV03-001",
-        ],
-        "actions_reliable": False,
         "message": (
             "Memory retrieve path operational."
             if publisher_ok

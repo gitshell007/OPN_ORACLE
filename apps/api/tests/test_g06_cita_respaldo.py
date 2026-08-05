@@ -25,8 +25,11 @@ from opn_oracle.integrations.citation_support import (
     enforce_citation_support,
     evaluate_material_support,
     extract_support_anchors,
+    format_missing_concepts,
     format_support_rejection_summary,
+    format_withdrawal_reason,
     is_person_role_claim,
+    issue_to_public,
 )
 
 # --- anclajes / solape -------------------------------------------------------
@@ -125,10 +128,12 @@ def test_case_b_unsupported_admin_claim_withdrawn_with_visible_warning() -> None
     assert result.claims == []
     assert result.withdrawn_count >= 1  # person_role
     assert result.warnings
-    assert all(CITATION_DOES_NOT_SUPPORT in w for w in result.warnings)
     assert any("Laura" in issue.statement for issue in result.issues)
-    # Aviso legible: el lector ve por qué (no descarte silencioso).
+    # Aviso legible de producto: sin vector de tokens ni path JSON.
     assert any("retirada" in w for w in result.warnings)
+    assert any("La fuente citada no menciona" in w for w in result.warnings)
+    assert not any("[" in w and "]" in w and "faltan" in w for w in result.warnings)
+    assert not any("$.facts" in w or "$.claims" in w for w in result.warnings)
 
 
 def test_generic_unsupported_claim_also_withdrawn_with_reason() -> None:
@@ -146,7 +151,8 @@ def test_generic_unsupported_claim_also_withdrawn_with_reason() -> None:
     )
     assert result.claims == []
     assert result.degraded_count == 1
-    assert any(CITATION_DOES_NOT_SUPPORT in w for w in result.warnings)
+    assert any("retirada" in w for w in result.warnings)
+    assert any("La fuente citada no menciona" in w for w in result.warnings)
 
 
 # --- source_urls -------------------------------------------------------------
@@ -414,9 +420,81 @@ def test_format_support_rejection_summary_and_non_mapping_items() -> None:
     assert summary is not None
     assert CITATION_DOES_NOT_SUPPORT in summary
     assert "retirada" in summary.casefold() or "cargo" in summary.casefold()
+    # Resumen agregado: sin copiar un detalle como «Ejemplo:» (duplicación semántica).
+    assert "Ejemplo:" not in summary
+    for detail in result.warnings:
+        assert detail not in summary or detail == summary
 
     empty = enforce_citation_support(facts=[], claims=[], evidence_text_by_id={})
     assert format_support_rejection_summary(empty) is None
+
+
+def test_razon_social_warning_is_human_spanish_without_raw_vector() -> None:
+    """razón social → concepto con tilde; no vector [razon, social]."""
+    statement = "La razón social del contratista no figura"
+    evidence = "Licitación objeto suministro importe sin datos societarios ni contratista."
+    result = enforce_citation_support(
+        facts=[{"statement": statement, "evidence_ids": ["e1"]}],
+        claims=[],
+        evidence_text_by_id={"e1": evidence},
+    )
+    assert result.facts == []
+    assert result.degraded_count + result.withdrawn_count == 1
+    blob = " ".join(result.warnings)
+    assert "razón social" in blob
+    assert "[razon" not in blob
+    assert "razon, social" not in blob
+    assert "faltan en el fragmento citado" not in blob
+    assert any("La fuente citada no menciona" in w for w in result.warnings)
+    assert any("Afirmación" in w and "retirada" in w for w in result.warnings)
+    summary = format_support_rejection_summary(result)
+    assert summary is not None
+    assert "Ejemplo:" not in summary
+    # Detalle y resumen no son semánticamente el mismo aviso.
+    assert summary not in result.warnings[:1] or "afirmación(es) retirada" in summary
+    assert result.warnings[0] != summary
+
+
+def test_format_missing_concepts_person_and_unknown() -> None:
+    assert format_missing_concepts(["razon", "social", "figura"]) == "razón social"
+    # Cargo/persona legible.
+    person = format_missing_concepts(["Laura Méndez"])
+    assert "Laura" in person
+    # Ancla desconocida → frase genérica segura, no el token crudo.
+    unknown = format_missing_concepts(["xyzzy_scorer_token"])
+    assert unknown == "la información necesaria"
+    assert "xyzzy" not in unknown
+    reason = format_withdrawal_reason(
+        "Se menciona la razon social",
+        ["razon", "social", "menciona"],
+        person_role=False,
+    )
+    assert "razón social" in reason
+    assert "[" not in reason
+    assert "$.claims" not in reason
+
+
+def test_issue_to_public_strips_path_and_missing_anchors() -> None:
+    result = enforce_citation_support(
+        facts=[
+            {
+                "statement": "El administrador es Laura Méndez",
+                "evidence_ids": ["e1"],
+            }
+        ],
+        claims=[],
+        evidence_text_by_id={"e1": "Solo licitación sin personas."},
+    )
+    assert result.issues
+    issue = result.issues[0]
+    assert issue.missing_anchors  # interno
+    assert issue.path.startswith("$.")
+    pub = issue_to_public(issue)
+    assert "missing_anchors" not in pub
+    assert "path" not in pub
+    assert pub["action"] == "withdraw"
+    assert "Laura" in pub["reason"] or "Laura" in pub["statement"]
+    assert "La fuente citada no menciona" in pub["reason"]
 
 
 def test_claim_text_key_and_single_token_anchor() -> None:
