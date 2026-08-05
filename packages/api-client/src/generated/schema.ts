@@ -34492,6 +34492,12 @@ export interface components {
             version: number;
         };
         MarketCompetitorDiscoveryInput: {
+            /**
+             * @description Honest intent passed to discovery agent.
+             * @default known
+             * @enum {string}
+             */
+            competitors_knowledge?: "known" | "not_seeking" | "unknown";
             /** @default [] */
             countries: string[];
             description: string;
@@ -34519,7 +34525,9 @@ export interface components {
         MarketProfileInput: {
             barriers?: string[];
             channels?: string[];
-            competitors: components["schemas"]["CompetitiveCompetitorInput"][];
+            competitors?: components["schemas"]["CompetitiveCompetitorInput"][];
+            /** @description Honest intent: known (exclusion list), unknown, or not_seeking. */
+            competitors_knowledge?: "known" | "unknown" | "not_seeking";
             decision_to_make: string;
             horizon?: string;
             keywords?: string[];

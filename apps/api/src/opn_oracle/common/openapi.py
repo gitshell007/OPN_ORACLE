@@ -1794,7 +1794,7 @@ def _oracle_schemas() -> dict[str, Any]:
         "MarketProfileInput": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["own_offer", "decision_to_make", "competitors"],
+            "required": ["own_offer", "decision_to_make"],
             "properties": {
                 "own_offer": {"type": "string", "minLength": 1, "maxLength": 2000},
                 "decision_to_make": {"type": "string", "minLength": 1, "maxLength": 2000},
@@ -1804,9 +1804,17 @@ def _oracle_schemas() -> dict[str, Any]:
                 "target_buyers": string_array,
                 "competitors": {
                     "type": "array",
-                    "minItems": 1,
+                    "minItems": 0,
                     "maxItems": 20,
                     "items": {"$ref": "#/components/schemas/CompetitiveCompetitorInput"},
+                },
+                "competitors_knowledge": {
+                    "type": "string",
+                    "enum": ["known", "unknown", "not_seeking"],
+                    "description": (
+                        "Honest intent: known (names are exclusions for discovery), "
+                        "unknown (aún no lo sé), not_seeking (no busco competidores)."
+                    ),
                 },
                 "partners": string_array,
                 "regulators": string_array,
