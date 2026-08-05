@@ -331,10 +331,10 @@ def claim_supported_by_evidence(
 
 def build_evidence_text_index(
     *,
-    memory_items: Sequence[Mapping[str, Any]] | None = None,
+    memory_items: Sequence[Any] | None = None,
     signal_factual: Mapping[str, Any] | None = None,
     oracle_authority: Mapping[str, Any] | None = None,
-    citations: Sequence[Mapping[str, Any]] | None = None,
+    citations: Sequence[Any] | None = None,
 ) -> dict[str, str]:
     """Mapa evidence_id → texto citable (extractos + quotes del modelo)."""
 
