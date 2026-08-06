@@ -2135,13 +2135,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Operación de dominio completada */
+                /** @description Operación completada */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["DossierResource"];
+                        "application/json": components["schemas"]["OpportunityAnalysisLatestResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -2162,17 +2162,8 @@ export interface paths {
                         "application/problem+json": components["schemas"]["Problem"];
                     };
                 };
-                /** @description Recurso no encontrado */
+                /** @description Expediente no encontrado */
                 404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": components["schemas"]["Problem"];
-                    };
-                };
-                /** @description Conflicto de versión o idempotencia */
-                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2600,25 +2591,23 @@ export interface paths {
                 query?: never;
                 header: {
                     "X-CSRF-Token": string;
+                    /** @description Clave estable del intento para no duplicar el job. */
+                    "Idempotency-Key": string;
                 };
                 path: {
                     dossier_id: string;
                 };
                 cookie?: never;
             };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["DossierWriteInput"];
-                };
-            };
+            requestBody?: never;
             responses: {
-                /** @description Operación de dominio completada */
-                201: {
+                /** @description Operación completada */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["DossierResource"];
+                        "application/json": components["schemas"]["OpportunityAnalysisRunResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -2639,17 +2628,8 @@ export interface paths {
                         "application/problem+json": components["schemas"]["Problem"];
                     };
                 };
-                /** @description Recurso no encontrado */
+                /** @description Expediente no encontrado */
                 404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": components["schemas"]["Problem"];
-                    };
-                };
-                /** @description Conflicto de versión o idempotencia */
-                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2659,6 +2639,15 @@ export interface paths {
                 };
                 /** @description Datos no válidos */
                 422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Se requiere Idempotency-Key */
+                428: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -36501,6 +36490,167 @@ export interface components {
             tenant_id: string;
             updated_at?: string | null;
         };
+        OpportunityAnalysisArtifact: {
+            agent: string;
+            audit_log_id: string | null;
+            created_at: string;
+            dossier_id: string | null;
+            id: string;
+            output: components["schemas"]["OpportunityAnalysisOutput"];
+            schema_name: string;
+            schema_version: string;
+            status: string;
+            updated_at: string;
+            version: number;
+        };
+        OpportunityAnalysisLatestResponse: {
+            artifact: components["schemas"]["OpportunityAnalysisArtifact"] | null;
+            job: components["schemas"]["TenderSearchWizardJob"] | null;
+        };
+        OpportunityAnalysisOutput: {
+            blockers: string[];
+            candidate_actors: components["schemas"]["OpportunityCandidateActor"][];
+            confidence: number;
+            confirmed_requirements: string[];
+            deadline: string | null;
+            draft_offer: components["schemas"]["OpportunityDraftOffer"] | null;
+            facts: components["schemas"]["OpportunityFact"][];
+            fit_assessment: components["schemas"]["OpportunityFitAssessment"] | null;
+            inferences: components["schemas"]["OpportunityInference"][];
+            next_best_action: components["schemas"]["OpportunityNextBestAction"] | null;
+            open_questions: string[];
+            /** @enum {string} */
+            opportunity_type: "grant" | "tender" | "partner" | "client" | "market" | "investment" | "media" | "regulatory" | "other";
+            /** @enum {string} */
+            recommendation: "go" | "investigate" | "hold" | "no_go";
+            recommendations: components["schemas"]["OpportunityRecommendation"][];
+            scores: components["schemas"]["OpportunityScores"];
+            summary: string;
+            title: string;
+            unknown_requirements: string[];
+            warnings: string[];
+        };
+        OpportunityAnalysisRunResponse: {
+            artifact: components["schemas"]["OpportunityAnalysisArtifact"] | null;
+            job: components["schemas"]["TenderSearchWizardJob"];
+        };
+        OpportunityCandidateActor: {
+            actor_id: string | null;
+            evidence_ids: string[];
+            name: string;
+            role: string;
+        };
+        OpportunityDraftOffer: {
+            administrative_checklist: components["schemas"]["OpportunityDraftOfferChecklistItem"][];
+            banner: string;
+            based_on_verdict: string | null;
+            declared_evidence_ids: string[];
+            draft_engine: string | null;
+            drafted_as_of: string | null;
+            gaps: components["schemas"]["OpportunityDraftOfferGap"][];
+            gaps_summary: string[];
+            /** @enum {string} */
+            human_gate: "draft_requires_human_edit";
+            lot_hint: string | null;
+            official_evidence_ids: string[];
+            /** @enum {string} */
+            origin: "declared_draft";
+            prose_engine: string | null;
+            prose_polished_count: number;
+            sections: components["schemas"]["OpportunityDraftOfferSection"][];
+            statement: string;
+            statement_prose_polish_reason: string | null;
+            statement_prose_polished: boolean;
+            statement_seed: string | null;
+            tender_ref: string | null;
+        };
+        OpportunityDraftOfferChecklistItem: {
+            description: string;
+            key: string;
+            label: string;
+            /** @enum {string} */
+            source: "pliego" | "admin";
+            /** @enum {string} */
+            status: "pending" | "ready" | "blocked";
+        };
+        OpportunityDraftOfferGap: {
+            code: string;
+            description: string;
+            /** @enum {string} */
+            origin: "verdict_condition" | "pliego" | "profile";
+            /** @enum {string} */
+            severity: "blocking" | "important" | "info";
+        };
+        OpportunityDraftOfferSection: {
+            declared_evidence_ids: string[];
+            gaps: string[];
+            key: string;
+            official_evidence_ids: string[];
+            our_response_draft: string;
+            our_response_seed: string | null;
+            points_hint: string | null;
+            prose_polish_reason: string | null;
+            prose_polished: boolean;
+            requirement: string;
+            /** @enum {string} */
+            requirement_origin: "official";
+            /** @enum {string} */
+            response_origin: "declared_generated";
+            title: string;
+        };
+        OpportunityFact: {
+            evidence_ids: string[];
+            statement: string;
+        };
+        OpportunityFitAssessment: {
+            confidence: number;
+            declared_evidence_ids: string[];
+            dimensions: components["schemas"]["OpportunityFitDimension"][];
+            official_evidence_ids: string[];
+            /** @enum {string} */
+            origin: "declared_by_client";
+            scored_as_of: string | null;
+            scoring_engine: string | null;
+            statement: string;
+            tender_ref: string | null;
+            verdict: components["schemas"]["OpportunityFitVerdict"] | null;
+        };
+        OpportunityFitDimension: {
+            capability: string;
+            /** @enum {string} */
+            capability_origin: "declared_by_client";
+            declared_evidence_ids: string[];
+            /** @enum {string} */
+            key: "cpv" | "solvency" | "lots" | "deadline" | "other";
+            label: string;
+            official_evidence_ids: string[];
+            requirement: string;
+            /** @enum {string} */
+            requirement_origin: "official";
+            /** @enum {string} */
+            status: "fit" | "partial" | "no_fit" | "not_evaluable";
+            status_reason: string;
+        };
+        OpportunityFitVerdict: {
+            conditions: string[];
+            /** @enum {string} */
+            human_gate: "awaiting_user_confirmation";
+            rationale: string;
+            /** @enum {string} */
+            recommendation: "go" | "no_go" | "go_conditioned";
+        };
+        OpportunityInference: {
+            confidence: number;
+            evidence_ids: string[];
+            reasoning_summary: string;
+            statement: string;
+        };
+        OpportunityNextBestAction: {
+            action: string;
+            due_date: string | null;
+            owner_role: string;
+            rationale: string;
+        };
         OpportunityOfferDraftCreateResponse: {
             created: boolean;
             draft: components["schemas"]["OpportunityOfferDraftResource"];
@@ -36627,6 +36777,12 @@ export interface components {
             /** @description False si aún no existe fila (GET virtual). True tras materialización o cuando la fila ya existía. */
             materialized: boolean;
         };
+        OpportunityRecommendation: {
+            action: string;
+            /** @enum {string} */
+            priority: "low" | "medium" | "high" | "critical";
+            rationale: string;
+        };
         OpportunityResource: {
             actionability?: number;
             blocking_risk?: number;
@@ -36663,6 +36819,18 @@ export interface components {
             updated_at?: string;
             urgency?: number;
             version?: number;
+        };
+        OpportunityScores: {
+            actionability: number;
+            blocking_risk: number;
+            confidence: number;
+            execution_effort: number;
+            expected_value: number;
+            overall: number;
+            relationship_leverage: number;
+            strategic_fit: number;
+            timing: number;
+            urgency: number;
         };
         OpportunityWriteInput: {
             actionability?: number;

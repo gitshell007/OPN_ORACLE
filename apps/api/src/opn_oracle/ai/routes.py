@@ -165,6 +165,289 @@ class TenderSearchWizardLatestResponseSchema(TenderSearchWizardRunResponseSchema
     acceptance = Nested(TenderSearchWizardAcceptanceSchema, allow_none=True)
 
 
+class OpportunityFactSchema(Schema):
+    statement = String(required=True)
+    evidence_ids = List(String(), required=True)
+
+
+class OpportunityInferenceSchema(Schema):
+    statement = String(required=True)
+    reasoning_summary = String(required=True)
+    confidence = Integer(required=True)
+    evidence_ids = List(String(), required=True)
+
+
+class OpportunityRecommendationSchema(Schema):
+    action = String(required=True)
+    rationale = String(required=True)
+    priority = String(
+        required=True,
+        validate=validate.OneOf(["low", "medium", "high", "critical"]),
+    )
+
+
+class OpportunityScoresSchema(Schema):
+    strategic_fit = Integer(required=True)
+    urgency = Integer(required=True)
+    expected_value = Integer(required=True)
+    actionability = Integer(required=True)
+    relationship_leverage = Integer(required=True)
+    timing = Integer(required=True)
+    confidence = Integer(required=True)
+    execution_effort = Integer(required=True)
+    blocking_risk = Integer(required=True)
+    overall = Integer(required=True)
+
+
+class OpportunityCandidateActorSchema(Schema):
+    actor_id = String(allow_none=True, required=True)
+    name = String(required=True)
+    role = String(required=True)
+    evidence_ids = List(String(), required=True)
+
+
+class OpportunityNextBestActionSchema(Schema):
+    action = String(required=True)
+    owner_role = String(required=True)
+    due_date = String(allow_none=True, required=True)
+    rationale = String(required=True)
+
+
+class OpportunityFitDimensionSchema(Schema):
+    key = String(
+        required=True,
+        validate=validate.OneOf(["cpv", "solvency", "lots", "deadline", "other"]),
+    )
+    label = String(required=True)
+    requirement = String(required=True)
+    requirement_origin = String(
+        required=True,
+        validate=validate.OneOf(["official"]),
+    )
+    official_evidence_ids = List(String(), required=True)
+    capability = String(required=True)
+    capability_origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_by_client"]),
+    )
+    declared_evidence_ids = List(String(), required=True)
+    status = String(
+        required=True,
+        validate=validate.OneOf(["fit", "partial", "no_fit", "not_evaluable"]),
+    )
+    status_reason = String(required=True)
+
+
+class OpportunityFitVerdictSchema(Schema):
+    recommendation = String(
+        required=True,
+        validate=validate.OneOf(["go", "no_go", "go_conditioned"]),
+    )
+    conditions = List(String(), required=True)
+    human_gate = String(
+        required=True,
+        validate=validate.OneOf(["awaiting_user_confirmation"]),
+    )
+    rationale = String(required=True)
+
+
+class OpportunityFitAssessmentSchema(Schema):
+    statement = String(required=True)
+    declared_evidence_ids = List(String(), required=True)
+    official_evidence_ids = List(String(), required=True)
+    confidence = Integer(required=True)
+    origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_by_client"]),
+    )
+    dimensions = List(Nested(OpportunityFitDimensionSchema), required=True)
+    verdict = Nested(OpportunityFitVerdictSchema, allow_none=True, required=True)
+    tender_ref = String(allow_none=True, required=True)
+    scoring_engine = String(allow_none=True, required=True)
+    scored_as_of = String(allow_none=True, required=True)
+
+
+class OpportunityDraftOfferGapSchema(Schema):
+    code = String(required=True)
+    description = String(required=True)
+    severity = String(
+        required=True,
+        validate=validate.OneOf(["blocking", "important", "info"]),
+    )
+    origin = String(
+        required=True,
+        validate=validate.OneOf(["verdict_condition", "pliego", "profile"]),
+    )
+
+
+class OpportunityDraftOfferSectionSchema(Schema):
+    key = String(required=True)
+    title = String(required=True)
+    points_hint = String(allow_none=True, required=True)
+    requirement = String(required=True)
+    requirement_origin = String(
+        required=True,
+        validate=validate.OneOf(["official"]),
+    )
+    official_evidence_ids = List(String(), required=True)
+    our_response_draft = String(required=True)
+    our_response_seed = String(allow_none=True, required=True)
+    response_origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_generated"]),
+    )
+    declared_evidence_ids = List(String(), required=True)
+    gaps = List(String(), required=True)
+    prose_polished = Boolean(required=True)
+    prose_polish_reason = String(allow_none=True, required=True)
+
+
+class OpportunityDraftOfferChecklistItemSchema(Schema):
+    key = String(required=True)
+    label = String(required=True)
+    description = String(required=True)
+    status = String(
+        required=True,
+        validate=validate.OneOf(["pending", "ready", "blocked"]),
+    )
+    source = String(
+        required=True,
+        validate=validate.OneOf(["pliego", "admin"]),
+    )
+
+
+class OpportunityDraftOfferSchema(Schema):
+    banner = String(required=True)
+    human_gate = String(
+        required=True,
+        validate=validate.OneOf(["draft_requires_human_edit"]),
+    )
+    statement = String(required=True)
+    tender_ref = String(allow_none=True, required=True)
+    lot_hint = String(allow_none=True, required=True)
+    sections = List(Nested(OpportunityDraftOfferSectionSchema), required=True)
+    administrative_checklist = List(
+        Nested(OpportunityDraftOfferChecklistItemSchema),
+        required=True,
+    )
+    gaps_summary = List(String(), required=True)
+    gaps = List(Nested(OpportunityDraftOfferGapSchema), required=True)
+    draft_engine = String(allow_none=True, required=True)
+    prose_engine = String(allow_none=True, required=True)
+    drafted_as_of = String(allow_none=True, required=True)
+    origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_draft"]),
+    )
+    based_on_verdict = String(allow_none=True, required=True)
+    official_evidence_ids = List(String(), required=True)
+    declared_evidence_ids = List(String(), required=True)
+    statement_seed = String(allow_none=True, required=True)
+    statement_prose_polished = Boolean(required=True)
+    statement_prose_polish_reason = String(allow_none=True, required=True)
+    prose_polished_count = Integer(required=True)
+
+
+class OpportunityAnalysisOutputSchema(Schema):
+    facts = List(Nested(OpportunityFactSchema), required=True)
+    inferences = List(Nested(OpportunityInferenceSchema), required=True)
+    recommendations = List(Nested(OpportunityRecommendationSchema), required=True)
+    confidence = Integer(required=True)
+    open_questions = List(String(), required=True)
+    warnings = List(String(), required=True)
+    title = String(required=True)
+    opportunity_type = String(
+        required=True,
+        validate=validate.OneOf(
+            [
+                "grant",
+                "tender",
+                "partner",
+                "client",
+                "market",
+                "investment",
+                "media",
+                "regulatory",
+                "other",
+            ]
+        ),
+    )
+    summary = String(required=True)
+    recommendation = String(
+        required=True,
+        validate=validate.OneOf(["go", "investigate", "hold", "no_go"]),
+    )
+    scores = Nested(OpportunityScoresSchema, required=True)
+    deadline = String(allow_none=True, required=True)
+    confirmed_requirements = List(String(), required=True)
+    unknown_requirements = List(String(), required=True)
+    blockers = List(String(), required=True)
+    candidate_actors = List(Nested(OpportunityCandidateActorSchema), required=True)
+    next_best_action = Nested(
+        OpportunityNextBestActionSchema,
+        allow_none=True,
+        required=True,
+    )
+    fit_assessment = Nested(
+        OpportunityFitAssessmentSchema,
+        allow_none=True,
+        required=True,
+    )
+    draft_offer = Nested(
+        OpportunityDraftOfferSchema,
+        allow_none=True,
+        required=True,
+    )
+
+
+class OpportunityAnalysisArtifactSchema(Schema):
+    id = String(required=True)
+    dossier_id = String(allow_none=True, required=True)
+    agent = String(required=True)
+    schema_name = String(required=True)
+    schema_version = String(required=True)
+    status = String(required=True)
+    output = Nested(OpportunityAnalysisOutputSchema, required=True)
+    audit_log_id = String(allow_none=True, required=True)
+    created_at = String(required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class OpportunityAnalysisRunResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, required=True)
+    artifact = Nested(
+        OpportunityAnalysisArtifactSchema,
+        allow_none=True,
+        required=True,
+    )
+
+
+class OpportunityAnalysisLatestResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, allow_none=True, required=True)
+    artifact = Nested(
+        OpportunityAnalysisArtifactSchema,
+        allow_none=True,
+        required=True,
+    )
+
+
+OPPORTUNITY_ANALYSIS_RUN_RESPONSES: dict[int | str, dict[str, str | dict[str, dict[str, Any]]]] = {
+    202: {
+        "description": "Análisis de oportunidad encolado",
+        "content": {"application/json": {"schema": OpportunityAnalysisRunResponseSchema}},
+    }
+}
+OPPORTUNITY_ANALYSIS_LATEST_RESPONSES: dict[
+    int | str, dict[str, str | dict[str, dict[str, Any]]]
+] = {
+    200: {
+        "description": "Último análisis de oportunidad",
+        "content": {"application/json": {"schema": OpportunityAnalysisLatestResponseSchema}},
+    }
+}
+
+
 class MarketCompetitorDiscoveryInputSchema(Schema):
     description = String(required=True, validate=validate.Length(min=10, max=4_000))
     own_offer = String(load_default="", validate=validate.Length(max=1_000))
@@ -1010,6 +1293,7 @@ def export_opportunity_offer_draft_docx(dossier_id: uuid.UUID) -> Any:
 
 @bp.post("/dossiers/<uuid:dossier_id>/opportunity/runs")
 @require_permission("ai.execute")
+@bp.doc(responses=OPPORTUNITY_ANALYSIS_RUN_RESPONSES)
 def enqueue_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
     """Lanza el agente de oportunidad: propone; no crea la oportunidad."""
     return _enqueue_analysis_agent(dossier_id, OPPORTUNITY_AGENT, label="oportunidad")
@@ -1017,6 +1301,7 @@ def enqueue_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
 
 @bp.get("/dossiers/<uuid:dossier_id>/opportunity/latest")
 @require_permission("ai.execute")
+@bp.doc(responses=OPPORTUNITY_ANALYSIS_LATEST_RESPONSES)
 def latest_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
     """Última propuesta de oportunidad del expediente (solo lectura; la persona confirma)."""
     return _latest_analysis_agent(dossier_id, OPPORTUNITY_AGENT)

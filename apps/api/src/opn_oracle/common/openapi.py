@@ -24,6 +24,7 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
     schemas.update(_response_schemas())
     schemas.update(_oracle_schemas())
     schemas.update(_reporting_schemas())
+    _normalize_opportunity_analysis_nullable_refs(schemas)
     request_schemas = {
         ("/api/v1/auth/login", "post"): "LoginInput",
         ("/api/v1/auth/reauthenticate", "post"): "PasswordInput",
@@ -224,6 +225,44 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
     return spec
 
 
+def _normalize_opportunity_analysis_nullable_refs(schemas: dict[str, Any]) -> None:
+    """Keep nullable nested output types closed and useful to generated clients.
+
+    APISpec represents ``Nested(..., allow_none=True)`` as an ``anyOf`` with an
+    unconstrained object branch. That branch both violates Oracle's closed-schema
+    contract and lets clients accept arbitrary objects instead of the advertised
+    resource. OpenAPI 3.0 supports the precise form: nullable + allOf($ref).
+    """
+
+    nullable_nested_fields = {
+        "OpportunityAnalysisRunResponse": ("artifact",),
+        "OpportunityAnalysisLatestResponse": ("artifact", "job"),
+        "OpportunityAnalysisOutput": (
+            "next_best_action",
+            "fit_assessment",
+            "draft_offer",
+        ),
+        "OpportunityFitAssessment": ("verdict",),
+    }
+    for schema_name, field_names in nullable_nested_fields.items():
+        properties = schemas.get(schema_name, {}).get("properties", {})
+        for field_name in field_names:
+            field_schema = properties.get(field_name, {})
+            reference = next(
+                (
+                    candidate["$ref"]
+                    for candidate in field_schema.get("anyOf", [])
+                    if isinstance(candidate, dict) and isinstance(candidate.get("$ref"), str)
+                ),
+                None,
+            )
+            if reference is not None:
+                properties[field_name] = {
+                    "allOf": [{"$ref": reference}],
+                    "nullable": True,
+                }
+
+
 def _problem(description: str, content: dict[str, Any]) -> dict[str, Any]:
     return {"description": description, "content": content}
 
@@ -382,6 +421,14 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
         ("/api/v1/dossiers/{dossier_id}/procurement/{item_id}/promote", "post"): (
             "201",
             "ProcurementPromotionResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/runs", "post"): (
+            "202",
+            "OpportunityAnalysisRunResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/latest", "get"): (
+            "200",
+            "OpportunityAnalysisLatestResponse",
         ),
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "get"): (
             "200",
@@ -1032,6 +1079,34 @@ def _declare_oracle_operation(
             "/search",
         )
     ):
+        return
+    opportunity_analysis_path = path in {
+        "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs",
+        "/api/v1/ai/dossiers/{dossier_id}/opportunity/latest",
+    }
+    if opportunity_analysis_path:
+        operation.pop("requestBody", None)
+        responses = operation.setdefault("responses", {})
+        expected_status = "202" if method == "post" else "200"
+        for status in tuple(responses):
+            if status.startswith("2") and status != expected_status:
+                responses.pop(status)
+        if method == "post":
+            _upsert_parameter(
+                operation,
+                {
+                    "name": "Idempotency-Key",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 8, "maxLength": 200},
+                    "description": "Clave estable del intento para no duplicar el job.",
+                },
+            )
+            responses.setdefault(
+                "428",
+                _problem("Se requiere Idempotency-Key", problem_content),
+            )
+        responses["404"] = _problem("Expediente no encontrado", problem_content)
         return
     if "/oracle-summary" in path:
         _declare_oracle_summary_operation(path, method, operation, problem_content)
