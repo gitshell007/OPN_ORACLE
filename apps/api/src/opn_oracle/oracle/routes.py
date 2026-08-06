@@ -2605,30 +2605,82 @@ def _detail(resource: str, resource_id: uuid.UUID) -> Any:
         if row.version != expected:
             return _domain_error(VersionConflict("El recurso fue modificado por otro usuario."))
     if isinstance(row, Actor):
-        if "actor_type" in payload:
-            actor_type = str(payload["actor_type"])
-            if actor_type not in {"person", "organization", "institution", "program", "other"}:
-                return _domain_error(DomainValidationError("actor_type no válido."))
-            row.actor_type = actor_type
-        if "canonical_name" in payload:
-            canonical_name = str(payload["canonical_name"]).strip()
-            if not canonical_name:
-                return _domain_error(DomainValidationError("canonical_name es obligatorio."))
-            canonical_key = "-".join(canonical_name.casefold().split())[:320]
-            duplicate = db.session.scalar(
-                select(Actor.id).where(
-                    Actor.canonical_key == canonical_key,
-                    Actor.id != row.id,
+        from opn_oracle.oracle.actor_tax_id import (
+            TaxIdConflictError,
+            TaxIdValidationError,
+            actor_identity_canonical_key,
+            apply_actor_identifiers_patch,
+            assert_actor_type_compatible_with_tax_id,
+            usable_company_tax_id,
+        )
+
+        try:
+            # Validate actor_type demotion before any mutation (B2).
+            if "actor_type" in payload:
+                actor_type = str(payload["actor_type"])
+                if actor_type not in {
+                    "person",
+                    "organization",
+                    "institution",
+                    "program",
+                    "other",
+                }:
+                    return _domain_error(DomainValidationError("actor_type no válido."))
+                assert_actor_type_compatible_with_tax_id(row, actor_type)
+                row.actor_type = actor_type
+
+            # Rename preserves tax-based identity when durable tax_id is set (B1).
+            if "canonical_name" in payload:
+                canonical_name = str(payload["canonical_name"]).strip()
+                if not canonical_name:
+                    return _domain_error(DomainValidationError("canonical_name es obligatorio."))
+                durable_tax = usable_company_tax_id(getattr(row, "tax_id", None))
+                canonical_key = actor_identity_canonical_key(
+                    name=canonical_name, tax_id=durable_tax
                 )
-            )
-            if duplicate is not None:
-                return _domain_error(DomainValidationError("Ya existe un actor canónico."))
-            row.canonical_name, row.canonical_key = canonical_name[:300], canonical_key
-        for field in ("aliases", "identifiers", "provenance"):
-            if field in payload:
-                setattr(row, field, payload[field])
-        if "metadata" in payload:
-            row.actor_metadata = dict(payload["metadata"])
+                duplicate = db.session.scalar(
+                    select(Actor.id).where(
+                        Actor.tenant_id == row.tenant_id,
+                        Actor.canonical_key == canonical_key,
+                        Actor.id != row.id,
+                    )
+                )
+                if duplicate is not None:
+                    return _domain_error(DomainValidationError("Ya existe un actor canónico."))
+                row.canonical_name = canonical_name[:300]
+                row.canonical_key = canonical_key
+
+            if "aliases" in payload:
+                row.aliases = payload["aliases"]
+
+            # Identifiers go through the shared tax_id service — never raw replace (B2).
+            if "identifiers" in payload:
+                apply_actor_identifiers_patch(
+                    db.session(),
+                    row,
+                    payload["identifiers"],
+                    bump_version=False,
+                )
+
+            if "provenance" in payload:
+                # Do not wipe fiscal assignment provenance when client omits it.
+                incoming_prov = payload["provenance"]
+                if not isinstance(incoming_prov, dict):
+                    return _domain_error(DomainValidationError("provenance debe ser un objeto."))
+                merged_prov = dict(incoming_prov)
+                previous_prov = (
+                    dict(row.provenance or {}) if isinstance(row.provenance, dict) else {}
+                )
+                for fiscal_key in ("tax_id_assignment", "tax_id_column_backfill"):
+                    if fiscal_key not in merged_prov and fiscal_key in previous_prov:
+                        merged_prov[fiscal_key] = previous_prov[fiscal_key]
+                row.provenance = merged_prov
+
+            if "metadata" in payload:
+                row.actor_metadata = dict(payload["metadata"])
+        except (TaxIdConflictError, TaxIdValidationError, DomainValidationError) as error:
+            db.session.rollback()
+            return _domain_error(error)
     allowed = {
         "title",
         "name",
@@ -3089,8 +3141,8 @@ def actors_create() -> Any:
         TaxIdConflictError,
         TaxIdValidationError,
         find_actor_by_tax_id,
+        require_usable_company_tax_id,
         resolve_or_create_actor,
-        usable_company_tax_id,
     )
 
     payload = _payload()
@@ -3100,8 +3152,24 @@ def actors_create() -> Any:
         return problem_response(
             422, detail="canonical_name es obligatorio.", code="validation_error"
         )
-    identifiers = dict(payload.get("identifiers", {}))
-    tax_id = usable_company_tax_id(identifiers.get("tax_id"))
+    raw_identifiers = payload.get("identifiers", {})
+    if raw_identifiers is None:
+        raw_identifiers = {}
+    if not isinstance(raw_identifiers, dict):
+        return problem_response(
+            422, detail="identifiers debe ser un objeto.", code="validation_error"
+        )
+    identifiers = dict(raw_identifiers)
+
+    # B3 · POST estricto: si el cliente envía identifiers.tax_id, validar siempre.
+    # Solo la ausencia real del campo usa fallback por nombre (cero bypass).
+    tax_id: str | None = None
+    if "tax_id" in identifiers:
+        try:
+            tax_id = require_usable_company_tax_id(identifiers.get("tax_id"), actor_type=actor_type)
+        except TaxIdValidationError as error:
+            return _domain_error(error)
+
     existed_before = False
     if tax_id:
         existed_before = (

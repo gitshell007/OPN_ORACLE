@@ -271,12 +271,16 @@ def assign_actor_tax_id(
     provenance: dict[str, Any] | None = None,
     declared: str | None = None,
     allow_same: bool = True,
+    bump_version: bool = True,
 ) -> bool:
     """Assign durable tax_id to actor.
 
     Returns True if the actor was mutated.
     Raises TaxIdValidationError or TaxIdConflictError.
     Never clears an existing different tax_id silently.
+
+    When called from a generic PATCH that owns the version bump, pass
+    ``bump_version=False`` so a single request does not double-increment.
     """
 
     tax_id = require_usable_company_tax_id(raw_tax_id, actor_type=actor.actor_type)
@@ -301,7 +305,7 @@ def assign_actor_tax_id(
         if actor.tax_id_country != TAX_ID_COUNTRY_ES:
             actor.tax_id_country = TAX_ID_COUNTRY_ES
             changed = True
-        if changed:
+        if changed and bump_version:
             actor.version = int(actor.version or 1) + 1
         return changed
 
@@ -309,7 +313,8 @@ def assign_actor_tax_id(
         if not allow_same:
             return False
         raise TaxIdValidationError(
-            f"El actor ya tiene tax_id {current}; no se sobrescribe con {tax_id}."
+            f"El actor ya tiene tax_id {current}; no se sobrescribe con {tax_id}. "
+            "La corrección fiscal requiere un workflow explícito (no bypass JSONB)."
         )
 
     holder = find_actor_by_tax_id(session, tenant_id=actor.tenant_id, tax_id=tax_id)
@@ -345,7 +350,8 @@ def assign_actor_tax_id(
                 actor.provenance = prov
             with session.no_autoflush:
                 _maybe_set_tax_canonical_key(session, actor, tax_id)
-            actor.version = previous_version + 1
+            if bump_version:
+                actor.version = previous_version + 1
             session.flush()
     except IntegrityError as error:
         # Nested rollback restores DB row; reset in-memory state on loser.
@@ -366,6 +372,135 @@ def assign_actor_tax_id(
             ) from error
         raise
     return True
+
+
+_FISCAL_IDENTIFIER_KEYS = frozenset({"tax_id", "tax_id_scheme", "tax_id_declared", "tax_id_source"})
+
+
+def apply_actor_identifiers_patch(
+    session: Session,
+    actor: Actor,
+    incoming: dict[str, Any],
+    *,
+    bump_version: bool = False,
+) -> None:
+    """Apply PATCH identifiers without desyncing durable tax_id column/JSONB.
+
+    Rules (G-16 routes rework):
+    - ``tax_id`` present + actor without column → ``assign_actor_tax_id`` (first CIF).
+    - same CIF → idempotent sync via assign.
+    - different CIF / clear / empty / invalid / masked / person / multi → 422
+      (or 409 when occupied by another actor).
+    - other identifier keys merge in; fiscal block is always resynced from column.
+    - never replaces the whole JSON such that column and JSON diverge.
+    """
+
+    if not isinstance(incoming, dict):
+        raise TaxIdValidationError("identifiers debe ser un objeto.")
+
+    payload = dict(incoming)
+    current = usable_company_tax_id(getattr(actor, "tax_id", None))
+    previous = dict(actor.identifiers or {}) if isinstance(actor.identifiers, dict) else {}
+
+    if "tax_id" in payload:
+        raw_tax = payload.get("tax_id")
+        if raw_tax in (None, ""):
+            if current:
+                raise TaxIdValidationError(
+                    "No se puede borrar el tax_id durable vía identifiers "
+                    "(null/vacío). Requiere workflow de corrección fiscal."
+                )
+            # No durable column and client sent empty tax_id: drop fiscal keys,
+            # keep other identifier keys.
+            non_fiscal = {
+                key: value for key, value in payload.items() if key not in _FISCAL_IDENTIFIER_KEYS
+            }
+            actor.identifiers = non_fiscal
+            return
+
+        normalized = require_usable_company_tax_id(raw_tax, actor_type=actor.actor_type)
+
+        if current is None:
+            assign_actor_tax_id(
+                session,
+                actor,
+                raw_tax,
+                declared=str(raw_tax)[:80],
+                provenance={"source": "actor_patch", "via": "identifiers.tax_id"},
+                bump_version=bump_version,
+            )
+        elif current == normalized:
+            assign_actor_tax_id(
+                session,
+                actor,
+                raw_tax,
+                declared=str(raw_tax)[:80],
+                provenance=None,
+                bump_version=bump_version,
+            )
+        else:
+            # Durable already set to a different CIF — no silent overwrite.
+            raise TaxIdValidationError(
+                f"El actor ya tiene tax_id {current}; no se sobrescribe con {normalized}. "
+                "La corrección fiscal requiere un workflow explícito (no bypass JSONB)."
+            )
+    else:
+        # tax_id key absent: never drop durable fiscal block when column is set.
+        if current:
+            base = dict(payload)
+            actor.identifiers = _sync_identifier_block(
+                base,
+                tax_id=current,
+                declared=previous.get("tax_id_declared") or previous.get("tax_id") or current,
+                source=previous.get("tax_id_source")
+                if isinstance(previous.get("tax_id_source"), dict)
+                else None,
+            )
+            if previous.get("tax_id_declared") and "tax_id_declared" not in base:
+                ids = dict(actor.identifiers or {})
+                ids["tax_id_declared"] = previous["tax_id_declared"]
+                actor.identifiers = ids
+            if previous.get("tax_id_source") and "tax_id_source" not in base:
+                ids = dict(actor.identifiers or {})
+                ids["tax_id_source"] = previous["tax_id_source"]
+                actor.identifiers = ids
+        else:
+            actor.identifiers = payload
+            return
+
+    # Merge non-fiscal keys from payload over the fiscal-synced block.
+    durable = usable_company_tax_id(getattr(actor, "tax_id", None))
+    if durable:
+        merged = dict(actor.identifiers or {})
+        for key, value in payload.items():
+            if key not in _FISCAL_IDENTIFIER_KEYS:
+                merged[key] = value
+        actor.identifiers = _sync_identifier_block(
+            merged,
+            tax_id=durable,
+            declared=merged.get("tax_id_declared") or previous.get("tax_id_declared") or durable,
+            source=merged.get("tax_id_source")
+            if isinstance(merged.get("tax_id_source"), dict)
+            else (
+                previous.get("tax_id_source")
+                if isinstance(previous.get("tax_id_source"), dict)
+                else None
+            ),
+        )
+
+
+def assert_actor_type_compatible_with_tax_id(
+    actor: Actor,
+    new_actor_type: str,
+) -> None:
+    """Block demotion of a fiscal company actor to a non-company type."""
+
+    durable = usable_company_tax_id(getattr(actor, "tax_id", None))
+    if durable and new_actor_type not in COMPANY_ACTOR_TYPES:
+        raise TaxIdValidationError(
+            "No se puede cambiar actor_type a persona/programa/other mientras "
+            f"el actor conserva tax_id fiscal {durable}."
+        )
 
 
 def resolve_or_create_actor(

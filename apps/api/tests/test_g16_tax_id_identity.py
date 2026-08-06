@@ -14,6 +14,8 @@ from opn_oracle.oracle.actor_tax_id import (
     TaxIdValidationError,
     actor_durable_tax_id,
     actor_identity_canonical_key,
+    apply_actor_identifiers_patch,
+    assert_actor_type_compatible_with_tax_id,
     assign_actor_tax_id,
     backfill_actor_tax_ids_from_identifiers,
     list_tax_id_conflicts,
@@ -329,3 +331,159 @@ def test_record_conflict_idempotent() -> None:
     )
     assert row is existing
     session.add.assert_not_called()
+
+
+@pytest.mark.unit
+def test_rename_identity_prefers_tax_key_when_durable() -> None:
+    """B1 · rename of fiscal actor keeps tax:es key; name-only uses fallback."""
+
+    assert (
+        actor_identity_canonical_key(name="Capgemini España S.L.U.", tax_id="B08377715")
+        == "tax:es:B08377715"
+    )
+    assert actor_identity_canonical_key(name="Nueva Grafia SL", tax_id=None) == "nueva-grafia-sl"
+
+
+@pytest.mark.unit
+def test_assert_actor_type_blocks_demotion_with_tax_id() -> None:
+    actor = Actor(
+        tenant_id=uuid.uuid4(),
+        actor_type="organization",
+        canonical_name="Capgemini",
+        canonical_key="tax:es:B08377715",
+        tax_id="B08377715",
+        tax_id_scheme="ES_CIF",
+        tax_id_country="ES",
+        aliases=[],
+        identifiers={"tax_id": "B08377715"},
+        actor_metadata={},
+        provenance={},
+    )
+    with pytest.raises(TaxIdValidationError):
+        assert_actor_type_compatible_with_tax_id(actor, "person")
+    with pytest.raises(TaxIdValidationError):
+        assert_actor_type_compatible_with_tax_id(actor, "program")
+    # Compatible change is allowed.
+    assert_actor_type_compatible_with_tax_id(actor, "institution")
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_first_assign_and_idempotent() -> None:
+    tenant_id = uuid.uuid4()
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Capgemini España S.L.",
+        canonical_key="capgemini-espana-s-l",
+        aliases=[],
+        identifiers={"lei": "X"},
+        actor_metadata={},
+        provenance={},
+        version=1,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+    session.scalar.return_value = None  # no holder
+    session.begin_nested.return_value.__enter__ = MagicMock(return_value=None)
+    session.begin_nested.return_value.__exit__ = MagicMock(return_value=False)
+    session.no_autoflush.__enter__ = MagicMock(return_value=None)
+    session.no_autoflush.__exit__ = MagicMock(return_value=False)
+
+    apply_actor_identifiers_patch(
+        session, actor, {"tax_id": "b-08.377.715", "lei": "X", "duns": "1"}
+    )
+    assert actor.tax_id == "B08377715"
+    assert actor.identifiers["tax_id"] == "B08377715"
+    assert actor.identifiers["duns"] == "1"
+    assert actor.canonical_key == "tax:es:B08377715"
+
+    # Same CIF → idempotent sync, no overwrite of other keys lost.
+    apply_actor_identifiers_patch(session, actor, {"tax_id": "B08377715", "lei": "Y"})
+    assert actor.tax_id == "B08377715"
+    assert actor.identifiers["lei"] == "Y"
+    assert actor.identifiers["tax_id"] == "B08377715"
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_rejects_clear_change_and_preserves_other_keys() -> None:
+    tenant_id = uuid.uuid4()
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Capgemini España S.L.",
+        canonical_key="tax:es:B08377715",
+        tax_id="B08377715",
+        tax_id_scheme="ES_CIF",
+        tax_id_country="ES",
+        aliases=[],
+        identifiers={
+            "tax_id": "B08377715",
+            "tax_id_scheme": "ES_CIF",
+            "tax_id_declared": "B08377715",
+            "lei": "KEEP",
+        },
+        actor_metadata={},
+        provenance={"tax_id_assignment": {"source": "placsp"}},
+        version=2,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(session, actor, {"tax_id": None})
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(session, actor, {"tax_id": ""})
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(session, actor, {"tax_id": "A28855260"})
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(session, actor, {"tax_id": "***4856**"})
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(session, actor, {"tax_id": "12345678Z"})
+
+    # Other keys only: fiscal block preserved, column still authoritative.
+    apply_actor_identifiers_patch(session, actor, {"lei": "NEW", "website": "https://x"})
+    assert actor.tax_id == "B08377715"
+    assert actor.identifiers["tax_id"] == "B08377715"
+    assert actor.identifiers["tax_id_scheme"] == "ES_CIF"
+    assert actor.identifiers["lei"] == "NEW"
+    assert actor.identifiers["website"] == "https://x"
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_conflict_when_occupied() -> None:
+    tenant_id = uuid.uuid4()
+    holder = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Holder",
+        canonical_key="tax:es:B08377715",
+        tax_id="B08377715",
+        tax_id_scheme="ES_CIF",
+        tax_id_country="ES",
+        aliases=[],
+        identifiers={"tax_id": "B08377715"},
+        actor_metadata={},
+        provenance={},
+    )
+    holder.id = uuid.uuid4()
+    other = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Other",
+        canonical_key="other",
+        aliases=[],
+        identifiers={},
+        actor_metadata={},
+        provenance={},
+        version=1,
+    )
+    other.id = uuid.uuid4()
+    session = MagicMock()
+    session.scalar.return_value = holder
+    session.begin_nested.return_value.__enter__ = MagicMock(return_value=None)
+    session.begin_nested.return_value.__exit__ = MagicMock(return_value=False)
+
+    with pytest.raises(TaxIdConflictError) as exc:
+        apply_actor_identifiers_patch(session, other, {"tax_id": "B08377715"})
+    assert exc.value.canonical_actor_id == holder.id
+    assert other.tax_id is None
