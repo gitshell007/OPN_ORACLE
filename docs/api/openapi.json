@@ -7631,6 +7631,178 @@
         ],
         "type": "object"
       },
+      "OpportunityOfferLifecyclePatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "baja_porcentaje": {
+            "description": "Baja expl\u00edcita 0-100 (porcentaje). Null limpia.",
+            "nullable": true,
+            "type": "string"
+          },
+          "fecha_mesa": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "garantia_provisional": {
+            "description": "Garant\u00eda provisional en euros (decimal string). Null limpia.",
+            "nullable": true,
+            "type": "string"
+          },
+          "importe_ofertado": {
+            "description": "Importe ofertado en euros (decimal como string). Null limpia.",
+            "nullable": true,
+            "type": "string"
+          },
+          "lotes": {
+            "items": {
+              "maxLength": 120,
+              "type": "string"
+            },
+            "maxItems": 40,
+            "type": "array"
+          },
+          "motivo_exclusion": {
+            "description": "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "preparando",
+              "presentada",
+              "en_evaluacion",
+              "adjudicada",
+              "perdida",
+              "excluida"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "OpportunityOfferLifecycleResource": {
+        "additionalProperties": false,
+        "properties": {
+          "baja_porcentaje": {
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "crm_status_note": {
+            "description": "Recordatorio de que el estado CRM de la oportunidad es independiente.",
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "fecha_mesa": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "garantia_provisional": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "importe_ofertado": {
+            "nullable": true,
+            "type": "string"
+          },
+          "last_edited_by_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "lotes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "motivo_exclusion": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opportunity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "preparando",
+              "presentada",
+              "en_evaluacion",
+              "adjudicada",
+              "perdida",
+              "excluida"
+            ],
+            "type": "string"
+          },
+          "status_label": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "dossier_id",
+          "opportunity_id",
+          "status",
+          "status_label",
+          "lotes",
+          "version",
+          "etag",
+          "last_edited_by_user_id",
+          "created_at",
+          "updated_at",
+          "crm_status_note"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferLifecycleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "description": "True si GET materializ\u00f3 la fila por primera vez.",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/OpportunityOfferLifecycleResource"
+          }
+        },
+        "required": [
+          "lifecycle"
+        ],
+        "type": "object"
+      },
       "OpportunityResource": {
         "additionalProperties": false,
         "properties": {
@@ -27243,6 +27415,241 @@
         "summary": "<Lambda>",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle": {
+      "get": {
+        "description": "Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Consulta (y materializa vac\u00edo) el seguimiento comercial de la oferta.",
+        "tags": [
+          "Ciclo de vida de la oferta"
+        ]
+      },
+      "patch": {
+        "description": "Actor server-owned v\u00eda TenantContext + current_user; no se acepta actor_id del body.\nNo modifica Opportunity.status (CRM).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versi\u00f3n ETag; puede enviarse `version` en el cuerpo como alternativa.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpportunityWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Edita el seguimiento con CAS (version / If-Match).",
+        "tags": [
+          "Ciclo de vida de la oferta"
         ]
       }
     },
@@ -55250,6 +55657,9 @@
     },
     {
       "name": "Oracle"
+    },
+    {
+      "name": "Ciclo de vida de la oferta"
     },
     {
       "name": "Intenci\u00f3n del expediente"

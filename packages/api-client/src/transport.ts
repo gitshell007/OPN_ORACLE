@@ -1107,6 +1107,52 @@ function evidenceList(kind: "opportunities" | "risks", resourceId: string) {
   );
 }
 
+/** G-10 commercial offer lifecycle (independent of CRM Opportunity.status). */
+export type OpportunityOfferLifecycleStatus =
+  | "preparando"
+  | "presentada"
+  | "en_evaluacion"
+  | "adjudicada"
+  | "perdida"
+  | "excluida";
+
+export interface OpportunityOfferLifecycleResource {
+  id: string;
+  tenant_id: string;
+  dossier_id: string;
+  opportunity_id: string;
+  status: OpportunityOfferLifecycleStatus;
+  status_label: string;
+  importe_ofertado: string | null;
+  baja_porcentaje: string | null;
+  lotes: string[];
+  garantia_provisional: string | null;
+  fecha_mesa: string | null;
+  motivo_exclusion: string | null;
+  version: number;
+  etag: string;
+  last_edited_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  crm_status_note: string;
+}
+
+export interface OpportunityOfferLifecycleResponse {
+  lifecycle: OpportunityOfferLifecycleResource;
+  created?: boolean;
+}
+
+export interface OpportunityOfferLifecyclePatchInput {
+  version?: number;
+  status?: OpportunityOfferLifecycleStatus;
+  importe_ofertado?: string | null;
+  baja_porcentaje?: string | null;
+  lotes?: string[];
+  garantia_provisional?: string | null;
+  fecha_mesa?: string | null;
+  motivo_exclusion?: string | null;
+}
+
 const opportunities = {
   listGlobal: (input: DossierResourceQuery = {}) =>
     request<components["schemas"]["GlobalOpportunityListResponse"]>(
@@ -1138,6 +1184,24 @@ const opportunities = {
       { method: "PATCH", body: input, ifMatch: version },
     ),
   evidence: (resourceId: string) => evidenceList("opportunities", resourceId),
+  getOfferLifecycle: (dossierId: string, opportunityId: string) =>
+    request<OpportunityOfferLifecycleResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities/${encodeURIComponent(opportunityId)}/offer-lifecycle`,
+    ),
+  patchOfferLifecycle: (
+    dossierId: string,
+    opportunityId: string,
+    input: OpportunityOfferLifecyclePatchInput,
+    ifMatch?: number | string,
+  ) =>
+    request<OpportunityOfferLifecycleResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities/${encodeURIComponent(opportunityId)}/offer-lifecycle`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: ifMatch ?? input.version,
+      },
+    ),
 };
 
 const risks = {

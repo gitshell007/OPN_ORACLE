@@ -39,6 +39,10 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): "MembershipPatchInput",
         ("/api/v1/tenant-admin/members/{member_id}/roles", "patch"): "RolesInput",
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): "OpportunityOfferDraftPatchInput",
+        (
+            "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
+            "patch",
+        ): "OpportunityOfferLifecyclePatchInput",
         ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): "IntentDraftCreateInput",
         ("/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}", "patch"): (
             "IntentDraftPatchInput"
@@ -379,6 +383,14 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "get"): ("200", "OpportunityOfferDraftResponse"),
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "post"): ("201", "OpportunityOfferDraftCreateResponse"),
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): ("200", "OpportunityOfferDraftResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
+            "get",
+        ): ("200", "OpportunityOfferLifecycleResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
+            "patch",
+        ): ("200", "OpportunityOfferLifecycleResponse"),
         # Binary DOCX export is handled in declare_problem_responses (not JSON typed_responses).
         ("/api/v1/dossiers/{dossier_id}/intent", "get"): ("200", "IntentOverviewResponse"),
         ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): (
@@ -2093,6 +2105,124 @@ def _oracle_schemas() -> dict[str, Any]:
             "properties": {
                 "draft": {"$ref": "#/components/schemas/OpportunityOfferDraftResource"},
                 "created": {"type": "boolean"},
+            },
+        },
+        "OpportunityOfferLifecyclePatchInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "version": {"type": "integer", "minimum": 1},
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "preparando",
+                        "presentada",
+                        "en_evaluacion",
+                        "adjudicada",
+                        "perdida",
+                        "excluida",
+                    ],
+                },
+                "importe_ofertado": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Importe ofertado en euros (decimal como string). Null limpia.",
+                },
+                "baja_porcentaje": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Baja explícita 0-100 (porcentaje). Null limpia.",
+                },
+                "lotes": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 120},
+                    "maxItems": 40,
+                },
+                "garantia_provisional": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Garantía provisional en euros (decimal string). Null limpia.",
+                },
+                "fecha_mesa": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": True,
+                },
+                "motivo_exclusion": {
+                    "type": "string",
+                    "nullable": True,
+                    "maxLength": 2000,
+                    "description": "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados.",
+                },
+            },
+        },
+        "OpportunityOfferLifecycleResource": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "id",
+                "tenant_id",
+                "dossier_id",
+                "opportunity_id",
+                "status",
+                "status_label",
+                "lotes",
+                "version",
+                "etag",
+                "last_edited_by_user_id",
+                "created_at",
+                "updated_at",
+                "crm_status_note",
+            ],
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "tenant_id": {"type": "string", "format": "uuid"},
+                "dossier_id": {"type": "string", "format": "uuid"},
+                "opportunity_id": {"type": "string", "format": "uuid"},
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "preparando",
+                        "presentada",
+                        "en_evaluacion",
+                        "adjudicada",
+                        "perdida",
+                        "excluida",
+                    ],
+                },
+                "status_label": {"type": "string"},
+                "importe_ofertado": {"type": "string", "nullable": True},
+                "baja_porcentaje": {"type": "string", "nullable": True},
+                "lotes": {"type": "array", "items": {"type": "string"}},
+                "garantia_provisional": {"type": "string", "nullable": True},
+                "fecha_mesa": {"type": "string", "format": "date", "nullable": True},
+                "motivo_exclusion": {"type": "string", "nullable": True},
+                "version": {"type": "integer", "minimum": 1},
+                "etag": {"type": "string"},
+                "last_edited_by_user_id": {"type": "string", "format": "uuid"},
+                "created_at": {"type": "string", "format": "date-time"},
+                "updated_at": {"type": "string", "format": "date-time"},
+                "crm_status_note": {
+                    "type": "string",
+                    "description": (
+                        "Recordatorio de que el estado CRM de la oportunidad "
+                        "es independiente."
+                    ),
+                },
+            },
+        },
+        "OpportunityOfferLifecycleResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["lifecycle"],
+            "properties": {
+                "lifecycle": {
+                    "$ref": "#/components/schemas/OpportunityOfferLifecycleResource"
+                },
+                "created": {
+                    "type": "boolean",
+                    "description": "True si GET materializó la fila por primera vez.",
+                },
             },
         },
         "IntentDraftCreateInput": {

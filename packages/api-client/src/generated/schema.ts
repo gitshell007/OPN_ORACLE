@@ -11837,6 +11837,191 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Consulta (y materializa vacío) el seguimiento comercial de la oferta.
+         * @description Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                    opportunity_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpportunityResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edita el seguimiento con CAS (version / If-Match).
+         * @description Actor server-owned vía TenantContext + current_user; no se acepta actor_id del body.
+         *     No modifica Opportunity.status (CRM).
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    /** @description Versión ETag; puede enviarse `version` en el cuerpo como alternativa. */
+                    "If-Match"?: string;
+                };
+                path: {
+                    dossier_id: string;
+                    opportunity_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OpportunityWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpportunityResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/oracle-summary": {
         parameters: {
             query?: never;
@@ -35720,6 +35905,57 @@ export interface components {
         OpportunityOfferDraftSectionPatchInput: {
             key: string;
             our_response_draft: string;
+        };
+        OpportunityOfferLifecyclePatchInput: {
+            /** @description Baja explícita 0-100 (porcentaje). Null limpia. */
+            baja_porcentaje?: string | null;
+            /** Format: date */
+            fecha_mesa?: string | null;
+            /** @description Garantía provisional en euros (decimal string). Null limpia. */
+            garantia_provisional?: string | null;
+            /** @description Importe ofertado en euros (decimal como string). Null limpia. */
+            importe_ofertado?: string | null;
+            lotes?: string[];
+            /** @description Obligatorio solo si status=excluida; rechazado/limpiado en otros estados. */
+            motivo_exclusion?: string | null;
+            /** @enum {string} */
+            status?: "preparando" | "presentada" | "en_evaluacion" | "adjudicada" | "perdida" | "excluida";
+            version?: number;
+        };
+        OpportunityOfferLifecycleResource: {
+            baja_porcentaje?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Recordatorio de que el estado CRM de la oportunidad es independiente. */
+            crm_status_note: string;
+            /** Format: uuid */
+            dossier_id: string;
+            etag: string;
+            /** Format: date */
+            fecha_mesa?: string | null;
+            garantia_provisional?: string | null;
+            /** Format: uuid */
+            id: string;
+            importe_ofertado?: string | null;
+            /** Format: uuid */
+            last_edited_by_user_id: string;
+            lotes: string[];
+            motivo_exclusion?: string | null;
+            /** Format: uuid */
+            opportunity_id: string;
+            /** @enum {string} */
+            status: "preparando" | "presentada" | "en_evaluacion" | "adjudicada" | "perdida" | "excluida";
+            status_label: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: number;
+        };
+        OpportunityOfferLifecycleResponse: {
+            /** @description True si GET materializó la fila por primera vez. */
+            created?: boolean;
+            lifecycle: components["schemas"]["OpportunityOfferLifecycleResource"];
         };
         OpportunityResource: {
             actionability?: number;

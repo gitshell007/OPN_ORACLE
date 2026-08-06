@@ -6564,6 +6564,63 @@ html[data-font-scale="small"] .workspace-chip strong {
   font-size: 11px;
   font-weight: 700;
 }
+.opportunity-offer-lifecycle .offer-lifecycle-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-header h2 {
+  margin: 0 0 4px;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-header .muted {
+  margin: 0;
+  color: #5a6b7d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-save-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 650;
+  color: #4e6075;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-save-status.status-dirty {
+  color: #9a6700;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-save-status.status-conflict,
+.opportunity-offer-lifecycle .offer-lifecycle-save-status.status-error {
+  color: #b42318;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-save-status.status-saved {
+  color: #067647;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-form {
+  display: grid;
+  gap: 10px;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.opportunity-offer-lifecycle .offer-lifecycle-conflict {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #fecdca;
+  background: #fef3f2;
+  border-radius: 8px;
+  color: #b42318;
+  font-size: 11px;
+}
 .evidence-block ul {
   display: grid;
   gap: 8px;
