@@ -2,7 +2,7 @@
 
 import { ApiError, api } from "@oracle/api-client";
 import type { components } from "@oracle/api-client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
@@ -30,63 +30,95 @@ export function JobProgress({
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState(false);
   const [mutating, setMutating] = useState(false);
+  const [pollEpoch, setPollEpoch] = useState(0);
   const callback = useRef(onTerminal);
   const announcedTerminal = useRef<string | null>(null);
+  const pollTimer = useRef<number | undefined>(undefined);
+  const pollCycle = useRef(0);
   const toastId = `job-progress:${jobId}`;
 
   useEffect(() => {
     callback.current = onTerminal;
   }, [onTerminal]);
 
+  const announceTerminal = useCallback(
+    (next: Job) => {
+      const announcementKey = `${next.id}:${next.status}`;
+      if (announcedTerminal.current === announcementKey) return;
+
+      announcedTerminal.current = announcementKey;
+      if (next.status === "succeeded")
+        toast.success("Proceso completado", { id: toastId, duration: 4000 });
+      if (next.status === "failed")
+        toast.error("El proceso necesita atención", {
+          id: toastId,
+          duration: 8000,
+          closeButton: true,
+        });
+      if (next.status === "cancelled")
+        toast.message("Proceso cancelado", { id: toastId, duration: 4000 });
+      callback.current?.(next);
+    },
+    [toastId],
+  );
+
+  const stopCurrentPoll = () => {
+    pollCycle.current += 1;
+    if (pollTimer.current !== undefined) {
+      window.clearTimeout(pollTimer.current);
+      pollTimer.current = undefined;
+    }
+  };
+
   useEffect(() => {
-    let active = true;
-    let timer: number | undefined;
+    const cycle = pollCycle.current + 1;
+    pollCycle.current = cycle;
     let failures = 0;
+
+    const schedule = (delay: number) => {
+      pollTimer.current = window.setTimeout(() => {
+        pollTimer.current = undefined;
+        if (pollCycle.current !== cycle) return;
+        void load();
+      }, delay);
+    };
 
     const load = async () => {
       try {
         const next = await api.jobs.get(jobId);
-        if (!active) return;
+        if (pollCycle.current !== cycle) return;
         setJob(next);
         setError(false);
         failures = 0;
         if (terminal.has(next.status)) {
-          if (announcedTerminal.current !== `${next.id}:${next.status}`) {
-            announcedTerminal.current = `${next.id}:${next.status}`;
-            if (next.status === "succeeded")
-              toast.success("Proceso completado", { id: toastId, duration: 4000 });
-            if (next.status === "failed")
-              toast.error("El proceso necesita atención", {
-                id: toastId,
-                duration: 8000,
-                closeButton: true,
-              });
-          }
-          callback.current?.(next);
+          announceTerminal(next);
           return;
         }
         if (announcedTerminal.current?.startsWith(`${next.id}:failed`)) {
           toast.dismiss(toastId);
           announcedTerminal.current = null;
         }
-        timer = window.setTimeout(load, next.status === "queued" ? 2500 : 1800);
+        schedule(next.status === "queued" ? 2500 : 1800);
       } catch (reason) {
-        if (!active) return;
+        if (pollCycle.current !== cycle) return;
         setError(true);
         failures += 1;
         if (!(reason instanceof ApiError && reason.status === 404)) {
           const delay = Math.min(30_000, 2_000 * 2 ** Math.min(failures, 4));
-          timer = window.setTimeout(load, delay);
+          schedule(delay);
         }
       }
     };
 
     void load();
     return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
+      if (pollCycle.current === cycle) pollCycle.current += 1;
+      if (pollTimer.current !== undefined) {
+        window.clearTimeout(pollTimer.current);
+        pollTimer.current = undefined;
+      }
     };
-  }, [jobId, toastId]);
+  }, [announceTerminal, jobId, pollEpoch, toastId]);
 
   const mutate = async (action: "retry" | "cancel") => {
     if (!job) return;
@@ -97,12 +129,18 @@ export function JobProgress({
           ? await api.jobs.retry(job.id, job.version)
           : await api.jobs.cancel(job.id, job.version);
       announcedTerminal.current = null;
+      stopCurrentPoll();
       setJob(next);
       setError(false);
       toast.success(action === "retry" ? "Reintento encolado" : "Cancelación solicitada", {
         id: toastId,
         duration: 4000,
       });
+      if (terminal.has(next.status)) {
+        announceTerminal(next);
+      } else {
+        setPollEpoch((epoch) => epoch + 1);
+      }
     } catch (reason) {
       toast.error(
         reason instanceof ApiError
