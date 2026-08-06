@@ -2,7 +2,7 @@
 
 import { Save } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   type CompetitiveProfileDraft,
@@ -602,19 +602,12 @@ export function DossierProfilePanel({
   const kind = profileKindFor(dossierType, profileConfig);
   const hasContent = profileHasContent(profileConfig);
   const [solvencyErrors, setSolvencyErrors] = useState<SolvencyFieldErrors>({});
-
-  // Clear field errors when the corresponding draft value becomes valid again.
-  useEffect(() => {
-    if (!draft || readOnly) return;
-    const next = validateSolvencyDraft(draft);
-    setSolvencyErrors((prev) => {
-      if (!hasSolvencyFieldErrors(prev)) return prev;
-      const cleared: SolvencyFieldErrors = { ...prev };
-      if (!next.annual_turnover) delete cleared.annual_turnover;
-      if (!next.past_services) delete cleared.past_services;
-      return cleared;
-    });
-  }, [draft, readOnly]);
+  const visibleSolvencyErrors: SolvencyFieldErrors = { ...solvencyErrors };
+  if (draft && !readOnly) {
+    const currentErrors = validateSolvencyDraft(draft);
+    if (!currentErrors.annual_turnover) delete visibleSolvencyErrors.annual_turnover;
+    if (!currentErrors.past_services) delete visibleSolvencyErrors.past_services;
+  }
 
   if (kind === "empty") return null;
 
@@ -683,6 +676,14 @@ export function DossierProfilePanel({
   }
 
   function handleDraftChange(next: ProfileDraft) {
+    const nextErrors = validateSolvencyDraft(next);
+    setSolvencyErrors((prev) => {
+      if (!hasSolvencyFieldErrors(prev)) return prev;
+      const cleared: SolvencyFieldErrors = { ...prev };
+      if (!nextErrors.annual_turnover) delete cleared.annual_turnover;
+      if (!nextErrors.past_services) delete cleared.past_services;
+      return cleared;
+    });
     onDraftChange(next);
   }
 
@@ -701,21 +702,21 @@ export function DossierProfilePanel({
           <MarketFields
             draft={draft}
             disabled={disabled || busy}
-            solvencyErrors={solvencyErrors}
+            solvencyErrors={visibleSolvencyErrors}
             onChange={handleDraftChange}
           />
         ) : draft.kind === "competitive_intelligence" ? (
           <CompetitiveFields
             draft={draft}
             disabled={disabled || busy}
-            solvencyErrors={solvencyErrors}
+            solvencyErrors={visibleSolvencyErrors}
             onChange={handleDraftChange}
           />
         ) : (
           <CustomFields
             draft={draft}
             disabled={disabled || busy}
-            solvencyErrors={solvencyErrors}
+            solvencyErrors={visibleSolvencyErrors}
             onChange={handleDraftChange}
           />
         )}

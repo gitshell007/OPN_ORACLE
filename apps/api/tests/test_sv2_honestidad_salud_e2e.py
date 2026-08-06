@@ -26,9 +26,8 @@ import pytest
 from flask import g
 
 from opn_oracle.auth import permissions
-from opn_oracle.integrations import memory_routes
-from opn_oracle.integrations.memory_profile import profile_to_public
-from opn_oracle.integrations.memory_routes import _effective_defaults
+from opn_oracle.integrations import memory_profile, memory_routes
+from opn_oracle.integrations.memory_profile import legacy_missing_payload, profile_to_public
 from opn_oracle.platform.models import User
 
 _MDEV_RE = re.compile(r"(RACE|DB|SEC|MIG)-MDEV")
@@ -182,6 +181,16 @@ def _wire(monkeypatch: pytest.MonkeyPatch, session: _FakeSession) -> None:
         return session.profile
 
     monkeypatch.setattr(memory_routes, "_load_profile", load_profile)
+    monkeypatch.setattr(
+        memory_profile,
+        "list_deferred_connection_memory_profiles",
+        lambda session, *, tenant_id, dossier_id: [],
+    )
+    monkeypatch.setattr(
+        memory_profile,
+        "load_default_dossier_memory_profile",
+        lambda session, *, tenant_id, dossier_id: session.profile,
+    )
 
 
 def _get_effective(
@@ -333,7 +342,7 @@ def test_profile_get_and_put_do_not_claim_publisher_reliable(
 
 @pytest.mark.unit
 def test_profile_helpers_do_not_invent_health() -> None:
-    defaults = _effective_defaults(
+    defaults = legacy_missing_payload(
         tenant_id=uuid.uuid4(), dossier_id=uuid.uuid4(), connection_id=None
     )
     assert "publisher_reliable" not in defaults

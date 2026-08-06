@@ -16,12 +16,12 @@ from sqlalchemy import func, select
 
 from opn_oracle.ai.models import AIArtifact
 from opn_oracle.extensions import db
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 from opn_oracle.oracle.intent import (
     DossierIntentRevision,
     DossierOffering,
     IntelligenceRequirement,
 )
-from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 from opn_oracle.oracle.links import EvidenceDossier, MeetingActor
 from opn_oracle.oracle.models import (
     Actor,
@@ -1732,7 +1732,8 @@ def load_opportunity_pliego_evidence_rows(
             .where(
                 Evidence.id.in_(evidence_ids),
                 Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(("signal", "document", "procurement", "entity_intel")),
+                Evidence.source_kind.in_(DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS),
+                Evidence.source_kind != "memory_signal",
             )
             .order_by(Evidence.created_at.desc())
             .limit(limit)

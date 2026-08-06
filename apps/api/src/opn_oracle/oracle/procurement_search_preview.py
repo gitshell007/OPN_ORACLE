@@ -135,13 +135,13 @@ def _item_cpv_codes(item: dict[str, Any]) -> list[str]:
     codes: list[str] = []
     for value in values:
         if isinstance(value, str):
-            code = value
+            code_value: Any = value
         elif isinstance(value, dict):
-            code = value.get("code")
+            code_value = value.get("code")
         else:
             continue
-        if isinstance(code, str) and code.strip():
-            codes.append(code.strip())
+        if isinstance(code_value, str) and code_value.strip():
+            codes.append(code_value.strip())
     return codes
 
 

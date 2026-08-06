@@ -177,7 +177,7 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
           description:
             actorsCount > 0
               ? `${actorsCount} actor(es) y ${result.count} evidencia(s) en el expediente (solo la selección).`
-              : `${result.count} evidencia(s) ligadas al expediente.`,
+              : `No se ha creado un Actor; ${result.count} evidencia(s) ligadas al expediente.`,
         },
       );
       setSelected(new Set());

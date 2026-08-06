@@ -704,7 +704,8 @@ STRONG_ACTOR_ID_KEYS: tuple[str, ...] = ("rnsr", "ror", "hal_structure", "cordis
 def _structured_identifier_snapshot(candidate: dict[str, Any]) -> dict[str, str]:
     """Durable strong IDs from closed candidate snapshot (never invent)."""
 
-    raw = candidate.get("ids") if isinstance(candidate.get("ids"), dict) else {}
+    raw_value = candidate.get("ids")
+    raw: dict[str, Any] = raw_value if isinstance(raw_value, dict) else {}
     out: dict[str, str] = {}
     for key in (*STRONG_ACTOR_ID_KEYS, "idref"):
         val = str(raw.get(key) or "").strip()
@@ -757,7 +758,10 @@ def _identifier_conflicts(
     return conflicts
 
 
-def _merge_actor_identifiers(existing: dict[str, Any] | None, incoming: dict[str, str]) -> dict[str, Any]:
+def _merge_actor_identifiers(
+    existing: dict[str, Any] | None,
+    incoming: dict[str, str],
+) -> dict[str, Any]:
     """Merge strong IDs without overwriting a previously set different value.
 
     Missing keys are filled; conflicts on the same key keep the prior durable value
@@ -1005,8 +1009,8 @@ def _materialize_selected_actors(
     Idempotent on same strong IDs. Does not mix lab vs umbrella without shared ID.
     """
 
-    from opn_oracle.oracle.models import Actor, DossierActor
     from opn_oracle.oracle.actor_candidates import set_actor_candidate_review
+    from opn_oracle.oracle.models import Actor, DossierActor
 
     tenant_id = require_tenant_id()
     human_id = _require_human_actor_id()

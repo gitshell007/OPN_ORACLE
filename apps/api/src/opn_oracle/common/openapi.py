@@ -38,7 +38,10 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
         ("/api/v1/tenant-admin/members", "post"): "InviteMemberInput",
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): "MembershipPatchInput",
         ("/api/v1/tenant-admin/members/{member_id}/roles", "patch"): "RolesInput",
-        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): "OpportunityOfferDraftPatchInput",
+        (
+            "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft",
+            "patch",
+        ): "OpportunityOfferDraftPatchInput",
         (
             "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
             "patch",
@@ -380,9 +383,18 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "201",
             "ProcurementPromotionResponse",
         ),
-        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "get"): ("200", "OpportunityOfferDraftResponse"),
-        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "post"): ("201", "OpportunityOfferDraftCreateResponse"),
-        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): ("200", "OpportunityOfferDraftResponse"),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "get"): (
+            "200",
+            "OpportunityOfferDraftResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "post"): (
+            "201",
+            "OpportunityOfferDraftCreateResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): (
+            "200",
+            "OpportunityOfferDraftResponse",
+        ),
         (
             "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
             "get",
@@ -2048,7 +2060,9 @@ def _oracle_schemas() -> dict[str, Any]:
                 "sections": {
                     "type": "array",
                     "maxItems": 50,
-                    "items": {"$ref": "#/components/schemas/OpportunityOfferDraftSectionPatchInput"},
+                    "items": {
+                        "$ref": "#/components/schemas/OpportunityOfferDraftSectionPatchInput"
+                    },
                 },
             },
         },
@@ -2082,13 +2096,19 @@ def _oracle_schemas() -> dict[str, Any]:
                 "statement": {"type": "string"},
                 "tender_ref": {"type": "string", "nullable": True},
                 "lot_hint": {"type": "string", "nullable": True},
-                "sections": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "sections": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
                 "administrative_checklist": {
                     "type": "array",
                     "items": {"type": "object", "additionalProperties": True},
                 },
                 "gaps_summary": {"type": "array", "items": {"type": "string"}},
-                "gaps": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "gaps": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
                 "origin": {"type": "string", "enum": ["declared_draft"]},
                 "based_on_verdict": {"type": "string", "nullable": True},
                 "official_evidence_ids": {"type": "array", "items": {"type": "string"}},
@@ -2167,7 +2187,10 @@ def _oracle_schemas() -> dict[str, Any]:
                     "type": "string",
                     "nullable": True,
                     "maxLength": 2000,
-                    "description": "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados.",
+                    "description": (
+                        "Obligatorio solo si status=excluida; rechazado/limpiado "
+                        "en otros estados."
+                    ),
                 },
             },
             "description": (
@@ -2281,7 +2304,7 @@ def _oracle_schemas() -> dict[str, Any]:
         },
         "PliegoAcquisitionResponse": {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": False,
             "required": [
                 "dossier_id",
                 "overall_status",
@@ -2319,7 +2342,7 @@ def _oracle_schemas() -> dict[str, Any]:
         },
         "PliegoPcapUploadResponse": {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": False,
             "required": ["document", "job_id", "acquisition_status", "message"],
             "properties": {
                 "document": json_object,

@@ -816,7 +816,7 @@ def test_pg_adversarial_authority_keeps_old_families(g26_precap_pg: dict[str, An
     ctx = TenantContext(tenant_id=g26_precap_pg["tenant_a"], actor_id=actor)
     with tenant_context(ctx), SessionLocal() as session:
         # Baseline demonstration: global LIMIT 400 would miss old people.
-        from sqlalchemy import select, text
+        from sqlalchemy import select
 
         from opn_oracle.oracle.links import EvidenceDossier
         from opn_oracle.oracle.models import Evidence

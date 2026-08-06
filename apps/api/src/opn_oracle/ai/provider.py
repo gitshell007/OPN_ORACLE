@@ -1857,7 +1857,9 @@ class SignalGovernedLLMProvider:
         try:
             envelope = extract_signal_envelope(payload)
         except ValueError as error:
-            raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.") from error
+            raise AIUnavailable(
+                "Signal devolvio una respuesta IA sin JSON estructurado."
+            ) from error
         citable_sources = envelope.citable_sources
         search_metadata = envelope.search
         source_warnings = envelope.source_warnings

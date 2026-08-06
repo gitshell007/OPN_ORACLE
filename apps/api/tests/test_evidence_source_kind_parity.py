@@ -52,7 +52,7 @@ def _inline_source_kind_tuples(path: Path) -> list[tuple[int, tuple[str, ...]]]:
     found: list[tuple[int, tuple[str, ...]]] = []
 
     class Visitor(ast.NodeVisitor):
-        def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        def visit_Call(self, node: ast.Call) -> None:
             func = node.func
             # Match *.source_kind.in_(...)
             if (
@@ -60,17 +60,18 @@ def _inline_source_kind_tuples(path: Path) -> list[tuple[int, tuple[str, ...]]]:
                 and func.attr == "in_"
                 and isinstance(func.value, ast.Attribute)
                 and func.value.attr == "source_kind"
+                and node.args
+                and isinstance(node.args[0], (ast.Tuple, ast.List))
             ):
-                if node.args and isinstance(node.args[0], (ast.Tuple, ast.List)):
-                    values: list[str] = []
-                    for elt in node.args[0].elts:
-                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                            values.append(elt.value)
-                        else:
-                            values = []
-                            break
-                    if values:
-                        found.append((node.lineno, tuple(values)))
+                values: list[str] = []
+                for elt in node.args[0].elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        values.append(elt.value)
+                    else:
+                        values = []
+                        break
+                if values:
+                    found.append((node.lineno, tuple(values)))
             self.generic_visit(node)
 
     Visitor().visit(tree)

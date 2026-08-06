@@ -17,7 +17,6 @@ import json
 import os
 import re
 import uuid
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -200,7 +199,11 @@ def test_resolve_thresholds_65_60_as_min_not_weights() -> None:
     res = resolve_pliego_criteria([_evidence(PLIEGO_THRESHOLDS_65_60)])
     assert res.award_weights_status == RESOLUTION_MISSING
     assert res.min_thresholds_status == RESOLUTION_VERIFIED
-    roles = {i["role"]: i["value"] for i in res.min_score_thresholds if i.get("status") == "verified"}
+    roles = {
+        i["role"]: i["value"]
+        for i in res.min_score_thresholds
+        if i.get("status") == "verified"
+    }
     assert roles.get("single_bidder_min_points") == 65.0
     assert roles.get("multi_bidder_pp_above_mean") == 60.0
 
@@ -250,7 +253,6 @@ def test_allowlist_drops_other_evidence() -> None:
 
 @pytest.mark.unit
 def test_draft_offer_70_30_does_not_rewrite_as_65_60() -> None:
-    dossier_id = uuid.uuid4()
     official_id = uuid.uuid4()
     fit = {
         "verdict": {
@@ -438,7 +440,10 @@ def test_build_context_70_30_in_payload_and_final_prompt_no_fixed_65_60() -> Non
     assert "30" in final_prompt
     assert FIXED_65_60_IN_PRODUCT.search(final_prompt) is None
     # Manifest bounded metadata
-    assert built.manifest.get("pliego_criteria", {}).get("award_weights_status") == RESOLUTION_VERIFIED
+    assert (
+        built.manifest.get("pliego_criteria", {}).get("award_weights_status")
+        == RESOLUTION_VERIFIED
+    )
 
 
 @pytest.mark.unit

@@ -24,7 +24,6 @@ from opn_oracle.integrations.memory_profile import (
     profile_config_fingerprint,
     profile_to_public,
 )
-from opn_oracle.oracle.models import StrategicDossier
 from opn_oracle.platform.models import User
 
 
@@ -188,7 +187,7 @@ def _wire_session(monkeypatch: pytest.MonkeyPatch, session: _FakeSession) -> Non
 @pytest.mark.unit
 def test_server_default_is_disabled_operational_modes() -> None:
     assert SERVER_DEFAULT_MEMORY_MODE == "disabled"
-    assert OPERATIONAL_MODES == frozenset({"disabled", "shadow", "augment"})
+    assert frozenset({"disabled", "shadow", "augment"}) == OPERATIONAL_MODES
     scope = memory_scope_payload(dossier_id=uuid.uuid4(), mode="augment")
     assert scope["dossier_only"] is True
     assert scope["uses_tenant_curated"] is False

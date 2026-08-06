@@ -38,7 +38,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Select, and_, func, not_, or_, select
 from sqlalchemy.orm import Session
@@ -99,7 +99,7 @@ class CandidateLoadResult:
 def _json_text(column: Any, key: str) -> ColumnElement[Any]:
     """``column ->> key`` as text (NULL-safe)."""
 
-    return column[key].as_string()
+    return cast(ColumnElement[Any], column[key].as_string())
 
 
 def _json_bool_true(column: Any, key: str) -> ColumnElement[Any]:
@@ -388,7 +388,7 @@ def load_balanced_context_candidates(
                 dossier_id=dossier_id,
                 exclude_opportunity_pliego=exclude_opportunity_pliego,
             )
-            .where(family_sql_predicate(family))  # type: ignore[arg-type]
+            .where(family_sql_predicate(family))
             .order_by(Evidence.created_at.desc(), Evidence.id.desc())
             .limit(fetch_limit)
         )
@@ -455,7 +455,7 @@ def load_balanced_context_candidates(
         reason_codes.append("candidate_pool_truncated_before_family_floor")
 
     # Stable order: newest first among selected (mixer re-scores anyway).
-    def _created_key(row: Any) -> tuple[Any, str]:
+    def _created_key(row: Any) -> tuple[bool, Any, str]:
         created = getattr(row, "created_at", None)
         return (created is None, created, str(getattr(row, "id", "")))
 
@@ -472,7 +472,7 @@ def load_balanced_context_candidates(
         "pool_cap_hit_by_family": {
             f: bool(pool_cap_hit_by_family.get(f)) for f in CONTEXT_FAMILIES
         },
-        "candidates_loaded": int(len(selected)),
+        "candidates_loaded": len(selected),
         "candidates_loaded_by_family": _count_by_family(selected),
         "safety_total_pool_cap": int(total_cap),
         "candidate_pool_truncated": bool(candidate_pool_truncated),
@@ -493,7 +493,7 @@ def load_balanced_context_candidates(
 
 
 def _count_by_family(rows: Sequence[Any]) -> dict[str, int]:
-    counts = {f: 0 for f in CONTEXT_FAMILIES}
+    counts: dict[str, int] = {f: 0 for f in CONTEXT_FAMILIES}
     for row in rows:
         fam = map_context_family(row)
         counts[fam] = counts.get(fam, 0) + 1

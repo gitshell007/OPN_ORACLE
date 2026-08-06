@@ -264,7 +264,9 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
                 code="version_conflict",
             )
 
-    mode = str(payload.get("mode") or (row.mode if row else SERVER_DEFAULT_MEMORY_MODE)).strip().lower()
+    mode = str(
+        payload.get("mode") or (row.mode if row else SERVER_DEFAULT_MEMORY_MODE)
+    ).strip().lower()
     if mode not in OPERATIONAL_MODES:
         return problem_response(422, detail="invalid mode.", code="schema_validation_failed")
 

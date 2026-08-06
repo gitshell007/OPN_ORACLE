@@ -1015,7 +1015,9 @@ def validate_citations_allowlist(
 # Dossier evidence kinds that are legitimately citable when linked via EvidenceDossier
 # and shown to the model (build_context / oracle_authority). Dual-memory memory_signal
 # IDs are always taken from the current materialization set, never bulk-imported.
-DOSSIER_CITABLE_SOURCE_KINDS = frozenset({"procurement", "document", "signal", "entity_intel"})
+DOSSIER_CITABLE_SOURCE_KINDS = frozenset(
+    kind for kind in DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS if kind != "memory_signal"
+)
 
 
 def merge_ask_citation_allowlist(

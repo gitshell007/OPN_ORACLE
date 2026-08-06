@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   opportunityEvidence: vi.fn(),
   opportunityUpdate: vi.fn(),
   opportunityCreate: vi.fn(),
+  getOfferLifecycle: vi.fn(),
+  patchOfferLifecycle: vi.fn(),
   riskList: vi.fn(),
   riskEvidence: vi.fn(),
   riskUpdate: vi.fn(),
@@ -40,6 +42,8 @@ vi.mock("@oracle/api-client", () => {
         evidence: mocks.opportunityEvidence,
         update: mocks.opportunityUpdate,
         create: mocks.opportunityCreate,
+        getOfferLifecycle: mocks.getOfferLifecycle,
+        patchOfferLifecycle: mocks.patchOfferLifecycle,
       },
       risks: {
         list: mocks.riskList,
@@ -151,6 +155,30 @@ describe("DossierIntelligenceSection", () => {
       version: 5,
     });
     mocks.opportunityCreate.mockResolvedValue({ id: "op-2" });
+    mocks.getOfferLifecycle.mockResolvedValue({
+      lifecycle: {
+        id: null,
+        tenant_id: "tenant-1",
+        dossier_id: "dossier-1",
+        opportunity_id: opportunity.id,
+        status: "preparando",
+        status_label: "Preparando",
+        importe_ofertado: null,
+        baja_porcentaje: null,
+        lotes: [],
+        garantia_provisional: null,
+        fecha_mesa: null,
+        motivo_exclusion: null,
+        version: 0,
+        etag: 'W/"ool-v0"',
+        last_edited_by_user_id: null,
+        created_at: null,
+        updated_at: null,
+        materialized: false,
+        crm_status_note: "El estado CRM es independiente.",
+      },
+      materialized: false,
+    });
     mocks.riskList.mockResolvedValue({ data: [], meta: { page: 1, size: 25, total: 0 } });
     mocks.riskEvidence.mockResolvedValue({ data: [] });
     mocks.riskUpdate.mockResolvedValue({});

@@ -11130,9 +11130,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Effective profile + host health. Single source of truth for public health.
-         * @description Capability is computed once; top-level publisher_* fields that the UI reads
-         *     are projected from that same capability so they cannot diverge.
+         * Effective profile + host health. Shared SSOT with conversation jobs.
+         * @description Uses ``resolve_effective_dossier_memory_profile`` (same function as ask/answer).
+         *     Returns configured_profile vs effective_profile; connection overrides are
+         *     listed as deferred, never silently selected.
          */
         get: {
             parameters: {
@@ -11394,7 +11395,12 @@ export interface paths {
                 };
             };
         };
-        /** Put Memory Profile */
+        /**
+         * Update the product **default** profile only (connection_id IS NULL).
+         * @description Body ``connection_id`` is ignored for write targeting so an arbitrary
+         *     connection cannot create a parallel product profile. Connection-bound
+         *     overrides are deferred product capability (no silent create path here).
+         */
         put: {
             parameters: {
                 query?: never;
@@ -11478,6 +11484,109 @@ export interface paths {
             };
         };
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/memory/profile/materialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Idempotent, audited materialization of legacy_missing **default** profiles.
+         * @description Does not silent-backfill on GET. Re-call returns existing row without
+         *     version inflation when already persisted. Body connection_id is ignored;
+         *     only the default profile (connection_id NULL) is materialized.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -35917,6 +36026,9 @@ export interface components {
             selected: components["schemas"]["MarketActorSelection"][];
         };
         MarketActorAcceptResponse: {
+            actors?: components["schemas"]["MarketActorMaterializedActor"][];
+            /** @default 0 */
+            actors_count: number;
             artifact_id: string;
             count: number;
             dossier_id: string;
@@ -35977,6 +36089,16 @@ export interface components {
         MarketActorDiscoveryRunResponse: {
             artifact?: (Record<string, never> | null) | components["schemas"]["MarketActorDiscoveryArtifact"];
             job: components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketActorMaterializedActor: {
+            actor_id: string;
+            candidate_id: string;
+            canonical_key: string;
+            dossier_actor_id: string;
+            identifiers?: {
+                [key: string]: string;
+            };
+            identity_status: string;
         };
         MarketActorSelection: {
             candidate_id: string;
@@ -36678,8 +36800,6 @@ export interface components {
             pins_without_documents?: number;
             preferred_document?: components["schemas"]["JsonObject"] | null;
             signal_document_refs?: number;
-        } & {
-            [key: string]: unknown;
         };
         PliegoPcapUploadResponse: {
             /**
@@ -36691,8 +36811,6 @@ export interface components {
             job_id: string | null;
             message: string;
             pliego_acquisition?: components["schemas"]["PliegoAcquisitionResponse"];
-        } & {
-            [key: string]: unknown;
         };
         Problem: {
             code: string;

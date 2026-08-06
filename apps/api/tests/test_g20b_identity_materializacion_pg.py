@@ -246,7 +246,12 @@ def g20b_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
                 "settings, created_at, updated_at) VALUES "
                 "(:id, :t, :slug, :name, 'active', true, '{}'::jsonb, now(), now())"
             ),
-            {"id": workspace_id, "t": tenant_id, "slug": f"ws-{workspace_id.hex[:6]}", "name": "WS"},
+            {
+                "id": workspace_id,
+                "t": tenant_id,
+                "slug": f"ws-{workspace_id.hex[:6]}",
+                "name": "WS",
+            },
         )
         conn.execute(
             text(

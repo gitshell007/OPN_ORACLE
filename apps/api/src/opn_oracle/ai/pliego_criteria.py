@@ -380,8 +380,6 @@ def resolve_pliego_criteria(
     has_block = False
 
     for raw in evidence_items or ():
-        if not isinstance(raw, Mapping):
-            continue
         eid = str(raw.get("id") or "").strip()
         if not eid:
             continue
@@ -430,7 +428,9 @@ def resolve_pliego_criteria(
     )
 
 
-def format_criteria_security_clause(resolution: PliegoCriteriaResolution | Mapping[str, Any]) -> str:
+def format_criteria_security_clause(
+    resolution: PliegoCriteriaResolution | Mapping[str, Any],
+) -> str:
     """Short clause for security_instruction — never hardcodes 65/60."""
 
     public = (
@@ -439,12 +439,10 @@ def format_criteria_security_clause(resolution: PliegoCriteriaResolution | Mappi
         else dict(resolution)
     )
     status = str(public.get("status") or RESOLUTION_MISSING)
-    weights = public.get("award_weights") if isinstance(public.get("award_weights"), dict) else {}
-    thresholds = (
-        public.get("min_score_thresholds")
-        if isinstance(public.get("min_score_thresholds"), dict)
-        else {}
-    )
+    weights_raw = public.get("award_weights")
+    weights: dict[str, Any] = weights_raw if isinstance(weights_raw, dict) else {}
+    thresholds_raw = public.get("min_score_thresholds")
+    thresholds: dict[str, Any] = thresholds_raw if isinstance(thresholds_raw, dict) else {}
     w_status = str(weights.get("status") or RESOLUTION_MISSING)
     t_status = str(thresholds.get("status") or RESOLUTION_MISSING)
 
@@ -454,12 +452,20 @@ def format_criteria_security_clause(resolution: PliegoCriteriaResolution | Mappi
         "(min_score_thresholds) y score/fit interno de Oracle; no los sustituyas.",
         f"Estado global pliego_criteria={status}; ponderación={w_status}; umbrales={t_status}.",
     ]
-    if w_status == RESOLUTION_MISSING or t_status == RESOLUTION_MISSING or status == RESOLUTION_MISSING:
+    if (
+        w_status == RESOLUTION_MISSING
+        or t_status == RESOLUTION_MISSING
+        or status == RESOLUTION_MISSING
+    ):
         parts.append(
             "Si falta reparto o umbral verificable, responde desconocido/no verificable; "
             "no inventes ni completes porcentajes."
         )
-    if status == RESOLUTION_CONFLICT or w_status == RESOLUTION_CONFLICT or t_status == RESOLUTION_CONFLICT:
+    if (
+        status == RESOLUTION_CONFLICT
+        or w_status == RESOLUTION_CONFLICT
+        or t_status == RESOLUTION_CONFLICT
+    ):
         parts.append(
             "Hay conflicto entre documentos/versiones: no elijas un valor en silencio; "
             "expón el conflicto y las citas."
@@ -493,7 +499,10 @@ def format_award_weights_hint(resolution: PliegoCriteriaResolution) -> str:
 def format_threshold_hint(resolution: PliegoCriteriaResolution) -> str:
     if resolution.min_thresholds_status == RESOLUTION_CONFLICT:
         return "umbrales en conflicto · ver pliego_criteria"
-    if resolution.min_thresholds_status != RESOLUTION_VERIFIED or not resolution.min_score_thresholds:
+    if (
+        resolution.min_thresholds_status != RESOLUTION_VERIFIED
+        or not resolution.min_score_thresholds
+    ):
         return "umbral mínimo no verificable en el pliego"
     bits: list[str] = []
     for item in resolution.min_score_thresholds:

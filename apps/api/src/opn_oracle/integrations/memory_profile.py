@@ -468,7 +468,7 @@ def resolve_effective_dossier_memory_profile(
         mode = "disabled"
 
     return EffectiveMemoryResolution(
-        mode=mode,  # type: ignore[arg-type]
+        mode=mode,
         profile_id=profile_id,
         version=version,
         scope_type="dossier",
@@ -520,7 +520,9 @@ def effective_resolution_to_public(
     effective["persisted"] = resolution.persisted
     effective["state"] = resolution.state
     effective["status"] = (
-        "legacy_missing" if resolution.resolution_source == RESOLUTION_LEGACY_MISSING else configured.get("status")
+        "legacy_missing"
+        if resolution.resolution_source == RESOLUTION_LEGACY_MISSING
+        else configured.get("status")
     )
     effective["resolution_source"] = resolution.resolution_source
     effective["scope"] = memory_scope_payload(

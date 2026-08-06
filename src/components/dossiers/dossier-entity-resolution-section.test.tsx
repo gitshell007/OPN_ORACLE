@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   latest: vi.fn(),
   run: vi.fn(),
   review: vi.fn(),
+  getActor: vi.fn(),
+  mergePreview: vi.fn(),
   merge: vi.fn(),
   toast: { success: vi.fn(), message: vi.fn(), error: vi.fn() },
 }));
@@ -24,6 +26,8 @@ vi.mock("@oracle/api-client", () => ({
       review: mocks.review,
     },
     actors: {
+      get: mocks.getActor,
+      mergePreview: mocks.mergePreview,
       merge: mocks.merge,
     },
   },
@@ -98,6 +102,8 @@ vi.mock("@/components/ui/page-header", () => ({
 import { DossierEntityResolutionSection } from "./dossier-entity-resolution-section";
 
 const evidenceId = "b15d77de-0000-4000-8000-000000000001";
+const targetActorId = "b15d77de-0000-4000-8000-000000000002";
+const sourceActorId = "b15d77de-0000-4000-8000-000000000003";
 
 const groundedArtifact = {
   id: "art-er-1",
@@ -112,7 +118,7 @@ const groundedArtifact = {
   version: 1,
   output: {
     decision: "match",
-    matched_actor_id: "actor-target",
+    matched_actor_id: targetActorId,
     rationale: "Mismo CIF B12345678 en adjudicaciones.",
     facts: [
       {
@@ -137,7 +143,17 @@ describe("DossierEntityResolutionSection", () => {
   beforeEach(() => {
     mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
     mocks.review.mockResolvedValue({ decision: "accepted" });
-    mocks.merge.mockResolvedValue({ id: "actor-target", canonical_name: "TYPSA" });
+    mocks.getActor.mockImplementation((id: string) =>
+      Promise.resolve({ id, version: id === targetActorId ? 7 : 4 }),
+    );
+    mocks.mergePreview.mockResolvedValue({
+      blocked: false,
+      confirmation_required: {
+        expected_target_version: 7,
+        expected_source_version: 4,
+      },
+    });
+    mocks.merge.mockResolvedValue({ id: targetActorId, canonical_name: "TYPSA" });
   });
 
   it("acepta sin fusionar por defecto", async () => {
@@ -159,16 +175,22 @@ describe("DossierEntityResolutionSection", () => {
     const { getByTestId } = render(<DossierEntityResolutionSection dossierId="dossier-1" />);
     await waitFor(() => expect(getByTestId("dossier-entity-resolution-merge")).toBeTruthy());
     fireEvent.change(getByTestId("dossier-entity-resolution-source"), {
-      target: { value: "actor-source" },
+      target: { value: sourceActorId },
     });
     fireEvent.change(getByTestId("dossier-entity-resolution-merge-reason"), {
       target: { value: "Mismo CIF en PLACSP" },
     });
     fireEvent.click(getByTestId("dossier-entity-resolution-merge"));
     await waitFor(() => expect(mocks.merge).toHaveBeenCalled());
-    expect(mocks.merge).toHaveBeenCalledWith("actor-target", {
-      source_actor_id: "actor-source",
-      reason: "Mismo CIF en PLACSP",
-    });
+    expect(mocks.merge).toHaveBeenCalledWith(
+      targetActorId,
+      expect.objectContaining({
+        source_actor_id: sourceActorId,
+        reason: "Mismo CIF en PLACSP",
+        confirm: true,
+        expected_target_version: 7,
+        expected_source_version: 4,
+      }),
+    );
   });
 });

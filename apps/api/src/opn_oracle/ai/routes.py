@@ -643,7 +643,7 @@ class OpportunityOfferDraftPatchSchema(Schema):
     )
 
 
-def _offer_draft_problem(exc: OfferDraftError):
+def _offer_draft_problem(exc: OfferDraftError) -> Any:
     return problem_response(exc.status, detail=exc.message, code=exc.code)
 
 
@@ -1685,14 +1685,16 @@ def _serialize_market_actor_discovery_artifact(
                 candidate_id = None
         summary = str(cand.get("summary") or cand.get("rationale") or "")
         # G-20-B structured identity/ranking snapshot (immutable from artifact output).
-        ids_raw = cand.get("ids") if isinstance(cand.get("ids"), dict) else {}
+        ids_value = cand.get("ids")
+        ids_raw: dict[str, Any] = ids_value if isinstance(ids_value, dict) else {}
         ids_out = {
             str(k): str(v)
             for k, v in ids_raw.items()
             if k in {"rnsr", "ror", "hal_structure", "cordis_org", "idref"} and v
         }
         identity_status = str(cand.get("identity_status") or "").strip().lower()
-        score_bd = cand.get("score_breakdown") if isinstance(cand.get("score_breakdown"), dict) else {}
+        score_value = cand.get("score_breakdown")
+        score_bd: dict[str, Any] = score_value if isinstance(score_value, dict) else {}
         score_out = {
             str(k): float(v)
             for k, v in score_bd.items()

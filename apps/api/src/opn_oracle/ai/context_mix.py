@@ -239,7 +239,7 @@ def map_context_family(item: Any) -> ContextFamily:
     blob = _meta_blob(item)
     explicit = _norm_token(blob.get("context_family") or blob.get("family"))
     if explicit in CONTEXT_FAMILIES:
-        return explicit  # type: ignore[return-value]
+        return explicit
 
     source_kind = _norm_token(_item_get(item, "source_kind") or blob.get("source_kind"))
 
@@ -473,13 +473,13 @@ def mix_context_evidence(
     else:
         chars_left = None
 
-    floors_cfg = {f: DEFAULT_FAMILY_FLOOR for f in CONTEXT_FAMILIES}
+    floors_cfg: dict[str, int] = {f: DEFAULT_FAMILY_FLOOR for f in CONTEXT_FAMILIES}
     if family_floors:
         for key, value in family_floors.items():
             fam = _norm_token(key)
             if fam in CONTEXT_FAMILIES:
                 floors_cfg[fam] = max(0, int(value))
-    caps_cfg = {f: DEFAULT_FAMILY_SOFT_CAP for f in CONTEXT_FAMILIES}
+    caps_cfg: dict[str, int] = {f: DEFAULT_FAMILY_SOFT_CAP for f in CONTEXT_FAMILIES}
     if family_caps:
         for key, value in family_caps.items():
             fam = _norm_token(key)
@@ -491,7 +491,7 @@ def mix_context_evidence(
 
     discards: dict[str, dict[str, int]] = {}
     reason_codes: list[str] = []
-    raw_family_counts = {f: 0 for f in CONTEXT_FAMILIES}
+    raw_family_counts: dict[str, int] = {f: 0 for f in CONTEXT_FAMILIES}
 
     # --- build + score + dedupe ---
     best_by_identity: dict[str, MixCandidate] = {}
@@ -574,11 +574,11 @@ def mix_context_evidence(
 
     eligible = [f for f in CONTEXT_FAMILIES if by_family[f]]
     # Conditional floors: zero when family has no eligible evidence.
-    applied_floors = {
+    applied_floors: dict[str, int] = {
         f: (min(floors_cfg[f], len(by_family[f])) if f in eligible else 0)
         for f in CONTEXT_FAMILIES
     }
-    applied_caps = {
+    applied_caps: dict[str, int] = {
         f: (min(caps_cfg[f], max(len(by_family[f]), applied_floors[f])) if f in eligible else 0)
         for f in CONTEXT_FAMILIES
     }
@@ -614,8 +614,8 @@ def mix_context_evidence(
     selected: list[MixCandidate] = []
     selected_ids: set[str] = set()
     selected_identities: set[str] = set()
-    counts = {f: 0 for f in CONTEXT_FAMILIES}
-    pointers = {f: 0 for f in CONTEXT_FAMILIES}
+    counts: dict[str, int] = {f: 0 for f in CONTEXT_FAMILIES}
+    pointers: dict[str, int] = {f: 0 for f in CONTEXT_FAMILIES}
     tokens_used = 0
     chars_used = 0
     extracts: dict[str, str] = {}
@@ -885,8 +885,8 @@ def diversify_by_context_family(
 ) -> list[Any]:
     """Convenience wrapper returning only selected rows (drop metadata)."""
 
-    floors = {f: family_floor for f in CONTEXT_FAMILIES}
-    caps = {f: max_per_family for f in CONTEXT_FAMILIES}
+    floors: dict[str, int] = {f: family_floor for f in CONTEXT_FAMILIES}
+    caps: dict[str, int] = {f: max_per_family for f in CONTEXT_FAMILIES}
     result = mix_context_evidence(
         rows,
         limit=limit,

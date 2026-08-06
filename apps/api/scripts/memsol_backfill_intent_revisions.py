@@ -15,13 +15,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sys
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 
-def _canonical_hash(schema_key: str, schema_version: str, request_text: str, spec: dict[str, Any]) -> str:
+def _canonical_hash(
+    schema_key: str,
+    schema_version: str,
+    request_text: str,
+    spec: dict[str, Any],
+) -> str:
     material = json.dumps(
         {
             "schema_key": schema_key,
@@ -61,11 +65,12 @@ def main(argv: list[str] | None = None) -> int:
     apply = bool(args.apply)
     dry_run = not apply
 
+    from sqlalchemy import func, select, text
+
     from opn_oracle.app import create_app
     from opn_oracle.extensions import db
     from opn_oracle.oracle.intent import DossierIntentRevision
     from opn_oracle.oracle.models import StrategicDossier
-    from sqlalchemy import func, select, text
 
     app = create_app()
     report: dict[str, Any] = {
@@ -92,10 +97,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         with_current = db.session.scalar(
             text(
-                "SELECT count(*) FROM strategic_dossiers WHERE current_intent_revision_id IS NOT NULL"
+                "SELECT count(*) FROM strategic_dossiers "
+                "WHERE current_intent_revision_id IS NOT NULL"
             )
         )
-        intent_rows = db.session.scalar(select(func.count()).select_from(DossierIntentRevision)) or 0
+        intent_rows = (
+            db.session.scalar(select(func.count()).select_from(DossierIntentRevision)) or 0
+        )
         report["pre"] = {
             "strategic_dossiers": int(total_dossiers),
             "with_nonempty_profile_config": int(with_profile or 0),
@@ -154,10 +162,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             db.session.rollback()
 
-        post_intent = db.session.scalar(select(func.count()).select_from(DossierIntentRevision)) or 0
+        post_intent = (
+            db.session.scalar(select(func.count()).select_from(DossierIntentRevision)) or 0
+        )
         post_current = db.session.scalar(
             text(
-                "SELECT count(*) FROM strategic_dossiers WHERE current_intent_revision_id IS NOT NULL"
+                "SELECT count(*) FROM strategic_dossiers "
+                "WHERE current_intent_revision_id IS NOT NULL"
             )
         )
         report["post"] = {

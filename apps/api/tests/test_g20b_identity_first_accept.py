@@ -40,7 +40,10 @@ def test_fill_missing_never_overwrites_or_records_conflicts() -> None:
 
 
 def test_merge_still_records_conflicts_for_legacy_callers() -> None:
-    merged = _merge_actor_identifiers({"rnsr": "200717524X"}, {"rnsr": "OTHER", "hal_structure": "1"})
+    merged = _merge_actor_identifiers(
+        {"rnsr": "200717524X"},
+        {"rnsr": "OTHER", "hal_structure": "1"},
+    )
     assert merged["rnsr"] == "200717524X"
     assert merged["hal_structure"] == "1"
     assert any(c["key"] == "rnsr" for c in merged.get("identifier_conflicts") or [])

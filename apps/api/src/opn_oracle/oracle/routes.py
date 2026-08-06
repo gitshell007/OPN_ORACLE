@@ -3239,7 +3239,7 @@ def actors_tax_id_conflicts_list() -> Any:
 
     from opn_oracle.oracle.actor_tax_id import list_tax_id_conflicts
 
-    status = request.args.get("filter[status]", "open")
+    status: str | None = request.args.get("filter[status]", "open")
     if status in {"", "all", "*"}:
         status = None
     try:

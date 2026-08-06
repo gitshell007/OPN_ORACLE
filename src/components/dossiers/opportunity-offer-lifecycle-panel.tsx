@@ -132,12 +132,8 @@ export function OpportunityOfferLifecyclePanel({
     () => JSON.stringify(form) !== JSON.stringify(baseline),
     [form, baseline],
   );
-
-  useEffect(() => {
-    if (dirty && saveState !== "saving" && saveState !== "conflict") {
-      setSaveState("dirty");
-    }
-  }, [dirty, saveState]);
+  const displayedSaveState: SaveState =
+    dirty && saveState !== "saving" && saveState !== "conflict" ? "dirty" : saveState;
 
   useEffect(() => {
     if (!dirty) return;
@@ -159,11 +155,16 @@ export function OpportunityOfferLifecyclePanel({
     setErrors({});
   }, []);
 
+  const fetchLifecycle = useCallback(
+    () => api.opportunities.getOfferLifecycle(dossierId, opportunityId),
+    [dossierId, opportunityId],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.opportunities.getOfferLifecycle(dossierId, opportunityId);
+      const response = await fetchLifecycle();
       // Virtual (materialized=false, version=0) and durable rows share the same form shape.
       applyServer(response.lifecycle);
     } catch (reason) {
@@ -172,11 +173,31 @@ export function OpportunityOfferLifecyclePanel({
     } finally {
       setLoading(false);
     }
-  }, [applyServer, dossierId, opportunityId]);
+  }, [applyServer, fetchLifecycle]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setLoading(true);
+      setError(null);
+    });
+    void fetchLifecycle()
+      .then((response) => {
+        if (active) applyServer(response.lifecycle);
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setError(errorMessage(reason, "No se pudo cargar el seguimiento de la oferta."));
+        setServer(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [applyServer, fetchLifecycle]);
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -268,11 +289,11 @@ export function OpportunityOfferLifecyclePanel({
           </p>
         </div>
         <span
-          className={`offer-lifecycle-save-status status-${saveState}`}
+          className={`offer-lifecycle-save-status status-${displayedSaveState}`}
           data-testid="offer-lifecycle-save-status"
           role="status"
         >
-          {saveLabel(dirty && saveState === "idle" ? "dirty" : saveState)}
+          {saveLabel(displayedSaveState)}
         </span>
       </header>
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -24,7 +23,7 @@ from opn_oracle.extensions import db
 from opn_oracle.integrations.models import DossierMemoryProfile
 from opn_oracle.oracle.models import StrategicDossier
 from opn_oracle.oracle.service import DOSSIER_TYPES, create_dossier
-from opn_oracle.platform.models import AuditEvent, Tenant, User, Workspace
+from opn_oracle.platform.models import User
 from opn_oracle.tenants.context import TenantContext, tenant_context
 
 pytestmark = pytest.mark.integration
@@ -109,7 +108,11 @@ def _seed_tenant_user(migration_url: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UU
                 "created_at, updated_at) VALUES "
                 "(:id, :slug, :name, 'active', 'es-ES', 'UTC', '{}'::jsonb, now(), now())"
             ),
-            {"id": tenant_id, "slug": f"g29-{tenant_id.hex[:8]}", "name": f"G29 {tenant_id.hex[:6]}"},
+            {
+                "id": tenant_id,
+                "slug": f"g29-{tenant_id.hex[:8]}",
+                "name": f"G29 {tenant_id.hex[:6]}",
+            },
         )
         conn.execute(
             text(
@@ -197,7 +200,8 @@ def test_pg_alta_atomica_crea_exactamente_un_perfil(g29_pg: tuple[Any, str]) -> 
     app, migration_url = g29_pg
     with app.app_context():
         tenant_id, user_id, _ws = _seed_tenant_user(migration_url)
-        # Relevant product types (competitive_intelligence needs full profile_config; covered via custom/market/project).
+        # competitive_intelligence needs full profile_config and is covered via
+        # custom/market/project; exercise the remaining relevant product types.
         types = ["custom", "market", "project", "tender_or_grant", "strategic_account"]
         for t in types:
             assert t in DOSSIER_TYPES

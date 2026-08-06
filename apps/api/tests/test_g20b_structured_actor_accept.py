@@ -7,14 +7,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-import pytest
-
 from opn_oracle.ai.citable_sources import content_checksum, server_owned_candidate_id
 from opn_oracle.ai.market_materialize import (
-    MaterializeError,
     _merge_actor_identifiers,
     _structured_identifier_snapshot,
-    accept_and_materialize,
 )
 from opn_oracle.ai.schemas import MarketActorCandidate, MarketActorDiscoveryOutput
 

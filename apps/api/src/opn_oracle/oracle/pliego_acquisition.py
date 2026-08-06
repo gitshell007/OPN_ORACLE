@@ -833,10 +833,10 @@ def upload_manual_pcap(
                 )
         except DocumentError as error:
             db.session.rollback()
-            document = db.session.get(Document, document.id)
-            if document is not None:
+            failed_document = db.session.get(Document, document.id)
+            if failed_document is not None:
                 finalize_manual_pcap_after_process(
-                    document_id=document.id,
+                    document_id=failed_document.id,
                     job=job,
                     error=error,
                 )

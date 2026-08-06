@@ -474,9 +474,9 @@ def format_missing_concepts(missing: Sequence[str]) -> str:
     for f in folded:
         if f not in remaining:
             continue
-        label = _SINGLE_TOKEN_CONCEPTS.get(f)
-        if label is not None:
-            concepts.append(label)
+        single_label = _SINGLE_TOKEN_CONCEPTS.get(f)
+        if single_label is not None:
+            concepts.append(single_label)
             remaining.discard(f)
 
     # 4) Resto desconocido: no enseñar el vector; genérico solo si no hay concepto.

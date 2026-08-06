@@ -44,7 +44,7 @@ def _dossier_or_404(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier |
     return row
 
 
-def _domain_error(error: PliegoAcquisitionError):
+def _domain_error(error: PliegoAcquisitionError) -> Any:
     status = 404 if error.code in {
         "not_found",
         "opportunity_not_found",

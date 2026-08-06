@@ -53,7 +53,7 @@ class OfferLifecyclePatchSchema(Schema):
     motivo_exclusion = String(load_default=None, allow_none=True)
 
 
-def _domain_error(error: Exception):
+def _domain_error(error: Exception) -> Any:
     if isinstance(error, OfferLifecycleError):
         body, status, headers = problem_response(
             422,
@@ -95,7 +95,7 @@ def _payload_from_request(raw_body: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _reject_unknown_or_empty_patch(raw_body: dict[str, Any]):
+def _reject_unknown_or_empty_patch(raw_body: dict[str, Any]) -> Any:
     """Strict PATCH gate: unknown keys → 422; no commercial field → 422 no-op."""
 
     if "actor_id" in raw_body or "last_edited_by_user_id" in raw_body:

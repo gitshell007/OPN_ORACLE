@@ -5783,6 +5783,16 @@
       "MarketActorAcceptResponse": {
         "additionalProperties": false,
         "properties": {
+          "actors": {
+            "items": {
+              "$ref": "#/components/schemas/MarketActorMaterializedActor"
+            },
+            "type": "array"
+          },
+          "actors_count": {
+            "default": 0,
+            "type": "integer"
+          },
           "artifact_id": {
             "type": "string"
           },
@@ -6026,6 +6036,40 @@
         },
         "required": [
           "job"
+        ],
+        "type": "object"
+      },
+      "MarketActorMaterializedActor": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "candidate_id": {
+            "type": "string"
+          },
+          "canonical_key": {
+            "type": "string"
+          },
+          "dossier_actor_id": {
+            "type": "string"
+          },
+          "identifiers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "identity_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor_id",
+          "candidate_id",
+          "canonical_key",
+          "dossier_actor_id",
+          "identity_status"
         ],
         "type": "object"
       },
@@ -8472,7 +8516,7 @@
         "type": "object"
       },
       "PliegoAcquisitionResponse": {
-        "additionalProperties": true,
+        "additionalProperties": false,
         "description": "Estado honesto de adquisici\u00f3n de pliego (G-11). La descarga autom\u00e1tica es best-effort; siempre se ofrece subida manual.",
         "properties": {
           "acquisitions": {
@@ -8544,7 +8588,7 @@
         "type": "object"
       },
       "PliegoPcapUploadResponse": {
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
           "acquisition_status": {
             "description": "procesando = recepci\u00f3n no terminal; subido solo tras oracle.document.process ready; no_disponible = fallo terminal.",
@@ -26647,7 +26691,7 @@
     },
     "/api/v1/dossiers/{dossier_id}/memory/effective": {
       "get": {
-        "description": "Capability is computed once; top-level publisher_* fields that the UI reads\nare projected from that same capability so they cannot diverge.",
+        "description": "Uses ``resolve_effective_dossier_memory_profile`` (same function as ask/answer).\nReturns configured_profile vs effective_profile; connection overrides are\nlisted as deferred, never silently selected.",
         "parameters": [
           {
             "in": "path",
@@ -26735,7 +26779,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Effective profile + host health. Single source of truth for public health.",
+        "summary": "Effective profile + host health. Shared SSOT with conversation jobs.",
         "tags": [
           "Memory_Settings"
         ]
@@ -26931,6 +26975,7 @@
         ]
       },
       "put": {
+        "description": "Body ``connection_id`` is ignored for write targeting so an arbitrary\nconnection cannot create a parallel product profile. Connection-bound\noverrides are deferred product capability (no silent create path here).",
         "parameters": [
           {
             "in": "path",
@@ -27037,7 +27082,122 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Put Memory Profile",
+        "summary": "Update the product **default** profile only (connection_id IS NULL).",
+        "tags": [
+          "Memory_Settings"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/memory/profile/materialize": {
+      "post": {
+        "description": "Does not silent-backfill on GET. Re-call returns existing row without\nversion inflation when already persisted. Body connection_id is ignored;\nonly the default profile (connection_id NULL) is materialized.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Idempotent, audited materialization of legacy_missing **default** profiles.",
         "tags": [
           "Memory_Settings"
         ]

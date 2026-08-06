@@ -17,7 +17,8 @@ from typing import Any
 from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 
-from docx import Document
+from docx import Document as create_document
+from docx.document import Document as DocxDocument
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -303,14 +304,14 @@ def _cohere_block(paragraphs: list[Any]) -> None:
         )
 
 
-def _add_heading(doc: Document, text: str, level: int) -> Any:
+def _add_heading(doc: DocxDocument, text: str, level: int) -> Any:
     heading = doc.add_heading(_clean_text(text), level=level)
     _set_paragraph_pagination(heading, keep_with_next=True, keep_together=True, widow_control=True)
     return heading
 
 
 def _add_para(
-    doc: Document,
+    doc: DocxDocument,
     text: str,
     *,
     bold: bool = False,
@@ -325,7 +326,7 @@ def _add_para(
     return p
 
 
-def _add_list_item(doc: Document, text: str) -> Any:
+def _add_list_item(doc: DocxDocument, text: str) -> Any:
     p = doc.add_paragraph(_clean_text(text), style="List Bullet")
     for run in p.runs:
         run.font.size = Pt(11)
@@ -333,7 +334,7 @@ def _add_list_item(doc: Document, text: str) -> Any:
     return p
 
 
-def _add_notice(doc: Document, text: str) -> Any:
+def _add_notice(doc: DocxDocument, text: str) -> Any:
     p = doc.add_paragraph()
     p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
     run = p.add_run(_clean_text(text))
@@ -346,7 +347,7 @@ def _add_notice(doc: Document, text: str) -> Any:
     return p
 
 
-def _add_checklist_table(doc: Document, rows: list[list[str]]) -> Any:
+def _add_checklist_table(doc: DocxDocument, rows: list[list[str]]) -> Any:
     table = doc.add_table(rows=1 + len(rows), cols=3)
     table.style = "Table Grid"
     headers = ("Estado", "Elemento", "Descripción")
@@ -373,10 +374,10 @@ def build_offer_draft_document(
     version: int,
     exported_at: datetime,
     citations: list[EvidenceCitation] | None = None,
-) -> Document:
+) -> DocxDocument:
     """Build a python-docx Document from durable draft content (ordered contract)."""
 
-    doc = Document()
+    doc = create_document()
     # Sensible defaults for editable commercial draft.
     normal = doc.styles["Normal"]
     normal.font.name = "Calibri"
@@ -432,10 +433,11 @@ def build_offer_draft_document(
     # 4. Sections — each section is a cohesive keep-with-next block.
     _add_heading(doc, "Secciones de la oferta", 1)
     sections = [sec for sec in (content.get("sections") or []) if isinstance(sec, dict)]
-    sections = sorted(
-        sections,
-        key=lambda s: int(s.get("order") if s.get("order") is not None else 0),
-    )
+    def _section_order(section: Mapping[str, Any]) -> int:
+        raw_order = section.get("order")
+        return int(raw_order) if isinstance(raw_order, (int, str)) else 0
+
+    sections = sorted(sections, key=_section_order)
     if not sections:
         _add_para(doc, "(sin secciones)")
     for sec in sections:
@@ -472,13 +474,13 @@ def build_offer_draft_document(
         if isinstance(g, dict) and str(g.get("description") or "").strip()
     ]
     if gaps_summary:
-        for g in gaps_summary:
-            gaps_block.append(_add_list_item(doc, g))
+        for gap_summary in gaps_summary:
+            gaps_block.append(_add_list_item(doc, gap_summary))
     elif structured_gaps:
-        for g in structured_gaps:
-            sev_raw = str(g.get("severity") or "important")
+        for gap in structured_gaps:
+            sev_raw = str(gap.get("severity") or "important")
             sev = GAP_SEVERITY_LABELS.get(sev_raw, "importante")
-            desc = str(g.get("description") or "").strip()
+            desc = str(gap.get("description") or "").strip()
             gaps_block.append(_add_list_item(doc, f"[{sev}] {desc}"))
     else:
         gaps_block.append(_add_para(doc, "(sin gaps registrados)"))

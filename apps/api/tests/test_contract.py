@@ -482,9 +482,14 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
             if status == "204":
                 assert "content" not in response
                 continue
-            schema = response.get("content", {}).get("application/json", {}).get("schema")
-            assert schema, (path, method, status)
-            _assert_closed_schema_tree(schema, schemas, set())
+            content = response.get("content", {})
+            assert content, (path, method, status)
+            response_schemas = [
+                media.get("schema") for media in content.values() if isinstance(media, dict)
+            ]
+            assert response_schemas and all(response_schemas), (path, method, status)
+            for schema in response_schemas:
+                _assert_closed_schema_tree(schema, schemas, set())
 
         bodyless_m2m_put = method == "put" and path.endswith("/{target_id}")
         bodyless_monitor_action = (

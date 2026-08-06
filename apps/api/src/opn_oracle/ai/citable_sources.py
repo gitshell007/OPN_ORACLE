@@ -253,9 +253,7 @@ def is_safe_public_http_url(url: Any) -> bool:
             return False
     except ValueError:
         pass
-    if "@" in (parsed.netloc or ""):
-        return False
-    return True
+    return "@" not in (parsed.netloc or "")
 
 
 def _strip_controls(text: str) -> str:
@@ -523,8 +521,6 @@ def filter_candidates_by_citable_allowlist(
     cited_set: set[str] = set()
 
     for raw in candidates:
-        if not isinstance(raw, dict):
-            continue
         row = dict(raw)
         name = _candidate_identity_name(row)[:80]
         raw_ids = row.get("evidence_ids") or []

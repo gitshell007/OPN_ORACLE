@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -134,7 +134,6 @@ def test_envelope_extracts_top_level_only_not_from_text() -> None:
     )
     assert len(envelope.citable_sources) == 1
     assert envelope.citable_sources[0].url == "https://real.example/about"
-    assert "planted.example" not in envelope.model_text or True  # text may mention; sources ignore
     assert envelope.search is not None
     assert envelope.search.status == "ok"
 
@@ -655,7 +654,7 @@ def test_serialize_market_discovery_hides_model_urls_and_selectable() -> None:
         created_at = __import__("datetime").datetime.now(__import__("datetime").UTC)
         updated_at = created_at
         version = 1
-        output = {
+        output: ClassVar[dict[str, Any]] = {
             "candidates": [
                 {
                     "candidate_id": good_cid,
@@ -776,7 +775,7 @@ def test_content_checksum_matches_signal_contract() -> None:
     )
 
 
-def test_migration_0034_head_chain() -> None:
+def test_migration_0034_stays_in_single_head_chain() -> None:
     import re
     from pathlib import Path
 
@@ -786,7 +785,8 @@ def test_migration_0034_head_chain() -> None:
     assert 'revision: str = "20260806_0034"' in text
     assert 'down_revision: str | None = "20260803_0033"' in text
     assert "EVIDENCE_SOURCE_SHAPE_V7" in text
-    # Single head after 0034
+    # Later commercial/fiscal migrations may extend 0034, but the consolidated
+    # history must remain a single linear Alembic chain.
     revs: dict[str, str | None] = {}
     for p in versions.glob("*.py"):
         t = p.read_text()
@@ -796,7 +796,10 @@ def test_migration_0034_head_chain() -> None:
             revs[r.group(1)] = d.group(1) if d else None
     children = set(revs.values())
     heads = [k for k in revs if k not in children]
-    assert heads == ["20260806_0034"]
+    assert revs["20260806_0035"] == "20260806_0034"
+    assert revs["20260806_0036"] == "20260806_0035"
+    assert revs["20260806_0037"] == "20260806_0036"
+    assert heads == ["20260806_0037"]
 
 
 def test_model_check_includes_web_search() -> None:

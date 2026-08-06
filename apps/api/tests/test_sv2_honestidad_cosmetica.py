@@ -18,8 +18,7 @@ from opn_oracle.integrations.citation_support import (
     issue_to_public,
 )
 from opn_oracle.integrations.memory_context import capability_payload
-from opn_oracle.integrations.memory_profile import profile_to_public
-from opn_oracle.integrations.memory_routes import _effective_defaults
+from opn_oracle.integrations.memory_profile import legacy_missing_payload, profile_to_public
 
 _MDEV_RE = re.compile(r"(RACE|DB|SEC|MIG)-MDEV")
 _FORBIDDEN_KEYS = frozenset({"deferred_blockers", "actions_reliable", "missing_anchors"})
@@ -83,7 +82,7 @@ def test_profile_and_defaults_public_without_internal_accounting() -> None:
     assert "publisher_reliable" not in pub
     _assert_public_clean(pub)
 
-    defaults = _effective_defaults(
+    defaults = legacy_missing_payload(
         tenant_id=uuid.uuid4(), dossier_id=uuid.uuid4(), connection_id=None
     )
     assert "publisher_reliable" not in defaults
