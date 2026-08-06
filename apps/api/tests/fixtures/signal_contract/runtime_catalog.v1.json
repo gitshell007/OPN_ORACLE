@@ -1,0 +1,61 @@
+{
+  "contract": "signal.ai_runtime_catalog.v1",
+  "runtimes": {
+    "RT-07": {
+      "prompt_sha256": "092da4fe2021c6a4ec2e2ef46bcf8b173db9000ccc2f3f558af086ac60ebe407",
+      "prompt_version": "1.0.0",
+      "runtime_id": "RT-07",
+      "runtime_sha256": "7ae2171516367e2eb9d28d022491a3ef156a522adf115819627d46ccfe14cdec",
+      "schema_sha256": "fa7663159d647627368490b694bf055b0289e998e87baef16617e17cfa8b666d",
+      "schema_version": "dossier_question_answer.v1",
+      "task_key": "dossier_question_answer"
+    },
+    "RT-08": {
+      "prompt_sha256": "3768e8828e623cf69608ed799f900f389b4e3e9d57b85fbcc189bb67bf4c92fe",
+      "prompt_version": "1.0.2",
+      "runtime_id": "RT-08",
+      "runtime_sha256": "c879fb62fa934b73617816f698f2e4b8c69717a0ae41939bbdbad3e72c4e5d02",
+      "schema_sha256": "949a1b57b628246594ffc169d77a7cb676a11d90fa43a5910ab455920e7028f7",
+      "schema_version": "custom_brief_plan.v1",
+      "task_key": "report_custom_brief_plan"
+    },
+    "RT-09": {
+      "prompt_sha256": "39b0397fe5e91678e7bb152213b4a4b9fa3dbbb75c1e77af2cf55c1c0d633973",
+      "prompt_version": "1.0.1",
+      "runtime_id": "RT-09",
+      "runtime_sha256": "441ae775922243bb8d59af13907b20b2ddc162a3a009bf35e9b5f866505e4cc3",
+      "schema_sha256": "e80bfa4f2e3bd211af6de9eb6d9840081bf93873b2c60cca164039cec4ff77c5",
+      "schema_version": "custom_report_writer.v1",
+      "task_key": "report_custom_writer"
+    },
+    "RT-10": {
+      "prompt_sha256": "5c8d6f60454013757605306e24d3e00fae7c1a204c77639a7e398821454c6d07",
+      "prompt_version": "1.0.1",
+      "runtime_id": "RT-10",
+      "runtime_sha256": "81a5460046d5db4a838ea460f32a88107dad9f770b3dcf672618a341d222ce27",
+      "schema_sha256": "921c5a06ec686f975de01b0bec0556857cc1c2b2cc9e8121240d94c412a44710",
+      "schema_version": "custom_report_review.v1",
+      "task_key": "report_custom_review"
+    },
+    "RT-12": {
+      "prompt_sha256": "40ce008da9788c5c9ccf64546a7ca708e6eac4e05daec161f2d4f74acec05156",
+      "prompt_version": "1.0.0",
+      "runtime_id": "RT-12",
+      "runtime_sha256": "256bfc75ad22db75f03c9a6db21609ff77ab783e6395bba4cd9a42be11f86a9f",
+      "schema_sha256": "8dd7f4fd6211bcc647cc47c229770321fbbe7c7223256086e438dfd7f8b1924e",
+      "schema_version": "eval_corpus_grounded.v1",
+      "task_key": "eval_corpus_grounded"
+    },
+    "RT-15": {
+      "prompt_sha256": "9ca12202e2573ca560dc1defba3ca775a04a20588750822dcf174c130921dddf",
+      "prompt_version": "1.0.0",
+      "runtime_id": "RT-15",
+      "runtime_sha256": "e034351fa74b65620545a4ad3e4ed6f6ce787c0cd607ace4d78ee17dbc04057d",
+      "schema_sha256": "e58be46736e4ca07c2de8b0ed9d12da326337f6c7cb7d3bd543c35097c5202d9",
+      "schema_version": "security_local_gate.v1",
+      "task_key": "security_local_gate"
+    }
+  },
+  "source_commit": "b5fc5e68c035d67524f5e81625a8659f743decf4",
+  "source_repository": "opn_signal"
+}

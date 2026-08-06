@@ -1,0 +1,45 @@
+{
+  "contract": "signal.open_tender.documents",
+  "api_version": "2026-07-01",
+  "description": "Minimum documents[] shape returned by Signal for an open PLACSP tender (registry GET, list search, and Oracle saved-search run). Metadata/URL only — Signal does not download PDFs for this contract.",
+  "endpoints": [
+    "GET /api/v1/registry/tenders/{folder_id}",
+    "GET /api/v1/registry/tenders",
+    "GET /api/v1/oracle/tender-searches/{search_id}/run"
+  ],
+  "item_example": {
+    "folder_id": "G11-OPEN-DOCS-1",
+    "title": "Suministro de radar táctico y pliegos de oferta",
+    "buyer": "Ministerio de Defensa",
+    "status": "PUB",
+    "canonical_status": "open",
+    "cpv": ["35722000"],
+    "documents": [
+      {
+        "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?cifrado=legal-g11-1",
+        "doc_type": "legal",
+        "file_name": "PCAP-administrativo.pdf",
+        "hash": "sha256-legal-g11-1"
+      },
+      {
+        "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?cifrado=technical-g11-1",
+        "doc_type": "technical",
+        "file_name": "PPT-tecnico.pdf"
+      },
+      {
+        "uri": "https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?cifrado=additional-g11-1",
+        "doc_type": "additional",
+        "file_name": "additional-additional-g11-1"
+      }
+    ]
+  },
+  "document_required_fields": ["uri", "doc_type", "file_name"],
+  "doc_type_enum": ["legal", "technical", "additional"],
+  "rules": [
+    "Deduplicate by uri; order is stable (first-seen, existing before newly merged).",
+    "file_name is never empty: if CODICE omits FileName, Signal fills a deterministic fallback from the URI or doc_type.",
+    "A later ingest with documents=[] does not erase known documents; new URIs merge without duplicates.",
+    "hash is optional when CODICE provides DocumentHash.",
+    "Oracle must treat uri as the download target; Signal does not proxy PDF bytes on this path."
+  ]
+}

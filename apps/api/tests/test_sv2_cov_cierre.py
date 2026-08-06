@@ -528,14 +528,29 @@ class _FakeSession:
         *,
         dossier: Any | None = None,
         profile: Any | None = None,
+        deferred_profiles: list[Any] | None = None,
     ) -> None:
         self.dossier = dossier
         self.profile = profile
+        self.deferred_profiles = list(deferred_profiles or [])
         self.commits = 0
         self.added: list[Any] = []
 
-    def scalar(self, _q: Any) -> Any:
+    @staticmethod
+    def _selected_entity_name(query: Any) -> str | None:
+        descriptions = getattr(query, "column_descriptions", ())
+        if len(descriptions) != 1:
+            return None
+        return getattr(descriptions[0].get("entity"), "__name__", None)
+
+    def scalar(self, query: Any) -> Any:
+        if self._selected_entity_name(query) == "DossierMemoryProfile":
+            return self.profile
         return self.dossier
+
+    def scalars(self, query: Any) -> Any:
+        assert self._selected_entity_name(query) == "DossierMemoryProfile"
+        return SimpleNamespace(all=lambda: list(self.deferred_profiles))
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)

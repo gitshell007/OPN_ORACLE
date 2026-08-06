@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,6 +12,7 @@ from opn_oracle.evals.release_preflight import (
     verify_runtime_catalog_against_signal,
 )
 from opn_oracle.evals.signal_runtime_catalog import (
+    SIGNAL_ASSET_LAYOUT,
     candidate_ledger_stub,
     compare_catalogs,
     compose_runtime_sha256,
@@ -23,17 +24,23 @@ from opn_oracle.oracle.custom_report_runtime_catalog import (
     load_contractual_runtime_catalog,
     resolve_frozen_runtime_hashes,
 )
+from tests.signal_checkout import (
+    SIGNAL_CONTRACT_FIXTURE_ROOT,
+    resolve_explicit_signal_checkout,
+    resolve_signal_checkout,
+)
 
 
-def _signal_root() -> Path | None:
-    env = os.environ.get("SIGNAL_REPO_ROOT")
-    if env and Path(env).is_dir():
-        return Path(env)
-    # Default sibling worktree used by night executor.
-    candidate = Path(
-        "/Users/gitshellmini/PycharmProjects/opn_signal/.worktrees/mdev09-resilience-evals"
+def _runtime_contract_snapshot() -> dict[str, Any]:
+    path = SIGNAL_CONTRACT_FIXTURE_ROOT / "runtime_catalog.v1.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _explicit_signal_root() -> Path | None:
+    required = tuple(
+        f"{layout['dir']}/{layout['manifest']}" for layout in SIGNAL_ASSET_LAYOUT.values()
     )
-    return candidate if candidate.is_dir() else None
+    return resolve_explicit_signal_checkout(required)
 
 
 def test_oracle_catalog_rt08_10_matches_signal_verified_embedding() -> None:
@@ -50,18 +57,45 @@ def test_release_preflight_internal_consistency() -> None:
     assert result["ok"] is True
 
 
-def test_release_preflight_live_signal_cross_repo() -> None:
-    root = _signal_root()
-    if root is None:
-        pytest.skip("Signal worktree not available for live cross-repo check")
-    result = verify_runtime_catalog_against_signal(
-        signal_root=root,
-        require_live_signal=True,
-        required_ids=("RT-07", "RT-08", "RT-09", "RT-10", "RT-12", "RT-15"),
+@pytest.mark.integration
+def test_release_preflight_signal_contract_snapshot_and_optional_live_checkout() -> None:
+    required_ids = ("RT-07", "RT-08", "RT-09", "RT-10", "RT-12", "RT-15")
+    snapshot = _runtime_contract_snapshot()
+    assert snapshot["contract"] == "signal.ai_runtime_catalog.v1"
+    assert snapshot["source_repository"] == "opn_signal"
+    assert len(str(snapshot["source_commit"])) == 40
+    runtimes = snapshot["runtimes"]
+    assert isinstance(runtimes, dict)
+    assert (
+        compare_catalogs(
+            oracle_catalog_with_runtime_hashes(),
+            runtimes,
+            required_ids=required_ids,
+        )
+        == []
     )
-    assert result["ok"] is True
-    assert result["mode"] == "live_signal_cross_repo"
-    assert "RT-12" in result["signal_runtimes"]
+
+    # A real checkout is an opt-in second verification, never a CI prerequisite.
+    root = _explicit_signal_root()
+    if root is not None:
+        result = verify_runtime_catalog_against_signal(
+            signal_root=root,
+            require_live_signal=True,
+            required_ids=required_ids,
+        )
+        assert result["ok"] is True
+        assert result["mode"] == "live_signal_cross_repo"
+        assert "RT-12" in result["signal_runtimes"]
+
+
+def test_explicit_signal_checkout_fails_closed_instead_of_falling_back(tmp_path: Path) -> None:
+    required = ("app/services/ai_tasks/example/RT-X_MANIFEST.json",)
+    with pytest.raises(RuntimeError, match="SIGNAL_REPO_ROOT"):
+        resolve_signal_checkout(
+            required,
+            candidate_roots=(SIGNAL_CONTRACT_FIXTURE_ROOT,),
+            environ={"SIGNAL_REPO_ROOT": str(tmp_path)},
+        )
 
 
 def test_stale_catalog_mismatch_fails_preflight(tmp_path: Path) -> None:

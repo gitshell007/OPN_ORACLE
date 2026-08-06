@@ -10,12 +10,30 @@ import pytest
 
 from opn_oracle.ai.context import build_context
 from opn_oracle.tenants.context import TenantContext, tenant_context
+from tests import test_integration_oracle_domain as oracle_domain_helpers
 from tests.test_integration_oracle_domain import _client, _create_dossier, _csrf
 
-# Pull oracle_stack fixture from the domain integration module.
-pytest_plugins = ("tests.test_integration_oracle_domain",)
-
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(scope="module")
+def oracle_stack() -> Any:
+    """Reuse the domain stack without registering its autouse fixture globally.
+
+    ``pytest_plugins`` makes every fixture in the referenced test module a session-wide
+    plugin.  In particular, the domain module's autouse ``clean_sessions`` then affects
+    all test modules collected after this one and forces unit tests to request the
+    integration-only ``oracle_stack``.  Delegating explicitly keeps both fixtures scoped
+    to this integration module.
+    """
+
+    fixture = oracle_domain_helpers.oracle_stack.__wrapped__()
+    yield from fixture
+
+
+@pytest.fixture(autouse=True)
+def clean_sessions(oracle_stack: tuple[Any, dict[str, uuid.UUID], str]) -> None:
+    oracle_domain_helpers.clean_sessions.__wrapped__(oracle_stack)
 
 
 def test_intent_draft_accept_and_activity_http(

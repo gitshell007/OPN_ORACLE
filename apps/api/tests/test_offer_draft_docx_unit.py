@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import io
+import uuid
 import zipfile
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import Any
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -15,6 +18,7 @@ from opn_oracle.ai.offer_draft_docx import (
     EXPORT_NOTICE,
     HUMAN_GATE_PUBLIC_LABEL,
     MAX_DOCX_BYTES,
+    MAX_TRACEABILITY_ROWS,
     UNRESOLVED_EVIDENCE_LABEL,
     EvidenceCitation,
     assert_no_internal_ids,
@@ -22,6 +26,7 @@ from opn_oracle.ai.offer_draft_docx import (
     collect_evidence_ids,
     content_disposition_attachment,
     humanize_human_gate,
+    load_evidence_citation_lookup,
     resolve_evidence_citations,
     sanitize_export_filename,
 )
@@ -460,3 +465,256 @@ def test_adversarial_page_break_fixture_coheres_and_stays_public() -> None:
     for p_el in block[:-1]:
         assert _paragraph_has_bool(p_el, "keepNext")
     assert "Gap:" in _para_text(block[-1]) or any("Gap:" in _para_text(p) for p in block)
+
+
+class _CitationLookupSession:
+    def __init__(
+        self,
+        *,
+        linked_ids: list[uuid.UUID],
+        evidence: list[Any],
+        signals: list[Any] | None = None,
+        documents: list[Any] | None = None,
+    ) -> None:
+        self.rows = {
+            "EvidenceDossier": linked_ids,
+            "Evidence": evidence,
+            "Signal": list(signals or []),
+            "Document": list(documents or []),
+        }
+
+    def scalars(self, query: Any) -> list[Any]:
+        descriptions = getattr(query, "column_descriptions", ())
+        assert len(descriptions) == 1
+        entity = descriptions[0].get("entity")
+        name = getattr(entity, "__name__", None)
+        assert name in self.rows, f"unexpected citation lookup query entity={name!r}"
+        return self.rows[name]
+
+
+@pytest.mark.unit
+def test_evidence_citation_lookup_is_dossier_scoped_and_fails_closed_when_unlinked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No linked evidence means no title/URL is exposed in the DOCX annex."""
+
+    from opn_oracle.extensions import db
+
+    fake = _CitationLookupSession(linked_ids=[], evidence=[])
+    monkeypatch.setattr(db, "session", fake)
+    tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
+    assert (
+        load_evidence_citation_lookup(
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            evidence_ids=[],
+        )
+        == {}
+    )
+    assert (
+        load_evidence_citation_lookup(
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            evidence_ids=[uuid.uuid4()],
+        )
+        == {}
+    )
+
+
+@pytest.mark.unit
+def test_evidence_citation_lookup_resolves_public_sources_and_rejects_internal_leaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Signal/document/provenance citations stay public and tenant/dossier scoped."""
+
+    from opn_oracle.extensions import db
+
+    signal_evidence_id = uuid.uuid4()
+    document_evidence_id = uuid.uuid4()
+    provenance_evidence_id = uuid.uuid4()
+    extract_evidence_id = uuid.uuid4()
+    empty_evidence_id = uuid.uuid4()
+    internal_title_id = uuid.uuid4()
+    signal_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    evidence_rows = [
+        SimpleNamespace(
+            id=signal_evidence_id,
+            signal_id=signal_id,
+            document_id=None,
+            source_url=None,
+            provenance={},
+            source_kind="signal",
+            extract="signal fallback",
+        ),
+        SimpleNamespace(
+            id=document_evidence_id,
+            signal_id=None,
+            document_id=document_id,
+            source_url="https://docs.example.test/original",
+            provenance={},
+            source_kind="document",
+            extract="document fallback",
+        ),
+        SimpleNamespace(
+            id=provenance_evidence_id,
+            signal_id=None,
+            document_id=None,
+            source_url=None,
+            provenance={
+                "label": "Resolución pública",
+                "provider": "PLACSP",
+                "canonical_url": "https://contrataciondelestado.es/resolucion",
+            },
+            source_kind="tender_es",
+            extract="provenance fallback",
+        ),
+        SimpleNamespace(
+            id=extract_evidence_id,
+            signal_id=None,
+            document_id=None,
+            source_url="file:///private/source",
+            provenance={"source_kind": "fuente local"},
+            source_kind="local",
+            extract="Evidencia extensa " + ("x" * 160),
+        ),
+        SimpleNamespace(
+            id=empty_evidence_id,
+            signal_id=None,
+            document_id=None,
+            source_url=None,
+            provenance={},
+            source_kind="",
+            extract="",
+        ),
+        SimpleNamespace(
+            id=internal_title_id,
+            signal_id=None,
+            document_id=None,
+            source_url=None,
+            provenance={"title": f"registro interno {uuid.uuid4()}"},
+            source_kind="local",
+            extract="",
+        ),
+    ]
+    signal = SimpleNamespace(
+        id=signal_id,
+        title="Anuncio oficial",
+        source_name="",
+        source_type="PLACSP",
+        source_url="https://contrataciondelestado.es/anuncio",
+    )
+    document = SimpleNamespace(id=document_id, original_filename="PCAP.pdf")
+    linked_ids = [row.id for row in evidence_rows]
+    fake = _CitationLookupSession(
+        linked_ids=linked_ids,
+        evidence=evidence_rows,
+        signals=[signal],
+        documents=[document],
+    )
+    monkeypatch.setattr(db, "session", fake)
+
+    result = load_evidence_citation_lookup(
+        tenant_id=uuid.uuid4(),
+        dossier_id=uuid.uuid4(),
+        evidence_ids=linked_ids,
+    )
+    assert result[signal_evidence_id] == EvidenceCitation(
+        title="Anuncio oficial",
+        source="PLACSP",
+        url="https://contrataciondelestado.es/anuncio",
+    )
+    assert result[document_evidence_id] == EvidenceCitation(
+        title="PCAP.pdf",
+        source="documento",
+        url="https://docs.example.test/original",
+    )
+    assert result[provenance_evidence_id] == EvidenceCitation(
+        title="Resolución pública",
+        source="PLACSP",
+        url="https://contrataciondelestado.es/resolucion",
+    )
+    assert result[extract_evidence_id].title.endswith("…")
+    assert len(result[extract_evidence_id].title) == 121
+    assert result[extract_evidence_id].source == "fuente local"
+    assert result[extract_evidence_id].url is None
+    assert empty_evidence_id not in result
+    assert internal_title_id not in result
+    assert all(
+        str(evidence_id) not in citation.display_line() for evidence_id, citation in result.items()
+    )
+
+
+@pytest.mark.unit
+def test_export_boundary_normalizes_empty_names_headers_and_public_gate_text() -> None:
+    """Los metadatos del adjunto fallan a nombres públicos seguros, nunca a códigos internos."""
+
+    assert sanitize_export_filename("\r\n/\\ ..", version=0) == (
+        "Borrador-oferta-borrador-oferta-v1.docx"
+    )
+    header = content_disposition_attachment("oferta sin extensión\r\n")
+    assert 'filename="oferta sin extensi_n.docx"' in header
+    assert header.endswith("oferta%20sin%20extensi%C3%B3n.docx")
+    assert humanize_human_gate("custom_internal_gate") == HUMAN_GATE_PUBLIC_LABEL
+    assert humanize_human_gate(str(uuid.uuid4())) == HUMAN_GATE_PUBLIC_LABEL
+    assert humanize_human_gate("Aprobación del comité") == "Aprobación del comité"
+    assert EvidenceCitation(title="Anuncio", source="PLACSP").display_line() == (
+        "Anuncio · Fuente: PLACSP"
+    )
+
+
+@pytest.mark.unit
+def test_collect_evidence_ids_filters_bad_values_deduplicates_and_caps_output() -> None:
+    """La trazabilidad acepta UUID públicos válidos y acota el DOCX ante entradas adversarias."""
+
+    ids = [uuid.UUID(int=index + 1) for index in range(MAX_TRACEABILITY_ROWS)]
+    content = {
+        "official_evidence_ids": "no es una lista",
+        "declared_evidence_ids": ["", "uuid-inválido", *(str(item) for item in ids)],
+        "sections": [
+            "sección inválida",
+            {"official_evidence_ids": [str(ids[0])], "declared_evidence_ids": []},
+        ],
+    }
+
+    output = collect_evidence_ids(content)
+
+    assert output == ids
+    assert len(output) == MAX_TRACEABILITY_ROWS
+
+
+@pytest.mark.unit
+def test_docx_empty_sections_uses_honest_placeholders_and_structured_gaps() -> None:
+    """Un borrador parcial sigue siendo legible y no vierte la estructura interna."""
+
+    payload = build_offer_draft_docx(
+        {
+            "banner": EXPORT_NOTICE,
+            "human_gate": "Aprobación del comité",
+            "statement": "",
+            "sections": [],
+            "gaps_summary": [],
+            "gaps": [
+                {
+                    "severity": "valor-desconocido",
+                    "description": "Acreditar la solvencia antes de presentar.",
+                }
+            ],
+            "administrative_checklist": [],
+        },
+        dossier_title="",
+        version=1,
+        citations=[],
+    )
+
+    parsed = DOCXParser().parse(io.BytesIO(payload))
+    joined = "\n".join(block.text for block in parsed.blocks)
+    assert "Expediente" in joined
+    assert "(sin introducción)" in joined
+    assert "(sin secciones)" in joined
+    assert "[importante] Acreditar la solvencia antes de presentar." in joined
+    assert "(sin checklist administrativa)" in joined
+    assert "(sin referencias de evidencia en el borrador)" in joined
+    assert "Puerta humana: Aprobación del comité" in joined
+    assert_no_internal_ids(joined)

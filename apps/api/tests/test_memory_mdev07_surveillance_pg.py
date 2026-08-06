@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+from flask_migrate import upgrade
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
+from opn_oracle import create_app
 from opn_oracle.oracle.surveillance import (
     compute_next_run_at,
     compute_retry_after,
     effective_scope_hash,
     is_due,
 )
+from tests.conftest import assert_integration_schema_head
 
 pytestmark = pytest.mark.skipif(
     os.getenv("ORACLE_RUN_INTEGRATION") != "1",
@@ -39,95 +44,85 @@ def _engine(url: str) -> Engine:
     return create_engine(url, poolclass=NullPool, future=True)
 
 
-def _ensure_table(conn) -> None:
+@pytest.fixture(scope="module", autouse=True)
+def _migrated_schema_head() -> Iterator[None]:
+    migration_url, runtime_url = _require_urls()
+    redis_url = os.getenv("TEST_REDIS_URL") or "redis://127.0.0.1:6379/15"
+    app = create_app(
+        {
+            "APP_ENV": "test",
+            "SECRET_KEY": "mdev07-schema-head-test-secret-key",
+            "DATABASE_URL": runtime_url,
+            "DATABASE_MIGRATION_URL": migration_url,
+            "REDIS_URL": redis_url,
+        }
+    )
+    migrations = str(Path(__file__).resolve().parents[1] / "migrations")
+    with app.app_context():
+        upgrade(directory=migrations, revision="head")
+    assert_integration_schema_head(migration_url, migrations)
+    try:
+        yield
+    finally:
+        with app.app_context():
+            upgrade(directory=migrations, revision="head")
+        assert_integration_schema_head(migration_url, migrations)
+
+
+@pytest.fixture(autouse=True)
+def _restore_surveillance_schema_after_test(_migrated_schema_head: None) -> Iterator[None]:
+    del _migrated_schema_head
+    try:
+        yield
+    finally:
+        migration_url, _ = _require_urls()
+        engine = _engine(migration_url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "DELETE FROM dossier_surveillance_actions WHERE tenant_id IN "
+                        "(SELECT id FROM tenants WHERE slug LIKE 'mdev07-%')"
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        DO $$ BEGIN
+                          IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint
+                            WHERE conname='fk_dsa_dossier_tenant'
+                          ) THEN
+                            ALTER TABLE dossier_surveillance_actions
+                              ADD CONSTRAINT fk_dsa_dossier_tenant
+                              FOREIGN KEY (dossier_id, tenant_id)
+                              REFERENCES strategic_dossiers(id, tenant_id)
+                              ON DELETE CASCADE;
+                          END IF;
+                        END $$
+                        """
+                    )
+                )
+                conn.execute(text("DELETE FROM tenants WHERE slug LIKE 'mdev07-%'"))
+        finally:
+            engine.dispose()
+
+
+def _assert_table(conn) -> None:
     exists = conn.execute(
         text(
             "SELECT 1 FROM information_schema.tables "
             "WHERE table_name='dossier_surveillance_actions'"
         )
     ).scalar()
-    if exists:
-        return
-    conn.execute(
-        text(
-            """
-            CREATE TABLE dossier_surveillance_actions (
-              dossier_id UUID NOT NULL,
-              action_type VARCHAR(40) NOT NULL,
-              dedupe_key VARCHAR(200) NOT NULL,
-              status VARCHAR(30) NOT NULL,
-              alignment_state VARCHAR(20) NOT NULL,
-              cadence VARCHAR(20) NOT NULL,
-              timezone VARCHAR(64) NOT NULL,
-              actor_id UUID,
-              offering_id UUID,
-              requirement_id UUID,
-              intent_revision_id UUID,
-              effective_scope_hash VARCHAR(64) NOT NULL,
-              origin VARCHAR(20) NOT NULL,
-              confirmed_by_user_id UUID,
-              confirmed_at TIMESTAMPTZ,
-              manual_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
-              last_run_at TIMESTAMPTZ,
-              next_run_at TIMESTAMPTZ,
-              last_attempt_at TIMESTAMPTZ,
-              last_error VARCHAR(500),
-              retry_count INTEGER NOT NULL DEFAULT 0,
-              retry_after TIMESTAMPTZ,
-              row_version INTEGER NOT NULL DEFAULT 1,
-              watchlist_id UUID,
-              signal_monitor_id UUID,
-              procurement_watch_id UUID,
-              title VARCHAR(300) NOT NULL DEFAULT '',
-              notes TEXT NOT NULL DEFAULT '',
-              degraded BOOLEAN NOT NULL DEFAULT false,
-              degraded_reason VARCHAR(200),
-              tenant_id UUID NOT NULL,
-              id UUID NOT NULL,
-              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-              updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-              PRIMARY KEY (id),
-              UNIQUE (id, tenant_id),
-              UNIQUE (tenant_id, dossier_id, dedupe_key)
-            )
-            """
-        )
-    )
-    conn.execute(text("ALTER TABLE dossier_surveillance_actions ENABLE ROW LEVEL SECURITY"))
-    conn.execute(text("ALTER TABLE dossier_surveillance_actions FORCE ROW LEVEL SECURITY"))
-    conn.execute(
-        text(
-            """
-            DO $$ BEGIN
-              IF NOT EXISTS (
-                SELECT 1 FROM pg_policies
-                WHERE tablename='dossier_surveillance_actions'
-                  AND policyname='tenant_isolation'
-              ) THEN
-                CREATE POLICY tenant_isolation ON dossier_surveillance_actions
-                  USING (tenant_id=oracle_current_tenant())
-                  WITH CHECK (tenant_id=oracle_current_tenant());
-              END IF;
-            END $$
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='oracle_app') THEN
-              GRANT SELECT,INSERT,UPDATE,DELETE ON dossier_surveillance_actions TO oracle_app;
-            END IF; END $$
-            """
-        )
-    )
+    assert exists == 1, "migration head must create dossier_surveillance_actions"
 
 
 def test_migration_0031_columns_and_rls() -> None:
     mig_url, _ = _require_urls()
     engine = _engine(mig_url)
     with engine.begin() as conn:
-        _ensure_table(conn)
+        _assert_table(conn)
         cols = {
             row[0]
             for row in conn.execute(
@@ -184,7 +179,7 @@ def test_pg_tenant_isolation_confirm_semantics_and_needs_review() -> None:
     )
 
     with mig.begin() as conn:
-        _ensure_table(conn)
+        _assert_table(conn)
         # Ensure tenants exist (locale/timezone required)
         for tid, name in ((tenant_a, "A"), (tenant_b, "B")):
             conn.execute(
@@ -310,3 +305,18 @@ def test_pg_tenant_isolation_confirm_semantics_and_needs_review() -> None:
         conn.execute(
             text("DELETE FROM dossier_surveillance_actions WHERE id=:id"), {"id": action_id}
         )
+
+
+def test_module_preserves_alembic_head_and_surveillance_fk() -> None:
+    migration_url, _ = _require_urls()
+    migrations = str(Path(__file__).resolve().parents[1] / "migrations")
+    assert_integration_schema_head(migration_url, migrations)
+    engine = _engine(migration_url)
+    try:
+        with engine.connect() as conn:
+            constraint_count = conn.scalar(
+                text("SELECT count(*) FROM pg_constraint WHERE conname='fk_dsa_dossier_tenant'")
+            )
+    finally:
+        engine.dispose()
+    assert constraint_count == 1

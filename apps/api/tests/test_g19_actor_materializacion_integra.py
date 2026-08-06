@@ -373,7 +373,23 @@ def g19_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
         "password": password,
         "email": f"g19-act-{user_id.hex[:8]}@example.test",
     }
-    yield app, env
+    try:
+        yield app, env
+    finally:
+        # This fixture is function-scoped and shares the disposable integration DB
+        # with later migration suites.  Cleanup must run even when the consumer test
+        # fails: a dossierless competitor artifact makes migration 0022 correctly
+        # refuse the next downgrade.  Tenant deletion cascades tenant-owned rows.
+        # ``_require_pg_urls`` already rejects non-test/non-local databases.
+        with app.app_context():
+            db.session.remove()
+        cleanup = create_engine(migration_url)
+        try:
+            with cleanup.begin() as conn:
+                conn.execute(text("DELETE FROM tenants WHERE id = :tenant"), {"tenant": tenant_id})
+                conn.execute(text("DELETE FROM users WHERE id = :user"), {"user": user_id})
+        finally:
+            cleanup.dispose()
 
 
 def test_accept_actor_valid_1_1_1_and_retry(g19_pg: tuple[Any, dict[str, Any]]) -> None:
@@ -538,3 +554,33 @@ def test_accept_actor_wrong_dossier_zero_rows(g19_pg: tuple[Any, dict[str, Any]]
         )
         assert result["count"] == 1
         assert _counts(env["tenant_id"]) == (1, 1, 1)
+
+
+def test_g19_fixture_cleanup_runs_when_consumer_fails() -> None:
+    """The fixture finalizer removes G-19 residue even on a consumer exception."""
+
+    fixture = g19_pg.__wrapped__()
+    _, env = next(fixture)
+    with pytest.raises(RuntimeError, match="simulated consumer failure"):
+        fixture.throw(RuntimeError("simulated consumer failure"))
+
+    migration_url, _, _ = _require_pg_urls()
+    engine = create_engine(migration_url)
+    try:
+        with engine.connect() as conn:
+            tenants = conn.scalar(text("SELECT count(*) FROM tenants WHERE slug LIKE 'g19-act-%'"))
+            users = conn.scalar(
+                text("SELECT count(*) FROM users WHERE id = :user"), {"user": env["user_id"]}
+            )
+            artifacts = conn.scalar(
+                text(
+                    "SELECT count(*) FROM ai_artifacts "
+                    "WHERE dossier_id IS NULL AND agent = 'market_competitor_discovery' "
+                    "AND tenant_id IN (SELECT id FROM tenants WHERE slug LIKE 'g19-act-%')"
+                )
+            )
+    finally:
+        engine.dispose()
+    assert tenants == 0
+    assert users == 0
+    assert artifacts == 0

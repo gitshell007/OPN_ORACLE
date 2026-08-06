@@ -7,6 +7,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from apiflask import APIFlask
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
@@ -35,6 +37,22 @@ def _assert_disposable_database_url(url: str, *, env_name: str) -> None:
             f"{env_name} database={db_name!r} is not unambiguously disposable "
             f"(must contain one of {_DISPOSABLE_DB_MARKERS}); refusing to run"
         )
+
+
+def assert_integration_schema_head(migration_url: str, migrations: str) -> None:
+    """Assert a disposable integration database is at this checkout's Alembic head."""
+
+    _assert_disposable_database_url(migration_url, env_name="TEST_DATABASE_URL")
+    config = Config()
+    config.set_main_option("script_location", migrations)
+    expected = ScriptDirectory.from_config(config).get_current_head()
+    engine = create_engine(migration_url, poolclass=NullPool)
+    try:
+        with engine.connect() as connection:
+            actual = connection.scalar(text("SELECT version_num FROM alembic_version"))
+    finally:
+        engine.dispose()
+    assert actual == expected, f"integration schema drift: actual={actual!r}, expected={expected!r}"
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

@@ -1,22 +1,28 @@
 """Auditoría read-only del contrato Signal respecto a ``documents`` (G-11).
 
-Sin red ni producción: solo fixtures locales, OpenAPI y normalización Oracle.
-Si Signal no construye ``documents`` para licitaciones abiertas simuladas, se
-documenta como follow-up Signal — G-11 Oracle no se declara cerrado por ello.
+Sin red ni producción: valida el fixture contractual del checkout Signal y la
+normalización Oracle. La ausencia del contrato es un fallo explícito, nunca skip.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+from xml.etree import ElementTree
 
 import pytest
 
 from opn_oracle.oracle import procurement_items
+from tests.signal_checkout import (
+    resolve_explicit_signal_checkout,
+    resolve_signal_checkout,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 SIGNAL_DOCS = ROOT / "docs" / "integrations" / "signal-avanza"
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
+SIGNAL_G11_CONTRACT = "tests/contract/oracle/fixtures/open_tender_documents.example.json"
+SIGNAL_G11_ATOM = "tests/fixtures/placsp_open_tender_documents.atom"
 
 
 def test_oracle_preserves_documents_when_signal_sends_them() -> None:
@@ -76,57 +82,69 @@ def test_signal_contract_docs_mention_documents_for_awards_not_guaranteed_open_t
     assert "pliego" in coverage.casefold()
 
 
-def test_local_fixtures_do_not_prove_signal_builds_open_tender_documents() -> None:
-    """Si no hay fixture Signal con documents en tender abierta, follow-up Signal.
-
-    Oracle solo puede demostrar que *si* llegan, se conservan (test de arriba).
-    """
-    # Buscar fixtures de investigación / procurement locales.
-    found_open_tender_with_docs = False
-    evidence_paths: list[str] = []
-    for path in FIXTURES.rglob("*.json"):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        blob = json.dumps(raw, ensure_ascii=False)
-        if "documents" not in blob:
-            continue
-        evidence_paths.append(str(path.relative_to(ROOT)))
-        # Heurística: ¿parece open tender con documents no vacíos?
-        text = blob.casefold()
-        if (
-            ("placsp" in text or "tender" in text or "folder_id" in text)
-            and '"documents": []' not in blob
-            and '"uri"' in blob
-        ):
-            # Puede ser award o investigation — no prueba open tender Signal vivo.
-            found_open_tender_with_docs = found_open_tender_with_docs or (
-                "open" in text and "uri" in text
-            )
-
-    # Conclusión durable para el Gate Packet: sin fixture Signal de licitación
-    # abierta con documents CODICE, G-11 Oracle no cierra el tramo Signal.
-    report = {
-        "fixture_files_mentioning_documents": evidence_paths[:20],
-        "proved_signal_open_tender_documents": found_open_tender_with_docs,
-        "oracle_preserves_when_present": True,
-        "follow_up_signal": not found_open_tender_with_docs,
-        "follow_up_scope": (
-            "Signal debe construir y devolver `documents[]` (uri, doc_type, file_name) "
-            "en placsp_open_tenders / pin de licitación abierta simulada; Oracle ya "
-            "conserva el campo en snapshot y activa fallback manual si viene vacío."
-        ),
+def _validate_signal_documents_contract(
+    signal_root: Path,
+) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    payload = json.loads((signal_root / SIGNAL_G11_CONTRACT).read_text(encoding="utf-8"))
+    assert payload["contract"] == "signal.open_tender.documents"
+    item = payload["item_example"]
+    assert item["canonical_status"] == "open"
+    assert item["status"] == "PUB"
+    documents = item["documents"]
+    assert documents
+    required = set(payload["document_required_fields"])
+    assert required == {"uri", "doc_type", "file_name"}
+    assert all(required <= set(document) for document in documents)
+    assert all(
+        document["uri"].startswith("https://contrataciondelestado.es/") for document in documents
+    )
+    assert set(payload["endpoints"]) == {
+        "GET /api/v1/registry/tenders/{folder_id}",
+        "GET /api/v1/registry/tenders",
+        "GET /api/v1/oracle/tender-searches/{search_id}/run",
     }
-    # Siempre expone la conclusión; el test no falla por follow-up — es auditoría.
-    assert report["oracle_preserves_when_present"] is True
-    assert isinstance(report["follow_up_signal"], bool)
-    # Documentamos en assert message para la salida de pytest.
-    assert report["follow_up_scope"]
-    if not found_open_tender_with_docs:
-        pytest.skip(
-            "FOLLOW-UP SIGNAL: no hay fixture local que demuestre documents en "
-            "licitación abierta Signal. Oracle G-11 conserva el campo y ofrece "
-            "subida manual; el tramo Signal queda abierto. "
-            f"paths_with_documents={evidence_paths[:5]}"
-        )
+
+    # The required Signal contract fields survive Oracle's durable pin snapshot.
+    # ``hash`` is explicitly optional metadata and is not part of Oracle's G-11 DTO.
+    snapshot = procurement_items._snapshot("tender", item, item["folder_id"])
+    expected_documents = [
+        {key: document[key] for key in ("uri", "doc_type", "file_name")} for document in documents
+    ]
+    assert snapshot["documents"] == expected_documents
+
+    # Cross-repo fixture behavior, without inspecting another test's source: the
+    # contractual JSON must describe the three document references present in
+    # the real CODICE Atom sample in the same order and with the same types.
+    atom_root = ElementTree.parse(signal_root / SIGNAL_G11_ATOM).getroot()
+    namespace = {
+        "cac": "urn:dgpe:names:draft:codice:schema:xsd:CommonAggregateComponents-2",
+        "cbc": "urn:dgpe:names:draft:codice:schema:xsd:CommonBasicComponents-2",
+    }
+    expected_types = {
+        "LegalDocumentReference": "legal",
+        "TechnicalDocumentReference": "technical",
+        "AdditionalDocumentReference": "additional",
+    }
+    atom_documents: list[tuple[str, str]] = []
+    for reference_name, document_type in expected_types.items():
+        for reference in atom_root.findall(f".//cac:{reference_name}", namespace):
+            uri = reference.findtext(".//cbc:URI", default="", namespaces=namespace).strip()
+            assert uri
+            atom_documents.append((uri, document_type))
+    assert [(document["uri"], document["doc_type"]) for document in documents] == atom_documents
+    return payload, atom_documents
+
+
+@pytest.mark.integration
+def test_signal_contract_snapshot_proves_open_tender_documents_contract() -> None:
+    """Versioned fixture always runs; an explicit Signal checkout is an extra audit."""
+
+    required = (SIGNAL_G11_CONTRACT, SIGNAL_G11_ATOM)
+    fixture_root = resolve_signal_checkout(required, environ={})
+    fixture_payload, fixture_atom_documents = _validate_signal_documents_contract(fixture_root)
+
+    live_root = resolve_explicit_signal_checkout(required)
+    if live_root is not None:
+        live_payload, live_atom_documents = _validate_signal_documents_contract(live_root)
+        assert live_payload == fixture_payload
+        assert live_atom_documents == fixture_atom_documents

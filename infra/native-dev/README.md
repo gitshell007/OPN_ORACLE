@@ -17,7 +17,7 @@ Scripts:
 |---|---|
 | `bootstrap-host.sh` | Fase 1–2: paquetes, usuarios, dirs, PG, Redis |
 | `import-prod-snapshot.sh` | Fase 3: restore de dump `-Fc` a `opn_oracle_dev` |
-| `build-release.sh` | Fase 4: release inmutable desde SHA |
+| `build-release.sh` | Fase 4: release inmutable desde SHA; aborta antes de materializar si falla el gate unitario API |
 | `install-systemd.sh` | Unidades API/web/worker/beat |
 | `install-nginx.sh` | Server blocks HTTP/HTTPS + ACME |
 
