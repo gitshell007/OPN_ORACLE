@@ -110,6 +110,8 @@ def seed() -> None:
         # G-20-B E2E: market dossier with discovery profile + candidate artifact fixture.
         # Real API/DB seed (no browser network mock). Playwright opens this dossier.
         _seed_g20b_market_actor_fixture(tenant_id=tenant_id, owner_id=owner_id)
+        # G-14: opportunity artifacts served by the real API from disposable PostgreSQL.
+        _seed_g14_opportunity_fixtures(tenant_id=tenant_id, owner_id=owner_id)
 
 
 def _seed_g20b_market_actor_fixture(
@@ -266,6 +268,119 @@ def _seed_g20b_market_actor_fixture(
             output_hash=digest,
         )
         db.session.add(artifact)
+        db.session.commit()
+
+
+def _seed_g14_opportunity_fixtures(*, tenant_id, owner_id) -> None:
+    """Seed fit/no-fit opportunity dossiers for Playwright without ``page.route``."""
+
+    import hashlib
+    import json
+    import uuid
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from opn_oracle.ai.models import AIArtifact
+    from opn_oracle.oracle.jobs import AIAuditLog
+    from opn_oracle.oracle.models import StrategicDossier
+    from opn_oracle.platform.models import Workspace
+    from opn_oracle.tenants.context import TenantContext, tenant_context
+
+    fixtures_dir = Path(__file__).resolve().parents[3] / "tests" / "e2e" / "fixtures"
+    fixture_specs = (
+        (
+            "G-14 Encaje y borrador E2E real",
+            fixtures_dir / "sv2-opportunity-fit-draft.json",
+        ),
+        (
+            "G-14 Estado vacío E2E real",
+            fixtures_dir / "sv2-opportunity-no-fit.json",
+        ),
+    )
+    with tenant_context(
+        TenantContext(
+            tenant_id=tenant_id,
+            actor_id=owner_id,
+            platform_access=False,
+            access_reason="g14-e2e-seed",
+        )
+    ):
+        workspace = (
+            db.session.query(Workspace)
+            .filter_by(tenant_id=tenant_id, slug="principal")
+            .one()
+        )
+        for title, fixture_path in fixture_specs:
+            fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+            output = dict(fixture["artifact"]["output"])
+            dossier = StrategicDossier(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                workspace_id=workspace.id,
+                title=title,
+                description="Fixture G-14 desechable: API y PostgreSQL reales",
+                dossier_type="tender",
+                status="active",
+                owner_user_id=owner_id,
+            )
+            db.session.add(dossier)
+            db.session.flush()
+
+            digest = hashlib.sha256(
+                json.dumps(output, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).digest()
+            now = datetime.now(UTC)
+            audit = AIAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                dossier_id=dossier.id,
+                requested_by_user_id=owner_id,
+                use_case="opportunity",
+                agent="opportunity",
+                action="generate",
+                provider="mock",
+                model="mock-v1",
+                prompt_name="opportunity",
+                prompt_version="v1",
+                prompt_hash=digest,
+                context_hash=digest,
+                schema_name="OpportunityOutput",
+                schema_version="v1",
+                input_hash=digest,
+                output_hash=digest,
+                source_ids=[],
+                status="succeeded",
+                data_classification="internal",
+                redaction_applied=False,
+                redaction_summary={"e2e_fixture": True},
+                input_tokens=0,
+                output_tokens=0,
+                actual_cost_micros=0,
+                currency="EUR",
+                attempt_count=1,
+                started_at=now,
+                completed_at=now,
+                human_review_state="not_required",
+            )
+            db.session.add(audit)
+            db.session.flush()
+            db.session.add(
+                AIArtifact(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    audit_log_id=audit.id,
+                    dossier_id=dossier.id,
+                    target_type="strategic_dossier",
+                    target_id=dossier.id,
+                    agent="opportunity",
+                    schema_name="OpportunityOutput",
+                    schema_version="v1",
+                    status="candidate",
+                    version=1,
+                    output=output,
+                    output_hash=digest,
+                )
+            )
         db.session.commit()
 
 

@@ -4,20 +4,15 @@
  *  2) Preparar borrador de oferta
  *  3) Empty honest state (no fit_assessment → no encaje / no draft button)
  *
- * Uses the auth E2E harness (seed login) + route mocks of opportunity/latest
- * with fixtures derived from the real sv2_e2e_vivo_artifact (anonymized).
+ * Uses the auth E2E harness, disposable PostgreSQL and the real opportunity/latest
+ * endpoint. The seed inserts anonymized artifacts; the browser never intercepts API calls.
  */
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-const FIXTURES = path.join(__dirname, "fixtures");
-const FIT_DRAFT = JSON.parse(
-  fs.readFileSync(path.join(FIXTURES, "sv2-opportunity-fit-draft.json"), "utf8"),
-) as { job: null; artifact: Record<string, unknown> };
-const NO_FIT = JSON.parse(
-  fs.readFileSync(path.join(FIXTURES, "sv2-opportunity-no-fit.json"), "utf8"),
-) as { job: null; artifact: Record<string, unknown> };
+const FIT_DOSSIER = "G-14 Encaje y borrador E2E real";
+const EMPTY_DOSSIER = "G-14 Estado vacío E2E real";
 
 /** Screenshots for Codex/user evidence (outside the git worktree). */
 const EVIDENCE_DIR =
@@ -38,10 +33,10 @@ async function loginOwner(page: Page, _testInfo: TestInfo) {
   await expect(page).toHaveURL(/\/app\/dossiers/);
 }
 
-async function openFirstDossier(page: Page): Promise<string> {
+async function openDossier(page: Page, title: string): Promise<string> {
   await page.goto("/app/dossiers");
   await expect(page.locator("main")).toBeVisible({ timeout: 20_000 });
-  const link = page.locator('a[href^="/app/dossiers/"]').first();
+  const link = page.locator('a[href^="/app/dossiers/"]', { hasText: title }).first();
   await expect(link).toBeVisible({ timeout: 20_000 });
   const href = (await link.getAttribute("href")) ?? "";
   const match = href.match(/^(\/app\/dossiers\/[0-9a-f-]+)/);
@@ -52,19 +47,6 @@ async function openFirstDossier(page: Page): Promise<string> {
     timeout: 20_000,
   });
   return base;
-}
-
-async function mockOpportunityLatest(
-  page: Page,
-  payload: { job: null; artifact: Record<string, unknown> | null },
-) {
-  await page.route("**/api/v1/ai/dossiers/*/opportunity/latest", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(payload),
-    });
-  });
 }
 
 async function saveEvidence(page: Page, name: string, target?: ReturnType<Page["locator"]>) {
@@ -92,10 +74,22 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     test.setTimeout(120_000);
 
     await loginOwner(page, testInfo);
-    const base = await openFirstDossier(page);
+    const base = await openDossier(page, FIT_DOSSIER);
 
-    await mockOpportunityLatest(page, FIT_DRAFT);
+    const latestResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes("/api/v1/ai/dossiers/") &&
+        response.url().endsWith("/opportunity/latest"),
+    );
     await page.goto(`${base}/opportunity-analysis`);
+    const response = await latestResponse;
+    expect(response.status()).toBe(200);
+    const payload = (await response.json()) as {
+      artifact?: { output?: { fit_assessment?: unknown; draft_offer?: unknown } };
+    };
+    expect(payload.artifact?.output?.fit_assessment).toBeTruthy();
+    expect(payload.artifact?.output?.draft_offer).toBeTruthy();
     await expect(page.getByTestId("dossier-opportunity-analysis-section")).toBeVisible({
       timeout: 20_000,
     });
@@ -163,10 +157,22 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     test.setTimeout(120_000);
 
     await loginOwner(page, testInfo);
-    const base = await openFirstDossier(page);
+    const base = await openDossier(page, FIT_DOSSIER);
 
-    await mockOpportunityLatest(page, FIT_DRAFT);
+    const latestResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes("/api/v1/ai/dossiers/") &&
+        response.url().endsWith("/opportunity/latest"),
+    );
     await page.goto(`${base}/opportunity-analysis`);
+    const response = await latestResponse;
+    expect(response.status()).toBe(200);
+    const payload = (await response.json()) as {
+      artifact?: { output?: { fit_assessment?: unknown; draft_offer?: unknown } };
+    };
+    expect(payload.artifact?.output?.fit_assessment).toBeTruthy();
+    expect(payload.artifact?.output?.draft_offer).toBeTruthy();
     await expect(page.getByTestId("dossier-opportunity-proposal")).toBeVisible({
       timeout: 20_000,
     });
@@ -240,10 +246,23 @@ test.describe("SV2-UI-E2E encaje + borrador (visual Playwright)", () => {
     test.setTimeout(120_000);
 
     await loginOwner(page, testInfo);
-    const base = await openFirstDossier(page);
+    const base = await openDossier(page, EMPTY_DOSSIER);
 
-    await mockOpportunityLatest(page, NO_FIT);
+    const latestResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes("/api/v1/ai/dossiers/") &&
+        response.url().endsWith("/opportunity/latest"),
+    );
     await page.goto(`${base}/opportunity-analysis`);
+    const response = await latestResponse;
+    expect(response.status()).toBe(200);
+    const payload = (await response.json()) as {
+      artifact?: { output?: { fit_assessment?: unknown; draft_offer?: unknown } };
+    };
+    expect(payload.artifact).toBeTruthy();
+    expect(payload.artifact?.output?.fit_assessment).toBeFalsy();
+    expect(payload.artifact?.output?.draft_offer).toBeFalsy();
     await expect(page.getByTestId("dossier-opportunity-proposal")).toBeVisible({
       timeout: 20_000,
     });
