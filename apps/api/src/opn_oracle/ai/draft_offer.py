@@ -2,8 +2,13 @@
 
 Motor **determinista** (coste 0) que, cuando existe ``fit_assessment.verdict``,
 produce un esqueleto de oferta estructurado por los **criterios de adjudicación**
-del PCAP (65/60, oferta económica / técnica) y hereda gaps del veredicto de
-encaje (F.2 volumen, F.3 certificados, plazo).
+del PCAP (ponderaciones y umbrales **derivados de la evidencia del pliego**,
+oferta económica / técnica) y hereda gaps del veredicto de encaje (F.2 volumen,
+F.3 certificados, plazo).
+
+G12-UMBRAL: no se inventan cifras fijas (p. ej. 65/60). Umbrales y ponderaciones
+salen de :mod:`opn_oracle.ai.pliego_criteria` con provenance; si faltan o hay
+conflicto, la sección lo declara.
 
 Frontera 095: el borrador es material **declarado/generado** — jamás se mezcla
 con ``facts[]`` oficiales. Cada sección etiqueta requisito [oficial] vs
@@ -27,6 +32,15 @@ from opn_oracle.ai.fit_scoring import (
     _tender_ref,
     declared_fields_from_evidence,
     official_evidence_from_context,
+)
+from opn_oracle.ai.pliego_criteria import (
+    RESOLUTION_CONFLICT,
+    RESOLUTION_MISSING,
+    RESOLUTION_VERIFIED,
+    format_award_weights_hint,
+    format_threshold_hint,
+    format_threshold_requirement_clause,
+    resolve_pliego_criteria,
 )
 
 DraftStatus = Literal["pending", "ready", "blocked"]
@@ -105,8 +119,12 @@ _CRITERIA_TECH = re.compile(
     r"criterios?\s+evaluables?\s+mediante\s+juicio",
     re.IGNORECASE,
 )
-_POINTS_65 = re.compile(r"65\s*puntos", re.IGNORECASE)
-_POINTS_60 = re.compile(r"60\s*puntos", re.IGNORECASE)
+# Generic points signal (G12: no fixed 65/60). Used only to locate snippets.
+_POINTS_ANY = re.compile(r"\d{1,3}\s*puntos(?:\s+porcentuales)?", re.IGNORECASE)
+_THRESHOLD_LANG = re.compile(
+    r"(?:superior\s+a|superior\s+en|puntuaci[oó]n\s+m[ií]nima|umbral)",
+    re.IGNORECASE,
+)
 _SOLVENCY_F2 = re.compile(
     r"F\.?\s*2|solvencia\s+econ[oó]mica|volumen\s+anual\s+de\s+negocio",
     re.IGNORECASE,
@@ -313,9 +331,10 @@ def _seed_response(
         )
     elif section_key == "award_thresholds":
         body = (
-            "Semilla sobre umbrales 65/60 del PCAP: la estrategia de puntuación "
-            "técnica vs económica debe validarse con el equipo de ofertas. No se "
-            "asume superación automática de umbrales."
+            "Semilla sobre umbrales del PCAP (solo los verificados en pliego_criteria): "
+            "la estrategia de puntuación técnica vs económica debe validarse con el "
+            "equipo de ofertas. No se asume superación automática de umbrales ni se "
+            "inventan cifras fijas."
         )
     elif section_key == "solvency_accreditation":
         body = (
@@ -356,11 +375,16 @@ def _extract_award_sections(
     """Build draft sections from PCAP award criteria (+ solvencia/lote de apoyo)."""
 
     sections: list[dict[str, Any]] = []
+    criteria_resolution = resolve_pliego_criteria(official_evidence)
+    weight_hint = format_award_weights_hint(criteria_resolution)
+    threshold_hint = format_threshold_hint(criteria_resolution)
+    threshold_clause = format_threshold_requirement_clause(criteria_resolution)
+
     criteria_ids = _official_ids_matching(
         official_evidence,
         re.compile(
-            r"CRITERIOS?\s+DE\s+ADJUDIC|65\s*puntos|60\s*puntos|"
-            r"juicio\s+de\s+valor|oferta\s+econ[oó]mica|f[oó]rmulas",
+            r"CRITERIOS?\s+DE\s+ADJUDIC|\d{1,3}\s*puntos|\d{1,3}\s*%|"
+            r"ponderaci[oó]n|juicio\s+de\s+valor|oferta\s+econ[oó]mica|f[oó]rmulas",
             re.IGNORECASE,
         ),
     )
@@ -386,29 +410,43 @@ def _extract_award_sections(
         _CRITERIA_BLOCK.search(corpus)
         or _CRITERIA_ECON.search(corpus)
         or _CRITERIA_TECH.search(corpus)
-        or _POINTS_65.search(corpus)
+        or criteria_resolution.has_criteria_block
+        or criteria_resolution.award_weights_status == RESOLUTION_VERIFIED
+        or criteria_resolution.min_thresholds_status == RESOLUTION_VERIFIED
+        or _POINTS_ANY.search(corpus)
     )
 
     # --- 1. Oferta económica (fórmulas) ---
-    econ_snip = _snippet(corpus, _CRITERIA_ECON) or _snippet(corpus, _POINTS_65)
+    econ_snip = _snippet(corpus, _CRITERIA_ECON) or _snippet(corpus, _POINTS_ANY)
     if has_criteria or econ_snip:
         req = f"{_OFFICIAL_TAG} Criterios evaluables mediante fórmulas (oferta económica). " + (
             f"Extracto: «{econ_snip}»." if econ_snip else "Ver PCAP de adjudicación."
         )
-        if _POINTS_65.search(corpus) or _POINTS_60.search(corpus):
+        # Only attach threshold language when verified from pliego (never invent 65/60).
+        if criteria_resolution.min_thresholds_status in {
+            RESOLUTION_VERIFIED,
+            RESOLUTION_CONFLICT,
+        }:
+            req += threshold_clause
+        elif criteria_resolution.min_thresholds_status == RESOLUTION_MISSING and has_criteria:
             req += (
-                " El PCAP fija umbrales de 65 puntos (único licitador) / 60 puntos "
-                "porcentuales sobre la media (varios licitadores) respecto al otro criterio."
+                " Umbral mínimo de puntuación: desconocido/no verificable en el extracto "
+                "(no se asume cifra fija)."
             )
         gap_msgs = unique_gap_strings(
             [g["description"] for g in gaps if g.get("code") in {"f2_volume", "deadline_capacity"}],
             limit=6,
         )
+        econ_hint_bits = ["criterio económico"]
+        if criteria_resolution.award_weights_status == RESOLUTION_VERIFIED:
+            econ_hint_bits.append(weight_hint)
+        if criteria_resolution.min_thresholds_status == RESOLUTION_VERIFIED:
+            econ_hint_bits.append(threshold_hint)
         sections.append(
             {
                 "key": "award_economic",
                 "title": "Oferta económica (fórmulas)",
-                "points_hint": "65/60 umbral PCAP · criterio económico",
+                "points_hint": " · ".join(econ_hint_bits),
                 "requirement": req[:2000],
                 "requirement_origin": "official",
                 "official_evidence_ids": criteria_ids[:8],
@@ -431,6 +469,10 @@ def _extract_award_sections(
             f"{_OFFICIAL_TAG} Criterios evaluables mediante juicio de valor (oferta técnica). "
             + (f"Extracto: «{tech_snip}»." if tech_snip else "Ver PCAP de adjudicación.")
         )
+        if criteria_resolution.award_weights_status == RESOLUTION_VERIFIED:
+            req += f" Ponderación verificada en pliego: {weight_hint}."
+        elif criteria_resolution.award_weights_status == RESOLUTION_CONFLICT:
+            req += " Ponderación en conflicto entre documentos; no se elige un reparto."
         gap_msgs = unique_gap_strings(
             [
                 g["description"]
@@ -439,11 +481,14 @@ def _extract_award_sections(
             ],
             limit=6,
         )
+        tech_hint = "criterio técnico · juicio de valor"
+        if criteria_resolution.award_weights_status == RESOLUTION_VERIFIED:
+            tech_hint = f"{tech_hint} · {weight_hint}"
         sections.append(
             {
                 "key": "award_technical",
                 "title": "Oferta técnica (juicio de valor)",
-                "points_hint": "criterio técnico · juicio de valor",
+                "points_hint": tech_hint,
                 "requirement": req[:2000],
                 "requirement_origin": "official",
                 "official_evidence_ids": criteria_ids[:8],
@@ -459,24 +504,49 @@ def _extract_award_sections(
             }
         )
 
-    # --- 3. Umbrales 65/60 ---
-    if _POINTS_65.search(corpus) or _POINTS_60.search(corpus) or has_criteria:
-        snip_65 = _snippet(corpus, _POINTS_65, window=280) or _snippet(
-            corpus, _POINTS_60, window=280
+    # --- 3. Umbrales mínimos (separados de ponderación; G12) ---
+    has_threshold_signal = bool(
+        criteria_resolution.min_thresholds_status
+        in {RESOLUTION_VERIFIED, RESOLUTION_CONFLICT, RESOLUTION_MISSING}
+        and (
+            criteria_resolution.min_thresholds_status != RESOLUTION_MISSING
+            or _THRESHOLD_LANG.search(corpus)
+            or has_criteria
         )
-        req = f"{_OFFICIAL_TAG} Umbrales de puntuación del PCAP (65 / 60 puntos). " + (
-            f"Extracto: «{snip_65}»."
-            if snip_65
-            else (
-                "Si un único licitador: el otro criterio > 65 puntos; si varios: "
-                "superior en 60 puntos porcentuales a la media del criterio no económico."
+    )
+    if has_threshold_signal:
+        thr_snip = _snippet(corpus, _THRESHOLD_LANG, window=280) or _snippet(
+            corpus, _POINTS_ANY, window=280
+        )
+        if criteria_resolution.min_thresholds_status == RESOLUTION_VERIFIED:
+            title = "Umbrales mínimos de puntuación (pliego)"
+            req = (
+                f"{_OFFICIAL_TAG} Umbrales mínimos del PCAP (distintos de la ponderación). "
+                + threshold_clause.lstrip()
+                + (f" Extracto: «{thr_snip}»." if thr_snip else "")
             )
-        )
+            thr_hint = threshold_hint
+        elif criteria_resolution.min_thresholds_status == RESOLUTION_CONFLICT:
+            title = "Umbrales mínimos de puntuación (conflicto)"
+            req = (
+                f"{_OFFICIAL_TAG} Umbrales del PCAP en conflicto entre evidencias; "
+                "no se afirma un valor único."
+                + (f" Extracto: «{thr_snip}»." if thr_snip else "")
+            )
+            thr_hint = threshold_hint
+        else:
+            title = "Umbrales mínimos de puntuación (no verificable)"
+            req = (
+                f"{_OFFICIAL_TAG} Umbral mínimo de puntuación: desconocido/no verificable "
+                "en el extracto del pliego. No se inventa ninguna cifra fija de demo."
+                + (f" Contexto: «{thr_snip}»." if thr_snip else "")
+            )
+            thr_hint = "umbral mínimo no verificable en el pliego"
         sections.append(
             {
                 "key": "award_thresholds",
-                "title": "Umbrales de puntuación 65/60",
-                "points_hint": "65 puntos (1 licitador) · 60 p.p. (varios)",
+                "title": title,
+                "points_hint": thr_hint,
                 "requirement": req[:2000],
                 "requirement_origin": "official",
                 "official_evidence_ids": criteria_ids[:8],
@@ -491,7 +561,7 @@ def _extract_award_sections(
                 "gaps": [
                     (
                         "Validar con el equipo si la estrategia de puntos "
-                        "tecnicos supera umbrales del PCAP."
+                        "tecnicos supera umbrales del PCAP (solo los verificados)."
                     )
                 ],
             }
@@ -590,7 +660,7 @@ def _extract_award_sections(
             (
                 "award_thresholds",
                 "Umbrales y ponderación del PCAP",
-                "65/60 u otros umbrales",
+                "umbrales/ponderación no verificables en el extracto",
             ),
         ):
             if any(s["key"] == key for s in sections):
@@ -602,7 +672,8 @@ def _extract_award_sections(
                     "points_hint": hint,
                     "requirement": (
                         f"{_OFFICIAL_TAG} Completar con el apartado de criterios "
-                        "de adjudicación del PCAP (no localizado con detalle en el extracto)."
+                        "de adjudicación del PCAP (no localizado con detalle en el extracto; "
+                        "no inventar ponderaciones ni umbrales)."
                     ),
                     "requirement_origin": "official",
                     "official_evidence_ids": generic_ids[:8],
