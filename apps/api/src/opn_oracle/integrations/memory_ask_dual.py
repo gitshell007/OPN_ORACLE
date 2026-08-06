@@ -20,6 +20,7 @@ from opn_oracle.integrations.memory_contract_v1 import (
     materialize_signal_item_to_evidence,
     should_inject_into_llm,
 )
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 
 MemoryMode = Literal["disabled", "shadow", "augment"]
 PROMPT_RUNTIME_ID = "RT-07"

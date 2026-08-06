@@ -21,6 +21,7 @@ from opn_oracle.oracle.intent import (
     DossierOffering,
     IntelligenceRequirement,
 )
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 from opn_oracle.oracle.links import EvidenceDossier, MeetingActor
 from opn_oracle.oracle.models import (
     Actor,

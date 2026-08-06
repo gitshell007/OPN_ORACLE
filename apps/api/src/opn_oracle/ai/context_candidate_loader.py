@@ -53,6 +53,7 @@ from opn_oracle.ai.context_mix import (
     ContextFamily,
     map_context_family,
 )
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 
 # Re-export the closed family set so callers share one taxonomy.
 LOADER_VERSION = "context_family_candidate_loader.v1"
@@ -73,7 +74,7 @@ DEFAULT_FAMILY_POOL_CAPS: dict[ContextFamily, int] = {
 SAFETY_TOTAL_POOL_CAP = 500
 
 # Source kinds allowed in the generic Preguntar bag.
-_ALLOWED_SOURCE_KINDS = ("signal", "document", "procurement", "entity_intel", "memory_signal")
+_ALLOWED_SOURCE_KINDS = DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 
 # Single taxonomy with map_context_family (imported above).
 _COMPETITOR_ROLE_TOKENS = COMPETITOR_ROLE_TOKENS
