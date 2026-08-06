@@ -487,3 +487,210 @@ def test_apply_identifiers_patch_conflict_when_occupied() -> None:
         apply_actor_identifiers_patch(session, other, {"tax_id": "B08377715"})
     assert exc.value.canonical_actor_id == holder.id
     assert other.tax_id is None
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_partial_merge_preserves_omitted_keys() -> None:
+    """PATCH only website keeps lei/duns/tax_id_source (fiscal actor)."""
+
+    tenant_id = uuid.uuid4()
+    tax_source = {"source": "placsp", "folder_id": "XP-MERGE"}
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Merge Fiscal SL",
+        canonical_key="tax:es:B08377715",
+        tax_id="B08377715",
+        tax_id_scheme="ES_CIF",
+        tax_id_country="ES",
+        aliases=[],
+        identifiers={
+            "tax_id": "B08377715",
+            "tax_id_scheme": "ES_CIF",
+            "tax_id_declared": "B08377715",
+            "tax_id_source": tax_source,
+            "lei": "ALPHA2",
+            "duns": "123456789",
+        },
+        actor_metadata={},
+        provenance={"tax_id_assignment": tax_source},
+        version=3,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+
+    apply_actor_identifiers_patch(session, actor, {"website": "https://example.es"})
+
+    assert actor.tax_id == "B08377715"
+    assert actor.version == 3  # helper does not bump; route owns version
+    ids = actor.identifiers
+    assert ids["tax_id"] == "B08377715"
+    assert ids["tax_id_scheme"] == "ES_CIF"
+    assert ids["tax_id_declared"] == "B08377715"
+    assert ids["tax_id_source"] == tax_source
+    assert ids["lei"] == "ALPHA2"
+    assert ids["duns"] == "123456789"
+    assert ids["website"] == "https://example.es"
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_partial_merge_without_tax_id_column() -> None:
+    """Actor sin tax_id durable: PATCH website conserva lei/duns omitidos."""
+
+    tenant_id = uuid.uuid4()
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="No Tax Partner SL",
+        canonical_key="no-tax-partner-sl",
+        aliases=[],
+        identifiers={"lei": "LEI-KEEP", "duns": "999"},
+        actor_metadata={},
+        provenance={},
+        version=1,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+
+    apply_actor_identifiers_patch(session, actor, {"website": "https://partner.example"})
+
+    assert actor.tax_id is None
+    assert actor.identifiers["lei"] == "LEI-KEEP"
+    assert actor.identifiers["duns"] == "999"
+    assert actor.identifiers["website"] == "https://partner.example"
+    assert "tax_id" not in actor.identifiers
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_null_deletes_non_fiscal_keeps_fiscal() -> None:
+    """null no fiscal elimina esa clave; fiscal columna permanece intacto."""
+
+    tenant_id = uuid.uuid4()
+    tax_source = {"source": "actor_patch", "via": "identifiers.tax_id"}
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Null Semantics SL",
+        canonical_key="tax:es:B08377715",
+        tax_id="B08377715",
+        tax_id_scheme="ES_CIF",
+        tax_id_country="ES",
+        aliases=[],
+        identifiers={
+            "tax_id": "B08377715",
+            "tax_id_scheme": "ES_CIF",
+            "tax_id_declared": "B08377715",
+            "tax_id_source": tax_source,
+            "lei": "OLD-LEI",
+            "duns": "TO-DELETE",
+            "website": "https://old.example",
+        },
+        actor_metadata={},
+        provenance={},
+        version=2,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+
+    apply_actor_identifiers_patch(
+        session,
+        actor,
+        {"lei": "NEW-LEI", "duns": None, "website": "https://new.example"},
+    )
+
+    assert actor.tax_id == "B08377715"
+    ids = actor.identifiers
+    assert ids["tax_id"] == "B08377715"
+    assert ids["tax_id_scheme"] == "ES_CIF"
+    assert ids["tax_id_source"] == tax_source
+    assert ids["lei"] == "NEW-LEI"
+    assert ids["website"] == "https://new.example"
+    assert "duns" not in ids
+
+    # Explicit null on fiscal key must not clear durable block (and raises if tax_id null).
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(session, actor, {"tax_id": None, "lei": "Z"})
+    assert actor.identifiers["lei"] == "NEW-LEI"
+    assert actor.identifiers["tax_id"] == "B08377715"
+    assert actor.tax_id == "B08377715"
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_first_assign_preserves_prior_non_fiscal() -> None:
+    """Primer assign de tax_id + nueva clave conserva identifiers anteriores."""
+
+    tenant_id = uuid.uuid4()
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="First Assign Keep SL",
+        canonical_key="first-assign-keep-sl",
+        aliases=[],
+        identifiers={"lei": "PRIOR-LEI", "duns": "PRIOR-DUNS"},
+        actor_metadata={},
+        provenance={},
+        version=1,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+    session.scalar.return_value = None
+    session.begin_nested.return_value.__enter__ = MagicMock(return_value=None)
+    session.begin_nested.return_value.__exit__ = MagicMock(return_value=False)
+    session.no_autoflush.__enter__ = MagicMock(return_value=None)
+    session.no_autoflush.__exit__ = MagicMock(return_value=False)
+
+    apply_actor_identifiers_patch(
+        session,
+        actor,
+        {"tax_id": "b-08.377.715", "website": "https://first.example"},
+    )
+
+    assert actor.tax_id == "B08377715"
+    assert actor.canonical_key == "tax:es:B08377715"
+    ids = actor.identifiers
+    assert ids["tax_id"] == "B08377715"
+    assert ids["lei"] == "PRIOR-LEI"
+    assert ids["duns"] == "PRIOR-DUNS"
+    assert ids["website"] == "https://first.example"
+
+
+@pytest.mark.unit
+def test_apply_identifiers_patch_invalid_does_not_mutate_prior_keys() -> None:
+    """PATCH conflictivo/inválido no muta ninguna clave previa."""
+
+    tenant_id = uuid.uuid4()
+    prior = {
+        "tax_id": "B08377715",
+        "tax_id_scheme": "ES_CIF",
+        "tax_id_declared": "B08377715",
+        "tax_id_source": {"source": "placsp"},
+        "lei": "SAFE",
+        "duns": "SAFE-DUNS",
+    }
+    actor = Actor(
+        tenant_id=tenant_id,
+        actor_type="organization",
+        canonical_name="Immutable On Error SL",
+        canonical_key="tax:es:B08377715",
+        tax_id="B08377715",
+        tax_id_scheme="ES_CIF",
+        tax_id_country="ES",
+        aliases=[],
+        identifiers=dict(prior),
+        actor_metadata={},
+        provenance={"tax_id_assignment": {"source": "placsp"}},
+        version=5,
+    )
+    actor.id = uuid.uuid4()
+    session = MagicMock()
+
+    with pytest.raises(TaxIdValidationError):
+        apply_actor_identifiers_patch(
+            session,
+            actor,
+            {"tax_id": "A28855260", "lei": "SHOULD-NOT-APPLY", "website": "https://nope"},
+        )
+
+    assert actor.version == 5
+    assert actor.tax_id == "B08377715"
+    assert actor.identifiers == prior

@@ -535,7 +535,7 @@ def test_g16_http_patch_identifiers_assign_sync_conflict_and_guards(
         assert still["version"] == a_ver
         assert still["identifiers"]["tax_id"] == "B08377715"
 
-    # Other identifiers keys do not wipe tax_id / provenance.
+    # Other identifiers keys do not wipe tax_id / provenance / prior non-fiscal.
     with (
         app.app_context(),
         _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
@@ -549,6 +549,7 @@ def test_g16_http_patch_identifiers_assign_sync_conflict_and_guards(
     o = other.get_json()
     assert o["tax_id"] == "B08377715"
     assert o["identifiers"]["tax_id"] == "B08377715"
+    assert o["identifiers"]["lei"] == "ALPHA2", "omitted non-fiscal keys must survive partial merge"
     assert o["identifiers"]["website"] == "https://capgemini.es"
     assert o["provenance"].get("tax_id_assignment") is not None
     a_ver = o["version"]
@@ -585,6 +586,170 @@ def test_g16_http_patch_identifiers_assign_sync_conflict_and_guards(
     assert promote.get_json()["actor_type"] == "institution"
     assert promote.get_json()["tax_id"] == "B08377715"
     assert promote.get_json()["canonical_key"] == "tax:es:B08377715"
+
+
+def test_g16_http_identifiers_partial_merge_matrix(
+    g16_routes_pg: tuple[Any, dict[str, Any]],
+) -> None:
+    """HTTP+PG: merge parcial de identifiers (omitted keep, null delete, fiscal safe)."""
+
+    app, ctx = g16_routes_pg
+    client = ctx["client"]
+    tenant_id = ctx["tenant_id"]
+    user_id = ctx["user_id"]
+    migration_url = ctx["migration_url"]
+    monkeypatch = ctx["monkeypatch"]
+
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        fiscal = client.post(
+            "/api/v1/actors",
+            json={
+                "canonical_name": "Merge Fiscal Actor SL",
+                "actor_type": "organization",
+                "identifiers": {
+                    "tax_id": "B08377715",
+                    "lei": "LEI-FISCAL",
+                    "duns": "DUNS-FISCAL",
+                },
+            },
+        )
+        nameless = client.post(
+            "/api/v1/actors",
+            json={
+                "canonical_name": "Merge Name Only SL",
+                "actor_type": "organization",
+                "identifiers": {"lei": "LEI-ONLY", "duns": "DUNS-ONLY"},
+            },
+        )
+    assert fiscal.status_code == 201, fiscal.get_data(as_text=True)[:400]
+    assert nameless.status_code == 201, nameless.get_data(as_text=True)[:400]
+    f_id, f_ver = fiscal.get_json()["id"], fiscal.get_json()["version"]
+    n_id, n_ver = nameless.get_json()["id"], nameless.get_json()["version"]
+
+    # R1 · fiscal + lei/duns/tax_id_source; PATCH solo website → conserva las tres + website.
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        r1 = client.patch(
+            f"/api/v1/actors/{f_id}",
+            json={"identifiers": {"website": "https://fiscal.example"}},
+            headers={"If-Match": f'W/"{f_ver}"'},
+        )
+    assert r1.status_code == 200, r1.get_data(as_text=True)[:400]
+    r1b = r1.get_json()
+    assert r1b["tax_id"] == "B08377715"
+    assert r1b["identifiers"]["lei"] == "LEI-FISCAL"
+    assert r1b["identifiers"]["duns"] == "DUNS-FISCAL"
+    assert r1b["identifiers"]["tax_id"] == "B08377715"
+    assert r1b["identifiers"]["website"] == "https://fiscal.example"
+    # tax_id_source may be set by assign path on POST or remain absent; never wiped if present.
+    if "tax_id_source" in (fiscal.get_json().get("identifiers") or {}):
+        assert "tax_id_source" in r1b["identifiers"]
+    f_ver = r1b["version"]
+    f_row = _load_actor(migration_url, uuid.UUID(f_id))
+    assert f_row["identifiers"]["lei"] == "LEI-FISCAL"
+    assert f_row["identifiers"]["duns"] == "DUNS-FISCAL"
+    assert f_row["identifiers"]["website"] == "https://fiscal.example"
+
+    # R2 · sin tax_id con lei/duns; PATCH website → conserva anteriores.
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        r2 = client.patch(
+            f"/api/v1/actors/{n_id}",
+            json={"identifiers": {"website": "https://nameonly.example"}},
+            headers={"If-Match": f'W/"{n_ver}"'},
+        )
+    assert r2.status_code == 200, r2.get_data(as_text=True)[:400]
+    r2b = r2.get_json()
+    assert r2b.get("tax_id") in (None, "")
+    assert r2b["identifiers"]["lei"] == "LEI-ONLY"
+    assert r2b["identifiers"]["duns"] == "DUNS-ONLY"
+    assert r2b["identifiers"]["website"] == "https://nameonly.example"
+    n_ver = r2b["version"]
+
+    # R3 · update + null delete; fiscal intacto.
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        r3 = client.patch(
+            f"/api/v1/actors/{f_id}",
+            json={
+                "identifiers": {
+                    "lei": "LEI-UPDATED",
+                    "duns": None,
+                    "website": "https://fiscal-updated.example",
+                }
+            },
+            headers={"If-Match": f'W/"{f_ver}"'},
+        )
+    assert r3.status_code == 200, r3.get_data(as_text=True)[:400]
+    r3b = r3.get_json()
+    assert r3b["tax_id"] == "B08377715"
+    assert r3b["identifiers"]["tax_id"] == "B08377715"
+    assert r3b["identifiers"]["lei"] == "LEI-UPDATED"
+    assert "duns" not in r3b["identifiers"]
+    assert r3b["identifiers"]["website"] == "https://fiscal-updated.example"
+    f_ver = r3b["version"]
+
+    # R4 · primer assign de tax_id + nueva clave conserva identifiers previos.
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        r4 = client.patch(
+            f"/api/v1/actors/{n_id}",
+            json={
+                "identifiers": {
+                    "tax_id": "A28855260",
+                    "website": "https://assigned.example",
+                }
+            },
+            headers={"If-Match": f'W/"{n_ver}"'},
+        )
+    assert r4.status_code == 200, r4.get_data(as_text=True)[:400]
+    r4b = r4.get_json()
+    assert r4b["tax_id"] == "A28855260"
+    assert r4b["identifiers"]["tax_id"] == "A28855260"
+    assert r4b["identifiers"]["lei"] == "LEI-ONLY"
+    assert r4b["identifiers"]["duns"] == "DUNS-ONLY"
+    assert r4b["identifiers"]["website"] == "https://assigned.example"
+    n_row = _load_actor(migration_url, uuid.UUID(n_id))
+    assert n_row["tax_id"] == "A28855260"
+    assert n_row["identifiers"]["lei"] == "LEI-ONLY"
+    assert n_row["identifiers"]["duns"] == "DUNS-ONLY"
+
+    # Invalid combined with non-fiscal updates must not mutate prior keys/version.
+    n_ver = r4b["version"]
+    audits_before = _count_audit(migration_url, tenant_id, "actors.updated")
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        bad = client.patch(
+            f"/api/v1/actors/{n_id}",
+            json={
+                "identifiers": {
+                    "tax_id": "***9999**",
+                    "lei": "SHOULD-NOT",
+                    "website": "https://nope.example",
+                }
+            },
+            headers={"If-Match": f'W/"{n_ver}"'},
+        )
+    assert bad.status_code == 422
+    frozen = _load_actor(migration_url, uuid.UUID(n_id))
+    assert frozen["tax_id"] == "A28855260"
+    assert frozen["version"] == n_ver
+    assert frozen["identifiers"]["lei"] == "LEI-ONLY"
+    assert frozen["identifiers"]["website"] == "https://assigned.example"
+    assert _count_audit(migration_url, tenant_id, "actors.updated") == audits_before
 
 
 def test_g16_http_concurrent_assign_one_holder_one_conflict(

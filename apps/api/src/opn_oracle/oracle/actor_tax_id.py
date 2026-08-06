@@ -377,6 +377,42 @@ def assign_actor_tax_id(
 _FISCAL_IDENTIFIER_KEYS = frozenset({"tax_id", "tax_id_scheme", "tax_id_declared", "tax_id_source"})
 
 
+def _merge_non_fiscal_identifiers(
+    base: dict[str, Any],
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Partial merge of non-fiscal identifier keys.
+
+    - Omitted keys are preserved from ``base``.
+    - Present non-null values update/create the key.
+    - Explicit JSON ``null`` removes that non-fiscal key.
+    - Fiscal keys in ``patch`` are ignored (column-authoritative elsewhere).
+    """
+
+    out = {key: value for key, value in base.items() if key not in _FISCAL_IDENTIFIER_KEYS}
+    for key, value in patch.items():
+        if key in _FISCAL_IDENTIFIER_KEYS:
+            continue
+        if value is None:
+            out.pop(key, None)
+        else:
+            out[key] = value
+    return out
+
+
+def _preserve_orphan_fiscal_keys(
+    merged: dict[str, Any],
+    previous: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep prior fiscal JSON keys when there is no durable column yet."""
+
+    out = dict(merged)
+    for key in _FISCAL_IDENTIFIER_KEYS:
+        if key in previous and key not in out:
+            out[key] = previous[key]
+    return out
+
+
 def apply_actor_identifiers_patch(
     session: Session,
     actor: Actor,
@@ -384,15 +420,16 @@ def apply_actor_identifiers_patch(
     *,
     bump_version: bool = False,
 ) -> None:
-    """Apply PATCH identifiers without desyncing durable tax_id column/JSONB.
+    """Apply PATCH identifiers as a partial merge without desyncing tax_id.
 
-    Rules (G-16 routes rework):
+    Contract (G-16 identifiers merge rework):
+    - Omitted keys are preserved (with or without durable tax_id).
+    - Present non-fiscal keys are updated; explicit ``null`` deletes that key.
+    - Fiscal block is column-authoritative and cannot be cleared/changed via JSON.
     - ``tax_id`` present + actor without column → ``assign_actor_tax_id`` (first CIF).
     - same CIF → idempotent sync via assign.
     - different CIF / clear / empty / invalid / masked / person / multi → 422
-      (or 409 when occupied by another actor).
-    - other identifier keys merge in; fiscal block is always resynced from column.
-    - never replaces the whole JSON such that column and JSON diverge.
+      (or 409 when occupied by another actor); no prior keys/version mutated.
     """
 
     if not isinstance(incoming, dict):
@@ -411,13 +448,12 @@ def apply_actor_identifiers_patch(
                     "(null/vacío). Requiere workflow de corrección fiscal."
                 )
             # No durable column and client sent empty tax_id: drop fiscal keys,
-            # keep other identifier keys.
-            non_fiscal = {
-                key: value for key, value in payload.items() if key not in _FISCAL_IDENTIFIER_KEYS
-            }
-            actor.identifiers = non_fiscal
+            # partial-merge non-fiscal over previous (null deletes).
+            actor.identifiers = _merge_non_fiscal_identifiers(previous, payload)
             return
 
+        # Validate / assign fiscal first so invalid/conflict paths never touch
+        # non-fiscal keys or version (assign owns its own mutations).
         normalized = require_usable_company_tax_id(raw_tax, actor_type=actor.actor_type)
 
         if current is None:
@@ -445,47 +481,53 @@ def apply_actor_identifiers_patch(
                 "La corrección fiscal requiere un workflow explícito (no bypass JSONB)."
             )
     else:
-        # tax_id key absent: never drop durable fiscal block when column is set.
+        # tax_id key absent: partial merge; never drop durable fiscal block.
+        merged = _merge_non_fiscal_identifiers(previous, payload)
         if current:
-            base = dict(payload)
+            source = (
+                previous.get("tax_id_source")
+                if isinstance(previous.get("tax_id_source"), dict)
+                else None
+            )
             actor.identifiers = _sync_identifier_block(
-                base,
+                merged,
                 tax_id=current,
                 declared=previous.get("tax_id_declared") or previous.get("tax_id") or current,
-                source=previous.get("tax_id_source")
-                if isinstance(previous.get("tax_id_source"), dict)
-                else None,
+                source=source,
             )
-            if previous.get("tax_id_declared") and "tax_id_declared" not in base:
-                ids = dict(actor.identifiers or {})
+            # Re-apply declared/source if _sync used setdefault-only paths.
+            ids = dict(actor.identifiers or {})
+            if previous.get("tax_id_declared") and "tax_id_declared" not in ids:
                 ids["tax_id_declared"] = previous["tax_id_declared"]
-                actor.identifiers = ids
-            if previous.get("tax_id_source") and "tax_id_source" not in base:
-                ids = dict(actor.identifiers or {})
+            if previous.get("tax_id_source") is not None and "tax_id_source" not in ids:
                 ids["tax_id_source"] = previous["tax_id_source"]
-                actor.identifiers = ids
-        else:
-            actor.identifiers = payload
+            actor.identifiers = ids
             return
 
-    # Merge non-fiscal keys from payload over the fiscal-synced block.
+        actor.identifiers = _preserve_orphan_fiscal_keys(merged, previous)
+        return
+
+    # After successful tax_id assign: merge non-fiscal over preserved previous.
     durable = usable_company_tax_id(getattr(actor, "tax_id", None))
     if durable:
-        merged = dict(actor.identifiers or {})
-        for key, value in payload.items():
-            if key not in _FISCAL_IDENTIFIER_KEYS:
-                merged[key] = value
-        actor.identifiers = _sync_identifier_block(
-            merged,
-            tax_id=durable,
-            declared=merged.get("tax_id_declared") or previous.get("tax_id_declared") or durable,
-            source=merged.get("tax_id_source")
-            if isinstance(merged.get("tax_id_source"), dict)
+        # assign_actor_tax_id already kept previous non-fiscal keys; apply patch
+        # deltas (including null deletes) on top of that post-assign state.
+        post = dict(actor.identifiers or {}) if isinstance(actor.identifiers, dict) else {}
+        merged = _merge_non_fiscal_identifiers(post, payload)
+        source = (
+            post.get("tax_id_source")
+            if isinstance(post.get("tax_id_source"), dict)
             else (
                 previous.get("tax_id_source")
                 if isinstance(previous.get("tax_id_source"), dict)
                 else None
-            ),
+            )
+        )
+        actor.identifiers = _sync_identifier_block(
+            merged,
+            tax_id=durable,
+            declared=post.get("tax_id_declared") or previous.get("tax_id_declared") or durable,
+            source=source,
         )
 
 
