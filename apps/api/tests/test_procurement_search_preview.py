@@ -399,3 +399,78 @@ def test_execute_search_plan_counts_distinct_probes_not_duplicate_provider_rows(
 
     assert [item["folder_id"] for item in result["results"]["items"]] == ["B", "A"]
     assert result["results"]["total"] == 2
+
+
+@pytest.mark.unit
+def test_clothing_intent_excludes_clear_sports_changing_room_construction() -> None:
+    def loader(**_query: Any) -> dict[str, Any]:
+        return {
+            "total": 2,
+            "items": [
+                {
+                    "folder_id": "facility-noise",
+                    "title": "Mejora de los vestuarios del polideportivo de La Encarnación",
+                    "cpv": ["45212200"],
+                },
+                {
+                    "folder_id": "clothing-match",
+                    "title": "Suministro de vestuario laboral y uniformes",
+                    "cpv": ["18110000"],
+                },
+            ],
+        }
+
+    result = execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            intent_summary="Compra de vestuario y ropa laboral",
+            include_terms=["vestuario"],
+            synonyms=["ropa laboral"],
+            candidate_cpv=[{"code": "18110000", "label": "Ropa de trabajo"}],
+            min_amount=None,
+        ),
+        tender_loader=loader,
+    )
+
+    assert [item["folder_id"] for item in result["results"]["items"]] == ["clothing-match"]
+    precision = result["results"]["semantics"]["precision_filter"]
+    assert precision == {
+        "version": "procurement-intent-precision-v1",
+        "excluded": 1,
+        "reason_counts": {"intent_mismatch_clothing_vs_facility": 1},
+    }
+
+
+@pytest.mark.unit
+def test_sports_changing_room_intent_keeps_facility_result() -> None:
+    def loader(**_query: Any) -> dict[str, Any]:
+        return {
+            "total": 1,
+            "items": [
+                {
+                    "folder_id": "facility-match",
+                    "title": "Reforma de vestuarios del polideportivo municipal",
+                    "cpv": ["45212200"],
+                }
+            ],
+        }
+
+    result = execute_search_plan(
+        tenant_id="tenant-a",
+        plan=_plan(
+            intent_summary="Reforma de vestuarios de un polideportivo",
+            include_terms=["vestuarios", "polideportivo"],
+            synonyms=[],
+            candidate_cpv=[
+                {
+                    "code": "45212200",
+                    "label": "Trabajos de construcción de instalaciones deportivas",
+                }
+            ],
+            min_amount=None,
+        ),
+        tender_loader=loader,
+    )
+
+    assert [item["folder_id"] for item in result["results"]["items"]] == ["facility-match"]
+    assert result["results"]["semantics"]["precision_filter"]["excluded"] == 0
