@@ -450,6 +450,25 @@ describe("DossierSettingsSection", () => {
     publisher_reliable: true,
     publisher_status: "ok",
     message: "Memory retrieve path operational (dossier-scoped only).",
+    resolution_source: "default_profile",
+    profiles_diverge: false,
+    deferred_connection_profile_count: 0,
+    deferred_connection_profiles: [],
+    effective_profile: {
+      id: "dmp-1",
+      mode: "augment" as const,
+      version: 2,
+      scope_type: "dossier" as const,
+      resolution_source: "default_profile",
+      persisted: true,
+      state: "active",
+      connection_id: null,
+    },
+    configured_profile: {
+      id: "dmp-1",
+      mode: "augment" as const,
+      version: 2,
+    },
     capability: {
       host_mode: "http",
       effective_mode: "disabled",
@@ -493,6 +512,20 @@ describe("DossierSettingsSection", () => {
     publisher_reliable: false,
     publisher_status: "unavailable",
     message: "Memory publisher unavailable (host disabled or connection unhealthy).",
+    resolution_source: "legacy_missing",
+    profiles_diverge: false,
+    deferred_connection_profile_count: 0,
+    deferred_connection_profiles: [],
+    effective_profile: {
+      id: null,
+      mode: "disabled" as const,
+      version: null,
+      scope_type: "dossier" as const,
+      resolution_source: "legacy_missing",
+      persisted: false,
+      state: "legacy_missing",
+      connection_id: null,
+    },
     capability: {
       host_mode: "disabled",
       effective_mode: "disabled",
@@ -520,6 +553,12 @@ describe("DossierSettingsSection", () => {
     expect(within(section).getByRole("heading", { name: "Memoria de este expediente" })).toBeVisible();
     expect(within(section).getByTestId("dossier-memory-scope")).toHaveTextContent(
       /solo de este expediente/i,
+    );
+    expect(within(section).getByTestId("dossier-memory-effective-mode")).toHaveTextContent(
+      "augment",
+    );
+    expect(within(section).getByTestId("dossier-memory-resolution-source")).toHaveTextContent(
+      "default_profile",
     );
     expect(within(section).queryByText(/servicio no disponible\/degradado/i)).not.toBeInTheDocument();
     expect(effectiveHttpPersisted).not.toHaveProperty("actions_reliable");
@@ -569,6 +608,47 @@ describe("DossierSettingsSection", () => {
         }),
         'W/"dmp-v2-test"',
       ),
+    );
+  });
+
+  it("muestra overrides de conexión diferidos sin cambiar el modo efectivo", async () => {
+    mocks.memoryGet.mockResolvedValue({
+      ...effectiveHttpPersisted,
+      mode: "disabled",
+      effective_profile: {
+        id: "dmp-1",
+        mode: "disabled",
+        version: 2,
+        scope_type: "dossier",
+        resolution_source: "default_profile",
+        persisted: true,
+        state: "active",
+        connection_id: null,
+      },
+      deferred_connection_profile_count: 1,
+      deferred_connection_profiles: [
+        {
+          id: "dmp-conn",
+          connection_id: "conn-1",
+          mode: "augment",
+          version: 1,
+          status: "deferred_connection_override",
+          product_supported: false,
+        },
+      ],
+    });
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    await waitFor(() =>
+      expect(within(section).getByTestId("dossier-memory-effective-mode")).toHaveTextContent(
+        "disabled",
+      ),
+    );
+    expect(within(section).getByTestId("dossier-memory-deferred-overrides")).toHaveTextContent(
+      /diferidos/i,
+    );
+    expect(within(section).getByTestId("dossier-memory-resolution-source")).toHaveTextContent(
+      "default_profile",
     );
   });
 });

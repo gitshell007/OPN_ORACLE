@@ -493,3 +493,161 @@ def test_pg_legacy_materialize_cas_stale_and_tenant_404(
         engine.dispose()
         assert "dossier.memory_profile.materialize" in actions
         assert "dossier.memory_profile.update" in actions
+
+
+@pytest.mark.integration
+def test_pg_put_connection_id_no_parallel_and_effective_defers_override(
+    g29_pg: tuple[Any, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Body connection_id does not create a second product row; effective ignores overrides."""
+    app, migration_url = g29_pg
+    with app.app_context():
+        tenant_id, user_id, _ws = _seed_tenant_user(migration_url)
+        d_id = _create_under_tenant(
+            tenant_id=tenant_id, user_id=user_id, title="G29 ssot put/effective"
+        )
+        conn_id = uuid.uuid4()
+        engine = create_engine(migration_url)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO integration_connections("
+                    "id, tenant_id, provider, name, status, base_url, metadata, "
+                    "adapter_mode, circuit_state, version, api_version, "
+                    "created_at, updated_at"
+                    ") VALUES ("
+                    ":id, :t, 'signal-avanza', :name, 'active', "
+                    "'https://signal.example.test', '{}'::jsonb, "
+                    "'mock', 'closed', 1, 'v1', now(), now())"
+                ),
+                {"id": conn_id, "t": tenant_id, "name": f"g29-conn-{conn_id.hex[:8]}"},
+            )
+            # Deferred connection-bound row (schema allows; product must ignore for mode).
+            conn.execute(
+                text(
+                    "INSERT INTO dossier_memory_profiles("
+                    "id, tenant_id, dossier_id, connection_id, mode, version, etag, "
+                    "profile_config, created_at, updated_at"
+                    ") VALUES ("
+                    ":id, :t, :d, :c, 'augment', 1, :etag, "
+                    "CAST(:cfg AS jsonb), now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "t": tenant_id,
+                    "d": d_id,
+                    "c": conn_id,
+                    "etag": 'W/"dmp-conn-1"',
+                    "cfg": (
+                        '{"mode":"augment","sources":["document"],"kinds":["fact"],'
+                        '"classifications_allowed":["public"],"token_budget":4000,'
+                        '"limit":20,"status":"active","config_source":"legacy_canary",'
+                        '"scope_type":"dossier","uses_tenant_curated":false,'
+                        '"uses_global_memory":false}'
+                    ),
+                },
+            )
+        engine.dispose()
+
+        actor = User(
+            id=user_id,
+            email=f"g29-ssot-{user_id.hex[:8]}@oracle-test.local",
+            display_name="G29 SSOT",
+            status="active",
+        )
+        from flask import g as flask_g
+
+        from opn_oracle.auth import permissions
+        from opn_oracle.integrations import memory_routes
+        from opn_oracle.integrations.memory_profile import (
+            RESOLUTION_DEFAULT_PROFILE,
+            resolve_effective_dossier_memory_profile,
+        )
+
+        monkeypatch.setattr(permissions, "current_user", actor)
+        monkeypatch.setattr(memory_routes, "current_user", actor)
+        monkeypatch.setattr(
+            permissions,
+            "current_permissions",
+            lambda *_a, **_k: frozenset({"dossier.read", "dossier.write"}),
+        )
+        monkeypatch.setattr(memory_routes, "dossier_accessible", lambda *_a, **_k: True)
+
+        def _status_and_json(result: Any) -> tuple[int, Any]:
+            if isinstance(result, tuple):
+                resp, status = result[0], int(result[1])
+                return status, resp.get_json()
+            return int(result.status_code), result.get_json()
+
+        with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
+            # Domain resolve: default disabled, connection augment deferred.
+            res = resolve_effective_dossier_memory_profile(
+                db.session(), tenant_id=tenant_id, dossier_id=d_id
+            )
+            assert res.mode == "disabled"
+            assert res.resolution_source == RESOLUTION_DEFAULT_PROFILE
+            assert res.deferred_connection_profile_count == 1
+            assert res.profile_id is not None
+            assert res.version is not None and res.version >= 1
+
+            with app.test_request_context(
+                f"/api/v1/dossiers/{d_id}/memory/effective"
+            ):
+                flask_g.active_tenant_id = tenant_id
+                status, eff = _status_and_json(memory_routes.memory_effective(d_id))
+            assert status == 200, eff
+            assert eff["mode"] == "disabled"
+            assert eff["resolution_source"] == RESOLUTION_DEFAULT_PROFILE
+            assert eff["effective_profile"]["mode"] == "disabled"
+            assert eff["deferred_connection_profile_count"] == 1
+
+            # PUT with body connection_id still updates default only.
+            default = db.session.scalar(
+                select(DossierMemoryProfile).where(
+                    DossierMemoryProfile.tenant_id == tenant_id,
+                    DossierMemoryProfile.dossier_id == d_id,
+                    DossierMemoryProfile.connection_id.is_(None),
+                )
+            )
+            assert default is not None
+            etag = default.etag
+            version = int(default.version)
+            with app.test_request_context(
+                f"/api/v1/dossiers/{d_id}/memory/profile",
+                method="PUT",
+                json={
+                    "mode": "shadow",
+                    "connection_id": str(conn_id),
+                    "expected_version": version,
+                    "reason": "pg-no-parallel",
+                },
+                headers={"If-Match": etag},
+            ):
+                flask_g.active_tenant_id = tenant_id
+                status, put_body = _status_and_json(
+                    memory_routes.put_memory_profile(d_id)
+                )
+            assert status == 200, put_body
+            assert put_body["mode"] == "shadow"
+            assert put_body["connection_id"] is None
+            assert put_body.get("ignored_body_connection_id") is True
+
+            total = db.session.scalar(
+                select(func.count())
+                .select_from(DossierMemoryProfile)
+                .where(
+                    DossierMemoryProfile.tenant_id == tenant_id,
+                    DossierMemoryProfile.dossier_id == d_id,
+                )
+            )
+            # Still exactly 2 rows: 1 default + 1 deferred connection (no third).
+            assert total == 2
+            defaults = db.session.scalars(
+                select(DossierMemoryProfile).where(
+                    DossierMemoryProfile.tenant_id == tenant_id,
+                    DossierMemoryProfile.dossier_id == d_id,
+                    DossierMemoryProfile.connection_id.is_(None),
+                )
+            ).all()
+            assert len(defaults) == 1
+            assert defaults[0].mode == "shadow"

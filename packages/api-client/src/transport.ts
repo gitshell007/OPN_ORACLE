@@ -4025,6 +4025,19 @@ export type DossierMemoryScope = {
   retrieval_when_enabled?: string;
 };
 
+/** Shared identity of the profile/mode used by jobs, snapshot, audit and UI. */
+export type EffectiveMemoryIdentity = {
+  id: string | null;
+  mode: "disabled" | "shadow" | "augment";
+  mode_label_es?: string;
+  version: number | null;
+  scope_type: "dossier";
+  resolution_source: string;
+  persisted?: boolean;
+  state?: string;
+  connection_id?: string | null;
+};
+
 export type DossierMemoryProfile = {
   id: string | null;
   tenant_id: string;
@@ -4047,6 +4060,7 @@ export type DossierMemoryProfile = {
   /** server_policy | user | legacy_missing */
   config_source?: string;
   scope?: DossierMemoryScope;
+  scope_type?: "dossier";
   available_modes?: Array<"disabled" | "shadow" | "augment">;
   last_test_at: string | null;
   last_test_status: string | null;
@@ -4067,6 +4081,30 @@ export type DossierMemoryProfile = {
   message?: string;
   /** Nested capability — same publisher_reliable as top-level when present on /effective. */
   capability?: MemoryCapability;
+  /**
+   * Why this effective mode was chosen (default_profile | legacy_missing | …).
+   * Present on GET /memory/effective; shared with job answer/snapshot.
+   */
+  resolution_source?: string;
+  resolution_reason_es?: string;
+  /** Configured default profile (management surface). May equal effective. */
+  configured_profile?: Partial<DossierMemoryProfile>;
+  /** Mode/profile actually used by retrieval and answers. */
+  effective_profile?: EffectiveMemoryIdentity;
+  /** True when configured_profile identity/mode differs from effective. */
+  profiles_diverge?: boolean;
+  /** Schema-allowed connection-bound rows that product path deliberately ignores. */
+  deferred_connection_profiles?: Array<{
+    id: string;
+    connection_id: string | null;
+    mode: string;
+    version: number;
+    status: string;
+    product_supported: boolean;
+    note_es?: string;
+  }>;
+  deferred_connection_profile_count?: number;
+  ignored_body_connection_id?: boolean;
 };
 
 export interface AiAuditListItem {

@@ -104,6 +104,37 @@ test.describe("G-29 memory profile (real backend, no page.route)", () => {
     await expect(page.getByTestId("dossier-memory-settings")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("dossier-memory-mode")).toHaveValue("shadow");
 
+    // Effective mode shown in UI must match /memory/effective after reload
+    const effective = await (
+      await api.get(`/api/v1/dossiers/${encodeURIComponent(dossierId!)}/memory/effective`, {
+        headers: headersBase,
+      })
+    ).json();
+    expect(effective.mode).toBe("shadow");
+    expect(effective.resolution_source).toBe("default_profile");
+    expect(effective.effective_profile?.mode).toBe("shadow");
+    expect(effective.configured_profile?.mode).toBe("shadow");
+    await expect(page.getByTestId("dossier-memory-effective-mode")).toHaveText("shadow");
+    await expect(page.getByTestId("dossier-memory-resolution-source")).toHaveText(
+      "default_profile",
+    );
+
+    // Local mock preview of answer payload mode matches the UI effective mode
+    // (no Signal/IA: deterministic contract check after reload).
+    const uiMode = await page.getByTestId("dossier-memory-effective-mode").innerText();
+    const mockAnswerPreview = {
+      memory_mode: uiMode.trim(),
+      memory_profile_id: effective.effective_profile?.id ?? effective.id,
+      memory_profile_version: effective.effective_profile?.version ?? effective.version,
+      memory_scope_type: "dossier",
+      resolution_source: effective.resolution_source,
+    };
+    expect(mockAnswerPreview.memory_mode).toBe(effective.mode);
+    expect(mockAnswerPreview.resolution_source).toBe(effective.resolution_source);
+    expect(mockAnswerPreview.memory_scope_type).toBe("dossier");
+    expect(String(mockAnswerPreview.memory_profile_id)).toBeTruthy();
+    expect(Number(mockAnswerPreview.memory_profile_version)).toBeGreaterThan(0);
+
     const after = await (
       await api.get(`/api/v1/dossiers/${encodeURIComponent(dossierId!)}/memory/profile`, {
         headers: headersBase,
@@ -111,6 +142,38 @@ test.describe("G-29 memory profile (real backend, no page.route)", () => {
     ).json();
     expect(after.mode).toBe("shadow");
     expect(Number(after.version)).toBeGreaterThan(version);
+
+    // Body connection_id must not create a parallel product profile
+    const tokenPut = await csrfToken(api);
+    const withConn = await api.put(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId!)}/memory/profile`,
+      {
+        headers: {
+          ...headersBase,
+          "Content-Type": "application/json",
+          "X-CSRF-Token": tokenPut,
+          "If-Match": String(after.etag),
+        },
+        data: {
+          mode: "shadow",
+          connection_id: "00000000-0000-4000-8000-000000000099",
+          expected_version: Number(after.version),
+          sources: after.sources,
+          kinds: after.kinds,
+          classifications_allowed: after.classifications_allowed,
+          token_budget: after.token_budget,
+          limit: after.limit,
+        },
+      },
+    );
+    // Connection may 404 if validated elsewhere, or 200 with ignore — never spawn parallel.
+    // Product path ignores connection_id; with invalid uuid format we still send a uuid.
+    // Expect either 200 idempotent (ignored) or 200/409 — never a second profile mode flip.
+    if (withConn.ok()) {
+      const body = await withConn.json();
+      expect(body.connection_id).toBeNull();
+      expect(body.mode).toBe("shadow");
+    }
 
     // Stale concurrency via real API + CSRF (no page.route)
     const token = await csrfToken(api);

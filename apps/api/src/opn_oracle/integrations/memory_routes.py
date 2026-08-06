@@ -32,9 +32,11 @@ from opn_oracle.integrations.memory_profile import (
     build_client_for_connection,
     create_dossier_memory_profile,
     default_profile_payload,
+    effective_resolution_to_public,
     legacy_missing_payload,
     profile_config_fingerprint,
     profile_to_public,
+    resolve_effective_dossier_memory_profile,
     resolve_signal_memory_connection,
 )
 from opn_oracle.integrations.models import DossierMemoryProfile
@@ -205,6 +207,12 @@ def get_memory_profile(dossier_id: uuid.UUID) -> Any:
 @bp.put("/dossiers/<uuid:dossier_id>/memory/profile")
 @require_permission("dossier.write")
 def put_memory_profile(dossier_id: uuid.UUID) -> Any:
+    """Update the product **default** profile only (connection_id IS NULL).
+
+    Body ``connection_id`` is ignored for write targeting so an arbitrary
+    connection cannot create a parallel product profile. Connection-bound
+    overrides are deferred product capability (no silent create path here).
+    """
     session = _session()
     dossier = _load_accessible_dossier(session, dossier_id, write=True)
     if dossier is None:
@@ -219,25 +227,21 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
     if not isinstance(payload, dict):
         return problem_response(422, detail="body must be object.", code="schema_validation_failed")
 
-    # Client cannot force tenant_id or foreign connection via body.
+    # Client cannot force tenant_id via body.
     if "tenant_id" in payload and str(payload.get("tenant_id")) != str(tenant_id):
         return problem_response(
             422, detail="tenant_id cannot be forced.", code="schema_validation_failed"
         )
 
-    conn_id = payload.get("connection_id")
-    connection_uuid = uuid.UUID(str(conn_id)) if conn_id else None
-    if (
-        connection_uuid is not None
-        and _validate_connection_for_tenant(session, tenant_id, connection_uuid) is None
-    ):
-        return problem_response(404, detail="Conexión no encontrada.", code="connection_not_found")
+    # Product PUT always targets default profile. Ignore body.connection_id so it
+    # cannot spawn a second row (connection overrides are deferred / not product).
+    ignored_connection_id = bool(payload.get("connection_id"))
 
     row = _load_profile(
-        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
+        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
     )
     legacy = legacy_missing_payload(
-        tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
+        tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
     )
     current_etag = row.etag if row is not None else legacy["etag"]
     if str(if_match) != str(current_etag):
@@ -278,6 +282,9 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
             body = profile_to_public(row)
             body["persisted"] = True
             body["idempotent_replay"] = True
+            body["connection_id"] = None
+            if ignored_connection_id:
+                body["ignored_body_connection_id"] = True
             r = jsonify(body)
             r.headers["ETag"] = row.etag
             return r
@@ -293,12 +300,12 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
         ),
     }
     if row is None:
-        # Materialize via PUT (also covered by dedicated materialize endpoint).
+        # Materialize default profile via PUT (also covered by materialize endpoint).
         row = create_dossier_memory_profile(
             session,
             tenant_id=tenant_id,
             dossier_id=dossier_id,
-            connection_id=connection_uuid,
+            connection_id=None,
             mode=mode,
             provenance="user_materialize_via_put",
             config_source="user",
@@ -314,6 +321,8 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
         row.profile_config = cfg
         row.etag = _etag(row.version, cfg)
         row.updated_at = datetime.now(UTC)
+    # Hard guarantee: product path never binds connection_id on PUT.
+    row.connection_id = None
     session.add(row)
     append_audit_event(
         session,
@@ -328,14 +337,18 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
                 "etag": row.etag,
                 "mode": row.mode,
                 "version": row.version,
+                "connection_id": None,
                 "fingerprint": profile_config_fingerprint(cfg, mode),
             },
+            "ignored_body_connection_id": ignored_connection_id,
             "actor_reason": str(payload.get("reason") or payload.get("motivo") or "")[:500] or None,
         },
     )
     session.commit()
     body = profile_to_public(row)
     body["persisted"] = True
+    if ignored_connection_id:
+        body["ignored_body_connection_id"] = True
     r = jsonify(body)
     r.headers["ETag"] = row.etag
     return r
@@ -344,10 +357,11 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
 @bp.post("/dossiers/<uuid:dossier_id>/memory/profile/materialize")
 @require_permission("dossier.write")
 def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
-    """Idempotent, audited materialization of legacy_missing profiles.
+    """Idempotent, audited materialization of legacy_missing **default** profiles.
 
     Does not silent-backfill on GET. Re-call returns existing row without
-    version inflation when already persisted.
+    version inflation when already persisted. Body connection_id is ignored;
+    only the default profile (connection_id NULL) is materialized.
     """
     session = _session()
     dossier = _load_accessible_dossier(session, dossier_id, write=True)
@@ -357,22 +371,18 @@ def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         payload = {}
-    connection_uuid = None
-    if payload.get("connection_id"):
-        connection_uuid = uuid.UUID(str(payload["connection_id"]))
-        if _validate_connection_for_tenant(session, tenant_id, connection_uuid) is None:
-            return problem_response(
-                404, detail="Conexión no encontrada.", code="connection_not_found"
-            )
+    ignored_connection_id = bool(payload.get("connection_id"))
 
     row = _load_profile(
-        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
+        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
     )
     if row is not None:
         body = profile_to_public(row)
         body["persisted"] = True
         body["idempotent_replay"] = True
         body["materialized"] = False
+        if ignored_connection_id:
+            body["ignored_body_connection_id"] = True
         r = jsonify(body)
         r.headers["ETag"] = row.etag
         return r
@@ -382,7 +392,7 @@ def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
         session,
         tenant_id=tenant_id,
         dossier_id=dossier_id,
-        connection_id=connection_uuid,
+        connection_id=None,
         mode=SERVER_DEFAULT_MEMORY_MODE,
         provenance="legacy_materialize",
         config_source="server_policy",
@@ -405,6 +415,8 @@ def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
     body["persisted"] = True
     body["materialized"] = True
     body["idempotent_replay"] = False
+    if ignored_connection_id:
+        body["ignored_body_connection_id"] = True
     r = jsonify(body)
     r.headers["ETag"] = row.etag
     r.status_code = 201
@@ -414,25 +426,24 @@ def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
 @bp.get("/dossiers/<uuid:dossier_id>/memory/effective")
 @require_permission("dossier.read")
 def memory_effective(dossier_id: uuid.UUID) -> Any:
-    """Effective profile + host health. Single source of truth for public health.
+    """Effective profile + host health. Shared SSOT with conversation jobs.
 
-    Capability is computed once; top-level publisher_* fields that the UI reads
-    are projected from that same capability so they cannot diverge.
+    Uses ``resolve_effective_dossier_memory_profile`` (same function as ask/answer).
+    Returns configured_profile vs effective_profile; connection overrides are
+    listed as deferred, never silently selected.
     """
     session = _session()
     dossier = _load_accessible_dossier(session, dossier_id, write=False)
     if dossier is None:
         return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
     tenant_id = dossier.tenant_id
-    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
+    resolution = resolve_effective_dossier_memory_profile(
+        session, tenant_id=tenant_id, dossier_id=dossier_id
+    )
+    pub = effective_resolution_to_public(
+        resolution, tenant_id=tenant_id, dossier_id=dossier_id
+    )
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
-    if row is None:
-        pub = legacy_missing_payload(
-            tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
-        )
-    else:
-        pub = profile_to_public(row)
-        pub["persisted"] = True
     # Single source of truth: capability owns host health; project UI fields from it.
     capability = capability_payload(
         host_mode=host_mode, connection_healthy=host_mode in {"http", "mock"}
@@ -465,7 +476,9 @@ def memory_test_connection(dossier_id: uuid.UUID) -> Any:
         return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
     tenant_id = dossier.tenant_id
 
-    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
+    row = _load_profile(
+        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
+    )
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
 
     if host_mode == "disabled":

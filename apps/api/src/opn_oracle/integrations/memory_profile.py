@@ -3,6 +3,13 @@
 Engine-supported modes only: disabled | shadow | augment.
 Retrieval is always dossier-scoped (scope_type=dossier). There is no global,
 cross-tenant or tenant_curated memory mode in the motor — do not advertise them.
+
+Effective profile SSOT (G-29 correctivo):
+  Product path uses ONLY the default profile (connection_id IS NULL).
+  Rows bound to connection_id are schema-legacy / deferred product capability:
+  they are never selected for conversation retrieval or /memory/effective mode.
+  PUT /memory/profile always updates the default row; body.connection_id cannot
+  create a parallel product profile.
 """
 
 from __future__ import annotations
@@ -10,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -31,6 +39,12 @@ OPERATIONAL_MODES: frozenset[str] = frozenset({"disabled", "shadow", "augment"})
 
 # Server-side default policy for new dossiers (fail-closed). Not client-overridable on create.
 SERVER_DEFAULT_MEMORY_MODE: OracleMemoryMode = "disabled"
+
+# Product resolution sources (shared by jobs, /memory/effective, UI).
+RESOLUTION_DEFAULT_PROFILE = "default_profile"
+RESOLUTION_LEGACY_MISSING = "legacy_missing"
+# Documented deferred: connection-bound rows exist in schema but are not product-selected.
+RESOLUTION_DEFERRED_CONNECTION_OVERRIDES = "connection_override_deferred"
 
 MODE_ES = {
     "disabled": "Desactivada",
@@ -296,12 +310,262 @@ def profile_config_fingerprint(cfg: dict[str, Any], mode: str) -> dict[str, Any]
     }
 
 
+def normalize_operational_mode(raw: Any) -> OracleMemoryMode:
+    """Fail-closed: unknown/missing → disabled. Never invents augment."""
+    mode = str(raw or "").strip().lower()
+    if mode in OPERATIONAL_MODES:
+        return mode  # type: ignore[return-value]
+    return SERVER_DEFAULT_MEMORY_MODE
+
+
+@dataclass(frozen=True)
+class EffectiveMemoryResolution:
+    """Single product view of which memory profile/mode applies.
+
+    Shared by conversation jobs, GET /memory/effective, and UI projection.
+    """
+
+    mode: OracleMemoryMode
+    profile_id: str | None
+    version: int | None
+    scope_type: str
+    resolution_source: str
+    persisted: bool
+    state: str
+    profile_config: dict[str, Any] = field(default_factory=dict)
+    row: Any | None = None
+    connection_id: None = None  # product path always uses default (NULL)
+    deferred_connection_profile_count: int = 0
+    deferred_connection_profiles: list[dict[str, Any]] = field(default_factory=list)
+    reason_es: str = ""
+
+    def identity_fields(self) -> dict[str, Any]:
+        """Shared fields for answer/snapshot/audit/UI consistency."""
+        return {
+            "memory_mode": self.mode,
+            "memory_profile_id": self.profile_id,
+            "memory_profile_version": self.version,
+            "memory_scope_type": self.scope_type,
+            "resolution_source": self.resolution_source,
+        }
+
+
+def load_default_dossier_memory_profile(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+) -> Any | None:
+    """Load the product default profile (connection_id IS NULL). No write."""
+    from opn_oracle.integrations.models import DossierMemoryProfile
+
+    return session.scalar(
+        select(DossierMemoryProfile).where(
+            DossierMemoryProfile.tenant_id == tenant_id,
+            DossierMemoryProfile.dossier_id == dossier_id,
+            DossierMemoryProfile.connection_id.is_(None),
+        )
+    )
+
+
+def list_deferred_connection_memory_profiles(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+) -> list[Any]:
+    """Connection-bound rows: schema-allowed but not product-selected."""
+    from opn_oracle.integrations.models import DossierMemoryProfile
+
+    return list(
+        session.scalars(
+            select(DossierMemoryProfile).where(
+                DossierMemoryProfile.tenant_id == tenant_id,
+                DossierMemoryProfile.dossier_id == dossier_id,
+                DossierMemoryProfile.connection_id.is_not(None),
+            )
+        ).all()
+    )
+
+
+def resolve_effective_dossier_memory_profile(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+) -> EffectiveMemoryResolution:
+    """Domain SSOT for effective memory mode/profile.
+
+    Precedence (product, explicit):
+      1. Default profile (connection_id IS NULL) → resolution_source=default_profile
+      2. No default row → disabled, resolution_source=legacy_missing (no write)
+
+    Connection-bound profiles are NEVER selected. They are counted/listed as
+    deferred so UI/API can show they exist without silent divergence from jobs.
+
+    Callers: process_dossier_question_answer, GET /memory/effective (and UI via it).
+    """
+    deferred_rows = list_deferred_connection_memory_profiles(
+        session, tenant_id=tenant_id, dossier_id=dossier_id
+    )
+    deferred_public = [
+        {
+            "id": str(r.id),
+            "connection_id": str(r.connection_id) if r.connection_id else None,
+            "mode": normalize_operational_mode(
+                (r.profile_config or {}).get("mode") if r.profile_config else r.mode
+            ),
+            "version": int(r.version),
+            "status": "deferred_connection_override",
+            "product_supported": False,
+            "note_es": (
+                "Override ligado a connection_id: capacidad diferida. "
+                "No participa en el modo efectivo del producto."
+            ),
+        }
+        for r in deferred_rows
+    ]
+    deferred_count = len(deferred_rows)
+
+    row = load_default_dossier_memory_profile(
+        session, tenant_id=tenant_id, dossier_id=dossier_id
+    )
+    if row is None:
+        cfg = default_profile_payload(
+            provenance="legacy_missing",
+            config_source="legacy_missing",
+            mode="disabled",
+        )
+        return EffectiveMemoryResolution(
+            mode="disabled",
+            profile_id=None,
+            version=None,
+            scope_type="dossier",
+            resolution_source=RESOLUTION_LEGACY_MISSING,
+            persisted=False,
+            state="legacy_missing",
+            profile_config=cfg,
+            row=None,
+            deferred_connection_profile_count=deferred_count,
+            deferred_connection_profiles=deferred_public,
+            reason_es=(
+                "Sin perfil default persistido (legacy_missing). "
+                "Modo efectivo disabled; no se usa memoria ni se escribe en lectura."
+                + (
+                    f" Hay {deferred_count} override(s) por conexión diferidos (no seleccionados)."
+                    if deferred_count
+                    else ""
+                )
+            ),
+        )
+
+    cfg = dict(row.profile_config or {})
+    mode = normalize_operational_mode(cfg.get("mode") or row.mode)
+    # Fail-closed honesty: never report augment/shadow without a real profile identity.
+    profile_id = str(row.id)
+    version = int(row.version)
+    if mode in {"augment", "shadow"} and (not profile_id or version < 1):
+        mode = "disabled"
+
+    return EffectiveMemoryResolution(
+        mode=mode,  # type: ignore[arg-type]
+        profile_id=profile_id,
+        version=version,
+        scope_type="dossier",
+        resolution_source=RESOLUTION_DEFAULT_PROFILE,
+        persisted=True,
+        state=str(cfg.get("status") or "active"),
+        profile_config=cfg,
+        row=row,
+        deferred_connection_profile_count=deferred_count,
+        deferred_connection_profiles=deferred_public,
+        reason_es=(
+            "Perfil default del expediente (connection_id nulo)."
+            + (
+                f" {deferred_count} override(s) por conexión existen pero están diferidos "
+                f"({RESOLUTION_DEFERRED_CONNECTION_OVERRIDES})."
+                if deferred_count
+                else ""
+            )
+        ),
+    )
+
+
+def effective_resolution_to_public(
+    resolution: EffectiveMemoryResolution,
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Build public DTO for /memory/effective from a shared resolution.
+
+    Distinguishes configured_profile (default row management surface) from
+    effective_profile (what jobs/UI must use). With current precedence they
+    share the same mode; structure is ready if authorized overrides return later.
+    """
+    if resolution.row is not None:
+        configured = profile_to_public(resolution.row)
+        configured["persisted"] = True
+    else:
+        configured = legacy_missing_payload(
+            tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
+        )
+
+    # Effective view mirrors the mode actually used by retrieval/jobs.
+    effective = dict(configured)
+    effective["mode"] = resolution.mode
+    effective["mode_label_es"] = MODE_ES.get(resolution.mode, resolution.mode)
+    effective["id"] = resolution.profile_id
+    effective["version"] = resolution.version if resolution.version is not None else 0
+    effective["persisted"] = resolution.persisted
+    effective["state"] = resolution.state
+    effective["status"] = (
+        "legacy_missing" if resolution.resolution_source == RESOLUTION_LEGACY_MISSING else configured.get("status")
+    )
+    effective["resolution_source"] = resolution.resolution_source
+    effective["scope"] = memory_scope_payload(
+        dossier_id=dossier_id,
+        mode=resolution.mode,
+        sources=list(resolution.profile_config.get("sources") or configured.get("sources") or []),
+        kinds=list(resolution.profile_config.get("kinds") or configured.get("kinds") or []),
+        classifications_allowed=list(
+            resolution.profile_config.get("classifications_allowed")
+            or configured.get("classifications_allowed")
+            or []
+        ),
+    )
+    effective["scope_type"] = resolution.scope_type
+
+    # Top-level SSOT fields (answer/snapshot/UI share these names).
+    body = dict(effective)
+    body["configured_profile"] = configured
+    body["effective_profile"] = {
+        "id": resolution.profile_id,
+        "mode": resolution.mode,
+        "mode_label_es": MODE_ES.get(resolution.mode, resolution.mode),
+        "version": resolution.version,
+        "scope_type": resolution.scope_type,
+        "resolution_source": resolution.resolution_source,
+        "persisted": resolution.persisted,
+        "state": resolution.state,
+        "connection_id": None,
+    }
+    body["resolution_source"] = resolution.resolution_source
+    body["resolution_reason_es"] = resolution.reason_es
+    body["deferred_connection_profiles"] = list(resolution.deferred_connection_profiles)
+    body["deferred_connection_profile_count"] = resolution.deferred_connection_profile_count
+    body["profiles_diverge"] = (
+        str(configured.get("mode")) != str(resolution.mode)
+        or str(configured.get("id")) != str(resolution.profile_id)
+        or int(configured.get("version") or 0) != int(resolution.version or 0)
+    )
+    return body
+
+
 def profile_to_public(row: Any) -> dict[str, Any]:
     """Public DTO — never includes secrets/provider/model."""
     cfg = dict(row.profile_config or {})
-    mode = str(cfg.get("mode") or row.mode or "disabled")
-    if mode not in OPERATIONAL_MODES:
-        mode = "disabled"
+    mode = normalize_operational_mode(cfg.get("mode") or row.mode)
     sources = list(cfg.get("sources") or [])
     kinds = list(cfg.get("kinds") or [])
     classifications = list(cfg.get("classifications_allowed") or [])
@@ -332,6 +596,7 @@ def profile_to_public(row: Any) -> dict[str, Any]:
             kinds=kinds,
             classifications_allowed=classifications,
         ),
+        "scope_type": "dossier",
         "last_test_at": row.last_test_at.isoformat() if row.last_test_at else None,
         "last_test_status": row.last_test_status,
         "last_error": row.last_error,

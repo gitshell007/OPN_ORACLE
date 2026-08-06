@@ -610,6 +610,41 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
                   ? " · Banner: servicio no disponible/degradado"
                   : ""}
               </p>
+              <p
+                className="reporting-hint"
+                role="status"
+                data-testid="dossier-memory-effective"
+              >
+                Modo efectivo:{" "}
+                <strong data-testid="dossier-memory-effective-mode">
+                  {memoryProfile.effective_profile?.mode || memoryProfile.mode}
+                </strong>
+                {" · "}
+                resolución:{" "}
+                <span data-testid="dossier-memory-resolution-source">
+                  {memoryProfile.resolution_source ||
+                    memoryProfile.effective_profile?.resolution_source ||
+                    "default_profile"}
+                </span>
+                {memoryProfile.effective_profile?.version != null
+                  ? ` · v${memoryProfile.effective_profile.version}`
+                  : memoryProfile.version
+                    ? ` · v${memoryProfile.version}`
+                    : ""}
+                {memoryProfile.profiles_diverge
+                  ? " · configurado y efectivo difieren"
+                  : " · configurado = efectivo"}
+              </p>
+              {(memoryProfile.deferred_connection_profile_count ?? 0) > 0 ? (
+                <p
+                  className="reporting-hint"
+                  role="status"
+                  data-testid="dossier-memory-deferred-overrides"
+                >
+                  Hay {memoryProfile.deferred_connection_profile_count} perfil(es) ligados a
+                  conexión (diferidos; no afectan al modo efectivo del producto).
+                </p>
+              ) : null}
               {memoryProfile.last_coverage && (
                 <pre className="reporting-hint" style={{ whiteSpace: "pre-wrap" }}>
                   Cobertura: {JSON.stringify(memoryProfile.last_coverage)}
