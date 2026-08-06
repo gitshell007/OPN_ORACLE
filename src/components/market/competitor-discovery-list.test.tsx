@@ -3,12 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { MarketCompetitorDiscoveryOutput } from "@oracle/api-client";
 import {
   CompetitorDiscoveryList,
+  buildCompetitorAcceptSelection,
   competitorIsSelectable,
 } from "./competitor-discovery-list";
+
+const CID_ACME = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+const CID_NONE = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
 
 const closedOutput: MarketCompetitorDiscoveryOutput = {
   candidates: [
     {
+      candidate_id: CID_ACME,
       name: "Acme Sensors",
       country: "DE",
       rationale: "Compite en sensores industriales.",
@@ -28,6 +33,7 @@ const closedOutput: MarketCompetitorDiscoveryOutput = {
       selectable: true,
     },
     {
+      candidate_id: null,
       name: "Sin Cita",
       country: "ES",
       rationale: "Modelo inventó URL pero sin source_id.",
@@ -47,7 +53,7 @@ describe("CompetitorDiscoveryList G-18", () => {
     render(
       <CompetitorDiscoveryList
         output={closedOutput}
-        selectedNames={new Set()}
+        selectedCandidateIds={new Set()}
         onToggle={() => undefined}
       />,
     );
@@ -65,7 +71,7 @@ describe("CompetitorDiscoveryList G-18", () => {
     render(
       <CompetitorDiscoveryList
         output={closedOutput}
-        selectedNames={new Set()}
+        selectedCandidateIds={new Set()}
         onToggle={() => undefined}
       />,
     );
@@ -75,12 +81,12 @@ describe("CompetitorDiscoveryList G-18", () => {
     expect(blocked[0]).toHaveTextContent(/no seleccionable/i);
   });
 
-  it("blocks selection when candidate has no evidence_id", () => {
+  it("toggles by candidate_id not by name", () => {
     const onToggle = vi.fn();
     const { container } = render(
       <CompetitorDiscoveryList
         output={closedOutput}
-        selectedNames={new Set()}
+        selectedCandidateIds={new Set()}
         onToggle={onToggle}
       />,
     );
@@ -89,6 +95,7 @@ describe("CompetitorDiscoveryList G-18", () => {
     const openItem = Array.from(items).find((el) => el.getAttribute("data-selectable") === "true");
     expect(blockedItem).toBeTruthy();
     expect(openItem).toBeTruthy();
+    expect(openItem!.getAttribute("data-candidate-id")).toBe(CID_ACME);
     const blocked = blockedItem!.querySelector('input[type="checkbox"]') as HTMLInputElement;
     const open = openItem!.querySelector('input[type="checkbox"]') as HTMLInputElement;
     expect(blocked.disabled).toBe(true);
@@ -96,11 +103,30 @@ describe("CompetitorDiscoveryList G-18", () => {
     expect(open.disabled).toBe(false);
     fireEvent.click(open);
     expect(onToggle).toHaveBeenCalledTimes(1);
-    expect(onToggle).toHaveBeenCalledWith("Acme Sensors", true);
+    expect(onToggle).toHaveBeenCalledWith(CID_ACME, true);
   });
 
-  it("competitorIsSelectable requires evidence + public sources", () => {
+  it("competitorIsSelectable requires candidate_id + evidence + public sources", () => {
     expect(competitorIsSelectable(closedOutput.candidates[0])).toBe(true);
     expect(competitorIsSelectable(closedOutput.candidates[1])).toBe(false);
+    expect(
+      competitorIsSelectable({
+        ...closedOutput.candidates[0],
+        candidate_id: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("buildCompetitorAcceptSelection uses candidate_id and cannot be name-only", () => {
+    const selection = buildCompetitorAcceptSelection(
+      closedOutput,
+      new Set([CID_ACME]),
+    );
+    expect(selection).toHaveLength(1);
+    expect(selection[0].candidate_id).toBe(CID_ACME);
+    expect(selection[0].source_ids).toEqual(["9067e361-54fa-5b03-8d56-7494b798e453"]);
+    // Empty set / unknown id → empty selection (no name fallback).
+    expect(buildCompetitorAcceptSelection(closedOutput, new Set(["Acme Sensors"]))).toEqual([]);
+    expect(buildCompetitorAcceptSelection(closedOutput, new Set([CID_NONE]))).toEqual([]);
   });
 });

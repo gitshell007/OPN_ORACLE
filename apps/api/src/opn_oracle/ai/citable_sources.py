@@ -31,6 +31,83 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 ORIGIN_WEB_SEARCH = "web_search"
 SOURCE_KIND_WEB_SEARCH = "web_search"
 
+# Server-owned deterministic namespaces (v1). Never accept model-emitted IDs.
+CANDIDATE_ID_NAMESPACE = uuid.UUID("6b2e0c9a-5f41-4d8e-9a7c-18a18ca10001")
+EVIDENCE_ID_NAMESPACE = uuid.UUID("7c3f1d0b-6a52-4e9f-8b8d-18a18e010002")
+
+
+def server_owned_candidate_id(
+    *,
+    execution_key: str | uuid.UUID,
+    name: str,
+    evidence_ids: list[str] | tuple[str, ...],
+) -> str:
+    """Deterministic candidate_id after the model gate (never from model JSON).
+
+    Material: versioned namespace + execution/artifact identity + normalized name
+    + sorted evidence_ids. Homonyms with distinct evidence sets get distinct IDs.
+    """
+
+    normalized = " ".join(str(name or "").split()).casefold()
+    sorted_ids: list[str] = []
+    for item in evidence_ids:
+        try:
+            sorted_ids.append(str(uuid.UUID(str(item))))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    sorted_ids = sorted(set(sorted_ids))
+    material = (
+        f"g18:candidate:v1|{execution_key}|{normalized}|{','.join(sorted_ids)}"
+    )
+    return str(uuid.uuid5(CANDIDATE_ID_NAMESPACE, material))
+
+
+def deterministic_web_search_evidence_id(
+    *,
+    tenant_id: str | uuid.UUID,
+    artifact_id: str | uuid.UUID,
+    source_id: str | uuid.UUID,
+) -> uuid.UUID:
+    """Idempotent Evidence PK for a reserved source under one artifact+tenant."""
+
+    material = f"g18:evidence:v1|{tenant_id}|{artifact_id}|{source_id}"
+    return uuid.uuid5(EVIDENCE_ID_NAMESPACE, material)
+
+
+def stamp_server_owned_candidate_ids(
+    output: dict[str, Any],
+    *,
+    execution_key: str | uuid.UUID,
+) -> dict[str, Any]:
+    """Strip any model-emitted candidate_id and assign server-owned UUIDs.
+
+    Must run after the citable gate so evidence_ids are already closed.
+    """
+
+    result = dict(output)
+    candidates = result.get("candidates")
+    if not isinstance(candidates, list):
+        return result
+    stamped: list[dict[str, Any]] = []
+    for raw in candidates:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        # Never trust model / client candidate_id.
+        row.pop("candidate_id", None)
+        name = str(row.get("name") or "")
+        eids = row.get("evidence_ids") or []
+        if not isinstance(eids, list):
+            eids = []
+        row["candidate_id"] = server_owned_candidate_id(
+            execution_key=execution_key,
+            name=name,
+            evidence_ids=[str(x) for x in eids],
+        )
+        stamped.append(row)
+    result["candidates"] = stamped
+    return result
+
 
 @dataclass(frozen=True, slots=True)
 class CitableSource:
@@ -113,7 +190,7 @@ class SignalEnvelope:
 def content_checksum(*, title: str, snippet: str, url: str) -> str:
     """Canonical checksum agreed with Signal G-18."""
 
-    material = f"{title}\n{snippet}\n{url}".encode("utf-8")
+    material = f"{title}\n{snippet}\n{url}".encode()
     return "sha256:" + hashlib.sha256(material).hexdigest()
 
 
@@ -472,6 +549,8 @@ def filter_candidates_by_citable_allowlist(
         row["source_urls_meta"] = []
         row["source_urls_status"] = None
         row["source_urls_label"] = None
+        # Never accept candidate_id from the model JSON (server stamps later).
+        row.pop("candidate_id", None)
         # UI-facing source summary from closed set (label/domain only).
         row["citable_sources"] = [
             source_by_id[sid].to_public_dict()
@@ -509,8 +588,13 @@ def apply_market_competitor_citable_gate(
     *,
     citable_sources: tuple[CitableSource, ...] | list[CitableSource],
     extra_warnings: tuple[str, ...] | list[str] = (),
+    execution_key: str | uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    """Server-owned gate: filter candidates + attach reserved_citable_sources."""
+    """Server-owned gate: filter candidates + attach reserved_citable_sources.
+
+    When ``execution_key`` is provided, stamps deterministic ``candidate_id``
+    values after the allowlist filter (never from model JSON).
+    """
 
     result = dict(output)
     source_list = list(citable_sources)
@@ -542,4 +626,6 @@ def apply_market_competitor_citable_gate(
     if note not in warnings:
         warnings.append(note)
     result["warnings"] = warnings[:20]
+    if execution_key is not None:
+        result = stamp_server_owned_candidate_ids(result, execution_key=execution_key)
     return result

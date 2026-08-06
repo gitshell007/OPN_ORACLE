@@ -188,6 +188,8 @@ class ReservedCitableSourceSchema(Schema):
 
 
 class MarketCompetitorCandidateSchema(Schema):
+    # Server-owned deterministic id (never from model JSON).
+    candidate_id = String(allow_none=True, load_default=None)
     name = String(required=True)
     country = String(required=True)
     rationale = String(required=True)
@@ -232,9 +234,11 @@ class MarketCompetitorDiscoveryLatestResponseSchema(Schema):
 
 
 class MarketCompetitorSelectionSchema(Schema):
-    name = String(load_default="")
-    source_ids = List(String(), load_default=[])
-    evidence_ids = List(String(), load_default=[])
+    # Required on write: server-owned candidate_id (UUID). name is display-only.
+    candidate_id = String(required=True)
+    name = String(load_default="")  # display-only; not used for identity
+    source_ids = List(String(), required=True)
+    evidence_ids = List(String(), load_default=[])  # alias accepted, not preferred
 
 
 class MarketCompetitorAcceptInputSchema(Schema):
@@ -858,8 +862,16 @@ def _serialize_market_discovery_artifact(artifact: AIArtifact | None) -> dict[st
                         }
                     )
         selectable = len(evidence_ids) > 0 and len(public_sources) > 0
+        raw_cid = cand.get("candidate_id")
+        candidate_id = None
+        if raw_cid is not None and str(raw_cid).strip():
+            try:
+                candidate_id = str(uuid.UUID(str(raw_cid)))
+            except (ValueError, TypeError, AttributeError):
+                candidate_id = None
         candidates_out.append(
             {
+                "candidate_id": candidate_id,
                 "name": str(cand.get("name") or ""),
                 "country": str(cand.get("country") or ""),
                 "rationale": str(cand.get("rationale") or ""),
@@ -870,7 +882,7 @@ def _serialize_market_discovery_artifact(artifact: AIArtifact | None) -> dict[st
                 "source_urls_label": None,
                 "citable_sources": public_sources,
                 "confidence": int(cand.get("confidence") or 0),
-                "selectable": selectable,
+                "selectable": selectable and candidate_id is not None,
             }
         )
     base["output"] = {
@@ -976,8 +988,8 @@ def latest_market_competitor_discovery() -> Any:
 def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
     """Human gate: materialize selected reserved sources into Evidence for a dossier.
 
-    Requires artifact_id + dossier_id + selected candidates/source_ids.
-    Fail-closed on cross-tenant, superseded artifact, version drift, alien UUIDs.
+    Requires artifact_id + dossier_id + selected[{candidate_id, source_ids}].
+    Fail-closed on cross-tenant, non-candidate status, version drift, alien UUIDs.
     Idempotent: two retries do not duplicate Evidence rows.
     """
 
@@ -1005,6 +1017,12 @@ def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
             404,
             detail="Expediente no disponible.",
             code="not_found",
+        )
+    if str(dossier.dossier_type or "") != "market":
+        return _tender_wizard_problem(
+            422,
+            detail="Solo un expediente de tipo market puede recibir evidencias de discovery.",
+            code="dossier_not_market",
         )
     selected = json_data.get("selected") or []
     if not isinstance(selected, list):

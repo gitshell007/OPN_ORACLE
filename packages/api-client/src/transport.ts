@@ -2574,6 +2574,8 @@ export interface MarketCompetitorDiscoveryInput {
 }
 
 export interface MarketCompetitorCandidate {
+  /** Server-owned deterministic UUID (never from model JSON). Required to accept. */
+  candidate_id?: string | null;
   name: string;
   country: string;
   rationale: string;
@@ -2586,7 +2588,7 @@ export interface MarketCompetitorCandidate {
   source_urls_label?: string | null;
   citable_sources?: CitableSourcePublic[];
   confidence: number;
-  /** Server: false when candidate has no closed citation. */
+  /** Server: false when candidate has no closed citation or candidate_id. */
   selectable?: boolean;
 }
 
@@ -2620,8 +2622,13 @@ export interface MarketCompetitorDiscoveryLatestResponse {
 }
 
 export interface MarketCompetitorSelection {
+  /** Required: server-owned candidate_id from latest artifact. */
+  candidate_id: string;
+  /** Display-only; not used for identity on write. */
   name?: string;
-  source_ids?: string[];
+  /** Non-empty subset of candidate.evidence_ids. */
+  source_ids: string[];
+  /** Alias for source_ids (accepted by server). */
   evidence_ids?: string[];
 }
 

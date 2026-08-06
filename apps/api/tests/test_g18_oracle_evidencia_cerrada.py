@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
+from opn_oracle.ai import routes as ai_routes
 from opn_oracle.ai.citable_sources import (
     CitableSource,
     apply_market_competitor_citable_gate,
@@ -25,8 +26,6 @@ from opn_oracle.ai.market_materialize import (
 )
 from opn_oracle.ai.provider import LLMRequest, MockLLMProvider, SignalGovernedLLMProvider
 from opn_oracle.ai.schemas import MarketCompetitorDiscoveryOutput
-from opn_oracle.ai import routes as ai_routes
-
 
 # ---------------------------------------------------------------------------
 # Helpers (Signal-compatible fake envelope)
@@ -487,7 +486,7 @@ def test_gate_drops_candidate_depending_only_on_invalid_source() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Materialization selection validation (pure, no DB)
+# Materialization selection validation (pure, no DB) — candidate_id path
 # ---------------------------------------------------------------------------
 
 
@@ -503,10 +502,12 @@ class _FakeArtifact:
 
 def test_resolve_selection_rejects_alien_and_unknown() -> None:
     sid = str(uuid.uuid4())
+    cid = str(uuid.uuid4())
     artifact = _FakeArtifact(
         {
             "candidates": [
                 {
+                    "candidate_id": cid,
                     "name": "Acme",
                     "evidence_ids": [sid],
                     "rationale": "x",
@@ -529,31 +530,59 @@ def test_resolve_selection_rejects_alien_and_unknown() -> None:
     )
     ok = resolve_selected_source_ids(
         artifact,  # type: ignore[arg-type]
-        selected=[{"name": "Acme", "source_ids": [sid]}],
+        selected=[{"candidate_id": cid, "source_ids": [sid]}],
     )
     assert ok == [sid]
     with pytest.raises(MaterializeError) as alien:
         resolve_selected_source_ids(
             artifact,  # type: ignore[arg-type]
-            selected=[{"name": "Acme", "source_ids": [str(uuid.uuid4())]}],
+            selected=[{"candidate_id": cid, "source_ids": [str(uuid.uuid4())]}],
         )
     assert alien.value.code == "source_id_not_reserved"
     with pytest.raises(MaterializeError) as unknown:
         resolve_selected_source_ids(
             artifact,  # type: ignore[arg-type]
-            selected=[{"name": "Ghost", "source_ids": [sid]}],
+            selected=[{"candidate_id": str(uuid.uuid4()), "source_ids": [sid]}],
         )
     assert unknown.value.code == "candidate_unknown"
+    with pytest.raises(MaterializeError) as missing:
+        resolve_selected_source_ids(
+            artifact,  # type: ignore[arg-type]
+            selected=[{"name": "Acme", "source_ids": [sid]}],
+        )
+    assert missing.value.code == "candidate_id_required"
+    with pytest.raises(MaterializeError) as empty_name_path:
+        resolve_selected_source_ids(
+            artifact,  # type: ignore[arg-type]
+            selected=[{"source_ids": [sid]}],
+        )
+    assert empty_name_path.value.code == "candidate_id_required"
 
 
 def test_partial_selection_only_chosen_ids() -> None:
     s1 = str(uuid.uuid4())
     s2 = str(uuid.uuid4())
+    c1 = str(uuid.uuid4())
+    c2 = str(uuid.uuid4())
     artifact = _FakeArtifact(
         {
             "candidates": [
-                {"name": "A", "evidence_ids": [s1], "rationale": "r", "country": "", "confidence": 1},
-                {"name": "B", "evidence_ids": [s2], "rationale": "r", "country": "", "confidence": 1},
+                {
+                    "candidate_id": c1,
+                    "name": "A",
+                    "evidence_ids": [s1],
+                    "rationale": "r",
+                    "country": "",
+                    "confidence": 1,
+                },
+                {
+                    "candidate_id": c2,
+                    "name": "B",
+                    "evidence_ids": [s2],
+                    "rationale": "r",
+                    "country": "",
+                    "confidence": 1,
+                },
             ],
             "reserved_citable_sources": [
                 {"source_id": s1, "title": "A", "url": "https://a.example/", "snippet": "s"},
@@ -563,12 +592,59 @@ def test_partial_selection_only_chosen_ids() -> None:
     )
     only = resolve_selected_source_ids(
         artifact,  # type: ignore[arg-type]
-        selected=[{"name": "B", "source_ids": [s2]}],
+        selected=[{"candidate_id": c2, "source_ids": [s2]}],
     )
     assert only == [s2]
+    # Source of B under candidate A → closed fail.
+    with pytest.raises(MaterializeError) as cross:
+        resolve_selected_source_ids(
+            artifact,  # type: ignore[arg-type]
+            selected=[{"candidate_id": c1, "source_ids": [s2]}],
+        )
+    assert cross.value.code == "source_id_not_on_candidate"
+
+
+def test_source_of_b_under_candidate_a_fails() -> None:
+    s1 = str(uuid.uuid4())
+    s2 = str(uuid.uuid4())
+    c_a = str(uuid.uuid4())
+    artifact = _FakeArtifact(
+        {
+            "candidates": [
+                {
+                    "candidate_id": c_a,
+                    "name": "A",
+                    "evidence_ids": [s1],
+                    "rationale": "r",
+                    "country": "",
+                    "confidence": 1,
+                },
+                {
+                    "candidate_id": str(uuid.uuid4()),
+                    "name": "B",
+                    "evidence_ids": [s2],
+                    "rationale": "r",
+                    "country": "",
+                    "confidence": 1,
+                },
+            ],
+            "reserved_citable_sources": [
+                {"source_id": s1, "title": "A", "url": "https://a.example/", "snippet": "s"},
+                {"source_id": s2, "title": "B", "url": "https://b.example/", "snippet": "s"},
+            ],
+        }
+    )
+    with pytest.raises(MaterializeError) as err:
+        resolve_selected_source_ids(
+            artifact,  # type: ignore[arg-type]
+            selected=[{"candidate_id": c_a, "source_ids": [s2]}],
+        )
+    assert err.value.code == "source_id_not_on_candidate"
 
 
 def test_serialize_market_discovery_hides_model_urls_and_selectable() -> None:
+    good_cid = "11111111-1111-4111-8111-111111111111"
+
     class Art:
         id = uuid.uuid4()
         dossier_id = None
@@ -582,6 +658,7 @@ def test_serialize_market_discovery_hides_model_urls_and_selectable() -> None:
         output = {
             "candidates": [
                 {
+                    "candidate_id": good_cid,
                     "name": "Good",
                     "country": "ES",
                     "rationale": "ok",
@@ -629,15 +706,65 @@ def test_serialize_market_discovery_hides_model_urls_and_selectable() -> None:
     good = next(c for c in cands if c["name"] == "Good")
     bad = next(c for c in cands if c["name"] == "Bad")
     assert good["selectable"] is True
+    assert good["candidate_id"] == good_cid
     assert good["source_urls"] == []
     assert good["citable_sources"][0]["url"] == "https://good.example/"
     assert bad["selectable"] is False
     assert "modelo.example" not in json.dumps(ser["output"]["candidates"])
 
 
+def test_server_owned_candidate_id_ignores_model_and_splits_homonyms() -> None:
+    from opn_oracle.ai.citable_sources import (
+        server_owned_candidate_id,
+        stamp_server_owned_candidate_ids,
+    )
+
+    s1 = str(uuid.uuid4())
+    s2 = str(uuid.uuid4())
+    planted = str(uuid.uuid4())
+    execution = uuid.uuid4()
+    out = stamp_server_owned_candidate_ids(
+        {
+            "candidates": [
+                {
+                    "candidate_id": planted,  # must be overwritten
+                    "name": "Twin",
+                    "evidence_ids": [s1],
+                    "confidence": 1,
+                },
+                {
+                    "candidate_id": planted,
+                    "name": "Twin",
+                    "evidence_ids": [s2],
+                    "confidence": 1,
+                },
+            ]
+        },
+        execution_key=execution,
+    )
+    c0 = out["candidates"][0]["candidate_id"]
+    c1 = out["candidates"][1]["candidate_id"]
+    assert c0 != planted
+    assert c1 != planted
+    assert c0 != c1  # same name, different evidence → distinct ids
+    assert c0 == server_owned_candidate_id(
+        execution_key=execution, name="Twin", evidence_ids=[s1]
+    )
+    # Stable across calls
+    again = stamp_server_owned_candidate_ids(
+        {
+            "candidates": [
+                {"name": "Twin", "evidence_ids": [s1], "confidence": 1},
+            ]
+        },
+        execution_key=execution,
+    )
+    assert again["candidates"][0]["candidate_id"] == c0
+
+
 def test_content_checksum_matches_signal_contract() -> None:
     # Documented Signal formula
-    material = "Acme Sensors\nIndustrial sensors DE\nhttps://acme.example/about".encode("utf-8")
+    material = b"Acme Sensors\nIndustrial sensors DE\nhttps://acme.example/about"
     expected = "sha256:" + hashlib.sha256(material).hexdigest()
     assert (
         content_checksum(
@@ -650,8 +777,8 @@ def test_content_checksum_matches_signal_contract() -> None:
 
 
 def test_migration_0034_head_chain() -> None:
-    from pathlib import Path
     import re
+    from pathlib import Path
 
     versions = Path(__file__).resolve().parents[1] / "migrations" / "versions"
     text = (versions / "20260806_0034_web_search_evidence.py").read_text()
@@ -673,8 +800,9 @@ def test_migration_0034_head_chain() -> None:
 
 
 def test_model_check_includes_web_search() -> None:
-    from opn_oracle.oracle.models import Evidence
     from sqlalchemy import CheckConstraint
+
+    from opn_oracle.oracle.models import Evidence
 
     found = False
     for c in Evidence.__table__.constraints:

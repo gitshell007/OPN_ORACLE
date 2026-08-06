@@ -1630,6 +1630,7 @@ def execute_agent(
             from opn_oracle.ai.citable_sources import (
                 apply_market_competitor_citable_gate,
                 reserved_sources_for_output,
+                stamp_server_owned_candidate_ids,
             )
 
             citable = getattr(result, "citable_sources", ()) or ()
@@ -1641,6 +1642,9 @@ def execute_agent(
                 )
             elif citable and output.get("reserved_citable_sources") is None:
                 output["reserved_citable_sources"] = reserved_sources_for_output(citable)
+            # Deterministic candidate_id after gate (execution = audit_log identity).
+            # Never accept candidate_id from model JSON.
+            output = stamp_server_owned_candidate_ids(output, execution_key=audit_id)
             # Never create Evidence ORM during discovery (human gate later).
             output.pop("materialized_evidence_ids", None)
         if agent == "opportunity":

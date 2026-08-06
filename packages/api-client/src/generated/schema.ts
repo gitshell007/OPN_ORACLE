@@ -2217,8 +2217,8 @@ export interface paths {
         put?: never;
         /**
          * Human gate: materialize selected reserved sources into Evidence for a dossier.
-         * @description Requires artifact_id + dossier_id + selected candidates/source_ids.
-         *     Fail-closed on cross-tenant, superseded artifact, version drift, alien UUIDs.
+         * @description Requires artifact_id + dossier_id + selected[{candidate_id, source_ids}].
+         *     Fail-closed on cross-tenant, non-candidate status, version drift, alien UUIDs.
          *     Idempotent: two retries do not duplicate Evidence rows.
          */
         post: {
@@ -34590,6 +34590,8 @@ export interface components {
             materialized: components["schemas"]["MaterializedEvidence"][];
         };
         MarketCompetitorCandidate: {
+            /** @default null */
+            candidate_id: string | null;
             /** @default [] */
             citable_sources: components["schemas"]["CitableSourcePublic"][];
             confidence: number;
@@ -34654,11 +34656,11 @@ export interface components {
             job: components["schemas"]["TenderSearchWizardJob"];
         };
         MarketCompetitorSelection: {
+            candidate_id: string;
             /** @default [] */
             evidence_ids: string[];
             /** @default  */
             name: string;
-            /** @default [] */
             source_ids: string[];
         };
         MarketProfileInput: {

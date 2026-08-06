@@ -5703,6 +5703,11 @@
       "MarketCompetitorCandidate": {
         "additionalProperties": false,
         "properties": {
+          "candidate_id": {
+            "default": null,
+            "nullable": true,
+            "type": "string"
+          },
           "citable_sources": {
             "default": [],
             "items": {
@@ -5958,6 +5963,9 @@
       "MarketCompetitorSelection": {
         "additionalProperties": false,
         "properties": {
+          "candidate_id": {
+            "type": "string"
+          },
           "evidence_ids": {
             "default": [],
             "items": {
@@ -5970,13 +5978,16 @@
             "type": "string"
           },
           "source_ids": {
-            "default": [],
             "items": {
               "type": "string"
             },
             "type": "array"
           }
         },
+        "required": [
+          "candidate_id",
+          "source_ids"
+        ],
         "type": "object"
       },
       "MarketProfileInput": {
@@ -14485,7 +14496,7 @@
     },
     "/api/v1/ai/market-competitor-discovery/accept": {
       "post": {
-        "description": "Requires artifact_id + dossier_id + selected candidates/source_ids.\nFail-closed on cross-tenant, superseded artifact, version drift, alien UUIDs.\nIdempotent: two retries do not duplicate Evidence rows.",
+        "description": "Requires artifact_id + dossier_id + selected[{candidate_id, source_ids}].\nFail-closed on cross-tenant, non-candidate status, version drift, alien UUIDs.\nIdempotent: two retries do not duplicate Evidence rows.",
         "parameters": [
           {
             "in": "header",
