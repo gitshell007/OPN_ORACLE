@@ -121,6 +121,8 @@ def app() -> Iterator[APIFlask]:
             "SECRET_KEY": "test-only-key",
             "DATABASE_URL": "sqlite+pysqlite:///:memory:",
             "REDIS_URL": "redis://127.0.0.1:6379/15",
+            "SESSION_TYPE": "cachelib",
+            "RATELIMIT_STORAGE_URL": "memory://",
             "LOG_FORMAT": "console",
             "OPENAPI_ENABLED": True,
         }
