@@ -65,11 +65,34 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
     echo "Valor multilínea no permitido en ORACLE_ENV_FILE: $key" >&2
     exit 2
   fi
+  # Sensitive names must not appear inline. The sole name exception is
+  # ORACLE_SECRETS_DIR. Keys that end exactly in _FILE may pass only when the
+  # value is a validated file reference (absolute, regular, readable, not a
+  # symlink). Contents of that file are never read here.
   if [[ "$key" != "ORACLE_SECRETS_DIR" && \
         "$key" =~ (SECRET|PASSWORD|TOKEN|PRIVATE|CREDENTIAL) ]]; then
-    echo "ORACLE_ENV_FILE contiene una clave de posible secreto inline: $key" >&2
-    echo "Materialízala como secret file fuera de oracle.env." >&2
-    exit 2
+    if [[ "$key" == *_FILE ]]; then
+      if [[ -z "$value" ]]; then
+        echo "ORACLE_ENV_FILE: referencia de fichero vacía para $key." >&2
+        exit 2
+      fi
+      if [[ "$value" != /* ]]; then
+        echo "ORACLE_ENV_FILE: $key debe ser una ruta absoluta a un fichero regular legible." >&2
+        exit 2
+      fi
+      if [[ -L "$value" ]]; then
+        echo "ORACLE_ENV_FILE: $key no puede ser un enlace simbólico." >&2
+        exit 2
+      fi
+      if [[ ! -f "$value" || ! -r "$value" ]]; then
+        echo "ORACLE_ENV_FILE: $key debe apuntar a un fichero regular legible." >&2
+        exit 2
+      fi
+    else
+      echo "ORACLE_ENV_FILE contiene una clave de posible secreto inline: $key" >&2
+      echo "Materialízala como secret file fuera de oracle.env." >&2
+      exit 2
+    fi
   fi
   seen_env[$key]=1
   [[ "$key" == "ORACLE_RELEASE" ]] && release_from_file="$value"
