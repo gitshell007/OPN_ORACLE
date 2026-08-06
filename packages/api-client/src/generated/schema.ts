@@ -12456,6 +12456,208 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/pliego-acquisition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado durable/honesto de adquisición de pliego (G-11).
+         * @description Siempre ofrece CTA de subida manual; no confunde documents=[] con éxito.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/pliego-pcap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Subida manual del PCAP: pipeline real de parsing/chunking/evidencia + auditoría. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Operación completada */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PliegoPcapUploadResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/procurement": {
         parameters: {
             query?: never;
@@ -36134,6 +36336,36 @@ export interface components {
             /** Format: password */
             password: string;
         };
+        /** @description Estado honesto de adquisición de pliego (G-11). La descarga automática es best-effort; siempre se ofrece subida manual. */
+        PliegoAcquisitionResponse: {
+            acquisitions: components["schemas"]["JsonObject"][];
+            cta: components["schemas"]["JsonObject"];
+            /** Format: uuid */
+            dossier_id: string;
+            manual_upload_offered: boolean;
+            manual_upload_priority?: boolean;
+            /** Format: uuid */
+            opportunity_id?: string | null;
+            overall_reason?: string;
+            overall_reason_code?: string;
+            /** @enum {string} */
+            overall_status: "descargado" | "subido" | "extracto_parcial" | "no_disponible";
+            pins_without_documents?: number;
+            preferred_document?: components["schemas"]["JsonObject"] | null;
+            signal_document_refs?: number;
+        } & {
+            [key: string]: unknown;
+        };
+        PliegoPcapUploadResponse: {
+            /** @enum {string} */
+            acquisition_status: "subido" | "no_disponible";
+            document: components["schemas"]["JsonObject"];
+            job_id: string | null;
+            message: string;
+            pliego_acquisition?: components["schemas"]["PliegoAcquisitionResponse"];
+        } & {
+            [key: string]: unknown;
+        };
         Problem: {
             code: string;
             detail: string;
@@ -36389,10 +36621,14 @@ export interface components {
             confidentiality_label?: string;
             /** Format: date-time */
             created_at?: string;
+            /** @description Estado honesto por documento/adquisición: descargado, subido, extracto_parcial, no_disponible. */
+            document_acquisitions?: components["schemas"]["JsonObject"][];
             /** @description Avisos legibles para el cliente (p. ej. análisis sobre extracto porque el PDF original del pliego está cifrado). */
             document_notes?: string[];
             /** Format: uuid */
             dossier_id: string;
+            /** @description True cuando la descarga HTTP/WAF falló y se usó extracto parcial o se ofreció subida manual (G-11). */
+            download_fallback?: boolean;
             /** @description True cuando el informe se basó en extractos del expediente porque el PDF oficial venía cifrado. */
             encrypted_pdf_fallback?: boolean;
             error_code?: string | null;
@@ -36412,8 +36648,15 @@ export interface components {
             id: string;
             /** Format: uuid */
             job_id?: string | null;
+            /** @description Siempre true: la UI debe ofrecer CTA «Subir PCAP». */
+            manual_pcap_upload_offered?: boolean;
             /** Format: uuid */
             parent_report_id?: string | null;
+            /**
+             * @description Estado agregado de adquisición del pliego (G-11).
+             * @enum {string|null}
+             */
+            pliego_acquisition_status?: "descargado" | "subido" | "extracto_parcial" | "no_disponible" | null;
             /** Format: date-time */
             published_at?: string | null;
             /** Format: date-time */

@@ -8364,6 +8364,109 @@
         ],
         "type": "object"
       },
+      "PliegoAcquisitionResponse": {
+        "additionalProperties": true,
+        "description": "Estado honesto de adquisici\u00f3n de pliego (G-11). La descarga autom\u00e1tica es best-effort; siempre se ofrece subida manual.",
+        "properties": {
+          "acquisitions": {
+            "items": {
+              "$ref": "#/components/schemas/JsonObject"
+            },
+            "type": "array"
+          },
+          "cta": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "manual_upload_offered": {
+            "type": "boolean"
+          },
+          "manual_upload_priority": {
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "overall_reason": {
+            "type": "string"
+          },
+          "overall_reason_code": {
+            "type": "string"
+          },
+          "overall_status": {
+            "enum": [
+              "descargado",
+              "subido",
+              "extracto_parcial",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "pins_without_documents": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "preferred_document": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signal_document_refs": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dossier_id",
+          "overall_status",
+          "manual_upload_offered",
+          "cta",
+          "acquisitions"
+        ],
+        "type": "object"
+      },
+      "PliegoPcapUploadResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "acquisition_status": {
+            "enum": [
+              "subido",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "job_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "pliego_acquisition": {
+            "$ref": "#/components/schemas/PliegoAcquisitionResponse"
+          }
+        },
+        "required": [
+          "document",
+          "job_id",
+          "acquisition_status",
+          "message"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "properties": {
@@ -9261,6 +9364,13 @@
             "format": "date-time",
             "type": "string"
           },
+          "document_acquisitions": {
+            "description": "Estado honesto por documento/adquisici\u00f3n: descargado, subido, extracto_parcial, no_disponible.",
+            "items": {
+              "$ref": "#/components/schemas/JsonObject"
+            },
+            "type": "array"
+          },
           "document_notes": {
             "description": "Avisos legibles para el cliente (p. ej. an\u00e1lisis sobre extracto porque el PDF original del pliego est\u00e1 cifrado).",
             "items": {
@@ -9271,6 +9381,10 @@
           "dossier_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "download_fallback": {
+            "description": "True cuando la descarga HTTP/WAF fall\u00f3 y se us\u00f3 extracto parcial o se ofreci\u00f3 subida manual (G-11).",
+            "type": "boolean"
           },
           "encrypted_pdf_fallback": {
             "description": "True cuando el informe se bas\u00f3 en extractos del expediente porque el PDF oficial ven\u00eda cifrado.",
@@ -9353,8 +9467,23 @@
             "nullable": true,
             "type": "string"
           },
+          "manual_pcap_upload_offered": {
+            "description": "Siempre true: la UI debe ofrecer CTA \u00abSubir PCAP\u00bb.",
+            "type": "boolean"
+          },
           "parent_report_id": {
             "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "pliego_acquisition_status": {
+            "description": "Estado agregado de adquisici\u00f3n del pliego (G-11).",
+            "enum": [
+              "descargado",
+              "subido",
+              "extracto_parcial",
+              "no_disponible"
+            ],
             "nullable": true,
             "type": "string"
           },
@@ -28156,6 +28285,226 @@
         "summary": "Oracle Summary Feedback",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/pliego-acquisition": {
+      "get": {
+        "description": "Siempre ofrece CTA de subida manual; no confunde documents=[] con \u00e9xito.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Estado durable/honesto de adquisici\u00f3n de pliego (G-11).",
+        "tags": [
+          "Adquisici\u00f3n de pliego"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/pliego-pcap": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PliegoPcapUploadResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Subida manual del PCAP: pipeline real de parsing/chunking/evidencia + auditor\u00eda.",
+        "tags": [
+          "Adquisici\u00f3n de pliego"
         ]
       }
     },
@@ -55677,6 +56026,9 @@
     },
     {
       "name": "Ciclo de vida de la oferta"
+    },
+    {
+      "name": "Adquisici\u00f3n de pliego"
     },
     {
       "name": "Intenci\u00f3n del expediente"

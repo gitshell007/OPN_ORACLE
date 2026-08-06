@@ -19,7 +19,14 @@ export type {
   AiAuditListItem,
   AiAuditListQuery,
 } from "./transport";
-export type { DocumentSearchResult, OracleDocument } from "./transport";
+export type {
+  DocumentSearchResult,
+  OracleDocument,
+  PliegoAcquisitionItem,
+  PliegoAcquisitionResponse,
+  PliegoAcquisitionStatus,
+  PliegoPcapUploadResponse,
+} from "./transport";
 export type { BackendDossier } from "./transport";
 export type {
   DossierCollaborator,

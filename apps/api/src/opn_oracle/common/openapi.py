@@ -391,6 +391,14 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
             "patch",
         ): ("200", "OpportunityOfferLifecycleResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/pliego-acquisition",
+            "get",
+        ): ("200", "PliegoAcquisitionResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/pliego-pcap",
+            "post",
+        ): ("202", "PliegoPcapUploadResponse"),
         # Binary DOCX export is handled in declare_problem_responses (not JSON typed_responses).
         ("/api/v1/dossiers/{dossier_id}/intent", "get"): ("200", "IntentOverviewResponse"),
         ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): (
@@ -2271,6 +2279,60 @@ def _oracle_schemas() -> dict[str, Any]:
                 },
             },
         },
+        "PliegoAcquisitionResponse": {
+            "type": "object",
+            "additionalProperties": True,
+            "required": [
+                "dossier_id",
+                "overall_status",
+                "manual_upload_offered",
+                "cta",
+                "acquisitions",
+            ],
+            "properties": {
+                "dossier_id": uuid,
+                "opportunity_id": nullable_uuid,
+                "overall_status": {
+                    "type": "string",
+                    "enum": [
+                        "descargado",
+                        "subido",
+                        "extracto_parcial",
+                        "no_disponible",
+                    ],
+                },
+                "overall_reason_code": string,
+                "overall_reason": string,
+                "manual_upload_offered": {"type": "boolean"},
+                "manual_upload_priority": {"type": "boolean"},
+                "cta": json_object,
+                "signal_document_refs": {"type": "integer", "minimum": 0},
+                "pins_without_documents": {"type": "integer", "minimum": 0},
+                "preferred_document": {"oneOf": [json_object, {"type": "null"}]},
+                "acquisitions": {"type": "array", "items": json_object},
+            },
+            "description": (
+                "Estado honesto de adquisición de pliego (G-11). "
+                "La descarga automática es best-effort; siempre se ofrece subida manual."
+            ),
+        },
+        "PliegoPcapUploadResponse": {
+            "type": "object",
+            "additionalProperties": True,
+            "required": ["document", "job_id", "acquisition_status", "message"],
+            "properties": {
+                "document": json_object,
+                "job_id": {"type": "string", "nullable": True},
+                "acquisition_status": {
+                    "type": "string",
+                    "enum": ["subido", "no_disponible"],
+                },
+                "message": string,
+                "pliego_acquisition": {
+                    "$ref": "#/components/schemas/PliegoAcquisitionResponse"
+                },
+            },
+        },
         "IntentDraftCreateInput": {
             "type": "object",
             "additionalProperties": False,
@@ -3582,6 +3644,36 @@ def _reporting_schemas() -> dict[str, Any]:
                     "True cuando el informe se basó en extractos del expediente "
                     "porque el PDF oficial venía cifrado."
                 ),
+            },
+            "download_fallback": {
+                "type": "boolean",
+                "description": (
+                    "True cuando la descarga HTTP/WAF falló y se usó extracto parcial "
+                    "o se ofreció subida manual (G-11)."
+                ),
+            },
+            "document_acquisitions": {
+                "type": "array",
+                "items": json_object,
+                "description": (
+                    "Estado honesto por documento/adquisición: descargado, subido, "
+                    "extracto_parcial, no_disponible."
+                ),
+            },
+            "pliego_acquisition_status": {
+                "type": "string",
+                "nullable": True,
+                "enum": [
+                    "descargado",
+                    "subido",
+                    "extracto_parcial",
+                    "no_disponible",
+                ],
+                "description": "Estado agregado de adquisición del pliego (G-11).",
+            },
+            "manual_pcap_upload_offered": {
+                "type": "boolean",
+                "description": "Siempre true: la UI debe ofrecer CTA «Subir PCAP».",
             },
             "revision": {"oneOf": [json_object, {"type": "null"}]},
             "artifacts": {"type": "array", "items": artifact},

@@ -789,6 +789,65 @@ export interface OracleDocument {
   updated_at: string;
 }
 
+/** G-11 · estado honesto de adquisición de pliego/PCAP. */
+export type PliegoAcquisitionStatus =
+  | "descargado"
+  | "subido"
+  | "extracto_parcial"
+  | "no_disponible";
+
+export interface PliegoAcquisitionItem {
+  key?: string;
+  status: PliegoAcquisitionStatus | string;
+  reason_code?: string;
+  reason?: string;
+  folder_id?: string | null;
+  kind?: string | null;
+  procurement_item_id?: string | null;
+  opportunity_id?: string | null;
+  source_uri?: string | null;
+  file_name?: string | null;
+  document?: {
+    id: string;
+    filename: string;
+    status: string;
+    media_type?: string;
+    byte_size?: number;
+    acquisition?: Record<string, unknown> | null;
+    created_at?: string | null;
+  } | null;
+  manual_upload_offered?: boolean;
+  http_status?: number | null;
+  is_full_pcap?: boolean;
+}
+
+export interface PliegoAcquisitionResponse {
+  dossier_id: string;
+  opportunity_id?: string | null;
+  overall_status: PliegoAcquisitionStatus;
+  overall_reason_code?: string;
+  overall_reason?: string;
+  manual_upload_offered: boolean;
+  manual_upload_priority?: boolean;
+  cta: {
+    label: string;
+    action: string;
+    hint?: string;
+  };
+  signal_document_refs?: number;
+  pins_without_documents?: number;
+  preferred_document?: PliegoAcquisitionItem["document"] | null;
+  acquisitions: PliegoAcquisitionItem[];
+}
+
+export interface PliegoPcapUploadResponse {
+  document: OracleDocument;
+  job_id: string | null;
+  acquisition_status: "subido" | "no_disponible" | string;
+  message: string;
+  pliego_acquisition?: PliegoAcquisitionResponse;
+}
+
 export interface BackendDossier {
   id: string;
   title: string;
@@ -3582,6 +3641,39 @@ const dossierProcurement = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/reports`,
       { method: "POST", body: input, idempotencyKey },
     ),
+  /** G-11 · estado honesto de pliego (siempre ofrece subida manual). */
+  pliegoAcquisition: (dossierId: string, opportunityId?: string) => {
+    const query = opportunityId
+      ? `?opportunity_id=${encodeURIComponent(opportunityId)}`
+      : "";
+    return request<PliegoAcquisitionResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/pliego-acquisition${query}`,
+    );
+  },
+  /** G-11 · subida manual del PCAP por el pipeline real de documentos. */
+  uploadPliegoPcap: (
+    dossierId: string,
+    file: File,
+    options: {
+      classification?: "public" | "internal";
+      opportunityId?: string;
+      procurementItemId?: string;
+      folderId?: string;
+    } = {},
+  ) => {
+    const body = new FormData();
+    body.set("file", file);
+    body.set("classification", options.classification ?? "internal");
+    if (options.opportunityId) body.set("opportunity_id", options.opportunityId);
+    if (options.procurementItemId) {
+      body.set("procurement_item_id", options.procurementItemId);
+    }
+    if (options.folderId) body.set("folder_id", options.folderId);
+    return request<PliegoPcapUploadResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/pliego-pcap`,
+      { method: "POST", body },
+    );
+  },
 };
 
 const reports = {
