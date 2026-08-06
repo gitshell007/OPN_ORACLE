@@ -1474,7 +1474,16 @@ def _answer_via_signal(
         agent="dossier_question_answer",
         dossier_id=dossier_id,
         job=job,
-        context_factory=lambda max_tokens: build_context(dossier_id, max_tokens=max_tokens),
+        # Ask owns a stricter memory allowlist than the generic dossier context:
+        # only the current dual-memory materialization below is citable.  Keeping
+        # generic ``memory_signal`` rows here can expose stale IDs to Signal that
+        # the conversation-layer validator correctly rejects afterwards.
+        context_factory=lambda max_tokens: build_context(
+            dossier_id,
+            max_tokens=max_tokens,
+            question=message.content_text,
+            memory_mode="disabled",
+        ),
         supplemental_context={
             "question": message.content_text,
             "oracle_authority": dict((dual_blocks or {}).get("oracle_authority") or {}),
