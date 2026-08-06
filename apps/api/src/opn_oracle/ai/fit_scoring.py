@@ -538,39 +538,28 @@ def score_solvency_dimension(
         )
     requirement = " ".join(req_parts)
 
-    # Capacidad declarada
+    # Capacidad declarada (texto). own_offer / barriers = contexto, NO acreditación.
     cap_parts: list[str] = []
-    declared_ids: list[str] = []
     if annual_volume is not None and str(annual_volume).strip():
         cap_parts.append(f"[declarado] Volumen anual declarado: {annual_volume}.")
-        declared_ids.extend(
-            _declared_field_id(declared_by_field, "annual_turnover")
-            or _declared_field_id(declared_by_field, "annual_volume")
-            or _declared_field_id(declared_by_field, "volumen_anual_negocio")
-        )
     else:
         cap_parts.append("[declarado] El perfil **no** declara volumen anual de negocio.")
     if past_services is not None and str(past_services).strip():
         cap_parts.append(
             f"[declarado] Referencias técnicas declaradas: {str(past_services)[:300]}."
         )
-        declared_ids.extend(
-            _declared_field_id(declared_by_field, "past_services")
-            or _declared_field_id(declared_by_field, "technical_references")
-            or _declared_field_id(declared_by_field, "servicios_ultimos_tres_anos")
-        )
     else:
         cap_parts.append(
             "[declarado] El perfil **no** declara servicios de los últimos tres años "
             "ni certificados de buena ejecución."
         )
-    # own_offer / barriers como contexto, no como acreditación
+    # own_offer / barriers: contexto textual claramente no acreditativo.
+    # Sus UUIDs NUNCA entran en declared_evidence_ids de solvencia.
     own = str(profile.get("own_offer") or "").strip()
     if own:
         cap_parts.append(
             f"[declarado] Oferta propia (no es acreditación de solvencia): {own[:220]}."
         )
-        declared_ids.extend(_declared_field_id(declared_by_field, "own_offer"))
     barriers = profile.get("barriers") or []
     if isinstance(barriers, list) and any(
         "solvencia" in str(b).casefold() or "homolog" in str(b).casefold() for b in barriers
@@ -578,9 +567,28 @@ def score_solvency_dimension(
         cap_parts.append(
             "[declarado] El perfil reconoce barreras de homologación/solvencia en AAPP."
         )
-        declared_ids.extend(_declared_field_id(declared_by_field, "barriers"))
-    declared_ids = list(dict.fromkeys(declared_ids))
     capability = " ".join(cap_parts)
+
+    can_eval_econ = annual_volume is not None and str(annual_volume).strip() != ""
+    can_eval_tech = past_services is not None and str(past_services).strip() != ""
+
+    # Exact F.2/F.3 citations: only fields the algorithm uses for this decision.
+    # Order deterministic: turnover (if F.2 + data) then services (if F.3 + data).
+    # No own_offer / barriers; no extras from unused dimensions.
+    declared_ids: list[str] = []
+    if has_f2 and can_eval_econ:
+        declared_ids.extend(
+            _declared_field_id(declared_by_field, "annual_turnover")
+            or _declared_field_id(declared_by_field, "annual_volume")
+            or _declared_field_id(declared_by_field, "volumen_anual_negocio")
+        )
+    if has_f3 and can_eval_tech:
+        declared_ids.extend(
+            _declared_field_id(declared_by_field, "past_services")
+            or _declared_field_id(declared_by_field, "technical_references")
+            or _declared_field_id(declared_by_field, "servicios_ultimos_tres_anos")
+        )
+    declared_ids = list(dict.fromkeys(declared_ids))
 
     if not has_f2 and not has_f3:
         return _dimension(
@@ -594,9 +602,6 @@ def score_solvency_dimension(
             status_reason=_NOT_EVALUABLE
             + ": no hay requisito de solvencia en la evidencia oficial cargada.",
         )
-
-    can_eval_econ = annual_volume is not None and str(annual_volume).strip() != ""
-    can_eval_tech = past_services is not None and str(past_services).strip() != ""
 
     if has_f2 and not can_eval_econ and has_f3 and not can_eval_tech:
         return _dimension(

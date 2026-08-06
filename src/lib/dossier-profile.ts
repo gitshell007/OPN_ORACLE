@@ -142,17 +142,49 @@ export function annualTurnoverToField(value: unknown): string {
 }
 
 /**
- * Serialize draft annual_turnover to a finite number ≥0, or omit (undefined).
- * Empty / whitespace → undefined (clean absence). Rejects NaN.
+ * Three-state parse of annual_turnover draft text.
+ * Invalid is NEVER represented as empty/undefined — callers must surface the message.
+ */
+export type AnnualTurnoverParse =
+  | { status: "empty" }
+  | { status: "valid"; value: number }
+  | { status: "invalid"; message: string };
+
+export const ANNUAL_TURNOVER_INVALID_MSG =
+  "Introduce un número ≥ 0 (sin moneda ni separadores de miles). Ej.: 2000000 o 2000000.50";
+
+export const PAST_SERVICES_TOO_LONG_MSG = (max: number) =>
+  `Los servicios similares no pueden superar ${max} caracteres.`;
+
+/**
+ * Parse draft annual_turnover: empty | valid (≥0 finite) | invalid with message.
+ * Empty / whitespace → empty (clean absence). `0` is valid. No permissive coercion.
+ */
+export function parseAnnualTurnover(value: string): AnnualTurnoverParse {
+  const trimmed = value.trim().replace(/\s+/g, "");
+  if (!trimmed) return { status: "empty" };
+  // Single optional decimal separator; no thousands separators, currency, or signs.
+  const normalized = trimmed.includes(",") && !trimmed.includes(".")
+    ? trimmed.replace(",", ".")
+    : trimmed;
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    return { status: "invalid", message: ANNUAL_TURNOVER_INVALID_MSG };
+  }
+  const n = Number(normalized);
+  if (!Number.isFinite(n) || n < 0) {
+    return { status: "invalid", message: ANNUAL_TURNOVER_INVALID_MSG };
+  }
+  return { status: "valid", value: Number.isInteger(n) ? n : n };
+}
+
+/**
+ * @deprecated Prefer parseAnnualTurnover — this collapses empty and invalid to undefined.
+ * Kept only for callers that need the valid number; invalid/empty both yield undefined.
+ * Serialization must use parseAnnualTurnover / solvencyPayloadFromDraft (fail-closed).
  */
 export function annualTurnoverFromField(value: string): number | undefined {
-  const trimmed = value.trim().replace(/\s+/g, "");
-  if (!trimmed) return undefined;
-  const normalized = trimmed.replace(",", ".");
-  if (!/^\d+(\.\d+)?$/.test(normalized)) return undefined;
-  const n = Number(normalized);
-  if (!Number.isFinite(n) || n < 0) return undefined;
-  return Number.isInteger(n) ? n : n;
+  const parsed = parseAnnualTurnover(value);
+  return parsed.status === "valid" ? parsed.value : undefined;
 }
 
 export function pastServicesToField(value: unknown): string {
@@ -166,6 +198,57 @@ export const PAST_SERVICES_MAX_LEN = 4000;
 export const SOLVENCY_DECLARED_HINT =
   "Declarado por el cliente; no sustituye certificados ni documentación oficial.";
 
+/** Field-level solvency validation errors (accessible UI messages). */
+export type SolvencyFieldErrors = {
+  annual_turnover?: string;
+  past_services?: string;
+};
+
+/**
+ * Validate declared solvency draft without serializing.
+ * Empty turnover → no error (clean absence). Invalid → message. Services over limit → message.
+ */
+export function validateSolvencyDraft(draft: DeclaredSolvencyDraft): SolvencyFieldErrors {
+  const errors: SolvencyFieldErrors = {};
+  const turnover = parseAnnualTurnover(draft.annual_turnover);
+  if (turnover.status === "invalid") {
+    errors.annual_turnover = turnover.message;
+  }
+  // Do not trim for length check: integrity on the exact draft string the user holds.
+  if (draft.past_services.length > PAST_SERVICES_MAX_LEN) {
+    errors.past_services = PAST_SERVICES_TOO_LONG_MSG(PAST_SERVICES_MAX_LEN);
+  }
+  return errors;
+}
+
+export function hasSolvencyFieldErrors(errors: SolvencyFieldErrors): boolean {
+  return Boolean(errors.annual_turnover || errors.past_services);
+}
+
+/**
+ * Fail-closed solvency serialization.
+ * - empty turnover → omit field (clean absence)
+ * - valid → normalized number
+ * - invalid turnover or over-long services → throws (never omit/truncate silently)
+ */
+export function solvencyPayloadFromDraft(draft: DeclaredSolvencyDraft): Record<string, unknown> {
+  const errors = validateSolvencyDraft(draft);
+  if (hasSolvencyFieldErrors(errors)) {
+    const parts = [errors.annual_turnover, errors.past_services].filter(Boolean);
+    throw new Error(parts.join(" "));
+  }
+  const payload: Record<string, unknown> = {};
+  const turnover = parseAnnualTurnover(draft.annual_turnover);
+  if (turnover.status === "valid") {
+    payload.annual_turnover = turnover.value;
+  }
+  const services = draft.past_services.trim();
+  if (services) {
+    // Length already validated; never slice.
+    payload.past_services = services;
+  }
+  return payload;
+}
 export function emptyMarketDraft(): MarketProfileDraft {
   return {
     kind: "market",
@@ -234,18 +317,9 @@ function solvencyFromProfile(profile: Record<string, unknown>): DeclaredSolvency
   };
 }
 
-/** Merge optional solvency keys into payload; empty → omit (no 0 / ghost string). */
+/** Merge optional solvency keys; fail-closed via solvencyPayloadFromDraft. */
 function solvencyToPayload(draft: DeclaredSolvencyDraft): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
-  const turnover = annualTurnoverFromField(draft.annual_turnover);
-  if (turnover !== undefined) {
-    payload.annual_turnover = turnover;
-  }
-  const services = draft.past_services.trim();
-  if (services) {
-    payload.past_services = services.slice(0, PAST_SERVICES_MAX_LEN);
-  }
-  return payload;
+  return solvencyPayloadFromDraft(draft);
 }
 
 function customDraftFromProfile(profile: Record<string, unknown>): CustomProfileDraft {

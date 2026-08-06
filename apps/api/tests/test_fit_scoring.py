@@ -171,8 +171,11 @@ def test_solvency_with_declared_volume_can_fail() -> None:
     solv = next(d for d in scored["dimensions"] if d["key"] == "solvency")
     assert solv["status"] == "no_fit"
     assert scored["verdict"]["recommendation"] == "no_go"
-    assert declared["annual_turnover"] in solv["declared_evidence_ids"]
-    assert declared["past_services"] in solv["declared_evidence_ids"]
+    # Exact F.2+F.3 citations — no own_offer/barriers context IDs
+    assert solv["declared_evidence_ids"] == [
+        declared["annual_turnover"],
+        declared["past_services"],
+    ]
 
 
 def test_closed_deadline_is_no_go() -> None:

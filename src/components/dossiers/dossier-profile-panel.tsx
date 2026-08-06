@@ -2,7 +2,7 @@
 
 import { Save } from "lucide-react";
 import Link from "next/link";
-import { FormEvent } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   type CompetitiveProfileDraft,
@@ -10,10 +10,13 @@ import {
   type DeclaredSolvencyDraft,
   type MarketProfileDraft,
   type ProfileDraft,
+  type SolvencyFieldErrors,
   PAST_SERVICES_MAX_LEN,
   SOLVENCY_DECLARED_HINT,
+  hasSolvencyFieldErrors,
   profileHasContent,
   profileKindFor,
+  validateSolvencyDraft,
 } from "@/lib/dossier-profile";
 
 type Props = {
@@ -39,7 +42,7 @@ function Field({
   required,
   hint,
   inputMode,
-  maxLength,
+  error,
 }: {
   id: string;
   label: string;
@@ -50,8 +53,12 @@ function Field({
   required?: boolean;
   hint?: string;
   inputMode?: "decimal" | "text";
-  maxLength?: number;
+  error?: string;
 }) {
+  const errorId = `${id}-error`;
+  const describedBy = [hint ? `${id}-hint` : null, error ? errorId : null]
+    .filter(Boolean)
+    .join(" ") || undefined;
   return (
     <label className={`field${multiline ? " full" : ""}`}>
       <span id={`${id}-label`}>{label}</span>
@@ -59,25 +66,34 @@ function Field({
         <textarea
           id={id}
           aria-labelledby={`${id}-label`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           value={value}
           required={required}
           disabled={disabled}
-          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
         />
       ) : (
         <input
           id={id}
           aria-labelledby={`${id}-label`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           value={value}
           required={required}
           disabled={disabled}
           inputMode={inputMode}
-          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
         />
       )}
-      {hint ? <small>{hint}</small> : null}
+      {hint ? (
+        <small id={`${id}-hint`}>{hint}</small>
+      ) : null}
+      {error ? (
+        <small id={errorId} role="alert" data-testid={`${id}-error`} className="field-error">
+          {error}
+        </small>
+      ) : null}
     </label>
   );
 }
@@ -86,10 +102,12 @@ function SolvencyFields({
   draft,
   onChange,
   disabled,
+  errors,
 }: {
   draft: DeclaredSolvencyDraft;
   onChange(patch: Partial<DeclaredSolvencyDraft>): void;
   disabled?: boolean;
+  errors?: SolvencyFieldErrors;
 }) {
   return (
     <>
@@ -100,6 +118,7 @@ function SolvencyFields({
         inputMode="decimal"
         disabled={disabled}
         hint={SOLVENCY_DECLARED_HINT}
+        error={errors?.annual_turnover}
         onChange={(value) => onChange({ annual_turnover: value })}
       />
       <Field
@@ -108,8 +127,8 @@ function SolvencyFields({
         value={draft.past_services}
         multiline
         disabled={disabled}
-        maxLength={PAST_SERVICES_MAX_LEN}
-        hint={SOLVENCY_DECLARED_HINT}
+        hint={`${SOLVENCY_DECLARED_HINT} Máximo ${PAST_SERVICES_MAX_LEN} caracteres.`}
+        error={errors?.past_services}
         onChange={(value) => onChange({ past_services: value })}
       />
     </>
@@ -130,10 +149,12 @@ function MarketFields({
   draft,
   onChange,
   disabled,
+  solvencyErrors,
 }: {
   draft: MarketProfileDraft;
   onChange(next: MarketProfileDraft): void;
   disabled?: boolean;
+  solvencyErrors?: SolvencyFieldErrors;
 }) {
   const set = <K extends keyof MarketProfileDraft>(key: K, value: MarketProfileDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -241,6 +262,7 @@ function MarketFields({
       <SolvencyFields
         draft={draft}
         disabled={disabled}
+        errors={solvencyErrors}
         onChange={(patch) => onChange({ ...draft, ...patch })}
       />
     </>
@@ -251,10 +273,12 @@ function CompetitiveFields({
   draft,
   onChange,
   disabled,
+  solvencyErrors,
 }: {
   draft: CompetitiveProfileDraft;
   onChange(next: CompetitiveProfileDraft): void;
   disabled?: boolean;
+  solvencyErrors?: SolvencyFieldErrors;
 }) {
   const set = <K extends keyof CompetitiveProfileDraft>(
     key: K,
@@ -372,6 +396,7 @@ function CompetitiveFields({
       <SolvencyFields
         draft={draft}
         disabled={disabled}
+        errors={solvencyErrors}
         onChange={(patch) => onChange({ ...draft, ...patch })}
       />
     </>
@@ -382,10 +407,12 @@ function CustomFields({
   draft,
   onChange,
   disabled,
+  solvencyErrors,
 }: {
   draft: CustomProfileDraft;
   onChange(next: CustomProfileDraft): void;
   disabled?: boolean;
+  solvencyErrors?: SolvencyFieldErrors;
 }) {
   const set = <K extends keyof CustomProfileDraft>(key: K, value: CustomProfileDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -494,6 +521,7 @@ function CustomFields({
       <SolvencyFields
         draft={draft}
         disabled={disabled}
+        errors={solvencyErrors}
         onChange={(patch) => onChange({ ...draft, ...patch })}
       />
     </>
@@ -573,6 +601,20 @@ export function DossierProfilePanel({
 }: Props) {
   const kind = profileKindFor(dossierType, profileConfig);
   const hasContent = profileHasContent(profileConfig);
+  const [solvencyErrors, setSolvencyErrors] = useState<SolvencyFieldErrors>({});
+
+  // Clear field errors when the corresponding draft value becomes valid again.
+  useEffect(() => {
+    if (!draft || readOnly) return;
+    const next = validateSolvencyDraft(draft);
+    setSolvencyErrors((prev) => {
+      if (!hasSolvencyFieldErrors(prev)) return prev;
+      const cleared: SolvencyFieldErrors = { ...prev };
+      if (!next.annual_turnover) delete cleared.annual_turnover;
+      if (!next.past_services) delete cleared.past_services;
+      return cleared;
+    });
+  }, [draft, readOnly]);
 
   if (kind === "empty") return null;
 
@@ -627,6 +669,23 @@ export function DossierProfilePanel({
         ? "Oferta propia, competidores, CPV y criterios del alta de inteligencia competitiva. Edítalos aquí; se guardan en profile_config."
         : "Oferta propia, competidores, CPV, barreras y decisión del expediente. Edítalos aquí; se guardan en profile_config (custom.v1).";
 
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!draft) return;
+    const errors = validateSolvencyDraft(draft);
+    if (hasSolvencyFieldErrors(errors)) {
+      setSolvencyErrors(errors);
+      // Fail-closed: do not call parent onSave → no PATCH.
+      return;
+    }
+    setSolvencyErrors({});
+    onSave(event);
+  }
+
+  function handleDraftChange(next: ProfileDraft) {
+    onDraftChange(next);
+  }
+
   return (
     <section
       className="settings-section"
@@ -637,24 +696,27 @@ export function DossierProfilePanel({
         <h2>Perfil del expediente</h2>
         <p>{blurb}</p>
       </header>
-      <form className="dossier-settings-form competitive-intake-fields" onSubmit={onSave}>
+      <form className="dossier-settings-form competitive-intake-fields" onSubmit={handleSubmit}>
         {draft.kind === "market" ? (
           <MarketFields
             draft={draft}
             disabled={disabled || busy}
-            onChange={(next) => onDraftChange(next)}
+            solvencyErrors={solvencyErrors}
+            onChange={handleDraftChange}
           />
         ) : draft.kind === "competitive_intelligence" ? (
           <CompetitiveFields
             draft={draft}
             disabled={disabled || busy}
-            onChange={(next) => onDraftChange(next)}
+            solvencyErrors={solvencyErrors}
+            onChange={handleDraftChange}
           />
         ) : (
           <CustomFields
             draft={draft}
             disabled={disabled || busy}
-            onChange={(next) => onDraftChange(next)}
+            solvencyErrors={solvencyErrors}
+            onChange={handleDraftChange}
           />
         )}
         <div className="settings-actions full">

@@ -306,13 +306,17 @@ def test_demo_g08_four_fit_clean_go() -> None:
 
     solv = next(d for d in scored["dimensions"] if d["key"] == "solvency")
     assert str(DEMO_OFFICIAL_ID) in solv["official_evidence_ids"]
-    assert declared["annual_turnover"] in solv["declared_evidence_ids"]
-    assert declared["past_services"] in solv["declared_evidence_ids"]
+    # Exact array equality: F.2+F.3 with both data → [turnover, services] only.
+    # own_offer / barriers may appear in capability text but NEVER as evidence IDs.
+    assert solv["declared_evidence_ids"] == [
+        declared["annual_turnover"],
+        declared["past_services"],
+    ]
+    assert declared["own_offer"] not in solv["declared_evidence_ids"]
+    assert declared["barriers"] not in solv["declared_evidence_ids"]
     assert "[oficial]" in solv["requirement"]
     assert "[declarado]" in solv["capability"]
-    # exactamente volumen + servicios (+ posiblemente own_offer/barriers contexto)
-    for required in (declared["annual_turnover"], declared["past_services"]):
-        assert required in solv["declared_evidence_ids"]
+    assert "no es acreditación" in solv["capability"].casefold()
 
 
 def test_low_volume_is_no_go() -> None:
@@ -371,8 +375,11 @@ def test_no_official_f2_f3_does_not_invent_threshold() -> None:
     )
 
 
-def test_solvency_declared_ids_include_volume_and_services_only_when_used() -> None:
+def test_solvency_declared_ids_exact_f2_f3_without_context() -> None:
+    """declared_evidence_ids is exactly the F.2/F.3 fields used — array equality, not `in`."""
+
     declared = _demo_declared()
+    # F.2 + F.3 with both data → exactly [turnover, services]
     scored = score_profile_tender_fit(
         profile=DEMO_PROFILE,
         declared_by_field=declared,
@@ -381,11 +388,57 @@ def test_solvency_declared_ids_include_volume_and_services_only_when_used() -> N
     )
     assert scored is not None
     solv = next(d for d in scored["dimensions"] if d["key"] == "solvency")
-    ids = solv["declared_evidence_ids"]
-    assert declared["annual_turnover"] in ids
-    assert declared["past_services"] in ids
-    # No inventa IDs ausentes del mapa
-    assert all(isinstance(x, str) and uuid.UUID(x) for x in ids)
+    assert solv["declared_evidence_ids"] == [
+        declared["annual_turnover"],
+        declared["past_services"],
+    ]
+    assert declared["own_offer"] not in solv["declared_evidence_ids"]
+    assert declared["barriers"] not in solv["declared_evidence_ids"]
+    assert all(isinstance(x, str) and uuid.UUID(x) for x in solv["declared_evidence_ids"])
+
+    # Solo F.2 oficial → solo turnover (aunque past_services esté en el perfil)
+    f2_only = """
+    EXTRACTO sintético · CONTR 2026 88002
+    CPV 72200000 · Deadline presentación ofertas: 2026-12-31
+    F.2 Solvencia económica: volumen anual de negocio >= 1,5x valor estimado 500000 EUR.
+    Objeto: servicio de software
+    """
+    scored_f2 = score_profile_tender_fit(
+        profile=DEMO_PROFILE,
+        declared_by_field=declared,
+        official_evidence=[
+            {"id": str(DEMO_OFFICIAL_ID), "extract": f2_only, "source_kind": "document"}
+        ],
+        as_of=date(2026, 8, 6),
+    )
+    assert scored_f2 is not None
+    solv_f2 = next(d for d in scored_f2["dimensions"] if d["key"] == "solvency")
+    assert solv_f2["declared_evidence_ids"] == [declared["annual_turnover"]]
+    assert declared["past_services"] not in solv_f2["declared_evidence_ids"]
+    assert declared["own_offer"] not in solv_f2["declared_evidence_ids"]
+
+    # Solo F.3 oficial → solo services (aunque annual_turnover esté en el perfil)
+    f3_only = """
+    EXTRACTO sintético · CONTR 2026 88003
+    CPV 72200000 · Deadline presentación ofertas: 2026-12-31
+    F.3 Solvencia técnica: servicios ejecutados en los últimos tres años avalados
+    por certificados de buena ejecución.
+    Objeto: servicio de software
+    """
+    scored_f3 = score_profile_tender_fit(
+        profile=DEMO_PROFILE,
+        declared_by_field=declared,
+        official_evidence=[
+            {"id": str(DEMO_OFFICIAL_ID), "extract": f3_only, "source_kind": "document"}
+        ],
+        as_of=date(2026, 8, 6),
+    )
+    assert scored_f3 is not None
+    solv_f3 = next(d for d in scored_f3["dimensions"] if d["key"] == "solvency")
+    assert solv_f3["declared_evidence_ids"] == [declared["past_services"]]
+    assert declared["annual_turnover"] not in solv_f3["declared_evidence_ids"]
+    assert declared["own_offer"] not in solv_f3["declared_evidence_ids"]
+    assert declared["barriers"] not in solv_f3["declared_evidence_ids"]
 
 
 # --- E2E editor/PATCH → contexto → enrich (no dict manual del scorer) ---------
@@ -438,6 +491,14 @@ def test_e2e_editor_patch_validation_to_context_to_enrich_go() -> None:
         _validated_profile({**persisted, "annual_turnover": "1.000.000 EUR"}, "custom")
     with pytest.raises(DomainValidationError, match="past_services"):
         _validated_profile({**persisted, "past_services": True}, "custom")
+    with pytest.raises(DomainValidationError, match="past_services"):
+        _validated_profile({**persisted, "past_services": "x" * 4001}, "custom")
+    # max exact length persists complete
+    max_ok = _validated_profile(
+        {**persisted, "past_services": "y" * 4000},
+        "custom",
+    )
+    assert max_ok["past_services"] == "y" * 4000
 
     # 4) Contexto declarado (mismo camino que opportunity)
     row = SimpleNamespace(id=dossier_id, profile_config=persisted)
@@ -484,8 +545,12 @@ def test_e2e_editor_patch_validation_to_context_to_enrich_go() -> None:
     assert fit["verdict"]["conditions"] == []
     assert fit["verdict"]["human_gate"] == "awaiting_user_confirmation"
     solv = next(d for d in fit["dimensions"] if d["key"] == "solvency")
-    assert str(declared_evidence_id(dossier_id, "annual_turnover")) in solv["declared_evidence_ids"]
-    assert str(declared_evidence_id(dossier_id, "past_services")) in solv["declared_evidence_ids"]
+    assert solv["declared_evidence_ids"] == [
+        str(declared_evidence_id(dossier_id, "annual_turnover")),
+        str(declared_evidence_id(dossier_id, "past_services")),
+    ]
+    assert str(declared_evidence_id(dossier_id, "own_offer")) not in solv["declared_evidence_ids"]
+    assert str(declared_evidence_id(dossier_id, "barriers")) not in solv["declared_evidence_ids"]
     assert "[oficial]" in solv["requirement"] and "[declarado]" in solv["capability"]
 
 

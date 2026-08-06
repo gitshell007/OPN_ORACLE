@@ -1,7 +1,14 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DossierProfilePanel } from "./dossier-profile-panel";
-import type { MarketProfileDraft } from "@/lib/dossier-profile";
+import {
+  ANNUAL_TURNOVER_INVALID_MSG,
+  PAST_SERVICES_MAX_LEN,
+  type CompetitiveProfileDraft,
+  type CustomProfileDraft,
+  type MarketProfileDraft,
+  profileConfigFromDraft,
+} from "@/lib/dossier-profile";
 
 const marketDraft: MarketProfileDraft = {
   kind: "market",
@@ -17,6 +24,43 @@ const marketDraft: MarketProfileDraft = {
   barriers: "Permisos lentos",
   success_indicators: "pipeline",
   keywords: "almacenamiento",
+  annual_turnover: "",
+  past_services: "",
+};
+
+const ciDraft: CompetitiveProfileDraft = {
+  kind: "competitive_intelligence",
+  own_offer: "Producto",
+  business_objective: "Ganar cuota",
+  competitors: "Rival",
+  segments: "",
+  geographies: "ES",
+  target_buyers: "",
+  horizon: "",
+  keywords: "limpieza",
+  cpv: "90910000",
+  sources: "PLACSP",
+  participation_criteria: "",
+  exclusion_criteria: "",
+  success_indicators: "",
+  annual_turnover: "",
+  past_services: "",
+};
+
+const customDraft: CustomProfileDraft = {
+  kind: "custom",
+  own_offer: "Software e IA",
+  decision_to_make: "Priorizar PLACSP software",
+  competitors: "Capgemini, NTT DATA, Inetum",
+  barriers: "Homologación",
+  cpv: "72000000, 72200000",
+  keywords: "IA, software",
+  geographies: "ES",
+  target_buyers: "AAPP",
+  segments: "sector público",
+  business_objective: "Ganar cuota IT pública",
+  success_indicators: "pipeline",
+  sources: "PLACSP",
   annual_turnover: "",
   past_services: "",
 };
@@ -239,5 +283,142 @@ describe("DossierProfilePanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
     expect(onSave).toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      kind: "market" as const,
+      dossierType: "market",
+      draft: marketDraft,
+      profileConfig: { version: "market.v1", own_offer: "Integración de baterías" },
+    },
+    {
+      kind: "competitive_intelligence" as const,
+      dossierType: "competitive_intelligence",
+      draft: ciDraft,
+      profileConfig: {
+        version: "competitive-intelligence.v1",
+        own_offer: "Producto",
+        competitors: [{ name: "Rival" }],
+      },
+    },
+    {
+      kind: "custom" as const,
+      dossierType: "custom",
+      draft: customDraft,
+      profileConfig: {
+        version: "custom.v1",
+        own_offer: "Software e IA",
+        competitors: [{ name: "Capgemini" }],
+      },
+    },
+  ])(
+    "inválido en $kind: error accesible, draft intacto y PATCH/onSave no llamado; corregir → PATCH con número",
+    ({ dossierType, draft, profileConfig }) => {
+      const invalid = "1.000.000 EUR";
+      let current = { ...draft, annual_turnover: invalid, past_services: "Servicios OK" };
+      const onSave = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+      const onDraftChange = vi.fn((next: typeof draft) => {
+        current = next as typeof current;
+      });
+
+      const { rerender } = render(
+        <DossierProfilePanel
+          dossierId="d1"
+          dossierType={dossierType}
+          profileConfig={profileConfig}
+          draft={current}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+        />,
+      );
+
+      const volume = screen.getByLabelText("Volumen anual de negocio declarado (EUR)");
+      expect(volume).toHaveValue(invalid);
+
+      fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+      expect(onSave).not.toHaveBeenCalled();
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent(ANNUAL_TURNOVER_INVALID_MSG);
+      expect(volume).toHaveAttribute("aria-invalid", "true");
+      // Draft text preserved exactly (not cleared, not coerced to previous/absence)
+      expect(volume).toHaveValue(invalid);
+      expect(() => profileConfigFromDraft(current)).toThrow();
+
+      // Correct the value → error clears on re-render + save proceeds
+      current = { ...current, annual_turnover: "2000000" };
+      rerender(
+        <DossierProfilePanel
+          dossierId="d1"
+          dossierType={dossierType}
+          profileConfig={profileConfig}
+          draft={current}
+          onDraftChange={onDraftChange}
+          onSave={onSave}
+        />,
+      );
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(profileConfigFromDraft(current).annual_turnover).toBe(2_000_000);
+    },
+  );
+
+  it("servicios max+1: no trunca, error visible y onSave/PATCH bloqueado", () => {
+    const over = "x".repeat(PAST_SERVICES_MAX_LEN + 1);
+    const draft = { ...marketDraft, annual_turnover: "100", past_services: over };
+    const onSave = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+    render(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="market"
+        profileConfig={{ version: "market.v1", own_offer: "X" }}
+        draft={draft}
+        onDraftChange={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    const services = screen.getByLabelText(
+      "Servicios similares de los últimos 3 años",
+    ) as HTMLTextAreaElement;
+    expect(services).toHaveValue(over);
+    expect(services.value.length).toBe(PAST_SERVICES_MAX_LEN + 1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/4000/);
+    expect(services).toHaveValue(over);
+    expect(() => profileConfigFromDraft(draft)).toThrow(/4000|caracteres/i);
+  });
+
+  it("read-only muestra valor persistido y no controles/errores de edición", () => {
+    render(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="market"
+        profileConfig={{
+          version: "market.v1",
+          own_offer: "Baterías",
+          annual_turnover: 2_000_000,
+          past_services: "EPC 2024",
+        }}
+        draft={{
+          ...marketDraft,
+          annual_turnover: "2000000",
+          past_services: "EPC 2024",
+        }}
+        onDraftChange={() => undefined}
+        onSave={(event) => event.preventDefault()}
+        readOnly
+      />,
+    );
+
+    expect(screen.getByTestId("dossier-profile-summary")).toBeVisible();
+    expect(screen.getByText("2000000")).toBeVisible();
+    expect(screen.getByText("EPC 2024")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Guardar perfil/ })).toBeNull();
+    expect(screen.queryByLabelText("Volumen anual de negocio declarado (EUR)")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  annualTurnoverFromField,
+  ANNUAL_TURNOVER_INVALID_MSG,
+  PAST_SERVICES_MAX_LEN,
   draftFromProfileConfig,
   emptyCompetitiveDraft,
   emptyCustomDraft,
   emptyMarketDraft,
   listField,
+  parseAnnualTurnover,
   profileConfigFromDraft,
   profileHasContent,
   profileKindFor,
+  solvencyPayloadFromDraft,
+  validateSolvencyDraft,
 } from "./dossier-profile";
 
 describe("dossier-profile helpers", () => {
@@ -146,12 +150,72 @@ describe("dossier-profile helpers", () => {
     expect(customPayload.past_services).toBe("IA pública con certificados");
   });
 
-  it("annualTurnoverFromField normaliza y rechaza vacío/ambiguo", () => {
-    expect(annualTurnoverFromField("")).toBeUndefined();
-    expect(annualTurnoverFromField("  ")).toBeUndefined();
-    expect(annualTurnoverFromField("2000000")).toBe(2_000_000);
-    expect(annualTurnoverFromField("2000000.50")).toBe(2000000.5);
-    expect(annualTurnoverFromField("1.000.000 EUR")).toBeUndefined();
-    expect(annualTurnoverFromField("NaN")).toBeUndefined();
+  it("parseAnnualTurnover distingue vacío, válido e inválido (tipado, no undefined)", () => {
+    expect(parseAnnualTurnover("")).toEqual({ status: "empty" });
+    expect(parseAnnualTurnover("  ")).toEqual({ status: "empty" });
+    expect(parseAnnualTurnover("0")).toEqual({ status: "valid", value: 0 });
+    expect(parseAnnualTurnover("2000000")).toEqual({ status: "valid", value: 2_000_000 });
+    expect(parseAnnualTurnover("2000000.50")).toEqual({ status: "valid", value: 2000000.5 });
+    expect(parseAnnualTurnover("1500,25")).toEqual({ status: "valid", value: 1500.25 });
+
+    for (const bad of [
+      "1.000.000 EUR",
+      "-5",
+      "NaN",
+      "Infinity",
+      "abc",
+      "1e6",
+      "1.000.000",
+      "€2000000",
+      "2000000 EUR",
+    ]) {
+      const parsed = parseAnnualTurnover(bad);
+      expect(parsed.status).toBe("invalid");
+      if (parsed.status === "invalid") {
+        expect(parsed.message).toBe(ANNUAL_TURNOVER_INVALID_MSG);
+      }
+      // Invalid never serializes to payload nor clean absence
+      expect(() =>
+        solvencyPayloadFromDraft({ annual_turnover: bad, past_services: "" }),
+      ).toThrow(/número|volumen|Introduce/i);
+      const emptyPayload = solvencyPayloadFromDraft({
+        annual_turnover: "",
+        past_services: "",
+      });
+      expect(emptyPayload).not.toHaveProperty("annual_turnover");
+    }
+  });
+
+  it("solvencyPayloadFromDraft: vacío omite; 0 y decimal emiten; no trunca servicios", () => {
+    expect(solvencyPayloadFromDraft({ annual_turnover: "", past_services: "" })).toEqual({});
+    expect(solvencyPayloadFromDraft({ annual_turnover: "0", past_services: "" })).toEqual({
+      annual_turnover: 0,
+    });
+    expect(
+      solvencyPayloadFromDraft({ annual_turnover: "2000000.5", past_services: "EPC" }),
+    ).toEqual({ annual_turnover: 2_000_000.5, past_services: "EPC" });
+
+    const maxOk = "x".repeat(PAST_SERVICES_MAX_LEN);
+    expect(
+      solvencyPayloadFromDraft({ annual_turnover: "", past_services: maxOk }).past_services,
+    ).toBe(maxOk);
+
+    const over = "y".repeat(PAST_SERVICES_MAX_LEN + 1);
+    expect(() =>
+      solvencyPayloadFromDraft({ annual_turnover: "100", past_services: over }),
+    ).toThrow(/4000|caracteres/i);
+    // Must not silently truncate into a valid payload
+    expect(() => profileConfigFromDraft({ ...emptyMarketDraft(), past_services: over })).toThrow();
+  });
+
+  it("validateSolvencyDraft no confunde vacío con inválido", () => {
+    expect(validateSolvencyDraft({ annual_turnover: "", past_services: "" })).toEqual({});
+    expect(validateSolvencyDraft({ annual_turnover: "1.000.000 EUR", past_services: "" })).toEqual({
+      annual_turnover: ANNUAL_TURNOVER_INVALID_MSG,
+    });
+    const over = "z".repeat(PAST_SERVICES_MAX_LEN + 1);
+    const errs = validateSolvencyDraft({ annual_turnover: "100", past_services: over });
+    expect(errs.past_services).toMatch(/4000/);
+    expect(errs.annual_turnover).toBeUndefined();
   });
 });

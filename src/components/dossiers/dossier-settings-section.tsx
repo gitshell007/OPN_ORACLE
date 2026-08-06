@@ -223,6 +223,19 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
     if (!dossier?.version || !profileDraft) return;
+    // Defense in depth: fail-closed serialization must never omit invalid solvency.
+    // DossierProfilePanel already blocks submit with accessible errors; this guards
+    // any other caller and surfaces a clear message instead of silent absence.
+    try {
+      void profileConfigFromDraft(profileDraft);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Corrige el volumen o los servicios de solvencia antes de guardar.",
+      );
+      return;
+    }
     setProfileBusy(true);
     try {
       const updated = await api.dossiers.update(
