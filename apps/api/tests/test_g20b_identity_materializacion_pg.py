@@ -2,6 +2,7 @@
 
 Requires ORACLE_RUN_INTEGRATION=1 + TEST_DATABASE_URL disposable.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -384,13 +385,16 @@ def g20b_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
 
 def test_pg_accept_subset_and_same_id_idempotent(g20b_pg: tuple[Any, dict[str, Any]]) -> None:
     app, env = g20b_pg
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g20b-pg",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g20b-pg",
+            )
+        ),
     ):
         before = _counts(env["tenant_id"])
         assert before == {
@@ -452,13 +456,16 @@ def test_pg_homonym_incompatible_ids_separate_no_mutate(
     g20b_pg: tuple[Any, dict[str, Any]],
 ) -> None:
     app, env = g20b_pg
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g20b-pg",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g20b-pg",
+            )
+        ),
     ):
         r_a = accept_and_materialize(
             artifact_id=env["artifact_id"],
@@ -494,13 +501,16 @@ def test_pg_cas_stale_and_reject_and_other_tenant(
     g20b_pg: tuple[Any, dict[str, Any]],
 ) -> None:
     app, env = g20b_pg
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g20b-pg",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g20b-pg",
+            )
+        ),
     ):
         with pytest.raises(MaterializeError) as exc:
             accept_and_materialize(
@@ -517,13 +527,16 @@ def test_pg_cas_stale_and_reject_and_other_tenant(
 
     # Other tenant context → artifact not found, no leak
     other_tenant = uuid.uuid4()
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=other_tenant,
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g20b-other",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=other_tenant,
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g20b-other",
+            )
+        ),
     ):
         with pytest.raises(MaterializeError) as exc2:
             accept_and_materialize(
@@ -551,13 +564,16 @@ def test_pg_reject_artifact_zero_writes(g20b_pg: tuple[Any, dict[str, Any]]) -> 
             text("UPDATE ai_artifacts SET status='rejected' WHERE id=:id"),
             {"id": env["artifact_id"]},
         )
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g20b-pg",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g20b-pg",
+            )
+        ),
     ):
         with pytest.raises(MaterializeError) as exc:
             accept_and_materialize(
@@ -646,22 +662,21 @@ def test_pg_identity_split_409_zero_writes(g20b_pg: tuple[Any, dict[str, Any]]) 
                     ]
                 ),
                 "src": json.dumps(
-                    [
-                        _reserved(
-                            s_split, title="Split", url="https://neel.example/split"
-                        )
-                    ]
+                    [_reserved(s_split, title="Split", url="https://neel.example/split")]
                 ),
             },
         )
 
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g20b-pg",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g20b-pg",
+            )
+        ),
     ):
         before = _counts(env["tenant_id"])
         assert before["actors"] == 2

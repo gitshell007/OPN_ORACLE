@@ -164,9 +164,7 @@ def make_etag(version: int) -> str:
     return f'W/"ool-v{int(version)}"'
 
 
-def parse_expected_version(
-    *, body_version: Any = None, if_match: str | None = None
-) -> int | None:
+def parse_expected_version(*, body_version: Any = None, if_match: str | None = None) -> int | None:
     """Accept version from body or If-Match (W/\"ool-vN\" or raw integer)."""
 
     if body_version is not None and body_version != "":
@@ -300,11 +298,7 @@ def _status(value: Any) -> str:
         raise OfferLifecycleError(
             "Estado de oferta no válido.",
             errors={
-                "status": [
-                    "Debe ser uno de: "
-                    + ", ".join(sorted(OFFER_LIFECYCLE_STATUSES))
-                    + "."
-                ]
+                "status": ["Debe ser uno de: " + ", ".join(sorted(OFFER_LIFECYCLE_STATUSES)) + "."]
             },
         )
     return status
@@ -541,9 +535,7 @@ def materialize_offer_lifecycle(
     """
 
     if int(expected_version) != 0:
-        raise VersionConflict(
-            "El seguimiento de oferta fue modificado por otro usuario."
-        )
+        raise VersionConflict("El seguimiento de oferta fue modificado por otro usuario.")
 
     tenant_id = require_tenant_id()
     dossier = _require_dossier(
@@ -570,9 +562,7 @@ def materialize_offer_lifecycle(
         )
     )
     if existing is not None:
-        raise VersionConflict(
-            "El seguimiento de oferta fue modificado por otro usuario."
-        )
+        raise VersionConflict("El seguimiento de oferta fue modificado por otro usuario.")
 
     virtual = _default_virtual_row(
         tenant_id=tenant_id,
@@ -619,9 +609,7 @@ def materialize_offer_lifecycle(
     except IntegrityError as exc:
         session.rollback()
         # UNIQUE(tenant_id, opportunity_id) race: peer already materialised.
-        raise VersionConflict(
-            "El seguimiento de oferta fue modificado por otro usuario."
-        ) from exc
+        raise VersionConflict("El seguimiento de oferta fue modificado por otro usuario.") from exc
     session.refresh(row)
     session.refresh(opportunity)
     if opportunity.status != crm_status:

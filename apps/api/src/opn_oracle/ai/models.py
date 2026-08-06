@@ -263,8 +263,6 @@ class AIUsageLedger(TenantDomainMixin, Base):
     execution_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
 
-
-
 class OpportunityOfferDraft(TenantDomainMixin, Base):
     """Durable human-editable offer draft (SV2-G09-A).
 

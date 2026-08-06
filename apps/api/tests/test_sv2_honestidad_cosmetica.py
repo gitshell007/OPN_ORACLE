@@ -95,9 +95,7 @@ def test_citation_public_payload_shape_no_raw_internals() -> None:
     result = enforce_citation_support(
         facts=[{"statement": statement, "evidence_ids": ["e1"]}],
         claims=[],
-        evidence_text_by_id={
-            "e1": "Licitación objeto suministro sin datos societarios."
-        },
+        evidence_text_by_id={"e1": "Licitación objeto suministro sin datos societarios."},
     )
     assert result.facts == []
     public_warnings = list(result.warnings)

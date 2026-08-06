@@ -219,9 +219,7 @@ def test_legacy_missing_payload_readonly() -> None:
 
 
 @pytest.mark.unit
-def test_put_rejects_forced_tenant(
-    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_put_rejects_forced_tenant(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     with _authenticated_http_probe(
         app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
     ) as (_user, tenant_id):
@@ -291,9 +289,7 @@ def test_put_identical_retry_no_version_bump(
 
 
 @pytest.mark.unit
-def test_put_updates_with_audit(
-    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_put_updates_with_audit(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     with _authenticated_http_probe(
         app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
     ) as (_user, tenant_id):
@@ -320,9 +316,7 @@ def test_put_updates_with_audit(
 
 
 @pytest.mark.unit
-def test_materialize_idempotent(
-    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_materialize_idempotent(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     with _authenticated_http_probe(
         app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
     ) as (_user, tenant_id):
@@ -406,9 +400,7 @@ def test_fingerprint_equality() -> None:
 
 
 @pytest.mark.unit
-def test_capability_endpoint_honest(
-    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_capability_endpoint_honest(app: Any, client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read"})):
         resp = client.get("/api/v1/memory/capability")
     assert resp.status_code == 200

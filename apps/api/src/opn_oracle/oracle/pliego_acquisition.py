@@ -262,18 +262,14 @@ def _manual_acquisition_status(document: Document) -> tuple[str, str, str]:
             "no_disponible",
             code,
             str(
-                meta.get("reason")
-                or f"La subida manual no es usable ({document.status}: {code})."
+                meta.get("reason") or f"La subida manual no es usable ({document.status}: {code})."
             ),
         )
     # queued / processing / uploaded → no terminal
     return (
         "procesando",
         str(meta.get("reason_code") or "upload_received"),
-        str(
-            meta.get("reason")
-            or "PCAP recibido; Oracle lo procesa en segundo plano."
-        ),
+        str(meta.get("reason") or "PCAP recibido; Oracle lo procesa en segundo plano."),
     )
 
 
@@ -349,9 +345,7 @@ def record_download_failure(
         "source_uri": uri,
         "file_name": reference.get("file_name"),
         "procurement_item_id": (
-            str(procurement_item_id)
-            if procurement_item_id
-            else previous.get("procurement_item_id")
+            str(procurement_item_id) if procurement_item_id else previous.get("procurement_item_id")
         ),
         "attempt": attempt_n,
         "updated_at": _now().isoformat(),
@@ -657,9 +651,7 @@ def resolve_dossier_pliego_acquisition(
         if durable_codes and all(c == durable_codes[0] for c in durable_codes):
             overall_code = str(durable_codes[0] or "download_unavailable")
             reasons = [
-                a.get("reason")
-                for a in acquisitions
-                if a.get("reason_code") == overall_code
+                a.get("reason") for a in acquisitions if a.get("reason_code") == overall_code
             ]
             overall_reason = str(reasons[0] if reasons else DOWNLOAD_FAIL_WARNING)
         else:
@@ -772,8 +764,7 @@ def upload_manual_pcap(
             "source": SOURCE_MANUAL,
             "reason_code": "upload_received",
             "reason": (
-                "PCAP recibido; procesamiento en curso. "
-                "Aún no es un éxito terminal ni preferido."
+                "PCAP recibido; procesamiento en curso. Aún no es un éxito terminal ni preferido."
             ),
             "opportunity_id": str(opportunity_id) if opportunity_id else None,
             "procurement_item_id": str(procurement_item_id) if procurement_item_id else None,
@@ -873,9 +864,7 @@ def finalize_manual_pcap_after_process(
     """
     del process_result  # reserved for future diagnostics
     document = db.session.scalar(
-        select(Document)
-        .where(Document.id == document_id)
-        .execution_options(populate_existing=True)
+        select(Document).where(Document.id == document_id).execution_options(populate_existing=True)
     )
     if document is None:
         return None
@@ -939,10 +928,7 @@ def finalize_manual_pcap_after_process(
         )
         if document.status == "quarantined":
             code = "quarantined"
-        reason = (
-            f"La subida manual falló al procesar ({code}). "
-            "El PCAP no es usable ni preferido."
-        )
+        reason = f"La subida manual falló al procesar ({code}). El PCAP no es usable ni preferido."
         set_acquisition_meta(
             document,
             {

@@ -51,6 +51,7 @@ def test_disabled_mock_retrieve_contributes_zero_memory_items() -> None:
     )
     assert result["items"] == []
     assert should_call_signal("disabled") is False
+
     # persist_retrieval_snapshot short-circuits on disabled
     class Sess:
         def __init__(self) -> None:
@@ -117,9 +118,7 @@ def test_dossier_only_does_not_mix_other_dossier_items() -> None:
         if item_tenant != t_self or item_dossier != d_self:
             excluded.append(raw["id"])
             continue
-        cit = materialize_signal_item_to_evidence(
-            raw, tenant_id=t_self, dossier_id=d_self
-        )
+        cit = materialize_signal_item_to_evidence(raw, tenant_id=t_self, dossier_id=d_self)
         kept.append(cit.signal_item_id)
 
     assert kept == ["sig-good"]

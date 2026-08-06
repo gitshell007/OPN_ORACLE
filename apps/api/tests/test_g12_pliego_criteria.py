@@ -200,9 +200,7 @@ def test_resolve_thresholds_65_60_as_min_not_weights() -> None:
     assert res.award_weights_status == RESOLUTION_MISSING
     assert res.min_thresholds_status == RESOLUTION_VERIFIED
     roles = {
-        i["role"]: i["value"]
-        for i in res.min_score_thresholds
-        if i.get("status") == "verified"
+        i["role"]: i["value"] for i in res.min_score_thresholds if i.get("status") == "verified"
     }
     assert roles.get("single_bidder_min_points") == 65.0
     assert roles.get("multi_bidder_pp_above_mean") == 60.0
@@ -218,9 +216,7 @@ def test_generic_percentage_threshold_preserves_percent_unit() -> None:
     assert res.award_weights_status == RESOLUTION_MISSING
     assert res.min_thresholds_status == RESOLUTION_VERIFIED
     thresholds = [
-        item
-        for item in res.min_score_thresholds
-        if item.get("status") == RESOLUTION_VERIFIED
+        item for item in res.min_score_thresholds if item.get("status") == RESOLUTION_VERIFIED
     ]
     assert len(thresholds) == 1
     assert thresholds[0]["role"] == "minimum_score"
@@ -441,8 +437,7 @@ def test_build_context_70_30_in_payload_and_final_prompt_no_fixed_65_60() -> Non
     assert FIXED_65_60_IN_PRODUCT.search(final_prompt) is None
     # Manifest bounded metadata
     assert (
-        built.manifest.get("pliego_criteria", {}).get("award_weights_status")
-        == RESOLUTION_VERIFIED
+        built.manifest.get("pliego_criteria", {}).get("award_weights_status") == RESOLUTION_VERIFIED
     )
 
 
@@ -543,11 +538,7 @@ def test_tenant_b_forbidden_marker_never_in_tenant_a_resolution() -> None:
     blob = json.dumps(res.to_public(), ensure_ascii=False)
     assert FORBIDDEN_MARKER_B not in blob
     assert all(p["evidence_id"] != str(id_b) for p in res.provenance)
-    values = {
-        i["role"]: i["value"]
-        for i in res.award_weights
-        if i.get("status") == "verified"
-    }
+    values = {i["role"]: i["value"] for i in res.award_weights if i.get("status") == "verified"}
     assert values.get("technical") == 70.0
     assert 55.0 not in values.values()
 
@@ -639,9 +630,7 @@ def test_g12_build_context_pg_persist_and_resolve() -> None:
                 "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO oracle_app"
             )
         )
-        conn.execute(
-            text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO oracle_app")
-        )
+        conn.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO oracle_app"))
 
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()
@@ -765,6 +754,5 @@ def test_g12_build_context_pg_persist_and_resolve() -> None:
             # Evidence id from tenant A is cited; B never appears.
             assert str(ev_b_id) not in blob
             assert any(
-                p.get("evidence_id") == str(ev_a_id)
-                for p in (criteria.get("provenance") or [])
+                p.get("evidence_id") == str(ev_a_id) for p in (criteria.get("provenance") or [])
             )

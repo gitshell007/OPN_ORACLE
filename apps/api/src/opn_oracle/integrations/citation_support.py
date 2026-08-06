@@ -502,10 +502,7 @@ def format_withdrawal_reason(statement: str, missing: Sequence[str], *, person_r
         snippet = snippet[:157].rstrip() + "…"
     concepts = format_missing_concepts(missing)
     kind = "de cargo/persona " if person_role else ""
-    return (
-        f"Afirmación {kind}retirada: «{snippet}». "
-        f"La fuente citada no menciona: {concepts}."
-    )
+    return f"Afirmación {kind}retirada: «{snippet}». La fuente citada no menciona: {concepts}."
 
 
 def issue_to_public(issue: SupportIssue) -> dict[str, Any]:

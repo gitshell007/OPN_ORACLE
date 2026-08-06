@@ -822,9 +822,7 @@ def _find_actors_by_strong_ids(
     from opn_oracle.oracle.models import Actor
 
     # Narrow to tenant; match schemes in Python for engine portability.
-    rows = list(
-        db.session.scalars(select(Actor).where(Actor.tenant_id == tenant_id)).all()
-    )
+    rows = list(db.session.scalars(select(Actor).where(Actor.tenant_id == tenant_id)).all())
     matched: dict[str, Any] = {}
     for scheme in STRONG_ACTOR_ID_KEYS:
         want = str(ids_snap.get(scheme) or "").strip()
@@ -903,9 +901,7 @@ def _plan_single_actor_resolution(
         # No exact ID match. Never attach to a name-homonym that already has IDs,
         # and never promote a name-only Actor by auto-filling strong IDs.
         name_hit = db.session.scalar(
-            select(Actor).where(
-                Actor.tenant_id == tenant_id, Actor.canonical_key == name_key
-            )
+            select(Actor).where(Actor.tenant_id == tenant_id, Actor.canonical_key == name_key)
         )
         if name_hit is not None:
             if _actor_has_strong_ids(name_hit):
@@ -918,9 +914,7 @@ def _plan_single_actor_resolution(
 
         # Free identity key (or collide with prior identity-keyed import → reuse).
         id_key_hit = db.session.scalar(
-            select(Actor).where(
-                Actor.tenant_id == tenant_id, Actor.canonical_key == identity_key
-            )
+            select(Actor).where(Actor.tenant_id == tenant_id, Actor.canonical_key == identity_key)
         )
         if id_key_hit is not None:
             conflicts = _identifier_conflicts(
@@ -1014,8 +1008,10 @@ def _materialize_selected_actors(
 
     tenant_id = require_tenant_id()
     human_id = _require_human_actor_id()
-    steps = plan if plan is not None else plan_actor_materialization(
-        artifact=artifact, candidate_ids=candidate_ids
+    steps = (
+        plan
+        if plan is not None
+        else plan_actor_materialization(artifact=artifact, candidate_ids=candidate_ids)
     )
     created: list[dict[str, Any]] = []
     for step in steps:
@@ -1090,11 +1086,7 @@ def _materialize_selected_actors(
         else:
             # reuse_by_id / reuse_by_name: fill missing IDs only when compatible.
             # Compatibility already enforced in plan; never store identifier_conflicts.
-            prior_ids = (
-                dict(existing.identifiers)
-                if isinstance(existing.identifiers, dict)
-                else {}
-            )
+            prior_ids = dict(existing.identifiers) if isinstance(existing.identifiers, dict) else {}
             identifiers_changed = False
             if resolution == "reuse_by_id" and ids_snap:
                 filled = _fill_missing_identifiers_only(prior_ids, ids_snap)
@@ -1158,11 +1150,7 @@ def _materialize_selected_actors(
             candidate={
                 "canonical_key": canonical_key,
                 "name": organization[:300],
-                "sources": [
-                    {"signal_id": sid}
-                    for sid in (cand.get("evidence_ids") or [])
-                    if sid
-                ],
+                "sources": [{"signal_id": sid} for sid in (cand.get("evidence_ids") or []) if sid],
             },
             status="imported",
             reviewed_by_user_id=human_id,
@@ -1231,9 +1219,7 @@ def accept_and_materialize(
     # Identity gate BEFORE any Evidence/Actor write so 409 leaves zero rows.
     actor_plan: list[dict[str, Any]] | None = None
     if agent == "market_actor_discovery":
-        actor_plan = plan_actor_materialization(
-            artifact=artifact, candidate_ids=candidate_ids
-        )
+        actor_plan = plan_actor_materialization(artifact=artifact, candidate_ids=candidate_ids)
     try:
         evidences = materialize_web_search_sources(
             artifact=artifact,

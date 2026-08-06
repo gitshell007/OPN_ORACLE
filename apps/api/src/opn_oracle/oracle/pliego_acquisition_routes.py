@@ -45,11 +45,16 @@ def _dossier_or_404(dossier_id: uuid.UUID, *, write: bool) -> StrategicDossier |
 
 
 def _domain_error(error: PliegoAcquisitionError) -> Any:
-    status = 404 if error.code in {
-        "not_found",
-        "opportunity_not_found",
-        "procurement_item_not_found",
-    } else 422
+    status = (
+        404
+        if error.code
+        in {
+            "not_found",
+            "opportunity_not_found",
+            "procurement_item_not_found",
+        }
+        else 422
+    )
     return problem_response(status, detail=str(error), code=error.code)
 
 
@@ -140,9 +145,7 @@ def upload_pliego_pcap(dossier_id: uuid.UUID) -> Any:
     )
     if document.status == "ready" and meta_status == "subido":
         acquisition_status = "subido"
-        message = (
-            "PCAP procesado y listo. Tiene prioridad sobre descarga automática y extractos."
-        )
+        message = "PCAP procesado y listo. Tiene prioridad sobre descarga automática y extractos."
     elif document.status in {"failed", "quarantined"} or meta_status == "no_disponible":
         acquisition_status = "no_disponible"
         message = (

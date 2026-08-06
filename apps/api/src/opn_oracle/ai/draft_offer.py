@@ -530,8 +530,7 @@ def _extract_award_sections(
             title = "Umbrales mínimos de puntuación (conflicto)"
             req = (
                 f"{_OFFICIAL_TAG} Umbrales del PCAP en conflicto entre evidencias; "
-                "no se afirma un valor único."
-                + (f" Extracto: «{thr_snip}»." if thr_snip else "")
+                "no se afirma un valor único." + (f" Extracto: «{thr_snip}»." if thr_snip else "")
             )
             thr_hint = threshold_hint
         else:

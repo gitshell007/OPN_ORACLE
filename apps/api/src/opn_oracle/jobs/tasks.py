@@ -674,9 +674,7 @@ def _process_document(payload: dict[str, Any], job: BackgroundJob) -> dict[str, 
     try:
         result = process_document(document_id, version_id, job)
     except DocumentError as error:
-        finalize_manual_pcap_after_process(
-            document_id=document_id, job=job, error=error
-        )
+        finalize_manual_pcap_after_process(document_id=document_id, job=job, error=error)
         raise PermanentJobError(str(error)) from error
     # Éxito, replay o ignore temporal: el finalizer decide (solo ready/failed).
     process_result = result if isinstance(result, dict) else None

@@ -516,9 +516,13 @@ def format_threshold_hint(resolution: PliegoCriteriaResolution) -> str:
         elif role == "multi_bidder_pp_above_mean":
             bits.append(f"varios: +{value} p.p. sobre media")
         else:
-            unit_s = "%" if unit == "percent" else (
-                " pts" if unit == "points" else (
-                    " p.p." if unit == "percentage_points" else f" {unit}"
+            unit_s = (
+                "%"
+                if unit == "percent"
+                else (
+                    " pts"
+                    if unit == "points"
+                    else (" p.p." if unit == "percentage_points" else f" {unit}")
                 )
             )
             bits.append(f"{role} {value}{unit_s}")
@@ -547,8 +551,7 @@ def format_threshold_requirement_clause(resolution: PliegoCriteriaResolution) ->
         role = str(item.get("role") or "")
         if role == "single_bidder_min_points":
             clauses.append(
-                f"umbral único licitador = {value} puntos"
-                + (f" («{quote}»)" if quote else "")
+                f"umbral único licitador = {value} puntos" + (f" («{quote}»)" if quote else "")
             )
         elif role == "multi_bidder_pp_above_mean":
             clauses.append(
@@ -557,14 +560,16 @@ def format_threshold_requirement_clause(resolution: PliegoCriteriaResolution) ->
             )
         else:
             unit = str(item.get("unit") or "")
-            unit_s = "%" if unit == "percent" else (
-                " puntos" if unit == "points" else (
-                    " puntos porcentuales" if unit == "percentage_points" else f" {unit}"
+            unit_s = (
+                "%"
+                if unit == "percent"
+                else (
+                    " puntos"
+                    if unit == "points"
+                    else (" puntos porcentuales" if unit == "percentage_points" else f" {unit}")
                 )
             )
-            clauses.append(
-                f"{role}={value}{unit_s}" + (f" («{quote}»)" if quote else "")
-            )
+            clauses.append(f"{role}={value}{unit_s}" + (f" («{quote}»)" if quote else ""))
     if not clauses:
         return (
             " Umbral mínimo de puntuación: desconocido/no verificable en el extracto "

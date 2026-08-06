@@ -1695,11 +1695,7 @@ def _serialize_market_actor_discovery_artifact(
         identity_status = str(cand.get("identity_status") or "").strip().lower()
         score_value = cand.get("score_breakdown")
         score_bd: dict[str, Any] = score_value if isinstance(score_value, dict) else {}
-        score_out = {
-            str(k): float(v)
-            for k, v in score_bd.items()
-            if isinstance(v, (int, float))
-        }
+        score_out = {str(k): float(v) for k, v in score_bd.items() if isinstance(v, (int, float))}
         origin_labels = {
             "structured": "Fuente estructurada (CORDIS/HAL/RNSR/ROR)",
             "web_search": "Fuente encontrada por búsqueda",
@@ -1730,23 +1726,17 @@ def _serialize_market_actor_discovery_artifact(
                 "selectable": selectable and candidate_id is not None,
                 "ids": ids_out,
                 "identity_status": identity_status,
-                "identity_reasons": [
-                    str(x) for x in (cand.get("identity_reasons") or []) if x
-                ][:20],
+                "identity_reasons": [str(x) for x in (cand.get("identity_reasons") or []) if x][
+                    :20
+                ],
                 "unresolved_reason": (
-                    str(cand.get("unresolved_reason"))
-                    if cand.get("unresolved_reason")
-                    else None
+                    str(cand.get("unresolved_reason")) if cand.get("unresolved_reason") else None
                 ),
                 "rank": int(cand["rank"]) if cand.get("rank") is not None else None,
                 "score": float(cand["score"]) if cand.get("score") is not None else None,
                 "score_breakdown": score_out,
-                "ranking_reasons": [
-                    str(x) for x in (cand.get("ranking_reasons") or []) if x
-                ][:30],
-                "affiliations": [
-                    str(x) for x in (cand.get("affiliations") or []) if x
-                ][:20],
+                "ranking_reasons": [str(x) for x in (cand.get("ranking_reasons") or []) if x][:30],
+                "affiliations": [str(x) for x in (cand.get("affiliations") or []) if x][:20],
                 "parent_organization": (
                     str(cand.get("parent_organization"))
                     if cand.get("parent_organization")

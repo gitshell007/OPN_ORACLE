@@ -2188,8 +2188,7 @@ def _oracle_schemas() -> dict[str, Any]:
                     "nullable": True,
                     "maxLength": 2000,
                     "description": (
-                        "Obligatorio solo si status=excluida; rechazado/limpiado "
-                        "en otros estados."
+                        "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados."
                     ),
                 },
             },
@@ -2279,8 +2278,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 "crm_status_note": {
                     "type": "string",
                     "description": (
-                        "Recordatorio de que el estado CRM de la oportunidad "
-                        "es independiente."
+                        "Recordatorio de que el estado CRM de la oportunidad es independiente."
                     ),
                 },
             },
@@ -2290,9 +2288,7 @@ def _oracle_schemas() -> dict[str, Any]:
             "additionalProperties": False,
             "required": ["lifecycle", "materialized"],
             "properties": {
-                "lifecycle": {
-                    "$ref": "#/components/schemas/OpportunityOfferLifecycleResource"
-                },
+                "lifecycle": {"$ref": "#/components/schemas/OpportunityOfferLifecycleResource"},
                 "materialized": {
                     "type": "boolean",
                     "description": (
@@ -2356,9 +2352,7 @@ def _oracle_schemas() -> dict[str, Any]:
                     ),
                 },
                 "message": string,
-                "pliego_acquisition": {
-                    "$ref": "#/components/schemas/PliegoAcquisitionResponse"
-                },
+                "pliego_acquisition": {"$ref": "#/components/schemas/PliegoAcquisitionResponse"},
             },
         },
         "IntentDraftCreateInput": {

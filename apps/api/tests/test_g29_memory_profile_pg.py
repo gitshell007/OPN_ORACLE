@@ -215,9 +215,7 @@ def test_pg_alta_atomica_crea_exactamente_un_perfil(g29_pg: tuple[Any, str]) -> 
                     "memory_profile": {"mode": "augment"},
                 },
             )
-            with tenant_context(
-                TenantContext(tenant_id=tenant_id, actor_id=user_id)
-            ):
+            with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
                 count = db.session.scalar(
                     select(func.count())
                     .select_from(DossierMemoryProfile)
@@ -254,9 +252,7 @@ def test_pg_profile_failure_rolls_back_dossier(
             "opn_oracle.integrations.memory_profile.create_dossier_memory_profile",
             boom,
         )
-        with tenant_context(
-            TenantContext(tenant_id=tenant_id, actor_id=user_id)
-        ):
+        with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
             before = db.session.scalar(
                 select(func.count())
                 .select_from(StrategicDossier)
@@ -269,9 +265,7 @@ def test_pg_profile_failure_rolls_back_dossier(
                 title="Should not exist",
             )
         db.session.rollback()
-        with tenant_context(
-            TenantContext(tenant_id=tenant_id, actor_id=user_id)
-        ):
+        with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
             after = db.session.scalar(
                 select(func.count())
                 .select_from(StrategicDossier)
@@ -404,13 +398,9 @@ def test_pg_legacy_materialize_cas_stale_and_tenant_404(
         try:
             with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
                 # GET legacy: no write
-                with app.test_request_context(
-                    f"/api/v1/dossiers/{legacy_id}/memory/profile"
-                ):
+                with app.test_request_context(f"/api/v1/dossiers/{legacy_id}/memory/profile"):
                     flask_g.active_tenant_id = tenant_id
-                    status, body = _status_and_json(
-                        memory_routes.get_memory_profile(legacy_id)
-                    )
+                    status, body = _status_and_json(memory_routes.get_memory_profile(legacy_id))
                 assert status == 200
                 assert body["status"] == "legacy_missing"
                 assert body["persisted"] is False
@@ -455,9 +445,7 @@ def test_pg_legacy_materialize_cas_stale_and_tenant_404(
                     headers={"If-Match": etag},
                 ):
                     flask_g.active_tenant_id = tenant_id
-                    status, ok_body = _status_and_json(
-                        memory_routes.put_memory_profile(legacy_id)
-                    )
+                    status, ok_body = _status_and_json(memory_routes.put_memory_profile(legacy_id))
                 assert status == 200, ok_body
                 assert ok_body["mode"] == "shadow"
                 assert ok_body["version"] == version + 1
@@ -468,12 +456,8 @@ def test_pg_legacy_materialize_cas_stale_and_tenant_404(
 
             # Other tenant 404
             other_tenant = uuid.uuid4()
-            with tenant_context(
-                TenantContext(tenant_id=other_tenant, actor_id=user_id)
-            ):
-                with app.test_request_context(
-                    f"/api/v1/dossiers/{legacy_id}/memory/profile"
-                ):
+            with tenant_context(TenantContext(tenant_id=other_tenant, actor_id=user_id)):
+                with app.test_request_context(f"/api/v1/dossiers/{legacy_id}/memory/profile"):
                     flask_g.active_tenant_id = other_tenant
                     status, foreign_body = _status_and_json(
                         memory_routes.get_memory_profile(legacy_id)
@@ -594,9 +578,7 @@ def test_pg_put_connection_id_no_parallel_and_effective_defers_override(
             assert res.profile_id is not None
             assert res.version is not None and res.version >= 1
 
-            with app.test_request_context(
-                f"/api/v1/dossiers/{d_id}/memory/effective"
-            ):
+            with app.test_request_context(f"/api/v1/dossiers/{d_id}/memory/effective"):
                 flask_g.active_tenant_id = tenant_id
                 status, eff = _status_and_json(memory_routes.memory_effective(d_id))
             assert status == 200, eff
@@ -628,9 +610,7 @@ def test_pg_put_connection_id_no_parallel_and_effective_defers_override(
                 headers={"If-Match": etag},
             ):
                 flask_g.active_tenant_id = tenant_id
-                status, put_body = _status_and_json(
-                    memory_routes.put_memory_profile(d_id)
-                )
+                status, put_body = _status_and_json(memory_routes.put_memory_profile(d_id))
             assert status == 200, put_body
             assert put_body["mode"] == "shadow"
             assert put_body["connection_id"] is None

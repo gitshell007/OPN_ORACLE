@@ -384,6 +384,5 @@ def test_execute_ai_market_competitor_discovery_handler(
     assert captured["built_payload"]["allowed_evidence_ids"] == []
     assert "evidence_ids" in captured["built_payload"]["security_instruction"]
     assert (
-        "source_urls del modelo no acreditan"
-        in captured["built_payload"]["security_instruction"]
+        "source_urls del modelo no acreditan" in captured["built_payload"]["security_instruction"]
     )

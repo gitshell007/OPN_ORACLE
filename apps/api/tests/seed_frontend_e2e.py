@@ -140,11 +140,7 @@ def _seed_g20b_market_actor_fixture(
             access_reason="g20b-e2e-seed",
         )
     ):
-        ws = (
-            db.session.query(Workspace)
-            .filter_by(tenant_id=tenant_id, slug="principal")
-            .one()
-        )
+        ws = db.session.query(Workspace).filter_by(tenant_id=tenant_id, slug="principal").one()
         dossier = StrategicDossier(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
@@ -155,9 +151,7 @@ def _seed_g20b_market_actor_fixture(
             status="active",
             owner_user_id=owner_id,
             profile_config={
-                "discovery_intent": (
-                    "grupos de investigación en Francia que trabajen en grafeno"
-                ),
+                "discovery_intent": ("grupos de investigación en Francia que trabajen en grafeno"),
                 "discovery_actor_type": "research_group",
             },
         )
@@ -306,9 +300,7 @@ def _seed_g14_opportunity_fixtures(*, tenant_id, owner_id) -> None:
         )
     ):
         workspace = (
-            db.session.query(Workspace)
-            .filter_by(tenant_id=tenant_id, slug="principal")
-            .one()
+            db.session.query(Workspace).filter_by(tenant_id=tenant_id, slug="principal").one()
         )
         for title, fixture_path in fixture_specs:
             fixture = json.loads(fixture_path.read_text(encoding="utf-8"))

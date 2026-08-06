@@ -148,9 +148,7 @@ def _explicit_family_set() -> ColumnElement[Any]:
 def _is_competitor_sql() -> ColumnElement[Any]:
     from opn_oracle.oracle.models import Evidence
 
-    role_hits = [
-        _meta_text_any(k).in_(list(_COMPETITOR_ROLE_TOKENS)) for k in _ROLE_KEYS
-    ]
+    role_hits = [_meta_text_any(k).in_(list(_COMPETITOR_ROLE_TOKENS)) for k in _ROLE_KEYS]
     return or_(
         _json_bool_true(Evidence.provenance, "is_competitor"),
         _json_bool_true(Evidence.locator, "is_competitor"),

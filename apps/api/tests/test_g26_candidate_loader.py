@@ -456,9 +456,7 @@ def test_adding_more_tenders_does_not_change_people_competitor_ids() -> None:
         )
         for i in range(1000)
     ]
-    session2 = _FakeSession(
-        tenant_id=tenant_id, dossier_id=dossier_id, evidence=bag + extra
-    )
+    session2 = _FakeSession(tenant_id=tenant_id, dossier_id=dossier_id, evidence=bag + extra)
     block_b = load_oracle_authority_from_session(
         session2,
         tenant_id=tenant_id,
@@ -861,9 +859,10 @@ def test_pg_adversarial_authority_keeps_old_families(g26_precap_pg: dict[str, An
     assert mix["selected_by_family"]["people"] >= 1
     assert mix["selected_by_family"]["competitors"] >= 1
     assert mix["selected_by_family"]["tenders"] >= 1
-    assert mix["selected_by_family"].get("documents", 0) >= 1 or mix["selected_by_family"].get(
-        "memory", 0
-    ) >= 1
+    assert (
+        mix["selected_by_family"].get("documents", 0) >= 1
+        or mix["selected_by_family"].get("memory", 0) >= 1
+    )
     assert "retrieval" in mix
     selected_ids = {r["id"] for r in block["oracle_evidence"]}
     assert selected_ids & people_ids

@@ -58,9 +58,7 @@ def server_owned_candidate_id(
         except (ValueError, TypeError, AttributeError):
             continue
     sorted_ids = sorted(set(sorted_ids))
-    material = (
-        f"g18:candidate:v1|{execution_key}|{normalized}|{','.join(sorted_ids)}"
-    )
+    material = f"g18:candidate:v1|{execution_key}|{normalized}|{','.join(sorted_ids)}"
     return str(uuid.uuid5(CANDIDATE_ID_NAMESPACE, material))
 
 
@@ -564,9 +562,7 @@ def filter_candidates_by_citable_allowlist(
         row.pop("candidate_id", None)
         # UI-facing source summary from closed set (label/domain only).
         row["citable_sources"] = [
-            source_by_id[sid].to_public_dict()
-            for sid in clean_ids
-            if sid in source_by_id
+            source_by_id[sid].to_public_dict() for sid in clean_ids if sid in source_by_id
         ]
         kept.append(row)
         for sid in clean_ids:
@@ -689,9 +685,7 @@ def apply_market_actor_citable_gate(
     )
     wanted_type = (expected_actor_type or "").strip().lower() or None
     wanted_countries = {
-        str(c).strip().upper()
-        for c in (expected_countries or [])
-        if str(c).strip()
+        str(c).strip().upper() for c in (expected_countries or []) if str(c).strip()
     }
     kept: list[dict[str, Any]] = []
     warnings = list(result.get("warnings") or [])

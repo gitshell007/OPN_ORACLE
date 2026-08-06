@@ -496,17 +496,16 @@ def test_first_write_materializes_once_and_crm_isolation(
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
 
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         get_resp = client.get(path)
         assert get_resp.status_code == 200
         assert get_resp.get_json()["materialized"] is False
         assert get_resp.get_json()["lifecycle"]["version"] == 0
         assert _count_rows(ctx["migration_url"], ctx["tenant_a"]) == 0
 
-        with app.app_context(), tenant_context(
-            TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])),
         ):
             opp = db.session.get(Opportunity, ctx["opp_a"])
             assert opp is not None
@@ -559,8 +558,9 @@ def test_first_write_materializes_once_and_crm_isolation(
         assert patch2.get_json()["lifecycle"]["version"] == 2
         assert patch2.get_json()["lifecycle"]["status"] == "en_evaluacion"
 
-        with app.app_context(), tenant_context(
-            TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])),
         ):
             opp = db.session.get(Opportunity, ctx["opp_a"])
             assert opp is not None
@@ -574,14 +574,10 @@ def test_first_write_materializes_once_and_crm_isolation(
             actions = {a.action for a in audits}
             assert "opportunity.offer_lifecycle.create" in actions
             assert "opportunity.offer_lifecycle.update" in actions
-            create_events = [
-                a for a in audits if a.action == "opportunity.offer_lifecycle.create"
-            ]
+            create_events = [a for a in audits if a.action == "opportunity.offer_lifecycle.create"]
             assert len(create_events) == 1
             assert create_events[0].actor_id == ctx["user_a"]
-            update_events = [
-                a for a in audits if a.action == "opportunity.offer_lifecycle.update"
-            ]
+            update_events = [a for a in audits if a.action == "opportunity.offer_lifecycle.update"]
             assert update_events
             meta = update_events[-1].event_metadata or {}
             assert meta.get("crm_status") == "identified"
@@ -604,9 +600,7 @@ def test_concurrent_first_writers_one_wins_one_409(
     client = app.test_client()
 
     # HTTP sequential proof: second first-write with version=0 loses after peer materialised.
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         assert client.get(path).get_json()["materialized"] is False
 
     outcomes: list[str] = []
@@ -653,9 +647,7 @@ def test_concurrent_first_writers_one_wins_one_409(
     assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == 1
 
     # HTTP: further version=0 write is 409 (already materialised).
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         again = client.patch(
             path,
             json={"version": 0, "status": "en_evaluacion"},
@@ -679,9 +671,7 @@ def test_strict_patch_unknown_and_version_only_noop(
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
 
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         first = client.patch(
             path,
             json={"version": 0, "status": "preparando", "importe_ofertado": "50"},
@@ -734,9 +724,7 @@ def test_excluida_requires_motivo_and_clears_outside(
     app, ctx = offer_lifecycle_pg
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         # Materialise first with version=0.
         seed = client.patch(
             path,
@@ -783,9 +771,7 @@ def test_tenant_isolation(
     path_b = _path(ctx["dossier_b"], ctx["opp_b"])
 
     client_a = app.test_client()
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         assert client_a.get(path_a).status_code == 200
         assert client_a.get(path_a).get_json()["materialized"] is False
         assert (
@@ -798,9 +784,7 @@ def test_tenant_isolation(
         )
 
     client_b = app.test_client()
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_b"], tenant_id=ctx["tenant_b"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_b"], tenant_id=ctx["tenant_b"]):
         cross = client_b.get(path_a)
         assert cross.status_code in {403, 404}
         own = client_b.get(path_b)
@@ -820,9 +804,7 @@ def test_cas_conflict_and_concurrent_race(
     app, ctx = offer_lifecycle_pg
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         first = client.patch(
             path,
             json={"version": 0, "status": "presentada", "importe_ofertado": "100"},
@@ -902,9 +884,7 @@ def test_rejects_client_owned_actor_id(
     app, ctx = offer_lifecycle_pg
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         resp = client.patch(
             path,
             json={
@@ -925,9 +905,7 @@ def test_negative_amounts_rejected(
     app, ctx = offer_lifecycle_pg
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         seed = client.patch(
             path,
             json={"version": 0, "status": "preparando"},
@@ -953,9 +931,7 @@ def test_crm_status_not_accepted_as_offer_status(
     app, ctx = offer_lifecycle_pg
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
         seed = client.patch(
             path,
             json={"version": 0, "status": "preparando"},
@@ -969,8 +945,9 @@ def test_crm_status_not_accepted_as_offer_status(
                 headers=_json_headers(),
             )
             assert resp.status_code in {422, 400}, crm_value
-        with app.app_context(), tenant_context(
-            TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])),
         ):
             opp = db.session.get(Opportunity, ctx["opp_a"])
             assert opp is not None and opp.status == "identified"

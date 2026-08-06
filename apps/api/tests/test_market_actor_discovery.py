@@ -30,9 +30,7 @@ from opn_oracle.auth import permissions
 from opn_oracle.jobs import tasks as job_tasks
 from opn_oracle.platform.models import User
 
-CANONICAL_INTENT = (
-    "quiero contactar con grupos de investigación en Francia que trabajen en grafeno"
-)
+CANONICAL_INTENT = "quiero contactar con grupos de investigación en Francia que trabajen en grafeno"
 
 
 def test_registry_exposes_market_actor_discovery() -> None:
@@ -500,6 +498,7 @@ def test_market_actor_discovery_latest_requires_dossier_scope(
         "_dossier",
         lambda did, write: type("D", (), {"id": did, "dossier_type": "market"})(),
     )
+
     def fake_job(did: uuid.UUID) -> None:
         called["job_d"] = did
         return None
@@ -515,9 +514,7 @@ def test_market_actor_discovery_latest_requires_dossier_scope(
     with _authenticated_ai(app, monkeypatch):
         missing = client.get("/api/v1/ai/market-actor-discovery/latest")
         assert missing.status_code == 422
-        ok = client.get(
-            f"/api/v1/ai/market-actor-discovery/latest?dossier_id={dossier_id}"
-        )
+        ok = client.get(f"/api/v1/ai/market-actor-discovery/latest?dossier_id={dossier_id}")
         assert ok.status_code == 200
         assert called["job_d"] == dossier_id
         assert called["art_d"] == dossier_id

@@ -2,6 +2,7 @@
 
 Unit/ORM tests (SQLite). PostgreSQL integration reuses G-19 fixture when available.
 """
+
 from __future__ import annotations
 
 import uuid

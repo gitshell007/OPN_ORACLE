@@ -427,9 +427,7 @@ def resolve_effective_dossier_memory_profile(
     ]
     deferred_count = len(deferred_rows)
 
-    row = load_default_dossier_memory_profile(
-        session, tenant_id=tenant_id, dossier_id=dossier_id
-    )
+    row = load_default_dossier_memory_profile(session, tenant_id=tenant_id, dossier_id=dossier_id)
     if row is None:
         cfg = default_profile_payload(
             provenance="legacy_missing",

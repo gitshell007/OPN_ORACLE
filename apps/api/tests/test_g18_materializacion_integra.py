@@ -140,12 +140,8 @@ def g18_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
 
     s1 = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://acme.example/about"))
     s2 = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://beta.example/about"))
-    c1 = server_owned_candidate_id(
-        execution_key=audit_id, name="Acme Sensors", evidence_ids=[s1]
-    )
-    c2 = server_owned_candidate_id(
-        execution_key=audit_id, name="Beta Corp", evidence_ids=[s2]
-    )
+    c1 = server_owned_candidate_id(execution_key=audit_id, name="Acme Sensors", evidence_ids=[s1])
+    c2 = server_owned_candidate_id(execution_key=audit_id, name="Beta Corp", evidence_ids=[s2])
     output = {
         "candidates": [
             {
@@ -429,9 +425,7 @@ def g18_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
 def _count_evidence(
     app: Any, tenant_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
 ) -> tuple[int, int]:
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=tenant_id, actor_id=actor_id)
-    ):
+    with app.app_context(), tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
         n_ev = db.session.scalar(
             select(func.count())
             .select_from(Evidence)
@@ -451,9 +445,7 @@ def _count_evidence(
 def _count_accept_audits(
     app: Any, tenant_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
 ) -> int:
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=tenant_id, actor_id=actor_id)
-    ):
+    with app.app_context(), tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
         n = db.session.scalar(
             select(func.count())
             .select_from(AuditEvent)
@@ -469,9 +461,7 @@ def _count_accept_audits(
 def _list_accept_audits(
     app: Any, tenant_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
 ) -> list[AuditEvent]:
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=tenant_id, actor_id=actor_id)
-    ):
+    with app.app_context(), tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
         return list(
             db.session.scalars(
                 select(AuditEvent)
@@ -573,9 +563,7 @@ def test_http_accept_idempotent_and_partial(
 ) -> None:
     app, ctx = g18_pg
     client = app.test_client()
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]):
         # Full accept of candidate A (source1)
         r1 = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
@@ -637,9 +625,7 @@ def test_http_accept_idempotent_and_partial(
             json={
                 "artifact_id": str(ctx["artifact_id"]),
                 "dossier_id": str(ctx["dossier_id"]),
-                "selected": [
-                    {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}
-                ],
+                "selected": [{"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}],
             },
         )
         assert r2.status_code == 200
@@ -658,9 +644,7 @@ def test_http_accept_idempotent_and_partial(
             json={
                 "artifact_id": str(ctx["artifact_id"]),
                 "dossier_id": str(ctx["dossier_id"]),
-                "selected": [
-                    {"candidate_id": ctx["c2"], "source_ids": [ctx["s2"]]}
-                ],
+                "selected": [{"candidate_id": ctx["c2"], "source_ids": [ctx["s2"]]}],
             },
         )
         assert r3.status_code == 200, r3.get_json()
@@ -699,9 +683,7 @@ def test_http_validation_and_state_closed(
         "artifact_id": str(ctx["artifact_id"]),
         "dossier_id": str(ctx["dossier_id"]),
     }
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]):
         # empty candidate_id
         r = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
@@ -724,9 +706,7 @@ def test_http_validation_and_state_closed(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
                 **base,
-                "selected": [
-                    {"candidate_id": str(uuid.uuid4()), "source_ids": [ctx["s1"]]}
-                ],
+                "selected": [{"candidate_id": str(uuid.uuid4()), "source_ids": [ctx["s1"]]}],
             },
         )
         assert r.status_code == 422
@@ -737,9 +717,7 @@ def test_http_validation_and_state_closed(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
                 **base,
-                "selected": [
-                    {"candidate_id": ctx["c1"], "source_ids": [ctx["s2"]]}
-                ],
+                "selected": [{"candidate_id": ctx["c1"], "source_ids": [ctx["s2"]]}],
             },
         )
         assert r.status_code == 422
@@ -769,9 +747,7 @@ def test_http_validation_and_state_closed(
             {"id": ctx["artifact_id"]},
         )
     engine.dispose()
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]):
         r = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
@@ -791,9 +767,7 @@ def test_http_validation_and_state_closed(
             {"id": ctx["artifact_id"]},
         )
     engine.dispose()
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]):
         r = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
@@ -822,9 +796,7 @@ def test_tenant_isolation(
     app, ctx = g18_pg
     client = app.test_client()
     # Tenant B cannot accept artifact A
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_b"], tenant_id=ctx["tenant_b"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_b"], tenant_id=ctx["tenant_b"]):
         r = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
@@ -861,9 +833,7 @@ def test_http_client_actor_payload_ignored(
     app, ctx = g18_pg
     client = app.test_client()
     forged = uuid.uuid4()
-    with _authenticated_http(
-        app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]
-    ):
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]):
         r = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
@@ -904,9 +874,11 @@ def test_rollback_mid_materialize(g18_pg: tuple[Any, dict[str, Any]]) -> None:
     """Fault before audit is written → 0 Evidence, 0 links, 0 success audits."""
 
     app, ctx = g18_pg
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
-    ), pytest.raises(RuntimeError, match="injected_mid_materialize_failure"):
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])),
+        pytest.raises(RuntimeError, match="injected_mid_materialize_failure"),
+    ):
         accept_and_materialize_with_fault(
             artifact_id=ctx["artifact_id"],
             dossier_id=ctx["dossier_id"],
@@ -924,9 +896,11 @@ def test_rollback_after_audit(g18_pg: tuple[Any, dict[str, Any]]) -> None:
     """Fault after audit row is staged → full rollback including the audit event."""
 
     app, ctx = g18_pg
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
-    ), pytest.raises(RuntimeError, match="injected_post_audit_failure"):
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])),
+        pytest.raises(RuntimeError, match="injected_post_audit_failure"),
+    ):
         accept_and_materialize_with_fault(
             artifact_id=ctx["artifact_id"],
             dossier_id=ctx["dossier_id"],
@@ -951,8 +925,9 @@ def test_service_actor_from_context_only(g18_pg: tuple[Any, dict[str, Any]]) -> 
     assert "actor_user_id" not in fault_sig.parameters
     assert "actor_id" not in fault_sig.parameters
 
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])),
     ):
         out = accept_and_materialize(
             artifact_id=ctx["artifact_id"],
@@ -973,8 +948,9 @@ def test_service_no_actor_context_writes_zero(g18_pg: tuple[Any, dict[str, Any]]
     """Context without actor fails closed before commit: 0/0/0."""
 
     app, ctx = g18_pg
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=ctx["tenant_id"], actor_id=None)
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ctx["tenant_id"], actor_id=None)),
     ):
         with pytest.raises(MaterializeError) as exc_info:
             accept_and_materialize(
@@ -1023,9 +999,7 @@ def test_http_actor_context_mismatch_writes_zero(
 
     def install_mismatch_identity() -> None:
         g.active_tenant_id = ctx["tenant_id"]
-        manager = tenant_context(
-            TenantContext(tenant_id=ctx["tenant_id"], actor_id=other_actor)
-        )
+        manager = tenant_context(TenantContext(tenant_id=ctx["tenant_id"], actor_id=other_actor))
         manager.__enter__()
         g.auth_tenant_context_manager = manager
 
@@ -1066,16 +1040,15 @@ def test_concurrent_accept_one_evidence(
 
     def worker() -> None:
         try:
-            with app.app_context(), tenant_context(
-                TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
+            with (
+                app.app_context(),
+                tenant_context(TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])),
             ):
                 barrier.wait()
                 out = accept_and_materialize(
                     artifact_id=ctx["artifact_id"],
                     dossier_id=ctx["dossier_id"],
-                    selected=[
-                        {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}
-                    ],
+                    selected=[{"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}],
                 )
                 with lock:
                     results.append(out)
@@ -1158,6 +1131,4 @@ def test_candidate_id_not_from_model_json() -> None:
     ids = [c["candidate_id"] for c in stamped["candidates"]]
     assert planted not in ids
     assert ids[0] != ids[1]
-    assert ids[0] == server_owned_candidate_id(
-        execution_key=key, name="Same", evidence_ids=[s1]
-    )
+    assert ids[0] == server_owned_candidate_id(execution_key=key, name="Same", evidence_ids=[s1])

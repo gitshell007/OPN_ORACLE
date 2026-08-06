@@ -237,12 +237,8 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
     # cannot spawn a second row (connection overrides are deferred / not product).
     ignored_connection_id = bool(payload.get("connection_id"))
 
-    row = _load_profile(
-        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
-    )
-    legacy = legacy_missing_payload(
-        tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
-    )
+    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
+    legacy = legacy_missing_payload(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
     current_etag = row.etag if row is not None else legacy["etag"]
     if str(if_match) != str(current_etag):
         return problem_response(
@@ -264,9 +260,11 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
                 code="version_conflict",
             )
 
-    mode = str(
-        payload.get("mode") or (row.mode if row else SERVER_DEFAULT_MEMORY_MODE)
-    ).strip().lower()
+    mode = (
+        str(payload.get("mode") or (row.mode if row else SERVER_DEFAULT_MEMORY_MODE))
+        .strip()
+        .lower()
+    )
     if mode not in OPERATIONAL_MODES:
         return problem_response(422, detail="invalid mode.", code="schema_validation_failed")
 
@@ -375,9 +373,7 @@ def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
         payload = {}
     ignored_connection_id = bool(payload.get("connection_id"))
 
-    row = _load_profile(
-        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
-    )
+    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
     if row is not None:
         body = profile_to_public(row)
         body["persisted"] = True
@@ -442,9 +438,7 @@ def memory_effective(dossier_id: uuid.UUID) -> Any:
     resolution = resolve_effective_dossier_memory_profile(
         session, tenant_id=tenant_id, dossier_id=dossier_id
     )
-    pub = effective_resolution_to_public(
-        resolution, tenant_id=tenant_id, dossier_id=dossier_id
-    )
+    pub = effective_resolution_to_public(resolution, tenant_id=tenant_id, dossier_id=dossier_id)
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
     # Single source of truth: capability owns host health; project UI fields from it.
     capability = capability_payload(
@@ -478,9 +472,7 @@ def memory_test_connection(dossier_id: uuid.UUID) -> Any:
         return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
     tenant_id = dossier.tenant_id
 
-    row = _load_profile(
-        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
-    )
+    row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
 
     if host_mode == "disabled":

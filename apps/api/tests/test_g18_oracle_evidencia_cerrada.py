@@ -746,9 +746,7 @@ def test_server_owned_candidate_id_ignores_model_and_splits_homonyms() -> None:
     assert c0 != planted
     assert c1 != planted
     assert c0 != c1  # same name, different evidence → distinct ids
-    assert c0 == server_owned_candidate_id(
-        execution_key=execution, name="Twin", evidence_ids=[s1]
-    )
+    assert c0 == server_owned_candidate_id(execution_key=execution, name="Twin", evidence_ids=[s1])
     # Stable across calls
     again = stamp_server_owned_candidate_ids(
         {

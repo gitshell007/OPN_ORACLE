@@ -378,13 +378,16 @@ def g19_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
 
 def test_accept_actor_valid_1_1_1_and_retry(g19_pg: tuple[Any, dict[str, Any]]) -> None:
     app, env = g19_pg
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g19-test",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g19-test",
+            )
+        ),
     ):
         result = accept_and_materialize(
             artifact_id=env["actor_artifact_id"],
@@ -416,13 +419,16 @@ def test_accept_actor_valid_1_1_1_and_retry(g19_pg: tuple[Any, dict[str, Any]]) 
 
 def test_cross_agent_accept_closed_zero_rows(g19_pg: tuple[Any, dict[str, Any]]) -> None:
     app, env = g19_pg
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g19-test",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g19-test",
+            )
+        ),
     ):
         # Actor endpoint path (agent=market_actor_discovery) cannot accept competitor.
         with pytest.raises(MaterializeError) as exc:
@@ -451,13 +457,16 @@ def test_service_rollback_zero_rows(g19_pg: tuple[Any, dict[str, Any]]) -> None:
     """Invalid selection fails closed with 0 Evidence / 0 link / 0 AuditEvent."""
 
     app, env = g19_pg
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g19-test",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g19-test",
+            )
+        ),
     ):
         with pytest.raises(MaterializeError):
             accept_and_materialize(
@@ -499,13 +508,16 @@ def test_accept_actor_wrong_dossier_zero_rows(g19_pg: tuple[Any, dict[str, Any]]
         )
         db.session.commit()
 
-    with app.app_context(), tenant_context(
-        TenantContext(
-            tenant_id=env["tenant_id"],
-            actor_id=env["user_id"],
-            platform_access=False,
-            access_reason="g19-d1d2",
-        )
+    with (
+        app.app_context(),
+        tenant_context(
+            TenantContext(
+                tenant_id=env["tenant_id"],
+                actor_id=env["user_id"],
+                platform_access=False,
+                access_reason="g19-d1d2",
+            )
+        ),
     ):
         with pytest.raises(MaterializeError) as exc:
             accept_and_materialize(

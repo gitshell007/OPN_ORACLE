@@ -575,8 +575,7 @@ def mix_context_evidence(
     eligible = [f for f in CONTEXT_FAMILIES if by_family[f]]
     # Conditional floors: zero when family has no eligible evidence.
     applied_floors: dict[str, int] = {
-        f: (min(floors_cfg[f], len(by_family[f])) if f in eligible else 0)
-        for f in CONTEXT_FAMILIES
+        f: (min(floors_cfg[f], len(by_family[f])) if f in eligible else 0) for f in CONTEXT_FAMILIES
     }
     applied_caps: dict[str, int] = {
         f: (min(caps_cfg[f], max(len(by_family[f]), applied_floors[f])) if f in eligible else 0)
@@ -710,11 +709,7 @@ def mix_context_evidence(
         ignore_cap = False
         if under:
             # Prefer underfilled families only (hard diversity constraint).
-            pool_ranked = [
-                c
-                for c in _global_pool(ignore_soft_cap=True)
-                if c.family in under
-            ]
+            pool_ranked = [c for c in _global_pool(ignore_soft_cap=True) if c.family in under]
             if not pool_ranked:
                 # Cannot fill remaining floors — break to residual fill.
                 reason_codes.append("floor_unsatisfied")
@@ -864,10 +859,7 @@ def _build_metadata(
         # Never claim full diversity when budget was insufficient.
         "diversity_complete": bool(
             not budget_insufficient
-            and all(
-                int(selected_by_family.get(f, 0)) >= int(floors.get(f, 0))
-                for f in eligible
-            )
+            and all(int(selected_by_family.get(f, 0)) >= int(floors.get(f, 0)) for f in eligible)
         ),
     }
 

@@ -40,8 +40,10 @@ def test_download_classifies_403_waf() -> None:
         )
     assert exc.value.reason_code == "http_403_waf"
     assert exc.value.http_status == 403
-    assert "manualmente" in str(exc.value).casefold() or "WAF" in str(exc.value) or "403" in str(
-        exc.value
+    assert (
+        "manualmente" in str(exc.value).casefold()
+        or "WAF" in str(exc.value)
+        or "403" in str(exc.value)
     )
 
 
@@ -188,9 +190,7 @@ def test_set_acquisition_meta_allows_manual_pipeline_terminal_and_updates_at() -
 
 def test_set_acquisition_meta_allows_procesando_to_subido() -> None:
     doc = SimpleNamespace(
-        metadata_json={
-            "pliego_acquisition": {"status": "procesando", "source": SOURCE_MANUAL}
-        }
+        metadata_json={"pliego_acquisition": {"status": "procesando", "source": SOURCE_MANUAL}}
     )
     set_acquisition_meta(
         doc,  # type: ignore[arg-type]

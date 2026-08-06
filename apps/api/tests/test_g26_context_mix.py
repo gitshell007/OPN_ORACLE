@@ -275,23 +275,15 @@ def test_adversarial_500_tenders_preserves_relevant_families() -> None:
 def test_extra_1000_irrelevant_tenders_do_not_change_people_competitors() -> None:
     base = _adversarial_bag(tenders=500)
     result_a = mix_context_evidence(base, limit=30, question=QUESTION, memory_mode="augment")
-    people_a = sorted(
-        r.extract for r in result_a.selected if map_context_family(r) == "people"
-    )
-    comps_a = sorted(
-        r.extract for r in result_a.selected if map_context_family(r) == "competitors"
-    )
+    people_a = sorted(r.extract for r in result_a.selected if map_context_family(r) == "people")
+    comps_a = sorted(r.extract for r in result_a.selected if map_context_family(r) == "competitors")
 
     flooded = base + _tenders(1000, label="pliego ruido extra")
     # Shuffle order of flood head to prove stability beyond list position.
     flooded = list(reversed(flooded))
     result_b = mix_context_evidence(flooded, limit=30, question=QUESTION, memory_mode="augment")
-    people_b = sorted(
-        r.extract for r in result_b.selected if map_context_family(r) == "people"
-    )
-    comps_b = sorted(
-        r.extract for r in result_b.selected if map_context_family(r) == "competitors"
-    )
+    people_b = sorted(r.extract for r in result_b.selected if map_context_family(r) == "people")
+    comps_b = sorted(r.extract for r in result_b.selected if map_context_family(r) == "competitors")
 
     assert people_a == people_b
     assert comps_a == comps_b
@@ -362,9 +354,7 @@ def test_budget_3_with_6_eligible_families_is_deterministic_and_flagged() -> Non
 @pytest.mark.unit
 def test_long_token_budget_never_exceeds_and_protects_ids() -> None:
     long_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-    extract = (
-        f"Claim citable con evidence_id {long_id} y CONTR 2026 11077. " + ("palabra " * 2000)
-    )
+    extract = f"Claim citable con evidence_id {long_id} y CONTR 2026 11077. " + ("palabra " * 2000)
     bag = [
         FakeEvidence(
             "procurement",
@@ -484,7 +474,7 @@ def test_determinism_across_input_permutations() -> None:
 
 @pytest.mark.unit
 def test_no_family_exceeds_soft_cap_while_other_under_floor() -> None:
-    # Many tenders + one person: person floor must be met before tenders exceed cap? 
+    # Many tenders + one person: person floor must be met before tenders exceed cap?
     # Soft cap tenders=3, floor person=1, limit=5.
     bag = _tenders(50) + _people(1)
     result = mix_context_evidence(

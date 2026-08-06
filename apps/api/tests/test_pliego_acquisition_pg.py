@@ -345,10 +345,7 @@ def _audit_count(engine, *, tenant_id: uuid.UUID, action: str) -> int:
     with engine.connect() as conn:
         return int(
             conn.execute(
-                text(
-                    "SELECT count(*) FROM audit_events "
-                    "WHERE tenant_id = :t AND action = :a"
-                ),
+                text("SELECT count(*) FROM audit_events WHERE tenant_id = :t AND action = :a"),
                 {"t": tenant_id, "a": action},
             ).scalar_one()
         )
@@ -356,14 +353,18 @@ def _audit_count(engine, *, tenant_id: uuid.UUID, action: str) -> int:
 
 def _doc_meta(engine, *, tenant_id: uuid.UUID, dossier_id: uuid.UUID) -> dict[str, Any]:
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT id, status, metadata FROM documents "
-                "WHERE tenant_id = :t AND dossier_id = :d "
-                "ORDER BY created_at DESC LIMIT 1"
-            ),
-            {"t": tenant_id, "d": dossier_id},
-        ).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT id, status, metadata FROM documents "
+                    "WHERE tenant_id = :t AND dossier_id = :d "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"t": tenant_id, "d": dossier_id},
+            )
+            .mappings()
+            .first()
+        )
     assert row is not None
     return dict(row)
 
@@ -376,9 +377,7 @@ def _run_document_process_job(
     job_id: str,
 ) -> dict[str, Any]:
     """Ejecuta el handler real de oracle.document.process (no servicio directo)."""
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=tenant_id, actor_id=user_id)
-    ):
+    with app.app_context(), tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
         job = db.session.get(BackgroundJob, uuid.UUID(job_id))
         assert job is not None
         assert job.job_type == "oracle.document.process"
@@ -409,8 +408,9 @@ def test_pg_post_procesando_then_job_ready_subido(
         lambda _job: True,
     )
 
-    with app.app_context(), _authenticated_http(
-        app, monkeypatch, user_id=user_id, tenant_id=tenant_id
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
     ):
         resp = client.get(f"/api/v1/dossiers/{dossier_id}/pliego-acquisition")
         assert resp.status_code == 200
@@ -525,8 +525,9 @@ def test_pg_invalid_file_job_no_disponible(
         lambda _job: True,
     )
 
-    with app.app_context(), _authenticated_http(
-        app, monkeypatch, user_id=user_id, tenant_id=tenant_id
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
     ):
         # Magic de PDF pasa; el parser no extrae texto → fallo de proceso.
         up = client.post(
@@ -562,9 +563,7 @@ def test_pg_invalid_file_job_no_disponible(
         assert _audit_count(engine, tenant_id=tenant_id, action=AUDIT_MANUAL_SUCCESS) == 0
 
         # Idempotencia del fallo terminal
-        _run_document_process_job(
-            app, tenant_id=tenant_id, user_id=user_id, job_id=job_id
-        )
+        _run_document_process_job(app, tenant_id=tenant_id, user_id=user_id, job_id=job_id)
         assert _audit_count(engine, tenant_id=tenant_id, action=AUDIT_MANUAL_FAILURE) == 1
 
         body = client.get(f"/api/v1/dossiers/{dossier_id}/pliego-acquisition").get_json()
@@ -637,9 +636,7 @@ def test_pg_durable_download_failure_survives_session(
             },
         )
 
-    with app.app_context(), tenant_context(
-        TenantContext(tenant_id=tenant_id, actor_id=user_id)
-    ):
+    with app.app_context(), tenant_context(TenantContext(tenant_id=tenant_id, actor_id=user_id)):
         entry = record_download_failure(
             dossier_id=dossier_id,
             tenant_id=tenant_id,
@@ -655,19 +652,14 @@ def test_pg_durable_download_failure_survives_session(
 
         # Contar documentos: no se creó blob falso
         n_docs = db.session.execute(
-            text(
-                "SELECT count(*) FROM documents WHERE tenant_id = :t AND dossier_id = :d"
-            ),
+            text("SELECT count(*) FROM documents WHERE tenant_id = :t AND dossier_id = :d"),
             {"t": tenant_id, "d": dossier_id},
         ).scalar_one()
         assert int(n_docs) == 0
 
         # profile_config durable
         cfg = db.session.execute(
-            text(
-                "SELECT profile_config FROM strategic_dossiers "
-                "WHERE id = :d AND tenant_id = :t"
-            ),
+            text("SELECT profile_config FROM strategic_dossiers WHERE id = :d AND tenant_id = :t"),
             {"d": dossier_id, "t": tenant_id},
         ).scalar_one()
         attempts = (cfg or {}).get(ATTEMPTS_KEY) or {}
@@ -675,8 +667,9 @@ def test_pg_durable_download_failure_survives_session(
         assert attempts[uri]["http_status"] == 403
 
     # «Nueva sesión»: GET limpio conserva reason_code exacto
-    with app.app_context(), _authenticated_http(
-        app, monkeypatch, user_id=user_id, tenant_id=tenant_id
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
     ):
         resp = client.get(f"/api/v1/dossiers/{dossier_id}/pliego-acquisition")
         assert resp.status_code == 200
@@ -707,9 +700,7 @@ def test_pg_durable_download_failure_survives_session(
             assert durable["attempt"] == 2
 
         resp2 = client.get(f"/api/v1/dossiers/{dossier_id}/pliego-acquisition")
-        match2 = next(
-            a for a in resp2.get_json()["acquisitions"] if a.get("source_uri") == uri
-        )
+        match2 = next(a for a in resp2.get_json()["acquisitions"] if a.get("source_uri") == uri)
         assert match2["reason_code"] == "timeout"
 
         # Éxito posterior reemplaza el fallo (sin documento real: marcamos attempt)
@@ -731,21 +722,27 @@ def test_pg_durable_download_failure_survives_session(
             assert durable_ok["reason_code"] == "downloaded"
 
     # Tenant isolation
-    with app.app_context(), _authenticated_http(
-        app,
-        monkeypatch,
-        user_id=ids["user_b"],
-        tenant_id=ids["tenant_b"],
+    with (
+        app.app_context(),
+        _authenticated_http(
+            app,
+            monkeypatch,
+            user_id=ids["user_b"],
+            tenant_id=ids["tenant_b"],
+        ),
     ):
         resp_b = client.get(f"/api/v1/dossiers/{dossier_id}/pliego-acquisition")
         assert resp_b.status_code == 404
 
-    with app.app_context(), _authenticated_http(
-        app,
-        monkeypatch,
-        user_id=user_id,
-        tenant_id=tenant_id,
-        perms=frozenset({"documents.read", "dossier.read"}),
+    with (
+        app.app_context(),
+        _authenticated_http(
+            app,
+            monkeypatch,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            perms=frozenset({"documents.read", "dossier.read"}),
+        ),
     ):
         up = client.post(
             f"/api/v1/dossiers/{dossier_id}/pliego-pcap",

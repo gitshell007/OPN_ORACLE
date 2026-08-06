@@ -433,6 +433,7 @@ def build_offer_draft_document(
     # 4. Sections — each section is a cohesive keep-with-next block.
     _add_heading(doc, "Secciones de la oferta", 1)
     sections = [sec for sec in (content.get("sections") or []) if isinstance(sec, dict)]
+
     def _section_order(section: Mapping[str, Any]) -> int:
         raw_order = section.get("order")
         return int(raw_order) if isinstance(raw_order, (int, str)) else 0

@@ -366,9 +366,7 @@ def _use_partial_extract_fallback(
     label = warning_label or PARTIAL_EXTRACT_WARNING
     if reason_code == "encrypted_pdf":
         label = ENCRYPTED_PDF_EXTRACT_WARNING
-    warnings = [
-        f"{label} (ref={reference.get('file_name') or reference.get('uri')}; {reason})"
-    ]
+    warnings = [f"{label} (ref={reference.get('file_name') or reference.get('uri')}; {reason})"]
     evidence = 0
     used_ids: set[uuid.UUID] = set()
     acquisitions: list[dict[str, Any]] = []
@@ -494,9 +492,7 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
                 document_id=str(manual.id),
             )
         )
-        warnings.append(
-            "Usando PCAP subido manualmente (prioridad sobre descarga automática)."
-        )
+        warnings.append("Usando PCAP subido manualmente (prioridad sobre descarga automática).")
         # No sobrescribir con reintentos automáticos peores.
         return {
             "documents": processed,

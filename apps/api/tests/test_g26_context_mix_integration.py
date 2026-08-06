@@ -291,9 +291,10 @@ def test_dual_ask_merges_allowlist_with_mixed_authority() -> None:
         if row.source_kind in citable_kinds:
             assert str(row.id) in allow
     # Dual disabled → no signal factual inject.
-    assert dual.signal_factual.get("items") in ([], None) or list(
-        dual.signal_factual.get("items") or []
-    ) == []
+    assert (
+        dual.signal_factual.get("items") in ([], None)
+        or list(dual.signal_factual.get("items") or []) == []
+    )
 
 
 @pytest.mark.unit

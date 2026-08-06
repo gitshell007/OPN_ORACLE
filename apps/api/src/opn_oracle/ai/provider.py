@@ -244,9 +244,7 @@ class MockLLMProvider:
                             "organization": org,
                             "affiliation": "Universidad Mock" if index == 1 else "",
                             "country": (
-                                "DE"
-                                if bad_country
-                                else (countries[0] if countries else "FR")
+                                "DE" if bad_country else (countries[0] if countries else "FR")
                             ),
                             "summary": (
                                 "Candidato determinista del mock para revision humana "
@@ -302,9 +300,7 @@ class MockLLMProvider:
                     expected_countries=set(c.upper() for c in countries),
                 )
             else:
-                candidates = [
-                    item for item in proposed if str(item["name"]).lower() not in known
-                ]
+                candidates = [item for item in proposed if str(item["name"]).lower() not in known]
                 raw_output = {
                     "candidates": candidates,
                     "warnings": ["Resultado generado por proveedor mock determinista."],
@@ -313,9 +309,7 @@ class MockLLMProvider:
                     raw_output,
                     citable_sources=tuple(mock_sources),
                 )
-            output = schema.model_validate_json(
-                json.dumps(gated, ensure_ascii=False, default=str)
-            )
+            output = schema.model_validate_json(json.dumps(gated, ensure_ascii=False, default=str))
             return LLMResult(
                 output,
                 100 + fingerprint[0],
