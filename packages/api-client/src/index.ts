@@ -1,5 +1,6 @@
 export type { components, operations, paths } from "./generated/schema";
 export { ApiError, api, isProblem } from "./transport";
+export type { BinaryDownload } from "./transport";
 export type {
   AssignableUser,
   MembershipSummary,

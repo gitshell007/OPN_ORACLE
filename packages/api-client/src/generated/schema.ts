@@ -2006,6 +2006,8 @@ export interface paths {
         /**
          * Materializa un borrador editable desde el draft_offer calculado del análisis.
          * @description Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.
+         *     Bajo carrera en el unique (tenant_id, dossier_id), el perdedor recupera la fila
+         *     existente (sin 500 ni segunda fila).
          */
         post: {
             parameters: {
@@ -2092,7 +2094,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Actualiza campos editables del borrador con control de versión optimista. */
+        /** Actualiza campos editables del borrador con CAS atómico (version en el UPDATE). */
         patch: {
             parameters: {
                 query?: never;
@@ -2177,6 +2179,120 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft/export.docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Exportar borrador de oferta como DOCX editable
+         * @description Descarga el OpportunityOfferDraft persistido como documento Word (.docx) editable. Requiere precondición de versión (query `version` o cabecera If-Match). No regenera desde el artifact de análisis.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Versión durable que la UI muestra; debe coincidir. */
+                    version?: number;
+                };
+                header?: {
+                    /** @description ETag de versión (p. ej. W/"ood-v3") como alternativa a version. */
+                    "If-Match"?: string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Documento Word editable generado desde el borrador durable */
+                200: {
+                    headers: {
+                        /** @description attachment; filename=… */
+                        "Content-Disposition"?: string;
+                        /** @description ETag del borrador exportado */
+                        ETag?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": string;
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Se requiere version o cabecera If-Match */
+                428: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs": {

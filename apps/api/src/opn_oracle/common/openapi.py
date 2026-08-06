@@ -122,6 +122,71 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
                 responses.setdefault("409", _problem("Conflicto de estado", problem_content))
             _declare_oracle_operation(path, method, operation, problem_content)
             _declare_reporting_operation(path, method, operation, problem_content)
+            if path.endswith("/opportunity/offer-draft/export.docx") and method == "get":
+                operation["summary"] = "Exportar borrador de oferta como DOCX editable"
+                operation["description"] = (
+                    "Descarga el OpportunityOfferDraft persistido como documento Word "
+                    "(.docx) editable. Requiere precondición de versión (query `version` "
+                    "o cabecera If-Match). No regenera desde el artifact de análisis."
+                )
+                _upsert_parameter(
+                    operation,
+                    {
+                        "name": "version",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1},
+                        "description": "Versión durable que la UI muestra; debe coincidir.",
+                    },
+                )
+                _upsert_parameter(
+                    operation,
+                    {
+                        "name": "If-Match",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "string"},
+                        "description": (
+                            'ETag de versión (p. ej. W/"ood-v3") como alternativa a version.'
+                        ),
+                    },
+                )
+                operation["responses"]["200"] = {
+                    "description": "Documento Word editable generado desde el borrador durable",
+                    "content": {
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                            "schema": {"type": "string", "format": "binary"}
+                        }
+                    },
+                    "headers": {
+                        "Content-Disposition": {
+                            "description": "attachment; filename=…",
+                            "schema": {"type": "string"},
+                        },
+                        "ETag": {
+                            "description": "ETag del borrador exportado",
+                            "schema": {"type": "string"},
+                        },
+                    },
+                }
+                responses.setdefault(
+                    "404",
+                    _problem("Borrador o expediente no disponible", problem_content),
+                )
+                responses.setdefault(
+                    "409",
+                    _problem(
+                        "Versión obsoleta: el borrador en servidor no coincide",
+                        problem_content,
+                    ),
+                )
+                responses.setdefault(
+                    "428",
+                    _problem(
+                        "Se requiere version o cabecera If-Match",
+                        problem_content,
+                    ),
+                )
             if path.startswith("/api/v1/jobs/{job_id}"):
                 responses.setdefault("404", _problem("Job no encontrado", problem_content))
             if path.endswith(("/cancel", "/retry")) and path.startswith("/api/v1/jobs/"):
@@ -314,6 +379,7 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "get"): ("200", "OpportunityOfferDraftResponse"),
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "post"): ("201", "OpportunityOfferDraftCreateResponse"),
         ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): ("200", "OpportunityOfferDraftResponse"),
+        # Binary DOCX export is handled in declare_problem_responses (not JSON typed_responses).
         ("/api/v1/dossiers/{dossier_id}/intent", "get"): ("200", "IntentOverviewResponse"),
         ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): (
             "201",

@@ -219,6 +219,80 @@ async function request<T>(
   throw new Error("Solicitud agotada");
 }
 
+/** Authenticated binary download (blob + Content-Disposition filename). */
+export interface BinaryDownload {
+  blob: Blob;
+  filename: string;
+  contentType: string;
+  etag: string | null;
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  // filename*=UTF-8''...
+  const star = /filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^["']|["']$/g, ""));
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename\s*=\s*("?)([^";]+)\1/i.exec(header);
+  if (plain?.[2]) return plain[2].trim();
+  return null;
+}
+
+async function requestBlob(
+  path: string,
+  options: RequestOptions & { accept?: string; fallbackFilename?: string } = {},
+): Promise<BinaryDownload> {
+  const method = options.method ?? "GET";
+  const mutation = method !== "GET";
+  if (mutation && !csrfToken) await fetchCsrf(options.signal);
+  const headers = new Headers({
+    Accept:
+      options.accept ??
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/problem+json, application/json",
+  });
+  const id = requestId();
+  if (id) headers.set("X-Request-ID", id);
+  if (mutation) headers.set("X-CSRF-Token", csrfToken ?? "");
+  if (options.ifMatch !== undefined) {
+    const match =
+      typeof options.ifMatch === "string"
+        ? options.ifMatch
+        : `W/"ood-v${options.ifMatch}"`;
+    headers.set("If-Match", match);
+  }
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers,
+    signal: options.signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await parseError(response);
+    publishAuthError(path, error);
+    throw error;
+  }
+  const blob = await response.blob();
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ||
+    options.fallbackFilename ||
+    "download.bin";
+  return {
+    blob,
+    filename,
+    contentType:
+      response.headers.get("Content-Type") ||
+      blob.type ||
+      "application/octet-stream",
+    etag: response.headers.get("ETag"),
+  };
+}
+
 const auth = {
   me: (signal?: AbortSignal) =>
     request<SessionIdentity>("/api/v1/auth/me", { signal, retry: false }),
@@ -2389,6 +2463,24 @@ const dossierOpportunityAnalysis = {
         ifMatch: ifMatch ?? input.version,
       },
     ),
+  /** Descarga DOCX editable de la versión durable indicada (precondición version). */
+  exportOfferDraftDocx: (
+    dossierId: string,
+    version: number,
+    options?: { signal?: AbortSignal; ifMatch?: number | string },
+  ) => {
+    const params = new URLSearchParams({ version: String(version) });
+    return requestBlob(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft/export.docx?${params.toString()}`,
+      {
+        signal: options?.signal,
+        ifMatch: options?.ifMatch ?? version,
+        fallbackFilename: `Borrador-oferta-v${version}.docx`,
+        accept:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/problem+json",
+      },
+    );
+  },
 };
 
 

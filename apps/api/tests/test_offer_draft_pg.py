@@ -11,6 +11,7 @@ Requires disposable local PG:
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import threading
@@ -822,3 +823,134 @@ def test_http_post_concurrent_idempotent(
             )
         )
         assert int(n or 0) == 1
+
+
+def _export_path(dossier_id: uuid.UUID) -> str:
+    return f"/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft/export.docx"
+
+
+def test_http_export_docx_version_isolation_and_audit(
+    offer_draft_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DOCX export: durable only, version gate, tenant isolation, server-owned audit."""
+
+    app, ctx = offer_draft_pg
+    client = app.test_client()
+    path_a = _path(ctx["dossier_a"])
+    export_a = _export_path(ctx["dossier_a"])
+    export_b = _export_path(ctx["dossier_b"])
+    export_a2 = _export_path(ctx["dossier_a2"])
+
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]):
+        # No durable draft → honest 404 (never regenerates from artifact).
+        missing = client.get(f"{export_a}?version=1")
+        assert missing.status_code == 404, missing.get_json()
+        assert missing.get_json()["code"] == "offer_draft_not_found"
+
+        # Materialize durable draft
+        created = client.post(path_a, json={})
+        assert created.status_code == 201, created.get_json()
+        draft = created.get_json()["draft"]
+        assert draft["version"] == 1
+
+        # Precondition required
+        need_version = client.get(export_a)
+        assert need_version.status_code == 428
+        assert need_version.get_json()["code"] == "precondition_required"
+
+        # Happy path export v1
+        ok = client.get(f"{export_a}?version=1")
+        assert ok.status_code == 200, ok.headers
+        assert ok.headers.get("Content-Type", "").startswith(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        disposition = ok.headers.get("Content-Disposition", "")
+        assert "attachment" in disposition
+        assert ".docx" in disposition.casefold()
+        assert "\r" not in disposition and "\n" not in disposition
+        payload = ok.data
+        assert payload.startswith(b"PK")
+        assert b"<!DOCTYPE html" not in payload[:200].lower()
+        assert b"<html" not in payload[:200].lower()
+
+        from opn_oracle.documents.parsers import DOCXParser
+
+        parsed = DOCXParser().parse(io.BytesIO(payload))
+        text_joined = "\n".join(block.text for block in parsed.blocks)
+        assert "Borrador de oferta" in text_joined
+        assert "Expediente G09 A" in text_joined
+        assert draft["statement"][:40] in text_joined
+        assert "tenant_id" not in text_joined.casefold()
+        assert str(ctx["tenant_a"]) not in text_joined
+        assert str(ctx["user_a"]) not in text_joined
+
+        # Bump to v2
+        patched = client.patch(
+            path_a,
+            json={
+                "version": 1,
+                "statement": "Introducción exportable v2 del comercial.",
+            },
+        )
+        assert patched.status_code == 200, patched.get_json()
+        assert patched.get_json()["draft"]["version"] == 2
+
+        # Stale export of v1 → 409
+        stale = client.get(f"{export_a}?version=1")
+        assert stale.status_code == 409, stale.get_json()
+        assert stale.get_json()["code"] == "version_conflict"
+        assert stale.get_json()["errors"]["current_version"] == 2
+
+        # Correct version works
+        ok2 = client.get(f"{export_a}?version=2", headers={"If-Match": make_etag(2)})
+        assert ok2.status_code == 200
+        parsed2 = DOCXParser().parse(io.BytesIO(ok2.data))
+        joined2 = "\n".join(block.text for block in parsed2.blocks)
+        assert "Introducción exportable v2 del comercial." in joined2
+        assert "Introducción base del borrador G09 rework." not in joined2
+
+        # Other dossier without draft
+        empty = client.get(f"{export_a2}?version=1")
+        assert empty.status_code == 404
+
+    # Tenant B cannot export tenant A draft
+    with _authenticated_http(app, monkeypatch, user_id=ctx["user_b"], tenant_id=ctx["tenant_b"]):
+        cross = client.get(f"{export_a}?version=2")
+        assert cross.status_code == 404
+        # B has no draft yet
+        own_missing = client.get(f"{export_b}?version=1")
+        assert own_missing.status_code == 404
+
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])),
+    ):
+        exports = list(
+            db.session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.tenant_id == ctx["tenant_a"],
+                    AuditEvent.action == "opportunity.offer_draft.export",
+                    AuditEvent.dossier_id == ctx["dossier_a"],
+                )
+            )
+        )
+        assert len(exports) >= 2  # at least success + conflict
+        successes = [e for e in exports if e.result == "success"]
+        failures = [e for e in exports if e.result == "failure"]
+        assert successes
+        assert failures
+        assert any(dict(e.event_metadata or {}).get("result") == "conflict" for e in failures)
+        for event in successes:
+            assert event.actor_id == ctx["user_a"]
+            assert event.tenant_id == ctx["tenant_a"]
+            meta = dict(event.event_metadata or {})
+            assert meta.get("format") == "docx"
+            assert meta.get("version") in {1, 2}
+            assert meta.get("result") == "success"
+            assert "statement" not in meta
+            assert "content" not in meta
+            assert "sections" not in meta
+            # Body must not be dumped into metadata
+            blob = json.dumps(meta, ensure_ascii=False)
+            assert "Introducción exportable" not in blob
+            assert "Semilla" not in blob

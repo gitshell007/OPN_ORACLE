@@ -14894,13 +14894,13 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Actualiza campos editables del borrador con control de versi\u00f3n optimista.",
+        "summary": "Actualiza campos editables del borrador con CAS at\u00f3mico (version en el UPDATE).",
         "tags": [
           "IA"
         ]
       },
       "post": {
-        "description": "Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.",
+        "description": "Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.\nBajo carrera en el unique (tenant_id, dossier_id), el perdedor recupera la fila\nexistente (sin 500 ni segunda fila).",
         "parameters": [
           {
             "in": "path",
@@ -15008,6 +15008,146 @@
           }
         ],
         "summary": "Materializa un borrador editable desde el draft_offer calculado del an\u00e1lisis.",
+        "tags": [
+          "IA"
+        ]
+      }
+    },
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft/export.docx": {
+      "get": {
+        "description": "Descarga el OpportunityOfferDraft persistido como documento Word (.docx) editable. Requiere precondici\u00f3n de versi\u00f3n (query `version` o cabecera If-Match). No regenera desde el artifact de an\u00e1lisis.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versi\u00f3n durable que la UI muestra; debe coincidir.",
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "ETag de versi\u00f3n (p. ej. W/\"ood-v3\") como alternativa a version.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Documento Word editable generado desde el borrador durable",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\u2026",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "ETag del borrador exportado",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Se requiere version o cabecera If-Match"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Exportar borrador de oferta como DOCX editable",
         "tags": [
           "IA"
         ]

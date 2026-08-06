@@ -30,6 +30,7 @@ dependencies = [
   # PYSEC-2026-3412 (last_affected 68.1). Por debajo, el gate pip-audit del CI
   # queda en rojo y no hay release posible.
   "weasyprint>=69,<70",
+  "python-docx>=1.1.2,<2.0.0",
 ]
 
 [dependency-groups]

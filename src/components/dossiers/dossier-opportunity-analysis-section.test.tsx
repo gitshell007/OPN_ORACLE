@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getOfferDraft: vi.fn(),
   prepareOfferDraft: vi.fn(),
   patchOfferDraft: vi.fn(),
+  exportOfferDraftDocx: vi.fn(),
   toast: { success: vi.fn(), message: vi.fn(), error: vi.fn() },
 }));
 
@@ -36,6 +37,7 @@ vi.mock("@oracle/api-client", () => ({
       getOfferDraft: mocks.getOfferDraft,
       prepareOfferDraft: mocks.prepareOfferDraft,
       patchOfferDraft: mocks.patchOfferDraft,
+      exportOfferDraftDocx: mocks.exportOfferDraftDocx,
     },
     opportunities: {
       create: mocks.create,
@@ -343,6 +345,15 @@ describe("DossierOpportunityAnalysisSection", () => {
         }),
       },
     }));
+    mocks.exportOfferDraftDocx.mockResolvedValue({
+      blob: new Blob(["PK-fake-docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+      filename: "Borrador-oferta-demo-v1.docx",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      etag: 'W/"ood-v1"',
+    });
   });
 
   it("muestra vacío y lanza el análisis sin crear oportunidad", async () => {
@@ -706,5 +717,78 @@ describe("DossierOpportunityAnalysisSection", () => {
       "Sin guardar",
     );
     expect(after.value).not.toBe("Texto del servidor que no debe reaplicarse.");
+  });
+
+  it("descarga Word con blob, nombre y revoke; disponible sin artifact", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: null });
+    mocks.getOfferDraft.mockResolvedValue({ draft: persistedDraftFixture });
+    const createObjectURL = vi.fn(() => "blob:mock-docx-url");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { writable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { writable: true, value: revokeObjectURL });
+    const click = vi.fn();
+    const originalCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = originalCreate(tag);
+      if (tag === "a") {
+        Object.defineProperty(el, "click", { value: click });
+      }
+      return el;
+    });
+
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    expect(await view.findByTestId("dossier-opportunity-empty")).toBeInTheDocument();
+    const downloadBtn = await view.findByTestId("dossier-opportunity-download-draft-docx");
+    expect(downloadBtn).toBeEnabled();
+    fireEvent.click(downloadBtn);
+    await waitFor(() =>
+      expect(mocks.exportOfferDraftDocx).toHaveBeenCalledWith("dossier-1", 1, {
+        ifMatch: 1,
+      }),
+    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    expect(click).toHaveBeenCalled();
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "descargado",
+    );
+  });
+
+  it("bloquea descarga si hay cambios dirty sin guardar", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    mocks.getOfferDraft.mockResolvedValue({ draft: persistedDraftFixture });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    const statement = await view.findByTestId("dossier-opportunity-draft-statement");
+    fireEvent.change(statement, { target: { value: "Cambio local sin guardar." } });
+    fireEvent.click(view.getByTestId("dossier-opportunity-download-draft-docx"));
+    await waitFor(() =>
+      expect(view.getByTestId("dossier-opportunity-draft-export-error")).toHaveTextContent(
+        /guarda antes de exportar/i,
+      ),
+    );
+    expect(mocks.exportOfferDraftDocx).not.toHaveBeenCalled();
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "guarda antes de exportar",
+    );
+  });
+
+  it("muestra conflicto de versión en la descarga Word", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    mocks.getOfferDraft.mockResolvedValue({ draft: persistedDraftFixture });
+    const { ApiError } = await import("@oracle/api-client");
+    mocks.exportOfferDraftDocx.mockRejectedValueOnce(
+      new ApiError(409, {
+        detail: "El borrador ha cambiado; recarga y vuelve a guardar.",
+        code: "version_conflict",
+      } as never),
+    );
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await view.findByTestId("dossier-opportunity-draft-offer");
+    fireEvent.click(view.getByTestId("dossier-opportunity-download-draft-docx"));
+    const alert = await view.findByTestId("dossier-opportunity-draft-export-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(/conflicto|cambiado/i);
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "conflicto",
+    );
   });
 });

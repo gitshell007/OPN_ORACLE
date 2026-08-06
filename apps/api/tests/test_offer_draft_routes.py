@@ -17,6 +17,20 @@ from opn_oracle.ai.routes import (
 
 
 @pytest.mark.unit
+def test_export_route_uses_persisted_draft_and_version_gate() -> None:
+    from opn_oracle.ai.routes import export_opportunity_offer_draft_docx
+
+    source = inspect.getsource(export_opportunity_offer_draft_docx)
+    assert "build_offer_draft_docx" in source
+    assert "opportunity.offer_draft.export" in source
+    assert "parse_expected_version" in source
+    assert "OfferDraftVersionConflict" in source
+    assert "offer_draft_not_found" in source
+    # Must not re-materialize from calculated artifact during export.
+    assert "materialize_content_from_calculated" not in source
+
+
+@pytest.mark.unit
 def test_prepare_route_docs_materialize_not_silent_overwrite() -> None:
     doc = inspect.getdoc(prepare_opportunity_offer_draft) or ""
     assert "materializa" in doc.casefold() or "Materializa" in doc

@@ -35,6 +35,15 @@ from opn_oracle.ai.offer_draft import (
     serialize_offer_draft,
     utc_now,
 )
+from opn_oracle.ai.offer_draft_docx import (
+    DOCX_MEDIA_TYPE,
+    build_offer_draft_docx,
+    collect_evidence_ids,
+    content_disposition_attachment,
+    load_evidence_citation_lookup,
+    resolve_evidence_citations,
+    sanitize_export_filename,
+)
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
@@ -854,6 +863,137 @@ def patch_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
             code="offer_draft_not_found",
         )
     return _serialize_offer_draft_response(saved, status=200)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/offer-draft/export.docx")
+@require_permission("ai.execute")
+def export_opportunity_offer_draft_docx(dossier_id: uuid.UUID) -> Any:
+    """Exporta el borrador durable persistido como DOCX editable (Word).
+
+    Requiere precondición de versión (``version`` query o ``If-Match``). Si el
+    servidor tiene otra versión, responde 409 sin regenerar desde artifact.
+    Sin fila durable: 404 honesto.
+    """
+    dossier = _dossier(dossier_id, write=False)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+
+    try:
+        expected = parse_expected_version(
+            body_version=request.args.get("version"),
+            if_match=request.headers.get("If-Match"),
+        )
+        if expected is None:
+            raise OfferDraftError(
+                "Se requiere version o cabecera If-Match para exportar el borrador.",
+                code="precondition_required",
+                status=428,
+            )
+        if int(row.version) != int(expected):
+            raise OfferDraftVersionConflict(current_version=int(row.version))
+    except OfferDraftVersionConflict as exc:
+        # Audit.result only allows success|denied|failure (not "conflict").
+        append_audit_event(
+            db.session,
+            action="opportunity.offer_draft.export",
+            resource_type="opportunity_offer_draft",
+            resource_id=row.id,
+            result="failure",
+            dossier_id=dossier_id,
+            metadata={
+                "draft_id": str(row.id),
+                "dossier_id": str(dossier_id),
+                "version": int(row.version),
+                "requested_version": int(expected) if expected is not None else None,
+                "format": "docx",
+                "result": "conflict",
+                "error_code": "version_conflict",
+            },
+        )
+        db.session.commit()
+        return problem_response(
+            exc.status,
+            detail=exc.message,
+            code=exc.code,
+            errors={"current_version": exc.current_version},
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    content = row.content if isinstance(row.content, dict) else {}
+    evidence_ids = collect_evidence_ids(content)
+    lookup = load_evidence_citation_lookup(
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        evidence_ids=evidence_ids,
+    )
+    citations = resolve_evidence_citations(evidence_ids, lookup=lookup)
+    exported_at = utc_now()
+    try:
+        payload = build_offer_draft_docx(
+            content,
+            dossier_title=str(dossier.title or "Expediente"),
+            version=int(row.version),
+            exported_at=exported_at,
+            citations=citations,
+        )
+    except OfferDraftError as exc:
+        append_audit_event(
+            db.session,
+            action="opportunity.offer_draft.export",
+            resource_type="opportunity_offer_draft",
+            resource_id=row.id,
+            result="failure",
+            dossier_id=dossier_id,
+            metadata={
+                "draft_id": str(row.id),
+                "dossier_id": str(dossier_id),
+                "version": int(row.version),
+                "format": "docx",
+                "result": "failure",
+                "error_code": exc.code,
+            },
+        )
+        db.session.commit()
+        return _offer_draft_problem(exc)
+
+    filename = sanitize_export_filename(
+        str(dossier.title or "Expediente"), version=int(row.version)
+    )
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.export",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "draft_id": str(row.id),
+            "dossier_id": str(dossier_id),
+            "version": int(row.version),
+            "format": "docx",
+            "result": "success",
+            "byte_size": len(payload),
+            "filename": filename,
+            # Never include document body / statement / sections.
+        },
+    )
+    db.session.commit()
+
+    response = Response(payload, mimetype=DOCX_MEDIA_TYPE)
+    response.headers["Content-Disposition"] = content_disposition_attachment(filename)
+    response.headers["Content-Length"] = str(len(payload))
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["ETag"] = row.etag
+    return response
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/opportunity/runs")

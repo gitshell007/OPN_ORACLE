@@ -92,6 +92,7 @@ function recommendationLabel(value: string | undefined) {
 
 
 type DraftSaveState = "idle" | "dirty" | "saving" | "saved" | "conflict" | "error";
+type DraftExportState = "idle" | "preparing" | "downloaded" | "conflict" | "error" | "dirty_blocked";
 
 function draftStatusLabel(state: DraftSaveState): string {
   switch (state) {
@@ -107,6 +108,39 @@ function draftStatusLabel(state: DraftSaveState): string {
       return "Error al guardar";
     default:
       return "Listo";
+  }
+}
+
+function draftExportStatusLabel(state: DraftExportState): string {
+  switch (state) {
+    case "preparing":
+      return "preparando";
+    case "downloaded":
+      return "descargado";
+    case "conflict":
+      return "conflicto";
+    case "error":
+      return "error";
+    case "dirty_blocked":
+      return "guarda antes de exportar";
+    default:
+      return "";
+  }
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    // Revoke after the browser has a chance to start the download.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
 }
 
@@ -173,6 +207,8 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "error">("idle");
+  const [exportState, setExportState] = useState<DraftExportState>("idle");
+  const [exportError, setExportError] = useState<string | null>(null);
   const draftVersionRef = useRef<number>(0);
   /** Local unsaved edits must not be clobbered by automatic refresh/rerun. */
   const draftDirtyRef = useRef(false);
@@ -361,10 +397,69 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
     }
   }
 
+  async function downloadOfferDraftDocx() {
+    if (!persistedDraft) {
+      setExportState("error");
+      setExportError("No hay borrador persistido para descargar.");
+      toast.error("Nada que descargar", {
+        description: "Prepara y guarda el borrador antes de exportar a Word.",
+      });
+      return;
+    }
+    if (draftDirtyRef.current || draftSaveState === "dirty") {
+      setExportState("dirty_blocked");
+      setExportError("Guarda antes de exportar. Hay cambios locales sin guardar.");
+      toast.error("Guarda antes de exportar", {
+        description: "Los cambios locales no se incluyen hasta que guardes el borrador.",
+      });
+      return;
+    }
+    const version = draftVersionRef.current || persistedDraft.version;
+    setExportState("preparing");
+    setExportError(null);
+    setDraftBusy(true);
+    try {
+      const download = await api.dossierOpportunityAnalysis.exportOfferDraftDocx(
+        dossierId,
+        version,
+        { ifMatch: version },
+      );
+      const filename =
+        download.filename && download.filename.toLowerCase().endsWith(".docx")
+          ? download.filename
+          : `Borrador-oferta-v${version}.docx`;
+      triggerBlobDownload(download.blob, filename);
+      setExportState("downloaded");
+      toast.success("Word descargado", {
+        description: filename,
+      });
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        setExportState("conflict");
+        setExportError(
+          reason.problem.detail ||
+            "Conflicto de versión: el borrador en servidor no coincide con el de la pantalla.",
+        );
+        toast.error("Conflicto al exportar", {
+          description: "Recarga el borrador y vuelve a intentar la descarga.",
+        });
+      } else {
+        const message = errorMessage(reason, "No se pudo descargar el Word.");
+        setExportState("error");
+        setExportError(message);
+        toast.error("Error al descargar Word", { description: message });
+      }
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
   function markDraftDirty() {
     draftDirtyRef.current = true;
     setDraftSaveState((prev) => (prev === "saving" ? prev : "dirty"));
     setCopyStatus("idle");
+    setExportState((prev) => (prev === "preparing" ? prev : "idle"));
+    setExportError(null);
   }
 
   function renderDurableOfferDraftSurface() {
@@ -455,6 +550,26 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
               >
                 Copiar borrador
               </button>
+              <button
+                type="button"
+                data-testid="dossier-opportunity-download-draft-docx"
+                className="btn-secondary"
+                disabled={draftBusy || exportState === "preparing"}
+                aria-busy={exportState === "preparing"}
+                onClick={() => void downloadOfferDraftDocx()}
+                style={{
+                  padding: "0.4rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid var(--border, #ccc)",
+                  background: "var(--surface, #f7f7f7)",
+                  cursor: draftBusy || exportState === "preparing" ? "wait" : "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                {exportState === "preparing"
+                  ? "Preparando Word…"
+                  : "Descargar Word (.docx)"}
+              </button>
             </>
           ) : null}
         </div>
@@ -474,8 +589,24 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
             {persistedDraft ? ` · v${persistedDraft.version}` : ""}
             {copyStatus === "ok" ? " · Copiado" : ""}
             {copyStatus === "error" ? " · Error al copiar" : ""}
+            {exportState !== "idle" && draftExportStatusLabel(exportState)
+              ? ` · Export: ${draftExportStatusLabel(exportState)}`
+              : ""}
           </small>
         )}
+        {exportError ? (
+          <p
+            role="alert"
+            data-testid="dossier-opportunity-draft-export-error"
+            style={{
+              margin: "0.4rem 0 0",
+              color: "var(--danger-fg, #991b1b)",
+              fontSize: "0.92em",
+            }}
+          >
+            {exportError}
+          </p>
+        ) : null}
         {draftError ? (
           <p
             role="alert"
