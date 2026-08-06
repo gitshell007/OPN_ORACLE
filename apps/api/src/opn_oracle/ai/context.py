@@ -596,6 +596,9 @@ def diversify_evidence_by_source_kind(
     Pure selection over an already-ordered candidate list (newest first).
     Round-robin across kinds up to ``max_per_kind``, then fill remaining slots
     without the cap. Preserves relative recency within each kind.
+
+    Note: Preguntar a Oracle uses :func:`mix_context_evidence` (G-26 family
+    guard). This source_kind round-robin remains for opportunity / legacy bags.
     """
 
     if not rows or limit <= 0:
@@ -647,7 +650,12 @@ def diversify_evidence_by_source_kind(
 
 
 def build_context(
-    dossier_id: uuid.UUID, *, max_tokens: int, include_living_summary: bool = True
+    dossier_id: uuid.UUID,
+    *,
+    max_tokens: int,
+    include_living_summary: bool = True,
+    question: str | None = None,
+    memory_mode: str = "augment",
 ) -> BuiltContext:
     tenant_id = require_tenant_id()
     dossier = db.session.scalar(
@@ -706,21 +714,26 @@ def build_context(
     evidence_ids = select(EvidenceDossier.evidence_id).where(
         EvidenceDossier.tenant_id == tenant_id, EvidenceDossier.dossier_id == dossier_id
     )
-    # Fetch a wider candidate pool then diversify by source_kind. A bulk
+    # Fetch a wider candidate pool then apply G-26 family mix. A bulk
     # materialization of pliego document chunks (SV2-E2E-VIVO) must not
     # monopolize the bag for Preguntar / generic agents — that displaced
-    # entity_intel/procurement and collapsed the memory baseline after
-    # opportunity jobs created ~70 document evidence rows.
+    # people/competitors/actors/memory after opportunity jobs created tens of
+    # document evidence rows. source_kind round-robin alone still collapses
+    # entity_intel subtypes; family floors fix that.
+    from opn_oracle.ai.context_mix import mix_context_evidence
+
     evidence_candidates = list(
         db.session.scalars(
             select(Evidence)
             .where(
                 Evidence.id.in_(evidence_ids),
                 Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(("signal", "document", "procurement", "entity_intel")),
+                Evidence.source_kind.in_(
+                    ("signal", "document", "procurement", "entity_intel", "memory_signal")
+                ),
             )
             .order_by(Evidence.created_at.desc())
-            .limit(200)
+            .limit(400)
         )
     )
     # Opportunity-only materializations stay citable on the opportunity path
@@ -729,9 +742,33 @@ def build_context(
     evidence_candidates = [
         row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
     ]
-    evidence_rows = diversify_evidence_by_source_kind(
-        evidence_candidates, limit=50, max_per_kind=15
+    mix_result = mix_context_evidence(
+        evidence_candidates,
+        limit=50,
+        question=question,
+        memory_mode=memory_mode,
+        family_floors={
+            "people": 1,
+            "competitors": 1,
+            "actors": 1,
+            "tenders": 1,
+            "documents": 1,
+            "memory": 1,
+            "other": 0,
+        },
+        family_caps={
+            "people": 8,
+            "competitors": 8,
+            "actors": 8,
+            "tenders": 15,
+            "documents": 12,
+            "memory": 8,
+            "other": 6,
+        },
+        max_tokens=max_tokens,
     )
+    evidence_rows = list(mix_result.selected)
+    mix_metadata = dict(mix_result.metadata)
     objectives = list(
         db.session.scalars(
             select(DossierObjective)
@@ -766,17 +803,22 @@ def build_context(
     used_chars = 0
     char_budget = max_tokens * 4
     for row in evidence_rows:
-        extract = row.extract
+        item_id = str(row.id)
+        # Prefer mixer-truncated extract when token budget already applied.
+        extract = mix_result.selected_extracts.get(item_id) or row.extract
         if used_chars + len(extract) > char_budget:
-            extract = extract[: max(0, char_budget - used_chars)]
+            from opn_oracle.ai.context_mix import truncate_extract_for_budget
+
+            extract = truncate_extract_for_budget(extract, max(0, char_budget - used_chars))
         if not extract:
             break
         evidence_payload.append(
             {
-                "id": str(row.id),
+                "id": item_id,
                 "extract": extract,
                 "classification": row.classification,
                 "locator": row.locator,
+                "source_kind": row.source_kind,
                 "untrusted_data": True,
             }
         )
@@ -859,6 +901,8 @@ def build_context(
         "hypothesis_ids": [str(item.id) for item in hypotheses],
         "evidence_ids": [str(item.id) for item in selected],
         "evidence_hashes": {str(item.id): item.checksum.hex() for item in selected},
+        # G-26: bounded family-mix diagnostics (counts/reason codes only; no PII).
+        "context_mix": mix_metadata,
     }
     classification = "internal"
     return BuiltContext(

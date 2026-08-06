@@ -903,14 +903,6 @@ def process_dossier_question_answer(
         session.flush()
         raise ConversationError(f"Fallo al recuperar contexto: {error}") from error
 
-    # Load real Oracle authority (tenant+dossier-scoped) from the same UoW session.
-    oracle_authority = load_oracle_authority_from_session(
-        session,
-        tenant_id=tenant_id,
-        dossier_id=dossier_id,
-        question=message.content_text,
-    )
-
     typed_mode: MemoryMode
     if effective_mode == "augment":
         typed_mode = "augment"
@@ -919,6 +911,16 @@ def process_dossier_question_answer(
     else:
         typed_mode = "disabled"
         effective_mode = "disabled"
+
+    # Load real Oracle authority (tenant+dossier-scoped) from the same UoW session.
+    # G-26 family mix + G-29 memory_mode (disabled/shadow/augment) applied here.
+    oracle_authority = load_oracle_authority_from_session(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        question=message.content_text,
+        memory_mode=typed_mode,
+    )
 
     # Reuse durable memory_signal Evidence by source_ref+checksum across turns
     # so Preguntar does not mint a fresh uuid4 row per fact on every ask.

@@ -140,10 +140,11 @@ def build_oracle_authority_block(
     objectives: Sequence[Any] | None = None,
     decisions: Sequence[Mapping[str, Any]] | None = None,
     oracle_evidence: Sequence[Mapping[str, Any]] | None = None,
+    context_mix: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Oracle decisional authority — never mixed into Signal factual items."""
 
-    return {
+    block: dict[str, Any] = {
         "block": "oracle_authority",
         "tenant_id": str(tenant_id),
         "dossier_id": str(dossier_id),
@@ -162,6 +163,10 @@ def build_oracle_authority_block(
             intent or requirements or offering or objectives or decisions or oracle_evidence
         ),
     }
+    if context_mix:
+        # Bounded G-26 diagnostics only (counts / reason codes; no extracts/PII).
+        block["context_mix"] = dict(context_mix)
+    return block
 
 
 def load_oracle_authority_from_session(
@@ -170,12 +175,17 @@ def load_oracle_authority_from_session(
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
     question: str,
+    memory_mode: MemoryMode | str = "augment",
 ) -> dict[str, Any]:
     """Load tenant+dossier-scoped Oracle authority from PostgreSQL (no mocks).
 
     Includes accepted IntentRevision + hash, requirements, offering, objectives,
     decisions, and Evidence rows linked via EvidenceDossier for this dossier only.
     Rows belonging to other tenants/dossiers are excluded by WHERE clauses.
+
+    Evidence bag selection uses G-26 family mix (conditional floors/caps) so bulk
+    tenders cannot expel people/competitors/actors/documents/memory. ``memory_mode``
+    follows G-29: disabled→zero memory, shadow→observe only, augment→inject.
     """
 
     from sqlalchemy import select
@@ -321,17 +331,13 @@ def load_oracle_authority_from_session(
     # order only by created_at the 40-row cap fills with per-turn memory_signal
     # UUIDs and hides PLACSP awards the model (and build_context) already sees.
     #
-    # SV2-E2E-VIVO: opportunity materializes ~70 document chunks for the fit/draft
-    # bag only. Those rows must not monopolize the 40-slot oracle_authority bag
-    # (kind_rank document=1 before memory_signal) or Preguntar loses Laura/admin
-    # and Capgemini markers. Fetch a wider pool, drop opportunity-only rows, then
-    # diversify by source_kind (same policy as build_context).
+    # G-26: family mix (people/competitors/actors/tenders/documents/memory) so a
+    # flood of pliegos or noisy entity_intel cannot expel the other families.
+    # Opportunity-only PCAP materializations stay out of the generic bag.
     from sqlalchemy import case
 
-    from opn_oracle.ai.context import (
-        _is_opportunity_pliego_materialization,
-        diversify_evidence_by_source_kind,
-    )
+    from opn_oracle.ai.context import _is_opportunity_pliego_materialization
+    from opn_oracle.ai.context_mix import mix_context_evidence
 
     kind_rank = case(
         (Evidence.source_kind == "procurement", 0),
@@ -351,25 +357,50 @@ def load_oracle_authority_from_session(
                 ),
             )
             .order_by(kind_rank.asc(), Evidence.created_at.desc())
-            .limit(200)
+            .limit(400)
         )
     )
     evidence_candidates = [
         row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
     ]
-    evidence_rows = diversify_evidence_by_source_kind(
-        evidence_candidates, limit=40, max_per_kind=12
+    mix_result = mix_context_evidence(
+        evidence_candidates,
+        limit=40,
+        question=question,
+        memory_mode=memory_mode,
+        family_floors={
+            "people": 1,
+            "competitors": 1,
+            "actors": 1,
+            "tenders": 1,
+            "documents": 1,
+            "memory": 1,
+            "other": 0,
+        },
+        family_caps={
+            "people": 6,
+            "competitors": 6,
+            "actors": 6,
+            "tenders": 12,
+            "documents": 10,
+            "memory": 6,
+            "other": 4,
+        },
     )
-    oracle_evidence = [
-        {
-            "id": str(row.id),
-            "source_kind": row.source_kind,
-            "extract": (row.extract or "")[:1200],
-            "classification": row.classification,
-            "checksum": row.checksum.hex() if row.checksum else None,
-        }
-        for row in evidence_rows
-    ]
+    evidence_rows = list(mix_result.selected)
+    oracle_evidence = []
+    for row in evidence_rows:
+        item_id = str(row.id)
+        extract = mix_result.selected_extracts.get(item_id) or (row.extract or "")
+        oracle_evidence.append(
+            {
+                "id": item_id,
+                "source_kind": row.source_kind,
+                "extract": extract[:1200],
+                "classification": row.classification,
+                "checksum": row.checksum.hex() if row.checksum else None,
+            }
+        )
 
     return build_oracle_authority_block(
         dossier_id=str(dossier_id),
@@ -381,6 +412,7 @@ def load_oracle_authority_from_session(
         objectives=objectives,
         decisions=decisions,
         oracle_evidence=oracle_evidence,
+        context_mix=mix_result.metadata,
     )
 
 
