@@ -8,8 +8,10 @@ Garantías:
 - Aceptaciones concurrentes del mismo artifact se serializan con FOR UPDATE.
 - Evidence PK determinista (tenant+artifact+source_id) → reintento y carrera
   terminan en 1 Evidence + 1 EvidenceDossier.
-- Una sola transacción; fallo medio revierte todo (sin commits internos).
-- Artifact permanece en "candidate" para reintento idempotente.
+- Auditoría humana durable (AuditEvent) con UUID determinista de la selección;
+  reintento idéntico → 1 evento; selección distinta → evento nuevo.
+- Una sola transacción (Evidence + links + AuditEvent); fallo medio revierte todo.
+- Artifact permanece en "candidate" para reintento idempotente y selección parcial.
 """
 
 from __future__ import annotations
@@ -32,7 +34,20 @@ from opn_oracle.ai.models import AIArtifact
 from opn_oracle.extensions import db
 from opn_oracle.oracle.links import EvidenceDossier
 from opn_oracle.oracle.models import Evidence, StrategicDossier
-from opn_oracle.tenants.context import require_tenant_id
+from opn_oracle.platform.audit import sanitize_audit_metadata
+from opn_oracle.platform.models import AuditEvent
+from opn_oracle.tenants.context import get_tenant_context, require_tenant_id
+
+# Server-owned namespace for human-accept audit event IDs (v1). Never from client JSON.
+ACCEPT_AUDIT_NAMESPACE = uuid.UUID("8d4a2e1c-7b63-4f0a-9c9e-18a18f020003")
+
+# Canonical material for deterministic AuditEvent.id (document in gate packet):
+#   g18:market_accept:v1|{tenant_id}|{artifact_id}|{dossier_id}|
+#   {sorted_candidate_ids_csv}|{sorted_source_ids_csv}
+#
+# Semantics: AIHumanReview is reserved for the separate /artifacts/.../reviews flow
+# that flips artifact status. This gate records a durable AuditEvent without changing
+# artifact status, so exact retry and partial second selection remain valid.
 
 
 class MaterializeError(Exception):
@@ -156,11 +171,24 @@ def resolve_selected_source_ids(
     *,
     selected: list[dict[str, Any]],
 ) -> list[str]:
-    """Validate human selection: candidate_id + non-empty source_ids.
+    """Validate human selection; return ordered unique source_ids.
 
     Always enforces: source_ids ⊆ candidate.evidence_ids ⊆ reserved.
-    No empty-name / name-only permissive path on new writes.
-    ``name`` in selection is display-only and ignored for identity.
+    ``name`` / client actor fields in selection are display-only / ignored.
+    """
+
+    source_ids, _candidate_ids = resolve_selection(artifact, selected=selected)
+    return source_ids
+
+
+def resolve_selection(
+    artifact: AIArtifact,
+    *,
+    selected: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    """Validate selection → (source_ids ordered unique, candidate_ids ordered unique).
+
+    Client-supplied ``actor_id`` / ``reviewer_user_id`` in rows are ignored.
     """
 
     reserved = _reserved_map(artifact)
@@ -172,7 +200,9 @@ def resolve_selected_source_ids(
             status=422,
         )
     resolved: list[str] = []
-    seen: set[str] = set()
+    seen_sources: set[str] = set()
+    candidate_order: list[str] = []
+    seen_candidates: set[str] = set()
     for row in selected:
         if not isinstance(row, dict):
             raise MaterializeError(
@@ -202,6 +232,9 @@ def resolve_selected_source_ids(
                 "El candidate_id no pertenece a este artifact (ajeno, otra corrida o tenant).",
                 status=422,
             )
+        if candidate_id not in seen_candidates:
+            seen_candidates.add(candidate_id)
+            candidate_order.append(candidate_id)
         display_name = " ".join(str(cand.get("name") or "").split()) or candidate_id
         raw_ids = row.get("source_ids") or row.get("evidence_ids") or []
         if not isinstance(raw_ids, list) or not raw_ids:
@@ -250,8 +283,8 @@ def resolve_selected_source_ids(
                     f"El source_id no respalda al candidato «{display_name}» en el artifact.",
                     status=422,
                 )
-            if sid not in seen:
-                seen.add(sid)
+            if sid not in seen_sources:
+                seen_sources.add(sid)
                 resolved.append(sid)
     if not resolved:
         raise MaterializeError(
@@ -259,7 +292,127 @@ def resolve_selected_source_ids(
             "No quedó ningún source_id válido tras validar la selección.",
             status=422,
         )
-    return resolved
+    return resolved, candidate_order
+
+
+def deterministic_accept_audit_event_id(
+    *,
+    tenant_id: uuid.UUID | str,
+    artifact_id: uuid.UUID | str,
+    dossier_id: uuid.UUID | str,
+    candidate_ids: list[str] | tuple[str, ...],
+    source_ids: list[str] | tuple[str, ...],
+) -> uuid.UUID:
+    """Idempotent AuditEvent PK for one human acceptance selection.
+
+    Canonical material (v1)::
+
+        g18:market_accept:v1|{tenant}|{artifact}|{dossier}|
+        {sorted_candidate_ids}|{sorted_source_ids}
+
+    Same selection → same id (retry/concurrent). Materially different
+    source/candidate set → different id (partial second accept is distinct).
+    """
+
+    sorted_cands = sorted({str(uuid.UUID(str(c))) for c in candidate_ids})
+    sorted_sources = sorted({str(uuid.UUID(str(s))) for s in source_ids})
+    material = (
+        f"g18:market_accept:v1|{tenant_id}|{artifact_id}|{dossier_id}|"
+        f"{','.join(sorted_cands)}|{','.join(sorted_sources)}"
+    )
+    return uuid.uuid5(ACCEPT_AUDIT_NAMESPACE, material)
+
+
+def _resolve_actor_user_id(actor_user_id: uuid.UUID | None) -> uuid.UUID:
+    """Server-owned actor only: explicit route param or tenant context. Never JSON."""
+
+    if actor_user_id is not None:
+        return actor_user_id
+    context = get_tenant_context(required=False)
+    if context is not None and context.actor_id is not None:
+        return context.actor_id
+    raise MaterializeError(
+        "actor_required",
+        "Se requiere un actor autenticado en el servidor para registrar la aceptación.",
+        status=401,
+    )
+
+
+def _record_accept_audit_event(
+    *,
+    tenant_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    artifact: AIArtifact,
+    dossier_id: uuid.UUID,
+    candidate_ids: list[str],
+    source_ids: list[str],
+    evidence_ids: list[str],
+    expected_version: int | None,
+) -> AuditEvent:
+    """Insert or reuse durable human-accept AuditEvent inside the outer transaction.
+
+    Deterministic PK + SAVEPOINT on IntegrityError (not SELECT+INSERT alone).
+    Metadata is ID-only (no snippets, prompt, model output, or client actor fields).
+    """
+
+    event_id = deterministic_accept_audit_event_id(
+        tenant_id=tenant_id,
+        artifact_id=artifact.id,
+        dossier_id=dossier_id,
+        candidate_ids=candidate_ids,
+        source_ids=source_ids,
+    )
+    existing = db.session.get(AuditEvent, event_id)
+    if existing is not None:
+        if existing.tenant_id != tenant_id:
+            raise MaterializeError(
+                "audit_tenant_mismatch",
+                "Conflicto de identidad de auditoría entre tenants.",
+                status=409,
+            )
+        return existing
+
+    sorted_cands = sorted({str(uuid.UUID(str(c))) for c in candidate_ids})
+    sorted_sources = sorted({str(uuid.UUID(str(s))) for s in source_ids})
+    sorted_evidence = sorted({str(uuid.UUID(str(e))) for e in evidence_ids})
+    metadata = sanitize_audit_metadata(
+        {
+            "gate": "market_competitor_discovery.accept",
+            "artifact_id": str(artifact.id),
+            "dossier_id": str(dossier_id),
+            "expected_version": expected_version,
+            "candidate_ids": sorted_cands,
+            "source_ids": sorted_sources,
+            "evidence_ids": sorted_evidence,
+            "count": len(sorted_evidence),
+        }
+    )
+    event = AuditEvent(
+        id=event_id,
+        tenant_id=tenant_id,
+        actor_type="user",
+        actor_id=actor_user_id,
+        action="ai.market_competitor_discovery.accept",
+        resource_type="ai_artifact",
+        resource_id=artifact.id,
+        result="success",
+        dossier_id=dossier_id,
+        event_metadata=metadata,
+    )
+    try:
+        with db.session.begin_nested():
+            db.session.add(event)
+            db.session.flush()
+        return event
+    except IntegrityError:
+        existing = db.session.get(AuditEvent, event_id)
+        if existing is None:
+            raise MaterializeError(
+                "audit_conflict",
+                "Conflicto al registrar la aceptación humana; reintenta.",
+                status=409,
+            ) from None
+        return existing
 
 
 def _load_market_dossier(dossier_id: uuid.UUID) -> StrategicDossier:
@@ -457,29 +610,46 @@ def accept_and_materialize(
     dossier_id: uuid.UUID,
     selected: list[dict[str, Any]],
     expected_version: int | None = None,
+    actor_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    """Full human gate: lock artifact → validate → materialize in one txn.
+    """Full human gate: lock → validate → materialize + human audit in one txn.
 
-    State machine:
-    - Only status=candidate may start.
-    - Artifact status is NOT flipped to valid/rejected here so exact retry remains
-      idempotent (same evidence_id + count, no new rows).
-    - Human audit of acceptance is recorded in Evidence.provenance.created_by
-      and locator.artifact_id (existing path); optional AIHumanReview is separate.
+    State machine (artifact):
+    - Only status=candidate may start (rejected/superseded/other → 409).
+    - Status is NOT flipped to valid/rejected so exact retry stays idempotent
+      and a later partial selection can still add more sources.
+    - Technical provenance ``created_by=oracle.g18.market_competitor_materialize``
+      remains code identity only; the human decision is the AuditEvent
+      (actor_id + selection metadata + created_at).
+
+    ``actor_user_id`` must come from the authenticated server context (route
+    passes ``current_user.id``). Client JSON actor/reviewer fields are ignored.
     """
 
+    actor = _resolve_actor_user_id(actor_user_id)
     # Lock artifact row first so concurrent accepts serialize.
     artifact = load_tenant_artifact(
         artifact_id,
         expected_version=expected_version,
         for_update=True,
     )
-    source_ids = resolve_selected_source_ids(artifact, selected=selected)
+    source_ids, candidate_ids = resolve_selection(artifact, selected=selected)
     try:
         evidences = materialize_web_search_sources(
             artifact=artifact,
             dossier_id=dossier_id,
             source_ids=source_ids,
+        )
+        evidence_ids = [str(row["evidence_id"]) for row in evidences]
+        _record_accept_audit_event(
+            tenant_id=require_tenant_id(),
+            actor_user_id=actor,
+            artifact=artifact,
+            dossier_id=dossier_id,
+            candidate_ids=candidate_ids,
+            source_ids=source_ids,
+            evidence_ids=evidence_ids,
+            expected_version=expected_version,
         )
         db.session.commit()
     except MaterializeError:
@@ -553,16 +723,19 @@ def accept_and_materialize_with_fault(
     dossier_id: uuid.UUID,
     selected: list[dict[str, Any]],
     expected_version: int | None = None,
+    actor_user_id: uuid.UUID | None = None,
     fail_after_index: int | None = None,
+    fail_after_audit: bool = False,
 ) -> dict[str, Any]:
-    """Test-only accept path that can inject a failure after N sources."""
+    """Test-only accept path that can inject failure mid-materialize or post-audit."""
 
+    actor = _resolve_actor_user_id(actor_user_id)
     artifact = load_tenant_artifact(
         artifact_id,
         expected_version=expected_version,
         for_update=True,
     )
-    source_ids = resolve_selected_source_ids(artifact, selected=selected)
+    source_ids, candidate_ids = resolve_selection(artifact, selected=selected)
     try:
         evidences = materialize_web_search_sources_with_fault(
             artifact=artifact,
@@ -570,6 +743,19 @@ def accept_and_materialize_with_fault(
             source_ids=source_ids,
             fail_after_index=fail_after_index,
         )
+        evidence_ids = [str(row["evidence_id"]) for row in evidences]
+        _record_accept_audit_event(
+            tenant_id=require_tenant_id(),
+            actor_user_id=actor,
+            artifact=artifact,
+            dossier_id=dossier_id,
+            candidate_ids=candidate_ids,
+            source_ids=source_ids,
+            evidence_ids=evidence_ids,
+            expected_version=expected_version,
+        )
+        if fail_after_audit:
+            raise RuntimeError("injected_post_audit_failure")
         db.session.commit()
     except MaterializeError:
         db.session.rollback()

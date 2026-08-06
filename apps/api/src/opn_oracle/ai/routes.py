@@ -1032,12 +1032,15 @@ def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
             code="validation_error",
         )
     expected_version = json_data.get("expected_version")
+    # Actor is always the authenticated principal. Client-supplied actor_id /
+    # reviewer_user_id in JSON (if present) are never read for the human gate.
     try:
         result = accept_and_materialize(
             artifact_id=artifact_id,
             dossier_id=dossier_id,
             selected=selected,
             expected_version=int(expected_version) if expected_version is not None else None,
+            actor_user_id=current_user.id,
         )
     except MaterializeError as error:
         return _tender_wizard_problem(

@@ -32,16 +32,20 @@ from opn_oracle.ai.citable_sources import (
     stamp_server_owned_candidate_ids,
 )
 from opn_oracle.ai.market_materialize import (
+    MaterializeError,
     accept_and_materialize,
     accept_and_materialize_with_fault,
+    deterministic_accept_audit_event_id,
 )
 from opn_oracle.auth import permissions
 from opn_oracle.auth.passwords import PasswordHasher
 from opn_oracle.extensions import db
 from opn_oracle.oracle.links import EvidenceDossier
 from opn_oracle.oracle.models import Evidence
-from opn_oracle.platform.models import User
+from opn_oracle.platform.models import AuditEvent, User
 from opn_oracle.tenants.context import TenantContext, tenant_context
+
+ACCEPT_ACTION = "ai.market_competitor_discovery.accept"
 
 pytestmark = pytest.mark.integration
 
@@ -371,6 +375,14 @@ def g18_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
             {"a": tenant_id, "b": tenant_b},
         )
         conn.execute(
+            text("DELETE FROM audit_events WHERE tenant_id IN (:a, :b)"),
+            {"a": tenant_id, "b": tenant_b},
+        )
+        conn.execute(
+            text("DELETE FROM ai_human_reviews WHERE tenant_id IN (:a, :b)"),
+            {"a": tenant_id, "b": tenant_b},
+        )
+        conn.execute(
             text("DELETE FROM ai_artifacts WHERE tenant_id IN (:a, :b)"),
             {"a": tenant_id, "b": tenant_b},
         )
@@ -433,6 +445,81 @@ def _count_evidence(
             .where(EvidenceDossier.tenant_id == tenant_id)
         )
         return int(n_ev or 0), int(n_link or 0)
+
+
+def _count_accept_audits(
+    app: Any, tenant_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+) -> int:
+    with app.app_context(), tenant_context(
+        TenantContext(tenant_id=tenant_id, actor_id=actor_id)
+    ):
+        n = db.session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.tenant_id == tenant_id,
+                AuditEvent.action == ACCEPT_ACTION,
+                AuditEvent.result == "success",
+            )
+        )
+        return int(n or 0)
+
+
+def _list_accept_audits(
+    app: Any, tenant_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+) -> list[AuditEvent]:
+    with app.app_context(), tenant_context(
+        TenantContext(tenant_id=tenant_id, actor_id=actor_id)
+    ):
+        return list(
+            db.session.scalars(
+                select(AuditEvent)
+                .where(
+                    AuditEvent.tenant_id == tenant_id,
+                    AuditEvent.action == ACCEPT_ACTION,
+                    AuditEvent.result == "success",
+                )
+                .order_by(AuditEvent.created_at, AuditEvent.id)
+            )
+        )
+
+
+def _assert_sane_accept_metadata(meta: dict[str, Any]) -> None:
+    blob = str(meta).casefold()
+    for banned in (
+        "snippet",
+        "prompt",
+        "system_prompt",
+        "model_output",
+        "password",
+        "secret",
+        "api_key",
+        "reviewer_user_id_from_client",
+        "actor_from_client",
+    ):
+        assert banned not in blob, f"metadata contains banned key/content: {banned}"
+    assert "candidate_ids" in meta
+    assert "source_ids" in meta
+    assert "evidence_ids" in meta
+    assert "artifact_id" in meta
+    assert "dossier_id" in meta
+
+
+def _is_contractual_retriable(exc: BaseException) -> bool:
+    """Only concrete retriable/contractual failures are acceptable for a race loser."""
+
+    if isinstance(exc, MaterializeError):
+        return exc.code in {
+            "audit_conflict",
+            "evidence_conflict",
+            "link_conflict",
+            "artifact_version_drift",
+            "artifact_not_found",
+            "artifact_not_acceptable",
+            "artifact_rejected",
+            "artifact_superseded",
+        }
+    return False
 
 
 @contextmanager
@@ -517,7 +604,33 @@ def test_http_accept_idempotent_and_partial(
         )
         assert eid1 == expected_eid
 
-        # Exact retry → same IDs, no new rows
+        # Human accept audit: 1 row, server-owned actor, reconstructible selection
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 1
+        audits = _list_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"])
+        a1 = audits[0]
+        assert a1.actor_id == ctx["user_id"]
+        assert a1.tenant_id == ctx["tenant_id"]
+        assert a1.resource_id == ctx["artifact_id"]
+        assert a1.dossier_id == ctx["dossier_id"]
+        assert a1.created_at is not None
+        expected_audit_id = deterministic_accept_audit_event_id(
+            tenant_id=ctx["tenant_id"],
+            artifact_id=ctx["artifact_id"],
+            dossier_id=ctx["dossier_id"],
+            candidate_ids=[ctx["c1"]],
+            source_ids=[ctx["s1"]],
+        )
+        assert a1.id == expected_audit_id
+        meta1 = dict(a1.event_metadata or {})
+        _assert_sane_accept_metadata(meta1)
+        assert meta1["artifact_id"] == str(ctx["artifact_id"])
+        assert meta1["dossier_id"] == str(ctx["dossier_id"])
+        assert meta1["expected_version"] == 1
+        assert meta1["candidate_ids"] == [ctx["c1"]]
+        assert meta1["source_ids"] == [ctx["s1"]]
+        assert meta1["evidence_ids"] == [eid1]
+
+        # Exact retry → same IDs, no new evidence rows, still 1 human audit
         r2 = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
@@ -536,8 +649,9 @@ def test_http_accept_idempotent_and_partial(
         n_ev, n_link = _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"])
         assert n_ev == 1
         assert n_link == 1
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 1
 
-        # Partial second selection: add A2 (source2) without duplicating source1
+        # Partial second selection: add source2 without duplicating source1
         r3 = client.post(
             "/api/v1/ai/market-competitor-discovery/accept",
             json={
@@ -556,6 +670,23 @@ def test_http_accept_idempotent_and_partial(
         n_ev, n_link = _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"])
         assert n_ev == 2
         assert n_link == 2
+        # Two distinguishable human accept records (different selection identity)
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 2
+        audits = _list_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"])
+        ids = {a.id for a in audits}
+        assert len(ids) == 2
+        expected_audit_id_2 = deterministic_accept_audit_event_id(
+            tenant_id=ctx["tenant_id"],
+            artifact_id=ctx["artifact_id"],
+            dossier_id=ctx["dossier_id"],
+            candidate_ids=[ctx["c2"]],
+            source_ids=[ctx["s2"]],
+        )
+        assert expected_audit_id_2 in ids
+        for audit in audits:
+            assert audit.actor_id == ctx["user_id"]
+            assert audit.created_at is not None
+            _assert_sane_accept_metadata(dict(audit.event_metadata or {}))
 
 
 def test_http_validation_and_state_closed(
@@ -613,6 +744,7 @@ def test_http_validation_and_state_closed(
         assert r.status_code == 422
         assert r.get_json()["code"] == "source_id_not_on_candidate"
         assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
         # version drift
         r = client.post(
@@ -626,6 +758,7 @@ def test_http_validation_and_state_closed(
         assert r.status_code == 409
         assert r.get_json()["code"] == "artifact_version_drift"
         assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
     # rejected / superseded → 409
     engine = create_engine(ctx["migration_url"])
@@ -648,6 +781,7 @@ def test_http_validation_and_state_closed(
         assert r.status_code == 409
         assert r.get_json()["code"] == "artifact_rejected"
         assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
     engine = create_engine(ctx["migration_url"])
     with engine.begin() as conn:
@@ -669,6 +803,7 @@ def test_http_validation_and_state_closed(
         assert r.status_code == 409
         assert r.get_json()["code"] == "artifact_superseded"
         assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
     # restore candidate for other tests sharing fixture? fixture is function-scoped.
     engine = create_engine(ctx["migration_url"])
@@ -700,6 +835,8 @@ def test_tenant_isolation(
         assert r.status_code in {404, 422}
         assert _count_evidence(app, ctx["tenant_b"], actor_id=ctx["user_b"]) == (0, 0)
         assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+        assert _count_accept_audits(app, ctx["tenant_b"], actor_id=ctx["user_b"]) == 0
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
         # Cannot bind to dossier of tenant A
         r = client.post(
@@ -711,9 +848,60 @@ def test_tenant_isolation(
             },
         )
         assert r.status_code in {404, 422}
+        assert _count_accept_audits(app, ctx["tenant_b"], actor_id=ctx["user_b"]) == 0
+        assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
+
+
+def test_http_client_actor_payload_ignored(
+    g18_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Client-supplied actor_id / reviewer_user_id must not become the stored actor."""
+
+    app, ctx = g18_pg
+    client = app.test_client()
+    forged = uuid.uuid4()
+    with _authenticated_http(
+        app, monkeypatch, user_id=ctx["user_id"], tenant_id=ctx["tenant_id"]
+    ):
+        r = client.post(
+            "/api/v1/ai/market-competitor-discovery/accept",
+            json={
+                "artifact_id": str(ctx["artifact_id"]),
+                "dossier_id": str(ctx["dossier_id"]),
+                "actor_id": str(forged),
+                "reviewer_user_id": str(forged),
+                "selected": [
+                    {
+                        "candidate_id": ctx["c1"],
+                        "source_ids": [ctx["s1"]],
+                        "actor_id": str(forged),
+                        "reviewer_user_id": str(forged),
+                    }
+                ],
+                "expected_version": 1,
+            },
+        )
+        # Schema may reject unknown fields (422) or strip them and accept (200).
+        assert r.status_code in {200, 422, 400}, r.get_json()
+        if r.status_code == 200:
+            audits = _list_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"])
+            assert len(audits) == 1
+            assert audits[0].actor_id == ctx["user_id"]
+            assert audits[0].actor_id != forged
+            meta = dict(audits[0].event_metadata or {})
+            _assert_sane_accept_metadata(meta)
+            assert str(forged) not in str(meta)
+            assert str(forged) not in str(meta.get("candidate_ids"))
+            assert str(forged) not in str(meta.get("source_ids"))
+            assert str(forged) not in str(meta.get("evidence_ids"))
+        else:
+            assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+            assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
 
 def test_rollback_mid_materialize(g18_pg: tuple[Any, dict[str, Any]]) -> None:
+    """Fault before audit is written → 0 Evidence, 0 links, 0 success audits."""
+
     app, ctx = g18_pg
     with app.app_context(), tenant_context(
         TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
@@ -725,17 +913,40 @@ def test_rollback_mid_materialize(g18_pg: tuple[Any, dict[str, Any]]) -> None:
                 {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]},
                 {"candidate_id": ctx["c2"], "source_ids": [ctx["s2"]]},
             ],
+            actor_user_id=ctx["user_id"],
             fail_after_index=0,
         )
     assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
+
+
+def test_rollback_after_audit(g18_pg: tuple[Any, dict[str, Any]]) -> None:
+    """Fault after audit row is staged → full rollback including the audit event."""
+
+    app, ctx = g18_pg
+    with app.app_context(), tenant_context(
+        TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
+    ), pytest.raises(RuntimeError, match="injected_post_audit_failure"):
+        accept_and_materialize_with_fault(
+            artifact_id=ctx["artifact_id"],
+            dossier_id=ctx["dossier_id"],
+            selected=[
+                {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]},
+            ],
+            actor_user_id=ctx["user_id"],
+            fail_after_audit=True,
+        )
+    assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
 
 
 def test_concurrent_accept_one_evidence(
     g18_pg: tuple[Any, dict[str, Any]],
 ) -> None:
-    """Two threads accept same artifact/source; DB ends with exactly 1 Evidence + 1 link.
+    """Two threads accept same artifact/source; DB ends 1 Evidence + 1 link + 1 audit.
 
-    Uses a threading.Barrier for deterministic synchronization (no sleep).
+    Barrier for sync. Loser may only be a contractual/retriable MaterializeError —
+    arbitrary BaseException is not green.
     """
 
     app, ctx = g18_pg
@@ -755,10 +966,12 @@ def test_concurrent_accept_one_evidence(
                     selected=[
                         {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}
                     ],
+                    actor_user_id=ctx["user_id"],
                 )
                 with lock:
                     results.append(out)
-        except BaseException as exc:
+        except Exception as exc:
+            # Capture only Exception (not BaseException) for contractual check.
             with lock:
                 results.append(exc)
 
@@ -769,20 +982,28 @@ def test_concurrent_accept_one_evidence(
     t1.join(timeout=60)
     t2.join(timeout=60)
     assert not t1.is_alive() and not t2.is_alive()
+    assert len(results) == 2, f"expected 2 worker outcomes, got {results!r}"
 
     successes = [r for r in results if isinstance(r, dict)]
-    errors = [r for r in results if isinstance(r, BaseException)]
-    # Both succeed idempotently, or one succeeds and one gets contractual retriable.
+    errors = [r for r in results if not isinstance(r, dict)]
+    # Both succeed with same result, OR any loser is a concrete retriable contract error.
     assert len(successes) >= 1, f"no success: {errors!r}"
+    for err in errors:
+        assert isinstance(err, Exception), f"non-Exception outcome not allowed: {err!r}"
+        assert not isinstance(err, BaseException) or isinstance(err, Exception)
+        assert _is_contractual_retriable(err), (
+            f"non-contractual race loser is not green: {type(err).__name__}: {err!r}"
+        )
+    expected_eid = str(
+        deterministic_web_search_evidence_id(
+            tenant_id=ctx["tenant_id"],
+            artifact_id=ctx["artifact_id"],
+            source_id=ctx["s1"],
+        )
+    )
     for s in successes:
         assert s["count"] == 1
-        assert s["materialized"][0]["evidence_id"] == str(
-            deterministic_web_search_evidence_id(
-                tenant_id=ctx["tenant_id"],
-                artifact_id=ctx["artifact_id"],
-                source_id=ctx["s1"],
-            )
-        )
+        assert s["materialized"][0]["evidence_id"] == expected_eid
     if len(successes) == 2:
         assert (
             successes[0]["materialized"][0]["evidence_id"]
@@ -791,6 +1012,16 @@ def test_concurrent_accept_one_evidence(
     n_ev, n_link = _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"])
     assert n_ev == 1
     assert n_link == 1
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 1
+    audits = _list_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"])
+    assert audits[0].actor_id == ctx["user_id"]
+    assert audits[0].id == deterministic_accept_audit_event_id(
+        tenant_id=ctx["tenant_id"],
+        artifact_id=ctx["artifact_id"],
+        dossier_id=ctx["dossier_id"],
+        candidate_ids=[ctx["c1"]],
+        source_ids=[ctx["s1"]],
+    )
 
 
 def test_candidate_id_not_from_model_json() -> None:
