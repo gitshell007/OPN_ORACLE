@@ -3967,6 +3967,8 @@ export interface ActorAliasCandidateActor {
   identifiers: Record<string, unknown>;
   aliases: unknown[];
   tax_id?: string | null;
+  durable_tax_id?: string | null;
+  declared_tax_id?: string | null;
   tax_id_scheme?: string | null;
   tax_id_country?: string | null;
   has_durable_tax_id_column?: boolean;
@@ -3985,7 +3987,12 @@ export interface ActorAliasCandidate {
   identity_key: string;
   status: string;
   reason: string;
-  match_reason?: "tax_id" | "normalized_name" | "tax_id_conflict" | string;
+  match_reason?:
+    | "tax_id"
+    | "normalized_name"
+    | "tax_id_conflict"
+    | "tax_id_declared_review"
+    | string;
   priority?: number;
   confidence?: string;
   suggested_target_id?: string | null;
@@ -3997,7 +4004,9 @@ export interface ActorAliasCandidate {
 export interface ActorAliasCandidatesMeta {
   organizations_evaluated: number;
   organizations_with_tax_id: number;
+  organizations_with_declared_only_tax_id?: number;
   tax_id_coverage_pct: number;
+  declared_only_tax_id_coverage_pct?: number;
   criteria_evaluated: string[];
   counts: Record<string, number>;
   limitations?: string;

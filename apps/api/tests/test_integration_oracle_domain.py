@@ -5710,12 +5710,21 @@ def test_core_resource_crud_actions_and_actor_merge(
         ).status_code
         == 200
     )
+    # Target was patched once → version 2; source still at create version.
+    target_version = actor_patch.get_json()["version"]
+    source_version = source["version"]
     merged = client.post(
         f"/api/v1/actors/{target['id']}/merge",
-        json={"source_actor_id": source["id"], "reason": "Duplicado verificado"},
+        json={
+            "source_actor_id": source["id"],
+            "reason": "Duplicado verificado",
+            "confirm": True,
+            "expected_target_version": target_version,
+            "expected_source_version": source_version,
+        },
         headers={"X-CSRF-Token": _csrf(client)},
     )
-    assert merged.status_code == 200
+    assert merged.status_code == 200, merged.get_data(as_text=True)[:500]
     assert "Actor origen" in merged.get_json()["aliases"]
     feedback = client.post(
         "/api/v1/feedback",
@@ -5794,7 +5803,13 @@ def test_core_resource_crud_actions_and_actor_merge(
     assert (
         client.post(
             f"/api/v1/actors/{archived_target['id']}/merge",
-            json={"source_actor_id": archived_source["id"], "reason": "No permitido"},
+            json={
+                "source_actor_id": archived_source["id"],
+                "reason": "No permitido",
+                "confirm": True,
+                "expected_target_version": archived_target["version"],
+                "expected_source_version": archived_source["version"],
+            },
             headers={"X-CSRF-Token": _csrf(client)},
         ).status_code
         == 422

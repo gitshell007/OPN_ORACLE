@@ -53,14 +53,19 @@ def test_identity_canonical_key_prefers_tax_id() -> None:
 
 
 @pytest.mark.unit
-def test_actor_durable_tax_id_column_first() -> None:
+def test_actor_durable_tax_id_column_only() -> None:
+    from opn_oracle.oracle.actor_tax_id import actor_declared_tax_id
+
     actor = SimpleNamespace(
         tax_id="B08377715",
         identifiers={"tax_id": "B82528558"},
     )
     assert actor_durable_tax_id(actor) == "B08377715"  # type: ignore[arg-type]
+    # Column is durable; JSON is a separate declaration (may differ until governed).
+    assert actor_declared_tax_id(actor) == "B82528558"  # type: ignore[arg-type]
     actor2 = SimpleNamespace(tax_id=None, identifiers={"tax_id": "b-08.377.715"})
-    assert actor_durable_tax_id(actor2) == "B08377715"  # type: ignore[arg-type]
+    assert actor_durable_tax_id(actor2) is None  # type: ignore[arg-type]
+    assert actor_declared_tax_id(actor2) == "B08377715"  # type: ignore[arg-type]
 
 
 @pytest.mark.unit

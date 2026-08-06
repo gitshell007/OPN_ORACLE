@@ -19,6 +19,7 @@ from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, clean_labels
 from opn_oracle.oracle.actor_tax_id import (
     TaxIdConflictError,
     TaxIdValidationError,
+    actor_declared_tax_id,
     assign_actor_tax_id,
     hydrate_dossier_actor_tax_ids_from_awards,
     resolve_or_create_actor,
@@ -2018,6 +2019,23 @@ class TaxIdMergeBlocked(DomainValidationError):
         self.code = "tax_id_merge_blocked"
 
 
+class TaxIdFiscalReviewRequired(DomainValidationError):
+    """Declared-only fiscal identity present — promote via shared workflow before merge."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        target_declared_tax_id: str | None = None,
+        source_declared_tax_id: str | None = None,
+        code: str = "tax_id_fiscal_review_required",
+    ) -> None:
+        super().__init__(message)
+        self.target_declared_tax_id = target_declared_tax_id
+        self.source_declared_tax_id = source_declared_tax_id
+        self.code = code
+
+
 def _merge_identifiers_governed(
     target: Actor,
     source: Actor,
@@ -2026,6 +2044,10 @@ def _merge_identifiers_governed(
 
     Target wins on protected non-fiscal keys when present; source fills gaps.
     Other non-fiscal keys: target wins on collision, source contributes missing.
+
+    Never drops the only fiscal identity: if no durable column is present, preserves
+    declared fiscal keys from target/source (merge guards should have blocked this
+    path when declarations exist; this is defense-in-depth).
     """
 
     target_ids = dict(target.identifiers or {}) if isinstance(target.identifiers, dict) else {}
@@ -2060,7 +2082,100 @@ def _merge_identifiers_governed(
             merged["tax_id_source"] = target_block
         elif isinstance(source_block, dict):
             merged["tax_id_source"] = source_block
+        return merged
+
+    # No durable column: never silently erase declared fiscal identity.
+    # Prefer target declaration, then source. Callers must block this path when
+    # any valid declaration exists (TaxIdFiscalReviewRequired).
+    target_declared = actor_declared_tax_id(target)
+    source_declared = actor_declared_tax_id(source)
+    preserved = target_declared or source_declared
+    if preserved:
+        merged["tax_id"] = preserved
+        scheme = target_ids.get("tax_id_scheme") or source_ids.get("tax_id_scheme") or "ES_CIF"
+        merged["tax_id_scheme"] = scheme
+        merged["tax_id_declared"] = (
+            target_ids.get("tax_id_declared") or source_ids.get("tax_id_declared") or preserved
+        )
+        source_block = source_ids.get("tax_id_source")
+        target_block = target_ids.get("tax_id_source")
+        if isinstance(target_block, dict):
+            merged["tax_id_source"] = target_block
+        elif isinstance(source_block, dict):
+            merged["tax_id_source"] = source_block
     return merged
+
+
+def _assert_fiscal_merge_safe(target: Actor, source: Actor) -> None:
+    """Backend fiscal guards independent of UI. Raises without mutation.
+
+    Rules:
+    - Distinct durable columns → TaxIdMergeBlocked.
+    - Holder durable + conflicting declaration on the other → fiscal review block.
+    - No durable columns but any valid declaration → fiscal review/promotion required
+      (never silent merge that would drop the only NIF via column-authoritative merge).
+    - Holder + equal declaration → allowed (caller preserves column + JSON).
+    """
+
+    target_tax = usable_company_tax_id(getattr(target, "tax_id", None))
+    source_tax = usable_company_tax_id(getattr(source, "tax_id", None))
+    target_declared = actor_declared_tax_id(target)
+    source_declared = actor_declared_tax_id(source)
+
+    if target_tax and source_tax and target_tax != source_tax:
+        raise TaxIdMergeBlocked(
+            f"Fusión bloqueada: NIF durables distintos ({target_tax} vs {source_tax}).",
+            target_tax_id=target_tax,
+            source_tax_id=source_tax,
+        )
+
+    # Holder vs conflicting declaration (no second durable column).
+    if target_tax and not source_tax and source_declared and source_declared != target_tax:
+        raise TaxIdFiscalReviewRequired(
+            (
+                f"Fusión bloqueada: el destino tiene NIF durable {target_tax} y el origen "
+                f"declara {source_declared} sin columna. Revise/promueva antes de fusionar; "
+                "nunca se sobrescribe ni se pierde identidad fiscal."
+            ),
+            target_declared_tax_id=target_tax,
+            source_declared_tax_id=source_declared,
+            code="tax_id_declaration_conflict",
+        )
+    if source_tax and not target_tax and target_declared and target_declared != source_tax:
+        raise TaxIdFiscalReviewRequired(
+            (
+                f"Fusión bloqueada: el origen tiene NIF durable {source_tax} y el destino "
+                f"declara {target_declared} sin columna. Revise/promueva antes de fusionar."
+            ),
+            target_declared_tax_id=target_declared,
+            source_declared_tax_id=source_tax,
+            code="tax_id_declaration_conflict",
+        )
+
+    # No durable columns: any declaration requires explicit promote workflow first.
+    if not target_tax and not source_tax and (target_declared or source_declared):
+        if target_declared and source_declared and target_declared != source_declared:
+            raise TaxIdFiscalReviewRequired(
+                (
+                    f"Fusión bloqueada: declaraciones fiscales distintas "
+                    f"({target_declared} vs {source_declared}) sin columna durable. "
+                    "Asigne/promueva el NIF correcto vía workflow fiscal y resuelva el conflicto."
+                ),
+                target_declared_tax_id=target_declared,
+                source_declared_tax_id=source_declared,
+                code="tax_id_declaration_conflict",
+            )
+        raise TaxIdFiscalReviewRequired(
+            (
+                "Fusión bloqueada: existe NIF/CIF solo declarado (sin columna durable). "
+                "Asigne/promueva el NIF con el workflow fiscal compartido "
+                "(assign_actor_tax_id) antes de fusionar; no se permite fusión silenciosa "
+                "que elimine la única identidad fiscal."
+            ),
+            target_declared_tax_id=target_declared,
+            source_declared_tax_id=source_declared,
+            code="tax_id_fiscal_review_required",
+        )
 
 
 def _count_actor_references(
@@ -2121,10 +2236,15 @@ def preview_merge_actors(
 
     target_tax = usable_company_tax_id(getattr(target, "tax_id", None))
     source_tax = usable_company_tax_id(getattr(source, "tax_id", None))
-    blocked = bool(target_tax and source_tax and target_tax != source_tax)
+    target_declared = actor_declared_tax_id(target)
+    source_declared = actor_declared_tax_id(source)
+    blocked = False
     block_reason = None
-    if blocked:
-        block_reason = f"NIF durables distintos ({target_tax} vs {source_tax}); fusión bloqueada."
+    try:
+        _assert_fiscal_merge_safe(target, source)
+    except (TaxIdMergeBlocked, TaxIdFiscalReviewRequired) as error:
+        blocked = True
+        block_reason = str(error)
 
     # Fiscal destination rule: if only one has durable tax_id, that actor should win.
     fiscal_winner_id = None
@@ -2145,7 +2265,9 @@ def preview_merge_actors(
         "target": {
             "id": str(target.id),
             "name": target.canonical_name,
-            "tax_id": target_tax,
+            "tax_id": target_tax or target_declared,
+            "durable_tax_id": target_tax,
+            "declared_tax_id": target_declared,
             "tax_id_scheme": target.tax_id_scheme,
             "tax_id_country": target.tax_id_country,
             "aliases": list(target.aliases or []),
@@ -2156,7 +2278,9 @@ def preview_merge_actors(
         "source": {
             "id": str(source.id),
             "name": source.canonical_name,
-            "tax_id": source_tax,
+            "tax_id": source_tax or source_declared,
+            "durable_tax_id": source_tax,
+            "declared_tax_id": source_declared,
             "tax_id_scheme": source.tax_id_scheme,
             "tax_id_country": source.tax_id_country,
             "aliases": list(source.aliases or []),
@@ -2304,18 +2428,9 @@ def merge_actors(
 
     target_tax = usable_company_tax_id(getattr(target, "tax_id", None))
     source_tax = usable_company_tax_id(getattr(source, "tax_id", None))
-    if target_tax and source_tax and target_tax != source_tax:
-        raise TaxIdMergeBlocked(
-            f"Fusión bloqueada: NIF durables distintos ({target_tax} vs {source_tax}).",
-            target_tax_id=target_tax,
-            source_tax_id=source_tax,
-        )
-
-    # Fiscal destination guard: refuse when client chose a destination without the
-    # durable NIF while the source holds it (no silent fiscal demotion).
-    if source_tax and not target_tax:
-        # Transfer is allowed via shared service below; destination may receive NIF.
-        pass
+    # Fiscal guards (column conflicts, declared-only, declaration mismatch).
+    # Independent of UI; never mutates before this returns.
+    _assert_fiscal_merge_safe(target, source)
 
     affected_dossiers = set(
         session.scalars(

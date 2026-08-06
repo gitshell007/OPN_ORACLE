@@ -107,11 +107,26 @@ def actor_identity_canonical_key(*, name: str, tax_id: str | None = None) -> str
 
 
 def actor_durable_tax_id(actor: Actor) -> str | None:
-    """Read durable tax_id: column first, then identifiers via shared normalizer."""
+    """Read durable tax_id from the governed column only.
 
-    if getattr(actor, "tax_id", None):
-        return usable_company_tax_id(actor.tax_id)
+    ``actors.tax_id`` is the sole durable identity (partial unique index G-16-A).
+    JSON ``identifiers.tax_id`` is a declaration — use :func:`actor_declared_tax_id`.
+    """
+
+    return usable_company_tax_id(getattr(actor, "tax_id", None))
+
+
+def actor_declared_tax_id(actor: Actor) -> str | None:
+    """Read fiscal declaration from identifiers JSON (not column-governed).
+
+    Returns a usable company CIF from ``tax_id_declared``, ``tax_id`` or nested
+    extractors. Never confuses this with durable column identity.
+    """
+
     identifiers = actor.identifiers if isinstance(actor.identifiers, dict) else {}
+    declared = usable_company_tax_id(identifiers.get("tax_id_declared"))
+    if declared:
+        return declared
     return extract_company_tax_id(identifiers) or usable_company_tax_id(identifiers.get("tax_id"))
 
 

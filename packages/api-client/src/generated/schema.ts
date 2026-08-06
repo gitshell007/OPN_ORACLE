@@ -34440,6 +34440,10 @@ export interface components {
             title: string;
         };
         ActorMergeInput: {
+            confirm: boolean;
+            expected_source_version: number;
+            expected_target_version: number;
+            match_reason?: string;
             reason: string;
             /** Format: uuid */
             source_actor_id: string;

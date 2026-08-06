@@ -2610,7 +2610,21 @@ def _oracle_schemas() -> dict[str, Any]:
             },
         },
         "ActorMergeInput": write(
-            {"source_actor_id": uuid, "reason": string}, ["source_actor_id", "reason"]
+            {
+                "source_actor_id": uuid,
+                "reason": string,
+                "confirm": {"type": "boolean"},
+                "expected_target_version": {"type": "integer", "minimum": 1},
+                "expected_source_version": {"type": "integer", "minimum": 1},
+                "match_reason": string,
+            },
+            [
+                "source_actor_id",
+                "reason",
+                "confirm",
+                "expected_target_version",
+                "expected_source_version",
+            ],
         ),
     }
     resource_properties: dict[str, dict[str, Any]] = {

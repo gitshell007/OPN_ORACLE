@@ -110,6 +110,7 @@ from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
 from opn_oracle.oracle.service import (
     DomainValidationError,
     ResourceNotFound,
+    TaxIdFiscalReviewRequired,
     TaxIdMergeBlocked,
     VersionConflict,
     archive_dossier,
@@ -214,6 +215,16 @@ def _domain_error(error: Exception) -> Any:
             errors={
                 "target_tax_id": error.target_tax_id,
                 "source_tax_id": error.source_tax_id,
+            },
+        )
+    if isinstance(error, TaxIdFiscalReviewRequired):
+        return problem_response(
+            409,
+            detail=str(error),
+            code=getattr(error, "code", None) or "tax_id_fiscal_review_required",
+            errors={
+                "target_declared_tax_id": error.target_declared_tax_id,
+                "source_declared_tax_id": error.source_declared_tax_id,
             },
         )
     from opn_oracle.oracle.actor_tax_id import TaxIdConflictError, TaxIdValidationError
@@ -3338,6 +3349,8 @@ def actors_merge(target_id: uuid.UUID) -> Any:
         ResourceNotFound,
         VersionConflict,
         IntegrityError,
+        TaxIdFiscalReviewRequired,
+        TaxIdMergeBlocked,
     ) as error:
         db.session.rollback()
         return _domain_error(error)

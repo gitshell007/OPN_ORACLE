@@ -50,17 +50,30 @@ function actorLabel(actor: ActorAliasCandidate["actors"][number]): string {
 function matchReasonLabel(item: ActorAliasCandidate): string {
   if (item.match_reason === "tax_id") return "Coincidencia fiscal (NIF/CIF)";
   if (item.match_reason === "tax_id_conflict") return "Bloqueo: NIF distintos";
+  if (item.match_reason === "tax_id_declared_review") {
+    return "Revisión fiscal: NIF solo declarado";
+  }
   if (item.match_reason === "normalized_name") return "Coincidencia nominal (cautela)";
   return item.match_reason || "Candidato";
 }
 
 function taxProvenanceLine(actor: ActorAliasCandidate["actors"][number]): string {
-  const nif = actor.tax_id || "sin NIF durable";
+  const durable = actor.durable_tax_id ?? (actor.has_durable_tax_id_column ? actor.tax_id : null);
+  const declared = actor.declared_tax_id ?? actor.tax_id_provenance?.declared_tax_id ?? null;
+  const nif = durable
+    ? `NIF durable ${durable}`
+    : declared
+      ? `NIF declarado ${declared}`
+      : actor.tax_id
+        ? `NIF ${actor.tax_id}`
+        : "sin NIF durable";
   const label =
     actor.tax_id_provenance?.origin_label ||
     (actor.has_durable_tax_id_column
       ? "columna fiscal durable (declarado; no verificación oficial)"
-      : "sin procedencia fiscal");
+      : declared
+        ? "declarado, pendiente de gobernar (no verificación oficial)"
+        : "sin procedencia fiscal");
   const scheme = actor.tax_id_scheme ? ` · ${actor.tax_id_scheme}` : "";
   const country = actor.tax_id_country ? ` · ${actor.tax_id_country}` : "";
   return `${nif}${scheme}${country} — ${label}`;
@@ -249,7 +262,11 @@ export function ActorDuplicateMergePanel() {
   }
 
   const coverageText = meta
-    ? `${meta.organizations_with_tax_id}/${meta.organizations_evaluated} con NIF durable (${meta.tax_id_coverage_pct}%)`
+    ? `${meta.organizations_with_tax_id}/${meta.organizations_evaluated} con NIF durable de columna (${meta.tax_id_coverage_pct}%)${
+        typeof meta.organizations_with_declared_only_tax_id === "number"
+          ? ` · ${meta.organizations_with_declared_only_tax_id} solo declarado`
+          : ""
+      }`
     : null;
 
   return (
@@ -388,8 +405,18 @@ export function ActorDuplicateMergePanel() {
                 </ul>
                 {blocked ? (
                   <p className="inline-error" role="status">
-                    Fusión bloqueada. NIF en conflicto:{" "}
-                    {(item.blocking_tax_ids || []).join(" vs ") || "distintos"}.
+                    {item.match_reason === "tax_id_declared_review" ? (
+                      <>
+                        Fusión bloqueada: NIF solo declarado (pendiente de gobernar).
+                        Asigne/promueva el NIF con el workflow fiscal antes de fusionar
+                        {item.tax_id ? ` · ${item.tax_id}` : ""}.
+                      </>
+                    ) : (
+                      <>
+                        Fusión bloqueada. NIF en conflicto:{" "}
+                        {(item.blocking_tax_ids || []).join(" vs ") || "distintos"}.
+                      </>
+                    )}
                   </p>
                 ) : (
                   <PermissionGate

@@ -76,6 +76,8 @@ const taxCandidate = {
       identifiers: { tax_id: "B08377715" },
       aliases: [],
       tax_id: "B08377715",
+      durable_tax_id: "B08377715",
+      declared_tax_id: "B08377715",
       tax_id_scheme: "ES_CIF",
       tax_id_country: "ES",
       version: 2,
@@ -91,13 +93,16 @@ const taxCandidate = {
       identifiers: { tax_id: "B08377715" },
       aliases: [],
       tax_id: "B08377715",
+      durable_tax_id: null,
+      declared_tax_id: "B08377715",
       tax_id_scheme: "ES_CIF",
       tax_id_country: "ES",
       version: 1,
       has_durable_tax_id_column: false,
       tax_id_provenance: {
-        origin_label: "declarado (sin columna durable; no verificación oficial)",
+        origin_label: "declarado, pendiente de gobernar (no verificación oficial)",
         verified: false,
+        declared_tax_id: "B08377715",
       },
     },
   ],
@@ -138,12 +143,59 @@ const blockedCandidate = {
 const meta = {
   organizations_evaluated: 18,
   organizations_with_tax_id: 3,
+  organizations_with_declared_only_tax_id: 1,
   tax_id_coverage_pct: 16.67,
+  declared_only_tax_id_coverage_pct: 5.56,
   criteria_evaluated: ["tax_id", "normalized_name"],
   counts: { tax_id: 1, normalized_name: 1, tax_id_conflict_blocked: 0, total_items: 2 },
-  limitations: "3/18 organizaciones con NIF/CIF durable evaluable.",
+  limitations: "3/18 organizaciones con NIF/CIF durable de columna; 1/18 solo con declaración JSON.",
   empty_state_message:
-    "No hay candidatos bajo los criterios evaluados. Cobertura NIF: 3/18 (16.67%).",
+    "No hay candidatos bajo los criterios evaluados. Cobertura NIF durable: 3/18 (16.67%).",
+};
+
+const declaredOnlyReview = {
+  identity_key: "tax-declared:B08377715",
+  status: "blocked",
+  match_reason: "tax_id_declared_review",
+  priority: 40,
+  confidence: "low",
+  tax_id: "B08377715",
+  reason:
+    "NIF/CIF B08377715 solo declarado en JSON (sin columna durable). Promueva antes de fusionar.",
+  actors: [
+    {
+      id: "decl-a",
+      name: "Declared Alpha SA",
+      identifiers: { tax_id: "B08377715", lei: "L1" },
+      aliases: [],
+      tax_id: "B08377715",
+      durable_tax_id: null,
+      declared_tax_id: "B08377715",
+      version: 1,
+      has_durable_tax_id_column: false,
+      tax_id_provenance: {
+        origin_label: "declarado, pendiente de gobernar (no verificación oficial)",
+        verified: false,
+        declared_tax_id: "B08377715",
+      },
+    },
+    {
+      id: "decl-b",
+      name: "Declared Beta SL",
+      identifiers: { tax_id: "B08377715", duns: "D2" },
+      aliases: [],
+      tax_id: "B08377715",
+      durable_tax_id: null,
+      declared_tax_id: "B08377715",
+      version: 1,
+      has_durable_tax_id_column: false,
+      tax_id_provenance: {
+        origin_label: "declarado, pendiente de gobernar (no verificación oficial)",
+        verified: false,
+        declared_tax_id: "B08377715",
+      },
+    },
+  ],
 };
 
 describe("ActorDuplicateMergePanel", () => {
@@ -198,7 +250,8 @@ describe("ActorDuplicateMergePanel", () => {
     expect(screen.getAllByText("ITURRI SA").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Iturri").length).toBeGreaterThan(0);
     expect(screen.getByText(/Coincidencia nominal/i)).toBeTruthy();
-    expect(screen.getByText(/3\/18 con NIF durable/i)).toBeTruthy();
+    expect(screen.getByText(/3\/18 con NIF durable de columna/i)).toBeTruthy();
+    expect(screen.getByText(/1 solo declarado/i)).toBeTruthy();
     expect(mocks.merge).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByPlaceholderText(/Misma empresa/i), {
@@ -259,6 +312,29 @@ describe("ActorDuplicateMergePanel", () => {
     expect(screen.getByText(/Fusión bloqueada/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Previsualizar fusión/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Confirmar fusión/i })).toBeNull();
+  });
+
+  it("bloquea pares declared-only y muestra métricas honestas (no fusión)", async () => {
+    mocks.aliasCandidates.mockResolvedValue({
+      items: [declaredOnlyReview],
+      meta: {
+        ...meta,
+        organizations_with_tax_id: 0,
+        organizations_with_declared_only_tax_id: 2,
+        tax_id_coverage_pct: 0,
+        declared_only_tax_id_coverage_pct: 100,
+      },
+    });
+    render(<ActorDuplicateMergePanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/Revisión fiscal: NIF solo declarado/i)).toBeTruthy();
+    });
+    expect(screen.getAllByText(/pendiente de gobernar/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/0\/18 con NIF durable de columna/i)).toBeTruthy();
+    expect(screen.getByText(/2 solo declarado/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Previsualizar fusión/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Confirmar fusión/i })).toBeNull();
+    expect(mocks.merge).not.toHaveBeenCalled();
   });
 
   it("estado vacío honesto: no dice limpio y muestra cobertura", async () => {

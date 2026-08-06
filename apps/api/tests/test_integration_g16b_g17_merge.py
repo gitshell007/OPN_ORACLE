@@ -349,7 +349,9 @@ def test_capgemini_tax_first_candidate_and_meta(
         assert "meta" in body
         meta = body["meta"]
         assert meta["organizations_evaluated"] >= 3
-        assert meta["organizations_with_tax_id"] >= 2
+        # Durable coverage is column-only; b is declared_only.
+        assert meta["organizations_with_tax_id"] >= 1
+        assert meta["organizations_with_declared_only_tax_id"] >= 1
         assert "limpio" not in (meta.get("empty_state_message") or "").lower()
         items = body["items"]
         tax_items = [item for item in items if item.get("match_reason") == "tax_id"]
@@ -361,6 +363,14 @@ def test_capgemini_tax_first_candidate_and_meta(
         assert "CAPGEMINI ESPAÑA SL" in names
         assert "Capgemini España S.L." in names
         assert all(actor.get("tax_id") == "B08377715" for actor in tax["actors"])
+        by_id = {actor["id"]: actor for actor in tax["actors"]}
+        assert by_id[a["id"]]["has_durable_tax_id_column"] is True
+        assert by_id[a["id"]]["durable_tax_id"] == "B08377715"
+        assert by_id[b["id"]]["has_durable_tax_id_column"] is False
+        assert by_id[b["id"]]["declared_tax_id"] == "B08377715"
+        assert "pendiente de gobernar" in (
+            by_id[b["id"]].get("tax_id_provenance", {}).get("origin_label") or ""
+        )
         assert tax["suggested_target_id"] == a["id"]
         # person never listed in any candidate
         for item in items:
@@ -722,3 +732,287 @@ def test_empty_candidates_meta_not_clean(
         assert body["meta"]["organizations_evaluated"] == 3
         assert "limpio" not in body["meta"]["empty_state_message"].lower()
         assert body["meta"]["organizations_with_tax_id"] == 0
+        assert body["meta"]["organizations_with_declared_only_tax_id"] == 0
+
+
+def _patch_declared_only_tax(
+    migration_url: str,
+    actor_id: str,
+    *,
+    tax_id: str,
+    lei: str | None = None,
+    duns: str | None = None,
+) -> None:
+    """Set JSON fiscal declaration without durable column (B2 adversary seed)."""
+
+    payload: dict[str, Any] = {
+        "tax_id": tax_id,
+        "tax_id_scheme": "ES_CIF",
+        "tax_id_declared": tax_id,
+        "tax_id_source": {"kind": "award_hydration", "folder_id": "ADV"},
+    }
+    if lei:
+        payload["lei"] = lei
+    if duns:
+        payload["duns"] = duns
+    import json as _json
+
+    engine = create_engine(migration_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE actors SET tax_id=NULL, tax_id_scheme=NULL, tax_id_country=NULL, "
+                "identifiers = identifiers || CAST(:j AS jsonb) WHERE id=:id"
+            ),
+            {"id": actor_id, "j": _json.dumps(payload)},
+        )
+
+
+def test_declared_only_equal_json_blocks_merge_preserves_nif(
+    g17_pg: tuple[Any, dict[str, Any]],
+) -> None:
+    """B2 · two orgs, column NULL, same JSON tax_id + LEI/DUNS: preview+merge blocked."""
+
+    app, ctx = g17_pg
+    client = ctx["client"]
+    tenant_id = ctx["tenant_id"]
+    user_id = ctx["user_id"]
+    migration_url = ctx["migration_url"]
+    monkeypatch = ctx["monkeypatch"]
+
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        target = _create_actor(
+            client,
+            {
+                "canonical_name": "Declared Twin Alpha SA",
+                "actor_type": "organization",
+                "identifiers": {"lei": "L1", "website": "a.example"},
+            },
+        )
+        source = _create_actor(
+            client,
+            {
+                "canonical_name": "Declared Twin Beta SL",
+                "actor_type": "organization",
+                "identifiers": {"duns": "D2"},
+            },
+        )
+        _patch_declared_only_tax(migration_url, target["id"], tax_id="B08377715", lei="L1")
+        _patch_declared_only_tax(migration_url, source["id"], tax_id="B08377715", duns="D2")
+
+        candidates = client.get("/api/v1/actors/alias-candidates").get_json()
+        assert candidates["meta"]["organizations_with_tax_id"] == 0
+        assert candidates["meta"]["organizations_with_declared_only_tax_id"] >= 2
+        review_items = [
+            item
+            for item in candidates["items"]
+            if item.get("match_reason") == "tax_id_declared_review"
+            and any(actor["id"] in {target["id"], source["id"]} for actor in item["actors"])
+        ]
+        assert review_items
+        assert review_items[0]["status"] == "blocked"
+        assert review_items[0]["confidence"] == "low"
+
+        before_actors = _count_actors(migration_url, tenant_id)
+        target_before = _load_actor(migration_url, target["id"])
+        source_before = _load_actor(migration_url, source["id"])
+        assert target_before is not None and source_before is not None
+        assert target_before["tax_id"] is None
+        assert source_before["tax_id"] is None
+        t_ids = target_before["identifiers"]
+        s_ids = source_before["identifiers"]
+        if isinstance(t_ids, str):
+            import json as _json
+
+            t_ids = _json.loads(t_ids)
+            s_ids = _json.loads(s_ids)
+        assert t_ids.get("tax_id") == "B08377715"
+        assert s_ids.get("tax_id") == "B08377715"
+
+        preview = client.post(
+            f"/api/v1/actors/{target['id']}/merge/preview",
+            json={"source_actor_id": source["id"]},
+        )
+        assert preview.status_code == 200
+        pbody = preview.get_json()
+        assert pbody["blocked"] is True
+        assert (
+            "declarad" in (pbody.get("block_reason") or "").lower()
+            or "fiscal" in (pbody.get("block_reason") or "").lower()
+        )
+
+        merged = client.post(
+            f"/api/v1/actors/{target['id']}/merge",
+            json={
+                "source_actor_id": source["id"],
+                "reason": "Intento silencioso declared-only",
+                "confirm": True,
+                "expected_target_version": target["version"],
+                "expected_source_version": source["version"],
+            },
+        )
+        assert merged.status_code == 409, merged.get_data(as_text=True)[:800]
+        problem = merged.get_json()
+        code = str(problem.get("code") or problem.get("title") or problem)
+        assert (
+            "fiscal" in code.lower()
+            or "tax_id" in code.lower()
+            or "declarad" in str(problem).lower()
+        )
+
+        # No mutation: both actors, NIF declaration, LEI/DUNS preserved.
+        assert _count_actors(migration_url, tenant_id) == before_actors
+        target_after = _load_actor(migration_url, target["id"])
+        source_after = _load_actor(migration_url, source["id"])
+        assert target_after is not None and source_after is not None
+        assert target_after["tax_id"] is None
+        assert source_after["tax_id"] is None
+        ta_ids = target_after["identifiers"]
+        sa_ids = source_after["identifiers"]
+        if isinstance(ta_ids, str):
+            import json as _json
+
+            ta_ids = _json.loads(ta_ids)
+            sa_ids = _json.loads(sa_ids)
+        assert ta_ids.get("tax_id") == "B08377715"
+        assert ta_ids.get("tax_id_declared") == "B08377715"
+        assert ta_ids.get("lei") == "L1"
+        assert sa_ids.get("tax_id") == "B08377715"
+        assert sa_ids.get("duns") == "D2"
+        assert _count_audit(migration_url, tenant_id, "actor.merged") == 0
+
+
+def test_holder_plus_equal_declaration_merge_preserves_column(
+    g17_pg: tuple[Any, dict[str, Any]],
+) -> None:
+    """Column holder + declared equal → merge absorbs loser; column+JSON preserved."""
+
+    app, ctx = g17_pg
+    client = ctx["client"]
+    tenant_id = ctx["tenant_id"]
+    user_id = ctx["user_id"]
+    migration_url = ctx["migration_url"]
+    monkeypatch = ctx["monkeypatch"]
+
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        target = _create_actor(
+            client,
+            {
+                "canonical_name": "Holder Equal SA",
+                "actor_type": "organization",
+                "identifiers": {"tax_id": "B08377715", "lei": "HOLD-LEI"},
+            },
+        )
+        source = _create_actor(
+            client,
+            {
+                "canonical_name": "Declared Equal SL",
+                "actor_type": "organization",
+                "identifiers": {"duns": "SRC-DUNS", "extra": "keep"},
+            },
+        )
+        _patch_declared_only_tax(migration_url, source["id"], tax_id="B08377715", duns="SRC-DUNS")
+        # Reload versions after SQL patch (version may be unchanged).
+        source_row = _load_actor(migration_url, source["id"])
+        assert source_row is not None
+        source_version = int(source_row["version"] or 1)
+
+        preview = client.post(
+            f"/api/v1/actors/{target['id']}/merge/preview",
+            json={"source_actor_id": source["id"]},
+        )
+        assert preview.status_code == 200
+        assert preview.get_json()["blocked"] is False
+
+        ok = client.post(
+            f"/api/v1/actors/{target['id']}/merge",
+            json={
+                "source_actor_id": source["id"],
+                "reason": "Holder absorbe declaración igual",
+                "confirm": True,
+                "expected_target_version": target["version"],
+                "expected_source_version": source_version,
+                "match_reason": "tax_id",
+            },
+        )
+        assert ok.status_code == 200, ok.get_data(as_text=True)[:800]
+        body = ok.get_json()
+        assert body["tax_id"] == "B08377715"
+        assert body["identifiers"]["tax_id"] == "B08377715"
+        assert body["identifiers"]["lei"] == "HOLD-LEI"
+        assert body["identifiers"]["duns"] == "SRC-DUNS"
+        assert body["identifiers"].get("extra") == "keep"
+        assert _load_actor(migration_url, source["id"]) is None
+        winner = _load_actor(migration_url, target["id"])
+        assert winner is not None
+        assert winner["tax_id"] == "B08377715"
+
+
+def test_holder_plus_distinct_declaration_blocks_merge(
+    g17_pg: tuple[Any, dict[str, Any]],
+) -> None:
+    """Holder durable + different declared on source → block, no mutation."""
+
+    app, ctx = g17_pg
+    client = ctx["client"]
+    tenant_id = ctx["tenant_id"]
+    user_id = ctx["user_id"]
+    migration_url = ctx["migration_url"]
+    monkeypatch = ctx["monkeypatch"]
+
+    with (
+        app.app_context(),
+        _authenticated_http(app, monkeypatch, user_id=user_id, tenant_id=tenant_id),
+    ):
+        target = _create_actor(
+            client,
+            {
+                "canonical_name": "Holder Distinct SA",
+                "actor_type": "organization",
+                "identifiers": {"tax_id": "B08377715"},
+            },
+        )
+        source = _create_actor(
+            client,
+            {
+                "canonical_name": "Declared Other SL",
+                "actor_type": "organization",
+                "identifiers": {"lei": "OTHER-LEI"},
+            },
+        )
+        _patch_declared_only_tax(migration_url, source["id"], tax_id="A58818501", lei="OTHER-LEI")
+        source_row = _load_actor(migration_url, source["id"])
+        assert source_row is not None
+        source_version = int(source_row["version"] or 1)
+        before = _count_actors(migration_url, tenant_id)
+
+        preview = client.post(
+            f"/api/v1/actors/{target['id']}/merge/preview",
+            json={"source_actor_id": source["id"]},
+        )
+        assert preview.status_code == 200
+        assert preview.get_json()["blocked"] is True
+
+        merged = client.post(
+            f"/api/v1/actors/{target['id']}/merge",
+            json={
+                "source_actor_id": source["id"],
+                "reason": "Intento con declaración distinta",
+                "confirm": True,
+                "expected_target_version": target["version"],
+                "expected_source_version": source_version,
+            },
+        )
+        assert merged.status_code == 409
+        assert _count_actors(migration_url, tenant_id) == before
+        assert _load_actor(migration_url, target["id"]) is not None
+        assert _load_actor(migration_url, source["id"]) is not None
+        winner = _load_actor(migration_url, target["id"])
+        assert winner is not None
+        assert winner["tax_id"] == "B08377715"

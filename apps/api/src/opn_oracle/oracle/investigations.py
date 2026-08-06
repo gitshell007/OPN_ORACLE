@@ -603,7 +603,7 @@ def _actor_tax_id_provenance_summary(actor: Actor) -> dict[str, Any]:
     if has_column and origin_kind in {"none", "declared", "column_durable"}:
         origin_label = "columna fiscal durable (declarado; no verificación oficial)"
     elif not has_column and declared:
-        origin_label = "declarado (sin columna durable; no verificación oficial)"
+        origin_label = "declarado, pendiente de gobernar (no verificación oficial)"
 
     return {
         "origin_kind": origin_kind or None,
@@ -616,20 +616,24 @@ def _actor_tax_id_provenance_summary(actor: Actor) -> dict[str, Any]:
 
 
 def _serialize_alias_candidate_actor(actor: Actor) -> dict[str, Any]:
-    from opn_oracle.oracle.actor_tax_id import actor_durable_tax_id, usable_company_tax_id
+    from opn_oracle.oracle.actor_tax_id import actor_declared_tax_id, actor_durable_tax_id
 
-    column_tax = usable_company_tax_id(getattr(actor, "tax_id", None))
     durable = actor_durable_tax_id(actor)
+    declared = actor_declared_tax_id(actor)
+    display_tax = durable or declared
     identifiers = dict(actor.identifiers or {}) if isinstance(actor.identifiers, dict) else {}
     return {
         "id": str(actor.id),
         "name": actor.canonical_name,
         "aliases": list(actor.aliases or []),
         "identifiers": identifiers,
-        "tax_id": durable,
+        # Display convenience: prefer durable column, else declared (never claim verified).
+        "tax_id": display_tax,
+        "durable_tax_id": durable,
+        "declared_tax_id": declared,
         "tax_id_scheme": actor.tax_id_scheme or identifiers.get("tax_id_scheme"),
-        "tax_id_country": actor.tax_id_country or ("ES" if durable else None),
-        "has_durable_tax_id_column": column_tax is not None,
+        "tax_id_country": actor.tax_id_country or ("ES" if display_tax else None),
+        "has_durable_tax_id_column": durable is not None,
         "tax_id_provenance": _actor_tax_id_provenance_summary(actor),
         "version": int(actor.version or 1),
     }
@@ -659,9 +663,13 @@ def actor_alias_candidates(session: Session) -> dict[str, Any]:
     Returns ``{"items": [...], "meta": {...}}`` with honest coverage metrics.
     Persons and other tenants are never mixed. Same-name pairs with distinct
     durable tax_ids are reported as blocked, not as mergeable candidates.
+
+    High-confidence ``match_reason=tax_id`` requires at least one column holder.
+    Two or more declared-only actors with the same NIF are fiscal review (blocked),
+    never high-confidence durable matches.
     """
 
-    from opn_oracle.oracle.actor_tax_id import actor_durable_tax_id, usable_company_tax_id
+    from opn_oracle.oracle.actor_tax_id import actor_declared_tax_id, actor_durable_tax_id
 
     tenant_id = require_tenant_id()
     actors = list(
@@ -672,43 +680,80 @@ def actor_alias_candidates(session: Session) -> dict[str, Any]:
         )
     )
     total_orgs = len(actors)
-    with_tax = 0
+    with_durable = 0
+    with_declared_only = 0
     for actor in actors:
         if actor_durable_tax_id(actor):
-            with_tax += 1
+            with_durable += 1
+        elif actor_declared_tax_id(actor):
+            with_declared_only += 1
 
-    # --- 1) Tax-id buckets (primary) ---
+    # --- 1) Tax-id buckets keyed by fiscal value ---
+    # High confidence only when ≥1 actor holds the durable column.
+    # Declared-only peers with the same value may join a holder bucket as losers.
     tax_buckets: dict[str, list[Actor]] = {}
     for actor in actors:
-        tax = actor_durable_tax_id(actor)
-        if tax:
-            tax_buckets.setdefault(tax, []).append(actor)
+        durable = actor_durable_tax_id(actor)
+        declared = actor_declared_tax_id(actor)
+        if durable:
+            tax_buckets.setdefault(durable, []).append(actor)
+        elif declared:
+            tax_buckets.setdefault(declared, []).append(actor)
 
     covered_ids: set[uuid.UUID] = set()
     candidates: list[dict[str, Any]] = []
     count_tax_id = 0
     count_name = 0
     count_blocked = 0
+    count_declared_review = 0
 
     for tax_id, group in sorted(tax_buckets.items(), key=lambda item: item[0]):
         if len(group) < 2:
             continue
-        winner = _suggest_tax_winner(group)
+        holders = [actor for actor in group if actor_durable_tax_id(actor)]
         for actor in group:
             covered_ids.add(actor.id)
-        count_tax_id += 1
+
+        if holders:
+            # Column + equal declaration (or multi-holder same column) → durable match.
+            winner = _suggest_tax_winner(group)
+            count_tax_id += 1
+            candidates.append(
+                {
+                    "identity_key": f"tax:es:{tax_id}",
+                    "match_reason": "tax_id",
+                    "status": "candidate",
+                    "priority": 100,
+                    "confidence": "high",
+                    "reason": (
+                        f"Coincidencia fiscal durable por NIF/CIF de columna {tax_id}. "
+                        "El destino sugerido es el titular de la columna; la declaración "
+                        "JSON del origen no confiere identidad gobernada."
+                    ),
+                    "suggested_target_id": str(winner.id),
+                    "tax_id": tax_id,
+                    "actors": [_serialize_alias_candidate_actor(actor) for actor in group],
+                }
+            )
+            continue
+
+        # Two or more declared_only with same value — not high-confidence durable.
+        count_declared_review += 1
+        count_blocked += 1
         candidates.append(
             {
-                "identity_key": f"tax:es:{tax_id}",
-                "match_reason": "tax_id",
-                "status": "candidate",
-                "priority": 100,
-                "confidence": "high",
+                "identity_key": f"tax-declared:{tax_id}",
+                "match_reason": "tax_id_declared_review",
+                "status": "blocked",
+                "priority": 40,
+                "confidence": "low",
                 "reason": (
-                    f"Coincidencia fiscal por NIF/CIF durable {tax_id}. "
-                    "Prioridad alta; el destino sugerido ya posee (o declara) esa identidad fiscal."
+                    f"NIF/CIF {tax_id} solo declarado en JSON (sin columna durable) en "
+                    f"{len(group)} organizaciones. No es coincidencia fiscal de alta "
+                    "confianza. Asigne/promueva el NIF con el workflow fiscal compartido "
+                    "y resuelva conflictos antes de fusionar."
                 ),
-                "suggested_target_id": str(winner.id),
+                "suggested_target_id": None,
                 "tax_id": tax_id,
                 "actors": [_serialize_alias_candidate_actor(actor) for actor in group],
             }
@@ -726,9 +771,7 @@ def actor_alias_candidates(session: Session) -> dict[str, Any]:
     for key, group in sorted(name_buckets.items(), key=lambda item: item[0]):
         if len(group) < 2:
             continue
-        durable_taxes = {
-            tax for actor in group if (tax := usable_company_tax_id(getattr(actor, "tax_id", None)))
-        }
+        durable_taxes = {tax for actor in group if (tax := actor_durable_tax_id(actor))}
         # Distinct durable columns → blocked fiscal conflict (never name-merge).
         if len(durable_taxes) >= 2:
             count_blocked += 1
@@ -752,9 +795,7 @@ def actor_alias_candidates(session: Session) -> dict[str, Any]:
             continue
 
         # Prefer the one that holds a durable column as suggested target when present.
-        with_column = [
-            actor for actor in group if usable_company_tax_id(getattr(actor, "tax_id", None))
-        ]
+        with_column = [actor for actor in group if actor_durable_tax_id(actor)]
         suggested = with_column[0] if with_column else group[0]
         count_name += 1
         candidates.append(
@@ -769,12 +810,12 @@ def actor_alias_candidates(session: Session) -> dict[str, Any]:
                     "No se infiere NIF por nombre; requiere revisión humana cautelosa."
                 ),
                 "suggested_target_id": str(suggested.id),
-                "tax_id": usable_company_tax_id(getattr(suggested, "tax_id", None)),
+                "tax_id": actor_durable_tax_id(suggested),
                 "actors": [_serialize_alias_candidate_actor(actor) for actor in group],
             }
         )
 
-    # tax_id matches first, then blocked, then name; stable within each band.
+    # tax_id matches first, then blocked/review, then name; stable within each band.
     candidates.sort(
         key=lambda item: (
             0 if item["match_reason"] == "tax_id" else 1 if item["status"] == "blocked" else 2,
@@ -783,30 +824,39 @@ def actor_alias_candidates(session: Session) -> dict[str, Any]:
         )
     )
 
-    coverage_pct = round((with_tax / total_orgs) * 100.0, 2) if total_orgs else 0.0
+    coverage_pct = round((with_durable / total_orgs) * 100.0, 2) if total_orgs else 0.0
+    declared_coverage_pct = (
+        round((with_declared_only / total_orgs) * 100.0, 2) if total_orgs else 0.0
+    )
     meta = {
         "organizations_evaluated": total_orgs,
-        "organizations_with_tax_id": with_tax,
+        "organizations_with_tax_id": with_durable,
+        "organizations_with_declared_only_tax_id": with_declared_only,
         "tax_id_coverage_pct": coverage_pct,
+        "declared_only_tax_id_coverage_pct": declared_coverage_pct,
         "criteria_evaluated": ["tax_id", "normalized_name"],
         "counts": {
             "tax_id": count_tax_id,
             "normalized_name": count_name,
-            "tax_id_conflict_blocked": count_blocked,
+            "tax_id_conflict_blocked": count_blocked - count_declared_review,
+            "tax_id_declared_review": count_declared_review,
             "candidates_mergeable": count_tax_id + count_name,
             "candidates_blocked": count_blocked,
             "total_items": len(candidates),
         },
         "limitations": (
-            f"{with_tax}/{total_orgs} organizaciones con NIF/CIF durable evaluable. "
-            "Solo se proponen coincidencias bajo los criterios tax_id y nombre normalizado "
-            "sin forma jurídica; no hay verificación oficial del NIF."
+            f"{with_durable}/{total_orgs} organizaciones con NIF/CIF durable de columna; "
+            f"{with_declared_only}/{total_orgs} solo con declaración JSON pendiente de gobernar. "
+            "Solo se proponen coincidencias de alta confianza con titular de columna; "
+            "no hay verificación oficial del NIF."
         ),
         "empty_state_message": (
             "No hay candidatos bajo los criterios evaluados "
-            f"(tax_id y denominación normalizada). Cobertura NIF: {with_tax}/{total_orgs} "
-            f"({coverage_pct}%). Esto no implica ausencia de duplicados: la detección está "
-            "limitada por la cobertura fiscal y por el criterio nominal cauteloso."
+            f"(tax_id durable y denominación normalizada). Cobertura NIF durable: "
+            f"{with_durable}/{total_orgs} ({coverage_pct}%); declarado-solo: "
+            f"{with_declared_only}/{total_orgs} ({declared_coverage_pct}%). "
+            "Esto no implica ausencia de duplicados: la detección está limitada por la "
+            "cobertura fiscal de columna y por el criterio nominal cauteloso."
         ),
     }
     return {"items": candidates, "meta": meta}
