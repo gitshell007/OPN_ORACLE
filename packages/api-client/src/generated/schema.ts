@@ -1918,6 +1918,267 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Borrador de oferta durable del expediente (edición humana persistente). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Materializa un borrador editable desde el draft_offer calculado del análisis.
+         * @description Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Actualiza campos editables del borrador con control de versión optimista. */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    /** @description Versión ETag; puede enviarse `version` en el cuerpo como alternativa. */
+                    "If-Match"?: string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs": {
         parameters: {
             query?: never;
@@ -2286,20 +2547,15 @@ export interface paths {
     };
     "/api/v1/ai/market-actor-discovery/latest": {
         parameters: {
-            query?: {
-                dossier_id?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Latest Market Actor Discovery */
+        /** Return latest job/artifact for one dossier; never a tenant-wide result. */
         get: {
             parameters: {
-                query: {
-                    /** Market dossier UUID; scopes latest job/artifact (never tenant-wide). */
-                    dossier_id: string;
-                };
+                query?: never;
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -2370,7 +2626,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Enqueue Market Actor Discovery */
+        /**
+         * Enqueue actor discovery for a market dossier using server-owned profile fields.
+         * @description Request body is only ``dossier_id``. Intent, type, known_names, geography and
+         *     languages are loaded from the accessible market dossier; client forgeries are
+         *     ignored. Job/artifact are scoped to that dossier (resource_type=strategic_dossier).
+         */
         post: {
             parameters: {
                 query?: never;
@@ -35285,6 +35546,64 @@ export interface components {
             };
             tenant_id: string;
             updated_at?: string | null;
+        };
+        OpportunityOfferDraftCreateResponse: {
+            created: boolean;
+            draft: components["schemas"]["OpportunityOfferDraftResource"];
+        };
+        OpportunityOfferDraftPatchInput: {
+            sections?: components["schemas"]["OpportunityOfferDraftSectionPatchInput"][];
+            statement?: string;
+            version?: number;
+        };
+        OpportunityOfferDraftResource: {
+            administrative_checklist?: {
+                [key: string]: unknown;
+            }[];
+            banner: string;
+            based_on_verdict?: string | null;
+            content?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at?: string;
+            declared_evidence_ids?: string[];
+            /** Format: uuid */
+            dossier_id: string;
+            draft_engine?: string | null;
+            drafted_as_of?: string | null;
+            etag: string;
+            gaps?: {
+                [key: string]: unknown;
+            }[];
+            gaps_summary?: string[];
+            human_gate: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            last_edited_by_user_id?: string;
+            lot_hint?: string | null;
+            official_evidence_ids?: string[];
+            /** @enum {string} */
+            origin: "declared_draft";
+            prose_engine?: string | null;
+            sections: {
+                [key: string]: unknown;
+            }[];
+            /** Format: uuid */
+            source_artifact_id: string;
+            statement: string;
+            tender_ref?: string | null;
+            /** Format: date-time */
+            updated_at?: string;
+            version: number;
+        };
+        OpportunityOfferDraftResponse: {
+            draft: components["schemas"]["OpportunityOfferDraftResource"];
+        };
+        OpportunityOfferDraftSectionPatchInput: {
+            key: string;
+            our_response_draft: string;
         };
         OpportunityResource: {
             actionability?: number;

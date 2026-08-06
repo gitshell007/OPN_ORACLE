@@ -263,6 +263,59 @@ class AIUsageLedger(TenantDomainMixin, Base):
     execution_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
 
+
+
+class OpportunityOfferDraft(TenantDomainMixin, Base):
+    """Durable human-editable offer draft (SV2-G09-A).
+
+    One row per tenant+dossier. Seeded from calculated ``draft_offer`` on the
+    opportunity AI artifact; recalculation of analysis never overwrites this row.
+    """
+
+    __tablename__ = "opportunity_offer_drafts"
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_opportunity_offer_drafts_id_tenant"),
+        UniqueConstraint(
+            "tenant_id", "dossier_id", name="uq_opportunity_offer_drafts_tenant_dossier"
+        ),
+        ForeignKeyConstraint(
+            ("tenant_id",),
+            ("tenants.id",),
+            ondelete="CASCADE",
+            name="fk_ood_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("dossier_id", "tenant_id"),
+            ("strategic_dossiers.id", "strategic_dossiers.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_ood_dossier_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("source_artifact_id", "tenant_id"),
+            ("ai_artifacts.id", "ai_artifacts.tenant_id"),
+            ondelete="RESTRICT",
+            name="fk_ood_source_artifact_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("tenant_id", "last_edited_by_user_id"),
+            ("tenant_memberships.tenant_id", "tenant_memberships.user_id"),
+            ondelete="RESTRICT",
+            name="fk_ood_editor_membership",
+        ),
+        CheckConstraint("version >= 1", name="ood_version_positive"),
+        CheckConstraint("jsonb_typeof(content)='object'", name="ood_content_object"),
+        Index("ix_ood_tenant_dossier", "tenant_id", "dossier_id"),
+        Index("ix_ood_tenant_artifact", "tenant_id", "source_artifact_id"),
+    )
+
+    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_artifact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    etag: Mapped[str] = mapped_column(String(80), nullable=False, default='W/"ood-v1"')
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    last_edited_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
 AI_MODELS = (
     AIAttempt,
     AIContextSnapshot,
@@ -271,4 +324,5 @@ AI_MODELS = (
     AIHumanReview,
     AITenantPolicy,
     AIUsageLedger,
+    OpportunityOfferDraft,
 )

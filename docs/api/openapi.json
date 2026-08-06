@@ -5832,7 +5832,6 @@
         "type": "object"
       },
       "MarketActorDiscoveryInput": {
-        "additionalProperties": false,
         "properties": {
           "dossier_id": {
             "type": "string"
@@ -7428,6 +7427,207 @@
           "status",
           "taxonomies",
           "tenant_id"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "type": "boolean"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/OpportunityOfferDraftResource"
+          }
+        },
+        "required": [
+          "draft",
+          "created"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftPatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/OpportunityOfferDraftSectionPatchInput"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "statement": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "OpportunityOfferDraftResource": {
+        "additionalProperties": false,
+        "properties": {
+          "administrative_checklist": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "banner": {
+            "type": "string"
+          },
+          "based_on_verdict": {
+            "nullable": true,
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "declared_evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "draft_engine": {
+            "nullable": true,
+            "type": "string"
+          },
+          "drafted_as_of": {
+            "nullable": true,
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "gaps": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "gaps_summary": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "human_gate": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_edited_by_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "lot_hint": {
+            "nullable": true,
+            "type": "string"
+          },
+          "official_evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "origin": {
+            "enum": [
+              "declared_draft"
+            ],
+            "type": "string"
+          },
+          "prose_engine": {
+            "nullable": true,
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source_artifact_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "tender_ref": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "dossier_id",
+          "source_artifact_id",
+          "version",
+          "etag",
+          "statement",
+          "sections",
+          "origin",
+          "human_gate",
+          "banner"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/OpportunityOfferDraftResource"
+          }
+        },
+        "required": [
+          "draft"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftSectionPatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "our_response_draft": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "our_response_draft"
         ],
         "type": "object"
       },
@@ -14483,6 +14683,336 @@
         ]
       }
     },
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Borrador de oferta durable del expediente (edici\u00f3n humana persistente).",
+        "tags": [
+          "IA"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versi\u00f3n ETag; puede enviarse `version` en el cuerpo como alternativa.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Actualiza campos editables del borrador con control de versi\u00f3n optimista.",
+        "tags": [
+          "IA"
+        ]
+      },
+      "post": {
+        "description": "Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Materializa un borrador editable desde el draft_offer calculado del an\u00e1lisis.",
+        "tags": [
+          "IA"
+        ]
+      }
+    },
     "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs": {
       "post": {
         "parameters": [
@@ -14893,17 +15423,7 @@
     },
     "/api/v1/ai/market-actor-discovery/latest": {
       "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "dossier_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Market dossier UUID; scopes latest job/artifact (never tenant-wide)."
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -14961,7 +15481,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Latest Market Actor Discovery",
+        "summary": "Return latest job/artifact for one dossier; never a tenant-wide result.",
         "tags": [
           "IA"
         ]
@@ -14969,6 +15489,7 @@
     },
     "/api/v1/ai/market-actor-discovery/runs": {
       "post": {
+        "description": "Request body is only ``dossier_id``. Intent, type, known_names, geography and\nlanguages are loaded from the accessible market dossier; client forgeries are\nignored. Job/artifact are scoped to that dossier (resource_type=strategic_dossier).",
         "parameters": [
           {
             "in": "header",
@@ -15049,7 +15570,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Enqueue Market Actor Discovery",
+        "summary": "Enqueue actor discovery for a market dossier using server-owned profile fields.",
         "tags": [
           "IA"
         ]

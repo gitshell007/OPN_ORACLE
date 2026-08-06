@@ -6,6 +6,8 @@ import {
   type JobResponse,
   type OpportunityAnalysisArtifact,
   type OpportunityAnalysisOutput,
+  type OpportunityOfferDraftResource,
+  type OpportunityOfferDraftSection,
 } from "@oracle/api-client";
 import {
   CheckCircle2,
@@ -16,7 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { JobProgress } from "@/components/reporting/job-progress";
@@ -88,6 +90,69 @@ function recommendationLabel(value: string | undefined) {
   }
 }
 
+
+type DraftSaveState = "idle" | "dirty" | "saving" | "saved" | "conflict" | "error";
+
+function draftStatusLabel(state: DraftSaveState): string {
+  switch (state) {
+    case "dirty":
+      return "Sin guardar";
+    case "saving":
+      return "Guardando…";
+    case "saved":
+      return "Guardado";
+    case "conflict":
+      return "Conflicto de versión";
+    case "error":
+      return "Error al guardar";
+    default:
+      return "Listo";
+  }
+}
+
+function buildOfferDraftPlainText(draft: OpportunityOfferDraftResource): string {
+  const lines: string[] = [];
+  if (draft.banner) {
+    lines.push(draft.banner, "");
+  }
+  if (draft.statement) {
+    lines.push(draft.statement, "");
+  }
+  const meta = [draft.tender_ref, draft.lot_hint].filter(Boolean);
+  if (meta.length) {
+    lines.push(meta.join(" · "), "");
+  }
+  lines.push("Secciones", "---------");
+  for (const sec of draft.sections || []) {
+    lines.push("", sec.title || sec.key);
+    if (sec.points_hint) lines.push(`Puntos: ${sec.points_hint}`);
+    if (sec.requirement) lines.push(`Requisito (oficial): ${sec.requirement}`);
+    if (sec.our_response_draft) {
+      lines.push(`Respuesta (borrador declarado): ${sec.our_response_draft}`);
+    }
+    for (const gap of sec.gaps || []) lines.push(`Gap: ${gap}`);
+  }
+  if ((draft.gaps_summary || []).length) {
+    lines.push("", "Gaps de solvencia / condiciones", "-------------------------------");
+    for (const g of draft.gaps_summary || []) lines.push(`- ${g}`);
+  }
+  if ((draft.administrative_checklist || []).length) {
+    lines.push("", "Checklist administrativa", "------------------------");
+    for (const item of draft.administrative_checklist || []) {
+      const status =
+        item.status === "blocked" ? "bloqueado" : item.status === "ready" ? "listo" : "pendiente";
+      lines.push(`[${status}] ${item.label}`);
+      if (item.description) lines.push(`  ${item.description}`);
+    }
+  }
+  lines.push(
+    "",
+    "Nota: este texto es un borrador declarado — no es hecho oficial ni documento presentable.",
+    "",
+  );
+  return lines.join("\n");
+}
+
 export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: string }) {
   const [artifact, setArtifact] = useState<OpportunityAnalysisArtifact | null>(null);
   const [job, setJob] = useState<JobResponse | null>(null);
@@ -99,6 +164,16 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
   const [summary, setSummary] = useState("");
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [showDraftOffer, setShowDraftOffer] = useState(false);
+  const [persistedDraft, setPersistedDraft] = useState<OpportunityOfferDraftResource | null>(
+    null,
+  );
+  const [draftStatement, setDraftStatement] = useState("");
+  const [draftSections, setDraftSections] = useState<OpportunityOfferDraftSection[]>([]);
+  const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "error">("idle");
+  const draftVersionRef = useRef<number>(0);
 
   const output = artifact?.output ?? null;
   const facts = useMemo(() => groundedFacts(output), [output]);
@@ -111,6 +186,34 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
     artifact?.status !== "rejected" &&
     !running &&
     hasGrounding;
+
+  const applyPersistedDraft = useCallback((draft: OpportunityOfferDraftResource) => {
+    setPersistedDraft(draft);
+    setDraftStatement(draft.statement || "");
+    setDraftSections(draft.sections || []);
+    draftVersionRef.current = draft.version;
+    setDraftSaveState("saved");
+    setDraftError(null);
+    setShowDraftOffer(true);
+  }, []);
+
+  const loadPersistedDraft = useCallback(async () => {
+    try {
+      const response = await api.dossierOpportunityAnalysis.getOfferDraft(dossierId);
+      applyPersistedDraft(response.draft);
+      return response.draft;
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 404) {
+        setPersistedDraft(null);
+        setDraftStatement("");
+        setDraftSections([]);
+        draftVersionRef.current = 0;
+        setDraftSaveState("idle");
+        return null;
+      }
+      throw reason;
+    }
+  }, [applyPersistedDraft, dossierId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -126,12 +229,130 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
       }
       const nonTerminal = latest.job && !terminal.has(latest.job.status);
       setRunning(Boolean(nonTerminal));
+      try {
+        await loadPersistedDraft();
+      } catch {
+        // Draft load is best-effort; analysis remains usable.
+      }
     } catch (reason) {
       setError(errorMessage(reason, "No se pudo cargar el análisis de oportunidad."));
     } finally {
       setLoading(false);
     }
-  }, [dossierId]);
+  }, [dossierId, loadPersistedDraft]);
+
+  async function prepareOfferDraft() {
+    setDraftBusy(true);
+    setDraftError(null);
+    setCopyStatus("idle");
+    try {
+      const response = await api.dossierOpportunityAnalysis.prepareOfferDraft(dossierId);
+      applyPersistedDraft(response.draft);
+      setShowDraftOffer(true);
+      toast.success(
+        response.created ? "Borrador de oferta creado" : "Borrador de oferta listo",
+        {
+          description: response.created
+            ? "Copia editable materializada desde el esqueleto calculado."
+            : "Se reabrió el borrador persistido (sin sobrescribir ediciones previas).",
+        },
+      );
+    } catch (reason) {
+      const message = errorMessage(
+        reason,
+        "No se pudo preparar el borrador de oferta.",
+      );
+      setDraftError(message);
+      setDraftSaveState("error");
+      toast.error("No se pudo preparar el borrador", { description: message });
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function saveOfferDraft() {
+    if (!persistedDraft) return;
+    setDraftBusy(true);
+    setDraftSaveState("saving");
+    setDraftError(null);
+    try {
+      const response = await api.dossierOpportunityAnalysis.patchOfferDraft(
+        dossierId,
+        {
+          version: draftVersionRef.current || persistedDraft.version,
+          statement: draftStatement,
+          sections: draftSections.map((sec) => ({
+            key: sec.key,
+            our_response_draft: sec.our_response_draft,
+          })),
+        },
+        draftVersionRef.current || persistedDraft.version,
+      );
+      applyPersistedDraft(response.draft);
+      toast.success("Borrador guardado");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        setDraftSaveState("conflict");
+        setDraftError(
+          reason.problem.detail ||
+            "Conflicto de versión: otro guardado ha actualizado el borrador.",
+        );
+        toast.error("Conflicto al guardar", {
+          description: "Recarga el borrador o resuelve el conflicto antes de continuar.",
+        });
+      } else {
+        const message = errorMessage(reason, "No se pudo guardar el borrador.");
+        setDraftSaveState("error");
+        setDraftError(message);
+        toast.error("Error al guardar", { description: message });
+      }
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function copyOfferDraft() {
+    const source = persistedDraft
+      ? {
+          ...persistedDraft,
+          statement: draftStatement,
+          sections: draftSections,
+        }
+      : null;
+    if (!source) {
+      setCopyStatus("error");
+      toast.error("Nada que copiar", {
+        description: "Prepara el borrador antes de copiarlo.",
+      });
+      return;
+    }
+    const plain = buildOfferDraftPlainText(source);
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API no disponible");
+      }
+      await navigator.clipboard.writeText(plain);
+      setCopyStatus("ok");
+      toast.success("Borrador copiado al portapapeles");
+    } catch {
+      setCopyStatus("error");
+      toast.error("No se pudo copiar", {
+        description: "El navegador bloqueó el acceso al portapapeles.",
+      });
+    }
+  }
+
+  function markDraftDirty() {
+    setDraftSaveState((prev) => (prev === "saving" ? prev : "dirty"));
+    setCopyStatus("idle");
+  }
+
+  function updateSectionResponse(key: string, value: string) {
+    markDraftDirty();
+    setDraftSections((prev) =>
+      prev.map((sec) => (sec.key === key ? { ...sec, our_response_draft: value } : sec)),
+    );
+  }
 
   useEffect(() => {
     const kickoff = window.setTimeout(() => void load(), 0);
@@ -670,34 +891,106 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                       style={{ marginTop: "0.75rem" }}
                       data-testid="dossier-opportunity-draft-offer-actions"
                     >
-                      <button
-                        type="button"
-                        data-testid="dossier-opportunity-prepare-draft-offer"
-                        className="btn-secondary"
-                        onClick={() => setShowDraftOffer((v) => !v)}
-                        style={{
-                          padding: "0.4rem 0.75rem",
-                          borderRadius: "6px",
-                          border: "1px solid var(--border, #ccc)",
-                          background: "var(--surface, #f7f7f7)",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {showDraftOffer
-                          ? "Ocultar borrador de oferta"
-                          : "Preparar borrador de oferta"}
-                      </button>
-                      {!output.draft_offer ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                        <button
+                          type="button"
+                          data-testid="dossier-opportunity-prepare-draft-offer"
+                          className="btn-secondary"
+                          disabled={draftBusy}
+                          onClick={() => {
+                            if (showDraftOffer && persistedDraft) {
+                              setShowDraftOffer(false);
+                              return;
+                            }
+                            void prepareOfferDraft();
+                          }}
+                          style={{
+                            padding: "0.4rem 0.75rem",
+                            borderRadius: "6px",
+                            border: "1px solid var(--border, #ccc)",
+                            background: "var(--surface, #f7f7f7)",
+                            cursor: draftBusy ? "wait" : "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {showDraftOffer && persistedDraft
+                            ? "Ocultar borrador de oferta"
+                            : "Preparar borrador de oferta"}
+                        </button>
+                        {persistedDraft ? (
+                          <>
+                            <button
+                              type="button"
+                              data-testid="dossier-opportunity-save-draft-offer"
+                              className="btn-secondary"
+                              disabled={draftBusy || draftSaveState === "saving"}
+                              onClick={() => void saveOfferDraft()}
+                              style={{
+                                padding: "0.4rem 0.75rem",
+                                borderRadius: "6px",
+                                border: "1px solid var(--border, #ccc)",
+                                background: "var(--surface, #f7f7f7)",
+                                cursor: draftBusy ? "wait" : "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Guardar borrador
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="dossier-opportunity-copy-draft-offer"
+                              className="btn-secondary"
+                              disabled={draftBusy}
+                              onClick={() => void copyOfferDraft()}
+                              style={{
+                                padding: "0.4rem 0.75rem",
+                                borderRadius: "6px",
+                                border: "1px solid var(--border, #ccc)",
+                                background: "var(--surface, #f7f7f7)",
+                                cursor: draftBusy ? "wait" : "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Copiar borrador
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                      {!output.draft_offer && !persistedDraft ? (
                         <small className="muted" style={{ display: "block", marginTop: "0.35rem" }}>
                           El borrador se genera con el análisis cuando hay veredicto de encaje.
                           Si no aparece, vuelve a ejecutar el análisis de oportunidad.
                         </small>
+                      ) : (
+                        <small
+                          className="muted"
+                          style={{ display: "block", marginTop: "0.35rem" }}
+                          data-testid="dossier-opportunity-draft-save-status"
+                          aria-live="polite"
+                        >
+                          Estado: {draftStatusLabel(draftSaveState)}
+                          {persistedDraft ? ` · v${persistedDraft.version}` : ""}
+                          {copyStatus === "ok" ? " · Copiado" : ""}
+                          {copyStatus === "error" ? " · Error al copiar" : ""}
+                        </small>
+                      )}
+                      {draftError ? (
+                        <p
+                          role="alert"
+                          data-testid="dossier-opportunity-draft-error"
+                          style={{
+                            margin: "0.4rem 0 0",
+                            color: "var(--danger-fg, #991b1b)",
+                            fontSize: "0.92em",
+                          }}
+                        >
+                          {draftError}
+                        </p>
                       ) : null}
                     </div>
                   ) : null}
 
-                  {showDraftOffer && output.draft_offer ? (
+                  {showDraftOffer && persistedDraft ? (
                     <div
                       className="opportunity-draft-offer"
                       data-testid="dossier-opportunity-draft-offer"
@@ -717,38 +1010,65 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                           color: "var(--warning-fg, #92400e)",
                         }}
                       >
-                        {output.draft_offer.banner}
+                        {persistedDraft.banner}
                       </p>
                       <small
                         className="muted"
                         data-testid="dossier-opportunity-draft-human-gate"
                       >
                         Puerta humana:{" "}
-                        {output.draft_offer.human_gate === "draft_requires_human_edit" ||
-                        !output.draft_offer.human_gate
+                        {persistedDraft.human_gate === "draft_requires_human_edit" ||
+                        !persistedDraft.human_gate
                           ? "requiere edición humana (no es documento presentable)"
-                          : String(output.draft_offer.human_gate)}
-                        {output.draft_offer.tender_ref
-                          ? ` · ${output.draft_offer.tender_ref}`
+                          : String(persistedDraft.human_gate)}
+                        {persistedDraft.tender_ref
+                          ? ` · ${persistedDraft.tender_ref}`
                           : ""}
-                        {output.draft_offer.lot_hint
-                          ? ` · ${output.draft_offer.lot_hint}`
+                        {persistedDraft.lot_hint
+                          ? ` · ${persistedDraft.lot_hint}`
                           : ""}
+                        {" · "}
+                        <span data-origin="declared_draft">origen: borrador declarado</span>
                       </small>
-                      <p
-                        data-testid="dossier-opportunity-draft-statement"
-                        style={{ margin: "0.5rem 0" }}
-                      >
-                        {renderInlineEmphasis(output.draft_offer.statement)}
-                      </p>
 
-                      {(output.draft_offer.sections || []).length > 0 ? (
+                      <label
+                        htmlFor="dossier-opportunity-draft-statement-input"
+                        style={{ display: "block", marginTop: "0.65rem", fontWeight: 600 }}
+                      >
+                        Introducción (editable)
+                      </label>
+                      <textarea
+                        id="dossier-opportunity-draft-statement-input"
+                        data-testid="dossier-opportunity-draft-statement"
+                        value={draftStatement}
+                        onChange={(event) => {
+                          markDraftDirty();
+                          setDraftStatement(event.target.value);
+                        }}
+                        onKeyDown={(event) => {
+                          if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+                            event.preventDefault();
+                            void saveOfferDraft();
+                          }
+                        }}
+                        rows={3}
+                        style={{
+                          width: "100%",
+                          marginTop: "0.25rem",
+                          padding: "0.5rem",
+                          borderRadius: "6px",
+                          border: "1px solid var(--border, #ccc)",
+                          font: "inherit",
+                        }}
+                      />
+
+                      {draftSections.length > 0 ? (
                         <div data-testid="dossier-opportunity-draft-sections">
-                          <h4 style={{ margin: "0.5rem 0 0.35rem" }}>
+                          <h4 style={{ margin: "0.75rem 0 0.35rem" }}>
                             Secciones (criterios del pliego)
                           </h4>
                           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                            {(output.draft_offer.sections || []).map((sec) => (
+                            {draftSections.map((sec) => (
                               <li
                                 key={sec.key}
                                 data-testid={`dossier-opportunity-draft-section-${sec.key}`}
@@ -758,7 +1078,9 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                                   borderBottom: "1px solid var(--border, #eee)",
                                 }}
                               >
-                                <strong data-testid={`dossier-opportunity-draft-section-title-${sec.key}`}>
+                                <strong
+                                  data-testid={`dossier-opportunity-draft-section-title-${sec.key}`}
+                                >
                                   {sec.title}
                                 </strong>
                                 {sec.points_hint ? (
@@ -773,15 +1095,37 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                                   </span>
                                   {sec.requirement}
                                 </p>
-                                <p
-                                  style={{ margin: "0.15rem 0 0", fontSize: "0.92em" }}
-                                  data-testid={`dossier-opportunity-draft-section-seed-${sec.key}`}
+                                <label
+                                  htmlFor={`dossier-opportunity-draft-section-input-${sec.key}`}
+                                  className="muted"
+                                  data-origin="declared_draft"
+                                  style={{ display: "block", marginTop: "0.35rem", fontSize: "0.92em" }}
                                 >
-                                  <span className="muted" data-origin="declared_draft">
-                                    Respuesta semilla (borrador declarado):{" "}
-                                  </span>
-                                  {renderInlineEmphasis(sec.our_response_draft)}
-                                </p>
+                                  Respuesta (borrador declarado — no es hecho):
+                                </label>
+                                <textarea
+                                  id={`dossier-opportunity-draft-section-input-${sec.key}`}
+                                  data-testid={`dossier-opportunity-draft-section-seed-${sec.key}`}
+                                  value={sec.our_response_draft}
+                                  onChange={(event) =>
+                                    updateSectionResponse(sec.key, event.target.value)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+                                      event.preventDefault();
+                                      void saveOfferDraft();
+                                    }
+                                  }}
+                                  rows={3}
+                                  style={{
+                                    width: "100%",
+                                    marginTop: "0.2rem",
+                                    padding: "0.5rem",
+                                    borderRadius: "6px",
+                                    border: "1px solid var(--border, #ccc)",
+                                    font: "inherit",
+                                  }}
+                                />
                                 {(sec.gaps || []).length > 0 ? (
                                   <ul
                                     data-testid={`dossier-opportunity-draft-section-gaps-${sec.key}`}
@@ -800,48 +1144,46 @@ export function DossierOpportunityAnalysisSection({ dossierId }: { dossierId: st
                         </div>
                       ) : null}
 
-                      {(output.draft_offer.gaps_summary || []).length > 0 ? (
+                      {(persistedDraft.gaps_summary || []).length > 0 ? (
                         <div data-testid="dossier-opportunity-draft-gaps">
                           <h4 style={{ margin: "0.5rem 0 0.35rem" }}>
                             Gaps de solvencia / condiciones
                           </h4>
                           <ul>
-                            {(output.draft_offer.gaps_summary || []).map((g, idx) => (
+                            {(persistedDraft.gaps_summary || []).map((g, idx) => (
                               <li key={`draft-gap-${idx}`}>{g}</li>
                             ))}
                           </ul>
                         </div>
                       ) : null}
 
-                      {(output.draft_offer.administrative_checklist || []).length > 0 ? (
+                      {(persistedDraft.administrative_checklist || []).length > 0 ? (
                         <div data-testid="dossier-opportunity-draft-checklist">
                           <h4 style={{ margin: "0.5rem 0 0.35rem" }}>
                             Checklist administrativa
                           </h4>
                           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                            {(output.draft_offer.administrative_checklist || []).map(
-                              (item) => (
-                                <li
-                                  key={item.key}
-                                  data-testid={`dossier-opportunity-draft-check-${item.key}`}
-                                  style={{ marginBottom: "0.35rem" }}
-                                >
-                                  <strong>
-                                    [
-                                    {item.status === "blocked"
-                                      ? "bloqueado"
-                                      : item.status === "ready"
-                                        ? "listo"
-                                        : "pendiente"}
-                                    ]{" "}
-                                    {item.label}
-                                  </strong>
-                                  <div>
-                                    <small className="muted">{item.description}</small>
-                                  </div>
-                                </li>
-                              ),
-                            )}
+                            {(persistedDraft.administrative_checklist || []).map((item) => (
+                              <li
+                                key={item.key}
+                                data-testid={`dossier-opportunity-draft-check-${item.key}`}
+                                style={{ marginBottom: "0.35rem" }}
+                              >
+                                <strong>
+                                  [
+                                  {item.status === "blocked"
+                                    ? "bloqueado"
+                                    : item.status === "ready"
+                                      ? "listo"
+                                      : "pendiente"}
+                                  ]{" "}
+                                  {item.label}
+                                </strong>
+                                <div>
+                                  <small className="muted">{item.description}</small>
+                                </div>
+                              </li>
+                            ))}
                           </ul>
                         </div>
                       ) : null}

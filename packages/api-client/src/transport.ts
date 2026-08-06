@@ -2283,6 +2283,68 @@ const dossierIntake = {
 };
 
 
+
+/** Borrador de oferta durable editable (SV2-G09-A). */
+export interface OpportunityOfferDraftSection {
+  key: string;
+  order?: number;
+  title: string;
+  points_hint?: string | null;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  our_response_draft: string;
+  our_response_seed?: string | null;
+  response_origin?: "declared_generated" | string;
+  declared_evidence_ids?: string[];
+  gaps?: string[];
+  prose_polished?: boolean;
+  prose_polish_reason?: string | null;
+}
+
+export interface OpportunityOfferDraftResource {
+  id: string;
+  dossier_id: string;
+  source_artifact_id: string;
+  version: number;
+  etag: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_edited_by_user_id?: string;
+  content?: Record<string, unknown>;
+  banner: string;
+  human_gate: string;
+  statement: string;
+  tender_ref?: string | null;
+  lot_hint?: string | null;
+  sections: OpportunityOfferDraftSection[];
+  administrative_checklist?: DraftOfferChecklistItem[];
+  gaps_summary?: string[];
+  gaps?: DraftOfferGap[];
+  origin: "declared_draft" | string;
+  based_on_verdict?: string | null;
+  official_evidence_ids?: string[];
+  declared_evidence_ids?: string[];
+  draft_engine?: string | null;
+  prose_engine?: string | null;
+  drafted_as_of?: string | null;
+}
+
+export interface OpportunityOfferDraftResponse {
+  draft: OpportunityOfferDraftResource;
+}
+
+export interface OpportunityOfferDraftCreateResponse {
+  draft: OpportunityOfferDraftResource;
+  created: boolean;
+}
+
+export interface OpportunityOfferDraftPatchInput {
+  version?: number;
+  statement?: string;
+  sections?: Array<{ key: string; our_response_draft: string }>;
+}
+
 const dossierOpportunityAnalysis = {
   latest: (dossierId: string) =>
     request<OpportunityAnalysisRunResponse>(
@@ -2304,6 +2366,28 @@ const dossierOpportunityAnalysis = {
     request<AiArtifactReviewResponse>(
       `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
       { method: "POST", body: input },
+    ),
+  getOfferDraft: (dossierId: string) =>
+    request<OpportunityOfferDraftResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+    ),
+  prepareOfferDraft: (dossierId: string) =>
+    request<OpportunityOfferDraftCreateResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+      { method: "POST", body: {} },
+    ),
+  patchOfferDraft: (
+    dossierId: string,
+    input: OpportunityOfferDraftPatchInput,
+    ifMatch?: number | string,
+  ) =>
+    request<OpportunityOfferDraftResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: ifMatch ?? input.version,
+      },
     ),
 };
 

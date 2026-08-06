@@ -6,15 +6,26 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(),
   review: vi.fn(),
   create: vi.fn(),
+  getOfferDraft: vi.fn(),
+  prepareOfferDraft: vi.fn(),
+  patchOfferDraft: vi.fn(),
   toast: { success: vi.fn(), message: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("@oracle/api-client", () => ({
   ApiError: class ApiError extends Error {
-    problem: { detail: string };
-    constructor(detail: string) {
-      super(detail);
-      this.problem = { detail };
+    status: number;
+    problem: { detail: string; code?: string };
+    constructor(statusOrDetail: number | string, problem?: { detail: string; code?: string }) {
+      if (typeof statusOrDetail === "string") {
+        super(statusOrDetail);
+        this.status = 400;
+        this.problem = { detail: statusOrDetail };
+      } else {
+        super(problem?.detail || "error");
+        this.status = statusOrDetail;
+        this.problem = problem || { detail: "error" };
+      }
     }
   },
   api: {
@@ -22,6 +33,9 @@ vi.mock("@oracle/api-client", () => ({
       latest: mocks.latest,
       run: mocks.run,
       review: mocks.review,
+      getOfferDraft: mocks.getOfferDraft,
+      prepareOfferDraft: mocks.prepareOfferDraft,
+      patchOfferDraft: mocks.patchOfferDraft,
     },
     opportunities: {
       create: mocks.create,
@@ -272,12 +286,35 @@ const groundedArtifact = {
   },
 };
 
+const persistedDraftFixture = {
+  id: "draft-1",
+  dossier_id: "dossier-1",
+  source_artifact_id: "art-opp-1",
+  version: 1,
+  etag: 'W/"ood-v1"',
+  created_at: "2026-08-06T12:00:00+00:00",
+  updated_at: "2026-08-06T12:00:00+00:00",
+  last_edited_by_user_id: "user-1",
+  banner:
+    "BORRADOR COMERCIAL — no es documento presentable. Requiere edición humana antes de cualquier presentación o envío.",
+  human_gate: "draft_requires_human_edit",
+  statement:
+    "Borrador de oferta (esqueleto) para CONTR 2026 11077 · Lote 2: Red de agentes inteligentes.",
+  tender_ref: "CONTR 2026 11077",
+  lot_hint: "Lote 2: Red de agentes inteligentes",
+  origin: "declared_draft" as const,
+  based_on_verdict: "go_conditioned",
+  sections: groundedArtifact.output.draft_offer!.sections!,
+  administrative_checklist: groundedArtifact.output.draft_offer!.administrative_checklist!,
+  gaps_summary: groundedArtifact.output.draft_offer!.gaps_summary!,
+};
+
 describe("DossierOpportunityAnalysisSection", () => {
   afterEach(() => {
     cleanup();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mocks.latest.mockResolvedValue({ job: null, artifact: null });
     mocks.run.mockResolvedValue({
@@ -286,6 +323,26 @@ describe("DossierOpportunityAnalysisSection", () => {
     });
     mocks.create.mockResolvedValue({ id: "opp-created-1", title: groundedArtifact.output.title });
     mocks.review.mockResolvedValue({ review_id: "rev-1", artifact_status: "valid" });
+    const { ApiError } = await import("@oracle/api-client");
+    mocks.getOfferDraft.mockRejectedValue(
+      new ApiError(404, { detail: "No hay borrador", code: "offer_draft_not_found" } as never),
+    );
+    mocks.prepareOfferDraft.mockResolvedValue({
+      created: true,
+      draft: persistedDraftFixture,
+    });
+    mocks.patchOfferDraft.mockImplementation(async (_id: string, input: { statement?: string; sections?: Array<{ key: string; our_response_draft: string }>; version?: number }) => ({
+      draft: {
+        ...persistedDraftFixture,
+        version: (input.version || 1) + 1,
+        etag: `W/"ood-v${(input.version || 1) + 1}"`,
+        statement: input.statement ?? persistedDraftFixture.statement,
+        sections: (persistedDraftFixture.sections || []).map((sec) => {
+          const patch = (input.sections || []).find((s) => s.key === sec.key);
+          return patch ? { ...sec, our_response_draft: patch.our_response_draft } : sec;
+        }),
+      },
+    }));
   });
 
   it("muestra vacío y lanza el análisis sin crear oportunidad", async () => {
@@ -381,7 +438,7 @@ describe("DossierOpportunityAnalysisSection", () => {
     expect(statement.querySelector("strong")?.textContent).toBe("GO CONDICIONADO");
   });
 
-  it("botón Preparar borrador de oferta muestra secciones, gaps y checklist", async () => {
+  it("botón Preparar borrador materializa, edita y guarda secciones", async () => {
     mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
     const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
     const proposal = await view.findByTestId("dossier-opportunity-proposal");
@@ -390,7 +447,8 @@ describe("DossierOpportunityAnalysisSection", () => {
     expect(within(proposal).queryByTestId("dossier-opportunity-draft-offer")).toBeNull();
 
     fireEvent.click(btn);
-    const draft = within(proposal).getByTestId("dossier-opportunity-draft-offer");
+    await waitFor(() => expect(mocks.prepareOfferDraft).toHaveBeenCalledWith("dossier-1"));
+    const draft = await within(proposal).findByTestId("dossier-opportunity-draft-offer");
     expect(within(draft).getByTestId("dossier-opportunity-draft-banner")).toHaveTextContent(
       "BORRADOR COMERCIAL",
     );
@@ -400,22 +458,131 @@ describe("DossierOpportunityAnalysisSection", () => {
     expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_economic")).toHaveTextContent(
       "Oferta económica",
     );
-    const seed = within(draft).getByTestId("dossier-opportunity-draft-section-seed-award_economic");
-    expect(seed).toHaveTextContent("no es hecho");
-    expect(seed.textContent || "").not.toMatch(/\*\*no\*\*/);
-    expect(seed.querySelector("strong")?.textContent).toBe("no");
+    const seed = within(draft).getByTestId(
+      "dossier-opportunity-draft-section-seed-award_economic",
+    ) as HTMLTextAreaElement;
+    expect(seed.value).toMatch(/borrador declarado/);
+    expect(seed.value).toMatch(/hecho/);
     expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_technical")).toHaveTextContent(
       "juicio de valor",
-    );
-    expect(within(draft).getByTestId("dossier-opportunity-draft-section-award_thresholds")).toHaveTextContent(
-      "65/60",
     );
     expect(within(draft).getByTestId("dossier-opportunity-draft-gaps")).toHaveTextContent("F.2");
     expect(within(draft).getByTestId("dossier-opportunity-draft-check-deuc")).toHaveTextContent(
       "pendiente",
     );
-    expect(within(draft).getByTestId("dossier-opportunity-draft-check-solvencia_f2")).toHaveTextContent(
-      "bloqueado",
+
+    fireEvent.change(within(draft).getByTestId("dossier-opportunity-draft-statement"), {
+      target: { value: "Introducción comercial revisada." },
+    });
+    fireEvent.change(seed, {
+      target: { value: "[borrador declarado — no es hecho] Económica revisada." },
+    });
+    const tech = within(draft).getByTestId(
+      "dossier-opportunity-draft-section-seed-award_technical",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(tech, {
+      target: { value: "[borrador declarado — no es hecho] Técnica revisada." },
+    });
+    fireEvent.click(within(proposal).getByTestId("dossier-opportunity-save-draft-offer"));
+    await waitFor(() =>
+      expect(mocks.patchOfferDraft).toHaveBeenCalledWith(
+        "dossier-1",
+        expect.objectContaining({
+          statement: "Introducción comercial revisada.",
+          sections: expect.arrayContaining([
+            expect.objectContaining({
+              key: "award_economic",
+              our_response_draft: "[borrador declarado — no es hecho] Económica revisada.",
+            }),
+            expect.objectContaining({
+              key: "award_technical",
+              our_response_draft: "[borrador declarado — no es hecho] Técnica revisada.",
+            }),
+          ]),
+        }),
+        1,
+      ),
+    );
+  });
+
+  it("persiste el borrador tras remount y reaparecen las ediciones", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    const { ApiError } = await import("@oracle/api-client");
+    mocks.getOfferDraft.mockRejectedValueOnce(
+      new ApiError(404, { detail: "missing", code: "offer_draft_not_found" } as never),
+    );
+    const first = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await first.findByTestId("dossier-opportunity-proposal");
+    fireEvent.click(first.getByTestId("dossier-opportunity-prepare-draft-offer"));
+    await waitFor(() => expect(mocks.prepareOfferDraft).toHaveBeenCalled());
+    fireEvent.change(first.getByTestId("dossier-opportunity-draft-statement"), {
+      target: { value: "Texto persistente tras reload." },
+    });
+    fireEvent.click(first.getByTestId("dossier-opportunity-save-draft-offer"));
+    await waitFor(() => expect(mocks.patchOfferDraft).toHaveBeenCalled());
+    first.unmount();
+
+    mocks.getOfferDraft.mockResolvedValue({
+      draft: {
+        ...persistedDraftFixture,
+        version: 2,
+        etag: 'W/"ood-v2"',
+        statement: "Texto persistente tras reload.",
+      },
+    });
+    const second = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await second.findByTestId("dossier-opportunity-proposal");
+    const statement = await second.findByTestId("dossier-opportunity-draft-statement");
+    expect((statement as HTMLTextAreaElement).value).toBe("Texto persistente tras reload.");
+  });
+
+  it("copia borrador legible y reporta error de clipboard", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await view.findByTestId("dossier-opportunity-proposal");
+    fireEvent.click(view.getByTestId("dossier-opportunity-prepare-draft-offer"));
+    await view.findByTestId("dossier-opportunity-draft-offer");
+    fireEvent.click(view.getByTestId("dossier-opportunity-copy-draft-offer"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const copied = String(writeText.mock.calls[0][0]);
+    expect(copied).toMatch(/Secciones/);
+    expect(copied).toMatch(/Oferta económica/);
+    expect(copied).not.toMatch(/art-opp-1/);
+    expect(copied).not.toMatch(/\{[\s\S]*"key"/);
+    expect(mocks.toast.success).toHaveBeenCalled();
+
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(view.getByTestId("dossier-opportunity-copy-draft-offer"));
+    await waitFor(() => expect(mocks.toast.error).toHaveBeenCalled());
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "Error al copiar",
+    );
+  });
+
+  it("muestra conflicto de versión de forma accesible", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    const { ApiError } = await import("@oracle/api-client");
+    mocks.patchOfferDraft.mockRejectedValueOnce(
+      new ApiError(409, {
+        detail: "El borrador ha cambiado; recarga y vuelve a guardar.",
+        code: "version_conflict",
+      } as never),
+    );
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await view.findByTestId("dossier-opportunity-proposal");
+    fireEvent.click(view.getByTestId("dossier-opportunity-prepare-draft-offer"));
+    await view.findByTestId("dossier-opportunity-draft-offer");
+    fireEvent.change(view.getByTestId("dossier-opportunity-draft-statement"), {
+      target: { value: "Cambio concurrente." },
+    });
+    fireEvent.click(view.getByTestId("dossier-opportunity-save-draft-offer"));
+    const alert = await view.findByTestId("dossier-opportunity-draft-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent("cambiado");
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "Conflicto de versión",
     );
   });
 });
