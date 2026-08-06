@@ -20,8 +20,8 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 /** Marcadores del guion (texto de la respuesta esperada). */
 const SCRIPT_QUESTION =
-  "¿Quién es el administrador único y qué licitación pública tiene en curso Nexus Ibérica?";
-const KEY_MARKERS = ["LIC-OATDA-2026-017", "2.400.000", "15 de abril"] as const;
+  "¿Quién es el administrador único de Nexus Ibérica y qué adjudicatario real de PLACSP (por ejemplo Capgemini) aparece en las adjudicaciones del expediente?";
+const KEY_MARKERS = ["Laura", "Nexus Ibérica", "administrador", "Capgemini"] as const;
 
 /** Nombre visible del expediente demo (no el UUID). */
 const DEMO_DOSSIER_NAME = /Nexus Ibérica/i;

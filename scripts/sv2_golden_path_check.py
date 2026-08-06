@@ -583,21 +583,6 @@ def check_ask(
     if "Laura Mendez" in missing:
         if re.search(r"laura\s+m[eé]ndez", answer_text, flags=re.IGNORECASE):
             missing = [m for m in missing if m != "Laura Mendez"]
-    # Accept common numeric variants for the legacy synthetic amount if present.
-    if "2.400.000" in missing:
-        if re.search(r"2[\.\s]?400[\.\s]?000", answer_text):
-            missing = [m for m in missing if m != "2.400.000"]
-    # Dual-memory materializa tender.deadline como ISO (2026-04-15T14:00:00), no
-    # como prosa «15 de abril». Aceptar formas equivalentes del mismo hito demo.
-    if "15 de abril" in missing:
-        if re.search(
-            r"(15\s+de\s+abril|15[/\-.]0?4[/\-.]2026|2026[/\-.]0?4[/\-.]15|"
-            r"2026-04-15|15\s+abril\s+de\s+2026)",
-            answer_text,
-            flags=re.IGNORECASE,
-        ):
-            missing = [m for m in missing if m != "15 de abril"]
-
     ok = (
         job_status in {"succeeded", "completed", "success"}
         and memory_mode == "augment"
@@ -904,7 +889,16 @@ cat {shlex.quote(creds_path)}
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if any(arg in {"-h", "--help"} for arg in args):
+        print((__doc__ or "").strip())
+        return 0
+    if args:
+        print(f"Argumentos no reconocidos: {' '.join(args)}", file=sys.stderr)
+        print("Use --help para ver las variables de entorno disponibles.", file=sys.stderr)
+        return 2
+
     oracle_ssh = env("ORACLE_SSH", DEFAULT_ORACLE_SSH)
     signal_ssh = env("SIGNAL_SSH", DEFAULT_SIGNAL_SSH)
     base_url = env("ORACLE_BASE_URL", DEFAULT_BASE_URL)
