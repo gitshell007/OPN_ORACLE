@@ -339,11 +339,23 @@ class MarketActorAcceptInputSchema(Schema):
     expected_version = Integer(allow_none=True, load_default=None)
 
 
+class MarketActorMaterializedActorSchema(Schema):
+    candidate_id = String(required=True)
+    actor_id = String(required=True)
+    dossier_actor_id = String(required=True)
+    canonical_key = String(required=True)
+    identifiers = Dict(keys=String(), values=String(), load_default=dict)
+    identity_status = String(required=True)
+
+
 class MarketActorAcceptResponseSchema(Schema):
     artifact_id = String(required=True)
     dossier_id = String(required=True)
     materialized = List(Nested(MaterializedEvidenceSchema), required=True)
     count = Integer(required=True)
+    # G-20-B: durable actors for the selected subset (optional for legacy clients).
+    actors = List(Nested(MarketActorMaterializedActorSchema), load_default=list)
+    actors_count = Integer(load_default=0)
 
 
 def _tender_wizard_problem(status: int, *, detail: str, code: str) -> Response:
@@ -1270,6 +1282,31 @@ def _serialize_market_actor_discovery_artifact(
             except (ValueError, TypeError, AttributeError):
                 candidate_id = None
         summary = str(cand.get("summary") or cand.get("rationale") or "")
+        # G-20-B structured identity/ranking snapshot (immutable from artifact output).
+        ids_raw = cand.get("ids") if isinstance(cand.get("ids"), dict) else {}
+        ids_out = {
+            str(k): str(v)
+            for k, v in ids_raw.items()
+            if k in {"rnsr", "ror", "hal_structure", "cordis_org", "idref"} and v
+        }
+        identity_status = str(cand.get("identity_status") or "").strip().lower()
+        score_bd = cand.get("score_breakdown") if isinstance(cand.get("score_breakdown"), dict) else {}
+        score_out = {
+            str(k): float(v)
+            for k, v in score_bd.items()
+            if isinstance(v, (int, float))
+        }
+        origin_labels = {
+            "structured": "Fuente estructurada (CORDIS/HAL/RNSR/ROR)",
+            "web_search": "Fuente encontrada por búsqueda",
+        }
+        for src in public_sources:
+            origin = str(src.get("origin") or "web_search")
+            if origin in origin_labels and (
+                not src.get("origin_label")
+                or src.get("origin_label") == "Fuente encontrada por búsqueda"
+            ):
+                src["origin_label"] = origin_labels[origin]
         candidates_out.append(
             {
                 "candidate_id": candidate_id,
@@ -1287,6 +1324,36 @@ def _serialize_market_actor_discovery_artifact(
                 "citable_sources": public_sources,
                 "confidence": int(cand.get("confidence") or 0),
                 "selectable": selectable and candidate_id is not None,
+                "ids": ids_out,
+                "identity_status": identity_status,
+                "identity_reasons": [
+                    str(x) for x in (cand.get("identity_reasons") or []) if x
+                ][:20],
+                "unresolved_reason": (
+                    str(cand.get("unresolved_reason"))
+                    if cand.get("unresolved_reason")
+                    else None
+                ),
+                "rank": int(cand["rank"]) if cand.get("rank") is not None else None,
+                "score": float(cand["score"]) if cand.get("score") is not None else None,
+                "score_breakdown": score_out,
+                "ranking_reasons": [
+                    str(x) for x in (cand.get("ranking_reasons") or []) if x
+                ][:30],
+                "affiliations": [
+                    str(x) for x in (cand.get("affiliations") or []) if x
+                ][:20],
+                "parent_organization": (
+                    str(cand.get("parent_organization"))
+                    if cand.get("parent_organization")
+                    else None
+                ),
+                "merge_rules_applied": [
+                    str(x) for x in (cand.get("merge_rules_applied") or []) if x
+                ][:20],
+                "candidate_key": (
+                    str(cand.get("candidate_key")) if cand.get("candidate_key") else None
+                ),
             }
         )
     base["output"] = {

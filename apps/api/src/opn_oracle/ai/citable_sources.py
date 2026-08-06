@@ -30,6 +30,8 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 ORIGIN_WEB_SEARCH = "web_search"
 SOURCE_KIND_WEB_SEARCH = "web_search"
+ORIGIN_STRUCTURED = "structured"
+SOURCE_KIND_STRUCTURED = "structured"
 
 # Server-owned deterministic namespaces (v1). Never accept model-emitted IDs.
 CANDIDATE_ID_NAMESPACE = uuid.UUID("6b2e0c9a-5f41-4d8e-9a7c-18a18ca10001")

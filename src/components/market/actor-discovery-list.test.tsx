@@ -118,3 +118,95 @@ describe("ActorDiscoveryList G-19", () => {
     expect(screen.getByText(/Abstención/)).toBeInTheDocument();
   });
 });
+
+describe("ActorDiscoveryList G-20-B structured", () => {
+  const structuredOutput: MarketActorDiscoveryOutput = {
+    candidates: [
+      {
+        candidate_id: cid,
+        actor_type: "research_group",
+        organization: "Institut Néel",
+        affiliation: "CNRS",
+        parent_organization: "CNRS",
+        country: "FR",
+        summary: "Lab grafeno Grenoble",
+        evidence_ids: [sid],
+        citable_sources: [
+          {
+            source_id: sid,
+            title: "Institut Néel HAL",
+            url: "https://aurehal.archives-ouvertes.fr/structure/1043183",
+            snippet: "graphene",
+            rank: 1,
+            domain: "aurehal.archives-ouvertes.fr",
+            label: "Institut Néel HAL",
+            origin: "structured",
+            origin_label: "Fuente estructurada (CORDIS/HAL/RNSR/ROR)",
+          },
+        ],
+        confidence: 70,
+        selectable: true,
+        ids: { rnsr: "200717524X", ror: "04dbzz632" },
+        identity_status: "validated",
+        rank: 1,
+        score: 70,
+        score_breakdown: { identity: 40, country: 10 },
+        ranking_reasons: ["identity_validated", "country_match:FR"],
+      },
+      {
+        candidate_id: "33333333-3333-4333-8333-333333333333",
+        actor_type: "company",
+        organization: "NEEL Trimarans",
+        country: "FR",
+        summary: "Homónimo naval",
+        evidence_ids: [sid],
+        citable_sources: [
+          {
+            source_id: sid,
+            title: "NEEL Trimarans",
+            url: "https://ror.org/05neelt99",
+            snippet: "trimarans",
+            rank: 2,
+            domain: "ror.org",
+            label: "NEEL Trimarans",
+            origin: "structured",
+            origin_label: "Fuente estructurada (CORDIS/HAL/RNSR/ROR)",
+          },
+        ],
+        confidence: 15,
+        selectable: true,
+        ids: { ror: "05neelt99" },
+        identity_status: "unresolved",
+        unresolved_reason: "name_only_homonym",
+        rank: 2,
+        score: 15,
+        score_breakdown: { term_match: 5 },
+      },
+    ],
+    warnings: [],
+  };
+
+  it("shows RNSR/ROR, identity status and score without validating unresolved", () => {
+    render(
+      <ActorDiscoveryList
+        output={structuredOutput}
+        selectedCandidateIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("actor-id-rnsr")).toHaveTextContent("200717524X");
+    const rorIds = screen.getAllByTestId("actor-id-ror").map((el) => el.textContent);
+    expect(rorIds).toContain("04dbzz632");
+    expect(rorIds).toContain("05neelt99");
+    const statuses = screen.getAllByTestId("actor-identity-status");
+    expect(statuses[0]).toHaveAttribute("data-status", "validated");
+    expect(statuses[0]).toHaveTextContent(/validada/);
+    expect(statuses[1]).toHaveAttribute("data-status", "unresolved");
+    expect(statuses[1]).toHaveTextContent(/sin resolver/);
+    expect(statuses[1]).not.toHaveTextContent(/validada \(ID fuerte\)/);
+    expect(screen.getAllByTestId("actor-score-breakdown")[0]).toHaveTextContent(
+      "identity=40",
+    );
+    expect(screen.getAllByTestId("source-origin-structured").length).toBeGreaterThan(0);
+  });
+});

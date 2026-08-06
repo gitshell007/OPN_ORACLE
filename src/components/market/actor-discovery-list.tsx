@@ -121,13 +121,76 @@ export function ActorDiscoveryList({
                     {candidate.affiliation}
                   </span>
                 ) : null}
+                {candidate.parent_organization ? (
+                  <span
+                    className="muted actor-discovery-parent"
+                    data-testid="actor-parent-org"
+                  >
+                    Paraguas: {candidate.parent_organization}
+                  </span>
+                ) : null}
                 <span className="muted actor-discovery-type" data-testid="actor-type">
                   {typeLabel}
                 </span>
                 {candidate.country ? (
                   <span className="muted actor-discovery-country">{candidate.country}</span>
                 ) : null}
+                {candidate.rank != null ? (
+                  <span className="muted actor-discovery-rank" data-testid="actor-rank">
+                    #{candidate.rank}
+                  </span>
+                ) : null}
               </label>
+              {/* G-20-B: identity status — never label unresolved as validated */}
+              {candidate.identity_status ? (
+                <p
+                  className={
+                    candidate.identity_status === "validated"
+                      ? "actor-identity-status validated"
+                      : candidate.identity_status === "cross_referenced"
+                        ? "actor-identity-status cross-referenced"
+                        : "actor-identity-status unresolved"
+                  }
+                  data-testid="actor-identity-status"
+                  data-status={candidate.identity_status}
+                >
+                  Identidad:{" "}
+                  {candidate.identity_status === "validated"
+                    ? "validada (ID fuerte)"
+                    : candidate.identity_status === "cross_referenced"
+                      ? "referenciada cruzada"
+                      : "sin resolver"}
+                  {candidate.unresolved_reason
+                    ? ` — ${candidate.unresolved_reason}`
+                    : ""}
+                </p>
+              ) : null}
+              {candidate.ids && Object.keys(candidate.ids).length > 0 ? (
+                <ul className="actor-structured-ids" data-testid="actor-structured-ids">
+                  {Object.entries(candidate.ids).map(([key, value]) => (
+                    <li key={key} data-id-type={key}>
+                      <span className="id-key">{key.toUpperCase()}</span>:{" "}
+                      <code data-testid={`actor-id-${key}`}>{value}</code>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {candidate.score_breakdown && Object.keys(candidate.score_breakdown).length > 0 ? (
+                <p className="muted actor-score-breakdown" data-testid="actor-score-breakdown">
+                  Score {candidate.score ?? candidate.confidence}
+                  {": "}
+                  {Object.entries(candidate.score_breakdown)
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(" · ")}
+                </p>
+              ) : null}
+              {candidate.ranking_reasons && candidate.ranking_reasons.length > 0 ? (
+                <ul className="actor-ranking-reasons" data-testid="actor-ranking-reasons">
+                  {candidate.ranking_reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              ) : null}
               <p className="actor-discovery-summary">
                 {candidate.summary || candidate.rationale}
               </p>
@@ -136,6 +199,7 @@ export function ActorDiscoveryList({
                   {sources.map((src) => {
                     const label = src.label || src.title || src.domain || "Fuente";
                     const domain = src.domain || "";
+                    const isStructured = src.origin === "structured";
                     return (
                       <li key={src.source_id}>
                         <a
@@ -149,10 +213,21 @@ export function ActorDiscoveryList({
                         </a>{" "}
                         <span
                           className="source-origin-badge"
-                          data-testid="source-origin-web-search"
-                          title="Origen: búsqueda web de Signal; no es evidencia documental validada"
+                          data-testid={
+                            isStructured
+                              ? "source-origin-structured"
+                              : "source-origin-web-search"
+                          }
+                          title={
+                            isStructured
+                              ? "Origen: fuente estructurada gratuita (CORDIS/HAL/RNSR/ROR)"
+                              : "Origen: búsqueda web de Signal; no es evidencia documental validada"
+                          }
                         >
-                          {src.origin_label || "Fuente encontrada por búsqueda"}
+                          {src.origin_label ||
+                            (isStructured
+                              ? "Fuente estructurada"
+                              : "Fuente encontrada por búsqueda")}
                         </span>
                       </li>
                     );

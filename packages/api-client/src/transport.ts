@@ -2683,6 +2683,19 @@ export interface MarketActorCandidate {
   citable_sources?: CitableSourcePublic[];
   confidence: number;
   selectable?: boolean;
+  /** G-20-B structured identity snapshot (RNSR/ROR/HAL/CORDIS). */
+  ids?: Record<string, string>;
+  identity_status?: string;
+  identity_reasons?: string[];
+  unresolved_reason?: string | null;
+  rank?: number | null;
+  score?: number | null;
+  score_breakdown?: Record<string, number>;
+  ranking_reasons?: string[];
+  affiliations?: string[];
+  parent_organization?: string | null;
+  merge_rules_applied?: string[];
+  candidate_key?: string | null;
 }
 
 export interface MarketActorDiscoveryOutput {
@@ -2734,6 +2747,16 @@ export interface MarketActorAcceptResponse {
   dossier_id: string;
   materialized: MaterializedEvidence[];
   count: number;
+  /** G-20-B: durable actors created/linked for the selected subset. */
+  actors?: Array<{
+    candidate_id: string;
+    actor_id: string;
+    dossier_actor_id: string;
+    canonical_key: string;
+    identifiers: Record<string, string>;
+    identity_status: string;
+  }>;
+  actors_count?: number;
 }
 
 export type ProcurementSearchProfile =

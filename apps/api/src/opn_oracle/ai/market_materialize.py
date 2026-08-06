@@ -696,6 +696,199 @@ def materialize_web_search_sources(
     return created_or_existing
 
 
+def _structured_identifier_snapshot(candidate: dict[str, Any]) -> dict[str, str]:
+    """Durable strong IDs from closed candidate snapshot (never invent)."""
+
+    raw = candidate.get("ids") if isinstance(candidate.get("ids"), dict) else {}
+    out: dict[str, str] = {}
+    for key in ("rnsr", "ror", "hal_structure", "cordis_org", "idref"):
+        val = str(raw.get(key) or "").strip()
+        if val:
+            out[key] = val[:120]
+    return out
+
+
+def _merge_actor_identifiers(existing: dict[str, Any] | None, incoming: dict[str, str]) -> dict[str, Any]:
+    """Merge strong IDs without overwriting a previously set different value.
+
+    Missing keys are filled; conflicts on the same key keep the prior durable value
+    and record the clash under ``identifier_conflicts`` (no silent overwrite).
+    """
+
+    base: dict[str, Any] = dict(existing or {})
+    conflicts: list[dict[str, str]] = list(base.get("identifier_conflicts") or [])
+    for key, value in incoming.items():
+        prev = base.get(key)
+        if prev is None or str(prev).strip() == "":
+            base[key] = value
+        elif str(prev).strip() != value:
+            conflicts.append({"key": key, "kept": str(prev), "ignored": value})
+    if conflicts:
+        base["identifier_conflicts"] = conflicts[-20:]
+    return base
+
+
+def _materialize_selected_actors(
+    *,
+    artifact: AIArtifact,
+    dossier_id: uuid.UUID,
+    candidate_ids: list[str],
+) -> list[dict[str, Any]]:
+    """G-20-B: create/link Actor + DossierActor for accepted market_actor candidates.
+
+    Idempotent by tenant canonical_key. Preserves RNSR/ROR/HAL/CORDIS in
+    Actor.identifiers JSONB (durable, not ephemeral JSON-only). Does not mix a
+    lab unit with an umbrella org when they are distinct candidate_ids.
+    """
+
+    from opn_oracle.oracle.actor_candidates import (
+        actor_canonical_key,
+        set_actor_candidate_review,
+    )
+    from opn_oracle.oracle.models import Actor, DossierActor
+
+    tenant_id = require_tenant_id()
+    human_id = _require_human_actor_id()
+    by_id = _candidate_by_id(artifact)
+    created: list[dict[str, Any]] = []
+    for cid in candidate_ids:
+        cand = by_id.get(cid)
+        if cand is None:
+            continue
+        organization = " ".join(str(cand.get("organization") or "").split())
+        if not organization:
+            continue
+        # Map discovery actor_type → durable Actor.actor_type closed set.
+        raw_type = str(cand.get("actor_type") or "organization").strip().lower()
+        type_map = {
+            "company": "organization",
+            "research_group": "institution",
+            "technology_center": "institution",
+            "regulator": "institution",
+            "potential_customer": "organization",
+            "organization": "organization",
+            "institution": "institution",
+            "person": "person",
+            "program": "program",
+        }
+        actor_type = type_map.get(raw_type, "institution")
+        ids_snap = _structured_identifier_snapshot(cand)
+        affiliation = " ".join(str(cand.get("affiliation") or "").split())[:300]
+        parent = " ".join(str(cand.get("parent_organization") or "").split())[:300]
+        identity_status = str(cand.get("identity_status") or "").strip().lower()
+        # Never mark unresolved as validated on the durable actor.
+        if identity_status == "validated":
+            durable_identity = "validated"
+        elif identity_status == "cross_referenced":
+            durable_identity = "cross_referenced"
+        else:
+            durable_identity = "unresolved"
+
+        canonical_key = actor_canonical_key(organization)
+        existing = db.session.scalar(
+            select(Actor).where(Actor.tenant_id == tenant_id, Actor.canonical_key == canonical_key)
+        )
+        provenance = {
+            "source": "market_actor_discovery.accept",
+            "artifact_id": str(artifact.id),
+            "candidate_id": cid,
+            "identity_status": durable_identity,
+            "score_breakdown": cand.get("score_breakdown") or {},
+            "ranking_reasons": list(cand.get("ranking_reasons") or [])[:20],
+            "affiliation": affiliation,
+            "parent_organization": parent or None,
+            "candidate_key": cand.get("candidate_key"),
+        }
+        if existing is None:
+            existing = Actor(
+                tenant_id=tenant_id,
+                actor_type=actor_type,
+                canonical_name=organization[:300],
+                canonical_key=canonical_key,
+                aliases=[],
+                identifiers=ids_snap,
+                actor_metadata={
+                    "tags": [],
+                    "discovery": provenance,
+                    "affiliations": list(cand.get("affiliations") or [])[:20],
+                },
+                provenance=provenance,
+            )
+            db.session.add(existing)
+            db.session.flush()
+        else:
+            # Fill missing IDs only; never overwrite prior durable values.
+            existing.identifiers = _merge_actor_identifiers(
+                existing.identifiers if isinstance(existing.identifiers, dict) else {},
+                ids_snap,
+            )
+            meta = dict(existing.actor_metadata or {})
+            meta["discovery"] = provenance
+            if affiliation:
+                affs = list(meta.get("affiliations") or [])
+                if affiliation not in affs:
+                    affs.append(affiliation)
+                meta["affiliations"] = affs[:20]
+            existing.actor_metadata = meta
+            existing.version = int(existing.version or 1) + 1
+            db.session.flush()
+
+        # Link to dossier without intermediate commit (outer txn owns commit).
+        link = db.session.scalar(
+            select(DossierActor).where(
+                DossierActor.tenant_id == tenant_id,
+                DossierActor.dossier_id == dossier_id,
+                DossierActor.actor_id == existing.id,
+            )
+        )
+        if link is None:
+            link = DossierActor(
+                tenant_id=tenant_id,
+                dossier_id=dossier_id,
+                actor_id=existing.id,
+                roles=["discovered_candidate"],
+                notes=f"Importado desde market_actor_discovery ({durable_identity}).",
+                influence=0,
+                relevance_to_dossier=0,
+                relationship_strength=0,
+                accessibility=0,
+                strategic_alignment=0,
+                recent_activity=0,
+                priority=0,
+                score_details={},
+            )
+            db.session.add(link)
+            db.session.flush()
+        # Durable review row (ActorCandidateReview) — imported status, auditable.
+        set_actor_candidate_review(
+            db.session(),
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            candidate={
+                "canonical_key": canonical_key,
+                "name": organization[:300],
+                "sources": [
+                    {"signal_id": sid}
+                    for sid in (cand.get("evidence_ids") or [])
+                    if sid
+                ],
+            },
+            status="imported",
+            reviewed_by_user_id=human_id,
+        )
+        created.append(
+            {
+                "candidate_id": cid,
+                "actor_id": str(existing.id),
+                "dossier_actor_id": str(link.id),
+                "canonical_key": canonical_key,
+                "identifiers": dict(existing.identifiers or {}),
+                "identity_status": durable_identity,
+            }
+        )
+    return created
+
+
 def accept_and_materialize(
     *,
     artifact_id: uuid.UUID,
@@ -718,6 +911,9 @@ def accept_and_materialize(
     ``append_audit_event``). There is no public parameter to forge attribution.
     Context without actor fails closed before commit. Client JSON actor/reviewer
     fields are ignored.
+
+    G-20-B: for market_actor_discovery also materializes selected Actors with
+    durable RNSR/ROR/HAL/CORDIS identifiers (subset only; never the full list).
     """
 
     # Fail closed early: no actor in context → no writes.
@@ -748,6 +944,13 @@ def accept_and_materialize(
             agent=agent,
         )
         evidence_ids = [str(row["evidence_id"]) for row in evidences]
+        actors_out: list[dict[str, Any]] = []
+        if agent == "market_actor_discovery":
+            actors_out = _materialize_selected_actors(
+                artifact=artifact,
+                dossier_id=dossier_id,
+                candidate_ids=candidate_ids,
+            )
         _record_accept_audit_event(
             tenant_id=require_tenant_id(),
             artifact=artifact,
@@ -765,12 +968,16 @@ def accept_and_materialize(
     except Exception:
         db.session.rollback()
         raise
-    return {
+    result: dict[str, Any] = {
         "artifact_id": str(artifact.id),
         "dossier_id": str(dossier_id),
         "materialized": evidences,
         "count": len(evidences),
     }
+    if agent == "market_actor_discovery":
+        result["actors"] = actors_out
+        result["actors_count"] = len(actors_out)
+    return result
 
 
 def materialize_web_search_sources_with_fault(

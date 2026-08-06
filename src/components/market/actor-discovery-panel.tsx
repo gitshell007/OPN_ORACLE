@@ -169,10 +169,17 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
         expected_version: artifact.version,
         selected: selections,
       });
+      const actorsCount = result.actors_count ?? result.actors?.length ?? 0;
       setAcceptResult({ count: result.count });
-      toast.success("Fuentes materializadas", {
-        description: `${result.count} evidencia(s) ligadas al expediente. No se ha creado un Actor automáticamente.`,
-      });
+      toast.success(
+        actorsCount > 0 ? "Actores y fuentes materializados" : "Fuentes materializadas",
+        {
+          description:
+            actorsCount > 0
+              ? `${actorsCount} actor(es) y ${result.count} evidencia(s) en el expediente (solo la selección).`
+              : `${result.count} evidencia(s) ligadas al expediente.`,
+        },
+      );
       setSelected(new Set());
       await load();
     } catch (reason) {

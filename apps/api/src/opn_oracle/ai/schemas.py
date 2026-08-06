@@ -1389,7 +1389,11 @@ MARKET_ACTOR_TYPES: tuple[str, ...] = (
 
 
 class MarketActorCandidate(StrictModel):
-    """Candidate non-competitor actor; human reviews before materialization."""
+    """Candidate non-competitor actor; human reviews before materialization.
+
+    G-20-B: optional structured identity/ranking snapshot fields from Signal
+    free sources (RNSR/ROR/HAL/CORDIS). Model free-text never overrides ids.
+    """
 
     actor_type: MarketActorType
     organization: str = Field(min_length=1, max_length=300)
@@ -1405,6 +1409,19 @@ class MarketActorCandidate(StrictModel):
     source_urls_label: str | None = None
     citable_sources: list[CitableSourcePublic] = Field(default_factory=list, max_length=8)
     confidence: int = Field(ge=0, le=100)
+    # G-20-B structured snapshot (server-owned after gate; optional for legacy web-only).
+    ids: dict[str, str] = Field(default_factory=dict)
+    identity_status: str = Field(default="", max_length=40)
+    identity_reasons: list[str] = Field(default_factory=list, max_length=20)
+    unresolved_reason: str | None = Field(default=None, max_length=200)
+    rank: int | None = Field(default=None, ge=1, le=100)
+    score: float | None = Field(default=None, ge=0, le=200)
+    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    ranking_reasons: list[str] = Field(default_factory=list, max_length=30)
+    affiliations: list[str] = Field(default_factory=list, max_length=20)
+    parent_organization: str | None = Field(default=None, max_length=300)
+    merge_rules_applied: list[str] = Field(default_factory=list, max_length=20)
+    candidate_key: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def _normalize_and_policy(self) -> MarketActorCandidate:
