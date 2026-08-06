@@ -278,7 +278,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Actor Alias Candidate List */
+        /** Tax-first duplicate detector (G-16-B / G-17). Propose-only; never mutates. */
         get: {
             parameters: {
                 query?: never;
@@ -460,7 +460,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mark a tax_id conflict resolved/dismissed. Does not merge relations (G-17). */
+        /**
+         * Mark a tax_id conflict resolved/dismissed. Does not merge relations.
+         * @description action=merge is rejected: use POST /actors/{id}/merge which moves relations
+         *     and only then closes the conflict in the same transaction.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -734,7 +738,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Actors Merge */
+        /** Human-confirmed merge with CAS versions and tax-safe identity rules. */
         post: {
             parameters: {
                 query?: never;
@@ -754,6 +758,104 @@ export interface paths {
             responses: {
                 /** @description Operación de dominio completada */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actors/{target_id}/merge/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicit pre-mutation preview: tax provenance, aliases and reference impact. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    target_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ActorWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -34434,6 +34536,9 @@ export interface components {
             items: {
                 [key: string]: unknown;
             }[];
+            meta?: {
+                [key: string]: unknown;
+            };
         };
         AssignableUserListResponse: {
             items: components["schemas"]["AssignableUserResponse"][];

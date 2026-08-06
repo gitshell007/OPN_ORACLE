@@ -66,6 +66,18 @@ LEGAL_SUFFIXES = frozenset(
     }
 )
 
+# Tokenized legal forms produced by re.findall(r"[A-Z0-9]+", …) on "S.L.", "S.A.",
+# "S.L.U.", etc. Longer suffixes first so SLU collapses before SL.
+_MULTI_TOKEN_LEGAL_SUFFIXES: tuple[tuple[str, ...], ...] = (
+    ("S", "L", "U"),
+    ("S", "A", "U"),
+    ("S", "L", "L"),
+    ("S", "L", "C"),
+    ("S", "COOP"),
+    ("S", "L"),
+    ("S", "A"),
+)
+
 
 class InvestigationRun(TenantDomainMixin, Base):
     __tablename__ = "investigation_runs"
@@ -467,14 +479,32 @@ class InvestigationConflict(RuntimeError):
 
 
 def normalize_identity_name(value: str, *, drop_legal_suffix: bool = False) -> str:
+    """Normalize a legal/trade name for identity matching.
+
+    When ``drop_legal_suffix=True``, trailing legal forms are removed, including
+    punctuated Spanish forms such as ``S.L.`` / ``S.A.`` / ``S.L.U.`` (tokenized as
+    ``S`` + ``L`` etc.) and compact forms already in :data:`LEGAL_SUFFIXES`.
+    """
+
     normalized = unicodedata.normalize("NFKD", value)
     without_marks = "".join(
         character for character in normalized if unicodedata.category(character) != "Mn"
     )
     tokens = re.findall(r"[A-Z0-9]+", without_marks.upper())
     if drop_legal_suffix:
-        while tokens and tokens[-1] in LEGAL_SUFFIXES:
-            tokens.pop()
+        while tokens:
+            dropped = False
+            for suffix in _MULTI_TOKEN_LEGAL_SUFFIXES:
+                width = len(suffix)
+                if len(tokens) >= width and tuple(tokens[-width:]) == suffix:
+                    tokens = tokens[:-width]
+                    dropped = True
+                    break
+            if not dropped and tokens[-1] in LEGAL_SUFFIXES:
+                tokens.pop()
+                dropped = True
+            if not dropped:
+                break
     return " ".join(tokens)[:320]
 
 
@@ -531,8 +561,107 @@ def extract_company_tax_id(*sources: Any) -> str | None:
     return None
 
 
-def actor_alias_candidates(session: Session) -> list[dict[str, Any]]:
-    """Return organization-only alias candidates; never merge or mutate actors."""
+def _actor_tax_id_provenance_summary(actor: Actor) -> dict[str, Any]:
+    """Honest provenance labels for durable/declared tax identity (never 'verified')."""
+
+    identifiers = dict(actor.identifiers or {}) if isinstance(actor.identifiers, dict) else {}
+    provenance = dict(actor.provenance or {}) if isinstance(actor.provenance, dict) else {}
+    source = identifiers.get("tax_id_source")
+    if not isinstance(source, dict):
+        source = provenance.get("tax_id_assignment")
+    if not isinstance(source, dict):
+        source = provenance.get("tax_id_hydration")
+    if not isinstance(source, dict):
+        source = provenance.get("tax_id_column_backfill")
+    if not isinstance(source, dict):
+        source = {}
+
+    declared = identifiers.get("tax_id_declared") or identifiers.get("tax_id")
+    column_tax = getattr(actor, "tax_id", None)
+    has_column = bool(column_tax)
+
+    origin_kind = str(
+        source.get("kind")
+        or source.get("source")
+        or source.get("origin")
+        or ("column_durable" if has_column else "declared" if declared else "none")
+    )
+    # Map internal kinds to honest Spanish labels; never claim official verification.
+    label_map = {
+        "award_hydration": "hidratado desde adjudicación",
+        "tax_id_hydration": "hidratado desde adjudicación",
+        "identifiers.tax_id": "declarado en identificadores",
+        "column_durable": "columna fiscal durable",
+        "declared": "declarado",
+        "manual": "declarado manualmente",
+        "backfill": "backfill desde identificadores",
+        "tax_id_column_backfill": "backfill desde identificadores",
+    }
+    origin_label = label_map.get(
+        origin_kind, origin_kind.replace("_", " ") if origin_kind else "sin procedencia"
+    )
+    if has_column and origin_kind in {"none", "declared", "column_durable"}:
+        origin_label = "columna fiscal durable (declarado; no verificación oficial)"
+    elif not has_column and declared:
+        origin_label = "declarado (sin columna durable; no verificación oficial)"
+
+    return {
+        "origin_kind": origin_kind or None,
+        "origin_label": origin_label,
+        "declared_tax_id": str(declared)[:80] if declared else None,
+        "folder_id": str(source.get("folder_id") or "")[:240] or None,
+        "winner_name": str(source.get("winner_name") or "")[:300] or None,
+        "verified": False,  # never present declared NIF as officially verified
+    }
+
+
+def _serialize_alias_candidate_actor(actor: Actor) -> dict[str, Any]:
+    from opn_oracle.oracle.actor_tax_id import actor_durable_tax_id, usable_company_tax_id
+
+    column_tax = usable_company_tax_id(getattr(actor, "tax_id", None))
+    durable = actor_durable_tax_id(actor)
+    identifiers = dict(actor.identifiers or {}) if isinstance(actor.identifiers, dict) else {}
+    return {
+        "id": str(actor.id),
+        "name": actor.canonical_name,
+        "aliases": list(actor.aliases or []),
+        "identifiers": identifiers,
+        "tax_id": durable,
+        "tax_id_scheme": actor.tax_id_scheme or identifiers.get("tax_id_scheme"),
+        "tax_id_country": actor.tax_id_country or ("ES" if durable else None),
+        "has_durable_tax_id_column": column_tax is not None,
+        "tax_id_provenance": _actor_tax_id_provenance_summary(actor),
+        "version": int(actor.version or 1),
+    }
+
+
+def _suggest_tax_winner(actors: list[Actor]) -> Actor:
+    """Prefer the actor that already holds the durable tax_id column."""
+
+    from opn_oracle.oracle.actor_tax_id import usable_company_tax_id
+
+    with_column = [
+        actor for actor in actors if usable_company_tax_id(getattr(actor, "tax_id", None))
+    ]
+    pool = with_column or list(actors)
+    pool.sort(
+        key=lambda actor: (
+            getattr(actor, "created_at", None) or datetime.min.replace(tzinfo=UTC),
+            str(actor.id),
+        )
+    )
+    return pool[0]
+
+
+def actor_alias_candidates(session: Session) -> dict[str, Any]:
+    """Detect organization duplicates tax-first; never merge or mutate actors.
+
+    Returns ``{"items": [...], "meta": {...}}`` with honest coverage metrics.
+    Persons and other tenants are never mixed. Same-name pairs with distinct
+    durable tax_ids are reported as blocked, not as mergeable candidates.
+    """
+
+    from opn_oracle.oracle.actor_tax_id import actor_durable_tax_id, usable_company_tax_id
 
     tenant_id = require_tenant_id()
     actors = list(
@@ -542,32 +671,145 @@ def actor_alias_candidates(session: Session) -> list[dict[str, Any]]:
             .order_by(Actor.canonical_name, Actor.id)
         )
     )
-    buckets: dict[str, list[Actor]] = {}
+    total_orgs = len(actors)
+    with_tax = 0
     for actor in actors:
+        if actor_durable_tax_id(actor):
+            with_tax += 1
+
+    # --- 1) Tax-id buckets (primary) ---
+    tax_buckets: dict[str, list[Actor]] = {}
+    for actor in actors:
+        tax = actor_durable_tax_id(actor)
+        if tax:
+            tax_buckets.setdefault(tax, []).append(actor)
+
+    covered_ids: set[uuid.UUID] = set()
+    candidates: list[dict[str, Any]] = []
+    count_tax_id = 0
+    count_name = 0
+    count_blocked = 0
+
+    for tax_id, group in sorted(tax_buckets.items(), key=lambda item: item[0]):
+        if len(group) < 2:
+            continue
+        winner = _suggest_tax_winner(group)
+        for actor in group:
+            covered_ids.add(actor.id)
+        count_tax_id += 1
+        candidates.append(
+            {
+                "identity_key": f"tax:es:{tax_id}",
+                "match_reason": "tax_id",
+                "status": "candidate",
+                "priority": 100,
+                "confidence": "high",
+                "reason": (
+                    f"Coincidencia fiscal por NIF/CIF durable {tax_id}. "
+                    "Prioridad alta; el destino sugerido ya posee (o declara) esa identidad fiscal."
+                ),
+                "suggested_target_id": str(winner.id),
+                "tax_id": tax_id,
+                "actors": [_serialize_alias_candidate_actor(actor) for actor in group],
+            }
+        )
+
+    # --- 2) Name buckets (fallback only for actors not already tax-matched) ---
+    name_buckets: dict[str, list[Actor]] = {}
+    for actor in actors:
+        if actor.id in covered_ids:
+            continue
         key = normalize_identity_name(actor.canonical_name, drop_legal_suffix=True)
         if key:
-            buckets.setdefault(key, []).append(actor)
-    candidates: list[dict[str, Any]] = []
-    for key, values in buckets.items():
-        if len(values) < 2:
+            name_buckets.setdefault(key, []).append(actor)
+
+    for key, group in sorted(name_buckets.items(), key=lambda item: item[0]):
+        if len(group) < 2:
             continue
+        durable_taxes = {
+            tax for actor in group if (tax := usable_company_tax_id(getattr(actor, "tax_id", None)))
+        }
+        # Distinct durable columns → blocked fiscal conflict (never name-merge).
+        if len(durable_taxes) >= 2:
+            count_blocked += 1
+            candidates.append(
+                {
+                    "identity_key": f"name-blocked:{key}",
+                    "match_reason": "tax_id_conflict",
+                    "status": "blocked",
+                    "priority": 50,
+                    "confidence": "blocked",
+                    "reason": (
+                        "Misma denominación normalizada pero NIF/CIF durables distintos. "
+                        "Fusión bloqueada; no se infiere identidad fiscal por nombre."
+                    ),
+                    "suggested_target_id": None,
+                    "tax_id": None,
+                    "blocking_tax_ids": sorted(durable_taxes),
+                    "actors": [_serialize_alias_candidate_actor(actor) for actor in group],
+                }
+            )
+            continue
+
+        # Prefer the one that holds a durable column as suggested target when present.
+        with_column = [
+            actor for actor in group if usable_company_tax_id(getattr(actor, "tax_id", None))
+        ]
+        suggested = with_column[0] if with_column else group[0]
+        count_name += 1
         candidates.append(
             {
                 "identity_key": key,
+                "match_reason": "normalized_name",
                 "status": "candidate",
-                "reason": "Coincidencia de denominación sin forma jurídica; requiere revisión.",
-                "actors": [
-                    {
-                        "id": str(actor.id),
-                        "name": actor.canonical_name,
-                        "identifiers": dict(actor.identifiers or {}),
-                        "aliases": list(actor.aliases or []),
-                    }
-                    for actor in values
-                ],
+                "priority": 10,
+                "confidence": "low",
+                "reason": (
+                    "Coincidencia de denominación sin forma jurídica (p. ej. SL / S.L. / SA). "
+                    "No se infiere NIF por nombre; requiere revisión humana cautelosa."
+                ),
+                "suggested_target_id": str(suggested.id),
+                "tax_id": usable_company_tax_id(getattr(suggested, "tax_id", None)),
+                "actors": [_serialize_alias_candidate_actor(actor) for actor in group],
             }
         )
-    return candidates
+
+    # tax_id matches first, then blocked, then name; stable within each band.
+    candidates.sort(
+        key=lambda item: (
+            0 if item["match_reason"] == "tax_id" else 1 if item["status"] == "blocked" else 2,
+            -int(item.get("priority") or 0),
+            str(item.get("identity_key") or ""),
+        )
+    )
+
+    coverage_pct = round((with_tax / total_orgs) * 100.0, 2) if total_orgs else 0.0
+    meta = {
+        "organizations_evaluated": total_orgs,
+        "organizations_with_tax_id": with_tax,
+        "tax_id_coverage_pct": coverage_pct,
+        "criteria_evaluated": ["tax_id", "normalized_name"],
+        "counts": {
+            "tax_id": count_tax_id,
+            "normalized_name": count_name,
+            "tax_id_conflict_blocked": count_blocked,
+            "candidates_mergeable": count_tax_id + count_name,
+            "candidates_blocked": count_blocked,
+            "total_items": len(candidates),
+        },
+        "limitations": (
+            f"{with_tax}/{total_orgs} organizaciones con NIF/CIF durable evaluable. "
+            "Solo se proponen coincidencias bajo los criterios tax_id y nombre normalizado "
+            "sin forma jurídica; no hay verificación oficial del NIF."
+        ),
+        "empty_state_message": (
+            "No hay candidatos bajo los criterios evaluados "
+            f"(tax_id y denominación normalizada). Cobertura NIF: {with_tax}/{total_orgs} "
+            f"({coverage_pct}%). Esto no implica ausencia de duplicados: la detección está "
+            "limitada por la cobertura fiscal y por el criterio nominal cauteloso."
+        ),
+    }
+    return {"items": candidates, "meta": meta}
 
 
 def _canonical_payload(value: Mapping[str, Any]) -> tuple[bytes, dict[str, Any]]:

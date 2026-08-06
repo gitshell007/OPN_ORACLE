@@ -110,6 +110,7 @@ from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
 from opn_oracle.oracle.service import (
     DomainValidationError,
     ResourceNotFound,
+    TaxIdMergeBlocked,
     VersionConflict,
     archive_dossier,
     create_dossier,
@@ -121,6 +122,7 @@ from opn_oracle.oracle.service import (
     list_page,
     merge_actors,
     order_with_nulls_last,
+    preview_merge_actors,
     promote_signal_link,
     record_status_change,
     review_signal_link,
@@ -204,6 +206,16 @@ def _domain_error(error: Exception) -> Any:
         return problem_response(404, detail=str(error), code="not_found")
     if isinstance(error, VersionConflict):
         return problem_response(409, detail=str(error), code="version_conflict")
+    if isinstance(error, TaxIdMergeBlocked):
+        return problem_response(
+            409,
+            detail=str(error),
+            code="tax_id_merge_blocked",
+            errors={
+                "target_tax_id": error.target_tax_id,
+                "source_tax_id": error.source_tax_id,
+            },
+        )
     from opn_oracle.oracle.actor_tax_id import TaxIdConflictError, TaxIdValidationError
 
     if isinstance(error, TaxIdConflictError):
@@ -3235,17 +3247,31 @@ def actors_tax_id_conflicts_list() -> Any:
 @bp.post("/actors/tax-id-conflicts/<uuid:conflict_id>/resolve")
 @require_permission("actor.write")
 def actors_tax_id_conflicts_resolve(conflict_id: uuid.UUID) -> Any:
-    """Mark a tax_id conflict resolved/dismissed. Does not merge relations (G-17)."""
+    """Mark a tax_id conflict resolved/dismissed. Does not merge relations.
+
+    action=merge is rejected: use POST /actors/{id}/merge which moves relations
+    and only then closes the conflict in the same transaction.
+    """
 
     from opn_oracle.oracle.actor_tax_id import resolve_tax_id_conflict
 
     payload = _payload()
+    action = str(payload.get("action", "keep_winner")).strip().lower()
+    if action == "merge":
+        return problem_response(
+            422,
+            detail=(
+                "No se puede marcar un conflicto como fusionado aquí sin mover relaciones. "
+                "Use POST /api/v1/actors/{target_id}/merge con confirmación y versiones CAS."
+            ),
+            code="merge_requires_merge_endpoint",
+        )
     try:
         row = resolve_tax_id_conflict(
             db.session(),
             tenant_id=g.active_tenant_id,
             conflict_id=conflict_id,
-            action=str(payload.get("action", "keep_winner")),
+            action=action,
             note=str(payload.get("note", "")),
             actor_id=current_user.id,
         )
@@ -3259,21 +3285,60 @@ def actors_tax_id_conflicts_resolve(conflict_id: uuid.UUID) -> Any:
         return problem_response(422, detail=str(error), code="validation_error")
 
 
-@bp.post("/actors/<uuid:target_id>/merge")
-@require_permission("actor.write")
-def actors_merge(target_id: uuid.UUID) -> Any:
+@bp.post("/actors/<uuid:target_id>/merge/preview")
+@require_permission("actor.read")
+def actors_merge_preview(target_id: uuid.UUID) -> Any:
+    """Explicit pre-mutation preview: tax provenance, aliases and reference impact."""
+
     payload = _payload()
     try:
         source_id = uuid.UUID(str(payload["source_actor_id"]))
+        return preview_merge_actors(
+            db.session(),
+            target_id,
+            source_id,
+            actor_id=current_user.id,
+        )
+    except (KeyError, ValueError, DomainValidationError, ResourceNotFound) as error:
+        return _domain_error(error)
+
+
+@bp.post("/actors/<uuid:target_id>/merge")
+@require_permission("actor.write")
+def actors_merge(target_id: uuid.UUID) -> Any:
+    """Human-confirmed merge with CAS versions and tax-safe identity rules."""
+
+    payload = _payload()
+    try:
+        source_id = uuid.UUID(str(payload["source_actor_id"]))
+        expected_target = payload.get("expected_target_version")
+        expected_source = payload.get("expected_source_version")
+        if expected_target is None or expected_source is None:
+            raise DomainValidationError(
+                "expected_target_version y expected_source_version son obligatorios (CAS)."
+            )
         row = merge_actors(
             db.session(),
             target_id,
             source_id,
             actor_id=current_user.id,
             reason=str(payload.get("reason", "")),
+            expected_target_version=int(expected_target),
+            expected_source_version=int(expected_source),
+            confirm=bool(payload.get("confirm", False)),
+            match_reason=(
+                str(payload["match_reason"]) if payload.get("match_reason") is not None else None
+            ),
         )
         return _serialize(row)
-    except (KeyError, ValueError, DomainValidationError, ResourceNotFound, IntegrityError) as error:
+    except (
+        KeyError,
+        ValueError,
+        DomainValidationError,
+        ResourceNotFound,
+        VersionConflict,
+        IntegrityError,
+    ) as error:
         db.session.rollback()
         return _domain_error(error)
 

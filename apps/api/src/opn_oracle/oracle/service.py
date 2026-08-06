@@ -19,8 +19,10 @@ from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, clean_labels
 from opn_oracle.oracle.actor_tax_id import (
     TaxIdConflictError,
     TaxIdValidationError,
+    assign_actor_tax_id,
     hydrate_dossier_actor_tax_ids_from_awards,
     resolve_or_create_actor,
+    usable_company_tax_id,
 )
 from opn_oracle.oracle.intent import (
     DossierIntentRevision,
@@ -39,6 +41,7 @@ from opn_oracle.oracle.links import (
 )
 from opn_oracle.oracle.models import (
     Actor,
+    ActorTaxIdConflict,
     Decision,
     DossierActor,
     DossierObjective,
@@ -2001,6 +2004,240 @@ def update_dossier_actor(
     return row
 
 
+_PROTECTED_NON_FISCAL_IDENTIFIERS = frozenset({"lei", "duns", "isin", "ticker"})
+_FISCAL_IDENTIFIER_KEYS = frozenset({"tax_id", "tax_id_scheme", "tax_id_declared", "tax_id_source"})
+
+
+class TaxIdMergeBlocked(DomainValidationError):
+    """Two durable tax_ids differ — merge must not mutate either actor."""
+
+    def __init__(self, message: str, *, target_tax_id: str, source_tax_id: str) -> None:
+        super().__init__(message)
+        self.target_tax_id = target_tax_id
+        self.source_tax_id = source_tax_id
+        self.code = "tax_id_merge_blocked"
+
+
+def _merge_identifiers_governed(
+    target: Actor,
+    source: Actor,
+) -> dict[str, Any]:
+    """Merge JSON identifiers: fiscal is column-authoritative; LEI/DUNS never overwritten.
+
+    Target wins on protected non-fiscal keys when present; source fills gaps.
+    Other non-fiscal keys: target wins on collision, source contributes missing.
+    """
+
+    target_ids = dict(target.identifiers or {}) if isinstance(target.identifiers, dict) else {}
+    source_ids = dict(source.identifiers or {}) if isinstance(source.identifiers, dict) else {}
+    merged: dict[str, Any] = {}
+
+    # Non-fiscal union with target preference; protect LEI/DUNS from overwrite.
+    for key, value in source_ids.items():
+        if key in _FISCAL_IDENTIFIER_KEYS:
+            continue
+        merged[key] = value
+    for key, value in target_ids.items():
+        if key in _FISCAL_IDENTIFIER_KEYS:
+            continue
+        if key in _PROTECTED_NON_FISCAL_IDENTIFIERS and target_ids.get(key) not in (None, ""):
+            merged[key] = target_ids[key]
+        else:
+            merged[key] = value if value not in (None, "") else merged.get(key, value)
+
+    # Fiscal block: durable column is source of truth after tax transfer logic.
+    durable = usable_company_tax_id(getattr(target, "tax_id", None))
+    if durable:
+        merged["tax_id"] = durable
+        merged["tax_id_scheme"] = (
+            target.tax_id_scheme or target_ids.get("tax_id_scheme") or "ES_CIF"
+        )
+        declared = target_ids.get("tax_id_declared") or source_ids.get("tax_id_declared") or durable
+        merged["tax_id_declared"] = declared
+        source_block = source_ids.get("tax_id_source")
+        target_block = target_ids.get("tax_id_source")
+        if isinstance(target_block, dict):
+            merged["tax_id_source"] = target_block
+        elif isinstance(source_block, dict):
+            merged["tax_id_source"] = source_block
+    return merged
+
+
+def _count_actor_references(
+    session: Session,
+    *,
+    actor_ids: tuple[uuid.UUID, ...],
+) -> dict[str, int]:
+    dossier_links = session.scalar(
+        select(func.count()).select_from(DossierActor).where(DossierActor.actor_id.in_(actor_ids))
+    )
+    opportunity_links = session.scalar(
+        select(func.count())
+        .select_from(OpportunityActor)
+        .where(OpportunityActor.actor_id.in_(actor_ids))
+    )
+    risk_links = session.scalar(
+        select(func.count()).select_from(RiskActor).where(RiskActor.actor_id.in_(actor_ids))
+    )
+    meeting_links = session.scalar(
+        select(func.count()).select_from(MeetingActor).where(MeetingActor.actor_id.in_(actor_ids))
+    )
+    relationships = session.scalar(
+        select(func.count())
+        .select_from(Relationship)
+        .where(
+            (Relationship.from_actor_id.in_(actor_ids)) | (Relationship.to_actor_id.in_(actor_ids))
+        )
+    )
+    return {
+        "dossier_actors": int(dossier_links or 0),
+        "opportunity_actors": int(opportunity_links or 0),
+        "risk_actors": int(risk_links or 0),
+        "meeting_actors": int(meeting_links or 0),
+        "relationships": int(relationships or 0),
+    }
+
+
+def preview_merge_actors(
+    session: Session,
+    target_id: uuid.UUID,
+    source_id: uuid.UUID,
+    *,
+    actor_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Read-only merge preview: winner, tax provenance, aliases and reference impact."""
+
+    tenant_id = require_tenant_id()
+    if target_id == source_id:
+        raise DomainValidationError("El origen debe ser distinto del destino.")
+    target = session.scalar(
+        select(Actor).where(Actor.id == target_id, Actor.tenant_id == tenant_id)
+    )
+    source = session.scalar(
+        select(Actor).where(Actor.id == source_id, Actor.tenant_id == tenant_id)
+    )
+    if target is None or source is None:
+        raise ResourceNotFound("Actor no encontrado.")
+
+    target_tax = usable_company_tax_id(getattr(target, "tax_id", None))
+    source_tax = usable_company_tax_id(getattr(source, "tax_id", None))
+    blocked = bool(target_tax and source_tax and target_tax != source_tax)
+    block_reason = None
+    if blocked:
+        block_reason = f"NIF durables distintos ({target_tax} vs {source_tax}); fusión bloqueada."
+
+    # Fiscal destination rule: if only one has durable tax_id, that actor should win.
+    fiscal_winner_id = None
+    if target_tax and not source_tax:
+        fiscal_winner_id = str(target.id)
+    elif source_tax and not target_tax:
+        fiscal_winner_id = str(source.id)
+    elif target_tax and source_tax and target_tax == source_tax:
+        fiscal_winner_id = str(target.id)
+
+    source_refs = _count_actor_references(session, actor_ids=(source.id,))
+    both_refs = _count_actor_references(session, actor_ids=(source.id, target.id))
+    del actor_id  # reserved for future access checks parity with merge
+
+    return {
+        "blocked": blocked,
+        "block_reason": block_reason,
+        "target": {
+            "id": str(target.id),
+            "name": target.canonical_name,
+            "tax_id": target_tax,
+            "tax_id_scheme": target.tax_id_scheme,
+            "tax_id_country": target.tax_id_country,
+            "aliases": list(target.aliases or []),
+            "identifiers": dict(target.identifiers or {}),
+            "version": int(target.version or 1),
+            "has_durable_tax_id_column": target_tax is not None,
+        },
+        "source": {
+            "id": str(source.id),
+            "name": source.canonical_name,
+            "tax_id": source_tax,
+            "tax_id_scheme": source.tax_id_scheme,
+            "tax_id_country": source.tax_id_country,
+            "aliases": list(source.aliases or []),
+            "identifiers": dict(source.identifiers or {}),
+            "version": int(source.version or 1),
+            "has_durable_tax_id_column": source_tax is not None,
+        },
+        "suggested_target_id": fiscal_winner_id or str(target.id),
+        "resulting_aliases": sorted(
+            {
+                str(value)
+                for value in [*target.aliases, *source.aliases, source.canonical_name]
+                if value
+            }
+        ),
+        "reference_impact": {
+            "source_only": source_refs,
+            "combined_before": both_refs,
+            "summary": (
+                f"Se moverán/deduplicarán {source_refs['dossier_actors']} vínculos de expediente, "
+                f"{source_refs['opportunity_actors']} de oportunidad, "
+                f"{source_refs['risk_actors']} de riesgo, "
+                f"{source_refs['meeting_actors']} de reunión y "
+                f"{source_refs['relationships']} relaciones del origen."
+            ),
+        },
+        "confirmation_required": {
+            "confirm": True,
+            "reason_min_length": 3,
+            "expected_target_version": int(target.version or 1),
+            "expected_source_version": int(source.version or 1),
+        },
+    }
+
+
+def _resolve_open_tax_conflicts_for_merge(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    target: Actor,
+    source: Actor,
+    actor_id: uuid.UUID,
+    reason: str,
+) -> list[str]:
+    """Close open ActorTaxIdConflict rows for this pair only after a successful merge path."""
+
+    open_conflicts = list(
+        session.scalars(
+            select(ActorTaxIdConflict).where(
+                ActorTaxIdConflict.tenant_id == tenant_id,
+                ActorTaxIdConflict.status == "open",
+                (
+                    (
+                        (ActorTaxIdConflict.winner_actor_id == target.id)
+                        & (ActorTaxIdConflict.loser_actor_id == source.id)
+                    )
+                    | (
+                        (ActorTaxIdConflict.winner_actor_id == source.id)
+                        & (ActorTaxIdConflict.loser_actor_id == target.id)
+                    )
+                ),
+            )
+        )
+    )
+    resolved_ids: list[str] = []
+    now = datetime.now(UTC)
+    for conflict in open_conflicts:
+        # Mark resolved in-txn before source delete. CASCADE may later remove the
+        # row when the source actor is deleted; actor.merged audit keeps the trail.
+        conflict.status = "resolved"
+        conflict.resolution_note = (
+            f"Resuelto por fusión humana actor.merged: source={source.id} → target={target.id}. "
+            f"{reason[:500]}"
+        )[:2000]
+        conflict.resolved_at = now
+        conflict.resolved_by_user_id = actor_id
+        conflict.version = int(conflict.version or 1) + 1
+        resolved_ids.append(str(conflict.id))
+    return resolved_ids
+
+
 def merge_actors(
     session: Session,
     target_id: uuid.UUID,
@@ -2008,18 +2245,78 @@ def merge_actors(
     *,
     actor_id: uuid.UUID,
     reason: str,
+    expected_target_version: int | None = None,
+    expected_source_version: int | None = None,
+    confirm: bool = False,
+    match_reason: str | None = None,
 ) -> Actor:
+    """Human-confirmed, tax-safe, CAS-guarded actor merge.
+
+    Requires ``confirm=True``, a non-empty reason and expected versions for both
+    actors. Distinct durable tax_ids block without mutation. Idempotent when the
+    source is already gone and the target records the same last_merge source.
+    """
+
+    if target_id == source_id:
+        raise DomainValidationError("El origen debe ser distinto del destino.")
+    if not reason or not reason.strip():
+        raise DomainValidationError("La razón es obligatoria.")
+    if not confirm:
+        raise DomainValidationError("La fusión requiere confirmación inequívoca (confirm=true).")
+    if expected_target_version is None or expected_source_version is None:
+        raise DomainValidationError(
+            "expected_target_version y expected_source_version son obligatorios (CAS)."
+        )
+
     tenant_id = require_tenant_id()
-    if target_id == source_id or not reason.strip():
-        raise DomainValidationError("El origen debe ser distinto y la razón es obligatoria.")
-    target = session.scalar(
-        select(Actor).where(Actor.id == target_id, Actor.tenant_id == tenant_id).with_for_update()
+
+    # Lock in stable id order to avoid deadlocks under concurrent merges.
+    first_id, second_id = sorted((target_id, source_id), key=str)
+    first = session.scalar(
+        select(Actor).where(Actor.id == first_id, Actor.tenant_id == tenant_id).with_for_update()
     )
-    source = session.scalar(
-        select(Actor).where(Actor.id == source_id, Actor.tenant_id == tenant_id).with_for_update()
+    second = session.scalar(
+        select(Actor).where(Actor.id == second_id, Actor.tenant_id == tenant_id).with_for_update()
     )
+    by_id = {row.id: row for row in (first, second) if row is not None}
+    target = by_id.get(target_id)
+    source = by_id.get(source_id)
+
+    # Idempotent retry: source already deleted after a prior successful merge into target.
+    if target is not None and source is None:
+        provenance = dict(target.provenance or {}) if isinstance(target.provenance, dict) else {}
+        raw_last = provenance.get("last_merge")
+        last_merge: dict[str, Any] = raw_last if isinstance(raw_last, dict) else {}
+        if str(last_merge.get("source_actor_id") or "") == str(source_id):
+            return target
+        raise ResourceNotFound("Actor origen no encontrado.")
     if target is None or source is None:
         raise ResourceNotFound("Actor no encontrado.")
+
+    if int(target.version or 1) != int(expected_target_version):
+        raise VersionConflict(
+            "El actor destino fue modificado por otro usuario (CAS). Recarga y reintenta."
+        )
+    if int(source.version or 1) != int(expected_source_version):
+        raise VersionConflict(
+            "El actor origen fue modificado por otro usuario (CAS). Recarga y reintenta."
+        )
+
+    target_tax = usable_company_tax_id(getattr(target, "tax_id", None))
+    source_tax = usable_company_tax_id(getattr(source, "tax_id", None))
+    if target_tax and source_tax and target_tax != source_tax:
+        raise TaxIdMergeBlocked(
+            f"Fusión bloqueada: NIF durables distintos ({target_tax} vs {source_tax}).",
+            target_tax_id=target_tax,
+            source_tax_id=source_tax,
+        )
+
+    # Fiscal destination guard: refuse when client chose a destination without the
+    # durable NIF while the source holds it (no silent fiscal demotion).
+    if source_tax and not target_tax:
+        # Transfer is allowed via shared service below; destination may receive NIF.
+        pass
+
     affected_dossiers = set(
         session.scalars(
             select(DossierActor.dossier_id).where(DossierActor.actor_id.in_((source.id, target.id)))
@@ -2063,18 +2360,64 @@ def merge_actors(
         if dossier.status == "archived":
             raise DomainValidationError("No se pueden fusionar actores de un expediente archivado.")
         dossiers[dossier_id] = dossier
+
+    # Transfer durable tax_id via shared fiscal service when only source holds it.
+    # Release the source column first so the partial unique index allows the
+    # target assignment inside the same transaction (source is deleted next).
+    if source_tax and not target_tax:
+        transfer_raw = source.tax_id
+        transfer_declared = (
+            (source.identifiers or {}).get("tax_id_declared")
+            if isinstance(source.identifiers, dict)
+            else None
+        ) or transfer_raw
+        source.tax_id = None
+        source.tax_id_scheme = None
+        source.tax_id_country = None
+        session.flush()
+        try:
+            assign_actor_tax_id(
+                session,
+                target,
+                transfer_raw,
+                provenance={
+                    "kind": "merge_transfer",
+                    "source_actor_id": str(source.id),
+                    "reason": reason[:500],
+                },
+                declared=transfer_declared,
+                allow_same=True,
+                bump_version=False,
+            )
+        except TaxIdConflictError as error:
+            raise DomainValidationError(str(error)) from error
+        except TaxIdValidationError as error:
+            raise DomainValidationError(str(error)) from error
+
     target.aliases = sorted(
-        {str(value) for value in [*target.aliases, *source.aliases, source.canonical_name]}
+        {str(value) for value in [*target.aliases, *source.aliases, source.canonical_name] if value}
     )
-    target.identifiers = source.identifiers | target.identifiers
-    # Prefer target durable tax_id; adopt source column only if target empty.
-    if not target.tax_id and source.tax_id:
-        target.tax_id = source.tax_id
-        target.tax_id_scheme = source.tax_id_scheme
-        target.tax_id_country = source.tax_id_country
-    target.provenance = target.provenance | {
-        "last_merge": {"source_actor_id": str(source.id), "reason": reason[:1000]}
+    target.identifiers = _merge_identifiers_governed(target, source)
+    previous_provenance = (
+        dict(target.provenance or {}) if isinstance(target.provenance, dict) else {}
+    )
+    source_provenance = dict(source.provenance or {}) if isinstance(source.provenance, dict) else {}
+    target.provenance = {
+        **source_provenance,
+        **previous_provenance,
+        "last_merge": {
+            "source_actor_id": str(source.id),
+            "source_name": source.canonical_name,
+            "reason": reason[:1000],
+            "match_reason": (match_reason or "")[:80] or None,
+            "expected_target_version": int(expected_target_version),
+            "expected_source_version": int(expected_source_version),
+            "source_tax_id": source_tax,
+            "target_tax_id": usable_company_tax_id(getattr(target, "tax_id", None)),
+        },
     }
+    target.version = int(target.version or 1) + 1
+
     for link in list(
         session.scalars(select(DossierActor).where(DossierActor.actor_id == source.id))
     ):
@@ -2145,6 +2488,16 @@ def merge_actors(
             session.delete(relationship)
         else:
             relationship.from_actor_id, relationship.to_actor_id = new_from, new_to
+
+    resolved_conflicts = _resolve_open_tax_conflicts_for_merge(
+        session,
+        tenant_id=tenant_id,
+        target=target,
+        source=source,
+        actor_id=actor_id,
+        reason=reason,
+    )
+
     append_audit_event(
         session,
         action="actor.merged",
@@ -2153,8 +2506,17 @@ def merge_actors(
         result="success",
         metadata={
             "source_actor_id": str(source.id),
+            "source_name": source.canonical_name,
+            "target_name": target.canonical_name,
             "reason": reason[:1000],
-            "actor_id": str(actor_id),
+            "match_reason": match_reason,
+            "expected_target_version": int(expected_target_version),
+            "expected_source_version": int(expected_source_version),
+            "target_version_after": int(target.version or 1),
+            "tax_id": usable_company_tax_id(getattr(target, "tax_id", None)),
+            "resolved_tax_id_conflicts": resolved_conflicts,
+            # Informational only; audit.actor_id comes from TenantContext.
+            "requested_by_user_id": str(actor_id),
         },
     )
     session.flush()

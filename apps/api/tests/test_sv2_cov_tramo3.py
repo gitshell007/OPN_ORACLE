@@ -319,7 +319,13 @@ def test_actors_create_merge_and_collaborators_guard(
     with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.write"})):
         merge_ok = client.post(
             f"/api/v1/actors/{target_id}/merge",
-            json={"source_actor_id": str(uuid.uuid4()), "reason": "duplicado"},
+            json={
+                "source_actor_id": str(uuid.uuid4()),
+                "reason": "duplicado",
+                "confirm": True,
+                "expected_target_version": 1,
+                "expected_source_version": 1,
+            },
         )
     assert merge_ok.status_code == 200
     assert merge_ok.get_json()["canonical_name"] == "Iberdrola"

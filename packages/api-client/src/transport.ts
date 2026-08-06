@@ -1533,18 +1533,34 @@ const actors = {
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
     ),
-  /** Propose-only detector: organizations that share a normalized identity key. */
+  /** Propose-only detector: tax-first, then normalized name; includes coverage meta. */
   aliasCandidates: () =>
-    request<{ items: ActorAliasCandidate[] }>(
+    request<ActorAliasCandidatesResponse>(
       "/api/v1/actors/alias-candidates",
     ),
+  /** Read-only merge preview (impact, tax provenance, required CAS versions). */
+  mergePreview: (
+    targetId: string,
+    input: { source_actor_id: string },
+  ) =>
+    request<ActorMergePreview>(
+      `/api/v1/actors/${encodeURIComponent(targetId)}/merge/preview`,
+      { method: "POST", body: input },
+    ),
   /**
-   * Human-confirmed merge. Source actor is archived/deleted after links move
+   * Human-confirmed merge with CAS versions. Source is deleted after links move
    * to the target; audit event `actor.merged` records who/when/why.
    */
   merge: (
     targetId: string,
-    input: { source_actor_id: string; reason: string },
+    input: {
+      source_actor_id: string;
+      reason: string;
+      confirm: true;
+      expected_target_version: number;
+      expected_source_version: number;
+      match_reason?: string | null;
+    },
   ) =>
     request<OracleActor>(
       `/api/v1/actors/${encodeURIComponent(targetId)}/merge`,
@@ -3945,16 +3961,72 @@ export interface InvestigationReportPreview {
   candidate_entities: InvestigationEntity[];
 }
 
+export interface ActorAliasCandidateActor {
+  id: string;
+  name: string;
+  identifiers: Record<string, unknown>;
+  aliases: unknown[];
+  tax_id?: string | null;
+  tax_id_scheme?: string | null;
+  tax_id_country?: string | null;
+  has_durable_tax_id_column?: boolean;
+  tax_id_provenance?: {
+    origin_kind?: string | null;
+    origin_label?: string;
+    declared_tax_id?: string | null;
+    folder_id?: string | null;
+    winner_name?: string | null;
+    verified?: boolean;
+  };
+  version: number;
+}
+
 export interface ActorAliasCandidate {
   identity_key: string;
   status: string;
   reason: string;
-  actors: {
-    id: string;
-    name: string;
-    identifiers: Record<string, unknown>;
-    aliases: unknown[];
-  }[];
+  match_reason?: "tax_id" | "normalized_name" | "tax_id_conflict" | string;
+  priority?: number;
+  confidence?: string;
+  suggested_target_id?: string | null;
+  tax_id?: string | null;
+  blocking_tax_ids?: string[];
+  actors: ActorAliasCandidateActor[];
+}
+
+export interface ActorAliasCandidatesMeta {
+  organizations_evaluated: number;
+  organizations_with_tax_id: number;
+  tax_id_coverage_pct: number;
+  criteria_evaluated: string[];
+  counts: Record<string, number>;
+  limitations?: string;
+  empty_state_message?: string;
+}
+
+export interface ActorAliasCandidatesResponse {
+  items: ActorAliasCandidate[];
+  meta: ActorAliasCandidatesMeta;
+}
+
+export interface ActorMergePreview {
+  blocked: boolean;
+  block_reason?: string | null;
+  target: ActorAliasCandidateActor & { version: number };
+  source: ActorAliasCandidateActor & { version: number };
+  suggested_target_id?: string | null;
+  resulting_aliases: string[];
+  reference_impact: {
+    source_only: Record<string, number>;
+    combined_before: Record<string, number>;
+    summary: string;
+  };
+  confirmation_required: {
+    confirm: true;
+    reason_min_length: number;
+    expected_target_version: number;
+    expected_source_version: number;
+  };
 }
 
 const investigations = {
@@ -4002,7 +4074,7 @@ const investigations = {
       `/api/v1/investigations/${encodeURIComponent(runId)}/report-preview`,
     ),
   aliasCandidates: () =>
-    request<{ items: ActorAliasCandidate[] }>("/api/v1/actors/alias-candidates"),
+    request<ActorAliasCandidatesResponse>("/api/v1/actors/alias-candidates"),
 };
 
 /** MEMSOL read model of dossier activity (watchlists, monitors, jobs). */
