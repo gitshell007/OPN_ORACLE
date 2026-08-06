@@ -236,6 +236,9 @@ test-results/
 artifacts/
 .codex-screenshots/
 
+# Git worktrees locales; cada rama vive en Git, no como contenido del checkout raíz.
+.worktrees/
+
 # Entorno de desarrollo local sin Docker
 .dev-local/
 
