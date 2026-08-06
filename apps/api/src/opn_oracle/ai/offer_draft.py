@@ -108,9 +108,7 @@ def _normalize_section(raw: dict[str, Any], *, order: int) -> dict[str, Any] | N
         "declared_evidence_ids": _as_uuid_str_list(raw.get("declared_evidence_ids")),
         "gaps": _as_str_list(raw.get("gaps"), limit=MAX_GAPS_PER_SECTION),
         "prose_polished": bool(raw.get("prose_polished")),
-        "prose_polish_reason": (
-            str(raw.get("prose_polish_reason") or "").strip()[:200] or None
-        ),
+        "prose_polish_reason": (str(raw.get("prose_polish_reason") or "").strip()[:200] or None),
     }
 
 
@@ -208,25 +206,13 @@ def materialize_content_from_calculated(draft_offer: dict[str, Any]) -> dict[str
         "administrative_checklist": checklist,
         "gaps_summary": _as_str_list(draft_offer.get("gaps_summary"), limit=20),
         "gaps": [],
-        "draft_engine": (
-            str(draft_offer.get("draft_engine") or "").strip()[:80] or None
-        ),
-        "prose_engine": (
-            str(draft_offer.get("prose_engine") or "").strip()[:80] or None
-        ),
-        "drafted_as_of": (
-            str(draft_offer.get("drafted_as_of") or "").strip()[:40] or None
-        ),
+        "draft_engine": (str(draft_offer.get("draft_engine") or "").strip()[:80] or None),
+        "prose_engine": (str(draft_offer.get("prose_engine") or "").strip()[:80] or None),
+        "drafted_as_of": (str(draft_offer.get("drafted_as_of") or "").strip()[:40] or None),
         "origin": "declared_draft",
-        "based_on_verdict": (
-            str(draft_offer.get("based_on_verdict") or "").strip()[:40] or None
-        ),
-        "official_evidence_ids": _as_uuid_str_list(
-            draft_offer.get("official_evidence_ids")
-        ),
-        "declared_evidence_ids": _as_uuid_str_list(
-            draft_offer.get("declared_evidence_ids")
-        ),
+        "based_on_verdict": (str(draft_offer.get("based_on_verdict") or "").strip()[:40] or None),
+        "official_evidence_ids": _as_uuid_str_list(draft_offer.get("official_evidence_ids")),
+        "declared_evidence_ids": _as_uuid_str_list(draft_offer.get("declared_evidence_ids")),
         "statement_seed": (
             str(draft_offer.get("statement_seed") or statement).strip()[:MAX_STATEMENT_LEN]
             or statement[:MAX_STATEMENT_LEN]
@@ -583,3 +569,41 @@ def assert_version_match(*, row_version: int, expected: int | None) -> None:
         )
     if int(row_version) != int(expected):
         raise OfferDraftVersionConflict(current_version=int(row_version))
+
+
+def cas_update_offer_draft_sql(
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    expected_version: int,
+    next_content: dict[str, Any],
+    actor_id: uuid.UUID,
+    new_version: int,
+    new_etag: str,
+    updated_at: datetime,
+) -> Any:
+    """Build the atomic compare-and-swap UPDATE for opportunity_offer_drafts.
+
+    The WHERE clause always includes tenant_id, dossier_id and version == expected.
+    Callers must treat rowcount/RETURNING == 0 as version_conflict (no overwrite).
+    """
+
+    from sqlalchemy import update
+
+    from opn_oracle.ai.models import OpportunityOfferDraft
+
+    return (
+        update(OpportunityOfferDraft)
+        .where(
+            OpportunityOfferDraft.tenant_id == tenant_id,
+            OpportunityOfferDraft.dossier_id == dossier_id,
+            OpportunityOfferDraft.version == int(expected_version),
+        )
+        .values(
+            content=next_content,
+            version=int(new_version),
+            etag=new_etag,
+            last_edited_by_user_id=actor_id,
+            updated_at=updated_at,
+        )
+    )

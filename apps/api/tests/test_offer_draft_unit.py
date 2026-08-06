@@ -10,6 +10,7 @@ from opn_oracle.ai.offer_draft import (
     apply_editable_patch,
     assert_version_match,
     build_plain_text_document,
+    cas_update_offer_draft_sql,
     make_etag,
     materialize_content_from_calculated,
     parse_expected_version,
@@ -171,3 +172,28 @@ def test_plain_text_copy_has_no_internal_ids() -> None:
     assert "borrador declarado" in plain.casefold()
     assert "11111111-1111-1111-1111-111111111111" not in plain
     assert "{" not in plain
+
+
+@pytest.mark.unit
+def test_cas_update_sql_predicates_include_tenant_dossier_version() -> None:
+    import uuid
+    from datetime import UTC, datetime
+
+    stmt = cas_update_offer_draft_sql(
+        tenant_id=uuid.uuid4(),
+        dossier_id=uuid.uuid4(),
+        expected_version=3,
+        next_content={"statement": "cas", "sections": []},
+        actor_id=uuid.uuid4(),
+        new_version=4,
+        new_etag=make_etag(4),
+        updated_at=datetime.now(UTC),
+    )
+    where = str(stmt.whereclause)
+    assert "tenant_id" in where
+    assert "dossier_id" in where
+    assert "version" in where
+    # SET targets include version/etag (CAS win path).
+    compiled = str(stmt)
+    assert "version" in compiled.casefold()
+    assert "etag" in compiled.casefold()

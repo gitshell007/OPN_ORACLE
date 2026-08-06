@@ -585,4 +585,126 @@ describe("DossierOpportunityAnalysisSection", () => {
       "Conflicto de versión",
     );
   });
+
+  it("abre borrador durable sin artifact actual", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: null });
+    mocks.getOfferDraft.mockResolvedValue({
+      draft: {
+        ...persistedDraftFixture,
+        statement: "Borrador sin análisis actual.",
+      },
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    expect(await view.findByTestId("dossier-opportunity-empty")).toBeInTheDocument();
+    const surface = await view.findByTestId("dossier-opportunity-draft-durable-surface");
+    expect(surface).toBeInTheDocument();
+    const statement = await view.findByTestId("dossier-opportunity-draft-statement");
+    expect((statement as HTMLTextAreaElement).value).toBe("Borrador sin análisis actual.");
+    fireEvent.change(statement, { target: { value: "Edición sin artifact." } });
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "Sin guardar",
+    );
+    fireEvent.click(view.getByTestId("dossier-opportunity-copy-draft-offer"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(String(writeText.mock.calls[0][0])).toMatch(/Edición sin artifact/);
+  });
+
+  it("abre borrador durable cuando el artifact no tiene fit_assessment", async () => {
+    const noFit = {
+      ...groundedArtifact,
+      output: {
+        ...groundedArtifact.output,
+        fit_assessment: undefined,
+        draft_offer: undefined,
+      },
+    };
+    mocks.latest.mockResolvedValue({ job: null, artifact: noFit });
+    mocks.getOfferDraft.mockResolvedValue({
+      draft: {
+        ...persistedDraftFixture,
+        statement: "Durable sin fit.",
+      },
+    });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await view.findByTestId("dossier-opportunity-proposal");
+    expect(view.queryByTestId("dossier-opportunity-fit-assessment")).toBeNull();
+    const statement = await view.findByTestId("dossier-opportunity-draft-statement");
+    expect((statement as HTMLTextAreaElement).value).toBe("Durable sin fit.");
+    expect(view.getByTestId("dossier-opportunity-draft-durable-surface")).toBeInTheDocument();
+  });
+
+  it("abre borrador durable cuando hay fit sin verdict", async () => {
+    const fitNoVerdict = {
+      ...groundedArtifact,
+      output: {
+        ...groundedArtifact.output,
+        fit_assessment: {
+          statement: "Hay fit pero sin veredicto.",
+          declared_evidence_ids: [],
+          confidence: 40,
+          origin: "declared_by_client",
+        },
+        draft_offer: undefined,
+      },
+    };
+    mocks.latest.mockResolvedValue({ job: null, artifact: fitNoVerdict });
+    mocks.getOfferDraft.mockResolvedValue({
+      draft: {
+        ...persistedDraftFixture,
+        statement: "Durable sin verdict.",
+      },
+    });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    await view.findByTestId("dossier-opportunity-fit-assessment");
+    expect(view.queryByTestId("dossier-opportunity-fit-verdict")).toBeNull();
+    const statement = await view.findByTestId("dossier-opportunity-draft-statement");
+    expect((statement as HTMLTextAreaElement).value).toBe("Durable sin verdict.");
+  });
+
+  it("no resetea ediciones locales dirty en refresh/rerun automático", async () => {
+    mocks.latest.mockResolvedValue({ job: null, artifact: groundedArtifact });
+    mocks.getOfferDraft.mockResolvedValue({ draft: persistedDraftFixture });
+    const view = render(<DossierOpportunityAnalysisSection dossierId="dossier-1" />);
+    const statement = await view.findByTestId("dossier-opportunity-draft-statement");
+    expect((statement as HTMLTextAreaElement).value).toBe(persistedDraftFixture.statement);
+
+    fireEvent.change(statement, {
+      target: { value: "Edición local sucia que no debe perderse." },
+    });
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "Sin guardar",
+    );
+
+    // Server would return a different statement on refresh; dirty state must win.
+    mocks.getOfferDraft.mockResolvedValue({
+      draft: {
+        ...persistedDraftFixture,
+        version: 9,
+        statement: "Texto del servidor que no debe reaplicarse.",
+      },
+    });
+    mocks.latest.mockResolvedValue({
+      job: null,
+      artifact: {
+        ...groundedArtifact,
+        output: {
+          ...groundedArtifact.output,
+          title: "Propuesta regenerada",
+        },
+      },
+    });
+
+    fireEvent.click(view.getByTestId("dossier-opportunity-refresh"));
+    await waitFor(() => expect(mocks.latest).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.getOfferDraft).toHaveBeenCalledTimes(2));
+
+    const after = view.getByTestId("dossier-opportunity-draft-statement") as HTMLTextAreaElement;
+    expect(after.value).toBe("Edición local sucia que no debe perderse.");
+    expect(view.getByTestId("dossier-opportunity-draft-save-status")).toHaveTextContent(
+      "Sin guardar",
+    );
+    expect(after.value).not.toBe("Texto del servidor que no debe reaplicarse.");
+  });
 });
