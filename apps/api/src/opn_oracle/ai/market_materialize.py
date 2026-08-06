@@ -696,16 +696,65 @@ def materialize_web_search_sources(
     return created_or_existing
 
 
+# Strong identity schemes used for identity-first Actor resolution (G-20-B corrective).
+# Order is priority for stable identity-based canonical_key and lookup.
+STRONG_ACTOR_ID_KEYS: tuple[str, ...] = ("rnsr", "ror", "hal_structure", "cordis_org")
+
+
 def _structured_identifier_snapshot(candidate: dict[str, Any]) -> dict[str, str]:
     """Durable strong IDs from closed candidate snapshot (never invent)."""
 
     raw = candidate.get("ids") if isinstance(candidate.get("ids"), dict) else {}
     out: dict[str, str] = {}
-    for key in ("rnsr", "ror", "hal_structure", "cordis_org", "idref"):
+    for key in (*STRONG_ACTOR_ID_KEYS, "idref"):
         val = str(raw.get(key) or "").strip()
         if val:
             out[key] = val[:120]
     return out
+
+
+def _strong_ids_only(ids: dict[str, Any] | None) -> dict[str, str]:
+    """Return only non-empty strong identity keys from an identifiers map."""
+
+    out: dict[str, str] = {}
+    if not isinstance(ids, dict):
+        return out
+    for key in STRONG_ACTOR_ID_KEYS:
+        val = str(ids.get(key) or "").strip()
+        if val:
+            out[key] = val[:120]
+    return out
+
+
+def actor_identity_canonical_key(ids_snap: dict[str, str], organization: str) -> str:
+    """Stable Actor.canonical_key: strong-ID scheme first, else nominal name key.
+
+    Homonyms with different ROR/RNSR must not share a nominal key; identity-based
+    keys keep them as separate durable entities without mutating each other.
+    """
+
+    from opn_oracle.oracle.actor_candidates import actor_canonical_key
+
+    for scheme in STRONG_ACTOR_ID_KEYS:
+        val = str(ids_snap.get(scheme) or "").strip()
+        if val:
+            return f"{scheme}:{val}".casefold()[:320]
+    return actor_canonical_key(organization)
+
+
+def _identifier_conflicts(
+    existing: dict[str, Any] | None, incoming: dict[str, str]
+) -> list[dict[str, str]]:
+    """Strong-ID pairs where both sides are non-empty and differ."""
+
+    conflicts: list[dict[str, str]] = []
+    base = existing if isinstance(existing, dict) else {}
+    for key in STRONG_ACTOR_ID_KEYS:
+        prev = str(base.get(key) or "").strip()
+        new = str(incoming.get(key) or "").strip()
+        if prev and new and prev != new:
+            conflicts.append({"key": key, "existing": prev, "incoming": new})
+    return conflicts
 
 
 def _merge_actor_identifiers(existing: dict[str, Any] | None, incoming: dict[str, str]) -> dict[str, Any]:
@@ -713,6 +762,9 @@ def _merge_actor_identifiers(existing: dict[str, Any] | None, incoming: dict[str
 
     Missing keys are filled; conflicts on the same key keep the prior durable value
     and record the clash under ``identifier_conflicts`` (no silent overwrite).
+
+    Identity-first import must not rely on this path for homonyms with incompatible
+    IDs — those abort with 409 or create a separate identity-keyed Actor first.
     """
 
     base: dict[str, Any] = dict(existing or {})
@@ -728,29 +780,187 @@ def _merge_actor_identifiers(existing: dict[str, Any] | None, incoming: dict[str
     return base
 
 
-def _materialize_selected_actors(
-    *,
-    artifact: AIArtifact,
-    dossier_id: uuid.UUID,
-    candidate_ids: list[str],
-) -> list[dict[str, Any]]:
-    """G-20-B: create/link Actor + DossierActor for accepted market_actor candidates.
+def _fill_missing_identifiers_only(
+    existing: dict[str, Any] | None, incoming: dict[str, str]
+) -> dict[str, Any]:
+    """Fill blank strong IDs only; never record conflicts or overwrite.
 
-    Idempotent by tenant canonical_key. Preserves RNSR/ROR/HAL/CORDIS in
-    Actor.identifiers JSONB (durable, not ephemeral JSON-only). Does not mix a
-    lab unit with an umbrella org when they are distinct candidate_ids.
+    Caller must have already verified compatibility (no conflicting non-empty pairs).
     """
 
-    from opn_oracle.oracle.actor_candidates import (
-        actor_canonical_key,
-        set_actor_candidate_review,
+    base: dict[str, Any] = dict(existing or {})
+    for key, value in incoming.items():
+        prev = base.get(key)
+        if prev is None or str(prev).strip() == "":
+            base[key] = value
+    # Drop stale conflict notes if present after a clean identity match.
+    base.pop("identifier_conflicts", None)
+    return base
+
+
+def _actor_has_strong_ids(actor: Any) -> bool:
+    return bool(_strong_ids_only(getattr(actor, "identifiers", None)))
+
+
+def _find_actors_by_strong_ids(
+    *,
+    tenant_id: uuid.UUID,
+    ids_snap: dict[str, str],
+) -> list[Any]:
+    """Return distinct Actors in tenant that exact-match any strong ID of the candidate.
+
+    Identity-first: exact RNSR/ROR/HAL/CORDIS before any nominal name lookup.
+    Portable across PostgreSQL JSONB and SQLite JSON used in unit tests.
+    """
+
+    if not ids_snap:
+        return []
+    from opn_oracle.oracle.models import Actor
+
+    # Narrow to tenant; match schemes in Python for engine portability.
+    rows = list(
+        db.session.scalars(select(Actor).where(Actor.tenant_id == tenant_id)).all()
     )
-    from opn_oracle.oracle.models import Actor, DossierActor
+    matched: dict[str, Any] = {}
+    for scheme in STRONG_ACTOR_ID_KEYS:
+        want = str(ids_snap.get(scheme) or "").strip()
+        if not want:
+            continue
+        for actor in rows:
+            have = _strong_ids_only(
+                actor.identifiers if isinstance(actor.identifiers, dict) else {}
+            )
+            if have.get(scheme) == want:
+                matched[str(actor.id)] = actor
+    return list(matched.values())
+
+
+def _plan_single_actor_resolution(
+    *,
+    tenant_id: uuid.UUID,
+    organization: str,
+    ids_snap: dict[str, str],
+    candidate_id: str,
+) -> tuple[Any | None, str, str]:
+    """Resolve target Actor for one candidate without writing.
+
+    Returns ``(existing_or_None, canonical_key, resolution)`` where resolution is one of:
+    - ``reuse_by_id``: exact strong-ID match (idempotent import)
+    - ``reuse_by_name``: name-only path (no strong IDs on candidate and compatible)
+    - ``create``: new durable Actor (identity-keyed when IDs present)
+
+    Raises MaterializeError 409 ``identity_conflict`` when a merge would corrupt
+    identity (IDs point to different actors, or matched actor has incompatible IDs).
+    Never reuses a nominal homonym that already holds a different strong ID.
+    """
+
+    from opn_oracle.oracle.actor_candidates import actor_canonical_key
+    from opn_oracle.oracle.models import Actor
+
+    name_key = actor_canonical_key(organization)
+    identity_key = actor_identity_canonical_key(ids_snap, organization)
+
+    if ids_snap:
+        by_id = _find_actors_by_strong_ids(tenant_id=tenant_id, ids_snap=ids_snap)
+        if len(by_id) > 1:
+            raise MaterializeError(
+                "identity_conflict",
+                (
+                    f"Los identificadores fuertes del candidato «{organization}» "
+                    f"apuntan a {len(by_id)} actores distintos en el tenant. "
+                    "No se puede importar sin corromper identidad. "
+                    "Revisa RNSR/ROR/HAL/CORDIS y reintenta con un candidato inequívoco."
+                ),
+                status=409,
+            )
+        if len(by_id) == 1:
+            existing = by_id[0]
+            conflicts = _identifier_conflicts(
+                existing.identifiers if isinstance(existing.identifiers, dict) else {},
+                ids_snap,
+            )
+            if conflicts:
+                # Matched on one scheme but another scheme disagrees — fail closed.
+                detail_bits = ", ".join(
+                    f"{c['key']}: existente={c['existing']} ≠ candidato={c['incoming']}"
+                    for c in conflicts
+                )
+                raise MaterializeError(
+                    "identity_conflict",
+                    (
+                        f"Conflicto de identidad al importar «{organization}» "
+                        f"({detail_bits}). No se modifica el Actor existente. "
+                        "Corrige el candidato o el Actor durable y reintenta."
+                    ),
+                    status=409,
+                )
+            return existing, str(existing.canonical_key), "reuse_by_id"
+
+        # No exact ID match. Never attach to a name-homonym that already has IDs,
+        # and never promote a name-only Actor by auto-filling strong IDs.
+        name_hit = db.session.scalar(
+            select(Actor).where(
+                Actor.tenant_id == tenant_id, Actor.canonical_key == name_key
+            )
+        )
+        if name_hit is not None:
+            if _actor_has_strong_ids(name_hit):
+                # Homonym with incompatible durable IDs → separate identity-keyed entity.
+                # Do not mutate/link Actor A; do not leave identifier_conflicts and continue.
+                return None, identity_key, "create"
+            # Existing is name-only: conservative — do not promote by name to validated.
+            # Create separate identity-stable Actor; leave the name-only row untouched.
+            return None, identity_key, "create"
+
+        # Free identity key (or collide with prior identity-keyed import → reuse).
+        id_key_hit = db.session.scalar(
+            select(Actor).where(
+                Actor.tenant_id == tenant_id, Actor.canonical_key == identity_key
+            )
+        )
+        if id_key_hit is not None:
+            conflicts = _identifier_conflicts(
+                id_key_hit.identifiers if isinstance(id_key_hit.identifiers, dict) else {},
+                ids_snap,
+            )
+            if conflicts:
+                raise MaterializeError(
+                    "identity_conflict",
+                    (
+                        f"La clave de identidad «{identity_key}» ya existe con IDs "
+                        f"incompatibles para «{organization}». No se escribe nada."
+                    ),
+                    status=409,
+                )
+            return id_key_hit, identity_key, "reuse_by_id"
+        return None, identity_key, "create"
+
+    # Candidate without strong IDs: nominal path only; never auto-validated.
+    name_hit = db.session.scalar(
+        select(Actor).where(Actor.tenant_id == tenant_id, Actor.canonical_key == name_key)
+    )
+    if name_hit is not None:
+        # Reuse only when existing also has no conflicting strong IDs to fill from empty.
+        # If existing has strong IDs, still allow link (name-only candidate → known org)
+        # without changing identifiers or promoting identity_status on the durable row.
+        return name_hit, str(name_hit.canonical_key), "reuse_by_name"
+    return None, name_key, "create"
+
+
+def plan_actor_materialization(
+    *,
+    artifact: AIArtifact,
+    candidate_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Pre-resolve all selected actors before any write (all-or-nothing identity gate).
+
+    Raises MaterializeError 409 before Evidence/Actor/DossierActor/review/audit writes
+    when identity cannot be resolved safely.
+    """
 
     tenant_id = require_tenant_id()
-    human_id = _require_human_actor_id()
     by_id = _candidate_by_id(artifact)
-    created: list[dict[str, Any]] = []
+    plan: list[dict[str, Any]] = []
     for cid in candidate_ids:
         cand = by_id.get(cid)
         if cand is None:
@@ -758,7 +968,61 @@ def _materialize_selected_actors(
         organization = " ".join(str(cand.get("organization") or "").split())
         if not organization:
             continue
-        # Map discovery actor_type → durable Actor.actor_type closed set.
+        ids_snap = _structured_identifier_snapshot(cand)
+        existing, canonical_key, resolution = _plan_single_actor_resolution(
+            tenant_id=tenant_id,
+            organization=organization,
+            ids_snap=ids_snap,
+            candidate_id=cid,
+        )
+        plan.append(
+            {
+                "candidate_id": cid,
+                "candidate": cand,
+                "organization": organization,
+                "ids_snap": ids_snap,
+                "existing": existing,
+                "canonical_key": canonical_key,
+                "resolution": resolution,
+            }
+        )
+    return plan
+
+
+def _materialize_selected_actors(
+    *,
+    artifact: AIArtifact,
+    dossier_id: uuid.UUID,
+    candidate_ids: list[str],
+    plan: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """G-20-B: create/link Actor + DossierActor for accepted market_actor candidates.
+
+    Identity-first (corrective): exact RNSR/ROR/HAL/CORDIS before nominal name.
+    Homonyms with incompatible strong IDs create a separate identity-keyed Actor
+    or raise 409 — never mutate Actor A with ``identifier_conflicts`` and continue.
+    Name-only existing rows are not auto-promoted to validated by name.
+    Idempotent on same strong IDs. Does not mix lab vs umbrella without shared ID.
+    """
+
+    from opn_oracle.oracle.models import Actor, DossierActor
+    from opn_oracle.oracle.actor_candidates import set_actor_candidate_review
+
+    tenant_id = require_tenant_id()
+    human_id = _require_human_actor_id()
+    steps = plan if plan is not None else plan_actor_materialization(
+        artifact=artifact, candidate_ids=candidate_ids
+    )
+    created: list[dict[str, Any]] = []
+    for step in steps:
+        cid = str(step["candidate_id"])
+        cand = step["candidate"]
+        organization = str(step["organization"])
+        ids_snap: dict[str, str] = dict(step["ids_snap"] or {})
+        existing = step["existing"]
+        canonical_key = str(step["canonical_key"])
+        resolution = str(step["resolution"])
+
         raw_type = str(cand.get("actor_type") or "organization").strip().lower()
         type_map = {
             "company": "organization",
@@ -772,41 +1036,44 @@ def _materialize_selected_actors(
             "program": "program",
         }
         actor_type = type_map.get(raw_type, "institution")
-        ids_snap = _structured_identifier_snapshot(cand)
         affiliation = " ".join(str(cand.get("affiliation") or "").split())[:300]
         parent = " ".join(str(cand.get("parent_organization") or "").split())[:300]
         identity_status = str(cand.get("identity_status") or "").strip().lower()
-        # Never mark unresolved as validated on the durable actor.
-        if identity_status == "validated":
+        # Conservative: no strong IDs → never durable-validated by name alone.
+        if not ids_snap:
+            durable_identity = "unresolved"
+        elif identity_status == "validated":
             durable_identity = "validated"
         elif identity_status == "cross_referenced":
             durable_identity = "cross_referenced"
         else:
             durable_identity = "unresolved"
 
-        canonical_key = actor_canonical_key(organization)
-        existing = db.session.scalar(
-            select(Actor).where(Actor.tenant_id == tenant_id, Actor.canonical_key == canonical_key)
-        )
         provenance = {
             "source": "market_actor_discovery.accept",
             "artifact_id": str(artifact.id),
             "candidate_id": cid,
             "identity_status": durable_identity,
+            "identity_resolution": resolution,
             "score_breakdown": cand.get("score_breakdown") or {},
             "ranking_reasons": list(cand.get("ranking_reasons") or [])[:20],
             "affiliation": affiliation,
             "parent_organization": parent or None,
             "candidate_key": cand.get("candidate_key"),
         }
+
         if existing is None:
+            aliases: list[str] = []
+            # When identity-keyed, keep nominal name as alias for search UX.
+            if ids_snap and canonical_key.startswith(tuple(f"{k}:" for k in STRONG_ACTOR_ID_KEYS)):
+                aliases = [organization[:300]]
             existing = Actor(
                 tenant_id=tenant_id,
                 actor_type=actor_type,
                 canonical_name=organization[:300],
                 canonical_key=canonical_key,
-                aliases=[],
-                identifiers=ids_snap,
+                aliases=aliases,
+                identifiers=dict(ids_snap),
                 actor_metadata={
                     "tags": [],
                     "discovery": provenance,
@@ -817,11 +1084,21 @@ def _materialize_selected_actors(
             db.session.add(existing)
             db.session.flush()
         else:
-            # Fill missing IDs only; never overwrite prior durable values.
-            existing.identifiers = _merge_actor_identifiers(
-                existing.identifiers if isinstance(existing.identifiers, dict) else {},
-                ids_snap,
+            # reuse_by_id / reuse_by_name: fill missing IDs only when compatible.
+            # Compatibility already enforced in plan; never store identifier_conflicts.
+            prior_ids = (
+                dict(existing.identifiers)
+                if isinstance(existing.identifiers, dict)
+                else {}
             )
+            identifiers_changed = False
+            if resolution == "reuse_by_id" and ids_snap:
+                filled = _fill_missing_identifiers_only(prior_ids, ids_snap)
+                if filled != prior_ids:
+                    existing.identifiers = filled
+                    identifiers_changed = True
+            # reuse_by_name: never promote name-only accept into new strong IDs
+            # (candidate has none). Do not auto-upgrade identity_status on existing.
             meta = dict(existing.actor_metadata or {})
             meta["discovery"] = provenance
             if affiliation:
@@ -830,10 +1107,20 @@ def _materialize_selected_actors(
                     affs.append(affiliation)
                 meta["affiliations"] = affs[:20]
             existing.actor_metadata = meta
-            existing.version = int(existing.version or 1) + 1
+            aliases = list(existing.aliases or [])
+            if organization and organization not in aliases:
+                aliases.append(organization[:300])
+                existing.aliases = aliases[:40]
+            # Exact retry (double-click): bump only when durable IDs actually change.
+            # Metadata/alias refresh on first reuse still bumps for audit trail.
+            if identifiers_changed or resolution != "reuse_by_id":
+                existing.version = int(existing.version or 1) + 1
+            elif not identifiers_changed and resolution == "reuse_by_id":
+                # Idempotent same-ID import: leave version stable so concurrent CAS
+                # and double-click do not inflate actor.version without data change.
+                pass
             db.session.flush()
 
-        # Link to dossier without intermediate commit (outer txn owns commit).
         link = db.session.scalar(
             select(DossierActor).where(
                 DossierActor.tenant_id == tenant_id,
@@ -847,7 +1134,7 @@ def _materialize_selected_actors(
                 dossier_id=dossier_id,
                 actor_id=existing.id,
                 roles=["discovered_candidate"],
-                notes=f"Importado desde market_actor_discovery ({durable_identity}).",
+                notes=f"Importado desde market_actor_discovery ({durable_identity}/{resolution}).",
                 influence=0,
                 relevance_to_dossier=0,
                 relationship_strength=0,
@@ -859,7 +1146,7 @@ def _materialize_selected_actors(
             )
             db.session.add(link)
             db.session.flush()
-        # Durable review row (ActorCandidateReview) — imported status, auditable.
+
         set_actor_candidate_review(
             db.session(),
             tenant_id=tenant_id,
@@ -884,6 +1171,7 @@ def _materialize_selected_actors(
                 "canonical_key": canonical_key,
                 "identifiers": dict(existing.identifiers or {}),
                 "identity_status": durable_identity,
+                "identity_resolution": resolution,
             }
         )
     return created
@@ -936,6 +1224,12 @@ def accept_and_materialize(
             status=404,
         )
     source_ids, candidate_ids = resolve_selection(artifact, selected=selected)
+    # Identity gate BEFORE any Evidence/Actor write so 409 leaves zero rows.
+    actor_plan: list[dict[str, Any]] | None = None
+    if agent == "market_actor_discovery":
+        actor_plan = plan_actor_materialization(
+            artifact=artifact, candidate_ids=candidate_ids
+        )
     try:
         evidences = materialize_web_search_sources(
             artifact=artifact,
@@ -950,6 +1244,7 @@ def accept_and_materialize(
                 artifact=artifact,
                 dossier_id=dossier_id,
                 candidate_ids=candidate_ids,
+                plan=actor_plan,
             )
         _record_accept_audit_event(
             tenant_id=require_tenant_id(),

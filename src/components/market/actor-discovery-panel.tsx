@@ -183,7 +183,15 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
       setSelected(new Set());
       await load();
     } catch (reason) {
-      setError(errorMessage(reason, "No se pudieron materializar las fuentes seleccionadas."));
+      // G-20-B: identity_conflict 409 must be unequivocal for retry/UI (no silent merge).
+      if (reason instanceof ApiError && reason.problem.code === "identity_conflict") {
+        setError(
+          reason.problem.detail ||
+            "Conflicto de identidad (RNSR/ROR/HAL/CORDIS incompatibles). No se ha escrito nada. Revisa el candidato y reintenta.",
+        );
+      } else {
+        setError(errorMessage(reason, "No se pudieron materializar las fuentes seleccionadas."));
+      }
     } finally {
       setBusy(false);
     }
