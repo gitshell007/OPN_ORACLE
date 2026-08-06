@@ -2042,6 +2042,7 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
     )
     pliego_acquisition_status = source_snapshot.get("pliego_acquisition_status")
     if pliego_acquisition_status not in {
+        "procesando",
         "descargado",
         "subido",
         "extracto_parcial",

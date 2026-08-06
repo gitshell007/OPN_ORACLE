@@ -3,11 +3,15 @@
 La descarga automática PLACSP es best-effort. Comercialmente el camino fiable es:
 subir el PCAP → Oracle trocea, puntúa y prepara el esqueleto.
 
-Estados durables por documento/adquisición:
+Estados de adquisición:
+  - procesando: subida recibida; pipeline asíncrono aún no cierra (no terminal)
   - descargado: PDF oficial descargado y procesado
-  - subido: PCAP manual válido (prioridad máxima)
+  - subido: PCAP manual válido y ready (prioridad máxima; terminal)
   - extracto_parcial: se usó extracto/metadatos con procedencia y aviso
   - no_disponible: sin documento usable (HTTP/WAF, Signal vacío, parse fallido)
+
+La prioridad manual sobre auto solo aplica cuando el documento está ready/usable.
+Los fallos de descarga se persisten por tenant+dossier+URI sin crear un documento falso.
 """
 
 from __future__ import annotations
@@ -27,17 +31,20 @@ from opn_oracle.oracle.models import DossierProcurementItem, Opportunity, Strate
 from opn_oracle.oracle.policy import dossier_accessible
 from opn_oracle.platform.audit import append_audit_event
 
-AcquisitionStatus = Literal["descargado", "subido", "extracto_parcial", "no_disponible"]
+AcquisitionStatus = Literal[
+    "procesando", "descargado", "subido", "extracto_parcial", "no_disponible"
+]
 
 ACQUISITION_STATUSES: frozenset[str] = frozenset(
-    {"descargado", "subido", "extracto_parcial", "no_disponible"}
+    {"procesando", "descargado", "subido", "extracto_parcial", "no_disponible"}
 )
 
-# Prioridad: subida humana > descarga OK > extracto parcial > no disponible.
+# Prioridad: subida humana ready > descarga OK > extracto > procesando > no disponible.
 _STATUS_RANK: dict[str, int] = {
     "subido": 40,
     "descargado": 30,
     "extracto_parcial": 20,
+    "procesando": 15,
     "no_disponible": 10,
 }
 
@@ -45,10 +52,18 @@ META_KEY = "pliego_acquisition"
 SOURCE_MANUAL = "manual_pcap"
 SOURCE_PLACSP = "placsp_codice"
 SOURCE_EXTRACT = "extracto_parcial"
+# Durable last download attempt on dossier.profile_config (no fake document).
+ATTEMPTS_KEY = "pliego_download_attempts"
 
 DOWNLOAD_FAIL_WARNING = "descarga automática fallida; suba el PCAP manualmente"
 EMPTY_DOCUMENTS_WARNING = "Signal no entregó documentos CODICE; suba el PCAP manualmente"
 PARTIAL_EXTRACT_WARNING = "análisis sobre extracto parcial; no es el PCAP completo"
+
+AUDIT_UPLOAD_RECEIVED = "document.pcap_upload_received"
+AUDIT_MANUAL_SUCCESS = "document.pcap_manual_upload_success"
+AUDIT_MANUAL_FAILURE = "document.pcap_manual_upload_failed"
+# Legacy action retained only for historical rows; new terminal success uses AUDIT_MANUAL_SUCCESS.
+AUDIT_LEGACY_UPLOAD = "document.pcap_manual_upload"
 
 
 class PliegoAcquisitionError(Exception):
@@ -66,21 +81,40 @@ def acquisition_meta(document: Document) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
-def set_acquisition_meta(document: Document, payload: dict[str, Any]) -> None:
+def set_acquisition_meta(
+    document: Document,
+    payload: dict[str, Any],
+    *,
+    force: bool = False,
+) -> None:
+    """Actualiza metadata de adquisición.
+
+    Protege un ``subido`` manual terminal de degradación por retry automático, pero
+    permite transiciones del propio pipeline manual (p.ej. ``procesando`` →
+    ``subido`` / ``no_disponible``) y correcciones con ``force=True``.
+    ``updated_at`` siempre se renueva.
+    """
     meta = dict(document.metadata_json or {})
     existing = dict(meta.get(META_KEY) or {}) if isinstance(meta.get(META_KEY), dict) else {}
-    # No degradar una subida humana con un estado peor (retry automático).
     existing_status = str(existing.get("status") or "")
     new_status = str(payload.get("status") or "")
+    payload_source = str(payload.get("source") or existing.get("source") or "")
+    existing_source = str(existing.get("source") or "")
+
     if (
-        existing_status == "subido"
+        not force
+        and existing_status == "subido"
+        and existing_source == SOURCE_MANUAL
         and new_status
         and new_status != "subido"
         and _STATUS_RANK.get(new_status, 0) < _STATUS_RANK.get("subido", 0)
+        and payload_source != SOURCE_MANUAL
     ):
+        # Retry automático / descarga: no degradar un PCAP manual ready.
         return
+
     existing.update(payload)
-    existing.setdefault("updated_at", _now().isoformat())
+    existing["updated_at"] = _now().isoformat()
     meta[META_KEY] = existing
     document.metadata_json = meta
 
@@ -92,7 +126,11 @@ def _is_manual_pcap(document: Document) -> bool:
     if str((document.metadata_json or {}).get("source") or "") == SOURCE_MANUAL:
         return True
     name = (document.original_filename or "").casefold()
-    return "pcap" in name and str(meta.get("status") or "") == "subido"
+    return "pcap" in name and str(meta.get("status") or "") in {
+        "subido",
+        "procesando",
+        "no_disponible",
+    }
 
 
 def list_manual_pcap_documents(
@@ -107,7 +145,9 @@ def list_manual_pcap_documents(
             .where(
                 Document.tenant_id == tenant_id,
                 Document.dossier_id == dossier_id,
-                Document.status.in_(("ready", "queued", "processing", "uploaded")),
+                Document.status.in_(
+                    ("ready", "queued", "processing", "uploaded", "failed", "quarantined")
+                ),
             )
             .order_by(Document.created_at.desc())
         )
@@ -130,22 +170,29 @@ def prefer_manual_pcap(
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
 ) -> Document | None:
-    """PCAP manual ready tiene prioridad absoluta sobre auto/extractos."""
+    """PCAP manual ready/usable tiene prioridad absoluta sobre auto/extractos.
+
+    Upload en cola, fallido o en cuarentena no bloquea una descarga automática válida.
+    """
     for doc in list_manual_pcap_documents(tenant_id=tenant_id, dossier_id=dossier_id):
-        if doc.status == "ready" and document_available_for_citation(doc):
+        meta = acquisition_meta(doc)
+        # Solo ready cuenta como preferido, independientemente de meta intermedia.
+        if doc.status != "ready":
+            continue
+        if str(meta.get("status") or "") == "no_disponible":
+            continue
+        if document_available_for_citation(doc):
             return doc
-        # ready sin antivirus oficial aceptado: aún preferible si tiene texto
-        if doc.status == "ready":
-            has_text = db.session.scalar(
-                select(DocumentChunk.id)
-                .where(
-                    DocumentChunk.document_id == doc.id,
-                    DocumentChunk.text_content != "",
-                )
-                .limit(1)
+        has_text = db.session.scalar(
+            select(DocumentChunk.id)
+            .where(
+                DocumentChunk.document_id == doc.id,
+                DocumentChunk.text_content != "",
             )
-            if has_text is not None:
-                return doc
+            .limit(1)
+        )
+        if has_text is not None:
+            return doc
     return None
 
 
@@ -196,6 +243,190 @@ def _serialize_document_brief(document: Document | None) -> dict[str, Any] | Non
     }
 
 
+def _manual_acquisition_status(document: Document) -> tuple[str, str, str]:
+    """Return (status, reason_code, reason) for a manual PCAP document."""
+    meta = acquisition_meta(document)
+    if document.status == "ready":
+        return (
+            "subido",
+            str(meta.get("reason_code") or "manual_upload"),
+            str(meta.get("reason") or "PCAP subido manualmente y listo para uso."),
+        )
+    if document.status in {"failed", "quarantined"}:
+        code = str(
+            meta.get("reason_code")
+            or document.safe_error_code
+            or ("quarantined" if document.status == "quarantined" else "parse_failed")
+        )
+        return (
+            "no_disponible",
+            code,
+            str(
+                meta.get("reason")
+                or f"La subida manual no es usable ({document.status}: {code})."
+            ),
+        )
+    # queued / processing / uploaded → no terminal
+    return (
+        "procesando",
+        str(meta.get("reason_code") or "upload_received"),
+        str(
+            meta.get("reason")
+            or "PCAP recibido; Oracle lo procesa en segundo plano."
+        ),
+    )
+
+
+def _load_download_attempts(
+    *, tenant_id: uuid.UUID, dossier_id: uuid.UUID
+) -> dict[str, dict[str, Any]]:
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == tenant_id,
+        )
+    )
+    if dossier is None:
+        return {}
+    raw = (dossier.profile_config or {}).get(ATTEMPTS_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for key, value in raw.items():
+        if isinstance(value, dict) and key:
+            out[str(key)] = dict(value)
+    return out
+
+
+def get_download_attempt(
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    source_uri: str,
+) -> dict[str, Any] | None:
+    attempts = _load_download_attempts(tenant_id=tenant_id, dossier_id=dossier_id)
+    row = attempts.get(source_uri)
+    return dict(row) if isinstance(row, dict) else None
+
+
+def record_download_failure(
+    *,
+    dossier_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    reference: dict[str, str],
+    reason_code: str,
+    reason: str,
+    http_status: int | None = None,
+    procurement_item_id: uuid.UUID | str | None = None,
+    attempt: int | None = None,
+) -> dict[str, Any]:
+    """Persiste el último intento de descarga por tenant+dossier+URI (sin blob falso)."""
+    uri = str(reference.get("uri") or "").strip()
+    if not uri:
+        return {}
+
+    dossier = db.session.scalar(
+        select(StrategicDossier)
+        .where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == tenant_id,
+        )
+        .with_for_update()
+    )
+    if dossier is None:
+        return {}
+
+    config = dict(dossier.profile_config or {})
+    raw_attempts = config.get(ATTEMPTS_KEY)
+    attempts = dict(raw_attempts) if isinstance(raw_attempts, dict) else {}
+    previous = dict(attempts.get(uri) or {}) if isinstance(attempts.get(uri), dict) else {}
+    attempt_n = attempt if attempt is not None else int(previous.get("attempt") or 0) + 1
+    entry: dict[str, Any] = {
+        "status": "no_disponible",
+        "reason_code": reason_code,
+        "reason": reason,
+        "http_status": http_status,
+        "source_uri": uri,
+        "file_name": reference.get("file_name"),
+        "procurement_item_id": (
+            str(procurement_item_id)
+            if procurement_item_id
+            else previous.get("procurement_item_id")
+        ),
+        "attempt": attempt_n,
+        "updated_at": _now().isoformat(),
+    }
+    attempts[uri] = entry
+    config[ATTEMPTS_KEY] = attempts
+    dossier.profile_config = config
+
+    # Si ya hay documento ligado, anotar sin inventar filas.
+    linked = db.session.scalar(
+        select(Document)
+        .where(
+            Document.tenant_id == tenant_id,
+            Document.dossier_id == dossier_id,
+            Document.metadata_json["source_uri"].as_string() == uri,
+        )
+        .order_by(Document.created_at.desc())
+        .limit(1)
+    )
+    if linked is not None:
+        set_acquisition_meta(
+            linked,
+            {
+                "status": "no_disponible",
+                "source": SOURCE_PLACSP,
+                "reason_code": reason_code,
+                "reason": reason,
+                "http_status": http_status,
+                "source_uri": uri,
+                "source_file_name": reference.get("file_name"),
+                "attempt": attempt_n,
+            },
+        )
+    return entry
+
+
+def clear_download_attempt_on_success(
+    *,
+    dossier_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    source_uri: str,
+    status: str = "descargado",
+) -> None:
+    """Un éxito posterior supera el fallo durable de descarga."""
+    uri = (source_uri or "").strip()
+    if not uri:
+        return
+    dossier = db.session.scalar(
+        select(StrategicDossier)
+        .where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == tenant_id,
+        )
+        .with_for_update()
+    )
+    if dossier is None:
+        return
+    config = dict(dossier.profile_config or {})
+    raw_attempts = config.get(ATTEMPTS_KEY)
+    attempts = dict(raw_attempts) if isinstance(raw_attempts, dict) else {}
+    previous = dict(attempts.get(uri) or {}) if isinstance(attempts.get(uri), dict) else {}
+    attempts[uri] = {
+        **previous,
+        "status": status,
+        "reason_code": "downloaded" if status == "descargado" else status,
+        "reason": "Documento oficial PLACSP descargado y procesado.",
+        "source_uri": uri,
+        "attempt": int(previous.get("attempt") or 0) + 1,
+        "updated_at": _now().isoformat(),
+        "http_status": 200,
+    }
+    config[ATTEMPTS_KEY] = attempts
+    dossier.profile_config = config
+
+
 def resolve_dossier_pliego_acquisition(
     *,
     tenant_id: uuid.UUID,
@@ -205,12 +436,13 @@ def resolve_dossier_pliego_acquisition(
     """Estado honesto agregado + por referencia CODICE / subida manual.
 
     Nunca convierte un error tragado en «0 documentos» normal: si no hay PCAP
-    usable, el estado es ``no_disponible`` con razón explícita.
+    usable, el estado es ``no_disponible`` con razón explícita (durable).
     """
     manual = prefer_manual_pcap(tenant_id=tenant_id, dossier_id=dossier_id)
     manual_all = list_manual_pcap_documents(
         tenant_id=tenant_id, dossier_id=dossier_id, opportunity_id=opportunity_id
     )
+    download_attempts = _load_download_attempts(tenant_id=tenant_id, dossier_id=dossier_id)
 
     pins = list(
         db.session.scalars(
@@ -247,7 +479,6 @@ def resolve_dossier_pliego_acquisition(
             continue
         for ref in refs:
             signal_docs_total += 1
-            # ¿Hay documento ready ligado a esta URI?
             linked = db.session.scalar(
                 select(Document)
                 .where(
@@ -314,10 +545,7 @@ def resolve_dossier_pliego_acquisition(
                         "key": f"uri:{ref['uri']}",
                         "status": "extracto_parcial",
                         "reason_code": str(meta.get("reason_code") or "partial_extract"),
-                        "reason": str(
-                            meta.get("reason")
-                            or PARTIAL_EXTRACT_WARNING
-                        ),
+                        "reason": str(meta.get("reason") or PARTIAL_EXTRACT_WARNING),
                         "folder_id": pin.folder_id,
                         "kind": pin.kind,
                         "procurement_item_id": str(pin.id),
@@ -328,18 +556,31 @@ def resolve_dossier_pliego_acquisition(
                     }
                 )
                 continue
-            # Fallo HTTP/WAF registrado en metadata de intentos o sin blob
+            # Fallo HTTP/WAF durable (profile_config) o metadata de doc ligado.
             fail_reason = DOWNLOAD_FAIL_WARNING
             fail_code = "download_unavailable"
-            for doc in extract_docs:
-                meta = acquisition_meta(doc)
-                if (
-                    meta.get("source_uri") == ref["uri"]
-                    and str(meta.get("status")) == "no_disponible"
-                ):
-                    fail_reason = str(meta.get("reason") or fail_reason)
-                    fail_code = str(meta.get("reason_code") or fail_code)
-                    break
+            fail_http: int | None = None
+            fail_attempt: int | None = None
+            durable = download_attempts.get(ref["uri"])
+            if isinstance(durable, dict) and str(durable.get("status")) == "no_disponible":
+                fail_reason = str(durable.get("reason") or fail_reason)
+                fail_code = str(durable.get("reason_code") or fail_code)
+                raw_http = durable.get("http_status")
+                fail_http = int(raw_http) if raw_http is not None else None
+                raw_attempt = durable.get("attempt")
+                fail_attempt = int(raw_attempt) if raw_attempt is not None else None
+            else:
+                for doc in extract_docs:
+                    meta = acquisition_meta(doc)
+                    if (
+                        meta.get("source_uri") == ref["uri"]
+                        and str(meta.get("status")) == "no_disponible"
+                    ):
+                        fail_reason = str(meta.get("reason") or fail_reason)
+                        fail_code = str(meta.get("reason_code") or fail_code)
+                        raw_http = meta.get("http_status")
+                        fail_http = int(raw_http) if raw_http is not None else None
+                        break
             acquisitions.append(
                 {
                     "key": f"uri:{ref['uri']}",
@@ -353,21 +594,20 @@ def resolve_dossier_pliego_acquisition(
                     "file_name": ref["file_name"],
                     "document": None,
                     "manual_upload_offered": True,
+                    "http_status": fail_http,
+                    "attempt": fail_attempt,
                 }
             )
 
     for doc in manual_all:
         meta = acquisition_meta(doc)
+        status, reason_code, reason = _manual_acquisition_status(doc)
         acquisitions.append(
             {
                 "key": f"manual:{doc.id}",
-                "status": (
-                    "subido" if doc.status == "ready" else str(meta.get("status") or "subido")
-                ),
-                "reason_code": "manual_upload",
-                "reason": str(
-                    meta.get("reason") or "PCAP subido manualmente por el usuario."
-                ),
+                "status": status,
+                "reason_code": reason_code,
+                "reason": reason,
                 "folder_id": meta.get("folder_id"),
                 "kind": "manual",
                 "procurement_item_id": meta.get("procurement_item_id"),
@@ -394,6 +634,10 @@ def resolve_dossier_pliego_acquisition(
         overall = "extracto_parcial"
         overall_reason = PARTIAL_EXTRACT_WARNING
         overall_code = "partial_extract"
+    elif any(a["status"] == "procesando" for a in acquisitions):
+        overall = "procesando"
+        overall_reason = "Hay una subida manual en procesamiento; aún no es un éxito terminal."
+        overall_code = "upload_processing"
     elif not pins:
         overall = "no_disponible"
         overall_reason = "No hay licitaciones/adjudicaciones fijadas ni PCAP subido."
@@ -404,8 +648,23 @@ def resolve_dossier_pliego_acquisition(
         overall_code = "signal_documents_empty"
     else:
         overall = "no_disponible"
-        overall_reason = DOWNLOAD_FAIL_WARNING
-        overall_code = "download_unavailable"
+        # Prefer durable reason when all refs failed the same way.
+        durable_codes = [
+            a.get("reason_code")
+            for a in acquisitions
+            if a.get("status") == "no_disponible" and a.get("source_uri")
+        ]
+        if durable_codes and all(c == durable_codes[0] for c in durable_codes):
+            overall_code = str(durable_codes[0] or "download_unavailable")
+            reasons = [
+                a.get("reason")
+                for a in acquisitions
+                if a.get("reason_code") == overall_code
+            ]
+            overall_reason = str(reasons[0] if reasons else DOWNLOAD_FAIL_WARNING)
+        else:
+            overall_reason = DOWNLOAD_FAIL_WARNING
+            overall_code = "download_unavailable"
 
     return {
         "dossier_id": str(dossier_id),
@@ -446,6 +705,9 @@ def upload_manual_pcap(
     job: Any | None = None,
 ) -> tuple[Document, Any, str | None]:
     """Subida manual del PCAP por el pipeline real de parsing/chunking/evidencia.
+
+    El POST deja el estado en ``procesando`` (no terminal). El job
+    ``oracle.document.process`` cierra a ``subido`` / ``no_disponible``.
 
     Returns (document, version, job_id_or_none).
     """
@@ -506,21 +768,21 @@ def upload_manual_pcap(
     set_acquisition_meta(
         document,
         {
-            "status": "subido",
+            "status": "procesando",
             "source": SOURCE_MANUAL,
-            "reason_code": "manual_upload",
+            "reason_code": "upload_received",
             "reason": (
-                "PCAP subido manualmente; tiene prioridad sobre "
-                "descarga automática y extractos."
+                "PCAP recibido; procesamiento en curso. "
+                "Aún no es un éxito terminal ni preferido."
             ),
             "opportunity_id": str(opportunity_id) if opportunity_id else None,
             "procurement_item_id": str(procurement_item_id) if procurement_item_id else None,
             "folder_id": folder_id,
             "uploaded_by_user_id": str(uploader_id),
             "uploaded_at": _now().isoformat(),
+            "terminal_result": None,
         },
     )
-    # Marcadores legibles para bag/pliego y filtros existentes.
     meta = dict(document.metadata_json or {})
     meta["source"] = SOURCE_MANUAL
     meta["document_type"] = "legal"
@@ -528,9 +790,11 @@ def upload_manual_pcap(
     document.metadata_json = meta
     db.session.flush()
 
+    # Recepción (no terminal). result=success solo indica que la recepción se
+    # registró; el éxito de adquisición terminal usa AUDIT_MANUAL_SUCCESS.
     append_audit_event(
         db.session,
-        action="document.pcap_manual_upload",
+        action=AUDIT_UPLOAD_RECEIVED,
         resource_type="document",
         resource_id=document.id,
         dossier_id=dossier_id,
@@ -542,9 +806,11 @@ def upload_manual_pcap(
             "folder_id": folder_id,
             "media_type": media_type,
             "byte_size": document.byte_size,
-            "acquisition_status": "subido",
-            "priority": "manual_over_auto",
+            "acquisition_status": "procesando",
+            "priority": "manual_over_auto_when_ready",
             "uploader_id": str(uploader_id),
+            "phase": "upload_received",
+            "terminal": False,
         },
     )
 
@@ -553,21 +819,13 @@ def upload_manual_pcap(
         try:
             process_document(document.id, version.id, job)
             document = db.session.get(Document, document.id) or document
-            if document.status == "failed":
-                # Rollback de estado de adquisición honesto ante parse fallido.
-                set_acquisition_meta(
-                    document,
-                    {
-                        "status": "no_disponible",
-                        "source": SOURCE_MANUAL,
-                        "reason_code": "parse_failed",
-                        "reason": (
-                            f"La subida manual falló al procesar: "
-                            f"{document.safe_error_code or 'error de formato'}."
-                        ),
-                    },
-                )
-                db.session.commit()
+            finalize_manual_pcap_after_process(
+                document_id=document.id,
+                job=job,
+                process_result={"inline": True},
+            )
+            document = db.session.get(Document, document.id) or document
+            if document.status in {"failed", "quarantined"}:
                 raise PliegoAcquisitionError(
                     "El archivo se recibió pero no se pudo procesar. "
                     "Revise formato (PDF/texto) y tamaño.",
@@ -575,19 +833,13 @@ def upload_manual_pcap(
                 )
         except DocumentError as error:
             db.session.rollback()
-            # Re-cargar y marcar no_disponible sin dejar estado «subido» falso.
             document = db.session.get(Document, document.id)
             if document is not None:
-                set_acquisition_meta(
-                    document,
-                    {
-                        "status": "no_disponible",
-                        "source": SOURCE_MANUAL,
-                        "reason_code": "parse_failed",
-                        "reason": str(error),
-                    },
+                finalize_manual_pcap_after_process(
+                    document_id=document.id,
+                    job=job,
+                    error=error,
                 )
-                db.session.commit()
             raise PliegoAcquisitionError(str(error), code="parse_failed") from error
     else:
         bg_job = stage_job(
@@ -606,43 +858,137 @@ def upload_manual_pcap(
     return document, version, job_id
 
 
-def record_download_failure(
+def finalize_manual_pcap_after_process(
     *,
-    dossier_id: uuid.UUID,
-    tenant_id: uuid.UUID,
-    reference: dict[str, str],
-    reason_code: str,
-    reason: str,
-    http_status: int | None = None,
-) -> None:
-    """Persiste un marcador durable de fallo HTTP/WAF (sin fingir 0 documentos)."""
-    # Documento sentinel de metadata-only no se crea: el estado vive en el
-    # informe (document_acquisitions) y se relee vía pins. Aquí anotamos en
-    # cualquier doc ligado a la URI, si existe.
-    linked = db.session.scalar(
+    document_id: uuid.UUID,
+    job: Any,
+    process_result: dict[str, Any] | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any] | None:
+    """Cierra la adquisición manual al terminar ``oracle.document.process``.
+
+    - ready usable → ``subido`` + evento terminal único de éxito
+    - failed/quarantined/parse permanente → ``no_disponible`` + evento de fallo
+    - ignored/retry temporal → permanece ``procesando`` sin afirmar éxito
+    """
+    del process_result  # reserved for future diagnostics
+    document = db.session.scalar(
         select(Document)
-        .where(
-            Document.tenant_id == tenant_id,
-            Document.dossier_id == dossier_id,
-            Document.metadata_json["source_uri"].as_string() == reference.get("uri"),
+        .where(Document.id == document_id)
+        .execution_options(populate_existing=True)
+    )
+    if document is None:
+        return None
+    if not _is_manual_pcap(document):
+        return None
+
+    meta = acquisition_meta(document)
+    if meta.get("terminal_result") in {"success", "failure"}:
+        # Idempotente: no duplicar eventos terminales ni reescribir meta.
+        return {
+            "ignored": True,
+            "reason": "already_terminal",
+            "terminal_result": meta.get("terminal_result"),
+            "status": meta.get("status"),
+        }
+
+    correlation_id = getattr(job, "correlation_id", None) or getattr(job, "id", None)
+    correlation = str(correlation_id) if correlation_id is not None else None
+    job_id = str(getattr(job, "id", "") or "") or None
+
+    if document.status == "ready":
+        set_acquisition_meta(
+            document,
+            {
+                "status": "subido",
+                "source": SOURCE_MANUAL,
+                "reason_code": "manual_upload",
+                "reason": (
+                    "PCAP subido manualmente y procesado; tiene prioridad sobre "
+                    "descarga automática y extractos."
+                ),
+                "terminal_result": "success",
+                "closed_by_job_id": job_id,
+            },
+            force=True,
         )
-        .order_by(Document.created_at.desc())
-        .limit(1)
-    )
-    if linked is None:
-        return
-    set_acquisition_meta(
-        linked,
-        {
-            "status": "no_disponible",
-            "source": SOURCE_PLACSP,
-            "reason_code": reason_code,
-            "reason": reason,
-            "http_status": http_status,
-            "source_uri": reference.get("uri"),
-            "source_file_name": reference.get("file_name"),
-        },
-    )
+        append_audit_event(
+            db.session,
+            action=AUDIT_MANUAL_SUCCESS,
+            resource_type="document",
+            resource_id=document.id,
+            dossier_id=document.dossier_id,
+            result="success",
+            correlation_id=correlation,
+            metadata={
+                "filename": document.original_filename,
+                "acquisition_status": "subido",
+                "priority": "manual_over_auto",
+                "job_id": job_id,
+                "phase": "process_complete",
+                "document_status": document.status,
+            },
+        )
+        db.session.commit()
+        return {"status": "subido", "terminal_result": "success"}
+
+    if document.status in {"failed", "quarantined"} or error is not None:
+        code = str(
+            document.safe_error_code
+            or (type(error).__name__.lower() if error is not None else "parse_failed")
+        )
+        if document.status == "quarantined":
+            code = "quarantined"
+        reason = (
+            f"La subida manual falló al procesar ({code}). "
+            "El PCAP no es usable ni preferido."
+        )
+        set_acquisition_meta(
+            document,
+            {
+                "status": "no_disponible",
+                "source": SOURCE_MANUAL,
+                "reason_code": code,
+                "reason": reason,
+                "terminal_result": "failure",
+                "closed_by_job_id": job_id,
+            },
+            force=True,
+        )
+        append_audit_event(
+            db.session,
+            action=AUDIT_MANUAL_FAILURE,
+            resource_type="document",
+            resource_id=document.id,
+            dossier_id=document.dossier_id,
+            result="failure",
+            correlation_id=correlation,
+            metadata={
+                "filename": document.original_filename,
+                "acquisition_status": "no_disponible",
+                "reason_code": code,
+                "job_id": job_id,
+                "phase": "process_failed",
+                "document_status": document.status,
+            },
+        )
+        db.session.commit()
+        return {"status": "no_disponible", "terminal_result": "failure", "reason_code": code}
+
+    # Temporal / ignored: no afirmar éxito; mantener no terminal.
+    if str(meta.get("status") or "") != "procesando":
+        set_acquisition_meta(
+            document,
+            {
+                "status": "procesando",
+                "source": SOURCE_MANUAL,
+                "reason_code": "upload_received",
+                "reason": "PCAP en procesamiento; resultado aún no terminal.",
+            },
+            force=True,
+        )
+        db.session.commit()
+    return {"status": "procesando", "terminal_result": None}
 
 
 def mark_partial_extract(
@@ -668,7 +1014,7 @@ def mark_partial_extract(
 
 
 def mark_downloaded(document: Document, *, reference: dict[str, str]) -> None:
-    # No pisa subido.
+    # No pisa subido manual (proteccion en set_acquisition_meta).
     set_acquisition_meta(
         document,
         {
@@ -680,6 +1026,13 @@ def mark_downloaded(document: Document, *, reference: dict[str, str]) -> None:
             "source_file_name": reference.get("file_name"),
         },
     )
+    if document.dossier_id is not None:
+        clear_download_attempt_on_success(
+            dossier_id=document.dossier_id,
+            tenant_id=document.tenant_id,
+            source_uri=str(reference.get("uri") or ""),
+            status="descargado",
+        )
 
 
 def classify_download_error(

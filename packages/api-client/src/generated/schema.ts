@@ -36349,7 +36349,7 @@ export interface components {
             overall_reason?: string;
             overall_reason_code?: string;
             /** @enum {string} */
-            overall_status: "descargado" | "subido" | "extracto_parcial" | "no_disponible";
+            overall_status: "procesando" | "descargado" | "subido" | "extracto_parcial" | "no_disponible";
             pins_without_documents?: number;
             preferred_document?: components["schemas"]["JsonObject"] | null;
             signal_document_refs?: number;
@@ -36357,8 +36357,11 @@ export interface components {
             [key: string]: unknown;
         };
         PliegoPcapUploadResponse: {
-            /** @enum {string} */
-            acquisition_status: "subido" | "no_disponible";
+            /**
+             * @description procesando = recepción no terminal; subido solo tras oracle.document.process ready; no_disponible = fallo terminal.
+             * @enum {string}
+             */
+            acquisition_status: "procesando" | "subido" | "no_disponible";
             document: components["schemas"]["JsonObject"];
             job_id: string | null;
             message: string;
@@ -36621,7 +36624,7 @@ export interface components {
             confidentiality_label?: string;
             /** Format: date-time */
             created_at?: string;
-            /** @description Estado honesto por documento/adquisición: descargado, subido, extracto_parcial, no_disponible. */
+            /** @description Estado honesto por documento/adquisición: procesando, descargado, subido, extracto_parcial, no_disponible. */
             document_acquisitions?: components["schemas"]["JsonObject"][];
             /** @description Avisos legibles para el cliente (p. ej. análisis sobre extracto porque el PDF original del pliego está cifrado). */
             document_notes?: string[];
@@ -36656,7 +36659,7 @@ export interface components {
              * @description Estado agregado de adquisición del pliego (G-11).
              * @enum {string|null}
              */
-            pliego_acquisition_status?: "descargado" | "subido" | "extracto_parcial" | "no_disponible" | null;
+            pliego_acquisition_status?: "procesando" | "descargado" | "subido" | "extracto_parcial" | "no_disponible" | null;
             /** Format: date-time */
             published_at?: string | null;
             /** Format: date-time */

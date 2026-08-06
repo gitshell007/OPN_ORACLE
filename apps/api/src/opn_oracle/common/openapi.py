@@ -2295,6 +2295,7 @@ def _oracle_schemas() -> dict[str, Any]:
                 "overall_status": {
                     "type": "string",
                     "enum": [
+                        "procesando",
                         "descargado",
                         "subido",
                         "extracto_parcial",
@@ -2325,7 +2326,11 @@ def _oracle_schemas() -> dict[str, Any]:
                 "job_id": {"type": "string", "nullable": True},
                 "acquisition_status": {
                     "type": "string",
-                    "enum": ["subido", "no_disponible"],
+                    "enum": ["procesando", "subido", "no_disponible"],
+                    "description": (
+                        "procesando = recepción no terminal; subido solo tras "
+                        "oracle.document.process ready; no_disponible = fallo terminal."
+                    ),
                 },
                 "message": string,
                 "pliego_acquisition": {
@@ -3656,14 +3661,15 @@ def _reporting_schemas() -> dict[str, Any]:
                 "type": "array",
                 "items": json_object,
                 "description": (
-                    "Estado honesto por documento/adquisición: descargado, subido, "
-                    "extracto_parcial, no_disponible."
+                    "Estado honesto por documento/adquisición: procesando, descargado, "
+                    "subido, extracto_parcial, no_disponible."
                 ),
             },
             "pliego_acquisition_status": {
                 "type": "string",
                 "nullable": True,
                 "enum": [
+                    "procesando",
                     "descargado",
                     "subido",
                     "extracto_parcial",

@@ -20,6 +20,7 @@ import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { JobProgress } from "@/components/reporting/job-progress";
 
 const STATUS_LABEL: Record<PliegoAcquisitionStatus, string> = {
+  procesando: "Procesando subida",
   descargado: "Descargado (oficial)",
   subido: "Subido manualmente",
   extracto_parcial: "Extracto parcial",
@@ -32,6 +33,8 @@ function statusClass(status: string): string {
       return "pliego-status pliego-status-ok";
     case "descargado":
       return "pliego-status pliego-status-ok";
+    case "procesando":
+      return "pliego-status pliego-status-warn";
     case "extracto_parcial":
       return "pliego-status pliego-status-warn";
     default:
@@ -108,9 +111,19 @@ export function PliegoPcapPanel({
       if (result.pliego_acquisition) {
         setAcquisition(result.pliego_acquisition);
       }
-      toast.success("PCAP recibido", {
-        description: "Oracle lo trocea y prepara el esqueleto en segundo plano.",
-      });
+      if (result.acquisition_status === "subido") {
+        toast.success("PCAP listo", {
+          description: "Procesado y preferido sobre descarga automática.",
+        });
+      } else if (result.acquisition_status === "no_disponible") {
+        toast.error("PCAP no usable", {
+          description: result.message || "El procesamiento falló; no se afirma éxito.",
+        });
+      } else {
+        toast.success("PCAP recibido", {
+          description: "En procesamiento; aún no es un éxito terminal.",
+        });
+      }
       await load();
     } catch (reason) {
       setError(
@@ -200,6 +213,12 @@ export function PliegoPcapPanel({
               «no disponible» o «extracto parcial», no «0 documentos» normales.
             </p>
           )}
+          {overall === "procesando" && (
+            <p className="pliego-pcap-processing" data-testid="pliego-pcap-processing">
+              Subida en curso: el estado «subido» solo se afirma cuando el pipeline termina
+              con el documento ready. Mientras tanto no bloquea una descarga automática válida.
+            </p>
+          )}
           {overall === "extracto_parcial" && (
             <p className="pliego-pcap-partial" data-testid="pliego-pcap-partial">
               Se reutilizó un extracto del expediente. No es el PCAP completo; la subida
@@ -245,6 +264,9 @@ export function PliegoPcapPanel({
           label="Procesando PCAP (troceo y evidencia)"
           onTerminal={() => {
             setActiveJobId(null);
+            setProcessedMessage(
+              "Procesamiento de PCAP finalizado. Recargando estado honesto…",
+            );
             void load();
           }}
           allowActions

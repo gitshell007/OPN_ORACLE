@@ -8400,6 +8400,7 @@
           },
           "overall_status": {
             "enum": [
+              "procesando",
               "descargado",
               "subido",
               "extracto_parcial",
@@ -8439,7 +8440,9 @@
         "additionalProperties": true,
         "properties": {
           "acquisition_status": {
+            "description": "procesando = recepci\u00f3n no terminal; subido solo tras oracle.document.process ready; no_disponible = fallo terminal.",
             "enum": [
+              "procesando",
               "subido",
               "no_disponible"
             ],
@@ -9365,7 +9368,7 @@
             "type": "string"
           },
           "document_acquisitions": {
-            "description": "Estado honesto por documento/adquisici\u00f3n: descargado, subido, extracto_parcial, no_disponible.",
+            "description": "Estado honesto por documento/adquisici\u00f3n: procesando, descargado, subido, extracto_parcial, no_disponible.",
             "items": {
               "$ref": "#/components/schemas/JsonObject"
             },
@@ -9479,6 +9482,7 @@
           "pliego_acquisition_status": {
             "description": "Estado agregado de adquisici\u00f3n del pliego (G-11).",
             "enum": [
+              "procesando",
               "descargado",
               "subido",
               "extracto_parcial",

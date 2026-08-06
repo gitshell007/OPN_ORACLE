@@ -36,6 +36,7 @@ from opn_oracle.oracle.pliego_acquisition import (
     mark_downloaded,
     mark_partial_extract,
     prefer_manual_pcap,
+    record_download_failure,
 )
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.reporting.service import (
@@ -559,8 +560,25 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
                 processed += used
                 evidence += ev
                 acquisitions.extend(fb_acq)
+                # Persistimos el motivo real aunque haya extracto parcial.
+                record_download_failure(
+                    dossier_id=report.dossier_id,
+                    tenant_id=report.tenant_id,
+                    reference=reference,
+                    reason_code=code,
+                    reason=human,
+                    http_status=getattr(error, "http_status", None),
+                )
                 continue
             warnings.append(human)
+            record_download_failure(
+                dossier_id=report.dossier_id,
+                tenant_id=report.tenant_id,
+                reference=reference,
+                reason_code=code,
+                reason=human,
+                http_status=getattr(error, "http_status", None),
+            )
             acquisitions.append(
                 _acquisition_entry(
                     status="no_disponible",

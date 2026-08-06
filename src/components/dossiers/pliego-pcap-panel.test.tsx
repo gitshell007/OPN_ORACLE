@@ -40,7 +40,7 @@ vi.mock("@/components/reporting/job-progress", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() },
 }));
 
 const emptyAcquisition = {
@@ -119,16 +119,22 @@ describe("PliegoPcapPanel G-11", () => {
         status: "queued",
       },
       job_id: "job-1",
-      acquisition_status: "subido",
-      message: "PCAP recibido. Oracle lo procesa en segundo plano.",
+      acquisition_status: "procesando",
+      message: "PCAP recibido y en procesamiento. Aún no es un éxito terminal.",
       pliego_acquisition: {
         ...emptyAcquisition,
-        overall_status: "subido",
-        preferred_document: {
-          id: "doc-1",
-          filename: "PCAP.pdf",
-          status: "queued",
-        },
+        overall_status: "procesando",
+        preferred_document: null,
+        acquisitions: [
+          {
+            key: "manual:doc-1",
+            status: "procesando",
+            reason_code: "upload_received",
+            reason: "PCAP recibido; procesamiento en curso.",
+            file_name: "PCAP.pdf",
+            manual_upload_offered: true,
+          },
+        ],
       },
     });
   });
@@ -162,7 +168,25 @@ describe("PliegoPcapPanel G-11", () => {
     expect(screen.getByTestId("pliego-pcap-status").textContent).toMatch(/Extracto parcial/i);
   });
 
-  it("subida → procesado (job + mensaje)", async () => {
+  it("subida → procesando (job + mensaje honesto, no éxito terminal)", async () => {
+    // Tras el POST la UI debe mostrar procesando; load recarga el estado.
+    pliegoAcquisition
+      .mockResolvedValueOnce(emptyAcquisition)
+      .mockResolvedValue({
+        ...emptyAcquisition,
+        overall_status: "procesando",
+        overall_reason: "Hay una subida manual en procesamiento",
+        preferred_document: null,
+        acquisitions: [
+          {
+            key: "manual:doc-1",
+            status: "procesando",
+            reason_code: "upload_received",
+            file_name: "PCAP.pdf",
+            manual_upload_offered: true,
+          },
+        ],
+      });
     render(<PliegoPcapPanel dossierId="d1" />);
     await waitFor(() => expect(screen.getByTestId("pliego-pcap-cta")).toBeTruthy());
     const input = screen.getByTestId("pliego-pcap-input") as HTMLInputElement;
@@ -170,9 +194,14 @@ describe("PliegoPcapPanel G-11", () => {
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => {
       expect(uploadPliegoPcap).toHaveBeenCalled();
-      expect(screen.getByTestId("pliego-pcap-ok").textContent).toMatch(/PCAP recibido/i);
+      expect(screen.getByTestId("pliego-pcap-ok").textContent).toMatch(
+        /recibido|procesamiento|no es un éxito terminal/i,
+      );
     });
     expect(screen.getByTestId("job-progress")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId("pliego-pcap-status").textContent).toMatch(/Procesando/i);
+    });
   });
 
   it("error de fichero legible", async () => {

@@ -141,7 +141,11 @@ def test_classify_download_error_matrix() -> None:
 def test_set_acquisition_meta_does_not_downgrade_manual_upload() -> None:
     doc = SimpleNamespace(
         metadata_json={
-            "pliego_acquisition": {"status": "subido", "source": SOURCE_MANUAL}
+            "pliego_acquisition": {
+                "status": "subido",
+                "source": SOURCE_MANUAL,
+                "updated_at": "2020-01-01T00:00:00+00:00",
+            }
         }
     )
     set_acquisition_meta(
@@ -153,6 +157,52 @@ def test_set_acquisition_meta_does_not_downgrade_manual_upload() -> None:
         },
     )
     assert doc.metadata_json["pliego_acquisition"]["status"] == "subido"
+    # Auto retry no toca updated_at (salida temprana).
+    assert doc.metadata_json["pliego_acquisition"]["updated_at"] == "2020-01-01T00:00:00+00:00"
+
+
+def test_set_acquisition_meta_allows_manual_pipeline_terminal_and_updates_at() -> None:
+    doc = SimpleNamespace(
+        metadata_json={
+            "pliego_acquisition": {
+                "status": "procesando",
+                "source": SOURCE_MANUAL,
+                "updated_at": "2020-01-01T00:00:00+00:00",
+            }
+        }
+    )
+    set_acquisition_meta(
+        doc,  # type: ignore[arg-type]
+        {
+            "status": "no_disponible",
+            "source": SOURCE_MANUAL,
+            "reason_code": "parse_failed",
+            "reason": "parse failed",
+        },
+        force=True,
+    )
+    meta = doc.metadata_json["pliego_acquisition"]
+    assert meta["status"] == "no_disponible"
+    assert meta["updated_at"] != "2020-01-01T00:00:00+00:00"
+
+
+def test_set_acquisition_meta_allows_procesando_to_subido() -> None:
+    doc = SimpleNamespace(
+        metadata_json={
+            "pliego_acquisition": {"status": "procesando", "source": SOURCE_MANUAL}
+        }
+    )
+    set_acquisition_meta(
+        doc,  # type: ignore[arg-type]
+        {
+            "status": "subido",
+            "source": SOURCE_MANUAL,
+            "reason_code": "manual_upload",
+        },
+        force=True,
+    )
+    assert doc.metadata_json["pliego_acquisition"]["status"] == "subido"
+    assert "updated_at" in doc.metadata_json["pliego_acquisition"]
 
 
 def test_ingest_empty_documents_is_no_disponible_not_silent_zero() -> None:
@@ -230,6 +280,10 @@ def test_ingest_http_403_uses_partial_extract_when_available() -> None:
                 ],
             ),
         ) as fb,
+        patch(
+            "opn_oracle.oracle.procurement_report.record_download_failure",
+            return_value={},
+        ),
     ):
         outcome = _ingest_documents(report, SimpleNamespace(id=uuid.uuid4()))  # type: ignore[arg-type]
     fb.assert_called_once()
@@ -281,8 +335,17 @@ def test_ingest_http_403_without_extract_is_no_disponible_visible() -> None:
             "opn_oracle.oracle.procurement_report._use_partial_extract_fallback",
             return_value=(0, 0, [], []),
         ),
+        patch(
+            "opn_oracle.oracle.procurement_report.record_download_failure",
+            return_value={
+                "status": "no_disponible",
+                "reason_code": "http_403_waf",
+                "attempt": 1,
+            },
+        ) as rec,
     ):
         outcome = _ingest_documents(report, SimpleNamespace(id=uuid.uuid4()))  # type: ignore[arg-type]
+    rec.assert_called_once()
     assert outcome["documents"] == 0
     assert outcome["acquisitions"][0]["status"] == "no_disponible"
     assert outcome["acquisitions"][0]["reason_code"] == "http_403_waf"

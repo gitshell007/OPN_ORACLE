@@ -127,18 +127,38 @@ def upload_pliego_pcap(dossier_id: uuid.UUID) -> Any:
         db.session.rollback()
         raise
 
+    # Tras publish_job (eager o async) re-leer documento y estado real.
+    document = db.session.get(type(document), document.id) or document
     acquisition = resolve_dossier_pliego_acquisition(
         tenant_id=g.active_tenant_id,
         dossier_id=dossier_id,
         opportunity_id=opportunity_id,
     )
+    meta_status = str(
+        ((document.metadata_json or {}).get("pliego_acquisition") or {}).get("status")
+        or "procesando"
+    )
+    if document.status == "ready" and meta_status == "subido":
+        acquisition_status = "subido"
+        message = (
+            "PCAP procesado y listo. Tiene prioridad sobre descarga automática y extractos."
+        )
+    elif document.status in {"failed", "quarantined"} or meta_status == "no_disponible":
+        acquisition_status = "no_disponible"
+        message = (
+            "El archivo se recibió pero no se pudo procesar. "
+            "Revise formato (PDF/texto) y tamaño; no se afirma éxito."
+        )
+    else:
+        acquisition_status = "procesando"
+        message = (
+            "PCAP recibido y en procesamiento. Aún no es un éxito terminal; "
+            "Oracle lo trocea y prepara el esqueleto en segundo plano."
+        )
     return {
         "document": serialize_document(document),
         "job_id": job_id,
-        "acquisition_status": "subido",
-        "message": (
-            "PCAP recibido. Oracle lo procesa en segundo plano "
-            "(troceo, puntuación y esqueleto cuando el pipeline esté listo)."
-        ),
+        "acquisition_status": acquisition_status,
+        "message": message,
         "pliego_acquisition": acquisition,
     }, 202

@@ -791,6 +791,7 @@ export interface OracleDocument {
 
 /** G-11 · estado honesto de adquisición de pliego/PCAP. */
 export type PliegoAcquisitionStatus =
+  | "procesando"
   | "descargado"
   | "subido"
   | "extracto_parcial"
@@ -843,7 +844,8 @@ export interface PliegoAcquisitionResponse {
 export interface PliegoPcapUploadResponse {
   document: OracleDocument;
   job_id: string | null;
-  acquisition_status: "subido" | "no_disponible" | string;
+  /** procesando = no terminal; subido solo tras job ready; no_disponible = fallo terminal. */
+  acquisition_status: "procesando" | "subido" | "no_disponible" | string;
   message: string;
   pliego_acquisition?: PliegoAcquisitionResponse;
 }
