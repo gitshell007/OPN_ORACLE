@@ -74,24 +74,58 @@ def _checksum_bytes(content_checksum_value: str) -> bytes:
     return bytes.fromhex(raw)
 
 
+# Agents that may materialize reserved web_search sources into Evidence (G-18/G-19).
+MARKET_MATERIALIZE_AGENTS = frozenset(
+    {
+        "market_competitor_discovery",
+        "market_actor_discovery",
+    }
+)
+
+ACCEPT_AUDIT_ACTIONS: dict[str, str] = {
+    "market_competitor_discovery": "ai.market_competitor_discovery.accept",
+    "market_actor_discovery": "ai.market_actor_discovery.accept",
+}
+
+ACCEPT_AUDIT_GATES: dict[str, str] = {
+    "market_competitor_discovery": "market_competitor_discovery.accept",
+    "market_actor_discovery": "market_actor_discovery.accept",
+}
+
+CREATED_BY_PROVENANCE: dict[str, str] = {
+    "market_competitor_discovery": "oracle.g18.market_competitor_materialize",
+    "market_actor_discovery": "oracle.g19.market_actor_materialize",
+}
+
+
 def load_tenant_artifact(
     artifact_id: uuid.UUID,
     *,
     expected_version: int | None = None,
     for_update: bool = False,
+    agent: str = "market_competitor_discovery",
 ) -> AIArtifact:
-    """Load market_competitor_discovery artifact for this tenant.
+    """Load market discovery artifact for this tenant and agent.
+
+    ``agent`` must match the artifact's agent (competitor vs actor endpoints are
+    closed: cross-agent accept fails with artifact_not_found).
 
     When for_update=True, takes a PostgreSQL row lock (FOR UPDATE) so concurrent
     accepts of the same artifact serialize. On SQLite the clause is ignored/no-op
     enough for sequential tests.
     """
 
+    if agent not in MARKET_MATERIALIZE_AGENTS:
+        raise MaterializeError(
+            "agent_not_materializable",
+            "Este agente no admite materialización de fuentes cerradas.",
+            status=422,
+        )
     tenant_id = require_tenant_id()
     stmt = select(AIArtifact).where(
         AIArtifact.id == artifact_id,
         AIArtifact.tenant_id == tenant_id,
-        AIArtifact.agent == "market_competitor_discovery",
+        AIArtifact.agent == agent,
     )
     if for_update:
         stmt = stmt.with_for_update()
@@ -107,7 +141,7 @@ def load_tenant_artifact(
         # rejected, superseded, valid, or unknown → 409 (not accept path)
         if status == "superseded":
             code = "artifact_superseded"
-            detail = "El artifact de discovery fue sustituido; vuelve a proponer competidores."
+            detail = "El artifact de discovery fue sustituido; vuelve a proponer candidatos."
         elif status == "rejected":
             code = "artifact_rejected"
             detail = "El artifact de discovery fue rechazado; no se puede materializar."
@@ -323,7 +357,8 @@ def deterministic_accept_audit_event_id(
     return uuid.uuid5(ACCEPT_AUDIT_NAMESPACE, material)
 
 
-ACCEPT_AUDIT_ACTION = "ai.market_competitor_discovery.accept"
+# Backward-compat alias (competitor path default).
+ACCEPT_AUDIT_ACTION = ACCEPT_AUDIT_ACTIONS["market_competitor_discovery"]
 ACCEPT_AUDIT_RESOURCE_TYPE = "ai_artifact"
 
 
@@ -346,6 +381,7 @@ def _validate_existing_accept_audit(
     tenant_id: uuid.UUID,
     artifact: AIArtifact,
     dossier_id: uuid.UUID,
+    expected_action: str,
 ) -> AuditEvent:
     """Reuse existing idempotent event only when identity fields match.
 
@@ -358,7 +394,7 @@ def _validate_existing_accept_audit(
             "Conflicto de identidad de auditoría entre tenants.",
             status=409,
         )
-    if existing.action != ACCEPT_AUDIT_ACTION:
+    if existing.action != expected_action:
         raise MaterializeError(
             "audit_action_mismatch",
             "El evento de auditoría reutilizado no corresponde a esta aceptación.",
@@ -388,6 +424,7 @@ def _record_accept_audit_event(
     source_ids: list[str],
     evidence_ids: list[str],
     expected_version: int | None,
+    agent: str = "market_competitor_discovery",
 ) -> AuditEvent:
     """Insert or reuse durable human-accept AuditEvent inside the outer transaction.
 
@@ -398,6 +435,8 @@ def _record_accept_audit_event(
 
     # Fail closed before any write: human gate never falls back to service actor.
     _require_human_actor_id()
+    expected_action = ACCEPT_AUDIT_ACTIONS.get(agent, ACCEPT_AUDIT_ACTION)
+    gate = ACCEPT_AUDIT_GATES.get(agent, f"{agent}.accept")
 
     event_id = deterministic_accept_audit_event_id(
         tenant_id=tenant_id,
@@ -413,13 +452,15 @@ def _record_accept_audit_event(
             tenant_id=tenant_id,
             artifact=artifact,
             dossier_id=dossier_id,
+            expected_action=expected_action,
         )
 
     sorted_cands = sorted({str(uuid.UUID(str(c))) for c in candidate_ids})
     sorted_sources = sorted({str(uuid.UUID(str(s))) for s in source_ids})
     sorted_evidence = sorted({str(uuid.UUID(str(e))) for e in evidence_ids})
     metadata = {
-        "gate": "market_competitor_discovery.accept",
+        "gate": gate,
+        "agent": agent,
         "artifact_id": str(artifact.id),
         "dossier_id": str(dossier_id),
         "expected_version": expected_version,
@@ -434,7 +475,7 @@ def _record_accept_audit_event(
             # optional event_id preserves deterministic idempotent PK.
             event = append_audit_event(
                 db.session,
-                action=ACCEPT_AUDIT_ACTION,
+                action=expected_action,
                 resource_type=ACCEPT_AUDIT_RESOURCE_TYPE,
                 result="success",
                 resource_id=artifact.id,
@@ -457,6 +498,7 @@ def _record_accept_audit_event(
             tenant_id=tenant_id,
             artifact=artifact,
             dossier_id=dossier_id,
+            expected_action=expected_action,
         )
 
 
@@ -489,6 +531,7 @@ def _get_or_create_web_search_evidence(
     artifact: AIArtifact,
     sid: str,
     piece: dict[str, Any],
+    agent: str = "market_competitor_discovery",
 ) -> Evidence:
     """Idempotent Evidence with deterministic UUID PK (tenant+artifact+source_id)."""
 
@@ -550,7 +593,9 @@ def _get_or_create_web_search_evidence(
             "artifact_id": str(artifact.id),
             "label": piece.get("label") or title or url,
             "content_checksum": checksum_hdr,
-            "created_by": "oracle.g18.market_competitor_materialize",
+            "created_by": CREATED_BY_PROVENANCE.get(
+                agent, "oracle.g18.market_competitor_materialize"
+            ),
         },
     )
     # SAVEPOINT so IntegrityError on concurrent insert does not poison the session.
@@ -605,6 +650,7 @@ def materialize_web_search_sources(
     artifact: AIArtifact,
     dossier_id: uuid.UUID,
     source_ids: list[str],
+    agent: str = "market_competitor_discovery",
 ) -> list[dict[str, Any]]:
     """Idempotent Evidence + EvidenceDossier for selected reserved sources.
 
@@ -630,6 +676,7 @@ def materialize_web_search_sources(
             artifact=artifact,
             sid=sid,
             piece=piece,
+            agent=agent,
         )
         _ensure_evidence_dossier_link(
             tenant_id=tenant_id,
@@ -655,6 +702,7 @@ def accept_and_materialize(
     dossier_id: uuid.UUID,
     selected: list[dict[str, Any]],
     expected_version: int | None = None,
+    agent: str = "market_competitor_discovery",
 ) -> dict[str, Any]:
     """Full human gate: lock → validate → materialize + human audit in one txn.
 
@@ -662,10 +710,10 @@ def accept_and_materialize(
     - Only status=candidate may start (rejected/superseded/other → 409).
     - Status is NOT flipped to valid/rejected so exact retry stays idempotent
       and a later partial selection can still add more sources.
-    - Technical provenance ``created_by=oracle.g18.market_competitor_materialize``
-      remains code identity only; the human decision is the AuditEvent
-      (actor_id + selection metadata + created_at).
+    - Technical provenance ``created_by`` is code identity only; the human
+      decision is the AuditEvent (actor_id + selection metadata + created_at).
 
+    ``agent`` selects competitor vs actor artifact (cross-agent accept fails).
     Actor and tenant come exclusively from ``TenantContext`` (via
     ``append_audit_event``). There is no public parameter to forge attribution.
     Context without actor fails closed before commit. Client JSON actor/reviewer
@@ -679,6 +727,7 @@ def accept_and_materialize(
         artifact_id,
         expected_version=expected_version,
         for_update=True,
+        agent=agent,
     )
     source_ids, candidate_ids = resolve_selection(artifact, selected=selected)
     try:
@@ -686,6 +735,7 @@ def accept_and_materialize(
             artifact=artifact,
             dossier_id=dossier_id,
             source_ids=source_ids,
+            agent=agent,
         )
         evidence_ids = [str(row["evidence_id"]) for row in evidences]
         _record_accept_audit_event(
@@ -696,6 +746,7 @@ def accept_and_materialize(
             source_ids=source_ids,
             evidence_ids=evidence_ids,
             expected_version=expected_version,
+            agent=agent,
         )
         db.session.commit()
     except MaterializeError:
@@ -718,6 +769,7 @@ def materialize_web_search_sources_with_fault(
     dossier_id: uuid.UUID,
     source_ids: list[str],
     fail_after_index: int | None = None,
+    agent: str = "market_competitor_discovery",
 ) -> list[dict[str, Any]]:
     """Same as materialize_web_search_sources but can inject a mid-flight fault.
 
@@ -742,6 +794,7 @@ def materialize_web_search_sources_with_fault(
             artifact=artifact,
             sid=sid,
             piece=piece,
+            agent=agent,
         )
         _ensure_evidence_dossier_link(
             tenant_id=tenant_id,
@@ -771,6 +824,7 @@ def accept_and_materialize_with_fault(
     expected_version: int | None = None,
     fail_after_index: int | None = None,
     fail_after_audit: bool = False,
+    agent: str = "market_competitor_discovery",
 ) -> dict[str, Any]:
     """Test-only accept path that can inject failure mid-materialize or post-audit."""
 
@@ -779,6 +833,7 @@ def accept_and_materialize_with_fault(
         artifact_id,
         expected_version=expected_version,
         for_update=True,
+        agent=agent,
     )
     source_ids, candidate_ids = resolve_selection(artifact, selected=selected)
     try:
@@ -787,6 +842,7 @@ def accept_and_materialize_with_fault(
             dossier_id=dossier_id,
             source_ids=source_ids,
             fail_after_index=fail_after_index,
+            agent=agent,
         )
         evidence_ids = [str(row["evidence_id"]) for row in evidences]
         _record_accept_audit_event(
@@ -797,6 +853,7 @@ def accept_and_materialize_with_fault(
             source_ids=source_ids,
             evidence_ids=evidence_ids,
             expected_version=expected_version,
+            agent=agent,
         )
         if fail_after_audit:
             raise RuntimeError("injected_post_audit_failure")

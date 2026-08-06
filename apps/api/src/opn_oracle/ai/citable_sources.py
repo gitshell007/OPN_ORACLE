@@ -74,6 +74,12 @@ def deterministic_web_search_evidence_id(
     return uuid.uuid5(EVIDENCE_ID_NAMESPACE, material)
 
 
+def _candidate_identity_name(row: dict[str, Any]) -> str:
+    """Stable display identity for competitor (name) or actor (organization)."""
+
+    return str(row.get("organization") or row.get("name") or "")
+
+
 def stamp_server_owned_candidate_ids(
     output: dict[str, Any],
     *,
@@ -82,6 +88,7 @@ def stamp_server_owned_candidate_ids(
     """Strip any model-emitted candidate_id and assign server-owned UUIDs.
 
     Must run after the citable gate so evidence_ids are already closed.
+    Identity material uses organization (actor) or name (competitor).
     """
 
     result = dict(output)
@@ -95,7 +102,7 @@ def stamp_server_owned_candidate_ids(
         row = dict(raw)
         # Never trust model / client candidate_id.
         row.pop("candidate_id", None)
-        name = str(row.get("name") or "")
+        name = _candidate_identity_name(row)
         eids = row.get("evidence_ids") or []
         if not isinstance(eids, list):
             eids = []
@@ -441,6 +448,9 @@ def discovery_intent_fields(context: dict[str, Any]) -> dict[str, Any]:
     Derived from validated Oracle context. Never includes provider/model/
     discovery_search/options. Avoids concatenating the same text into multiple
     query-bearing fields (Signal joins them).
+
+    For G-19 actor discovery, ``discovery_intent`` is the sole query text
+    (never title/goal concatenation). ``actor_type`` comes from context.
     """
 
     def _clean_str(value: Any, *, max_len: int) -> str:
@@ -462,28 +472,31 @@ def discovery_intent_fields(context: dict[str, Any]) -> dict[str, Any]:
                 break
         return out
 
+    from opn_oracle.ai.schemas import MARKET_ACTOR_TYPES
+
+    raw_type = str(context.get("actor_type") or "company").strip().lower()
+    actor_type = raw_type if raw_type in MARKET_ACTOR_TYPES else "company"
+    # Prefer free-text discovery_intent (G-19); fall back to description (G-06 competitor).
+    intent = _clean_str(context.get("discovery_intent"), max_len=400)
     description = _clean_str(context.get("description"), max_len=400)
     own_offer = _clean_str(context.get("own_offer"), max_len=120)
     sectors = _clean_list(context.get("sectors"), max_len=10)
     countries = _clean_list(context.get("countries"), max_len=27, item_max=3)
-    # Single query string from description only (no sector/geo re-appended).
     fields: dict[str, Any] = {
-        "actor_type": "company",
+        "actor_type": actor_type,
     }
-    if description:
-        fields["query"] = description
+    query = intent or description
+    if query:
+        fields["query"] = query
     if sectors:
         fields["sector"] = sectors
-    if own_offer and own_offer.casefold() not in description.casefold():
+    if own_offer and own_offer.casefold() not in (query or "").casefold():
         fields["market"] = own_offer
     if countries:
         fields["geography"] = countries
         fields["country"] = countries[0]
     keywords = _clean_list(context.get("keywords"), max_len=12) if context.get("keywords") else []
-    if not keywords:
-        # Prefer sectors as keywords only when not already sent as sector alone is fine.
-        pass
-    else:
+    if keywords:
         fields["keywords"] = keywords
     return fields
 
@@ -511,7 +524,7 @@ def filter_candidates_by_citable_allowlist(
         if not isinstance(raw, dict):
             continue
         row = dict(raw)
-        name = str(row.get("name") or "")[:80]
+        name = _candidate_identity_name(row)[:80]
         raw_ids = row.get("evidence_ids") or []
         if not isinstance(raw_ids, list):
             raw_ids = []
@@ -583,18 +596,15 @@ def reserved_sources_for_output(
     ]
 
 
-def apply_market_competitor_citable_gate(
+def _apply_discovery_citable_gate(
     output: dict[str, Any],
     *,
     citable_sources: tuple[CitableSource, ...] | list[CitableSource],
     extra_warnings: tuple[str, ...] | list[str] = (),
     execution_key: str | uuid.UUID | None = None,
+    citation_note: str,
 ) -> dict[str, Any]:
-    """Server-owned gate: filter candidates + attach reserved_citable_sources.
-
-    When ``execution_key`` is provided, stamps deterministic ``candidate_id``
-    values after the allowlist filter (never from model JSON).
-    """
+    """Shared G-18/G-19 closed-source gate for market discovery family."""
 
     result = dict(output)
     source_list = list(citable_sources)
@@ -619,13 +629,139 @@ def apply_market_competitor_citable_gate(
     for w in filter_warnings:
         if w not in warnings:
             warnings.append(w)
-    note = (
-        "Las citas de competidores solo provienen de citable_sources de Signal "
-        f"(origin={ORIGIN_WEB_SEARCH}); las source_urls del modelo no acreditan."
-    )
-    if note not in warnings:
-        warnings.append(note)
+    if citation_note not in warnings:
+        warnings.append(citation_note)
     result["warnings"] = warnings[:20]
     if execution_key is not None:
         result = stamp_server_owned_candidate_ids(result, execution_key=execution_key)
     return result
+
+
+def apply_market_competitor_citable_gate(
+    output: dict[str, Any],
+    *,
+    citable_sources: tuple[CitableSource, ...] | list[CitableSource],
+    extra_warnings: tuple[str, ...] | list[str] = (),
+    execution_key: str | uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """Server-owned gate: filter candidates + attach reserved_citable_sources.
+
+    When ``execution_key`` is provided, stamps deterministic ``candidate_id``
+    values after the allowlist filter (never from model JSON).
+    """
+
+    note = (
+        "Las citas de competidores solo provienen de citable_sources de Signal "
+        f"(origin={ORIGIN_WEB_SEARCH}); las source_urls del modelo no acreditan."
+    )
+    return _apply_discovery_citable_gate(
+        output,
+        citable_sources=citable_sources,
+        extra_warnings=extra_warnings,
+        execution_key=execution_key,
+        citation_note=note,
+    )
+
+
+def apply_market_actor_citable_gate(
+    output: dict[str, Any],
+    *,
+    citable_sources: tuple[CitableSource, ...] | list[CitableSource],
+    extra_warnings: tuple[str, ...] | list[str] = (),
+    execution_key: str | uuid.UUID | None = None,
+    expected_actor_type: str | None = None,
+    expected_countries: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """G-19 gate: closed sources + actor_type/country concordance with intent.
+
+    Wrong country or actor_type relative to the request is dropped with an
+    honest warning (not silently published as matching).
+    """
+
+    note = (
+        "Las citas de actores solo provienen de citable_sources de Signal "
+        f"(origin={ORIGIN_WEB_SEARCH}); las source_urls del modelo no acreditan."
+    )
+    result = _apply_discovery_citable_gate(
+        output,
+        citable_sources=citable_sources,
+        extra_warnings=extra_warnings,
+        execution_key=None,  # stamp after type/country filter
+        citation_note=note,
+    )
+    wanted_type = (expected_actor_type or "").strip().lower() or None
+    wanted_countries = {
+        str(c).strip().upper()
+        for c in (expected_countries or [])
+        if str(c).strip()
+    }
+    kept: list[dict[str, Any]] = []
+    warnings = list(result.get("warnings") or [])
+    for raw in result.get("candidates") or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        org = _candidate_identity_name(row)[:80] or "?"
+        row_type = str(row.get("actor_type") or "").strip().lower()
+        row_country = str(row.get("country") or "").strip().upper()
+        if wanted_type and row_type and row_type != wanted_type:
+            msg = f"candidate_dropped_actor_type_mismatch:{org}:{row_type}!={wanted_type}"
+            if msg not in warnings:
+                warnings.append(msg)
+            logger.warning(
+                "oracle.g19.candidate_actor_type_mismatch org=%s got=%s want=%s",
+                org,
+                row_type,
+                wanted_type,
+            )
+            continue
+        if wanted_countries and row_country and row_country not in wanted_countries:
+            msg = f"candidate_dropped_country_mismatch:{org}:{row_country}"
+            if msg not in warnings:
+                warnings.append(msg)
+            logger.warning(
+                "oracle.g19.candidate_country_mismatch org=%s country=%s allowed=%s",
+                org,
+                row_country,
+                sorted(wanted_countries),
+            )
+            continue
+        if wanted_type and not row_type:
+            row["actor_type"] = wanted_type
+        kept.append(row)
+    result["candidates"] = kept
+    # Rebuild reserved from surviving candidates only.
+    surviving_ids: list[str] = []
+    seen: set[str] = set()
+    for row in kept:
+        for sid in row.get("evidence_ids") or []:
+            try:
+                key = str(uuid.UUID(str(sid)))
+            except (ValueError, TypeError, AttributeError):
+                continue
+            if key not in seen:
+                seen.add(key)
+                surviving_ids.append(key)
+    source_by_id = {s.source_id: s for s in citable_sources}
+    reserved = [source_by_id[sid] for sid in surviving_ids if sid in source_by_id]
+    result["reserved_citable_sources"] = reserved_sources_for_output(reserved)
+    if not kept and not any("abstenc" in str(w).casefold() for w in warnings):
+        abstain = (
+            "Abstención: no hay candidatos publicables con cita cerrada que "
+            "concuerden con actor_type y países de la intención."
+        )
+        if abstain not in warnings:
+            warnings.append(abstain)
+    result["warnings"] = warnings[:20]
+    if execution_key is not None:
+        result = stamp_server_owned_candidate_ids(result, execution_key=execution_key)
+    return result
+
+
+# Shared family of dossierless market discovery agents (G-18 + G-19).
+MARKET_DISCOVERY_AGENTS = frozenset(
+    {
+        "market_competitor_discovery",
+        "market_actor_discovery",
+    }
+)

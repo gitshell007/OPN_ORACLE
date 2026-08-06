@@ -33,6 +33,25 @@ const MARKET_STEPS = [
 /** Intención honesta sobre competidores: viaja al perfil y al agente de descubrimiento. */
 export type CompetitorsKnowledge = "known" | "unknown" | "not_seeking";
 
+/** G-19 target actor types for market_actor_discovery (not competitor discovery). */
+export type DiscoveryActorType =
+  | "company"
+  | "research_group"
+  | "technology_center"
+  | "regulator"
+  | "potential_customer";
+
+export const DISCOVERY_ACTOR_TYPE_LABELS: Record<DiscoveryActorType, string> = {
+  company: "Empresa",
+  research_group: "Grupo de investigación",
+  technology_center: "Centro tecnológico",
+  regulator: "Regulador",
+  potential_customer: "Cliente potencial",
+};
+
+export const DISCOVERY_INTENT_MIN = 10;
+export const DISCOVERY_INTENT_MAX = 2000;
+
 type MarketStep = (typeof MARKET_STEPS)[number][0];
 
 const COMPETITORS_KNOWLEDGE_LABELS: Record<CompetitorsKnowledge, string> = {
@@ -40,6 +59,10 @@ const COMPETITORS_KNOWLEDGE_LABELS: Record<CompetitorsKnowledge, string> = {
   unknown: "Aún no lo sé",
   not_seeking: "No busco competidores",
 };
+
+export function normalizeDiscoveryIntent(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
 
 export function marketStepBlockers(input: {
   step: MarketStep;
@@ -50,6 +73,8 @@ export function marketStepBlockers(input: {
   competitors: string;
   competitorsKnowledge: CompetitorsKnowledge | "";
   decisionToMake: string;
+  discoveryIntent?: string;
+  discoveryActorType?: DiscoveryActorType | "";
 }): string[] {
   const list = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
   if (input.step === "context") {
@@ -65,7 +90,33 @@ export function marketStepBlockers(input: {
     return blockers;
   }
   if (input.step === "ecosystem") {
+    const intent = normalizeDiscoveryIntent(input.discoveryIntent ?? "");
+    const actorType = input.discoveryActorType ?? "";
+    const hasActorDiscovery =
+      intent.length >= DISCOVERY_INTENT_MIN &&
+      intent.length <= DISCOVERY_INTENT_MAX &&
+      Boolean(actorType);
+    const intentPartial = Boolean(intent) || Boolean(actorType);
+    if (intentPartial && !hasActorDiscovery) {
+      const blockers: string[] = [];
+      if (intent.length > 0 && intent.length < DISCOVERY_INTENT_MIN) {
+        blockers.push(`Intención de búsqueda (mínimo ${DISCOVERY_INTENT_MIN} caracteres)`);
+      }
+      if (intent.length > DISCOVERY_INTENT_MAX) {
+        blockers.push(`Intención de búsqueda (máximo ${DISCOVERY_INTENT_MAX} caracteres)`);
+      }
+      if (!intent) blockers.push("¿A quién quieres encontrar y para qué?");
+      if (!actorType) blockers.push("Tipo de actor a encontrar");
+      return blockers;
+    }
+    // Non-competitor actor path (e.g. research_group): no competitor names required.
+    if (hasActorDiscovery && actorType !== "company") {
+      return [];
+    }
     if (!input.competitorsKnowledge) {
+      if (hasActorDiscovery) {
+        return [];
+      }
       return [
         "Indica si conoces competidores, aún no lo sabes o no los buscas",
       ];
@@ -98,6 +149,9 @@ export function CreateProductDossierDialog({
   const [createStarterProfile, setCreateStarterProfile] = useState(true);
   const [competitors, setCompetitors] = useState("");
   const [competitorsKnowledge, setCompetitorsKnowledge] = useState<CompetitorsKnowledge | "">("");
+  const [discoveryIntent, setDiscoveryIntent] = useState("");
+  const [discoveryActorType, setDiscoveryActorType] = useState<DiscoveryActorType | "">("");
+  const [discoveryKnownNames, setDiscoveryKnownNames] = useState("");
   const [ownOffer, setOwnOffer] = useState("");
   const [segments, setSegments] = useState("");
   const [geographies, setGeographies] = useState("");
@@ -142,6 +196,8 @@ export function CreateProductDossierDialog({
         competitors,
         competitorsKnowledge,
         decisionToMake,
+        discoveryIntent,
+        discoveryActorType,
       })
     : [];
   const marketStepReady = marketBlockers.length === 0;
@@ -153,6 +209,9 @@ export function CreateProductDossierDialog({
     setCreateStarterProfile(true);
     setCompetitors("");
     setCompetitorsKnowledge("");
+    setDiscoveryIntent("");
+    setDiscoveryActorType("");
+    setDiscoveryKnownNames("");
     setOwnOffer("");
     setSegments("");
     setGeographies("");
@@ -186,6 +245,9 @@ export function CreateProductDossierDialog({
     setReadiness(null);
     setStep("context");
     setCompetitorsKnowledge("");
+    setDiscoveryIntent("");
+    setDiscoveryActorType("");
+    setDiscoveryKnownNames("");
   }
 
   function changeMarketCountries(next: string[]) {
@@ -264,12 +326,21 @@ export function CreateProductDossierDialog({
     setBusy(true);
     setError(null);
     try {
+      const intentNormalized = normalizeDiscoveryIntent(discoveryIntent);
+      const hasActorDiscovery =
+        intentNormalized.length >= DISCOVERY_INTENT_MIN &&
+        intentNormalized.length <= DISCOVERY_INTENT_MAX &&
+        Boolean(discoveryActorType);
       const knowledge: CompetitorsKnowledge =
         competitorsKnowledge === "known" || list(competitors).length > 0
           ? "known"
           : competitorsKnowledge === "not_seeking"
             ? "not_seeking"
-            : "unknown";
+            : competitorsKnowledge === "unknown"
+              ? "unknown"
+              : hasActorDiscovery
+                ? "not_seeking"
+                : "unknown";
       const competitorNames =
         knowledge === "known" ? list(competitors).map((name) => ({ name, aliases: [] as string[] })) : [];
       const dossier = await api.dossiers.create({
@@ -309,6 +380,14 @@ export function CreateProductDossierDialog({
             target_buyers: list(buyers),
             competitors: competitorNames,
             competitors_knowledge: knowledge,
+            // G-19: free-text intent stored separately (never title+goal concat).
+            ...(hasActorDiscovery
+              ? {
+                  discovery_intent: intentNormalized,
+                  discovery_actor_type: discoveryActorType,
+                  discovery_known_names: list(discoveryKnownNames),
+                }
+              : {}),
             partners: list(partners),
             regulators: list(regulators),
             barriers: list(barriers),
@@ -589,6 +668,60 @@ export function CreateProductDossierDialog({
                     </small>
                   )}
                 </fieldset>
+                <fieldset className="field full" data-testid="discovery-intent-fieldset">
+                  <legend>¿A quién quieres encontrar y para qué?</legend>
+                  <p className="muted">
+                    Intención libre para el agente de actores (no competidores). Se guarda tal cual,
+                    sin mezclarla con el título ni la meta del expediente.
+                  </p>
+                  <label className="field full">
+                    <span id="discovery-intent-label">Intención de búsqueda</span>
+                    <textarea
+                      aria-labelledby="discovery-intent-label"
+                      data-testid="discovery-intent"
+                      maxLength={DISCOVERY_INTENT_MAX}
+                      value={discoveryIntent}
+                      onChange={(event) => setDiscoveryIntent(event.target.value)}
+                      placeholder="Ej. quiero contactar con grupos de investigación en Francia que trabajen en grafeno"
+                    />
+                    <small>
+                      Entre {DISCOVERY_INTENT_MIN} y {DISCOVERY_INTENT_MAX} caracteres si la usas.
+                      Espacios en blanco solos no valen.
+                    </small>
+                  </label>
+                  <label className="field">
+                    <span id="discovery-actor-type-label">Tipo de actor</span>
+                    <select
+                      aria-labelledby="discovery-actor-type-label"
+                      data-testid="discovery-actor-type"
+                      value={discoveryActorType}
+                      onChange={(event) =>
+                        setDiscoveryActorType(event.target.value as DiscoveryActorType | "")
+                      }
+                    >
+                      <option value="">— Sin búsqueda de actores —</option>
+                      {(Object.keys(DISCOVERY_ACTOR_TYPE_LABELS) as DiscoveryActorType[]).map(
+                        (value) => (
+                          <option key={value} value={value}>
+                            {DISCOVERY_ACTOR_TYPE_LABELS[value]}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <label className="field full">
+                    <span>Ya conocidos para este objetivo (opcional)</span>
+                    <input
+                      data-testid="discovery-known-names"
+                      value={discoveryKnownNames}
+                      onChange={(event) => setDiscoveryKnownNames(event.target.value)}
+                      placeholder="Solo nombres a excluir para este objetivo, separados por comas"
+                    />
+                    <small>
+                      No se rellenan automáticamente partners, reguladores ni competidores del perfil.
+                    </small>
+                  </label>
+                </fieldset>
                 <label className="field"><span>Clientes o compradores objetivo</span><input value={buyers} onChange={(event) => setBuyers(event.target.value)} placeholder="Ej. operadores de red, utilities" /></label>
                 <label className="field"><span>Canales de entrada</span><input value={channels} onChange={(event) => setChannels(event.target.value)} placeholder="Ej. licitación pública, partner local" /></label>
                 <label className="field"><span>Posibles partners</span><input value={partners} onChange={(event) => setPartners(event.target.value)} placeholder="Separados por comas" /></label>
@@ -627,6 +760,14 @@ export function CreateProductDossierDialog({
                           : competitorsKnowledge
                             ? COMPETITORS_KNOWLEDGE_LABELS[competitorsKnowledge]
                             : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Actores a encontrar</dt>
+                      <dd>
+                        {discoveryActorType
+                          ? `${DISCOVERY_ACTOR_TYPE_LABELS[discoveryActorType]}: ${normalizeDiscoveryIntent(discoveryIntent) || "—"}`
+                          : "—"}
                       </dd>
                     </div>
                     <div><dt>Estado inicial</dt><dd>{activeOnCreate ? "Activo" : "Borrador"}</dd></div>

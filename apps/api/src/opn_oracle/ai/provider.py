@@ -180,9 +180,10 @@ class MockLLMProvider:
                 provider="mock",
                 model=self.model,
             )
-        if request.agent == "market_competitor_discovery":
+        if request.agent in {"market_competitor_discovery", "market_actor_discovery"}:
             from opn_oracle.ai.citable_sources import (
                 CitableSource,
+                apply_market_actor_citable_gate,
                 apply_market_competitor_citable_gate,
             )
 
@@ -220,45 +221,98 @@ class MockLLMProvider:
                         except (ValueError, TypeError, AttributeError):
                             continue
             source_ids = [s.source_id for s in mock_sources]
+            is_actor = request.agent == "market_actor_discovery"
+            expected_type = str(request.context.get("actor_type") or "research_group").strip()
             proposed: list[dict[str, Any]] = []
             for index in range(1, 4):
-                # Index 1 may cite first closed source; others may invent alien IDs/URLs.
                 evidence_ids: list[str] = []
                 if source_ids and index == 1:
                     evidence_ids = [source_ids[0]]
                 elif index == 2 and source_ids:
-                    evidence_ids = [source_ids[0]]
-                    if len(source_ids) > 1:
-                        evidence_ids = [source_ids[1]]
-                proposed.append(
-                    {
-                        "name": f"Competidor Sintetico {index}",
-                        "country": countries[index % len(countries)] if countries else "",
-                        "rationale": (
-                            "Candidato determinista del proveedor mock para revision humana."
-                        ),
-                        # Model URLs never accredit (G-18); gate clears them.
-                        "source_urls": [
-                            "https://www.empresa-inventada-xyz.es/perfil",
-                            "not-a-url",
-                            "javascript:alert(1)",
-                        ]
-                        if index == 1
-                        else [],
-                        "evidence_ids": evidence_ids,
-                        "confidence": 40 - index * 5,
-                    }
+                    evidence_ids = [source_ids[1]] if len(source_ids) > 1 else [source_ids[0]]
+                if is_actor:
+                    # Adversarial plant: model candidate_id, free URL, alien source_id.
+                    alien = str(uuid.uuid4())
+                    # Index 3 deliberately mismatches country/type for gate tests.
+                    bad_country = index == 3
+                    bad_type = index == 3
+                    org = f"Grupo Investigacion Sintetico {index}"
+                    proposed.append(
+                        {
+                            "candidate_id": str(uuid.uuid4()),  # must be stripped/overwritten
+                            "actor_type": "company" if bad_type else expected_type,
+                            "organization": org,
+                            "affiliation": "Universidad Mock" if index == 1 else "",
+                            "country": (
+                                "DE"
+                                if bad_country
+                                else (countries[0] if countries else "FR")
+                            ),
+                            "summary": (
+                                "Candidato determinista del mock para revision humana "
+                                f"(intencion: "
+                                f"{str(request.context.get('discovery_intent') or '')[:80]})."
+                            ),
+                            "rationale": "Candidato mock actor discovery.",
+                            "source_urls": [
+                                "https://www.lab-inventado-xyz.fr/perfil",
+                                "not-a-url",
+                                "javascript:alert(1)",
+                            ]
+                            if index == 1
+                            else [],
+                            "evidence_ids": evidence_ids
+                            + ([alien] if index == 1 and evidence_ids else []),
+                            "confidence": 55 - index * 5,
+                        }
+                    )
+                else:
+                    proposed.append(
+                        {
+                            "name": f"Competidor Sintetico {index}",
+                            "country": countries[index % len(countries)] if countries else "",
+                            "rationale": (
+                                "Candidato determinista del proveedor mock para revision humana."
+                            ),
+                            "source_urls": [
+                                "https://www.empresa-inventada-xyz.es/perfil",
+                                "not-a-url",
+                                "javascript:alert(1)",
+                            ]
+                            if index == 1
+                            else [],
+                            "evidence_ids": evidence_ids,
+                            "confidence": 40 - index * 5,
+                        }
+                    )
+            if is_actor:
+                candidates = [
+                    item
+                    for item in proposed
+                    if str(item.get("organization") or "").lower() not in known
+                ]
+                raw_output = {
+                    "candidates": candidates,
+                    "warnings": ["Resultado generado por proveedor mock determinista (actor)."],
+                }
+                gated = apply_market_actor_citable_gate(
+                    raw_output,
+                    citable_sources=tuple(mock_sources),
+                    expected_actor_type=expected_type,
+                    expected_countries=set(c.upper() for c in countries),
                 )
-            raw_output = {
-                "candidates": [
+            else:
+                candidates = [
                     item for item in proposed if str(item["name"]).lower() not in known
-                ],
-                "warnings": ["Resultado generado por proveedor mock determinista."],
-            }
-            gated = apply_market_competitor_citable_gate(
-                raw_output,
-                citable_sources=tuple(mock_sources),
-            )
+                ]
+                raw_output = {
+                    "candidates": candidates,
+                    "warnings": ["Resultado generado por proveedor mock determinista."],
+                }
+                gated = apply_market_competitor_citable_gate(
+                    raw_output,
+                    citable_sources=tuple(mock_sources),
+                )
             output = schema.model_validate_json(
                 json.dumps(gated, ensure_ascii=False, default=str)
             )
@@ -1719,6 +1773,8 @@ class SignalGovernedLLMProvider:
 
     def generate_structured(self, request: LLMRequest, schema: type[T]) -> LLMResult:
         from opn_oracle.ai.citable_sources import (
+            MARKET_DISCOVERY_AGENTS,
+            apply_market_actor_citable_gate,
             apply_market_competitor_citable_gate,
             discovery_intent_fields,
             extract_signal_envelope,
@@ -1738,7 +1794,7 @@ class SignalGovernedLLMProvider:
             "Si la lista está vacía, deja vacías todas las secciones cuyos elementos "
             "exijan evidence_ids."
         )
-        if request.agent == "market_competitor_discovery":
+        if request.agent in MARKET_DISCOVERY_AGENTS:
             evidence_rule = (
                 "Cita exclusivamente con evidence_ids = source_id del conjunto cerrado "
                 "CITABLE_SOURCES que Signal inyecta en el prompt. No inventes UUIDs ni URLs. "
@@ -1771,8 +1827,8 @@ class SignalGovernedLLMProvider:
                 else {"allowed_evidence_ids": allowed_evidence_ids}
             ),
         }
-        # G-18: limited domain intent for discovery (never provider/model/search gov).
-        if request.agent == "market_competitor_discovery":
+        # G-18/G-19: limited domain intent for discovery (never provider/model/search gov).
+        if request.agent in MARKET_DISCOVERY_AGENTS:
             intent = discovery_intent_fields(request.context)
             for key, value in intent.items():
                 # Do not overwrite messages/format/tokens with intent keys.
@@ -1825,15 +1881,28 @@ class SignalGovernedLLMProvider:
         except UncitedFactsError:
             raise
         try:
-            if request.agent == "market_competitor_discovery":
+            if request.agent in MARKET_DISCOVERY_AGENTS:
                 raw_candidate = json.loads(normalized_output)
                 if not isinstance(raw_candidate, dict):
-                    raise ValueError("market_competitor_discovery output must be object")
-                gated = apply_market_competitor_citable_gate(
-                    raw_candidate,
-                    citable_sources=citable_sources,
-                    extra_warnings=source_warnings,
-                )
+                    raise ValueError(f"{request.agent} output must be object")
+                if request.agent == "market_actor_discovery":
+                    gated = apply_market_actor_citable_gate(
+                        raw_candidate,
+                        citable_sources=citable_sources,
+                        extra_warnings=source_warnings,
+                        expected_actor_type=str(request.context.get("actor_type") or ""),
+                        expected_countries={
+                            str(c).upper()
+                            for c in (request.context.get("countries") or [])
+                            if str(c).strip()
+                        },
+                    )
+                else:
+                    gated = apply_market_competitor_citable_gate(
+                        raw_candidate,
+                        citable_sources=citable_sources,
+                        extra_warnings=source_warnings,
+                    )
                 # JSON round-trip so UUID fields coerce under StrictModel.
                 output = schema.model_validate_json(
                     json.dumps(gated, ensure_ascii=False, default=str)
@@ -1920,17 +1989,31 @@ class SignalGovernedLLMProvider:
                 repaired_raw_output = _sanitize_uncited_facts_json(
                     repaired_raw_output, agent=request.agent
                 )
-                if request.agent == "market_competitor_discovery":
+                if request.agent in MARKET_DISCOVERY_AGENTS:
                     repaired_candidate = json.loads(repaired_raw_output)
                     if not isinstance(repaired_candidate, dict):
-                        raise ValueError("market_competitor_discovery repair must be object")
+                        raise ValueError(f"{request.agent} repair must be object")
+                    if request.agent == "market_actor_discovery":
+                        repaired_gated = apply_market_actor_citable_gate(
+                            repaired_candidate,
+                            citable_sources=citable_sources,
+                            extra_warnings=source_warnings,
+                            expected_actor_type=str(request.context.get("actor_type") or ""),
+                            expected_countries={
+                                str(c).upper()
+                                for c in (request.context.get("countries") or [])
+                                if str(c).strip()
+                            },
+                        )
+                    else:
+                        repaired_gated = apply_market_competitor_citable_gate(
+                            repaired_candidate,
+                            citable_sources=citable_sources,
+                            extra_warnings=source_warnings,
+                        )
                     repaired_output = schema.model_validate_json(
                         json.dumps(
-                            apply_market_competitor_citable_gate(
-                                repaired_candidate,
-                                citable_sources=citable_sources,
-                                extra_warnings=source_warnings,
-                            ),
+                            repaired_gated,
                             ensure_ascii=False,
                             default=str,
                         )
@@ -1945,7 +2028,7 @@ class SignalGovernedLLMProvider:
                 output = _safe_empty_evidence_summary(request, schema)
                 safe_fallback_used = True
             else:
-                if request.agent == "market_competitor_discovery":
+                if request.agent in MARKET_DISCOVERY_AGENTS:
                     output = repaired_output
                 else:
                     try:

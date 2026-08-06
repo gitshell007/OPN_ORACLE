@@ -481,6 +481,7 @@ HANDLERS: dict[str, Handler] = {
             "dossier_completion_wizard",
             "tender_search_wizard",
             "market_competitor_discovery",
+            "market_actor_discovery",
         )
     },
 }
@@ -745,6 +746,26 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     max_tokens=max_tokens,
                 ),
                 target_type="market_discovery",
+                target_id=job.tenant_id,
+            )
+        if agent == "market_actor_discovery":
+            from opn_oracle.ai.context import build_market_actor_discovery_context
+
+            actor_intent = str(payload["discovery_intent"])
+            actor_type = str(payload["actor_type"])
+            return execute_agent(
+                agent=agent,
+                dossier_id=None,
+                job=job,
+                context_factory=lambda max_tokens: build_market_actor_discovery_context(
+                    discovery_intent=actor_intent,
+                    actor_type=actor_type,
+                    countries=[str(item) for item in payload.get("countries", [])],
+                    languages=[str(item) for item in payload.get("languages", [])],
+                    known_names=[str(item) for item in payload.get("known_names", [])],
+                    max_tokens=max_tokens,
+                ),
+                target_type="market_actor_discovery",
                 target_id=job.tenant_id,
             )
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
@@ -1230,6 +1251,7 @@ AI_DURABLE_TASKS = {
         "dossier_completion_wizard",
         "tender_search_wizard",
         "market_competitor_discovery",
+        "market_actor_discovery",
     )
 }
 

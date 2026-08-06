@@ -1235,7 +1235,13 @@ def execute_agent(
 ) -> dict[str, Any]:
     tenant_id = require_tenant_id()
     # Agentes sin expediente (contexto tenant-scoped propio; sin evidencia interna).
-    _DOSSIERLESS_AGENTS = frozenset({"tender_search_wizard", "market_competitor_discovery"})
+    _DOSSIERLESS_AGENTS = frozenset(
+        {
+            "tender_search_wizard",
+            "market_competitor_discovery",
+            "market_actor_discovery",
+        }
+    )
     if dossier_id is None and agent not in _DOSSIERLESS_AGENTS:
         raise AIPolicyDenied("Este agente exige un expediente para ejecutarse.")
     if dossier_id is None and context_override is None and context_factory is None:
@@ -1625,23 +1631,42 @@ def execute_agent(
         # SV2-PERFIL-EVIDENCIA: primero separar declarado de oficial; si no, un
         # fact que cite UUID declared tumba validate_evidence (solo ORM oficial).
         output = result.output.model_dump(mode="json")
-        # G-18: server-owned reserved citable sources on market discovery artifacts.
-        if agent == "market_competitor_discovery":
+        # G-18/G-19: server-owned reserved citable sources on market discovery artifacts.
+        if agent in {"market_competitor_discovery", "market_actor_discovery"}:
             from opn_oracle.ai.citable_sources import (
+                apply_market_actor_citable_gate,
                 apply_market_competitor_citable_gate,
                 reserved_sources_for_output,
                 stamp_server_owned_candidate_ids,
             )
 
             citable = getattr(result, "citable_sources", ()) or ()
-            if citable and not output.get("reserved_citable_sources"):
-                output = apply_market_competitor_citable_gate(
-                    output,
-                    citable_sources=citable,
-                    extra_warnings=getattr(result, "source_warnings", ()) or (),
-                )
-            elif citable and output.get("reserved_citable_sources") is None:
-                output["reserved_citable_sources"] = reserved_sources_for_output(citable)
+            extra_w = getattr(result, "source_warnings", ()) or ()
+            if agent == "market_actor_discovery":
+                ctx_payload = context.payload if isinstance(context.payload, dict) else {}
+                expected_type = str(ctx_payload.get("actor_type") or "")
+                expected_countries = [
+                    str(c) for c in (ctx_payload.get("countries") or []) if str(c).strip()
+                ]
+                if citable and not output.get("reserved_citable_sources"):
+                    output = apply_market_actor_citable_gate(
+                        output,
+                        citable_sources=citable,
+                        extra_warnings=extra_w,
+                        expected_actor_type=expected_type,
+                        expected_countries=expected_countries,
+                    )
+                elif citable and output.get("reserved_citable_sources") is None:
+                    output["reserved_citable_sources"] = reserved_sources_for_output(citable)
+            else:
+                if citable and not output.get("reserved_citable_sources"):
+                    output = apply_market_competitor_citable_gate(
+                        output,
+                        citable_sources=citable,
+                        extra_warnings=extra_w,
+                    )
+                elif citable and output.get("reserved_citable_sources") is None:
+                    output["reserved_citable_sources"] = reserved_sources_for_output(citable)
             # Deterministic candidate_id after gate (execution = audit_log identity).
             # Never accept candidate_id from model JSON.
             output = stamp_server_owned_candidate_ids(output, execution_key=audit_id)

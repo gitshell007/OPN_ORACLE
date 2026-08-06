@@ -407,6 +407,55 @@ def _validated_competitors_knowledge(
     return knowledge
 
 
+_DISCOVERY_ACTOR_TYPES = frozenset(
+    {
+        "company",
+        "research_group",
+        "technology_center",
+        "regulator",
+        "potential_customer",
+    }
+)
+_DISCOVERY_INTENT_MIN = 10
+_DISCOVERY_INTENT_MAX = 2000
+
+
+def _validated_market_discovery_intent(
+    value: dict[str, Any],
+) -> tuple[str, str | None, list[str]]:
+    """Optional free-text actor discovery intent (G-19).
+
+    Stored separately from title/goal/description. Empty/whitespace is omitted
+    (not inventing intent). When present, length and actor_type are validated.
+    ``discovery_known_names`` are exclusions only for that objective.
+    """
+
+    raw_intent = value.get("discovery_intent")
+    if raw_intent is None or (isinstance(raw_intent, str) and not str(raw_intent).strip()):
+        # Optional: competitor-only market create remains valid without intent.
+        # Without intent, do not keep discovery_known_names (not exclusions for actor search).
+        return "", None, []
+
+    intent = " ".join(str(raw_intent).split())
+    if len(intent) < _DISCOVERY_INTENT_MIN or len(intent) > _DISCOVERY_INTENT_MAX:
+        raise DomainValidationError(
+            f"discovery_intent debe tener entre {_DISCOVERY_INTENT_MIN} y "
+            f"{_DISCOVERY_INTENT_MAX} caracteres."
+        )
+    actor_type = str(
+        value.get("discovery_actor_type") or value.get("actor_type") or ""
+    ).strip().lower()
+    if actor_type not in _DISCOVERY_ACTOR_TYPES:
+        raise DomainValidationError(
+            "Con discovery_intent debes indicar discovery_actor_type "
+            "(company, research_group, technology_center, regulator o potential_customer)."
+        )
+    known_names = _profile_strings(
+        value.get("discovery_known_names", []), "discovery_known_names", limit=50
+    )
+    return intent, actor_type, known_names
+
+
 def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
     own_offer = " ".join(str(value.get("own_offer", "")).strip().split())[:500]
     decision_to_make = str(value.get("decision_to_make", "")).strip()[:2000]
@@ -418,6 +467,9 @@ def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
     knowledge = _validated_competitors_knowledge(value, competitors=competitors)
     if knowledge != "known":
         competitors = []
+    discovery_intent, discovery_actor_type, discovery_known_names = (
+        _validated_market_discovery_intent(value)
+    )
     profile = {
         "version": "market.v1",
         "own_offer": own_offer,
@@ -428,6 +480,10 @@ def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
         "target_buyers": _profile_strings(value.get("target_buyers", []), "target_buyers"),
         "competitors": competitors,
         "competitors_knowledge": knowledge,
+        # G-19: free-text intent + target actor type (never title/goal concat).
+        "discovery_intent": discovery_intent,
+        "discovery_actor_type": discovery_actor_type,
+        "discovery_known_names": discovery_known_names,
         "partners": _profile_strings(value.get("partners", []), "partners"),
         "regulators": _profile_strings(value.get("regulators", []), "regulators"),
         "barriers": _profile_strings(value.get("barriers", []), "barriers"),

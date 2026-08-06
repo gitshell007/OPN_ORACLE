@@ -2654,6 +2654,92 @@ export interface MarketCompetitorAcceptResponse {
   count: number;
 }
 
+/** G-19 · market_actor_discovery */
+export type MarketActorType =
+  | "company"
+  | "research_group"
+  | "technology_center"
+  | "regulator"
+  | "potential_customer";
+
+export interface MarketActorDiscoveryInput {
+  discovery_intent: string;
+  actor_type: MarketActorType;
+  countries?: string[];
+  languages?: string[];
+  /** Explicit exclusions for this objective only. */
+  known_names?: string[];
+}
+
+export interface MarketActorCandidate {
+  candidate_id?: string | null;
+  actor_type: MarketActorType | string;
+  organization: string;
+  affiliation?: string;
+  country: string;
+  summary: string;
+  rationale?: string;
+  evidence_ids: string[];
+  source_urls?: string[];
+  source_urls_meta?: SourceUrlMeta[];
+  source_urls_status?: string | null;
+  source_urls_label?: string | null;
+  citable_sources?: CitableSourcePublic[];
+  confidence: number;
+  selectable?: boolean;
+}
+
+export interface MarketActorDiscoveryOutput {
+  candidates: MarketActorCandidate[];
+  warnings: string[];
+  reserved_citable_sources?: ReservedCitableSource[];
+}
+
+export interface MarketActorDiscoveryArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: MarketActorDiscoveryOutput;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface MarketActorDiscoveryRunResponse {
+  job: TenderSearchWizardJob;
+  artifact: MarketActorDiscoveryArtifact | null;
+}
+
+export interface MarketActorDiscoveryLatestResponse {
+  job: TenderSearchWizardJob | null;
+  artifact: MarketActorDiscoveryArtifact | null;
+}
+
+export interface MarketActorSelection {
+  candidate_id: string;
+  organization?: string;
+  name?: string;
+  source_ids: string[];
+  evidence_ids?: string[];
+}
+
+export interface MarketActorAcceptInput {
+  artifact_id: string;
+  dossier_id: string;
+  selected: MarketActorSelection[];
+  expected_version?: number | null;
+}
+
+export interface MarketActorAcceptResponse {
+  artifact_id: string;
+  dossier_id: string;
+  materialized: MaterializedEvidence[];
+  count: number;
+}
+
 export type ProcurementSearchProfile =
   components["schemas"]["ProcurementSearchProfileResponse"];
 export type ProcurementSearchProfileList =
@@ -3058,6 +3144,25 @@ const marketCompetitorDiscovery = {
   accept: (input: MarketCompetitorAcceptInput) =>
     request<MarketCompetitorAcceptResponse>(
       "/api/v1/ai/market-competitor-discovery/accept",
+      { method: "POST", body: input },
+    ),
+};
+
+const marketActorDiscovery = {
+  latest: () =>
+    request<MarketActorDiscoveryLatestResponse>(
+      "/api/v1/ai/market-actor-discovery/latest",
+      { retry: false },
+    ),
+  run: (input: MarketActorDiscoveryInput, idempotencyKey: string) =>
+    request<MarketActorDiscoveryRunResponse>(
+      "/api/v1/ai/market-actor-discovery/runs",
+      { method: "POST", body: input, idempotencyKey },
+    ),
+  /** Human gate: materialize selected reserved sources into Evidence for a market dossier. */
+  accept: (input: MarketActorAcceptInput) =>
+    request<MarketActorAcceptResponse>(
+      "/api/v1/ai/market-actor-discovery/accept",
       { method: "POST", body: input },
     ),
 };
@@ -4059,6 +4164,7 @@ export const api = {
   procurement,
   tenderSearchWizard,
   marketCompetitorDiscovery,
+  marketActorDiscovery,
   procurementSearchProfiles,
   procurementSearchWatches,
   dossierProcurement,

@@ -1371,6 +1371,96 @@ class MarketCompetitorDiscoveryOutput(StrictModel):
         return self
 
 
+# G-19 · actores no competidores (grupos de investigación, centros, etc.).
+MarketActorType = Literal[
+    "company",
+    "research_group",
+    "technology_center",
+    "regulator",
+    "potential_customer",
+]
+MARKET_ACTOR_TYPES: tuple[str, ...] = (
+    "company",
+    "research_group",
+    "technology_center",
+    "regulator",
+    "potential_customer",
+)
+
+
+class MarketActorCandidate(StrictModel):
+    """Candidate non-competitor actor; human reviews before materialization."""
+
+    actor_type: MarketActorType
+    organization: str = Field(min_length=1, max_length=300)
+    affiliation: str = Field(default="", max_length=300)
+    country: str = Field(default="", max_length=120)
+    summary: str = Field(default="", max_length=1000)
+    # Compat with shared citable gate warnings (organization identity).
+    rationale: str = Field(default="", max_length=1000)
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    source_urls: list[str] = Field(default_factory=list, max_length=5)
+    source_urls_meta: list[SourceUrlMeta] = Field(default_factory=list, max_length=5)
+    source_urls_status: str | None = None
+    source_urls_label: str | None = None
+    citable_sources: list[CitableSourcePublic] = Field(default_factory=list, max_length=8)
+    confidence: int = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _normalize_and_policy(self) -> MarketActorCandidate:
+        from opn_oracle.ai.source_url_policy import (
+            SOURCE_URL_UNVERIFIED_LABEL,
+            SOURCE_URL_UNVERIFIED_STATUS,
+            annotate_source_urls,
+            sanitize_source_urls,
+        )
+
+        # Prefer summary; fall back to rationale (and vice versa) so either field works.
+        summary = " ".join((self.summary or "").split())
+        rationale = " ".join((self.rationale or "").split())
+        if not summary and rationale:
+            summary = rationale
+        if not rationale and summary:
+            rationale = summary
+        if not summary:
+            raise ValueError("summary o rationale es obligatorio")
+        self.summary = summary[:1000]
+        self.rationale = rationale[:1000]
+        cleaned = sanitize_source_urls(self.source_urls, max_items=5)
+        meta = annotate_source_urls(cleaned, max_items=5)
+        self.source_urls = cleaned
+        self.source_urls_meta = [SourceUrlMeta.model_validate(item) for item in meta]
+        self.source_urls_status = SOURCE_URL_UNVERIFIED_STATUS if cleaned else None
+        self.source_urls_label = SOURCE_URL_UNVERIFIED_LABEL if cleaned else None
+        return self
+
+
+class MarketActorDiscoveryOutput(StrictModel):
+    """Candidate actors for a market; user reviews and picks, never auto-added."""
+
+    candidates: list[MarketActorCandidate] = Field(default_factory=list, max_length=15)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    reserved_citable_sources: list[ReservedCitableSource] = Field(
+        default_factory=list, max_length=20
+    )
+
+    @model_validator(mode="after")
+    def _label_unverified_sources(self) -> MarketActorDiscoveryOutput:
+        from opn_oracle.ai.source_url_policy import SOURCE_URL_UNVERIFIED_LABEL
+
+        has_urls = any(item.source_urls for item in self.candidates)
+        if not has_urls:
+            return self
+        note = (
+            "Las source_urls del modelo (si aparecen) se etiquetan "
+            f"«{SOURCE_URL_UNVERIFIED_LABEL}» y no acreditan al candidato; "
+            "solo evidence_ids de citable_sources de Signal son citas."
+        )
+        if note not in self.warnings:
+            self.warnings = [*self.warnings, note][:20]
+        return self
+
+
 AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
@@ -1391,4 +1481,5 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "dossier_question_answer": DossierQuestionAnswerOutput,
     "report_custom_brief_plan": ReportCustomBriefPlanOutput,
     "market_competitor_discovery": MarketCompetitorDiscoveryOutput,
+    "market_actor_discovery": MarketActorDiscoveryOutput,
 }

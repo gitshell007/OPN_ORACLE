@@ -2206,6 +2206,241 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/market-actor-discovery/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Human gate for actor discovery; refuses competitor artifacts (cross-agent). */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketActorAcceptInput"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketActorAcceptResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-actor-discovery/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Market Actor Discovery */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketActorDiscoveryLatestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-actor-discovery/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue Market Actor Discovery */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketActorDiscoveryInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Successful response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketActorDiscoveryRunResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/market-competitor-discovery/accept": {
         parameters: {
             query?: never;
@@ -34575,6 +34810,93 @@ export interface components {
             requires_tenant_selection: boolean;
             /** Format: uuid */
             session_id: string;
+        };
+        MarketActorAcceptInput: {
+            artifact_id: string;
+            dossier_id: string;
+            /** @default null */
+            expected_version: number | null;
+            selected: components["schemas"]["MarketActorSelection"][];
+        };
+        MarketActorAcceptResponse: {
+            artifact_id: string;
+            count: number;
+            dossier_id: string;
+            materialized: components["schemas"]["MaterializedEvidence"][];
+        };
+        MarketActorCandidate: {
+            actor_type: string;
+            /** @default  */
+            affiliation: string;
+            /** @default null */
+            candidate_id: string | null;
+            /** @default [] */
+            citable_sources: components["schemas"]["CitableSourcePublic"][];
+            confidence: number;
+            country: string;
+            /** @default [] */
+            evidence_ids: string[];
+            organization: string;
+            /** @default  */
+            rationale: string;
+            /** @default true */
+            selectable: boolean;
+            /** @default [] */
+            source_urls: string[];
+            /** @default null */
+            source_urls_label: string | null;
+            /** @default [] */
+            source_urls_meta: components["schemas"]["SourceUrlMeta"][];
+            /** @default null */
+            source_urls_status: string | null;
+            summary: string;
+        };
+        MarketActorDiscoveryArtifact: {
+            agent: string;
+            created_at: string;
+            dossier_id?: string | null;
+            id: string;
+            output: components["schemas"]["MarketActorDiscoveryOutput"];
+            schema_name: string;
+            schema_version: string;
+            status: string;
+            updated_at: string;
+            version: number;
+        };
+        MarketActorDiscoveryInput: {
+            /** @enum {string} */
+            actor_type: "company" | "research_group" | "technology_center" | "regulator" | "potential_customer";
+            /** @default [] */
+            countries: string[];
+            discovery_intent: string;
+            /** @default [] */
+            known_names: string[];
+            /** @default [] */
+            languages: string[];
+        };
+        MarketActorDiscoveryLatestResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["MarketActorDiscoveryArtifact"];
+            job?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketActorDiscoveryOutput: {
+            candidates: components["schemas"]["MarketActorCandidate"][];
+            /** @default [] */
+            reserved_citable_sources: components["schemas"]["ReservedCitableSource"][];
+            warnings: string[];
+        };
+        MarketActorDiscoveryRunResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["MarketActorDiscoveryArtifact"];
+            job: components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketActorSelection: {
+            candidate_id: string;
+            /** @default [] */
+            evidence_ids: string[];
+            /** @default  */
+            name: string;
+            /** @default  */
+            organization: string;
+            source_ids: string[];
         };
         MarketCompetitorAcceptInput: {
             artifact_id: string;

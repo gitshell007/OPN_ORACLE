@@ -39,6 +39,8 @@ DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
 MARKET_COMPETITOR_DISCOVERY_AGENT = "market_competitor_discovery"
 MARKET_COMPETITOR_DISCOVERY_TARGET = "market_discovery"
+MARKET_ACTOR_DISCOVERY_AGENT = "market_actor_discovery"
+MARKET_ACTOR_DISCOVERY_TARGET = "market_actor_discovery"
 INTAKE_AGENT = "intake"
 OPPORTUNITY_AGENT = "opportunity"
 RISK_AGENT = "risk"
@@ -257,6 +259,95 @@ class MaterializedEvidenceSchema(Schema):
 
 
 class MarketCompetitorAcceptResponseSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    materialized = List(Nested(MaterializedEvidenceSchema), required=True)
+    count = Integer(required=True)
+
+
+class MarketActorDiscoveryInputSchema(Schema):
+    discovery_intent = String(required=True, validate=validate.Length(min=10, max=2_000))
+    actor_type = String(
+        required=True,
+        validate=validate.OneOf(
+            [
+                "company",
+                "research_group",
+                "technology_center",
+                "regulator",
+                "potential_customer",
+            ]
+        ),
+    )
+    countries = List(String(validate=validate.Length(min=2, max=3)), load_default=[])
+    languages = List(String(validate=validate.Length(max=10)), load_default=[])
+    # Only names already known *for this objective* (never global partners/regulators).
+    known_names = List(String(validate=validate.Length(max=300)), load_default=[])
+
+
+class MarketActorCandidateSchema(Schema):
+    candidate_id = String(allow_none=True, load_default=None)
+    actor_type = String(required=True)
+    organization = String(required=True)
+    affiliation = String(load_default="")
+    country = String(required=True)
+    summary = String(required=True)
+    rationale = String(load_default="")
+    evidence_ids = List(String(), load_default=[])
+    source_urls = List(String(), load_default=[])
+    source_urls_meta = List(Nested(SourceUrlMetaSchema), load_default=[])
+    source_urls_status = String(allow_none=True, load_default=None)
+    source_urls_label = String(allow_none=True, load_default=None)
+    citable_sources = List(Nested(CitableSourcePublicSchema), load_default=[])
+    confidence = Integer(required=True)
+    selectable = Boolean(load_default=True)
+
+
+class MarketActorDiscoveryOutputSchema(Schema):
+    candidates = List(Nested(MarketActorCandidateSchema), required=True)
+    warnings = List(String(), required=True)
+    reserved_citable_sources = List(Nested(ReservedCitableSourceSchema), load_default=[])
+
+
+class MarketActorDiscoveryArtifactSchema(Schema):
+    id = String(required=True)
+    dossier_id = String(allow_none=True)
+    agent = String(required=True)
+    schema_name = String(required=True)
+    schema_version = String(required=True)
+    status = String(required=True)
+    output = Nested(MarketActorDiscoveryOutputSchema, required=True)
+    created_at = String(required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class MarketActorDiscoveryRunResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, required=True)
+    artifact = Nested(MarketActorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketActorDiscoveryLatestResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, allow_none=True)
+    artifact = Nested(MarketActorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketActorSelectionSchema(Schema):
+    candidate_id = String(required=True)
+    organization = String(load_default="")
+    name = String(load_default="")  # display-only alias
+    source_ids = List(String(), required=True)
+    evidence_ids = List(String(), load_default=[])
+
+
+class MarketActorAcceptInputSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    selected = List(Nested(MarketActorSelectionSchema), required=True)
+    expected_version = Integer(allow_none=True, load_default=None)
+
+
+class MarketActorAcceptResponseSchema(Schema):
     artifact_id = String(required=True)
     dossier_id = String(required=True)
     materialized = List(Nested(MaterializedEvidenceSchema), required=True)
@@ -1057,6 +1148,328 @@ def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
             dossier_id=dossier_id,
             selected=selected,
             expected_version=int(expected_version) if expected_version is not None else None,
+            agent=MARKET_COMPETITOR_DISCOVERY_AGENT,
+        )
+    except MaterializeError as error:
+        return _tender_wizard_problem(
+            error.status,
+            detail=error.detail,
+            code=error.code,
+        )
+    return result
+
+
+def _latest_market_actor_discovery_artifact() -> AIArtifact | None:
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id.is_(None),
+            AIArtifact.agent == MARKET_ACTOR_DISCOVERY_AGENT,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_market_actor_discovery_job() -> BackgroundJob | None:
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id.is_(None),
+            BackgroundJob.job_type == f"oracle.ai.{MARKET_ACTOR_DISCOVERY_AGENT}",
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _serialize_market_actor_discovery_artifact(
+    artifact: AIArtifact | None,
+) -> dict[str, Any] | None:
+    """Serialize actor discovery: organization/type/country + closed citations."""
+
+    base = _serialize_wizard_artifact(artifact)
+    if base is None:
+        return None
+    output = base.get("output")
+    if not isinstance(output, dict):
+        return base
+    reserved_raw = output.get("reserved_citable_sources") or []
+    reserved_public: list[dict[str, Any]] = []
+    if isinstance(reserved_raw, list):
+        for item in reserved_raw:
+            if not isinstance(item, dict):
+                continue
+            reserved_public.append(
+                {
+                    "source_id": str(item.get("source_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "url": str(item.get("url") or ""),
+                    "snippet": str(item.get("snippet") or ""),
+                    "provider": str(item.get("provider") or ""),
+                    "rank": int(item.get("rank") or 0) if item.get("rank") is not None else 0,
+                    "content_checksum": str(item.get("content_checksum") or ""),
+                    "origin": str(item.get("origin") or "web_search"),
+                    "domain": str(item.get("domain") or ""),
+                    "label": str(item.get("label") or item.get("title") or ""),
+                    "origin_label": str(
+                        item.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+    candidates_out: list[dict[str, Any]] = []
+    for cand in output.get("candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        evidence_ids = [
+            str(item)
+            for item in (cand.get("evidence_ids") or [])
+            if item is not None and str(item).strip()
+        ]
+        public_sources = []
+        for src in cand.get("citable_sources") or []:
+            if not isinstance(src, dict):
+                continue
+            public_sources.append(
+                {
+                    "source_id": str(src.get("source_id") or ""),
+                    "title": str(src.get("title") or ""),
+                    "url": str(src.get("url") or ""),
+                    "snippet": str(src.get("snippet") or ""),
+                    "rank": int(src.get("rank") or 0) if src.get("rank") is not None else 0,
+                    "domain": str(src.get("domain") or ""),
+                    "label": str(src.get("label") or src.get("title") or ""),
+                    "origin": str(src.get("origin") or "web_search"),
+                    "origin_label": str(
+                        src.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+        if not public_sources and evidence_ids:
+            by_id = {r["source_id"]: r for r in reserved_public}
+            for sid in evidence_ids:
+                if sid in by_id:
+                    r = by_id[sid]
+                    public_sources.append(
+                        {
+                            "source_id": r["source_id"],
+                            "title": r["title"],
+                            "url": r["url"],
+                            "snippet": r["snippet"],
+                            "rank": r["rank"],
+                            "domain": r["domain"],
+                            "label": r["label"],
+                            "origin": r["origin"],
+                            "origin_label": r["origin_label"],
+                        }
+                    )
+        selectable = len(evidence_ids) > 0 and len(public_sources) > 0
+        raw_cid = cand.get("candidate_id")
+        candidate_id = None
+        if raw_cid is not None and str(raw_cid).strip():
+            try:
+                candidate_id = str(uuid.UUID(str(raw_cid)))
+            except (ValueError, TypeError, AttributeError):
+                candidate_id = None
+        summary = str(cand.get("summary") or cand.get("rationale") or "")
+        candidates_out.append(
+            {
+                "candidate_id": candidate_id,
+                "actor_type": str(cand.get("actor_type") or ""),
+                "organization": str(cand.get("organization") or ""),
+                "affiliation": str(cand.get("affiliation") or ""),
+                "country": str(cand.get("country") or ""),
+                "summary": summary,
+                "rationale": str(cand.get("rationale") or summary),
+                "evidence_ids": evidence_ids,
+                "source_urls": [],
+                "source_urls_meta": [],
+                "source_urls_status": None,
+                "source_urls_label": None,
+                "citable_sources": public_sources,
+                "confidence": int(cand.get("confidence") or 0),
+                "selectable": selectable and candidate_id is not None,
+            }
+        )
+    base["output"] = {
+        "candidates": candidates_out,
+        "warnings": list(output.get("warnings") or []),
+        "reserved_citable_sources": reserved_public,
+    }
+    return base
+
+
+def _market_actor_discovery_input(value: Any) -> dict[str, Any]:
+    """Validate actor discovery run payload. Never concatenates title/goal."""
+
+    if not isinstance(value, dict):
+        raise ValueError("Payload no válido.")
+
+    def _clean_list(
+        field: str, *, limit: int, upper: bool = False, lower: bool = False
+    ) -> list[str]:
+        items = value.get(field) or []
+        if not isinstance(items, list):
+            raise ValueError(f"{field} debe ser una lista.")
+        cleaned = [" ".join(str(item).split())[:300] for item in items]
+        cleaned = [item for item in cleaned if item]
+        if upper:
+            cleaned = [item.upper() for item in cleaned]
+        if lower:
+            cleaned = [item.lower() for item in cleaned]
+        return list(dict.fromkeys(cleaned))[:limit]
+
+    from opn_oracle.ai.context import DISCOVERY_INTENT_MAX_LEN, DISCOVERY_INTENT_MIN_LEN
+    from opn_oracle.ai.schemas import MARKET_ACTOR_TYPES
+
+    intent = " ".join(str(value.get("discovery_intent") or "").split())
+    if len(intent) < DISCOVERY_INTENT_MIN_LEN or len(intent) > DISCOVERY_INTENT_MAX_LEN:
+        raise ValueError(
+            f"discovery_intent debe tener entre {DISCOVERY_INTENT_MIN_LEN} y "
+            f"{DISCOVERY_INTENT_MAX_LEN} caracteres."
+        )
+    actor_type = str(value.get("actor_type") or "").strip().lower()
+    if actor_type not in MARKET_ACTOR_TYPES:
+        raise ValueError(
+            "actor_type debe ser company, research_group, technology_center, "
+            "regulator o potential_customer."
+        )
+    return {
+        "discovery_intent": intent,
+        "actor_type": actor_type,
+        "countries": _clean_list("countries", limit=27, upper=True),
+        "languages": _clean_list("languages", limit=10, lower=True),
+        # Explicit objective exclusions only — never inject partners/regulators.
+        "known_names": _clean_list("known_names", limit=50),
+    }
+
+
+@bp.post("/market-actor-discovery/runs")
+@require_permission("ai.execute")
+@bp.input(MarketActorDiscoveryInputSchema)
+@bp.output(MarketActorDiscoveryRunResponseSchema, status_code=202)
+def enqueue_market_actor_discovery(json_data: dict[str, Any]) -> Any:
+    try:
+        payload = _market_actor_discovery_input(json_data)
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return _tender_wizard_problem(
+            428,
+            detail="Idempotency-Key es obligatorio para proponer actores.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{MARKET_ACTOR_DISCOVERY_AGENT}",
+            payload=payload,
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            resource_type=MARKET_ACTOR_DISCOVERY_TARGET,
+            resource_id=g.active_tenant_id,
+        )
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_market_actor_discovery_artifact(
+            _latest_market_actor_discovery_artifact()
+        ),
+    }, 202
+
+
+@bp.get("/market-actor-discovery/latest")
+@require_permission("ai.execute")
+@bp.output(MarketActorDiscoveryLatestResponseSchema)
+def latest_market_actor_discovery() -> Any:
+    job = _latest_market_actor_discovery_job()
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_market_actor_discovery_artifact(
+            _latest_market_actor_discovery_artifact()
+        ),
+    }
+
+
+@bp.post("/market-actor-discovery/accept")
+@require_permission("ai.execute")
+@bp.input(MarketActorAcceptInputSchema)
+@bp.output(MarketActorAcceptResponseSchema)
+def accept_market_actor_discovery(json_data: dict[str, Any]) -> Any:
+    """Human gate for actor discovery; refuses competitor artifacts (cross-agent)."""
+
+    from opn_oracle.ai.market_materialize import MaterializeError, accept_and_materialize
+
+    try:
+        artifact_id = uuid.UUID(str(json_data["artifact_id"]))
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
+    except (KeyError, TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="artifact_id y dossier_id deben ser UUID válidos.",
+            code="validation_error",
+        )
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == g.active_tenant_id,
+        )
+    )
+    if dossier is None or not dossier_accessible(
+        db.session(), dossier, current_user.id, write=True
+    ):
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    if str(dossier.dossier_type or "") != "market":
+        return _tender_wizard_problem(
+            422,
+            detail="Solo un expediente de tipo market puede recibir evidencias de discovery.",
+            code="dossier_not_market",
+        )
+    selected = json_data.get("selected") or []
+    if not isinstance(selected, list):
+        return _tender_wizard_problem(
+            422,
+            detail="selected debe ser una lista.",
+            code="validation_error",
+        )
+    expected_version = json_data.get("expected_version")
+    from opn_oracle.tenants.context import get_tenant_context
+
+    context = get_tenant_context(required=False)
+    if context is None or context.actor_id is None:
+        return _tender_wizard_problem(
+            401,
+            detail="Se requiere un actor autenticado en el servidor para registrar la aceptación.",
+            code="actor_required",
+        )
+    if context.actor_id != current_user.id:
+        return _tender_wizard_problem(
+            401,
+            detail="El actor del contexto de servidor no coincide con el usuario autenticado.",
+            code="actor_context_mismatch",
+        )
+    try:
+        result = accept_and_materialize(
+            artifact_id=artifact_id,
+            dossier_id=dossier_id,
+            selected=selected,
+            expected_version=int(expected_version) if expected_version is not None else None,
+            agent=MARKET_ACTOR_DISCOVERY_AGENT,
         )
     except MaterializeError as error:
         return _tender_wizard_problem(

@@ -259,4 +259,53 @@ describe("marketStepBlockers", () => {
       }),
     ).toEqual(["Decisión concreta a tomar"]);
   });
+
+  it("research_group: permite continuar sin competidores con intención válida", () => {
+    expect(
+      marketStepBlockers({
+        step: "ecosystem",
+        title: "Mercado grafeno",
+        goal: "Contactar labs",
+        ownOffer: "Colaboración I+D",
+        marketCountries: ["FR"],
+        competitors: "",
+        competitorsKnowledge: "",
+        decisionToMake: "",
+        discoveryIntent:
+          "quiero contactar con grupos de investigación en Francia que trabajen en grafeno",
+        discoveryActorType: "research_group",
+      }),
+    ).toEqual([]);
+  });
+
+  it("discovery_intent vacío o corto falla visible", () => {
+    expect(
+      marketStepBlockers({
+        step: "ecosystem",
+        title: "x",
+        goal: "y",
+        ownOffer: "z",
+        marketCountries: ["FR"],
+        competitors: "",
+        competitorsKnowledge: "not_seeking",
+        decisionToMake: "",
+        discoveryIntent: "corto",
+        discoveryActorType: "research_group",
+      }),
+    ).toContain("Intención de búsqueda (mínimo 10 caracteres)");
+    expect(
+      marketStepBlockers({
+        step: "ecosystem",
+        title: "x",
+        goal: "y",
+        ownOffer: "z",
+        marketCountries: ["FR"],
+        competitors: "",
+        competitorsKnowledge: "not_seeking",
+        decisionToMake: "",
+        discoveryIntent: "   ",
+        discoveryActorType: "research_group",
+      }).some((b) => b.includes("encontrar") || b.includes("Intención")),
+    ).toBe(true);
+  });
 });
