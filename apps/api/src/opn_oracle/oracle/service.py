@@ -15,8 +15,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from opn_oracle.ai.models import AIArtifact, AIContextEvidence, AIHumanReview
-from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, actor_canonical_key, clean_labels
-from opn_oracle.oracle.actor_tax_id import hydrate_dossier_actor_tax_ids_from_awards
+from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, clean_labels
+from opn_oracle.oracle.actor_tax_id import (
+    TaxIdConflictError,
+    TaxIdValidationError,
+    hydrate_dossier_actor_tax_ids_from_awards,
+    resolve_or_create_actor,
+)
 from opn_oracle.oracle.intent import (
     DossierIntentRevision,
     DossierOffering,
@@ -129,6 +134,10 @@ class VersionConflict(RuntimeError):
 
 class ResourceNotFound(LookupError):
     pass
+
+
+# Re-export tax-id domain errors for routes/OpenAPI consumers.
+__all_tax_id_errors__ = (TaxIdConflictError, TaxIdValidationError)
 
 
 def _optional_date(value: Any, field: str) -> date | None:
@@ -442,9 +451,9 @@ def _validated_market_discovery_intent(
             f"discovery_intent debe tener entre {_DISCOVERY_INTENT_MIN} y "
             f"{_DISCOVERY_INTENT_MAX} caracteres."
         )
-    actor_type = str(
-        value.get("discovery_actor_type") or value.get("actor_type") or ""
-    ).strip().lower()
+    actor_type = (
+        str(value.get("discovery_actor_type") or value.get("actor_type") or "").strip().lower()
+    )
     if actor_type not in _DISCOVERY_ACTOR_TYPES:
         raise DomainValidationError(
             "Con discovery_intent debes indicar discovery_actor_type "
@@ -852,26 +861,17 @@ def _ensure_dossier_actor(
     canonical_name = " ".join(str(name).strip().split())
     if not canonical_name:
         return
-    canonical_key = actor_canonical_key(canonical_name)
-    actor = session.scalar(
-        select(Actor).where(
-            Actor.tenant_id == dossier.tenant_id,
-            Actor.canonical_key == canonical_key,
-        )
+    # G-16: tax_id governs durable identity when present; name is fallback.
+    actor = resolve_or_create_actor(
+        session,
+        tenant_id=dossier.tenant_id,
+        canonical_name=canonical_name,
+        actor_type=actor_type,
+        aliases=list(aliases or []),
+        identifiers=dict(identifiers or {}),
+        actor_metadata=dict(actor_metadata or {}),
+        provenance={"source": provenance_source, "verified": False},
     )
-    if actor is None:
-        actor = Actor(
-            tenant_id=dossier.tenant_id,
-            actor_type=actor_type,
-            canonical_name=canonical_name,
-            canonical_key=canonical_key,
-            aliases=list(aliases or []),
-            identifiers=dict(identifiers or {}),
-            actor_metadata=dict(actor_metadata or {}),
-            provenance={"source": provenance_source, "verified": False},
-        )
-        session.add(actor)
-        session.flush()
     link = session.scalar(
         select(DossierActor).where(
             DossierActor.tenant_id == dossier.tenant_id,
@@ -1878,28 +1878,18 @@ def create_dossier_actor(
             raise DomainValidationError("canonical_name es obligatorio.")
         if actor_type not in ACTOR_TYPES:
             raise DomainValidationError("actor_type no es válido.")
-        canonical_key = actor_canonical_key(canonical_name)
-        actor = session.scalar(
-            select(Actor).where(
-                Actor.tenant_id == tenant_id,
-                Actor.canonical_key == canonical_key,
-            )
-        )
         labels = clean_labels(payload.get("tags", []))
-        if actor is None:
-            actor = Actor(
-                tenant_id=tenant_id,
-                actor_type=actor_type,
-                canonical_name=canonical_name[:300],
-                canonical_key=canonical_key,
-                aliases=[],
-                identifiers={},
-                actor_metadata={"tags": labels},
-                provenance=dict(payload.get("provenance", {})),
-            )
-            session.add(actor)
-            session.flush()
-        elif labels:
+        identifiers = dict(payload.get("identifiers") or {})
+        actor = resolve_or_create_actor(
+            session,
+            tenant_id=tenant_id,
+            canonical_name=canonical_name[:300],
+            actor_type=actor_type,
+            identifiers=identifiers,
+            actor_metadata={"tags": labels} if labels else {},
+            provenance=dict(payload.get("provenance", {})),
+        )
+        if labels:
             metadata = dict(actor.actor_metadata or {})
             metadata["tags"] = clean_labels([*clean_labels(metadata.get("tags", [])), *labels])
             actor.actor_metadata = metadata
@@ -2077,6 +2067,11 @@ def merge_actors(
         {str(value) for value in [*target.aliases, *source.aliases, source.canonical_name]}
     )
     target.identifiers = source.identifiers | target.identifiers
+    # Prefer target durable tax_id; adopt source column only if target empty.
+    if not target.tax_id and source.tax_id:
+        target.tax_id = source.tax_id
+        target.tax_id_scheme = source.tax_id_scheme
+        target.tax_id_country = source.tax_id_country
     target.provenance = target.provenance | {
         "last_merge": {"source_actor_id": str(source.id), "reason": reason[:1000]}
     }

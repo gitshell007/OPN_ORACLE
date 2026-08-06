@@ -204,6 +204,21 @@ def _domain_error(error: Exception) -> Any:
         return problem_response(404, detail=str(error), code="not_found")
     if isinstance(error, VersionConflict):
         return problem_response(409, detail=str(error), code="version_conflict")
+    from opn_oracle.oracle.actor_tax_id import TaxIdConflictError, TaxIdValidationError
+
+    if isinstance(error, TaxIdConflictError):
+        return problem_response(
+            409,
+            detail=str(error),
+            code="tax_id_conflict",
+            errors={
+                "tax_id": error.tax_id,
+                "canonical_actor_id": str(error.canonical_actor_id),
+                "canonical_actor_name": error.canonical_actor_name,
+            },
+        )
+    if isinstance(error, TaxIdValidationError):
+        return problem_response(422, detail=str(error), code="tax_id_validation")
     return problem_response(422, detail=str(error), code="domain_validation")
 
 
@@ -3069,6 +3084,15 @@ def actors_list() -> Any:
 @bp.post("/actors")
 @require_permission("actor.write")
 def actors_create() -> Any:
+    from opn_oracle.oracle.actor_candidates import actor_canonical_key
+    from opn_oracle.oracle.actor_tax_id import (
+        TaxIdConflictError,
+        TaxIdValidationError,
+        find_actor_by_tax_id,
+        resolve_or_create_actor,
+        usable_company_tax_id,
+    )
+
     payload = _payload()
     name = str(payload.get("canonical_name", "")).strip()
     actor_type = str(payload.get("actor_type", "organization"))
@@ -3076,23 +3100,95 @@ def actors_create() -> Any:
         return problem_response(
             422, detail="canonical_name es obligatorio.", code="validation_error"
         )
-    canonical_key = "-".join(name.casefold().split())[:320]
-    existing = db.session.scalar(select(Actor).where(Actor.canonical_key == canonical_key))
-    if existing is not None:
-        return _serialize(existing), 200
-    row = Actor(
+    identifiers = dict(payload.get("identifiers", {}))
+    tax_id = usable_company_tax_id(identifiers.get("tax_id"))
+    existed_before = False
+    if tax_id:
+        existed_before = (
+            find_actor_by_tax_id(db.session(), tenant_id=g.active_tenant_id, tax_id=tax_id)
+            is not None
+        )
+    else:
+        existed_before = (
+            db.session.scalar(
+                select(Actor).where(
+                    Actor.tenant_id == g.active_tenant_id,
+                    Actor.canonical_key == actor_canonical_key(name),
+                )
+            )
+            is not None
+        )
+    try:
+        row = resolve_or_create_actor(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            canonical_name=name[:300],
+            actor_type=actor_type,
+            aliases=list(payload.get("aliases", [])),
+            identifiers=identifiers,
+            actor_metadata=dict(payload.get("metadata", {})),
+            provenance=dict(payload.get("provenance", {})),
+        )
+        db.session.commit()
+        return _serialize(row), (200 if existed_before else 201)
+    except (
+        TaxIdConflictError,
+        TaxIdValidationError,
+        DomainValidationError,
+        IntegrityError,
+    ) as error:
+        db.session.rollback()
+        return _domain_error(error)
+
+
+@bp.get("/actors/tax-id-conflicts")
+@require_permission("actor.read")
+def actors_tax_id_conflicts_list() -> Any:
+    """List resolvable tax_id collisions (G-16 backend contract; UI in G-16-B/G-17)."""
+
+    from opn_oracle.oracle.actor_tax_id import list_tax_id_conflicts
+
+    status = request.args.get("filter[status]", "open")
+    if status in {"", "all", "*"}:
+        status = None
+    try:
+        limit = int(request.args.get("page[size]", "50"))
+    except ValueError:
+        limit = 50
+    rows = list_tax_id_conflicts(
+        db.session(),
         tenant_id=g.active_tenant_id,
-        actor_type=actor_type,
-        canonical_name=name[:300],
-        canonical_key=canonical_key,
-        aliases=list(payload.get("aliases", [])),
-        identifiers=dict(payload.get("identifiers", {})),
-        actor_metadata=dict(payload.get("metadata", {})),
-        provenance=dict(payload.get("provenance", {})),
+        status=status,
+        limit=limit,
     )
-    db.session.add(row)
-    db.session.commit()
-    return _serialize(row), 201
+    return {"data": [_serialize(row) for row in rows], "meta": {"count": len(rows)}}
+
+
+@bp.post("/actors/tax-id-conflicts/<uuid:conflict_id>/resolve")
+@require_permission("actor.write")
+def actors_tax_id_conflicts_resolve(conflict_id: uuid.UUID) -> Any:
+    """Mark a tax_id conflict resolved/dismissed. Does not merge relations (G-17)."""
+
+    from opn_oracle.oracle.actor_tax_id import resolve_tax_id_conflict
+
+    payload = _payload()
+    try:
+        row = resolve_tax_id_conflict(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            conflict_id=conflict_id,
+            action=str(payload.get("action", "keep_winner")),
+            note=str(payload.get("note", "")),
+            actor_id=current_user.id,
+        )
+        db.session.commit()
+        return _serialize(row)
+    except LookupError as error:
+        db.session.rollback()
+        return problem_response(404, detail=str(error), code="not_found")
+    except ValueError as error:
+        db.session.rollback()
+        return problem_response(422, detail=str(error), code="validation_error")
 
 
 @bp.post("/actors/<uuid:target_id>/merge")

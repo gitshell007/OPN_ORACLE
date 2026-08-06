@@ -3131,20 +3131,11 @@ def _dossier_actors_for_analysis(
 
 
 def _actor_tax_id(actor: Actor) -> str | None:
-    identifiers = actor.identifiers if isinstance(actor.identifiers, dict) else {}
-    metadata = actor.actor_metadata if isinstance(actor.actor_metadata, dict) else {}
-    profile = metadata.get("profile") if isinstance(metadata.get("profile"), dict) else {}
-    for source in (identifiers, metadata, profile):
-        if not isinstance(source, dict):
-            continue
-        for key in ("tax_id", "nif", "cif", "vat", "company_tax_id", "winner_identifier"):
-            raw = source.get(key)
-            if raw is None:
-                continue
-            text = str(raw).strip().upper().replace(" ", "").replace("-", "")
-            if len(text) >= 8:
-                return text
-    return None
+    """Durable tax_id via shared G-16 service (column first, then identifiers)."""
+
+    from opn_oracle.oracle.actor_tax_id import actor_durable_tax_id
+
+    return actor_durable_tax_id(actor)
 
 
 def _serialize_dossier_actor_row(link: DossierActor, actor: Actor) -> dict[str, Any]:
