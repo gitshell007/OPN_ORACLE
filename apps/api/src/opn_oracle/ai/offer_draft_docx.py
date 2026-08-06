@@ -26,9 +26,7 @@ from docx.shared import Pt, RGBColor
 from opn_oracle.ai.draft_offer import _BANNER, _HUMAN_GATE, _RESPONSE_TAG
 from opn_oracle.ai.offer_draft import MAX_CONTENT_BYTES, OfferDraftError
 
-DOCX_MEDIA_TYPE = (
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-)
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MAX_DOCX_BYTES = 2_000_000
 MAX_DOCX_PARAGRAPHS = 2_000
 MAX_TRACEABILITY_ROWS = 60
@@ -37,17 +35,59 @@ EXPORT_NOTICE = (
     "AVISO: este fichero es un borrador declarado. Requiere revisión humana. "
     "No es hecho oficial ni documento presentable."
 )
+# Public Spanish label for the machine gate code ``draft_requires_human_edit``.
+HUMAN_GATE_PUBLIC_LABEL = (
+    "Requiere revisión y edición humana antes de presentar. "
+    "El borrador no es documento presentable."
+)
 CHECKLIST_STATUS_LABELS = {
     "pending": "pendiente",
     "ready": "listo",
     "blocked": "bloqueado",
 }
+GAP_SEVERITY_LABELS = {
+    "blocking": "bloqueante",
+    "important": "importante",
+    "info": "informativo",
+}
 
-_UUID_RE = re.compile(
-    r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
-)
+_UUID_RE = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+# Multi-segment snake_case identifiers (field names / machine codes).
+_SNAKE_CASE_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 _CRLF_RE = re.compile(r"[\r\n\x00]+")
 _UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._\- áéíóúüñÁÉÍÓÚÜÑ]+")
+
+# Explicit internal tokens that must never appear in client-facing DOCX text.
+_INTERNAL_TOKEN_DENYLIST: frozenset[str] = frozenset(
+    {
+        "draft_requires_human_edit",
+        "declared_draft",
+        "declared_generated",
+        "human_gate",
+        "our_response_draft",
+        "points_hint",
+        "requirement_origin",
+        "response_origin",
+        "official_evidence_ids",
+        "declared_evidence_ids",
+        "gaps_summary",
+        "administrative_checklist",
+        "based_on_verdict",
+        "draft_engine",
+        "tender_ref",
+        "lot_hint",
+        "source_artifact_id",
+        "last_edited_by_user_id",
+        "tenant_id",
+        "user_id",
+        "audit_id",
+        "go_conditioned",
+        "award_economic",
+        "award_technical",
+        "sv2_borrador_v1",
+        "sv2_prosa_v1",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +144,7 @@ def content_disposition_attachment(filename: str) -> str:
         or "Borrador-oferta.docx"
     )
     starred = quote(safe, safe="")
-    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{starred}'
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{starred}"
 
 
 def collect_evidence_ids(content: Mapping[str, Any]) -> list[uuid.UUID]:
@@ -167,7 +207,7 @@ def resolve_evidence_citations(
 
 
 def assert_no_internal_ids(text: str) -> None:
-    """Raise if bare UUIDs / forbidden identity keys leak into document text."""
+    """Raise if machine tokens / bare UUIDs / snake_case field names leak into DOCX text."""
 
     if _UUID_RE.search(text):
         raise OfferDraftError(
@@ -176,26 +216,42 @@ def assert_no_internal_ids(text: str) -> None:
             status=500,
         )
     lowered = text.casefold()
-    for forbidden in (
-        "tenant_id",
-        "user_id",
-        "audit_id",
-        "last_edited_by_user_id",
-        "source_artifact_id",
-    ):
-        if forbidden in lowered:
+    for forbidden in sorted(_INTERNAL_TOKEN_DENYLIST):
+        if forbidden.casefold() in lowered:
             raise OfferDraftError(
-                "El export no puede incluir campos de identidad internos.",
+                "El export no puede incluir códigos o campos internos.",
                 code="export_sanitization_failed",
                 status=500,
             )
+    # Catch any remaining multi-segment snake_case identifiers (machine field names).
+    for match in _SNAKE_CASE_RE.finditer(lowered):
+        token = match.group(0)
+        # Skip pure numeric suffixes already covered; any a_b form is internal.
+        raise OfferDraftError(
+            f"El export no puede incluir tokens internos ({token}).",
+            code="export_sanitization_failed",
+            status=500,
+        )
 
 
 def _clean_text(value: Any) -> str:
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
-    return "".join(
-        ch if ch in "\t\n" or (ord(ch) >= 32 and ch != "\x7f") else " " for ch in text
-    )
+    return "".join(ch if ch in "\t\n" or (ord(ch) >= 32 and ch != "\x7f") else " " for ch in text)
+
+
+def humanize_human_gate(raw: Any) -> str:
+    """Map machine human_gate codes to a public Spanish phrase (never print the code)."""
+
+    gate = str(raw or _HUMAN_GATE).strip() or _HUMAN_GATE
+    if gate == _HUMAN_GATE or gate.casefold() == "draft_requires_human_edit":
+        return HUMAN_GATE_PUBLIC_LABEL
+    # Unknown gate values: still avoid printing snake_case codes.
+    if _SNAKE_CASE_RE.search(gate) or gate in _INTERNAL_TOKEN_DENYLIST:
+        return HUMAN_GATE_PUBLIC_LABEL
+    cleaned = _clean_text(gate)
+    if not cleaned or _UUID_RE.search(cleaned):
+        return HUMAN_GATE_PUBLIC_LABEL
+    return cleaned
 
 
 def _set_run_shading(run: Any, fill: str = "FFF3CD") -> None:
@@ -208,25 +264,76 @@ def _set_run_shading(run: Any, fill: str = "FFF3CD") -> None:
     r_pr.append(shd)
 
 
-def _add_heading(doc: Document, text: str, level: int) -> None:
-    doc.add_heading(_clean_text(text), level=level)
+def _set_paragraph_pagination(
+    paragraph: Any,
+    *,
+    keep_with_next: bool | None = None,
+    keep_together: bool | None = None,
+    widow_control: bool | None = True,
+) -> Any:
+    """Apply Word pagination controls (keepNext / keepLines / widowControl)."""
+
+    pf = paragraph.paragraph_format
+    if keep_with_next is not None:
+        pf.keep_with_next = keep_with_next
+    if keep_together is not None:
+        pf.keep_together = keep_together
+    if widow_control is not None:
+        pf.widow_control = widow_control
+    return paragraph
 
 
-def _add_para(doc: Document, text: str, *, bold: bool = False, italic: bool = False) -> None:
+def _cohere_block(paragraphs: list[Any]) -> None:
+    """Keep a visual section block together when it fits on one page.
+
+    Every paragraph except the last gets ``keep_with_next`` so Word does not
+    orphan a lone bullet/gap at the top of the next page. Long sections may
+    still break naturally mid-block when they exceed a page.
+    """
+
+    if not paragraphs:
+        return
+    last_idx = len(paragraphs) - 1
+    for idx, paragraph in enumerate(paragraphs):
+        _set_paragraph_pagination(
+            paragraph,
+            keep_with_next=idx < last_idx,
+            keep_together=True,
+            widow_control=True,
+        )
+
+
+def _add_heading(doc: Document, text: str, level: int) -> Any:
+    heading = doc.add_heading(_clean_text(text), level=level)
+    _set_paragraph_pagination(heading, keep_with_next=True, keep_together=True, widow_control=True)
+    return heading
+
+
+def _add_para(
+    doc: Document,
+    text: str,
+    *,
+    bold: bool = False,
+    italic: bool = False,
+) -> Any:
     p = doc.add_paragraph()
     run = p.add_run(_clean_text(text))
     run.bold = bold
     run.italic = italic
     run.font.size = Pt(11)
+    _set_paragraph_pagination(p, keep_together=True, widow_control=True)
+    return p
 
 
-def _add_list_item(doc: Document, text: str) -> None:
+def _add_list_item(doc: Document, text: str) -> Any:
     p = doc.add_paragraph(_clean_text(text), style="List Bullet")
     for run in p.runs:
         run.font.size = Pt(11)
+    _set_paragraph_pagination(p, keep_together=True, widow_control=True)
+    return p
 
 
-def _add_notice(doc: Document, text: str) -> None:
+def _add_notice(doc: Document, text: str) -> Any:
     p = doc.add_paragraph()
     p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
     run = p.add_run(_clean_text(text))
@@ -235,9 +342,11 @@ def _add_notice(doc: Document, text: str) -> None:
     run.font.size = Pt(11)
     run.font.color.rgb = RGBColor(0x83, 0x3C, 0x0C)
     _set_run_shading(run, "FFF3CD")
+    _set_paragraph_pagination(p, keep_together=True, widow_control=True)
+    return p
 
 
-def _add_checklist_table(doc: Document, rows: list[list[str]]) -> None:
+def _add_checklist_table(doc: Document, rows: list[list[str]]) -> Any:
     table = doc.add_table(rows=1 + len(rows), cols=3)
     table.style = "Table Grid"
     headers = ("Estado", "Elemento", "Descripción")
@@ -245,13 +354,16 @@ def _add_checklist_table(doc: Document, rows: list[list[str]]) -> None:
         cell = table.rows[0].cells[idx]
         cell.text = header
         for paragraph in cell.paragraphs:
+            _set_paragraph_pagination(paragraph, keep_together=True, widow_control=True)
             for run in paragraph.runs:
                 run.bold = True
     for r_idx, row in enumerate(rows, start=1):
         for c_idx in range(3):
-            table.rows[r_idx].cells[c_idx].text = _clean_text(
-                row[c_idx] if c_idx < len(row) else ""
-            )
+            cell = table.rows[r_idx].cells[c_idx]
+            cell.text = _clean_text(row[c_idx] if c_idx < len(row) else "")
+            for paragraph in cell.paragraphs:
+                _set_paragraph_pagination(paragraph, keep_together=True, widow_control=True)
+    return table
 
 
 def build_offer_draft_document(
@@ -284,6 +396,7 @@ def build_offer_draft_document(
 
     # 1. Cover / title
     title = doc.add_heading("Borrador de oferta", level=0)
+    _set_paragraph_pagination(title, keep_with_next=True, keep_together=True, widow_control=True)
     for run in title.runs:
         run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
     _add_heading(doc, str(dossier_title or "Expediente").strip() or "Expediente", 1)
@@ -295,28 +408,28 @@ def build_offer_draft_document(
     _add_para(doc, f"Fecha de exportación: {export_stamp}")
     doc.add_paragraph("")
 
-    # 2. Highlighted notice
-    _add_notice(doc, EXPORT_NOTICE)
+    # 2. Highlighted notice — public language only (no machine gate codes).
+    notice_block: list[Any] = [_add_notice(doc, EXPORT_NOTICE)]
     if banner and banner.casefold() not in EXPORT_NOTICE.casefold():
         p = doc.add_paragraph()
         run = p.add_run(_clean_text(banner))
         run.italic = True
         run.font.size = Pt(11)
-    human_gate = str(content.get("human_gate") or _HUMAN_GATE).strip() or _HUMAN_GATE
-    if human_gate == _HUMAN_GATE:
-        _add_para(
-            doc,
-            "Puerta humana: draft_requires_human_edit — "
-            "el borrador no es documento presentable.",
-        )
+        _set_paragraph_pagination(p, keep_together=True, widow_control=True)
+        notice_block.append(p)
+    # Always surface the human gate in Spanish; never emit draft_requires_human_edit.
+    gate_para = _add_para(doc, f"Puerta humana: {humanize_human_gate(content.get('human_gate'))}")
+    notice_block.append(gate_para)
+    _cohere_block(notice_block)
     doc.add_paragraph("")
 
     # 3. Introduction
-    _add_heading(doc, "Introducción", 1)
-    _add_para(doc, statement or "(sin introducción)")
+    intro_heading = _add_heading(doc, "Introducción", 1)
+    intro_body = _add_para(doc, statement or "(sin introducción)")
+    _cohere_block([intro_heading, intro_body])
     doc.add_paragraph("")
 
-    # 4. Sections
+    # 4. Sections — each section is a cohesive keep-with-next block.
     _add_heading(doc, "Secciones de la oferta", 1)
     sections = [sec for sec in (content.get("sections") or []) if isinstance(sec, dict)]
     sections = sorted(
@@ -326,31 +439,33 @@ def build_offer_draft_document(
     if not sections:
         _add_para(doc, "(sin secciones)")
     for sec in sections:
-        title_text = str(sec.get("title") or sec.get("key") or "Sección").strip() or "Sección"
-        _add_heading(doc, title_text, 2)
+        # Prefer human title; never fall back to snake_case section keys.
+        title_text = str(sec.get("title") or "").strip() or "Sección"
+        block: list[Any] = [_add_heading(doc, title_text, 2)]
         requirement = str(sec.get("requirement") or "").strip()
         if requirement:
-            _add_para(doc, f"Criterio / requisito oficial: {requirement}")
+            # Preserve useful semantic tags like «requisito oficial» / «[oficial]».
+            block.append(_add_para(doc, f"Criterio / requisito oficial: {requirement}"))
         points = sec.get("points_hint")
         if points not in (None, ""):
-            _add_para(doc, f"Puntos: {points}")
+            block.append(_add_para(doc, f"Puntos: {points}"))
         response = str(sec.get("our_response_draft") or "").strip()
         if response:
             lowered = response.casefold()
             if "[borrador declarado" not in lowered and "no es hecho" not in lowered:
                 response = f"{_RESPONSE_TAG} {response}"
-            _add_para(doc, f"Respuesta (borrador declarado): {response}")
+            block.append(_add_para(doc, f"Respuesta (borrador declarado): {response}"))
         for gap in sec.get("gaps") or []:
             gap_text = str(gap or "").strip()
             if gap_text:
-                _add_list_item(doc, f"Gap: {gap_text}")
+                block.append(_add_list_item(doc, f"Gap: {gap_text}"))
+        _cohere_block(block)
     doc.add_paragraph("")
 
     # 5. Gaps / conditions + administrative checklist
-    _add_heading(doc, "Gaps y condiciones", 1)
-    gaps_summary = [
-        str(g).strip() for g in (content.get("gaps_summary") or []) if str(g).strip()
-    ]
+    gaps_heading = _add_heading(doc, "Gaps y condiciones", 1)
+    gaps_block: list[Any] = [gaps_heading]
+    gaps_summary = [str(g).strip() for g in (content.get("gaps_summary") or []) if str(g).strip()]
     structured_gaps = [
         g
         for g in (content.get("gaps") or [])
@@ -358,17 +473,22 @@ def build_offer_draft_document(
     ]
     if gaps_summary:
         for g in gaps_summary:
-            _add_list_item(doc, g)
+            gaps_block.append(_add_list_item(doc, g))
     elif structured_gaps:
         for g in structured_gaps:
-            sev = str(g.get("severity") or "important")
+            sev_raw = str(g.get("severity") or "important")
+            sev = GAP_SEVERITY_LABELS.get(sev_raw, "importante")
             desc = str(g.get("description") or "").strip()
-            _add_list_item(doc, f"[{sev}] {desc}")
+            gaps_block.append(_add_list_item(doc, f"[{sev}] {desc}"))
     else:
-        _add_para(doc, "(sin gaps registrados)")
+        gaps_block.append(_add_para(doc, "(sin gaps registrados)"))
+    _cohere_block(gaps_block)
 
     doc.add_paragraph("")
-    _add_heading(doc, "Checklist administrativa", 1)
+    checklist_heading = _add_heading(doc, "Checklist administrativa", 1)
+    _set_paragraph_pagination(
+        checklist_heading, keep_with_next=True, keep_together=True, widow_control=True
+    )
     checklist = [
         item for item in (content.get("administrative_checklist") or []) if isinstance(item, dict)
     ]
@@ -376,8 +496,9 @@ def build_offer_draft_document(
         rows: list[list[str]] = []
         for item in checklist:
             status_raw = str(item.get("status") or "pending")
-            status = CHECKLIST_STATUS_LABELS.get(status_raw, status_raw)
-            label = str(item.get("label") or item.get("key") or "").strip()
+            status = CHECKLIST_STATUS_LABELS.get(status_raw, "pendiente")
+            # Prefer human label; never fall back to machine keys like "deuc".
+            label = str(item.get("label") or "").strip() or "Elemento"
             desc = str(item.get("description") or "").strip()
             rows.append([status, label, desc])
         _add_checklist_table(doc, rows)
@@ -386,18 +507,22 @@ def build_offer_draft_document(
     doc.add_paragraph("")
 
     # 6. Traceability annex (no bare UUIDs)
-    _add_heading(doc, "Anexo de trazabilidad", 1)
-    _add_para(
-        doc,
-        "Referencias de evidencia resueltas dentro del expediente. "
-        "No se imprimen identificadores internos.",
-    )
+    annex_heading = _add_heading(doc, "Anexo de trazabilidad", 1)
+    annex_block: list[Any] = [
+        annex_heading,
+        _add_para(
+            doc,
+            "Referencias de evidencia resueltas dentro del expediente. "
+            "No se imprimen identificadores internos.",
+        ),
+    ]
     cites = citations if citations is not None else []
     if cites:
         for idx, cite in enumerate(cites, start=1):
-            _add_list_item(doc, f"{idx}. {cite.display_line()}")
+            annex_block.append(_add_list_item(doc, f"{idx}. {cite.display_line()}"))
     else:
-        _add_para(doc, "(sin referencias de evidencia en el borrador)")
+        annex_block.append(_add_para(doc, "(sin referencias de evidencia en el borrador)"))
+    _cohere_block(annex_block)
 
     doc.add_paragraph("")
     _add_para(
@@ -531,9 +656,7 @@ def load_evidence_citation_lookup(
     documents: dict[uuid.UUID, Document] = {}
     if document_ids:
         for doc_row in db.session.scalars(
-            select(Document).where(
-                Document.tenant_id == tenant_id, Document.id.in_(document_ids)
-            )
+            select(Document).where(Document.tenant_id == tenant_id, Document.id.in_(document_ids))
         ):
             documents[doc_row.id] = doc_row
 
@@ -601,6 +724,7 @@ def load_evidence_citation_lookup(
 __all__ = [
     "DOCX_MEDIA_TYPE",
     "EXPORT_NOTICE",
+    "HUMAN_GATE_PUBLIC_LABEL",
     "MAX_DOCX_BYTES",
     "UNRESOLVED_EVIDENCE_LABEL",
     "EvidenceCitation",
@@ -609,6 +733,7 @@ __all__ = [
     "build_offer_draft_docx",
     "collect_evidence_ids",
     "content_disposition_attachment",
+    "humanize_human_gate",
     "load_evidence_citation_lookup",
     "resolve_evidence_citations",
     "sanitize_export_filename",
