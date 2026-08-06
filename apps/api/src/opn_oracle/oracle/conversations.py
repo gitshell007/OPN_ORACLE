@@ -716,10 +716,13 @@ def process_dossier_question_answer(
         except Exception as error:  # pragma: no cover - defensive config
             raise ConversationError("No se pudo resolver el adaptador de memoria.") from error
 
-    # SV2-AUG: resolve dossier DMP mode (canary) before adapter default (shadow).
+    # SV2-AUG / G-29: resolve dossier DMP mode before adapter default.
     # Product mechanism: DossierMemoryProfile.mode via PUT /memory/profile.
+    # Prefer persisted profile; do not invent memory when profile is missing.
     profile_mode = None
     profile_cfg: dict[str, Any] = {}
+    profile_version: int | None = None
+    profile_id: str | None = None
     if memory_mode is None and not (isinstance(payload, Mapping) and payload.get("memory_mode")):
         try:
             from sqlalchemy import select as sa_select
@@ -742,10 +745,14 @@ def process_dossier_question_answer(
                 if m in {"disabled", "shadow", "augment"}:
                     profile_mode = m
                     profile_cfg = cfg
+                    profile_version = int(row.version)
+                    profile_id = str(row.id)
                     break
         except Exception:
             profile_mode = None
             profile_cfg = {}
+            profile_version = None
+            profile_id = None
 
     raw_mode = (
         memory_mode
@@ -1086,6 +1093,15 @@ def process_dossier_question_answer(
         items_for_prompt = list(signal_block.get("items") or [])
 
     snapshot_payload = dual_context_to_snapshot(dual)
+    if isinstance(snapshot_payload, dict):
+        snapshot_payload = {
+            **snapshot_payload,
+            "profile_version": profile_version,
+            "profile_id": profile_id,
+            "scope_type": "dossier",
+            "tenant_id": str(tenant_id),
+            "dossier_id": str(dossier_id),
+        }
     if _raw_retrieval and isinstance(_raw_retrieval, dict) and _raw_retrieval.get("snapshot_meta"):
         enriched = {
             **_raw_retrieval,
@@ -1093,6 +1109,8 @@ def process_dossier_question_answer(
             "snapshot_meta": {
                 **dict(_raw_retrieval["snapshot_meta"]),
                 "mode": effective_mode,
+                "profile_version": profile_version,
+                "profile_id": profile_id,
             },
         }
         # Snapshot failures must not be silent: mark coverage, rebuild effective
@@ -1251,6 +1269,9 @@ def process_dossier_question_answer(
         answer_payload = {
             "policy_version": policy,
             "memory_mode": effective_mode,
+            "memory_profile_version": profile_version,
+            "memory_profile_id": profile_id,
+            "memory_scope_type": "dossier",
             "item_count": len(items_for_prompt),
             "items_observed": len(items_observed),
             "unknowns": unknowns,
@@ -1280,6 +1301,9 @@ def process_dossier_question_answer(
         }
 
     answer_payload.setdefault("memory_mode", effective_mode)
+    answer_payload.setdefault("memory_profile_version", profile_version)
+    answer_payload.setdefault("memory_profile_id", profile_id)
+    answer_payload.setdefault("memory_scope_type", "dossier")
     answer_payload.setdefault("allowed_evidence_ids", allowed_ids)
     answer_payload.setdefault("input_manifest_hash", dual.input_manifest_hash)
     # Always own degraded flags from measured path (publisher/persist/coverage.failed).
@@ -1359,6 +1383,9 @@ def process_dossier_question_answer(
             "job_id": str(job.id),
             "policy_version": policy,
             "memory_mode": effective_mode,
+            "memory_profile_version": profile_version,
+            "memory_profile_id": profile_id,
+            "memory_scope_type": "dossier",
             "item_count": len(items_for_prompt),
             "items_observed": len(items_observed),
             "allowed_evidence_count": len(allowed_ids),
@@ -1378,6 +1405,9 @@ def process_dossier_question_answer(
         "items_observed": len(items_observed),
         "policy_version": policy,
         "memory_mode": effective_mode,
+        "memory_profile_version": profile_version,
+        "memory_profile_id": profile_id,
+        "memory_scope_type": "dossier",
         "allowed_evidence_ids": allowed_ids,
         "input_manifest_hash": dual.input_manifest_hash,
         "mutates_intent": False,

@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   monitorAction: vi.fn(),
   success: vi.fn(),
   memoryGet: vi.fn(),
+  memoryPut: vi.fn(),
+  memoryMaterialize: vi.fn(),
   listCollaborators: vi.fn(),
   assignableList: vi.fn(),
 }));
@@ -36,6 +38,8 @@ vi.mock("@oracle/api-client", () => ({
     },
     dossierMemory: {
       getEffective: mocks.memoryGet,
+      putProfile: mocks.memoryPut,
+      materializeProfile: mocks.memoryMaterialize,
     },
     assignableUsers: {
       list: mocks.assignableList,
@@ -420,7 +424,23 @@ describe("DossierSettingsSection", () => {
     token_budget: 4000,
     limit: 20,
     status: "active",
-    provenance: "tenant_default",
+    state: "active",
+    provenance: "server_policy_on_create",
+    config_source: "user",
+    scope: {
+      scope_type: "dossier" as const,
+      scope_id: "dossier-1",
+      dossier_only: true,
+      uses_tenant_curated: false,
+      uses_global_memory: false,
+      cross_tenant: false,
+      included_sources: ["document"],
+      included_kinds: ["fact"],
+      included_classifications: ["public"],
+      exclusions: ["other_dossiers", "other_tenants", "global_memory", "tenant_curated_cross_dossier"],
+      summary_es:
+        "Usa memoria solo de este expediente (mismo tenant) para responder. No mezcla otros expedientes ni otros tenants.",
+    },
     last_test_at: null,
     last_test_status: null,
     last_error: null,
@@ -429,17 +449,22 @@ describe("DossierSettingsSection", () => {
     persisted: true,
     publisher_reliable: true,
     publisher_status: "ok",
-    message: "Memory retrieve path operational.",
+    message: "Memory retrieve path operational (dossier-scoped only).",
     capability: {
       host_mode: "http",
       effective_mode: "disabled",
       publisher_reliable: true,
       publisher_status: "ok",
-      message: "Memory retrieve path operational.",
+      message: "Memory retrieve path operational (dossier-scoped only).",
+      scope_type: "dossier",
+      dossier_only: true,
+      uses_global_memory: false,
+      uses_tenant_curated: false,
+      cross_tenant: false,
     },
   };
 
-  const effectiveDisabledDefaults = {
+  const effectiveLegacyMissing = {
     id: null,
     tenant_id: "tenant-1",
     dossier_id: "dossier-1",
@@ -447,14 +472,18 @@ describe("DossierSettingsSection", () => {
     mode: "disabled" as const,
     mode_label_es: "Desactivada",
     version: 0,
-    etag: 'W/"dmp-v0-default"',
+    etag: 'W/"dmp-v0-legacy"',
     sources: ["document", "signal"],
     kinds: ["fact", "chunk", "summary"],
     classifications_allowed: ["public", "internal"],
     token_budget: 4000,
     limit: 20,
-    status: "ephemeral_default",
-    provenance: "effective_default_not_persisted",
+    status: "legacy_missing",
+    state: "legacy_missing",
+    provenance: "legacy_missing",
+    config_source: "legacy_missing",
+    message_es:
+      "Este expediente no tiene perfil de memoria persistido (legado). No se ha escrito nada en esta lectura.",
     last_test_at: null,
     last_test_status: null,
     last_error: null,
@@ -470,11 +499,15 @@ describe("DossierSettingsSection", () => {
       publisher_reliable: false,
       publisher_status: "unavailable",
       message: "Memory publisher unavailable (host disabled or connection unhealthy).",
+      scope_type: "dossier",
+      dossier_only: true,
+      uses_global_memory: false,
+      uses_tenant_curated: false,
+      cross_tenant: false,
     },
   };
 
-  it("endpoint http/persisted: top-level healthy → no «servicio degradado»", async () => {
-    // Coherent top-level + nested (as real /memory/effective produces).
+  it("endpoint http/persisted: top-level healthy → no banner degradado", async () => {
     expect(effectiveHttpPersisted.publisher_reliable).toBe(
       effectiveHttpPersisted.capability.publisher_reliable,
     );
@@ -482,25 +515,60 @@ describe("DossierSettingsSection", () => {
     render(<DossierSettingsSection dossierId="dossier-1" />);
     const section = await screen.findByTestId("dossier-memory-settings");
     await waitFor(() =>
-      expect(within(section).getByRole("status")).toHaveTextContent(/Versión 2/),
+      expect(within(section).getByTestId("dossier-memory-meta")).toHaveTextContent(/Versión 2/),
     );
-    expect(within(section).queryByText(/servicio degradado/i)).not.toBeInTheDocument();
+    expect(within(section).getByRole("heading", { name: "Memoria de este expediente" })).toBeVisible();
+    expect(within(section).getByTestId("dossier-memory-scope")).toHaveTextContent(
+      /solo de este expediente/i,
+    );
+    expect(within(section).queryByText(/servicio no disponible\/degradado/i)).not.toBeInTheDocument();
     expect(effectiveHttpPersisted).not.toHaveProperty("actions_reliable");
     expect(effectiveHttpPersisted).not.toHaveProperty("deferred_blockers");
   });
 
-  it("endpoint disabled/defaults: top-level degraded → banner servicio degradado", async () => {
-    // Coherent top-level + nested (bug on 9cfb529 had top=true nested=false).
-    expect(effectiveDisabledDefaults.publisher_reliable).toBe(
-      effectiveDisabledDefaults.capability.publisher_reliable,
+  it("legacy_missing: muestra materializar y no afirma que recuerda", async () => {
+    expect(effectiveLegacyMissing.publisher_reliable).toBe(
+      effectiveLegacyMissing.capability.publisher_reliable,
     );
-    expect(effectiveDisabledDefaults.publisher_reliable).toBe(false);
-    mocks.memoryGet.mockResolvedValue(effectiveDisabledDefaults);
+    expect(effectiveLegacyMissing.publisher_reliable).toBe(false);
+    mocks.memoryGet.mockResolvedValue(effectiveLegacyMissing);
     render(<DossierSettingsSection dossierId="dossier-1" />);
     const section = await screen.findByTestId("dossier-memory-settings");
     await waitFor(() =>
-      expect(within(section).getByText(/Banner: servicio degradado/i)).toBeInTheDocument(),
+      expect(within(section).getByTestId("dossier-memory-legacy")).toBeInTheDocument(),
     );
-    expect(within(section).getByRole("status")).toHaveTextContent(/defaults no persistidos/);
+    expect(within(section).getByText(/no recuerda contexto/i)).toBeInTheDocument();
+    expect(
+      within(section).getByRole("button", { name: /Materializar perfil de memoria/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("guarda modo con expected_version y CAS", async () => {
+    mocks.memoryGet.mockResolvedValue(effectiveHttpPersisted);
+    mocks.memoryPut.mockResolvedValue({
+      ...effectiveHttpPersisted,
+      mode: "disabled",
+      version: 3,
+      etag: 'W/"dmp-v3-test"',
+    });
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    await waitFor(() =>
+      expect(within(section).getByTestId("dossier-memory-mode")).toBeInTheDocument(),
+    );
+    fireEvent.change(within(section).getByTestId("dossier-memory-mode"), {
+      target: { value: "disabled" },
+    });
+    fireEvent.click(within(section).getByRole("button", { name: /Guardar memoria/i }));
+    await waitFor(() =>
+      expect(mocks.memoryPut).toHaveBeenCalledWith(
+        "dossier-1",
+        expect.objectContaining({
+          mode: "disabled",
+          expected_version: 2,
+        }),
+        'W/"dmp-v2-test"',
+      ),
+    );
   });
 });

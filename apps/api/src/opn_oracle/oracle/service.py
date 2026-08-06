@@ -598,6 +598,11 @@ def create_dossier(
     _weights(scoring_config, "risk_weights", RISK_WEIGHTS)
     _weights(scoring_config, "signal_weights", SIGNAL_WEIGHTS)
     _weights(scoring_config, "actor_weights", ACTOR_PRIORITY_WEIGHTS)
+    # G-29: client body cannot force memory mode/tenant on alta. Server policy only.
+    # (Fields may still appear in the payload; they are ignored intentionally.)
+    _ = payload.get("memory_mode")
+    _ = payload.get("memory_profile")
+    _ = payload.get("dossier_memory_mode")
     dossier = StrategicDossier(
         tenant_id=tenant_id,
         workspace_id=workspace.id,
@@ -615,6 +620,22 @@ def create_dossier(
     )
     session.add(dossier)
     session.flush()
+    # G-29: explicit DossierMemoryProfile in the same transaction as the dossier.
+    # Failure rolls back the entire alta — no orphan dossiers without memory profile.
+    from opn_oracle.integrations.memory_profile import (
+        SERVER_DEFAULT_MEMORY_MODE,
+        create_dossier_memory_profile,
+    )
+
+    memory_row = create_dossier_memory_profile(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier.id,
+        connection_id=None,
+        mode=SERVER_DEFAULT_MEMORY_MODE,
+        provenance="server_policy_on_create",
+        config_source="server_policy",
+    )
     if create_starter_profile:
         _apply_starter_profile(session, dossier)
         if dossier_type == "competitive_intelligence":
@@ -647,6 +668,9 @@ def create_dossier(
         metadata={
             "initial_status": initial_status,
             "profile_version": profile_config.get("version") if profile_config else None,
+            "memory_profile_id": str(memory_row.id),
+            "memory_mode": memory_row.mode,
+            "memory_config_source": "server_policy",
         },
     )
     # Column defaults are 0/0/0; without a refresh an empty dossier reads as

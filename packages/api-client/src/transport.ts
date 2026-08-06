@@ -4009,11 +4009,28 @@ export type MemoryCapability = {
   message: string;
 };
 
+/** Honest scope of dossier memory (G-29). Always dossier-scoped; never global/cross-tenant. */
+export type DossierMemoryScope = {
+  scope_type: "dossier";
+  scope_id: string;
+  dossier_only: boolean;
+  uses_tenant_curated: boolean;
+  uses_global_memory: boolean;
+  cross_tenant: boolean;
+  included_sources: string[];
+  included_kinds: string[];
+  included_classifications: string[];
+  exclusions: string[];
+  summary_es: string;
+  retrieval_when_enabled?: string;
+};
+
 export type DossierMemoryProfile = {
   id: string | null;
   tenant_id: string;
   dossier_id: string;
   connection_id: string | null;
+  /** Engine modes only: disabled (off), shadow (observe), augment (answer). */
   mode: "disabled" | "shadow" | "augment";
   mode_label_es?: string;
   version: number;
@@ -4023,14 +4040,23 @@ export type DossierMemoryProfile = {
   classifications_allowed: string[];
   token_budget: number;
   limit: number;
+  /** active | legacy_missing | … */
   status: string;
+  state?: string;
   provenance: string;
+  /** server_policy | user | legacy_missing */
+  config_source?: string;
+  scope?: DossierMemoryScope;
+  available_modes?: Array<"disabled" | "shadow" | "augment">;
   last_test_at: string | null;
   last_test_status: string | null;
   last_error: string | null;
   last_coverage: Record<string, unknown> | null;
   updated_at: string | null;
   persisted?: boolean;
+  idempotent_replay?: boolean;
+  materialized?: boolean;
+  message_es?: string;
   /**
    * Host/publisher health for UI banners.
    * On GET /memory/effective this is projected from `capability` (single source of truth).
@@ -4126,7 +4152,11 @@ const dossierMemory = {
     ),
   putProfile: (
     dossierId: string,
-    input: Partial<DossierMemoryProfile> & { mode: DossierMemoryProfile["mode"] },
+    input: Partial<DossierMemoryProfile> & {
+      mode: DossierMemoryProfile["mode"];
+      expected_version?: number;
+      reason?: string;
+    },
     etag: string,
   ) =>
     request<DossierMemoryProfile>(
@@ -4135,6 +4165,14 @@ const dossierMemory = {
         method: "PUT",
         body: input,
         ifMatch: etag,
+      },
+    ),
+  materializeProfile: (dossierId: string, reason?: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile/materialize`,
+      {
+        method: "POST",
+        body: reason ? { reason } : {},
       },
     ),
   testConnection: (dossierId: string) =>

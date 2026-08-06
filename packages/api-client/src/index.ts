@@ -12,7 +12,7 @@ export type {
   SignalMonitorEntityInput,
   SignalMonitorSourceType,
 } from "./transport";
-export type { DossierMemoryProfile } from "./transport";
+export type { DossierMemoryProfile, DossierMemoryScope } from "./transport";
 export type {
   AiAuditDetail,
   AiAuditListItem,

@@ -546,6 +546,19 @@ export function CreateProductDossierDialog({
           onChange={(event) => setDescription(event.target.value)}
         />
       </label>
+      <section
+        className="field full"
+        data-testid="create-dossier-memory-notice"
+        aria-label="Memoria de este expediente"
+      >
+        <strong>Memoria de este expediente</strong>
+        <p className="reporting-hint">
+          Al crear el expediente se guarda un perfil de memoria explícito con modo{" "}
+          <strong>Desactivada</strong> (política del servidor). Cuando se active, el
+          alcance es solo este expediente en tu organización: no hay memoria global ni
+          entre tenants. Puedes cambiar el modo en Ajustes del expediente.
+        </p>
+      </section>
     </>
   );
 

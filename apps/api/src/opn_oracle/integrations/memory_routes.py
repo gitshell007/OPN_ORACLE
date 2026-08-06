@@ -1,4 +1,4 @@
-"""Flask BFF for dossier memory profile / health / test (MDEV-04 REWORK-2)."""
+"""Flask BFF for dossier memory profile / health / test (MDEV-04 REWORK-2 + G-29)."""
 
 from __future__ import annotations
 
@@ -27,8 +27,13 @@ from opn_oracle.integrations.memory_http_client import (
     MockTransport,
 )
 from opn_oracle.integrations.memory_profile import (
+    OPERATIONAL_MODES,
+    SERVER_DEFAULT_MEMORY_MODE,
     build_client_for_connection,
+    create_dossier_memory_profile,
     default_profile_payload,
+    legacy_missing_payload,
+    profile_config_fingerprint,
     profile_to_public,
     resolve_signal_memory_connection,
 )
@@ -89,36 +94,6 @@ def _load_profile(
     return session.scalar(q)
 
 
-def _effective_defaults(
-    *, tenant_id: uuid.UUID, dossier_id: uuid.UUID, connection_id: uuid.UUID | None
-) -> dict[str, Any]:
-    cfg = default_profile_payload()
-    return {
-        "id": None,
-        "tenant_id": str(tenant_id),
-        "dossier_id": str(dossier_id),
-        "connection_id": str(connection_id) if connection_id else None,
-        "mode": "disabled",
-        "mode_label_es": "Desactivada",
-        "version": 0,
-        "etag": _etag(0, cfg),
-        "sources": cfg["sources"],
-        "kinds": cfg["kinds"],
-        "classifications_allowed": cfg["classifications_allowed"],
-        "token_budget": cfg["token_budget"],
-        "limit": cfg["limit"],
-        "status": "ephemeral_default",
-        "provenance": "effective_default_not_persisted",
-        "last_test_at": None,
-        "last_test_status": None,
-        "last_error": None,
-        "last_coverage": None,
-        "updated_at": None,
-        "persisted": False,
-        # Config defaults only — no host health claim (see memory_effective).
-    }
-
-
 def _load_accessible_dossier(
     session: Session, dossier_id: uuid.UUID, *, write: bool
 ) -> StrategicDossier | None:
@@ -132,6 +107,66 @@ def _load_accessible_dossier(
     if dossier is None or not dossier_accessible(session, dossier, current_user.id, write=write):
         return None
     return dossier
+
+
+def _apply_cfg_from_payload(
+    base_cfg: dict[str, Any], payload: dict[str, Any], mode: str
+) -> tuple[dict[str, Any] | None, Any]:
+    """Merge validated fields into cfg. Returns (cfg, error_response|None)."""
+    cfg = dict(base_cfg)
+    cfg["mode"] = mode
+    for key, allowed in (
+        ("sources", ALLOWED_SOURCES),
+        ("kinds", ALLOWED_KINDS),
+        ("classifications_allowed", ALLOWED_CLASSIFICATIONS),
+    ):
+        if key in payload:
+            if not isinstance(payload[key], list):
+                return None, problem_response(
+                    422, detail=f"{key} must be list.", code="schema_validation_failed"
+                )
+            cleaned: list[str] = []
+            for x in payload[key]:
+                s = str(x)
+                if s not in allowed:
+                    return None, problem_response(
+                        422,
+                        detail=f"{key} value not allowed.",
+                        code="schema_validation_failed",
+                    )
+                cleaned.append(s)
+            cfg[key] = cleaned
+    if "token_budget" in payload:
+        try:
+            tb = int(payload["token_budget"])
+            if not (0 <= tb <= 128000):
+                raise ValueError
+            cfg["token_budget"] = tb
+        except (TypeError, ValueError):
+            return None, problem_response(
+                422, detail="invalid token_budget.", code="schema_validation_failed"
+            )
+    if "limit" in payload:
+        try:
+            lim = int(payload["limit"])
+            if not (1 <= lim <= 100):
+                raise ValueError
+            cfg["limit"] = lim
+        except (TypeError, ValueError):
+            return None, problem_response(
+                422, detail="invalid limit.", code="schema_validation_failed"
+            )
+    cfg["status"] = "active"
+    if "config_source" not in cfg or cfg.get("config_source") in {
+        "server_policy",
+        "legacy_missing",
+        None,
+    }:
+        cfg["config_source"] = "user"
+    cfg["scope_type"] = "dossier"
+    cfg["uses_tenant_curated"] = False
+    cfg["uses_global_memory"] = False
+    return cfg, None
 
 
 @bp.get("/dossiers/<uuid:dossier_id>/memory/profile")
@@ -154,7 +189,7 @@ def get_memory_profile(dossier_id: uuid.UUID) -> Any:
         session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
     )
     if row is None:
-        body = _effective_defaults(
+        body = legacy_missing_payload(
             tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
         )
         r = jsonify(body)
@@ -184,6 +219,12 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
     if not isinstance(payload, dict):
         return problem_response(422, detail="body must be object.", code="schema_validation_failed")
 
+    # Client cannot force tenant_id or foreign connection via body.
+    if "tenant_id" in payload and str(payload.get("tenant_id")) != str(tenant_id):
+        return problem_response(
+            422, detail="tenant_id cannot be forced.", code="schema_validation_failed"
+        )
+
     conn_id = payload.get("connection_id")
     connection_uuid = uuid.UUID(str(conn_id)) if conn_id else None
     if (
@@ -195,79 +236,78 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
     row = _load_profile(
         session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
     )
-    ephemeral = _effective_defaults(
+    legacy = legacy_missing_payload(
         tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
     )
-    current_etag = row.etag if row is not None else ephemeral["etag"]
+    current_etag = row.etag if row is not None else legacy["etag"]
     if str(if_match) != str(current_etag):
         return problem_response(
             409, detail="ETag mismatch; reload and retry.", code="etag_conflict"
         )
 
-    mode = str(payload.get("mode") or (row.mode if row else "disabled")).strip().lower()
-    if mode not in {"disabled", "shadow", "augment"}:
-        return problem_response(422, detail="invalid mode.", code="schema_validation_failed")
-
-    cfg = dict((row.profile_config if row else None) or default_profile_payload())
-    cfg["mode"] = mode
-    for key, allowed in (
-        ("sources", ALLOWED_SOURCES),
-        ("kinds", ALLOWED_KINDS),
-        ("classifications_allowed", ALLOWED_CLASSIFICATIONS),
-    ):
-        if key in payload:
-            if not isinstance(payload[key], list):
-                return problem_response(
-                    422, detail=f"{key} must be list.", code="schema_validation_failed"
-                )
-            cleaned: list[str] = []
-            for x in payload[key]:
-                s = str(x)
-                if s not in allowed:
-                    return problem_response(
-                        422,
-                        detail=f"{key} value not allowed.",
-                        code="schema_validation_failed",
-                    )
-                cleaned.append(s)
-            cfg[key] = cleaned
-    if "token_budget" in payload:
+    # Optional version CAS (in addition to ETag).
+    if "expected_version" in payload and row is not None:
         try:
-            tb = int(payload["token_budget"])
-            if not (0 <= tb <= 128000):
-                raise ValueError
-            cfg["token_budget"] = tb
+            expected = int(payload["expected_version"])
         except (TypeError, ValueError):
             return problem_response(
-                422, detail="invalid token_budget.", code="schema_validation_failed"
+                422, detail="invalid expected_version.", code="schema_validation_failed"
             )
-    if "limit" in payload:
-        try:
-            lim = int(payload["limit"])
-            if not (1 <= lim <= 100):
-                raise ValueError
-            cfg["limit"] = lim
-        except (TypeError, ValueError):
-            return problem_response(422, detail="invalid limit.", code="schema_validation_failed")
+        if expected != int(row.version):
+            return problem_response(
+                409,
+                detail="Version mismatch; reload and retry.",
+                code="version_conflict",
+            )
+
+    mode = str(payload.get("mode") or (row.mode if row else SERVER_DEFAULT_MEMORY_MODE)).strip().lower()
+    if mode not in OPERATIONAL_MODES:
+        return problem_response(422, detail="invalid mode.", code="schema_validation_failed")
+
+    base_cfg = dict((row.profile_config if row else None) or default_profile_payload())
+    cfg, err = _apply_cfg_from_payload(base_cfg, payload, mode)
+    if err is not None:
+        return err
+    assert cfg is not None
+
+    # Identical retry: same fingerprint → no version bump, no audit inflation.
+    if row is not None:
+        current_fp = profile_config_fingerprint(dict(row.profile_config or {}), str(row.mode))
+        desired_fp = profile_config_fingerprint(cfg, mode)
+        if current_fp == desired_fp:
+            body = profile_to_public(row)
+            body["persisted"] = True
+            body["idempotent_replay"] = True
+            r = jsonify(body)
+            r.headers["ETag"] = row.etag
+            return r
 
     before = {
         "etag": current_etag,
         "mode": row.mode if row else None,
         "version": row.version if row else 0,
+        "fingerprint": (
+            profile_config_fingerprint(dict(row.profile_config or {}), str(row.mode))
+            if row is not None
+            else None
+        ),
     }
     if row is None:
-        row = DossierMemoryProfile(
-            id=uuid.uuid4(),
+        # Materialize via PUT (also covered by dedicated materialize endpoint).
+        row = create_dossier_memory_profile(
+            session,
             tenant_id=tenant_id,
             dossier_id=dossier_id,
             connection_id=connection_uuid,
             mode=mode,
-            version=1,
-            etag=_etag(1, cfg),
-            profile_config=cfg,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+            provenance="user_materialize_via_put",
+            config_source="user",
         )
+        # Apply full cfg after create defaults.
+        row.mode = mode
+        row.profile_config = cfg
+        row.etag = _etag(int(row.version), cfg)
+        row.updated_at = datetime.now(UTC)
     else:
         row.mode = mode
         row.version = int(row.version) + 1
@@ -284,7 +324,13 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
         dossier_id=dossier_id,
         metadata={
             "before": before,
-            "after": {"etag": row.etag, "mode": row.mode, "version": row.version},
+            "after": {
+                "etag": row.etag,
+                "mode": row.mode,
+                "version": row.version,
+                "fingerprint": profile_config_fingerprint(cfg, mode),
+            },
+            "actor_reason": str(payload.get("reason") or payload.get("motivo") or "")[:500] or None,
         },
     )
     session.commit()
@@ -292,6 +338,76 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
     body["persisted"] = True
     r = jsonify(body)
     r.headers["ETag"] = row.etag
+    return r
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/memory/profile/materialize")
+@require_permission("dossier.write")
+def materialize_memory_profile(dossier_id: uuid.UUID) -> Any:
+    """Idempotent, audited materialization of legacy_missing profiles.
+
+    Does not silent-backfill on GET. Re-call returns existing row without
+    version inflation when already persisted.
+    """
+    session = _session()
+    dossier = _load_accessible_dossier(session, dossier_id, write=True)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no encontrado.", code="dossier_not_found")
+    tenant_id = dossier.tenant_id
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    connection_uuid = None
+    if payload.get("connection_id"):
+        connection_uuid = uuid.UUID(str(payload["connection_id"]))
+        if _validate_connection_for_tenant(session, tenant_id, connection_uuid) is None:
+            return problem_response(
+                404, detail="Conexión no encontrada.", code="connection_not_found"
+            )
+
+    row = _load_profile(
+        session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=connection_uuid
+    )
+    if row is not None:
+        body = profile_to_public(row)
+        body["persisted"] = True
+        body["idempotent_replay"] = True
+        body["materialized"] = False
+        r = jsonify(body)
+        r.headers["ETag"] = row.etag
+        return r
+
+    # Server policy only — body cannot force mode on materialize.
+    row = create_dossier_memory_profile(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        connection_id=connection_uuid,
+        mode=SERVER_DEFAULT_MEMORY_MODE,
+        provenance="legacy_materialize",
+        config_source="server_policy",
+    )
+    append_audit_event(
+        session,
+        action="dossier.memory_profile.materialize",
+        resource_type="dossier_memory_profile",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "before": {"status": "legacy_missing", "version": 0},
+            "after": {"mode": row.mode, "version": row.version, "etag": row.etag},
+            "actor_reason": str(payload.get("reason") or payload.get("motivo") or "")[:500] or None,
+        },
+    )
+    session.commit()
+    body = profile_to_public(row)
+    body["persisted"] = True
+    body["materialized"] = True
+    body["idempotent_replay"] = False
+    r = jsonify(body)
+    r.headers["ETag"] = row.etag
+    r.status_code = 201
     return r
 
 
@@ -311,7 +427,9 @@ def memory_effective(dossier_id: uuid.UUID) -> Any:
     row = _load_profile(session, tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
     host_mode = str(current_app.config.get("MEMORY_CONTEXT_MODE", "disabled") or "disabled")
     if row is None:
-        pub = _effective_defaults(tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None)
+        pub = legacy_missing_payload(
+            tenant_id=tenant_id, dossier_id=dossier_id, connection_id=None
+        )
     else:
         pub = profile_to_public(row)
         pub["persisted"] = True
@@ -322,7 +440,9 @@ def memory_effective(dossier_id: uuid.UUID) -> Any:
     pub["capability"] = capability
     pub["publisher_reliable"] = capability["publisher_reliable"]
     pub["publisher_status"] = capability["publisher_status"]
-    pub["message"] = capability["message"]
+    # Prefer profile-level message when legacy; otherwise host capability message.
+    if pub.get("status") != "legacy_missing":
+        pub["message"] = capability["message"]
     return jsonify(pub)
 
 
