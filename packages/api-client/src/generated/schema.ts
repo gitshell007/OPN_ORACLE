@@ -11845,8 +11845,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Consulta (y materializa vacío) el seguimiento comercial de la oferta.
-         * @description Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.
+         * Consulta de solo lectura del seguimiento comercial de la oferta.
+         * @description Nunca INSERT/UPDATE/COMMIT ni crea auditoría. Si aún no hay fila, devuelve un
+         *     contrato virtual (materialized=false, version=0, campos vacíos) útil para la UI.
+         *     Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.
          */
         get: {
             parameters: {
@@ -11931,9 +11933,11 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Edita el seguimiento con CAS (version / If-Match).
-         * @description Actor server-owned vía TenantContext + current_user; no se acepta actor_id del body.
-         *     No modifica Opportunity.status (CRM).
+         * Edita o materializa el seguimiento con CAS (version / If-Match).
+         * @description - version=0 (o If-Match ool-v0) materializa la primera fila de forma atómica.
+         *     - Campos desconocidos / typos → 422; PATCH sin campo comercial → 422 (no-op).
+         *     - Actor server-owned vía TenantContext + current_user.
+         *     - No modifica Opportunity.status (CRM).
          */
         patch: {
             parameters: {
@@ -35906,6 +35910,7 @@ export interface components {
             key: string;
             our_response_draft: string;
         };
+        /** @description PATCH estricto: additionalProperties=false (typos → 422). Requiere al menos un campo comercial editable además de version. */
         OpportunityOfferLifecyclePatchInput: {
             /** @description Baja explícita 0-100 (porcentaje). Null limpia. */
             baja_porcentaje?: string | null;
@@ -35920,12 +35925,16 @@ export interface components {
             motivo_exclusion?: string | null;
             /** @enum {string} */
             status?: "preparando" | "presentada" | "en_evaluacion" | "adjudicada" | "perdida" | "excluida";
+            /** @description CAS: 0 materializa la primera fila; N>=1 actualiza la fila existente con esa versión. También aceptable vía If-Match. */
             version?: number;
         };
         OpportunityOfferLifecycleResource: {
             baja_porcentaje?: string | null;
-            /** Format: date-time */
-            created_at: string;
+            /**
+             * Format: date-time
+             * @description Null cuando materialized=false.
+             */
+            created_at: string | null;
             /** @description Recordatorio de que el estado CRM de la oportunidad es independiente. */
             crm_status_note: string;
             /** Format: uuid */
@@ -35934,12 +35943,20 @@ export interface components {
             /** Format: date */
             fecha_mesa?: string | null;
             garantia_provisional?: string | null;
-            /** Format: uuid */
-            id: string;
+            /**
+             * Format: uuid
+             * @description Null cuando materialized=false (sin fila persistida).
+             */
+            id: string | null;
             importe_ofertado?: string | null;
-            /** Format: uuid */
-            last_edited_by_user_id: string;
+            /**
+             * Format: uuid
+             * @description Null cuando materialized=false.
+             */
+            last_edited_by_user_id: string | null;
             lotes: string[];
+            /** @description False: contrato virtual de GET (sin INSERT). True: fila durable en opportunity_offer_lifecycles. */
+            materialized: boolean;
             motivo_exclusion?: string | null;
             /** Format: uuid */
             opportunity_id: string;
@@ -35948,14 +35965,18 @@ export interface components {
             status_label: string;
             /** Format: uuid */
             tenant_id: string;
-            /** Format: date-time */
-            updated_at: string;
+            /**
+             * Format: date-time
+             * @description Null cuando materialized=false.
+             */
+            updated_at: string | null;
+            /** @description 0 = virtual no materializado; >=1 = fila persistida. */
             version: number;
         };
         OpportunityOfferLifecycleResponse: {
-            /** @description True si GET materializó la fila por primera vez. */
-            created?: boolean;
             lifecycle: components["schemas"]["OpportunityOfferLifecycleResource"];
+            /** @description False si aún no existe fila (GET virtual). True tras materialización o cuando la fila ya existía. */
+            materialized: boolean;
         };
         OpportunityResource: {
             actionability?: number;

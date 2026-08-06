@@ -18,13 +18,15 @@ from opn_oracle.extensions import db, limiter
 from opn_oracle.oracle.offer_lifecycle import (
     OFFER_LIFECYCLE_STATUSES,
     OfferLifecycleError,
-    get_or_create_offer_lifecycle,
+    load_offer_lifecycle,
     make_etag,
     parse_expected_version,
     serialize_offer_lifecycle,
     update_offer_lifecycle,
+    virtual_offer_lifecycle,
 )
 from opn_oracle.oracle.service import DomainValidationError, ResourceNotFound, VersionConflict
+from opn_oracle.tenants.context import require_tenant_id
 
 bp = APIBlueprint(
     "opportunity_offer_lifecycle",
@@ -80,34 +82,72 @@ _EDITABLE_KEYS = frozenset(
         "motivo_exclusion",
     }
 )
+_ALLOWED_BODY_KEYS = _EDITABLE_KEYS | {"version"}
 
 
-def _payload_from_request() -> dict[str, Any]:
-    """Only keys explicitly sent by the client (true partial PATCH)."""
+def _payload_from_request(raw_body: dict[str, Any]) -> dict[str, Any]:
+    """Only commercial keys explicitly sent by the client (true partial PATCH)."""
 
-    from flask import request
-
-    raw = request.get_json(silent=True) or {}
-    if not isinstance(raw, dict):
-        return {}
     out: dict[str, Any] = {}
     for key in _EDITABLE_KEYS:
-        if key in raw:
-            out[key] = raw[key]
+        if key in raw_body:
+            out[key] = raw_body[key]
     return out
+
+
+def _reject_unknown_or_empty_patch(raw_body: dict[str, Any]):
+    """Strict PATCH gate: unknown keys → 422; no commercial field → 422 no-op."""
+
+    if "actor_id" in raw_body or "last_edited_by_user_id" in raw_body:
+        return problem_response(
+            422,
+            detail="actor_id / last_edited_by_user_id no son aceptados del cliente.",
+            code="actor_not_client_owned",
+        )
+
+    # Typos and other unknown keys (including actor spoofing already handled above).
+    unknown = sorted(set(raw_body.keys()) - _ALLOWED_BODY_KEYS)
+    if unknown:
+        return problem_response(
+            422,
+            detail="Campos desconocidos en el seguimiento de oferta.",
+            code="unknown_fields",
+            errors={"unknown_fields": unknown},
+        )
+
+    commercial = [key for key in _EDITABLE_KEYS if key in raw_body]
+    if not commercial:
+        return problem_response(
+            422,
+            detail=(
+                "El PATCH debe incluir al menos un campo comercial editable "
+                "(status, importe_ofertado, baja_porcentaje, lotes, "
+                "garantia_provisional, fecha_mesa o motivo_exclusion)."
+            ),
+            code="patch_no_commercial_fields",
+            errors={
+                "offer_lifecycle": [
+                    "Se requiere al menos un campo comercial editable; "
+                    "version sola no es suficiente."
+                ]
+            },
+        )
+    return None
 
 
 @bp.get("/dossiers/<uuid:dossier_id>/opportunities/<uuid:opportunity_id>/offer-lifecycle")
 @limiter.limit("120/minute")
 @require_permission("opportunity.read")
 def get_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> Any:
-    """Consulta (y materializa vacío) el seguimiento comercial de la oferta.
+    """Consulta de solo lectura del seguimiento comercial de la oferta.
 
+    Nunca INSERT/UPDATE/COMMIT ni crea auditoría. Si aún no hay fila, devuelve un
+    contrato virtual (materialized=false, version=0, campos vacíos) útil para la UI.
     Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.
     """
 
     try:
-        row, created = get_or_create_offer_lifecycle(
+        row = load_offer_lifecycle(
             db.session(),
             dossier_id=dossier_id,
             opportunity_id=opportunity_id,
@@ -117,7 +157,20 @@ def get_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> Any
     except (ResourceNotFound, DomainValidationError, OfferLifecycleError) as error:
         return _domain_error(error)
 
-    body = {"lifecycle": serialize_offer_lifecycle(row), "created": created}
+    if row is None:
+        tenant_id = require_tenant_id()
+        life = virtual_offer_lifecycle(
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            opportunity_id=opportunity_id,
+        )
+        body = {"lifecycle": life, "materialized": False}
+        return body, 200, {"ETag": make_etag(0)}
+
+    body = {
+        "lifecycle": serialize_offer_lifecycle(row),
+        "materialized": True,
+    }
     return body, 200, {"ETag": make_etag(row.version)}
 
 
@@ -125,10 +178,12 @@ def get_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> Any
 @limiter.limit("60/minute")
 @require_permission("opportunity.write")
 def patch_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> Any:
-    """Edita el seguimiento con CAS (version / If-Match).
+    """Edita o materializa el seguimiento con CAS (version / If-Match).
 
-    Actor server-owned vía TenantContext + current_user; no se acepta actor_id del body.
-    No modifica Opportunity.status (CRM).
+    - version=0 (o If-Match ool-v0) materializa la primera fila de forma atómica.
+    - Campos desconocidos / typos → 422; PATCH sin campo comercial → 422 (no-op).
+    - Actor server-owned vía TenantContext + current_user.
+    - No modifica Opportunity.status (CRM).
     """
 
     from flask import request
@@ -140,15 +195,12 @@ def patch_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> A
             detail="El cuerpo debe ser un objeto JSON.",
             code="validation_error",
         )
-    # Reject trusted-actor spoofing attempts before schema load (unknown fields).
-    if "actor_id" in raw_body or "last_edited_by_user_id" in raw_body:
-        return problem_response(
-            422,
-            detail="actor_id / last_edited_by_user_id no son aceptados del cliente.",
-            code="actor_not_client_owned",
-        )
 
-    # Validate known fields via schema (OpenAPI contract); ignore unknown keys.
+    rejected = _reject_unknown_or_empty_patch(raw_body)
+    if rejected is not None:
+        return rejected
+
+    # Validate known fields via schema (OpenAPI contract); unknowns already rejected.
     try:
         json_data = OfferLifecyclePatchSchema().load(
             {k: v for k, v in raw_body.items() if k in OfferLifecyclePatchSchema().fields}
@@ -172,7 +224,7 @@ def patch_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> A
                 "Se requiere version o cabecera If-Match para guardar el seguimiento.",
                 errors={"version": ["Obligatorio (body.version o If-Match)."]},
             )
-        payload = _payload_from_request()
+        payload = _payload_from_request(raw_body)
         _ = json_data  # schema-validated; payload uses raw partial keys
 
         row = update_offer_lifecycle(
@@ -193,6 +245,9 @@ def patch_offer_lifecycle(dossier_id: uuid.UUID, opportunity_id: uuid.UUID) -> A
         db.session.rollback()
         return _domain_error(error)
 
-    body = {"lifecycle": serialize_offer_lifecycle(row)}
+    body = {
+        "lifecycle": serialize_offer_lifecycle(row),
+        "materialized": True,
+    }
     _ = g  # request-scoped tenant context established by auth middleware
     return body, 200, {"ETag": make_etag(row.version)}

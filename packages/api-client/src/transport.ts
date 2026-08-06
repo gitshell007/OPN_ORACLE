@@ -1117,7 +1117,8 @@ export type OpportunityOfferLifecycleStatus =
   | "excluida";
 
 export interface OpportunityOfferLifecycleResource {
-  id: string;
+  /** Null when not yet materialized (virtual GET contract). */
+  id: string | null;
   tenant_id: string;
   dossier_id: string;
   opportunity_id: string;
@@ -1129,17 +1130,20 @@ export interface OpportunityOfferLifecycleResource {
   garantia_provisional: string | null;
   fecha_mesa: string | null;
   motivo_exclusion: string | null;
+  /** 0 = virtual (not persisted); >=1 durable CAS version. */
   version: number;
   etag: string;
-  last_edited_by_user_id: string;
-  created_at: string;
-  updated_at: string;
+  last_edited_by_user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  /** False: GET defaults only; True: row exists in PostgreSQL. */
+  materialized: boolean;
   crm_status_note: string;
 }
 
 export interface OpportunityOfferLifecycleResponse {
   lifecycle: OpportunityOfferLifecycleResource;
-  created?: boolean;
+  materialized: boolean;
 }
 
 export interface OpportunityOfferLifecyclePatchInput {

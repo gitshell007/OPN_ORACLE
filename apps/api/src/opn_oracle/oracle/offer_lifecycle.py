@@ -31,6 +31,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from opn_oracle.extensions import Base
@@ -348,6 +349,12 @@ def _percent_str(value: Decimal | None) -> str | None:
     return text
 
 
+CRM_STATUS_NOTE = (
+    "El estado CRM de la oportunidad (identified/qualified/pursuing/…) "
+    "es independiente de este ciclo de oferta."
+)
+
+
 def serialize_offer_lifecycle(row: OpportunityOfferLifecycle) -> dict[str, Any]:
     lotes = row.lotes if isinstance(row.lotes, list) else []
     lotes_out = [str(item) for item in lotes if str(item).strip()]
@@ -375,12 +382,72 @@ def serialize_offer_lifecycle(row: OpportunityOfferLifecycle) -> dict[str, Any]:
         "last_edited_by_user_id": str(row.last_edited_by_user_id),
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
+        "materialized": True,
         # Explicit separation: CRM lives on Opportunity; never mirrored here.
-        "crm_status_note": (
-            "El estado CRM de la oportunidad (identified/qualified/pursuing/…) "
-            "es independiente de este ciclo de oferta."
-        ),
+        "crm_status_note": CRM_STATUS_NOTE,
     }
+
+
+def virtual_offer_lifecycle(
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    opportunity_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Explicit non-persisted contract for UI defaults (GET never writes).
+
+    Does not invent durable identifiers, editor or timestamps.
+    Logical version 0 is the CAS token for the first write under opportunity.write.
+    """
+
+    return {
+        "id": None,
+        "tenant_id": str(tenant_id),
+        "dossier_id": str(dossier_id),
+        "opportunity_id": str(opportunity_id),
+        "status": DEFAULT_STATUS,
+        "status_label": OFFER_LIFECYCLE_STATUS_LABELS[DEFAULT_STATUS],
+        "importe_ofertado": None,
+        "baja_porcentaje": None,
+        "lotes": [],
+        "garantia_provisional": None,
+        "fecha_mesa": None,
+        "motivo_exclusion": None,
+        "version": 0,
+        "etag": make_etag(0),
+        "last_edited_by_user_id": None,
+        "created_at": None,
+        "updated_at": None,
+        "materialized": False,
+        "crm_status_note": CRM_STATUS_NOTE,
+    }
+
+
+def _default_virtual_row(
+    *,
+    tenant_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    opportunity_id: uuid.UUID,
+) -> Any:
+    """In-memory row defaults used only to validate the first write payload."""
+
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=None,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        opportunity_id=opportunity_id,
+        status=DEFAULT_STATUS,
+        importe_ofertado=None,
+        baja_porcentaje=None,
+        lotes=[],
+        garantia_provisional=None,
+        fecha_mesa=None,
+        motivo_exclusion=None,
+        version=0,
+        last_edited_by_user_id=None,
+    )
 
 
 def _load_opportunity(
@@ -421,20 +488,62 @@ def _require_dossier(
     return dossier
 
 
-def get_or_create_offer_lifecycle(
+def load_offer_lifecycle(
     session: Session,
     *,
     dossier_id: uuid.UUID,
     opportunity_id: uuid.UUID,
     actor_id: uuid.UUID,
     write: bool = False,
-) -> tuple[OpportunityOfferLifecycle, bool]:
-    """Return durable tracking for the opportunity; create defaults if missing.
+) -> OpportunityOfferLifecycle | None:
+    """Read-only load. Never INSERT/UPDATE/COMMIT or append audit.
 
-    Creation does not invent commercial amounts/dates/lots — only status=preparando.
-    Does not touch Opportunity.status (CRM). Auto-materialization on read is allowed
-    for dossier viewers so the operational block is never hidden for lack of prior write.
+    Returns None when the commercial tracking row does not exist yet. Callers that
+    only hold opportunity.read can safely surface virtual defaults.
     """
+
+    tenant_id = require_tenant_id()
+    _require_dossier(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        actor_id=actor_id,
+        write=write,
+    )
+    _load_opportunity(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        opportunity_id=opportunity_id,
+    )
+    return session.scalar(
+        select(OpportunityOfferLifecycle).where(
+            OpportunityOfferLifecycle.tenant_id == tenant_id,
+            OpportunityOfferLifecycle.opportunity_id == opportunity_id,
+        )
+    )
+
+
+def materialize_offer_lifecycle(
+    session: Session,
+    *,
+    dossier_id: uuid.UUID,
+    opportunity_id: uuid.UUID,
+    payload: Mapping[str, Any],
+    actor_id: uuid.UUID,
+    expected_version: int,
+    partial: bool = True,
+) -> OpportunityOfferLifecycle:
+    """First write under opportunity.write with logical CAS version=0.
+
+    Exactly one concurrent first writer succeeds; the other receives VersionConflict
+    (mapped to HTTP 409) without 500/IntegrityError leak or double audit.
+    """
+
+    if int(expected_version) != 0:
+        raise VersionConflict(
+            "El seguimiento de oferta fue modificado por otro usuario."
+        )
 
     tenant_id = require_tenant_id()
     dossier = _require_dossier(
@@ -442,8 +551,10 @@ def get_or_create_offer_lifecycle(
         tenant_id=tenant_id,
         dossier_id=dossier_id,
         actor_id=actor_id,
-        write=write,
+        write=True,
     )
+    if dossier.status == "archived":
+        raise DomainValidationError("Un expediente archivado es de solo lectura.")
     opportunity = _load_opportunity(
         session,
         tenant_id=tenant_id,
@@ -459,22 +570,33 @@ def get_or_create_offer_lifecycle(
         )
     )
     if existing is not None:
-        return existing, False
+        raise VersionConflict(
+            "El seguimiento de oferta fue modificado por otro usuario."
+        )
 
+    virtual = _default_virtual_row(
+        tenant_id=tenant_id,
+        dossier_id=dossier.id,
+        opportunity_id=opportunity_id,
+    )
+    fields = apply_offer_lifecycle_payload(virtual, payload, partial=partial)
+    now = utc_now()
     row = OpportunityOfferLifecycle(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
         dossier_id=dossier.id,
         opportunity_id=opportunity_id,
-        status=DEFAULT_STATUS,
-        importe_ofertado=None,
-        baja_porcentaje=None,
-        lotes=[],
-        garantia_provisional=None,
-        fecha_mesa=None,
-        motivo_exclusion=None,
+        status=fields["status"],
+        importe_ofertado=fields["importe_ofertado"],
+        baja_porcentaje=fields["baja_porcentaje"],
+        lotes=fields["lotes"],
+        garantia_provisional=fields["garantia_provisional"],
+        fecha_mesa=fields["fecha_mesa"],
+        motivo_exclusion=fields["motivo_exclusion"],
         version=1,
         last_edited_by_user_id=actor_id,
+        created_at=now,
+        updated_at=now,
     )
     session.add(row)
     append_audit_event(
@@ -489,11 +611,26 @@ def get_or_create_offer_lifecycle(
             "status": row.status,
             "version": row.version,
             "crm_status_untouched": crm_status,
+            "first_write": True,
         },
     )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        # UNIQUE(tenant_id, opportunity_id) race: peer already materialised.
+        raise VersionConflict(
+            "El seguimiento de oferta fue modificado por otro usuario."
+        ) from exc
     session.refresh(row)
-    return row, True
+    session.refresh(opportunity)
+    if opportunity.status != crm_status:
+        # Should be unreachable; defensive CRM isolation.
+        raise DomainValidationError(
+            "Invariante violada: el estado CRM de la oportunidad no debe cambiar "
+            "al editar el ciclo de oferta."
+        )
+    return row
 
 
 def apply_offer_lifecycle_payload(
@@ -647,7 +784,11 @@ def update_offer_lifecycle(
     expected_version: int,
     partial: bool = True,
 ) -> OpportunityOfferLifecycle:
-    """Apply validated patch/put with CAS; never mutates Opportunity.status."""
+    """Apply validated patch with CAS; first write uses logical version=0.
+
+    Never mutates Opportunity.status (CRM). Invalid/no-op requests must be rejected
+    by the HTTP layer before calling this function so version/audit stay untouched.
+    """
 
     tenant_id = require_tenant_id()
     dossier = _require_dossier(
@@ -667,14 +808,6 @@ def update_offer_lifecycle(
     )
     crm_status_before = opportunity.status
 
-    row, _created = get_or_create_offer_lifecycle(
-        session,
-        dossier_id=dossier_id,
-        opportunity_id=opportunity_id,
-        actor_id=actor_id,
-        write=True,
-    )
-    # Re-load after possible create/commit so version is current.
     row = session.scalar(
         select(OpportunityOfferLifecycle).where(
             OpportunityOfferLifecycle.tenant_id == tenant_id,
@@ -682,7 +815,20 @@ def update_offer_lifecycle(
         )
     )
     if row is None:
-        raise ResourceNotFound("Seguimiento de oferta no encontrado.")
+        # First materialisation: only accepted with logical CAS version=0.
+        return materialize_offer_lifecycle(
+            session,
+            dossier_id=dossier_id,
+            opportunity_id=opportunity_id,
+            payload=payload,
+            actor_id=actor_id,
+            expected_version=expected_version,
+            partial=partial,
+        )
+
+    if int(expected_version) == 0:
+        # Client still thinks row is virtual but a peer already materialised.
+        raise VersionConflict("El seguimiento de oferta fue modificado por otro usuario.")
 
     if int(row.version) != int(expected_version):
         raise VersionConflict("El seguimiento de oferta fue modificado por otro usuario.")

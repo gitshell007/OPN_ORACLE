@@ -2111,7 +2111,14 @@ def _oracle_schemas() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "version": {"type": "integer", "minimum": 1},
+                "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "CAS: 0 materializa la primera fila; N>=1 actualiza la fila "
+                        "existente con esa versión. También aceptable vía If-Match."
+                    ),
+                },
                 "status": {
                     "type": "string",
                     "enum": [
@@ -2155,6 +2162,10 @@ def _oracle_schemas() -> dict[str, Any]:
                     "description": "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados.",
                 },
             },
+            "description": (
+                "PATCH estricto: additionalProperties=false (typos → 422). "
+                "Requiere al menos un campo comercial editable además de version."
+            ),
         },
         "OpportunityOfferLifecycleResource": {
             "type": "object",
@@ -2172,10 +2183,16 @@ def _oracle_schemas() -> dict[str, Any]:
                 "last_edited_by_user_id",
                 "created_at",
                 "updated_at",
+                "materialized",
                 "crm_status_note",
             ],
             "properties": {
-                "id": {"type": "string", "format": "uuid"},
+                "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false (sin fila persistida).",
+                },
                 "tenant_id": {"type": "string", "format": "uuid"},
                 "dossier_id": {"type": "string", "format": "uuid"},
                 "opportunity_id": {"type": "string", "format": "uuid"},
@@ -2197,11 +2214,37 @@ def _oracle_schemas() -> dict[str, Any]:
                 "garantia_provisional": {"type": "string", "nullable": True},
                 "fecha_mesa": {"type": "string", "format": "date", "nullable": True},
                 "motivo_exclusion": {"type": "string", "nullable": True},
-                "version": {"type": "integer", "minimum": 1},
+                "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "0 = virtual no materializado; >=1 = fila persistida.",
+                },
                 "etag": {"type": "string"},
-                "last_edited_by_user_id": {"type": "string", "format": "uuid"},
-                "created_at": {"type": "string", "format": "date-time"},
-                "updated_at": {"type": "string", "format": "date-time"},
+                "last_edited_by_user_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false.",
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false.",
+                },
+                "updated_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false.",
+                },
+                "materialized": {
+                    "type": "boolean",
+                    "description": (
+                        "False: contrato virtual de GET (sin INSERT). "
+                        "True: fila durable en opportunity_offer_lifecycles."
+                    ),
+                },
                 "crm_status_note": {
                     "type": "string",
                     "description": (
@@ -2214,14 +2257,17 @@ def _oracle_schemas() -> dict[str, Any]:
         "OpportunityOfferLifecycleResponse": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["lifecycle"],
+            "required": ["lifecycle", "materialized"],
             "properties": {
                 "lifecycle": {
                     "$ref": "#/components/schemas/OpportunityOfferLifecycleResource"
                 },
-                "created": {
+                "materialized": {
                     "type": "boolean",
-                    "description": "True si GET materializó la fila por primera vez.",
+                    "description": (
+                        "False si aún no existe fila (GET virtual). "
+                        "True tras materialización o cuando la fila ya existía."
+                    ),
                 },
             },
         },

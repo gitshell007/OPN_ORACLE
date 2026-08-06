@@ -100,6 +100,13 @@ function emptyForm(): FormState {
   };
 }
 
+function versionLabel(row: OpportunityOfferLifecycleResource): string {
+  if (!row.materialized || row.version === 0) {
+    return "Sin materializar (v0)";
+  }
+  return `v${row.version}`;
+}
+
 function parseLotes(text: string): string[] {
   return text
     .split(/[,\n]/)
@@ -157,6 +164,7 @@ export function OpportunityOfferLifecyclePanel({
     setError(null);
     try {
       const response = await api.opportunities.getOfferLifecycle(dossierId, opportunityId);
+      // Virtual (materialized=false, version=0) and durable rows share the same form shape.
       applyServer(response.lifecycle);
     } catch (reason) {
       setError(errorMessage(reason, "No se pudo cargar el seguimiento de la oferta."));
@@ -463,11 +471,20 @@ export function OpportunityOfferLifecyclePanel({
                 loading={saveState === "saving"}
                 disabled={!dirty || saveState === "saving"}
               >
-                <Save size={14} /> Guardar seguimiento
+                <Save size={14} />{" "}
+                {server.materialized ? "Guardar seguimiento" : "Guardar por primera vez"}
               </AsyncActionButton>
               <span className="muted" data-testid="offer-lifecycle-version">
-                v{server.version}
+                {versionLabel(server)}
               </span>
+              {!server.materialized && (
+                <span
+                  className="muted"
+                  data-testid="offer-lifecycle-virtual-hint"
+                >
+                  Aún no hay fila persistida; el primer guardado materializa el seguimiento.
+                </span>
+              )}
             </div>
           </form>
         </PermissionGate>

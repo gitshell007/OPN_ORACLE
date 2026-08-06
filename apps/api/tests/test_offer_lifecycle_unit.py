@@ -22,6 +22,7 @@ from opn_oracle.oracle.offer_lifecycle import (
     make_etag,
     parse_expected_version,
     serialize_offer_lifecycle,
+    virtual_offer_lifecycle,
 )
 
 
@@ -195,3 +196,65 @@ def test_invalid_status_rejected() -> None:
         _status("qualified")  # CRM status must not be accepted as offer status
     with pytest.raises(OfferLifecycleError):
         _status("won")
+
+
+@pytest.mark.unit
+def test_virtual_contract_is_explicit_and_not_persisted_shape() -> None:
+    tenant_id = uuid4()
+    dossier_id = uuid4()
+    opportunity_id = uuid4()
+    virtual = virtual_offer_lifecycle(
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        opportunity_id=opportunity_id,
+    )
+    assert virtual["materialized"] is False
+    assert virtual["version"] == 0
+    assert virtual["etag"] == make_etag(0)
+    assert virtual["id"] is None
+    assert virtual["last_edited_by_user_id"] is None
+    assert virtual["created_at"] is None
+    assert virtual["updated_at"] is None
+    assert virtual["status"] == DEFAULT_STATUS
+    assert virtual["importe_ofertado"] is None
+    assert virtual["lotes"] == []
+    assert virtual["tenant_id"] == str(tenant_id)
+    assert virtual["dossier_id"] == str(dossier_id)
+    assert virtual["opportunity_id"] == str(opportunity_id)
+
+
+@pytest.mark.unit
+def test_serialize_marks_materialized_true() -> None:
+    data = serialize_offer_lifecycle(_row(version=2))
+    assert data["materialized"] is True
+    assert data["version"] == 2
+    assert data["id"] is not None
+
+
+@pytest.mark.unit
+def test_parse_expected_version_accepts_zero_for_first_write() -> None:
+    assert parse_expected_version(body_version=0) == 0
+    assert parse_expected_version(if_match='W/"ool-v0"') == 0
+
+
+@pytest.mark.unit
+def test_first_write_payload_applies_against_virtual_defaults() -> None:
+    from types import SimpleNamespace
+
+    virtual_row = SimpleNamespace(
+        status=DEFAULT_STATUS,
+        importe_ofertado=None,
+        baja_porcentaje=None,
+        lotes=[],
+        garantia_provisional=None,
+        fecha_mesa=None,
+        motivo_exclusion=None,
+    )
+    fields = apply_offer_lifecycle_payload(
+        virtual_row,
+        {"status": "presentada", "importe_ofertado": "10"},
+        partial=True,
+    )
+    assert fields["status"] == "presentada"
+    assert fields["importe_ofertado"] == Decimal("10.00")
+    assert fields["lotes"] == []

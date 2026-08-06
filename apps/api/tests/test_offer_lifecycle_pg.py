@@ -77,23 +77,25 @@ def _authenticated_http(
     *,
     user_id: uuid.UUID,
     tenant_id: uuid.UUID,
+    perms: frozenset[str] | None = None,
 ) -> Iterator[None]:
     """Install server-owned identity without login rate limits (HTTP still real)."""
 
+    granted = perms or frozenset(
+        {
+            "opportunity.read",
+            "opportunity.write",
+            "dossier.read",
+            "dossier.write",
+        }
+    )
     principal = type("Principal", (), {"id": user_id, "is_authenticated": True})()
     monkeypatch.setattr(permissions, "current_user", principal)
     monkeypatch.setattr(offer_lifecycle_routes, "current_user", principal)
     monkeypatch.setattr(
         permissions,
         "current_permissions",
-        lambda user_id, active_tenant_id: frozenset(
-            {
-                "opportunity.read",
-                "opportunity.write",
-                "dossier.read",
-                "dossier.write",
-            }
-        ),
+        lambda user_id, active_tenant_id: granted,
     )
     before = app.before_request_funcs.get(None, [])
     index = next(
@@ -114,6 +116,38 @@ def _authenticated_http(
         yield
     finally:
         before[index] = original
+
+
+def _count_rows(migration_url: str, tenant_id: uuid.UUID) -> int:
+    engine = create_engine(migration_url, poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            return int(
+                conn.execute(
+                    text(f"SELECT count(*) FROM {TABLE} WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                ).scalar_one()
+            )
+    finally:
+        engine.dispose()
+
+
+def _count_audits(migration_url: str, tenant_id: uuid.UUID) -> int:
+    engine = create_engine(migration_url, poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            return int(
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM audit_events "
+                        "WHERE tenant_id = :t "
+                        "AND resource_type = 'opportunity_offer_lifecycle'"
+                    ),
+                    {"t": tenant_id},
+                ).scalar_one()
+            )
+    finally:
+        engine.dispose()
 
 
 def _json_headers() -> dict[str, str]:
@@ -391,9 +425,73 @@ def _path(dossier_id: uuid.UUID, opp_id: uuid.UUID) -> str:
     return f"/api/v1/dossiers/{dossier_id}/opportunities/{opp_id}/offer-lifecycle"
 
 
-def test_get_patch_audit_and_crm_isolation(
+def test_read_only_get_is_safe_no_row_no_audit(
     offer_lifecycle_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """R1: opportunity.read only, missing row → 200 virtual, zero rows/audits."""
+
+    app, ctx = offer_lifecycle_pg
+    client = app.test_client()
+    path = _path(ctx["dossier_a"], ctx["opp_a"])
+    before_rows = _count_rows(ctx["migration_url"], ctx["tenant_a"])
+    before_audits = _count_audits(ctx["migration_url"], ctx["tenant_a"])
+    assert before_rows == 0
+    assert before_audits == 0
+
+    read_only = frozenset({"opportunity.read", "dossier.read"})
+    with _authenticated_http(
+        app,
+        monkeypatch,
+        user_id=ctx["user_a"],
+        tenant_id=ctx["tenant_a"],
+        perms=read_only,
+    ):
+        get_resp = client.get(path)
+        assert get_resp.status_code == 200, get_resp.get_data(as_text=True)
+        body = get_resp.get_json()
+        assert body["materialized"] is False
+        life = body["lifecycle"]
+        assert life["materialized"] is False
+        assert life["version"] == 0
+        assert life["id"] is None
+        assert life["last_edited_by_user_id"] is None
+        assert life["created_at"] is None
+        assert life["updated_at"] is None
+        assert life["status"] == "preparando"
+        assert life["importe_ofertado"] is None
+        assert life["lotes"] == []
+        assert "CRM" in life["crm_status_note"] or "crm" in life["crm_status_note"].lower()
+
+        # Repeated GET still zero writes.
+        assert client.get(path).status_code == 200
+        assert client.get(path).get_json()["materialized"] is False
+
+        # Concurrent GETs still zero writes.
+        results: list[int] = []
+        barrier = threading.Barrier(2, timeout=30)
+
+        def worker() -> None:
+            barrier.wait()
+            resp = client.get(path)
+            results.append(resp.status_code)
+
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+        assert results == [200, 200]
+
+    assert _count_rows(ctx["migration_url"], ctx["tenant_a"]) == 0
+    assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == 0
+
+
+def test_first_write_materializes_once_and_crm_isolation(
+    offer_lifecycle_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3+R6: first write version=0 materializes one row + create audit; CRM intact."""
+
     app, ctx = offer_lifecycle_pg
     client = app.test_client()
     path = _path(ctx["dossier_a"], ctx["opp_a"])
@@ -402,15 +500,10 @@ def test_get_patch_audit_and_crm_isolation(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
         get_resp = client.get(path)
-        assert get_resp.status_code == 200, get_resp.get_data(as_text=True)
-        body = get_resp.get_json()
-        assert body["created"] is True
-        life = body["lifecycle"]
-        assert life["status"] == "preparando"
-        assert life["importe_ofertado"] is None
-        assert life["lotes"] == []
-        assert life["version"] == 1
-        assert "CRM" in life["crm_status_note"] or "crm" in life["crm_status_note"].lower()
+        assert get_resp.status_code == 200
+        assert get_resp.get_json()["materialized"] is False
+        assert get_resp.get_json()["lifecycle"]["version"] == 0
+        assert _count_rows(ctx["migration_url"], ctx["tenant_a"]) == 0
 
         with app.app_context(), tenant_context(
             TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])
@@ -419,10 +512,11 @@ def test_get_patch_audit_and_crm_isolation(
             assert opp is not None
             assert opp.status == "identified"
 
+        # First write with logical version 0 materialises.
         patch = client.patch(
             path,
             json={
-                "version": 1,
+                "version": 0,
                 "status": "presentada",
                 "importe_ofertado": "125000.50",
                 "baja_porcentaje": "3.25",
@@ -433,7 +527,10 @@ def test_get_patch_audit_and_crm_isolation(
             headers=_json_headers(),
         )
         assert patch.status_code == 200, patch.get_data(as_text=True)
-        saved = patch.get_json()["lifecycle"]
+        body = patch.get_json()
+        assert body["materialized"] is True
+        saved = body["lifecycle"]
+        assert saved["materialized"] is True
         assert saved["status"] == "presentada"
         assert saved["status_label"] == "Presentada"
         assert saved["importe_ofertado"] == "125000.5"
@@ -441,7 +538,26 @@ def test_get_patch_audit_and_crm_isolation(
         assert saved["lotes"] == ["Lote 1", "Lote 2"]
         assert saved["garantia_provisional"] == "2500"
         assert saved["fecha_mesa"] == "2026-10-15"
-        assert saved["version"] == 2
+        assert saved["version"] == 1
+        assert saved["id"] is not None
+        assert saved["last_edited_by_user_id"] == str(ctx["user_a"])
+
+        assert _count_rows(ctx["migration_url"], ctx["tenant_a"]) == 1
+        assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == 1
+
+        # Subsequent commercial edit uses CAS version=1.
+        patch2 = client.patch(
+            path,
+            json={
+                "version": 1,
+                "status": "en_evaluacion",
+                "importe_ofertado": "130000",
+            },
+            headers=_json_headers(),
+        )
+        assert patch2.status_code == 200, patch2.get_data(as_text=True)
+        assert patch2.get_json()["lifecycle"]["version"] == 2
+        assert patch2.get_json()["lifecycle"]["status"] == "en_evaluacion"
 
         with app.app_context(), tenant_context(
             TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])
@@ -458,6 +574,11 @@ def test_get_patch_audit_and_crm_isolation(
             actions = {a.action for a in audits}
             assert "opportunity.offer_lifecycle.create" in actions
             assert "opportunity.offer_lifecycle.update" in actions
+            create_events = [
+                a for a in audits if a.action == "opportunity.offer_lifecycle.create"
+            ]
+            assert len(create_events) == 1
+            assert create_events[0].actor_id == ctx["user_a"]
             update_events = [
                 a for a in audits if a.action == "opportunity.offer_lifecycle.update"
             ]
@@ -466,6 +587,145 @@ def test_get_patch_audit_and_crm_isolation(
             assert meta.get("crm_status") == "identified"
             assert meta.get("crm_status_untouched") is True
             assert update_events[-1].actor_id == ctx["user_a"]
+
+
+def test_concurrent_first_writers_one_wins_one_409(
+    offer_lifecycle_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4: two first writes concurrent → one success, one 409; single row + single create audit."""
+
+    from decimal import Decimal
+
+    from opn_oracle.oracle.offer_lifecycle import materialize_offer_lifecycle
+    from opn_oracle.oracle.service import VersionConflict
+
+    app, ctx = offer_lifecycle_pg
+    path = _path(ctx["dossier_a"], ctx["opp_a"])
+    client = app.test_client()
+
+    # HTTP sequential proof: second first-write with version=0 loses after peer materialised.
+    with _authenticated_http(
+        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
+    ):
+        assert client.get(path).get_json()["materialized"] is False
+
+    outcomes: list[str] = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(2, timeout=30)
+
+    def worker(amount: str) -> None:
+        with app.app_context():
+            manager = tenant_context(
+                TenantContext(tenant_id=ctx["tenant_a"], actor_id=ctx["user_a"])
+            )
+            manager.__enter__()
+            try:
+                barrier.wait()
+                try:
+                    materialize_offer_lifecycle(
+                        db.session(),
+                        dossier_id=ctx["dossier_a"],
+                        opportunity_id=ctx["opp_a"],
+                        payload={
+                            "status": "presentada",
+                            "importe_ofertado": Decimal(amount),
+                        },
+                        actor_id=ctx["user_a"],
+                        expected_version=0,
+                        partial=True,
+                    )
+                    with lock:
+                        outcomes.append("ok")
+                except VersionConflict:
+                    with lock:
+                        outcomes.append("conflict")
+            finally:
+                manager.__exit__(None, None, None)
+
+    t1 = threading.Thread(target=worker, args=("111",))
+    t2 = threading.Thread(target=worker, args=("222",))
+    t1.start()
+    t2.start()
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+    assert sorted(outcomes) == ["conflict", "ok"], outcomes
+    assert _count_rows(ctx["migration_url"], ctx["tenant_a"]) == 1
+    assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == 1
+
+    # HTTP: further version=0 write is 409 (already materialised).
+    with _authenticated_http(
+        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
+    ):
+        again = client.patch(
+            path,
+            json={"version": 0, "status": "en_evaluacion"},
+            headers=_json_headers(),
+        )
+        assert again.status_code == 409
+        assert again.get_json()["code"] == "version_conflict"
+        final = client.get(path)
+        assert final.status_code == 200
+        assert final.get_json()["materialized"] is True
+        assert final.get_json()["lifecycle"]["version"] == 1
+        assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == 1
+
+
+def test_strict_patch_unknown_and_version_only_noop(
+    offer_lifecycle_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R5: unknown/typo and version-only → 422; same version/timestamp; zero new audit."""
+
+    app, ctx = offer_lifecycle_pg
+    client = app.test_client()
+    path = _path(ctx["dossier_a"], ctx["opp_a"])
+
+    with _authenticated_http(
+        app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
+    ):
+        first = client.patch(
+            path,
+            json={"version": 0, "status": "preparando", "importe_ofertado": "50"},
+            headers=_json_headers(),
+        )
+        assert first.status_code == 200, first.get_data(as_text=True)
+        life = first.get_json()["lifecycle"]
+        version_before = life["version"]
+        updated_before = life["updated_at"]
+        audits_before = _count_audits(ctx["migration_url"], ctx["tenant_a"])
+
+        typo = client.patch(
+            path,
+            json={
+                "version": version_before,
+                "importe_ofertad": "99",  # typo of importe_ofertado
+            },
+            headers=_json_headers(),
+        )
+        assert typo.status_code == 422
+        assert typo.get_json()["code"] == "unknown_fields"
+
+        version_only = client.patch(
+            path,
+            json={"version": version_before},
+            headers=_json_headers(),
+        )
+        assert version_only.status_code == 422
+        assert version_only.get_json()["code"] == "patch_no_commercial_fields"
+
+        unknown_plus_version = client.patch(
+            path,
+            json={"version": version_before, "foo_bar": "x"},
+            headers=_json_headers(),
+        )
+        assert unknown_plus_version.status_code == 422
+
+        after = client.get(path)
+        assert after.status_code == 200
+        life_after = after.get_json()["lifecycle"]
+        assert life_after["version"] == version_before
+        assert life_after["updated_at"] == updated_before
+        assert life_after["importe_ofertado"] == "50"
+        assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == audits_before
 
 
 def test_excluida_requires_motivo_and_clears_outside(
@@ -477,7 +737,13 @@ def test_excluida_requires_motivo_and_clears_outside(
     with _authenticated_http(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
-        assert client.get(path).status_code == 200
+        # Materialise first with version=0.
+        seed = client.patch(
+            path,
+            json={"version": 0, "status": "preparando"},
+            headers=_json_headers(),
+        )
+        assert seed.status_code == 200
         bad = client.patch(
             path,
             json={"version": 1, "status": "excluida"},
@@ -521,10 +787,11 @@ def test_tenant_isolation(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
         assert client_a.get(path_a).status_code == 200
+        assert client_a.get(path_a).get_json()["materialized"] is False
         assert (
             client_a.patch(
                 path_a,
-                json={"version": 1, "status": "presentada", "importe_ofertado": "10"},
+                json={"version": 0, "status": "presentada", "importe_ofertado": "10"},
                 headers=_json_headers(),
             ).status_code
             == 200
@@ -538,7 +805,9 @@ def test_tenant_isolation(
         assert cross.status_code in {403, 404}
         own = client_b.get(path_b)
         assert own.status_code == 200
+        assert own.get_json()["materialized"] is False
         assert own.get_json()["lifecycle"]["status"] == "preparando"
+        assert own.get_json()["lifecycle"]["version"] == 0
 
 
 def test_cas_conflict_and_concurrent_race(
@@ -554,21 +823,27 @@ def test_cas_conflict_and_concurrent_race(
     with _authenticated_http(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
-        assert client.get(path).status_code == 200
         first = client.patch(
             path,
-            json={"version": 1, "status": "presentada", "importe_ofertado": "100"},
+            json={"version": 0, "status": "presentada", "importe_ofertado": "100"},
             headers=_json_headers(),
         )
         assert first.status_code == 200
+        assert first.get_json()["lifecycle"]["version"] == 1
         stale = client.patch(
             path,
-            json={"version": 1, "status": "en_evaluacion"},
+            json={"version": 0, "status": "en_evaluacion"},
             headers=_json_headers(),
         )
         assert stale.status_code == 409
         assert stale.get_json()["code"] == "version_conflict"
-
+        stale2 = client.patch(
+            path,
+            json={"version": 1, "status": "en_evaluacion"},
+            headers=_json_headers(),
+        )
+        assert stale2.status_code == 200
+        # Now at version 2; concurrent CAS race on version 2.
         results: list[int] = []
         barrier = threading.Barrier(2, timeout=30)
         lock = threading.Lock()
@@ -618,6 +893,7 @@ def test_cas_conflict_and_concurrent_race(
         assert final.status_code == 200
         assert final.get_json()["lifecycle"]["version"] == 3
         assert final.get_json()["lifecycle"]["importe_ofertado"] in {"111", "222"}
+        assert final.get_json()["materialized"] is True
 
 
 def test_rejects_client_owned_actor_id(
@@ -629,11 +905,10 @@ def test_rejects_client_owned_actor_id(
     with _authenticated_http(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
-        assert client.get(path).status_code == 200
         resp = client.patch(
             path,
             json={
-                "version": 1,
+                "version": 0,
                 "status": "presentada",
                 "actor_id": str(uuid.uuid4()),
             },
@@ -641,6 +916,7 @@ def test_rejects_client_owned_actor_id(
         )
         assert resp.status_code == 422
         assert resp.get_json()["code"] == "actor_not_client_owned"
+        assert _count_rows(ctx["migration_url"], ctx["tenant_a"]) == 0
 
 
 def test_negative_amounts_rejected(
@@ -652,13 +928,21 @@ def test_negative_amounts_rejected(
     with _authenticated_http(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
-        assert client.get(path).status_code == 200
+        seed = client.patch(
+            path,
+            json={"version": 0, "status": "preparando"},
+            headers=_json_headers(),
+        )
+        assert seed.status_code == 200
         resp = client.patch(
             path,
             json={"version": 1, "importe_ofertado": "-5"},
             headers=_json_headers(),
         )
         assert resp.status_code == 422
+        # Invalid PATCH must not bump version or audit.
+        assert client.get(path).get_json()["lifecycle"]["version"] == 1
+        assert _count_audits(ctx["migration_url"], ctx["tenant_a"]) == 1
 
 
 def test_crm_status_not_accepted_as_offer_status(
@@ -672,7 +956,12 @@ def test_crm_status_not_accepted_as_offer_status(
     with _authenticated_http(
         app, monkeypatch, user_id=ctx["user_a"], tenant_id=ctx["tenant_a"]
     ):
-        assert client.get(path).status_code == 200
+        seed = client.patch(
+            path,
+            json={"version": 0, "status": "preparando"},
+            headers=_json_headers(),
+        )
+        assert seed.status_code == 200
         for crm_value in ("identified", "qualified", "pursuing", "won", "lost", "dismissed"):
             resp = client.patch(
                 path,
@@ -692,3 +981,4 @@ def test_crm_status_not_accepted_as_offer_status(
             )
             assert row is not None
             assert row.status == "preparando"
+            assert row.version == 1

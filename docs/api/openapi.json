@@ -7633,6 +7633,7 @@
       },
       "OpportunityOfferLifecyclePatchInput": {
         "additionalProperties": false,
+        "description": "PATCH estricto: additionalProperties=false (typos \u2192 422). Requiere al menos un campo comercial editable adem\u00e1s de version.",
         "properties": {
           "baja_porcentaje": {
             "description": "Baja expl\u00edcita 0-100 (porcentaje). Null limpia.",
@@ -7680,7 +7681,8 @@
             "type": "string"
           },
           "version": {
-            "minimum": 1,
+            "description": "CAS: 0 materializa la primera fila; N>=1 actualiza la fila existente con esa versi\u00f3n. Tambi\u00e9n aceptable v\u00eda If-Match.",
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -7694,7 +7696,9 @@
             "type": "string"
           },
           "created_at": {
+            "description": "Null cuando materialized=false.",
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "crm_status_note": {
@@ -7718,7 +7722,9 @@
             "type": "string"
           },
           "id": {
+            "description": "Null cuando materialized=false (sin fila persistida).",
             "format": "uuid",
+            "nullable": true,
             "type": "string"
           },
           "importe_ofertado": {
@@ -7726,7 +7732,9 @@
             "type": "string"
           },
           "last_edited_by_user_id": {
+            "description": "Null cuando materialized=false.",
             "format": "uuid",
+            "nullable": true,
             "type": "string"
           },
           "lotes": {
@@ -7734,6 +7742,10 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "materialized": {
+            "description": "False: contrato virtual de GET (sin INSERT). True: fila durable en opportunity_offer_lifecycles.",
+            "type": "boolean"
           },
           "motivo_exclusion": {
             "nullable": true,
@@ -7762,11 +7774,14 @@
             "type": "string"
           },
           "updated_at": {
+            "description": "Null cuando materialized=false.",
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "version": {
-            "minimum": 1,
+            "description": "0 = virtual no materializado; >=1 = fila persistida.",
+            "minimum": 0,
             "type": "integer"
           }
         },
@@ -7783,6 +7798,7 @@
           "last_edited_by_user_id",
           "created_at",
           "updated_at",
+          "materialized",
           "crm_status_note"
         ],
         "type": "object"
@@ -7790,16 +7806,17 @@
       "OpportunityOfferLifecycleResponse": {
         "additionalProperties": false,
         "properties": {
-          "created": {
-            "description": "True si GET materializ\u00f3 la fila por primera vez.",
-            "type": "boolean"
-          },
           "lifecycle": {
             "$ref": "#/components/schemas/OpportunityOfferLifecycleResource"
+          },
+          "materialized": {
+            "description": "False si a\u00fan no existe fila (GET virtual). True tras materializaci\u00f3n o cuando la fila ya exist\u00eda.",
+            "type": "boolean"
           }
         },
         "required": [
-          "lifecycle"
+          "lifecycle",
+          "materialized"
         ],
         "type": "object"
       },
@@ -27420,7 +27437,7 @@
     },
     "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle": {
       "get": {
-        "description": "Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.",
+        "description": "Nunca INSERT/UPDATE/COMMIT ni crea auditor\u00eda. Si a\u00fan no hay fila, devuelve un\ncontrato virtual (materialized=false, version=0, campos vac\u00edos) \u00fatil para la UI.\nIndependiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.",
         "parameters": [
           {
             "in": "path",
@@ -27516,13 +27533,13 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Consulta (y materializa vac\u00edo) el seguimiento comercial de la oferta.",
+        "summary": "Consulta de solo lectura del seguimiento comercial de la oferta.",
         "tags": [
           "Ciclo de vida de la oferta"
         ]
       },
       "patch": {
-        "description": "Actor server-owned v\u00eda TenantContext + current_user; no se acepta actor_id del body.\nNo modifica Opportunity.status (CRM).",
+        "description": "- version=0 (o If-Match ool-v0) materializa la primera fila de forma at\u00f3mica.\n- Campos desconocidos / typos \u2192 422; PATCH sin campo comercial \u2192 422 (no-op).\n- Actor server-owned v\u00eda TenantContext + current_user.\n- No modifica Opportunity.status (CRM).",
         "parameters": [
           {
             "in": "path",
@@ -27647,7 +27664,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Edita el seguimiento con CAS (version / If-Match).",
+        "summary": "Edita o materializa el seguimiento con CAS (version / If-Match).",
         "tags": [
           "Ciclo de vida de la oferta"
         ]
