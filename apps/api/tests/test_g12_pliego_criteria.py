@@ -206,6 +206,26 @@ def test_resolve_thresholds_65_60_as_min_not_weights() -> None:
 
 
 @pytest.mark.unit
+def test_generic_percentage_threshold_preserves_percent_unit() -> None:
+    """A percentage threshold must not be mislabeled as points in prompt metadata."""
+
+    res = resolve_pliego_criteria(
+        [_evidence("El criterio técnico establece un umbral mínimo de 60% para continuar.")]
+    )
+    assert res.award_weights_status == RESOLUTION_MISSING
+    assert res.min_thresholds_status == RESOLUTION_VERIFIED
+    thresholds = [
+        item
+        for item in res.min_score_thresholds
+        if item.get("status") == RESOLUTION_VERIFIED
+    ]
+    assert len(thresholds) == 1
+    assert thresholds[0]["role"] == "minimum_score"
+    assert thresholds[0]["value"] == 60.0
+    assert thresholds[0]["unit"] == "percent"
+
+
+@pytest.mark.unit
 def test_allowlist_drops_other_evidence() -> None:
     allowed = uuid.uuid4()
     foreign = uuid.uuid4()

@@ -87,7 +87,7 @@ _MIN_MULTI_PP = re.compile(
 )
 _MIN_GENERIC = re.compile(
     r"(?:umbral|m[ií]nimo(?:\s+exigible)?|puntuaci[oó]n\s+m[ií]nima)"
-    r"[^\n\d]{0,40}?(?P<value>\d{1,3})\s*(?:puntos|%)",
+    r"[^\n\d]{0,40}?(?P<value>\d{1,3})\s*(?P<unit>puntos|%)",
     re.IGNORECASE,
 )
 
@@ -255,7 +255,8 @@ def _scan_thresholds(extract: str, evidence_id: str, source_kind: str | None) ->
         _add(match, "multi_bidder_pp_above_mean", "percentage_points")
     # Generic only for residual "umbral/mínimo … N" not already captured.
     for match in _MIN_GENERIC.finditer(extract):
-        _add(match, "minimum_score", "points")
+        unit = "percent" if match.group("unit") == "%" else "points"
+        _add(match, "minimum_score", unit)
     return hits
 
 
@@ -506,7 +507,11 @@ def format_threshold_hint(resolution: PliegoCriteriaResolution) -> str:
         elif role == "multi_bidder_pp_above_mean":
             bits.append(f"varios: +{value} p.p. sobre media")
         else:
-            unit_s = " pts" if unit in {"points", "percentage_points"} else f" {unit}"
+            unit_s = "%" if unit == "percent" else (
+                " pts" if unit == "points" else (
+                    " p.p." if unit == "percentage_points" else f" {unit}"
+                )
+            )
             bits.append(f"{role} {value}{unit_s}")
     return " · ".join(bits) if bits else "umbral mínimo no verificable en el pliego"
 
@@ -542,7 +547,15 @@ def format_threshold_requirement_clause(resolution: PliegoCriteriaResolution) ->
                 + (f" («{quote}»)" if quote else "")
             )
         else:
-            clauses.append(f"{role}={value}" + (f" («{quote}»)" if quote else ""))
+            unit = str(item.get("unit") or "")
+            unit_s = "%" if unit == "percent" else (
+                " puntos" if unit == "points" else (
+                    " puntos porcentuales" if unit == "percentage_points" else f" {unit}"
+                )
+            )
+            clauses.append(
+                f"{role}={value}{unit_s}" + (f" («{quote}»)" if quote else "")
+            )
     if not clauses:
         return (
             " Umbral mínimo de puntuación: desconocido/no verificable en el extracto "
