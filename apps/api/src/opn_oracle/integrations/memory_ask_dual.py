@@ -195,8 +195,7 @@ def load_oracle_authority_from_session(
         DossierOffering,
         IntelligenceRequirement,
     )
-    from opn_oracle.oracle.links import EvidenceDossier
-    from opn_oracle.oracle.models import Decision, DossierObjective, Evidence, StrategicDossier
+    from opn_oracle.oracle.models import Decision, DossierObjective, StrategicDossier
 
     dossier = session.scalar(
         select(StrategicDossier).where(
@@ -322,47 +321,21 @@ def load_oracle_authority_from_session(
         )
     ]
 
-    evidence_ids = select(EvidenceDossier.evidence_id).where(
-        EvidenceDossier.tenant_id == tenant_id,
-        EvidenceDossier.dossier_id == dossier_id,
-    )
-    # Prefer durable dossier evidence (procurement/document/…) over bulk
-    # memory_signal rematerializations. Ask injects dual-memory separately; if we
-    # order only by created_at the 40-row cap fills with per-turn memory_signal
-    # UUIDs and hides PLACSP awards the model (and build_context) already sees.
-    #
-    # G-26: family mix (people/competitors/actors/tenders/documents/memory) so a
-    # flood of pliegos or noisy entity_intel cannot expel the other families.
-    # Opportunity-only PCAP materializations stay out of the generic bag.
-    from sqlalchemy import case
-
-    from opn_oracle.ai.context import _is_opportunity_pliego_materialization
+    # G-26 corrective: family-balanced retrieval *before* the mixer cap.
+    # A global LIMIT 400 ordered by recency drops older people/competitors when
+    # 500/1000 recent tenders dominate. Per-family bounded selects share the
+    # same map_context_family taxonomy as the mixer; opportunity-only PCAP
+    # materializations stay out of the generic bag.
+    from opn_oracle.ai.context_candidate_loader import load_balanced_context_candidates
     from opn_oracle.ai.context_mix import mix_context_evidence
 
-    kind_rank = case(
-        (Evidence.source_kind == "procurement", 0),
-        (Evidence.source_kind == "document", 1),
-        (Evidence.source_kind == "entity_intel", 2),
-        (Evidence.source_kind == "signal", 3),
-        else_=9,
+    load_result = load_balanced_context_candidates(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        exclude_opportunity_pliego=True,
     )
-    evidence_candidates = list(
-        session.scalars(
-            select(Evidence)
-            .where(
-                Evidence.id.in_(evidence_ids),
-                Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(
-                    ("signal", "document", "procurement", "entity_intel", "memory_signal")
-                ),
-            )
-            .order_by(kind_rank.asc(), Evidence.created_at.desc())
-            .limit(400)
-        )
-    )
-    evidence_candidates = [
-        row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
-    ]
+    evidence_candidates = list(load_result.candidates)
     mix_result = mix_context_evidence(
         evidence_candidates,
         limit=40,
@@ -388,6 +361,13 @@ def load_oracle_authority_from_session(
         },
     )
     evidence_rows = list(mix_result.selected)
+    mix_metadata = dict(mix_result.metadata)
+    mix_metadata["retrieval"] = dict(load_result.metadata)
+    if load_result.metadata.get("candidate_pool_truncated_before_family_floor"):
+        codes = list(mix_metadata.get("reason_codes") or [])
+        if "candidate_pool_truncated_before_family_floor" not in codes:
+            codes.append("candidate_pool_truncated_before_family_floor")
+        mix_metadata["reason_codes"] = codes
     oracle_evidence = []
     for row in evidence_rows:
         item_id = str(row.id)
@@ -412,7 +392,7 @@ def load_oracle_authority_from_session(
         objectives=objectives,
         decisions=decisions,
         oracle_evidence=oracle_evidence,
-        context_mix=mix_result.metadata,
+        context_mix=mix_metadata,
     )
 
 

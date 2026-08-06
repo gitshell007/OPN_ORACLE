@@ -114,7 +114,9 @@ _INTENT_KEYWORDS: dict[ContextFamily, tuple[str, ...]] = {
     "other": (),
 }
 
-_COMPETITOR_ROLE_TOKENS = frozenset(
+# Shared closed taxonomy for map_context_family + SQL candidate loader (G-26).
+# Keep single source of truth — loader imports these; do not duplicate.
+COMPETITOR_ROLE_TOKENS = frozenset(
     {
         "competitor",
         "competitors",
@@ -124,8 +126,8 @@ _COMPETITOR_ROLE_TOKENS = frozenset(
         "rivals",
     }
 )
-_PERSON_TOKENS = frozenset({"person", "people", "persona", "individual", "human"})
-_ORG_ACTOR_TOKENS = frozenset(
+PERSON_TOKENS = frozenset({"person", "people", "persona", "individual", "human"})
+ORG_ACTOR_TOKENS = frozenset(
     {
         "organization",
         "organisation",
@@ -137,7 +139,7 @@ _ORG_ACTOR_TOKENS = frozenset(
         "actor",
     }
 )
-_TENDER_DOC_ROLES = frozenset(
+TENDER_DOC_ROLES = frozenset(
     {
         "pliego",
         "pliegos",
@@ -150,6 +152,11 @@ _TENDER_DOC_ROLES = frozenset(
         "opportunity_pliego",
     }
 )
+# Back-compat private aliases
+_COMPETITOR_ROLE_TOKENS = COMPETITOR_ROLE_TOKENS
+_PERSON_TOKENS = PERSON_TOKENS
+_ORG_ACTOR_TOKENS = ORG_ACTOR_TOKENS
+_TENDER_DOC_ROLES = TENDER_DOC_ROLES
 
 # Protect short citation / id tokens when truncating long extracts.
 _PROTECTED_ID_RE = re.compile(

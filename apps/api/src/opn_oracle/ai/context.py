@@ -711,37 +711,20 @@ def build_context(
         if accepted_intent is not None
         else []
     )
-    evidence_ids = select(EvidenceDossier.evidence_id).where(
-        EvidenceDossier.tenant_id == tenant_id, EvidenceDossier.dossier_id == dossier_id
-    )
-    # Fetch a wider candidate pool then apply G-26 family mix. A bulk
-    # materialization of pliego document chunks (SV2-E2E-VIVO) must not
-    # monopolize the bag for Preguntar / generic agents — that displaced
-    # people/competitors/actors/memory after opportunity jobs created tens of
-    # document evidence rows. source_kind round-robin alone still collapses
-    # entity_intel subtypes; family floors fix that.
+    # G-26: load a *family-balanced* candidate pool before the mixer. A global
+    # ``ORDER BY created_at DESC LIMIT 400`` lets 500/1000 recent tenders push
+    # older people/competitors out of the pool entirely — the mixer cannot
+    # protect families it never sees. Per-family bounded selects + mix floors.
+    from opn_oracle.ai.context_candidate_loader import load_balanced_context_candidates
     from opn_oracle.ai.context_mix import mix_context_evidence
 
-    evidence_candidates = list(
-        db.session.scalars(
-            select(Evidence)
-            .where(
-                Evidence.id.in_(evidence_ids),
-                Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(
-                    ("signal", "document", "procurement", "entity_intel", "memory_signal")
-                ),
-            )
-            .order_by(Evidence.created_at.desc())
-            .limit(400)
-        )
+    load_result = load_balanced_context_candidates(
+        db.session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        exclude_opportunity_pliego=True,
     )
-    # Opportunity-only materializations stay citable on the opportunity path
-    # (load_opportunity_pliego_evidence_rows). Keep them out of the generic bag
-    # so Preguntar is not flooded with PCAP chunks for every question.
-    evidence_candidates = [
-        row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
-    ]
+    evidence_candidates = list(load_result.candidates)
     mix_result = mix_context_evidence(
         evidence_candidates,
         limit=50,
@@ -769,6 +752,18 @@ def build_context(
     )
     evidence_rows = list(mix_result.selected)
     mix_metadata = dict(mix_result.metadata)
+    # Retrieval metadata (bounded, no extracts/PII). Distinct limitation codes
+    # when a family floor was missed because of pool truncation vs item budget.
+    mix_metadata["retrieval"] = dict(load_result.metadata)
+    if load_result.metadata.get("candidate_pool_truncated_before_family_floor"):
+        codes = list(mix_metadata.get("reason_codes") or [])
+        if "candidate_pool_truncated_before_family_floor" not in codes:
+            codes.append("candidate_pool_truncated_before_family_floor")
+        mix_metadata["reason_codes"] = codes
+        # Do not rebrand retrieval truncation as mixer budget insufficiency.
+        mix_metadata["budget_insufficient_for_all_families"] = bool(
+            mix_metadata.get("budget_insufficient_for_all_families")
+        )
     objectives = list(
         db.session.scalars(
             select(DossierObjective)
