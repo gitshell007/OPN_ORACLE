@@ -28,6 +28,16 @@ from opn_oracle.documents.service import (
 )
 from opn_oracle.extensions import db
 from opn_oracle.oracle.models import Evidence, Report
+from opn_oracle.oracle.pliego_acquisition import (
+    DOWNLOAD_FAIL_WARNING,
+    EMPTY_DOCUMENTS_WARNING,
+    PARTIAL_EXTRACT_WARNING,
+    classify_download_error,
+    mark_downloaded,
+    mark_partial_extract,
+    prefer_manual_pcap,
+    record_download_failure,
+)
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.reporting.service import (
     _sha256 as _snapshot_sha256,
@@ -42,10 +52,23 @@ MAX_DOCUMENTS_PER_REPORT = 10
 MAX_DOCUMENT_BYTES_PER_REPORT = 15 * 1024 * 1024
 MAX_EVIDENCE_CHUNKS_PER_DOCUMENT = 3
 DOWNLOAD_TIMEOUT_SECONDS = 20.0
+# Identifiable UA — no WAF evasion; allows operators to recognise Oracle traffic.
+PLACSP_USER_AGENT = "OPN-Oracle/1.0 (+pliego-acquisition; best-effort; manual-upload-fallback)"
 
 
 class ProcurementDocumentReportError(RuntimeError):
-    pass
+    """Error de descarga/validación PLACSP con código honesto opcional."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str = "download_failed",
+        http_status: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.http_status = http_status
 
 
 def _safe_placsp_uri(uri: str) -> str:
@@ -57,8 +80,18 @@ def _safe_placsp_uri(uri: str) -> str:
         or parsed.password
         or parsed.port not in {None, 443}
     ):
-        raise ProcurementDocumentReportError("La referencia documental PLACSP no está permitida.")
+        raise ProcurementDocumentReportError(
+            "La referencia documental PLACSP no está permitida.",
+            reason_code="host_not_allowed",
+        )
     return uri
+
+
+def _download_headers() -> dict[str, str]:
+    return {
+        "Accept": "application/pdf",
+        "User-Agent": PLACSP_USER_AGENT,
+    }
 
 
 def download_placsp_pdf(
@@ -67,45 +100,87 @@ def download_placsp_pdf(
     max_bytes: int,
     client: httpx.Client | None = None,
 ) -> bytes:
-    """Download one direct CODICE attachment, rejecting redirects and oversized data."""
+    """Download one direct CODICE attachment, rejecting redirects and oversized data.
+
+    G-11: errores tipados (403/429/5xx, timeout, redirect) para fallback honesto.
+    No sigue redirects a hosts no revalidados; no evade WAF.
+    """
     _safe_placsp_uri(uri)
     owns_client = client is None
     request_client = client or httpx.Client(
         timeout=httpx.Timeout(DOWNLOAD_TIMEOUT_SECONDS), follow_redirects=False
     )
+    payload = bytearray()
     try:
-        with request_client.stream("GET", uri, headers={"Accept": "application/pdf"}) as response:
-            if response.is_redirect or response.status_code != 200:
+        with request_client.stream("GET", uri, headers=_download_headers()) as response:
+            if response.is_redirect:
+                location = response.headers.get("location") or ""
+                # Revalidar cada salto: solo aceptar si el Location sigue en allowlist.
+                if location:
+                    try:
+                        _safe_placsp_uri(location)
+                    except ProcurementDocumentReportError as error:
+                        raise ProcurementDocumentReportError(
+                            "Redirección a host no validado rechazada.",
+                            reason_code="redirect_rejected",
+                            http_status=response.status_code,
+                        ) from error
                 raise ProcurementDocumentReportError(
-                    "No se pudo descargar el documento oficial PLACSP."
+                    "Redirección PLACSP no seguida automáticamente (política SSRF).",
+                    reason_code="redirect_rejected",
+                    http_status=response.status_code,
+                )
+            if response.status_code != 200:
+                code, human = classify_download_error(
+                    ProcurementDocumentReportError(
+                        f"HTTP {response.status_code}",
+                        http_status=response.status_code,
+                    ),
+                    http_status=response.status_code,
+                )
+                raise ProcurementDocumentReportError(
+                    human,
+                    reason_code=code,
+                    http_status=response.status_code,
                 )
             content_length = response.headers.get("content-length")
             if content_length:
                 try:
                     if int(content_length) > max_bytes:
                         raise ProcurementDocumentReportError(
-                            "El documento oficial supera el límite del informe."
+                            "El documento oficial supera el límite del informe.",
+                            reason_code="size_limit",
                         )
                 except ValueError as error:
                     raise ProcurementDocumentReportError(
-                        "El documento oficial devolvió un tamaño inválido."
+                        "El documento oficial devolvió un tamaño inválido.",
+                        reason_code="size_invalid",
                     ) from error
-            payload = bytearray()
             for chunk in response.iter_bytes():
                 payload.extend(chunk)
                 if len(payload) > max_bytes:
                     raise ProcurementDocumentReportError(
-                        "El documento oficial supera el límite del informe."
+                        "El documento oficial supera el límite del informe.",
+                        reason_code="size_limit",
                     )
-    except httpx.HTTPError as error:
+    except ProcurementDocumentReportError:
+        raise
+    except httpx.TimeoutException as error:
         raise ProcurementDocumentReportError(
-            "No se pudo descargar el documento oficial PLACSP."
+            "Tiempo de espera agotado al descargar el pliego. Suba el PCAP manualmente.",
+            reason_code="timeout",
         ) from error
+    except httpx.HTTPError as error:
+        code, human = classify_download_error(error)
+        raise ProcurementDocumentReportError(human, reason_code=code) from error
     finally:
         if owns_client:
             request_client.close()
     if not payload.startswith(b"%PDF-"):
-        raise ProcurementDocumentReportError("Se omitió un adjunto PLACSP que no es PDF.")
+        raise ProcurementDocumentReportError(
+            "Se omitió un adjunto PLACSP que no es PDF.",
+            reason_code="not_pdf",
+        )
     return bytes(payload)
 
 
@@ -220,7 +295,8 @@ def _dossier_ready_text_extracts(
 ) -> list[Document]:
     """Documentos ready del expediente con texto ya parseado (extractos / pliegos).
 
-    Preferidos frente a re-parsear un PDF PLACSP cifrado. No descifra nada.
+    Preferidos frente a re-parsear un PDF PLACSP cifrado o ante fallo HTTP/WAF.
+    No descifra nada.
     """
     rows = list(
         db.session.scalars(
@@ -271,25 +347,31 @@ def _dossier_ready_text_extracts(
     return usable
 
 
-def _use_encrypted_pdf_extract_fallback(
+def _use_partial_extract_fallback(
     report: Report,
     reference: dict[str, str],
     *,
     reason: str,
-) -> tuple[int, int, list[str]]:
-    """Si el PDF CODICE está cifrado, reutiliza extractos ready del expediente.
+    reason_code: str = "partial_extract",
+    warning_label: str | None = None,
+) -> tuple[int, int, list[str], list[dict[str, Any]]]:
+    """Reutiliza extractos ready del expediente (PDF cifrado o fallo HTTP/WAF).
 
-    Returns (documents_used, evidence_made, warnings).
+    Returns (documents_used, evidence_made, warnings, acquisitions).
+    Nunca presenta el extracto como PCAP completo.
     """
     extracts = _dossier_ready_text_extracts(report.dossier_id, reference=reference)
     if not extracts:
-        return 0, 0, []
+        return 0, 0, [], []
+    label = warning_label or PARTIAL_EXTRACT_WARNING
+    if reason_code == "encrypted_pdf":
+        label = ENCRYPTED_PDF_EXTRACT_WARNING
     warnings = [
-        f"{ENCRYPTED_PDF_EXTRACT_WARNING} "
-        f"(ref={reference.get('file_name') or reference.get('uri')}; {reason})"
+        f"{label} (ref={reference.get('file_name') or reference.get('uri')}; {reason})"
     ]
     evidence = 0
     used_ids: set[uuid.UUID] = set()
+    acquisitions: list[dict[str, Any]] = []
     for doc in extracts:
         if doc.id in used_ids:
             continue
@@ -300,46 +382,212 @@ def _use_encrypted_pdf_extract_fallback(
             report_id=report.id,
             job_id=None,
         )
-        # Anota en metadata que el informe usó extracto ante PDF cifrado.
         meta = dict(doc.metadata_json or {})
-        meta["encrypted_pdf_fallback"] = {
-            "warning": ENCRYPTED_PDF_EXTRACT_WARNING,
+        if reason_code == "encrypted_pdf":
+            meta["encrypted_pdf_fallback"] = {
+                "warning": ENCRYPTED_PDF_EXTRACT_WARNING,
+                "source_uri": reference.get("uri"),
+                "source_file_name": reference.get("file_name"),
+                "reason": reason,
+            }
+        meta["download_fallback"] = {
+            "warning": label,
             "source_uri": reference.get("uri"),
             "source_file_name": reference.get("file_name"),
             "reason": reason,
+            "reason_code": reason_code,
+            "is_full_pcap": False,
         }
         doc.metadata_json = meta
+        mark_partial_extract(
+            doc,
+            reference=reference,
+            reason_code=reason_code,
+            reason=f"{label}: {reason}",
+        )
         evidence += _ensure_chunk_evidence(doc)
         used_ids.add(doc.id)
+        acquisitions.append(
+            {
+                "status": "extracto_parcial",
+                "reason_code": reason_code,
+                "reason": f"{label}: {reason}",
+                "source_uri": reference.get("uri"),
+                "file_name": reference.get("file_name"),
+                "document_id": str(doc.id),
+                "is_full_pcap": False,
+            }
+        )
         if len(used_ids) >= 3:
             break
     if not used_ids:
-        return 0, 0, []
+        return 0, 0, [], []
     db.session.commit()
-    return len(used_ids), evidence, warnings
+    return len(used_ids), evidence, warnings, acquisitions
+
+
+def _use_encrypted_pdf_extract_fallback(
+    report: Report,
+    reference: dict[str, str],
+    *,
+    reason: str,
+) -> tuple[int, int, list[str]]:
+    """Compat: PDF cifrado → extractos (misma firma que tests previos)."""
+    used, evidence, warnings, _acq = _use_partial_extract_fallback(
+        report,
+        reference,
+        reason=reason,
+        reason_code="encrypted_pdf",
+        warning_label=ENCRYPTED_PDF_EXTRACT_WARNING,
+    )
+    return used, evidence, warnings
+
+
+def _acquisition_entry(
+    *,
+    status: str,
+    reason_code: str,
+    reason: str,
+    reference: dict[str, str] | None = None,
+    document_id: str | None = None,
+    http_status: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "reason": reason,
+        "source_uri": (reference or {}).get("uri"),
+        "file_name": (reference or {}).get("file_name"),
+        "document_id": document_id,
+        "http_status": http_status,
+        "manual_upload_offered": True,
+        "is_full_pcap": status in {"descargado", "subido"},
+    }
 
 
 def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
     documents = _referenced_documents(report)
+    acquisitions: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    total_bytes = 0
+    processed = evidence = 0
+
+    # Prioridad G-11: PCAP manual ready gana sobre auto/extractos.
+    manual = prefer_manual_pcap(tenant_id=report.tenant_id, dossier_id=report.dossier_id)
+    if manual is not None and (
+        document_available_for_citation(manual) or official_unscanned_document_allowed(manual)
+    ):
+        mark_official_unscanned_acceptance(
+            manual, report_id=report.id, job_id=getattr(job, "id", None)
+        )
+        made = _ensure_chunk_evidence(manual)
+        processed += 1
+        evidence += made
+        acquisitions.append(
+            _acquisition_entry(
+                status="subido",
+                reason_code="manual_preferred",
+                reason=(
+                    "PCAP subido manualmente; prioridad sobre descarga automática "
+                    "y extractos parciales."
+                ),
+                document_id=str(manual.id),
+            )
+        )
+        warnings.append(
+            "Usando PCAP subido manualmente (prioridad sobre descarga automática)."
+        )
+        # No sobrescribir con reintentos automáticos peores.
+        return {
+            "documents": processed,
+            "evidence": evidence,
+            "warnings": warnings,
+            "bytes": total_bytes,
+            "acquisitions": acquisitions,
+            "manual_preferred": True,
+        }
+
     if not documents:
+        # Honesto: no fingir «0 documentos» normal — Signal no entregó refs.
+        empty_msg = EMPTY_DOCUMENTS_WARNING
+        warnings.append(empty_msg)
+        acquisitions.append(
+            _acquisition_entry(
+                status="no_disponible",
+                reason_code="signal_documents_empty",
+                reason=empty_msg,
+            )
+        )
         return {
             "documents": 0,
             "evidence": 0,
-            "warnings": ["Las adjudicaciones fijadas no incluyen documentos CODICE."],
+            "warnings": warnings,
+            "bytes": 0,
+            "acquisitions": acquisitions,
+            "manual_preferred": False,
         }
-    total_bytes = 0
-    processed = evidence = 0
-    warnings: list[str] = []
+
     for reference in documents:
         try:
             remaining = MAX_DOCUMENT_BYTES_PER_REPORT - total_bytes
             if remaining <= 0:
                 warnings.append("Se alcanzó el límite total de descarga del informe.")
+                acquisitions.append(
+                    _acquisition_entry(
+                        status="no_disponible",
+                        reason_code="size_limit",
+                        reason="Se alcanzó el límite total de descarga del informe.",
+                        reference=reference,
+                    )
+                )
                 break
             payload = download_placsp_pdf(reference["uri"], max_bytes=remaining)
             total_bytes += len(payload)
         except ProcurementDocumentReportError as error:
-            warnings.append(str(error))
+            # G-11: fallo HTTP/WAF → extracto parcial si hay; si no, no_disponible visible.
+            code = getattr(error, "reason_code", None) or "download_failed"
+            human = str(error) or DOWNLOAD_FAIL_WARNING
+            used, ev, fb_warnings, fb_acq = _use_partial_extract_fallback(
+                report,
+                reference,
+                reason=human,
+                reason_code=code if code != "encrypted_pdf" else "download_failed",
+                warning_label=PARTIAL_EXTRACT_WARNING,
+            )
+            if used:
+                warnings.extend(fb_warnings)
+                warnings.append(f"{DOWNLOAD_FAIL_WARNING} ({code})")
+                processed += used
+                evidence += ev
+                acquisitions.extend(fb_acq)
+                # Persistimos el motivo real aunque haya extracto parcial.
+                record_download_failure(
+                    dossier_id=report.dossier_id,
+                    tenant_id=report.tenant_id,
+                    reference=reference,
+                    reason_code=code,
+                    reason=human,
+                    http_status=getattr(error, "http_status", None),
+                )
+                continue
+            warnings.append(human)
+            record_download_failure(
+                dossier_id=report.dossier_id,
+                tenant_id=report.tenant_id,
+                reference=reference,
+                reason_code=code,
+                reason=human,
+                http_status=getattr(error, "http_status", None),
+            )
+            acquisitions.append(
+                _acquisition_entry(
+                    status="no_disponible",
+                    reason_code=code,
+                    reason=human,
+                    reference=reference,
+                    http_status=getattr(error, "http_status", None),
+                )
+            )
             continue
         checksum = hashlib.sha256(payload).digest()
         document = _existing_document(report.dossier_id, checksum)
@@ -367,15 +615,18 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
             document = db.session.get(Document, document.id)
         # PDF cifrado u otro fallo de parse: caer a extractos ya en el expediente.
         if process_error is not None and _is_encrypted_pdf_error(process_error):
-            used, ev, fb_warnings = _use_encrypted_pdf_extract_fallback(
+            used, ev, fb_warnings, fb_acq = _use_partial_extract_fallback(
                 report,
                 reference,
                 reason=str(process_error),
+                reason_code="encrypted_pdf",
+                warning_label=ENCRYPTED_PDF_EXTRACT_WARNING,
             )
             if used:
                 warnings.extend(fb_warnings)
                 processed += used
                 evidence += ev
+                acquisitions.extend(fb_acq)
                 continue
             # Sin texto en memoria/expediente: error legible como hasta ahora.
             raise DocumentError(str(process_error))
@@ -388,30 +639,35 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
             "cifrado" in str(document.safe_error_code or "").casefold()
             or "cifrado" in str(getattr(document, "status", "") or "").casefold()
         ):
-            used, ev, fb_warnings = _use_encrypted_pdf_extract_fallback(
+            used, ev, fb_warnings, fb_acq = _use_partial_extract_fallback(
                 report,
                 reference,
                 reason="documento previo no usable (posible PDF cifrado)",
+                reason_code="encrypted_pdf",
+                warning_label=ENCRYPTED_PDF_EXTRACT_WARNING,
             )
             if used:
                 warnings.extend(fb_warnings)
                 processed += used
                 evidence += ev
+                acquisitions.extend(fb_acq)
                 continue
         if not (
             document_available_for_citation(document)
             or official_unscanned_document_allowed(document)
         ):
             # Último intento: extractos del expediente (p.ej. PDF cifrado sin error tipado).
-            used, ev, fb_warnings = _use_encrypted_pdf_extract_fallback(
+            used, ev, fb_warnings, fb_acq = _use_partial_extract_fallback(
                 report,
                 reference,
                 reason=document_unavailable_reason(document),
+                reason_code="document_unavailable",
             )
             if used:
                 warnings.extend(fb_warnings)
                 processed += used
                 evidence += ev
+                acquisitions.extend(fb_acq)
                 continue
             raise DocumentError(document_unavailable_reason(document))
         accepted_by_exception = mark_official_unscanned_acceptance(
@@ -439,13 +695,26 @@ def _ingest_documents(report: Report, job: Any) -> dict[str, Any]:
             db.session.commit()
         if not document_available_for_citation(document):
             raise DocumentError(document_unavailable_reason(document))
+        mark_downloaded(document, reference=reference)
+        db.session.commit()
         processed += 1
         evidence += _ensure_chunk_evidence(document)
+        acquisitions.append(
+            _acquisition_entry(
+                status="descargado",
+                reason_code="downloaded",
+                reason="Documento oficial PLACSP descargado y procesado.",
+                reference=reference,
+                document_id=str(document.id),
+            )
+        )
     return {
         "documents": processed,
         "evidence": evidence,
         "warnings": warnings,
         "bytes": total_bytes,
+        "acquisitions": acquisitions,
+        "manual_preferred": False,
     }
 
 
@@ -461,20 +730,46 @@ def process_procurement_document_report(report_id: uuid.UUID, job: Any) -> dict[
         )
     outcome = _ingest_documents(report, job)
     # Refresco primero: reincorpora la evidencia recién ingerida. El aviso de
-    # PDF cifrado se escribe DESPUÉS para no morir en el replace del snapshot
-    # (refresh también preserva overlays, por si se dispara desde otros caminos).
+    # PDF cifrado / fallo de descarga se escribe DESPUÉS para no morir en el
+    # replace del snapshot (refresh también preserva overlays).
     refresh_report_snapshot(report)
     warnings = list(outcome.get("warnings") or [])
-    extract_warnings = [w for w in warnings if ENCRYPTED_PDF_EXTRACT_WARNING in w]
-    if extract_warnings:
-        snap = dict(report.source_snapshot or {})
-        notes = list(snap.get("document_notes") or [])
-        for w in extract_warnings:
-            if w not in notes:
-                notes.append(w)
+    acquisitions = list(outcome.get("acquisitions") or [])
+    extract_warnings = [
+        w
+        for w in warnings
+        if ENCRYPTED_PDF_EXTRACT_WARNING in w
+        or PARTIAL_EXTRACT_WARNING in w
+        or DOWNLOAD_FAIL_WARNING in w
+        or EMPTY_DOCUMENTS_WARNING in w
+    ]
+    snap = dict(report.source_snapshot or {})
+    notes = list(snap.get("document_notes") or [])
+    for w in extract_warnings:
+        if w not in notes:
+            notes.append(w)
+    if notes:
         snap["document_notes"] = notes
+    if any(ENCRYPTED_PDF_EXTRACT_WARNING in w for w in extract_warnings):
         snap["encrypted_pdf_fallback"] = True
-        report.source_snapshot = snap
-        report.source_snapshot_hash = _snapshot_sha256(snap)
-        db.session.commit()
+    if any(
+        a.get("status") == "extracto_parcial" and a.get("reason_code") != "encrypted_pdf"
+        for a in acquisitions
+    ):
+        snap["download_fallback"] = True
+    if acquisitions:
+        snap["document_acquisitions"] = acquisitions
+    # Estado agregado honesto para API/UI.
+    if outcome.get("manual_preferred"):
+        snap["pliego_acquisition_status"] = "subido"
+    elif any(a.get("status") == "descargado" for a in acquisitions):
+        snap["pliego_acquisition_status"] = "descargado"
+    elif any(a.get("status") == "extracto_parcial" for a in acquisitions):
+        snap["pliego_acquisition_status"] = "extracto_parcial"
+    else:
+        snap["pliego_acquisition_status"] = "no_disponible"
+    snap["manual_pcap_upload_offered"] = True
+    report.source_snapshot = snap
+    report.source_snapshot_hash = _snapshot_sha256(snap)
+    db.session.commit()
     return {**process_report(report.id, job), "procurement_documents": outcome}

@@ -219,6 +219,80 @@ async function request<T>(
   throw new Error("Solicitud agotada");
 }
 
+/** Authenticated binary download (blob + Content-Disposition filename). */
+export interface BinaryDownload {
+  blob: Blob;
+  filename: string;
+  contentType: string;
+  etag: string | null;
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  // filename*=UTF-8''...
+  const star = /filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^["']|["']$/g, ""));
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename\s*=\s*("?)([^";]+)\1/i.exec(header);
+  if (plain?.[2]) return plain[2].trim();
+  return null;
+}
+
+async function requestBlob(
+  path: string,
+  options: RequestOptions & { accept?: string; fallbackFilename?: string } = {},
+): Promise<BinaryDownload> {
+  const method = options.method ?? "GET";
+  const mutation = method !== "GET";
+  if (mutation && !csrfToken) await fetchCsrf(options.signal);
+  const headers = new Headers({
+    Accept:
+      options.accept ??
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/problem+json, application/json",
+  });
+  const id = requestId();
+  if (id) headers.set("X-Request-ID", id);
+  if (mutation) headers.set("X-CSRF-Token", csrfToken ?? "");
+  if (options.ifMatch !== undefined) {
+    const match =
+      typeof options.ifMatch === "string"
+        ? options.ifMatch
+        : `W/"ood-v${options.ifMatch}"`;
+    headers.set("If-Match", match);
+  }
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers,
+    signal: options.signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await parseError(response);
+    publishAuthError(path, error);
+    throw error;
+  }
+  const blob = await response.blob();
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ||
+    options.fallbackFilename ||
+    "download.bin";
+  return {
+    blob,
+    filename,
+    contentType:
+      response.headers.get("Content-Type") ||
+      blob.type ||
+      "application/octet-stream",
+    etag: response.headers.get("ETag"),
+  };
+}
+
 const auth = {
   me: (signal?: AbortSignal) =>
     request<SessionIdentity>("/api/v1/auth/me", { signal, retry: false }),
@@ -715,6 +789,67 @@ export interface OracleDocument {
   updated_at: string;
 }
 
+/** G-11 · estado honesto de adquisición de pliego/PCAP. */
+export type PliegoAcquisitionStatus =
+  | "procesando"
+  | "descargado"
+  | "subido"
+  | "extracto_parcial"
+  | "no_disponible";
+
+export interface PliegoAcquisitionItem {
+  key?: string;
+  status: PliegoAcquisitionStatus | string;
+  reason_code?: string;
+  reason?: string;
+  folder_id?: string | null;
+  kind?: string | null;
+  procurement_item_id?: string | null;
+  opportunity_id?: string | null;
+  source_uri?: string | null;
+  file_name?: string | null;
+  document?: {
+    id: string;
+    filename: string;
+    status: string;
+    media_type?: string;
+    byte_size?: number;
+    acquisition?: Record<string, unknown> | null;
+    created_at?: string | null;
+  } | null;
+  manual_upload_offered?: boolean;
+  http_status?: number | null;
+  is_full_pcap?: boolean;
+}
+
+export interface PliegoAcquisitionResponse {
+  dossier_id: string;
+  opportunity_id?: string | null;
+  overall_status: PliegoAcquisitionStatus;
+  overall_reason_code?: string;
+  overall_reason?: string;
+  manual_upload_offered: boolean;
+  manual_upload_priority?: boolean;
+  cta: {
+    label: string;
+    action: string;
+    hint?: string;
+  };
+  signal_document_refs?: number;
+  pins_without_documents?: number;
+  preferred_document?: PliegoAcquisitionItem["document"] | null;
+  acquisitions: PliegoAcquisitionItem[];
+}
+
+export interface PliegoPcapUploadResponse {
+  document: OracleDocument;
+  job_id: string | null;
+  /** procesando = no terminal; subido solo tras job ready; no_disponible = fallo terminal. */
+  acquisition_status: "procesando" | "subido" | "no_disponible" | string;
+  message: string;
+  pliego_acquisition?: PliegoAcquisitionResponse;
+}
+
 export interface BackendDossier {
   id: string;
   title: string;
@@ -1033,6 +1168,56 @@ function evidenceList(kind: "opportunities" | "risks", resourceId: string) {
   );
 }
 
+/** G-10 commercial offer lifecycle (independent of CRM Opportunity.status). */
+export type OpportunityOfferLifecycleStatus =
+  | "preparando"
+  | "presentada"
+  | "en_evaluacion"
+  | "adjudicada"
+  | "perdida"
+  | "excluida";
+
+export interface OpportunityOfferLifecycleResource {
+  /** Null when not yet materialized (virtual GET contract). */
+  id: string | null;
+  tenant_id: string;
+  dossier_id: string;
+  opportunity_id: string;
+  status: OpportunityOfferLifecycleStatus;
+  status_label: string;
+  importe_ofertado: string | null;
+  baja_porcentaje: string | null;
+  lotes: string[];
+  garantia_provisional: string | null;
+  fecha_mesa: string | null;
+  motivo_exclusion: string | null;
+  /** 0 = virtual (not persisted); >=1 durable CAS version. */
+  version: number;
+  etag: string;
+  last_edited_by_user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  /** False: GET defaults only; True: row exists in PostgreSQL. */
+  materialized: boolean;
+  crm_status_note: string;
+}
+
+export interface OpportunityOfferLifecycleResponse {
+  lifecycle: OpportunityOfferLifecycleResource;
+  materialized: boolean;
+}
+
+export interface OpportunityOfferLifecyclePatchInput {
+  version?: number;
+  status?: OpportunityOfferLifecycleStatus;
+  importe_ofertado?: string | null;
+  baja_porcentaje?: string | null;
+  lotes?: string[];
+  garantia_provisional?: string | null;
+  fecha_mesa?: string | null;
+  motivo_exclusion?: string | null;
+}
+
 const opportunities = {
   listGlobal: (input: DossierResourceQuery = {}) =>
     request<components["schemas"]["GlobalOpportunityListResponse"]>(
@@ -1064,6 +1249,24 @@ const opportunities = {
       { method: "PATCH", body: input, ifMatch: version },
     ),
   evidence: (resourceId: string) => evidenceList("opportunities", resourceId),
+  getOfferLifecycle: (dossierId: string, opportunityId: string) =>
+    request<OpportunityOfferLifecycleResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities/${encodeURIComponent(opportunityId)}/offer-lifecycle`,
+    ),
+  patchOfferLifecycle: (
+    dossierId: string,
+    opportunityId: string,
+    input: OpportunityOfferLifecyclePatchInput,
+    ifMatch?: number | string,
+  ) =>
+    request<OpportunityOfferLifecycleResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities/${encodeURIComponent(opportunityId)}/offer-lifecycle`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: ifMatch ?? input.version,
+      },
+    ),
 };
 
 const risks = {
@@ -1330,18 +1533,34 @@ const actors = {
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
     ),
-  /** Propose-only detector: organizations that share a normalized identity key. */
+  /** Propose-only detector: tax-first, then normalized name; includes coverage meta. */
   aliasCandidates: () =>
-    request<{ items: ActorAliasCandidate[] }>(
+    request<ActorAliasCandidatesResponse>(
       "/api/v1/actors/alias-candidates",
     ),
+  /** Read-only merge preview (impact, tax provenance, required CAS versions). */
+  mergePreview: (
+    targetId: string,
+    input: { source_actor_id: string },
+  ) =>
+    request<ActorMergePreview>(
+      `/api/v1/actors/${encodeURIComponent(targetId)}/merge/preview`,
+      { method: "POST", body: input },
+    ),
   /**
-   * Human-confirmed merge. Source actor is archived/deleted after links move
+   * Human-confirmed merge with CAS versions. Source is deleted after links move
    * to the target; audit event `actor.merged` records who/when/why.
    */
   merge: (
     targetId: string,
-    input: { source_actor_id: string; reason: string },
+    input: {
+      source_actor_id: string;
+      reason: string;
+      confirm: true;
+      expected_target_version: number;
+      expected_source_version: number;
+      match_reason?: string | null;
+    },
   ) =>
     request<OracleActor>(
       `/api/v1/actors/${encodeURIComponent(targetId)}/merge`,
@@ -2283,6 +2502,68 @@ const dossierIntake = {
 };
 
 
+
+/** Borrador de oferta durable editable (SV2-G09-A). */
+export interface OpportunityOfferDraftSection {
+  key: string;
+  order?: number;
+  title: string;
+  points_hint?: string | null;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  our_response_draft: string;
+  our_response_seed?: string | null;
+  response_origin?: "declared_generated" | string;
+  declared_evidence_ids?: string[];
+  gaps?: string[];
+  prose_polished?: boolean;
+  prose_polish_reason?: string | null;
+}
+
+export interface OpportunityOfferDraftResource {
+  id: string;
+  dossier_id: string;
+  source_artifact_id: string;
+  version: number;
+  etag: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_edited_by_user_id?: string;
+  content?: Record<string, unknown>;
+  banner: string;
+  human_gate: string;
+  statement: string;
+  tender_ref?: string | null;
+  lot_hint?: string | null;
+  sections: OpportunityOfferDraftSection[];
+  administrative_checklist?: DraftOfferChecklistItem[];
+  gaps_summary?: string[];
+  gaps?: DraftOfferGap[];
+  origin: "declared_draft" | string;
+  based_on_verdict?: string | null;
+  official_evidence_ids?: string[];
+  declared_evidence_ids?: string[];
+  draft_engine?: string | null;
+  prose_engine?: string | null;
+  drafted_as_of?: string | null;
+}
+
+export interface OpportunityOfferDraftResponse {
+  draft: OpportunityOfferDraftResource;
+}
+
+export interface OpportunityOfferDraftCreateResponse {
+  draft: OpportunityOfferDraftResource;
+  created: boolean;
+}
+
+export interface OpportunityOfferDraftPatchInput {
+  version?: number;
+  statement?: string;
+  sections?: Array<{ key: string; our_response_draft: string }>;
+}
+
 const dossierOpportunityAnalysis = {
   latest: (dossierId: string) =>
     request<OpportunityAnalysisRunResponse>(
@@ -2305,6 +2586,46 @@ const dossierOpportunityAnalysis = {
       `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
       { method: "POST", body: input },
     ),
+  getOfferDraft: (dossierId: string) =>
+    request<OpportunityOfferDraftResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+    ),
+  prepareOfferDraft: (dossierId: string) =>
+    request<OpportunityOfferDraftCreateResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+      { method: "POST", body: {} },
+    ),
+  patchOfferDraft: (
+    dossierId: string,
+    input: OpportunityOfferDraftPatchInput,
+    ifMatch?: number | string,
+  ) =>
+    request<OpportunityOfferDraftResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: ifMatch ?? input.version,
+      },
+    ),
+  /** Descarga DOCX editable de la versión durable indicada (precondición version). */
+  exportOfferDraftDocx: (
+    dossierId: string,
+    version: number,
+    options?: { signal?: AbortSignal; ifMatch?: number | string },
+  ) => {
+    const params = new URLSearchParams({ version: String(version) });
+    return requestBlob(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft/export.docx?${params.toString()}`,
+      {
+        signal: options?.signal,
+        ifMatch: options?.ifMatch ?? version,
+        fallbackFilename: `Borrador-oferta-v${version}.docx`,
+        accept:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/problem+json",
+      },
+    );
+  },
 };
 
 
@@ -3361,6 +3682,39 @@ const dossierProcurement = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/reports`,
       { method: "POST", body: input, idempotencyKey },
     ),
+  /** G-11 · estado honesto de pliego (siempre ofrece subida manual). */
+  pliegoAcquisition: (dossierId: string, opportunityId?: string) => {
+    const query = opportunityId
+      ? `?opportunity_id=${encodeURIComponent(opportunityId)}`
+      : "";
+    return request<PliegoAcquisitionResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/pliego-acquisition${query}`,
+    );
+  },
+  /** G-11 · subida manual del PCAP por el pipeline real de documentos. */
+  uploadPliegoPcap: (
+    dossierId: string,
+    file: File,
+    options: {
+      classification?: "public" | "internal";
+      opportunityId?: string;
+      procurementItemId?: string;
+      folderId?: string;
+    } = {},
+  ) => {
+    const body = new FormData();
+    body.set("file", file);
+    body.set("classification", options.classification ?? "internal");
+    if (options.opportunityId) body.set("opportunity_id", options.opportunityId);
+    if (options.procurementItemId) {
+      body.set("procurement_item_id", options.procurementItemId);
+    }
+    if (options.folderId) body.set("folder_id", options.folderId);
+    return request<PliegoPcapUploadResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/pliego-pcap`,
+      { method: "POST", body },
+    );
+  },
 };
 
 const reports = {
@@ -3630,16 +3984,81 @@ export interface InvestigationReportPreview {
   candidate_entities: InvestigationEntity[];
 }
 
+export interface ActorAliasCandidateActor {
+  id: string;
+  name: string;
+  identifiers: Record<string, unknown>;
+  aliases: unknown[];
+  tax_id?: string | null;
+  durable_tax_id?: string | null;
+  declared_tax_id?: string | null;
+  tax_id_scheme?: string | null;
+  tax_id_country?: string | null;
+  has_durable_tax_id_column?: boolean;
+  tax_id_provenance?: {
+    origin_kind?: string | null;
+    origin_label?: string;
+    declared_tax_id?: string | null;
+    folder_id?: string | null;
+    winner_name?: string | null;
+    verified?: boolean;
+  };
+  version: number;
+}
+
 export interface ActorAliasCandidate {
   identity_key: string;
   status: string;
   reason: string;
-  actors: {
-    id: string;
-    name: string;
-    identifiers: Record<string, unknown>;
-    aliases: unknown[];
-  }[];
+  match_reason?:
+    | "tax_id"
+    | "normalized_name"
+    | "tax_id_conflict"
+    | "tax_id_declared_review"
+    | string;
+  priority?: number;
+  confidence?: string;
+  suggested_target_id?: string | null;
+  tax_id?: string | null;
+  blocking_tax_ids?: string[];
+  actors: ActorAliasCandidateActor[];
+}
+
+export interface ActorAliasCandidatesMeta {
+  organizations_evaluated: number;
+  organizations_with_tax_id: number;
+  organizations_with_declared_only_tax_id?: number;
+  tax_id_coverage_pct: number;
+  declared_only_tax_id_coverage_pct?: number;
+  criteria_evaluated: string[];
+  counts: Record<string, number>;
+  limitations?: string;
+  empty_state_message?: string;
+}
+
+export interface ActorAliasCandidatesResponse {
+  items: ActorAliasCandidate[];
+  meta: ActorAliasCandidatesMeta;
+}
+
+export interface ActorMergePreview {
+  blocked: boolean;
+  block_reason?: string | null;
+  target: ActorAliasCandidateActor & { version: number };
+  source: ActorAliasCandidateActor & { version: number };
+  suggested_target_id?: string | null;
+  resulting_aliases: string[];
+  reference_impact: {
+    source_only: Record<string, number>;
+    combined_before: Record<string, number>;
+    summary: string;
+  };
+  confirmation_required: {
+    confirm: true;
+    reason_min_length: number;
+    expected_target_version: number;
+    expected_source_version: number;
+  };
 }
 
 const investigations = {
@@ -3687,7 +4106,7 @@ const investigations = {
       `/api/v1/investigations/${encodeURIComponent(runId)}/report-preview`,
     ),
   aliasCandidates: () =>
-    request<{ items: ActorAliasCandidate[] }>("/api/v1/actors/alias-candidates"),
+    request<ActorAliasCandidatesResponse>("/api/v1/actors/alias-candidates"),
 };
 
 /** MEMSOL read model of dossier activity (watchlists, monitors, jobs). */

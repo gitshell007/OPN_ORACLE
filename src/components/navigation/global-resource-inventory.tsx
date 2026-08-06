@@ -146,14 +146,22 @@ export function GlobalResourceInventory({ section }: { section: GlobalResourceSe
         setTotal(result.meta.total ?? result.data.length);
       } else if (section === "actors") {
         const result = await api.actors.list(input);
-        setRows(result.data.map((item: OracleActor) => ({
-          id: item.id,
-          title: item.canonical_name || "Actor sin nombre",
-          status: "Activo",
-          kind: productActorTypeLabel(item.actor_type),
-          updatedAt: item.updated_at,
-          entityHref: actorEntityHref(item),
-        })));
+        setRows(result.data.map((item: OracleActor) => {
+          const nif = item.tax_id || null;
+          const scheme = item.tax_id_scheme || null;
+          const country = item.tax_id_country || null;
+          const nifLabel = nif
+            ? `NIF ${nif}${scheme ? ` · ${scheme}` : ""}${country ? ` · ${country}` : ""} (declarado; no verificación oficial)`
+            : "Sin NIF durable";
+          return {
+            id: item.id,
+            title: item.canonical_name || "Actor sin nombre",
+            status: "Activo",
+            kind: `${productActorTypeLabel(item.actor_type)} · ${nifLabel}`,
+            updatedAt: item.updated_at,
+            entityHref: actorEntityHref(item),
+          };
+        }));
         setTotal(result.meta?.total ?? result.data.length);
       } else {
         const result = section === "opportunities"

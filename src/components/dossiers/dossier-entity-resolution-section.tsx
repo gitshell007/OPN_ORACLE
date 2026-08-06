@@ -207,9 +207,28 @@ export function DossierEntityResolutionSection({ dossierId }: { dossierId: strin
     setBusy(true);
     setError(null);
     try {
+      const [targetActor, sourceActor] = await Promise.all([
+        api.actors.get(target),
+        api.actors.get(source),
+      ]);
+      const preview = await api.actors.mergePreview(target, {
+        source_actor_id: source,
+      });
+      if (preview.blocked) {
+        setError(preview.block_reason || "Fusión bloqueada por NIF distintos.");
+        return;
+      }
       const merged = await api.actors.merge(target, {
         source_actor_id: source,
         reason: mergeReason.trim(),
+        confirm: true,
+        expected_target_version:
+          preview.confirmation_required.expected_target_version ||
+          Number(targetActor.version || 1),
+        expected_source_version:
+          preview.confirmation_required.expected_source_version ||
+          Number(sourceActor.version || 1),
+        match_reason: "entity_resolution",
       });
       setMergedTargetId(merged.id);
       await api.dossierEntityResolution.review(artifact.id, {

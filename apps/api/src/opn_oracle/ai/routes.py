@@ -17,12 +17,33 @@ from apiflask.fields import (
     Raw,
     String,
 )
-from flask import Response, g, request
+from flask import Response, g, jsonify, make_response, request
 from flask_login import current_user
 from marshmallow import validate
 from sqlalchemy import case, select
+from sqlalchemy.exc import IntegrityError
 
-from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview
+from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview, OpportunityOfferDraft
+from opn_oracle.ai.offer_draft import (
+    OfferDraftError,
+    OfferDraftVersionConflict,
+    apply_editable_patch,
+    cas_update_offer_draft_sql,
+    make_etag,
+    materialize_content_from_calculated,
+    parse_expected_version,
+    serialize_offer_draft,
+    utc_now,
+)
+from opn_oracle.ai.offer_draft_docx import (
+    DOCX_MEDIA_TYPE,
+    build_offer_draft_docx,
+    collect_evidence_ids,
+    content_disposition_attachment,
+    load_evidence_citation_lookup,
+    resolve_evidence_citations,
+    sanitize_export_filename,
+)
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
@@ -32,6 +53,7 @@ from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.models import DossierSignal, Feedback, Insight, StrategicDossier
 from opn_oracle.oracle.policy import dossier_accessible
 from opn_oracle.oracle.procurement_search_profiles import get_artifact_acceptance
+from opn_oracle.platform.audit import append_audit_event
 
 bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
@@ -604,6 +626,386 @@ def _latest_analysis_agent(dossier_id: uuid.UUID, agent: str) -> Any:
         "job": serialize_job(job) if job else None,
         "artifact": _serialize_agent_artifact(artifact),
     }
+
+
+class OpportunityOfferDraftSectionPatchSchema(Schema):
+    key = String(required=True, validate=validate.Length(min=1, max=80))
+    our_response_draft = String(required=True, validate=validate.Length(min=1, max=2000))
+
+
+class OpportunityOfferDraftPatchSchema(Schema):
+    version = Integer(required=False, load_default=None, validate=validate.Range(min=1))
+    statement = String(required=False, load_default=None, validate=validate.Length(min=1, max=4000))
+    sections = List(
+        Nested(OpportunityOfferDraftSectionPatchSchema),
+        required=False,
+        load_default=None,
+    )
+
+
+def _offer_draft_problem(exc: OfferDraftError):
+    return problem_response(exc.status, detail=exc.message, code=exc.code)
+
+
+def _load_offer_draft(dossier_id: uuid.UUID) -> OpportunityOfferDraft | None:
+    return db.session.scalar(
+        select(OpportunityOfferDraft).where(
+            OpportunityOfferDraft.tenant_id == g.active_tenant_id,
+            OpportunityOfferDraft.dossier_id == dossier_id,
+        )
+    )
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/offer-draft")
+@require_permission("ai.execute")
+def get_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
+    """Borrador de oferta durable del expediente (edición humana persistente)."""
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+    body = serialize_offer_draft(row)
+    response = {"draft": body}
+    # APIFlask/flask jsonify via dict return
+    r = make_response(jsonify(response), 200)
+    r.headers["ETag"] = row.etag
+    return r
+
+
+def _serialize_offer_draft_response(
+    row: OpportunityOfferDraft, *, created: bool | None = None, status: int = 200
+) -> Any:
+    body = serialize_offer_draft(row)
+    payload: dict[str, Any] = {"draft": body}
+    if created is not None:
+        payload["created"] = created
+    r = make_response(jsonify(payload), status)
+    r.headers["ETag"] = row.etag
+    return r
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/opportunity/offer-draft")
+@require_permission("ai.execute")
+def prepare_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
+    """Materializa un borrador editable desde el draft_offer calculado del análisis.
+
+    Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.
+    Bajo carrera en el unique (tenant_id, dossier_id), el perdedor recupera la fila
+    existente (sin 500 ni segunda fila).
+    """
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+
+    existing = _load_offer_draft(dossier_id)
+    if existing is not None:
+        return _serialize_offer_draft_response(existing, created=False, status=200)
+
+    artifact = _latest_agent_artifact(dossier_id, OPPORTUNITY_AGENT)
+    if artifact is None or not isinstance(artifact.output, dict):
+        return problem_response(
+            422,
+            detail=(
+                "No hay análisis de oportunidad con borrador calculado. "
+                "Ejecuta el análisis con veredicto de encaje."
+            ),
+            code="draft_offer_missing",
+        )
+    calculated = artifact.output.get("draft_offer")
+    try:
+        content = materialize_content_from_calculated(
+            calculated if isinstance(calculated, dict) else {}
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    actor_id = current_user.id
+    now = utc_now()
+    row = OpportunityOfferDraft(
+        id=uuid.uuid4(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        source_artifact_id=artifact.id,
+        version=1,
+        etag=make_etag(1),
+        content=content,
+        last_edited_by_user_id=actor_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.add(row)
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.create",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "source_artifact_id": str(artifact.id),
+            "version": 1,
+            "section_count": len(content.get("sections") or []),
+        },
+    )
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Concurrent prepare: unique (tenant_id, dossier_id) — recover existing row.
+        db.session.rollback()
+        recovered = _load_offer_draft(dossier_id)
+        if recovered is None:
+            return problem_response(
+                409,
+                detail="No se pudo materializar el borrador por conflicto concurrente.",
+                code="version_conflict",
+            )
+        return _serialize_offer_draft_response(recovered, created=False, status=200)
+
+    return _serialize_offer_draft_response(row, created=True, status=201)
+
+
+@bp.patch("/dossiers/<uuid:dossier_id>/opportunity/offer-draft")
+@require_permission("ai.execute")
+def patch_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
+    """Actualiza campos editables del borrador con CAS atómico (version en el UPDATE)."""
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return problem_response(
+            422, detail="El cuerpo debe ser un objeto JSON.", code="schema_validation_failed"
+        )
+    # Reject client-supplied tenant/actor identities.
+    for forbidden in ("tenant_id", "last_edited_by_user_id", "actor_id", "user_id"):
+        if forbidden in payload:
+            return problem_response(
+                422,
+                detail="No se aceptan identidades desde el cliente.",
+                code="forbidden_field",
+            )
+
+    try:
+        expected = parse_expected_version(
+            body_version=payload.get("version"),
+            if_match=request.headers.get("If-Match"),
+        )
+        if expected is None:
+            raise OfferDraftError(
+                "Se requiere version o cabecera If-Match para guardar el borrador.",
+                code="precondition_required",
+                status=428,
+            )
+        base = row.content if isinstance(row.content, dict) else {}
+        next_content = apply_editable_patch(base, payload)
+    except OfferDraftVersionConflict as exc:
+        return problem_response(
+            exc.status,
+            detail=exc.message,
+            code=exc.code,
+            errors={"current_version": exc.current_version},
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    before_version = int(expected)
+    after_version = before_version + 1
+    after_etag = make_etag(after_version)
+    now = utc_now()
+    actor_id = current_user.id
+    tenant_id = g.active_tenant_id
+
+    # Atomic CAS: only one concurrent writer can match version == expected.
+    result = db.session.execute(
+        cas_update_offer_draft_sql(
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            expected_version=before_version,
+            next_content=next_content,
+            actor_id=actor_id,
+            new_version=after_version,
+            new_etag=after_etag,
+            updated_at=now,
+        )
+    )
+    if int(getattr(result, "rowcount", 0) or 0) != 1:
+        db.session.rollback()
+        current = _load_offer_draft(dossier_id)
+        current_version = int(current.version) if current is not None else before_version
+        return problem_response(
+            409,
+            detail="El borrador ha cambiado; recarga y vuelve a guardar.",
+            code="version_conflict",
+            errors={"current_version": current_version},
+        )
+
+    # Audit only after winning the CAS, same transaction.
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.update",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "before_version": before_version,
+            "after_version": after_version,
+            "source_artifact_id": str(row.source_artifact_id),
+        },
+    )
+    db.session.commit()
+
+    # Re-load post-CAS for response (identity server-owned).
+    saved = _load_offer_draft(dossier_id)
+    if saved is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+    return _serialize_offer_draft_response(saved, status=200)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/offer-draft/export.docx")
+@require_permission("ai.execute")
+def export_opportunity_offer_draft_docx(dossier_id: uuid.UUID) -> Any:
+    """Exporta el borrador durable persistido como DOCX editable (Word).
+
+    Requiere precondición de versión (``version`` query o ``If-Match``). Si el
+    servidor tiene otra versión, responde 409 sin regenerar desde artifact.
+    Sin fila durable: 404 honesto.
+    """
+    dossier = _dossier(dossier_id, write=False)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+
+    try:
+        expected = parse_expected_version(
+            body_version=request.args.get("version"),
+            if_match=request.headers.get("If-Match"),
+        )
+        if expected is None:
+            raise OfferDraftError(
+                "Se requiere version o cabecera If-Match para exportar el borrador.",
+                code="precondition_required",
+                status=428,
+            )
+        if int(row.version) != int(expected):
+            raise OfferDraftVersionConflict(current_version=int(row.version))
+    except OfferDraftVersionConflict as exc:
+        # Audit.result only allows success|denied|failure (not "conflict").
+        append_audit_event(
+            db.session,
+            action="opportunity.offer_draft.export",
+            resource_type="opportunity_offer_draft",
+            resource_id=row.id,
+            result="failure",
+            dossier_id=dossier_id,
+            metadata={
+                "draft_id": str(row.id),
+                "dossier_id": str(dossier_id),
+                "version": int(row.version),
+                "requested_version": int(expected) if expected is not None else None,
+                "format": "docx",
+                "result": "conflict",
+                "error_code": "version_conflict",
+            },
+        )
+        db.session.commit()
+        return problem_response(
+            exc.status,
+            detail=exc.message,
+            code=exc.code,
+            errors={"current_version": exc.current_version},
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    content = row.content if isinstance(row.content, dict) else {}
+    evidence_ids = collect_evidence_ids(content)
+    lookup = load_evidence_citation_lookup(
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        evidence_ids=evidence_ids,
+    )
+    citations = resolve_evidence_citations(evidence_ids, lookup=lookup)
+    exported_at = utc_now()
+    try:
+        payload = build_offer_draft_docx(
+            content,
+            dossier_title=str(dossier.title or "Expediente"),
+            version=int(row.version),
+            exported_at=exported_at,
+            citations=citations,
+        )
+    except OfferDraftError as exc:
+        append_audit_event(
+            db.session,
+            action="opportunity.offer_draft.export",
+            resource_type="opportunity_offer_draft",
+            resource_id=row.id,
+            result="failure",
+            dossier_id=dossier_id,
+            metadata={
+                "draft_id": str(row.id),
+                "dossier_id": str(dossier_id),
+                "version": int(row.version),
+                "format": "docx",
+                "result": "failure",
+                "error_code": exc.code,
+            },
+        )
+        db.session.commit()
+        return _offer_draft_problem(exc)
+
+    filename = sanitize_export_filename(
+        str(dossier.title or "Expediente"), version=int(row.version)
+    )
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.export",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "draft_id": str(row.id),
+            "dossier_id": str(dossier_id),
+            "version": int(row.version),
+            "format": "docx",
+            "result": "success",
+            "byte_size": len(payload),
+            "filename": filename,
+            # Never include document body / statement / sections.
+        },
+    )
+    db.session.commit()
+
+    response = Response(payload, mimetype=DOCX_MEDIA_TYPE)
+    response.headers["Content-Disposition"] = content_disposition_attachment(filename)
+    response.headers["Content-Length"] = str(len(payload))
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["ETag"] = row.etag
+    return response
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/opportunity/runs")

@@ -1,5 +1,6 @@
 export type { components, operations, paths } from "./generated/schema";
 export { ApiError, api, isProblem } from "./transport";
+export type { BinaryDownload } from "./transport";
 export type {
   AssignableUser,
   MembershipSummary,
@@ -22,7 +23,14 @@ export type {
   AiAuditListItem,
   AiAuditListQuery,
 } from "./transport";
-export type { DocumentSearchResult, OracleDocument } from "./transport";
+export type {
+  DocumentSearchResult,
+  OracleDocument,
+  PliegoAcquisitionItem,
+  PliegoAcquisitionResponse,
+  PliegoAcquisitionStatus,
+  PliegoPcapUploadResponse,
+} from "./transport";
 export type { BackendDossier } from "./transport";
 export type {
   DossierCollaborator,
@@ -56,6 +64,15 @@ export type {
   IntakeRecommendation,
   IntakeRunResponse,
   OpportunityAnalysisArtifact,
+  OpportunityOfferDraftSection,
+  OpportunityOfferDraftResource,
+  OpportunityOfferDraftResponse,
+  OpportunityOfferDraftCreateResponse,
+  OpportunityOfferDraftPatchInput,
+  OpportunityOfferLifecycleStatus,
+  OpportunityOfferLifecycleResource,
+  OpportunityOfferLifecycleResponse,
+  OpportunityOfferLifecyclePatchInput,
   OpportunityAnalysisOutput,
   OpportunityAnalysisRunResponse,
   RiskAnalysisArtifact,
@@ -114,6 +131,10 @@ export type {
   DossierProcurementKind,
   DossierProcurementListResponse,
   ActorAliasCandidate,
+  ActorAliasCandidateActor,
+  ActorAliasCandidatesMeta,
+  ActorAliasCandidatesResponse,
+  ActorMergePreview,
   ProcurementDocumentReportResponse,
   CustomBriefAccepted,
   CustomBriefDetail,

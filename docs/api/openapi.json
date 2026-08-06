@@ -492,6 +492,20 @@
       "ActorMergeInput": {
         "additionalProperties": false,
         "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_source_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expected_target_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "match_reason": {
+            "type": "string"
+          },
           "reason": {
             "type": "string"
           },
@@ -502,7 +516,10 @@
         },
         "required": [
           "source_actor_id",
-          "reason"
+          "reason",
+          "confirm",
+          "expected_target_version",
+          "expected_source_version"
         ],
         "type": "object"
       },
@@ -541,6 +558,21 @@
           "provenance": {
             "$ref": "#/components/schemas/JsonObject"
           },
+          "tax_id": {
+            "maxLength": 20,
+            "nullable": true,
+            "type": "string"
+          },
+          "tax_id_country": {
+            "maxLength": 2,
+            "nullable": true,
+            "type": "string"
+          },
+          "tax_id_scheme": {
+            "maxLength": 20,
+            "nullable": true,
+            "type": "string"
+          },
           "tenant_id": {
             "format": "uuid",
             "type": "string"
@@ -552,6 +584,77 @@
           "version": {
             "minimum": 1,
             "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id"
+        ],
+        "type": "object"
+      },
+      "ActorTaxIdConflictResource": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "declared_identifiers": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "declared_tax_id": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "loser_actor_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "resolution_note": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resolved_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "resolved_by_user_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "type": "string"
+          },
+          "tax_id": {
+            "maxLength": 20,
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "winner_actor_id": {
+            "format": "uuid",
+            "type": "string"
           }
         },
         "required": [
@@ -741,6 +844,10 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "meta": {
+            "additionalProperties": {},
+            "type": "object"
           }
         },
         "required": [
@@ -5832,7 +5939,6 @@
         "type": "object"
       },
       "MarketActorDiscoveryInput": {
-        "additionalProperties": false,
         "properties": {
           "dossier_id": {
             "type": "string"
@@ -7431,6 +7537,396 @@
         ],
         "type": "object"
       },
+      "OpportunityOfferDraftCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "type": "boolean"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/OpportunityOfferDraftResource"
+          }
+        },
+        "required": [
+          "draft",
+          "created"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftPatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/OpportunityOfferDraftSectionPatchInput"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "statement": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "OpportunityOfferDraftResource": {
+        "additionalProperties": false,
+        "properties": {
+          "administrative_checklist": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "banner": {
+            "type": "string"
+          },
+          "based_on_verdict": {
+            "nullable": true,
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "declared_evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "draft_engine": {
+            "nullable": true,
+            "type": "string"
+          },
+          "drafted_as_of": {
+            "nullable": true,
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "gaps": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "gaps_summary": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "human_gate": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_edited_by_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "lot_hint": {
+            "nullable": true,
+            "type": "string"
+          },
+          "official_evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "origin": {
+            "enum": [
+              "declared_draft"
+            ],
+            "type": "string"
+          },
+          "prose_engine": {
+            "nullable": true,
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source_artifact_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "tender_ref": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "dossier_id",
+          "source_artifact_id",
+          "version",
+          "etag",
+          "statement",
+          "sections",
+          "origin",
+          "human_gate",
+          "banner"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/OpportunityOfferDraftResource"
+          }
+        },
+        "required": [
+          "draft"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferDraftSectionPatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "our_response_draft": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "our_response_draft"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferLifecyclePatchInput": {
+        "additionalProperties": false,
+        "description": "PATCH estricto: additionalProperties=false (typos \u2192 422). Requiere al menos un campo comercial editable adem\u00e1s de version.",
+        "properties": {
+          "baja_porcentaje": {
+            "description": "Baja expl\u00edcita 0-100 (porcentaje). Null limpia.",
+            "nullable": true,
+            "type": "string"
+          },
+          "fecha_mesa": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "garantia_provisional": {
+            "description": "Garant\u00eda provisional en euros (decimal string). Null limpia.",
+            "nullable": true,
+            "type": "string"
+          },
+          "importe_ofertado": {
+            "description": "Importe ofertado en euros (decimal como string). Null limpia.",
+            "nullable": true,
+            "type": "string"
+          },
+          "lotes": {
+            "items": {
+              "maxLength": 120,
+              "type": "string"
+            },
+            "maxItems": 40,
+            "type": "array"
+          },
+          "motivo_exclusion": {
+            "description": "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "preparando",
+              "presentada",
+              "en_evaluacion",
+              "adjudicada",
+              "perdida",
+              "excluida"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "CAS: 0 materializa la primera fila; N>=1 actualiza la fila existente con esa versi\u00f3n. Tambi\u00e9n aceptable v\u00eda If-Match.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "OpportunityOfferLifecycleResource": {
+        "additionalProperties": false,
+        "properties": {
+          "baja_porcentaje": {
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Null cuando materialized=false.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "crm_status_note": {
+            "description": "Recordatorio de que el estado CRM de la oportunidad es independiente.",
+            "type": "string"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "fecha_mesa": {
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "garantia_provisional": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "Null cuando materialized=false (sin fila persistida).",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "importe_ofertado": {
+            "nullable": true,
+            "type": "string"
+          },
+          "last_edited_by_user_id": {
+            "description": "Null cuando materialized=false.",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "lotes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "materialized": {
+            "description": "False: contrato virtual de GET (sin INSERT). True: fila durable en opportunity_offer_lifecycles.",
+            "type": "boolean"
+          },
+          "motivo_exclusion": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opportunity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "preparando",
+              "presentada",
+              "en_evaluacion",
+              "adjudicada",
+              "perdida",
+              "excluida"
+            ],
+            "type": "string"
+          },
+          "status_label": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Null cuando materialized=false.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "version": {
+            "description": "0 = virtual no materializado; >=1 = fila persistida.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "dossier_id",
+          "opportunity_id",
+          "status",
+          "status_label",
+          "lotes",
+          "version",
+          "etag",
+          "last_edited_by_user_id",
+          "created_at",
+          "updated_at",
+          "materialized",
+          "crm_status_note"
+        ],
+        "type": "object"
+      },
+      "OpportunityOfferLifecycleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "lifecycle": {
+            "$ref": "#/components/schemas/OpportunityOfferLifecycleResource"
+          },
+          "materialized": {
+            "description": "False si a\u00fan no existe fila (GET virtual). True tras materializaci\u00f3n o cuando la fila ya exist\u00eda.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lifecycle",
+          "materialized"
+        ],
+        "type": "object"
+      },
       "OpportunityResource": {
         "additionalProperties": false,
         "properties": {
@@ -7972,6 +8468,112 @@
         },
         "required": [
           "password"
+        ],
+        "type": "object"
+      },
+      "PliegoAcquisitionResponse": {
+        "additionalProperties": true,
+        "description": "Estado honesto de adquisici\u00f3n de pliego (G-11). La descarga autom\u00e1tica es best-effort; siempre se ofrece subida manual.",
+        "properties": {
+          "acquisitions": {
+            "items": {
+              "$ref": "#/components/schemas/JsonObject"
+            },
+            "type": "array"
+          },
+          "cta": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "dossier_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "manual_upload_offered": {
+            "type": "boolean"
+          },
+          "manual_upload_priority": {
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "overall_reason": {
+            "type": "string"
+          },
+          "overall_reason_code": {
+            "type": "string"
+          },
+          "overall_status": {
+            "enum": [
+              "procesando",
+              "descargado",
+              "subido",
+              "extracto_parcial",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "pins_without_documents": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "preferred_document": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signal_document_refs": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dossier_id",
+          "overall_status",
+          "manual_upload_offered",
+          "cta",
+          "acquisitions"
+        ],
+        "type": "object"
+      },
+      "PliegoPcapUploadResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "acquisition_status": {
+            "description": "procesando = recepci\u00f3n no terminal; subido solo tras oracle.document.process ready; no_disponible = fallo terminal.",
+            "enum": [
+              "procesando",
+              "subido",
+              "no_disponible"
+            ],
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "job_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "pliego_acquisition": {
+            "$ref": "#/components/schemas/PliegoAcquisitionResponse"
+          }
+        },
+        "required": [
+          "document",
+          "job_id",
+          "acquisition_status",
+          "message"
         ],
         "type": "object"
       },
@@ -8872,6 +9474,13 @@
             "format": "date-time",
             "type": "string"
           },
+          "document_acquisitions": {
+            "description": "Estado honesto por documento/adquisici\u00f3n: procesando, descargado, subido, extracto_parcial, no_disponible.",
+            "items": {
+              "$ref": "#/components/schemas/JsonObject"
+            },
+            "type": "array"
+          },
           "document_notes": {
             "description": "Avisos legibles para el cliente (p. ej. an\u00e1lisis sobre extracto porque el PDF original del pliego est\u00e1 cifrado).",
             "items": {
@@ -8882,6 +9491,10 @@
           "dossier_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "download_fallback": {
+            "description": "True cuando la descarga HTTP/WAF fall\u00f3 y se us\u00f3 extracto parcial o se ofreci\u00f3 subida manual (G-11).",
+            "type": "boolean"
           },
           "encrypted_pdf_fallback": {
             "description": "True cuando el informe se bas\u00f3 en extractos del expediente porque el PDF oficial ven\u00eda cifrado.",
@@ -8964,8 +9577,24 @@
             "nullable": true,
             "type": "string"
           },
+          "manual_pcap_upload_offered": {
+            "description": "Siempre true: la UI debe ofrecer CTA \u00abSubir PCAP\u00bb.",
+            "type": "boolean"
+          },
           "parent_report_id": {
             "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "pliego_acquisition_status": {
+            "description": "Estado agregado de adquisici\u00f3n del pliego (G-11).",
+            "enum": [
+              "procesando",
+              "descargado",
+              "subido",
+              "extracto_parcial",
+              "no_disponible"
+            ],
             "nullable": true,
             "type": "string"
           },
@@ -12761,9 +13390,210 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Actor Alias Candidate List",
+        "summary": "Tax-first duplicate detector (G-16-B / G-17). Propose-only; never mutates.",
         "tags": [
           "Investigaciones empresariales"
+        ]
+      }
+    },
+    "/api/v1/actors/tax-id-conflicts": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List resolvable tax_id collisions (G-16 backend contract; UI in G-16-B/G-17).",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/actors/tax-id-conflicts/{conflict_id}/resolve": {
+      "post": {
+        "description": "action=merge is rejected: use POST /actors/{id}/merge which moves relations\nand only then closes the conflict in the same transaction.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conflict_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Mark a tax_id conflict resolved/dismissed. Does not merge relations.",
+        "tags": [
+          "Oracle"
         ]
       }
     },
@@ -13092,7 +13922,121 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Actors Merge",
+        "summary": "Human-confirmed merge with CAS versions and tax-safe identity rules.",
+        "tags": [
+          "Oracle"
+        ]
+      }
+    },
+    "/api/v1/actors/{target_id}/merge/preview": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Explicit pre-mutation preview: tax provenance, aliases and reference impact.",
         "tags": [
           "Oracle"
         ]
@@ -14483,6 +15427,476 @@
         ]
       }
     },
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Borrador de oferta durable del expediente (edici\u00f3n humana persistente).",
+        "tags": [
+          "IA"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versi\u00f3n ETag; puede enviarse `version` en el cuerpo como alternativa.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Actualiza campos editables del borrador con CAS at\u00f3mico (version en el UPDATE).",
+        "tags": [
+          "IA"
+        ]
+      },
+      "post": {
+        "description": "Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.\nBajo carrera en el unique (tenant_id, dossier_id), el perdedor recupera la fila\nexistente (sin 500 ni segunda fila).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Materializa un borrador editable desde el draft_offer calculado del an\u00e1lisis.",
+        "tags": [
+          "IA"
+        ]
+      }
+    },
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft/export.docx": {
+      "get": {
+        "description": "Descarga el OpportunityOfferDraft persistido como documento Word (.docx) editable. Requiere precondici\u00f3n de versi\u00f3n (query `version` o cabecera If-Match). No regenera desde el artifact de an\u00e1lisis.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versi\u00f3n durable que la UI muestra; debe coincidir.",
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "ETag de versi\u00f3n (p. ej. W/\"ood-v3\") como alternativa a version.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Documento Word editable generado desde el borrador durable",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\u2026",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "ETag del borrador exportado",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Se requiere version o cabecera If-Match"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Exportar borrador de oferta como DOCX editable",
+        "tags": [
+          "IA"
+        ]
+      }
+    },
     "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs": {
       "post": {
         "parameters": [
@@ -14893,17 +16307,7 @@
     },
     "/api/v1/ai/market-actor-discovery/latest": {
       "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "dossier_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Market dossier UUID; scopes latest job/artifact (never tenant-wide)."
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -14961,7 +16365,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Latest Market Actor Discovery",
+        "summary": "Return latest job/artifact for one dossier; never a tenant-wide result.",
         "tags": [
           "IA"
         ]
@@ -14969,6 +16373,7 @@
     },
     "/api/v1/ai/market-actor-discovery/runs": {
       "post": {
+        "description": "Request body is only ``dossier_id``. Intent, type, known_names, geography and\nlanguages are loaded from the accessible market dossier; client forgeries are\nignored. Job/artifact are scoped to that dossier (resource_type=strategic_dossier).",
         "parameters": [
           {
             "in": "header",
@@ -15049,7 +16454,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Enqueue Market Actor Discovery",
+        "summary": "Enqueue actor discovery for a market dossier using server-owned profile fields.",
         "tags": [
           "IA"
         ]
@@ -26585,6 +27990,241 @@
         ]
       }
     },
+    "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle": {
+      "get": {
+        "description": "Nunca INSERT/UPDATE/COMMIT ni crea auditor\u00eda. Si a\u00fan no hay fila, devuelve un\ncontrato virtual (materialized=false, version=0, campos vac\u00edos) \u00fatil para la UI.\nIndependiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Consulta de solo lectura del seguimiento comercial de la oferta.",
+        "tags": [
+          "Ciclo de vida de la oferta"
+        ]
+      },
+      "patch": {
+        "description": "- version=0 (o If-Match ool-v0) materializa la primera fila de forma at\u00f3mica.\n- Campos desconocidos / typos \u2192 422; PATCH sin campo comercial \u2192 422 (no-op).\n- Actor server-owned v\u00eda TenantContext + current_user.\n- No modifica Opportunity.status (CRM).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versi\u00f3n ETag; puede enviarse `version` en el cuerpo como alternativa.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpportunityWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Edita o materializa el seguimiento con CAS (version / If-Match).",
+        "tags": [
+          "Ciclo de vida de la oferta"
+        ]
+      }
+    },
     "/api/v1/dossiers/{dossier_id}/oracle-summary": {
       "get": {
         "parameters": [
@@ -27071,6 +28711,226 @@
         "summary": "Oracle Summary Feedback",
         "tags": [
           "Oracle"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/pliego-acquisition": {
+      "get": {
+        "description": "Siempre ofrece CTA de subida manual; no confunde documents=[] con \u00e9xito.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Estado durable/honesto de adquisici\u00f3n de pliego (G-11).",
+        "tags": [
+          "Adquisici\u00f3n de pliego"
+        ]
+      }
+    },
+    "/api/v1/dossiers/{dossier_id}/pliego-pcap": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DossierWriteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DossierResource"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n de dominio completada"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PliegoPcapUploadResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recurso no encontrado"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflicto de versi\u00f3n o idempotencia"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Subida manual del PCAP: pipeline real de parsing/chunking/evidencia + auditor\u00eda.",
+        "tags": [
+          "Adquisici\u00f3n de pliego"
         ]
       }
     },
@@ -54589,6 +56449,12 @@
     },
     {
       "name": "Oracle"
+    },
+    {
+      "name": "Ciclo de vida de la oferta"
+    },
+    {
+      "name": "Adquisici\u00f3n de pliego"
     },
     {
       "name": "Intenci\u00f3n del expediente"

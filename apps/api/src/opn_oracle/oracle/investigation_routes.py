@@ -119,6 +119,7 @@ class InvestigationExecutionSchema(Schema):
 
 class AliasCandidateListSchema(Schema):
     items = List(Dict(keys=String(), values=Raw()), required=True)
+    meta = Dict(keys=String(), values=Raw(), load_default=dict)
 
 
 class InvestigationReportPreviewSchema(Schema):
@@ -319,4 +320,6 @@ def investigations_execute(run_id: str) -> dict[str, Any] | Response:
 @bp.output(AliasCandidateListSchema)
 @limiter.limit("30/minute")
 def actor_alias_candidate_list() -> dict[str, Any]:
-    return {"items": actor_alias_candidates(db.session())}
+    """Tax-first duplicate detector (G-16-B / G-17). Propose-only; never mutates."""
+
+    return actor_alias_candidates(db.session())

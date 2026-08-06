@@ -663,12 +663,29 @@ def _send_digest(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
 
 
 def _process_document(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """Procesa el documento y cierra adquisición G-11 de PCAP manual si aplica."""
+    from opn_oracle.oracle.pliego_acquisition import finalize_manual_pcap_after_process
+
     try:
         document_id = uuid.UUID(str(payload["document_id"]))
         version_id = uuid.UUID(str(payload["version_id"]))
-        return process_document(document_id, version_id, job)
-    except (KeyError, ValueError, DocumentError) as error:
+    except (KeyError, ValueError) as error:
         raise PermanentJobError(str(error)) from error
+    try:
+        result = process_document(document_id, version_id, job)
+    except DocumentError as error:
+        finalize_manual_pcap_after_process(
+            document_id=document_id, job=job, error=error
+        )
+        raise PermanentJobError(str(error)) from error
+    # Éxito, replay o ignore temporal: el finalizer decide (solo ready/failed).
+    process_result = result if isinstance(result, dict) else None
+    finalize_manual_pcap_after_process(
+        document_id=document_id,
+        job=job,
+        process_result=process_result,
+    )
+    return result
 
 
 def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:

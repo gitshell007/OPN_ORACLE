@@ -29,6 +29,7 @@ import {
 import { ExportMenu } from "@/components/reporting/exports";
 import { idempotencyKey } from "@/components/reporting/reporting-utils";
 import { JobProgress } from "@/components/reporting/job-progress";
+import { PliegoPcapPanel } from "@/components/dossiers/pliego-pcap-panel";
 
 const COMPETITIVE_TEMPLATE = "competitive_procurement";
 
@@ -409,6 +410,8 @@ export function DossierProcurementSection({ dossierId }: { dossierId: string }) 
           {error}
         </div>
       )}
+      {/* G-11: CTA «Subir PCAP» siempre, incluso con documents=[] o fallo HTTP/WAF. */}
+      <PliegoPcapPanel dossierId={dossierId} />
       {loading ? (
         <div className="global-inventory-state" role="status">
           Cargando referencias de contratación…

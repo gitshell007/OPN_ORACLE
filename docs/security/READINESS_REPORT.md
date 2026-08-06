@@ -5,6 +5,14 @@
 **Alcance:** aplicación local full-stack hasta fase 13; no audita todavía el servidor remoto  
 **Veredicto:** lista para iniciar la auditoría **read-only** de fase 14; **NO production ready**
 
+> **Actualización 2026-08-06 (G-21, documental/comercial — sin re-auditoría técnica):** este
+> veredicto de 2026-07-11 **sigue vigente en su ámbito** (gates de release/infra y ausencia de
+> aptitud global de producción demostrada en aquel informe). No se retira por estética ni se
+> convierte en sello comercial. El encuadre por alcance, lo que el código ha añadido después
+> (p. ej. scripts de backup/restore/off-host) y el lenguaje permitido en ventas viven en
+> [../legal/PRODUCTION_READINESS_STATEMENT.md](../legal/PRODUCTION_READINESS_STATEMENT.md).
+> Este turno **no** implementa MFA/SSO/cifrado de host ni cierra F13-11/12/13 por sí solo.
+
 ## Resumen ejecutivo
 
 La revisión encontró y corrigió cuatro problemas high: colisión de rutas Signal que eludía el

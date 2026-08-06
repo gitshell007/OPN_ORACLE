@@ -285,12 +285,33 @@ def test_actors_create_merge_and_collaborators_guard(
         bad = client.post("/api/v1/actors", json={"canonical_name": "", "actor_type": "x"})
     assert bad.status_code == 422
 
-    # create new actor
+    # create new actor (resolve_or_create + session would hit empty sqlite; stub both)
     commits: list[str] = []
-    monkeypatch.setattr(oracle_routes.db.session, "scalar", lambda *a, **k: None)
-    monkeypatch.setattr(oracle_routes.db.session, "add", lambda *a, **k: None)
-    monkeypatch.setattr(oracle_routes.db.session, "commit", lambda: commits.append("c"))
+    created_row = SimpleNamespace(
+        id=uuid.uuid4(),
+        canonical_name="Iberdrola SA",
+        actor_type="organization",
+        version=1,
+    )
+    session_stub = MagicMock()
+    session_stub.scalar.return_value = None
+    session_stub.commit.side_effect = lambda: commits.append("c")
+    # db.session is a scoped_session: support both .scalar and session() forms.
+    session_proxy = MagicMock()
+    session_proxy.scalar.return_value = None
+    session_proxy.commit.side_effect = lambda: commits.append("c")
+    session_proxy.side_effect = lambda: session_stub
+    session_proxy.return_value = session_stub
+    monkeypatch.setattr(oracle_routes.db, "session", session_proxy)
     monkeypatch.setattr(oracle_routes, "_serialize", _serialize_stub)
+
+    import opn_oracle.oracle.actor_tax_id as actor_tax_mod
+
+    monkeypatch.setattr(
+        actor_tax_mod,
+        "resolve_or_create_actor",
+        lambda *a, **k: created_row,
+    )
     with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.write"})):
         created = client.post(
             "/api/v1/actors",
@@ -301,13 +322,20 @@ def test_actors_create_merge_and_collaborators_guard(
 
     # merge missing source → 422 (KeyError mapped via _domain_error)
     target_id = uuid.uuid4()
-    monkeypatch.setattr(oracle_routes.db.session, "rollback", lambda: None)
     with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.write"})):
         merge_bad = client.post(
             f"/api/v1/actors/{target_id}/merge",
             json={"reason": "duplicado"},
         )
     assert merge_bad.status_code == 422
+
+    # merge without confirm/CAS → 422 (legacy body rejected)
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.write"})):
+        merge_legacy = client.post(
+            f"/api/v1/actors/{target_id}/merge",
+            json={"source_actor_id": str(uuid.uuid4()), "reason": "duplicado"},
+        )
+    assert merge_legacy.status_code == 422
 
     merged = SimpleNamespace(
         id=target_id,
@@ -319,7 +347,13 @@ def test_actors_create_merge_and_collaborators_guard(
     with _authenticated_http_probe(app, monkeypatch, frozenset({"actor.write"})):
         merge_ok = client.post(
             f"/api/v1/actors/{target_id}/merge",
-            json={"source_actor_id": str(uuid.uuid4()), "reason": "duplicado"},
+            json={
+                "source_actor_id": str(uuid.uuid4()),
+                "reason": "duplicado",
+                "confirm": True,
+                "expected_target_version": 1,
+                "expected_source_version": 1,
+            },
         )
     assert merge_ok.status_code == 200
     assert merge_ok.get_json()["canonical_name"] == "Iberdrola"

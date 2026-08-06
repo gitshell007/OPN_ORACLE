@@ -110,6 +110,8 @@ from opn_oracle.oracle.procurement_report import ProcurementDocumentReportError
 from opn_oracle.oracle.service import (
     DomainValidationError,
     ResourceNotFound,
+    TaxIdFiscalReviewRequired,
+    TaxIdMergeBlocked,
     VersionConflict,
     archive_dossier,
     create_dossier,
@@ -121,6 +123,7 @@ from opn_oracle.oracle.service import (
     list_page,
     merge_actors,
     order_with_nulls_last,
+    preview_merge_actors,
     promote_signal_link,
     record_status_change,
     review_signal_link,
@@ -204,6 +207,41 @@ def _domain_error(error: Exception) -> Any:
         return problem_response(404, detail=str(error), code="not_found")
     if isinstance(error, VersionConflict):
         return problem_response(409, detail=str(error), code="version_conflict")
+    if isinstance(error, TaxIdMergeBlocked):
+        return problem_response(
+            409,
+            detail=str(error),
+            code="tax_id_merge_blocked",
+            errors={
+                "target_tax_id": error.target_tax_id,
+                "source_tax_id": error.source_tax_id,
+            },
+        )
+    if isinstance(error, TaxIdFiscalReviewRequired):
+        return problem_response(
+            409,
+            detail=str(error),
+            code=getattr(error, "code", None) or "tax_id_fiscal_review_required",
+            errors={
+                "target_declared_tax_id": error.target_declared_tax_id,
+                "source_declared_tax_id": error.source_declared_tax_id,
+            },
+        )
+    from opn_oracle.oracle.actor_tax_id import TaxIdConflictError, TaxIdValidationError
+
+    if isinstance(error, TaxIdConflictError):
+        return problem_response(
+            409,
+            detail=str(error),
+            code="tax_id_conflict",
+            errors={
+                "tax_id": error.tax_id,
+                "canonical_actor_id": str(error.canonical_actor_id),
+                "canonical_actor_name": error.canonical_actor_name,
+            },
+        )
+    if isinstance(error, TaxIdValidationError):
+        return problem_response(422, detail=str(error), code="tax_id_validation")
     return problem_response(422, detail=str(error), code="domain_validation")
 
 
@@ -2590,30 +2628,82 @@ def _detail(resource: str, resource_id: uuid.UUID) -> Any:
         if row.version != expected:
             return _domain_error(VersionConflict("El recurso fue modificado por otro usuario."))
     if isinstance(row, Actor):
-        if "actor_type" in payload:
-            actor_type = str(payload["actor_type"])
-            if actor_type not in {"person", "organization", "institution", "program", "other"}:
-                return _domain_error(DomainValidationError("actor_type no válido."))
-            row.actor_type = actor_type
-        if "canonical_name" in payload:
-            canonical_name = str(payload["canonical_name"]).strip()
-            if not canonical_name:
-                return _domain_error(DomainValidationError("canonical_name es obligatorio."))
-            canonical_key = "-".join(canonical_name.casefold().split())[:320]
-            duplicate = db.session.scalar(
-                select(Actor.id).where(
-                    Actor.canonical_key == canonical_key,
-                    Actor.id != row.id,
+        from opn_oracle.oracle.actor_tax_id import (
+            TaxIdConflictError,
+            TaxIdValidationError,
+            actor_identity_canonical_key,
+            apply_actor_identifiers_patch,
+            assert_actor_type_compatible_with_tax_id,
+            usable_company_tax_id,
+        )
+
+        try:
+            # Validate actor_type demotion before any mutation (B2).
+            if "actor_type" in payload:
+                actor_type = str(payload["actor_type"])
+                if actor_type not in {
+                    "person",
+                    "organization",
+                    "institution",
+                    "program",
+                    "other",
+                }:
+                    return _domain_error(DomainValidationError("actor_type no válido."))
+                assert_actor_type_compatible_with_tax_id(row, actor_type)
+                row.actor_type = actor_type
+
+            # Rename preserves tax-based identity when durable tax_id is set (B1).
+            if "canonical_name" in payload:
+                canonical_name = str(payload["canonical_name"]).strip()
+                if not canonical_name:
+                    return _domain_error(DomainValidationError("canonical_name es obligatorio."))
+                durable_tax = usable_company_tax_id(getattr(row, "tax_id", None))
+                canonical_key = actor_identity_canonical_key(
+                    name=canonical_name, tax_id=durable_tax
                 )
-            )
-            if duplicate is not None:
-                return _domain_error(DomainValidationError("Ya existe un actor canónico."))
-            row.canonical_name, row.canonical_key = canonical_name[:300], canonical_key
-        for field in ("aliases", "identifiers", "provenance"):
-            if field in payload:
-                setattr(row, field, payload[field])
-        if "metadata" in payload:
-            row.actor_metadata = dict(payload["metadata"])
+                duplicate = db.session.scalar(
+                    select(Actor.id).where(
+                        Actor.tenant_id == row.tenant_id,
+                        Actor.canonical_key == canonical_key,
+                        Actor.id != row.id,
+                    )
+                )
+                if duplicate is not None:
+                    return _domain_error(DomainValidationError("Ya existe un actor canónico."))
+                row.canonical_name = canonical_name[:300]
+                row.canonical_key = canonical_key
+
+            if "aliases" in payload:
+                row.aliases = payload["aliases"]
+
+            # Identifiers go through the shared tax_id service — never raw replace (B2).
+            if "identifiers" in payload:
+                apply_actor_identifiers_patch(
+                    db.session(),
+                    row,
+                    payload["identifiers"],
+                    bump_version=False,
+                )
+
+            if "provenance" in payload:
+                # Do not wipe fiscal assignment provenance when client omits it.
+                incoming_prov = payload["provenance"]
+                if not isinstance(incoming_prov, dict):
+                    return _domain_error(DomainValidationError("provenance debe ser un objeto."))
+                merged_prov = dict(incoming_prov)
+                previous_prov = (
+                    dict(row.provenance or {}) if isinstance(row.provenance, dict) else {}
+                )
+                for fiscal_key in ("tax_id_assignment", "tax_id_column_backfill"):
+                    if fiscal_key not in merged_prov and fiscal_key in previous_prov:
+                        merged_prov[fiscal_key] = previous_prov[fiscal_key]
+                row.provenance = merged_prov
+
+            if "metadata" in payload:
+                row.actor_metadata = dict(payload["metadata"])
+        except (TaxIdConflictError, TaxIdValidationError, DomainValidationError) as error:
+            db.session.rollback()
+            return _domain_error(error)
     allowed = {
         "title",
         "name",
@@ -3069,6 +3159,15 @@ def actors_list() -> Any:
 @bp.post("/actors")
 @require_permission("actor.write")
 def actors_create() -> Any:
+    from opn_oracle.oracle.actor_candidates import actor_canonical_key
+    from opn_oracle.oracle.actor_tax_id import (
+        TaxIdConflictError,
+        TaxIdValidationError,
+        find_actor_by_tax_id,
+        require_usable_company_tax_id,
+        resolve_or_create_actor,
+    )
+
     payload = _payload()
     name = str(payload.get("canonical_name", "")).strip()
     actor_type = str(payload.get("actor_type", "organization"))
@@ -3076,40 +3175,183 @@ def actors_create() -> Any:
         return problem_response(
             422, detail="canonical_name es obligatorio.", code="validation_error"
         )
-    canonical_key = "-".join(name.casefold().split())[:320]
-    existing = db.session.scalar(select(Actor).where(Actor.canonical_key == canonical_key))
-    if existing is not None:
-        return _serialize(existing), 200
-    row = Actor(
+    raw_identifiers = payload.get("identifiers", {})
+    if raw_identifiers is None:
+        raw_identifiers = {}
+    if not isinstance(raw_identifiers, dict):
+        return problem_response(
+            422, detail="identifiers debe ser un objeto.", code="validation_error"
+        )
+    identifiers = dict(raw_identifiers)
+
+    # B3 · POST estricto: si el cliente envía identifiers.tax_id, validar siempre.
+    # Solo la ausencia real del campo usa fallback por nombre (cero bypass).
+    tax_id: str | None = None
+    if "tax_id" in identifiers:
+        try:
+            tax_id = require_usable_company_tax_id(identifiers.get("tax_id"), actor_type=actor_type)
+        except TaxIdValidationError as error:
+            return _domain_error(error)
+
+    existed_before = False
+    if tax_id:
+        existed_before = (
+            find_actor_by_tax_id(db.session(), tenant_id=g.active_tenant_id, tax_id=tax_id)
+            is not None
+        )
+    else:
+        existed_before = (
+            db.session.scalar(
+                select(Actor).where(
+                    Actor.tenant_id == g.active_tenant_id,
+                    Actor.canonical_key == actor_canonical_key(name),
+                )
+            )
+            is not None
+        )
+    try:
+        row = resolve_or_create_actor(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            canonical_name=name[:300],
+            actor_type=actor_type,
+            aliases=list(payload.get("aliases", [])),
+            identifiers=identifiers,
+            actor_metadata=dict(payload.get("metadata", {})),
+            provenance=dict(payload.get("provenance", {})),
+        )
+        db.session.commit()
+        return _serialize(row), (200 if existed_before else 201)
+    except (
+        TaxIdConflictError,
+        TaxIdValidationError,
+        DomainValidationError,
+        IntegrityError,
+    ) as error:
+        db.session.rollback()
+        return _domain_error(error)
+
+
+@bp.get("/actors/tax-id-conflicts")
+@require_permission("actor.read")
+def actors_tax_id_conflicts_list() -> Any:
+    """List resolvable tax_id collisions (G-16 backend contract; UI in G-16-B/G-17)."""
+
+    from opn_oracle.oracle.actor_tax_id import list_tax_id_conflicts
+
+    status = request.args.get("filter[status]", "open")
+    if status in {"", "all", "*"}:
+        status = None
+    try:
+        limit = int(request.args.get("page[size]", "50"))
+    except ValueError:
+        limit = 50
+    rows = list_tax_id_conflicts(
+        db.session(),
         tenant_id=g.active_tenant_id,
-        actor_type=actor_type,
-        canonical_name=name[:300],
-        canonical_key=canonical_key,
-        aliases=list(payload.get("aliases", [])),
-        identifiers=dict(payload.get("identifiers", {})),
-        actor_metadata=dict(payload.get("metadata", {})),
-        provenance=dict(payload.get("provenance", {})),
+        status=status,
+        limit=limit,
     )
-    db.session.add(row)
-    db.session.commit()
-    return _serialize(row), 201
+    return {"data": [_serialize(row) for row in rows], "meta": {"count": len(rows)}}
+
+
+@bp.post("/actors/tax-id-conflicts/<uuid:conflict_id>/resolve")
+@require_permission("actor.write")
+def actors_tax_id_conflicts_resolve(conflict_id: uuid.UUID) -> Any:
+    """Mark a tax_id conflict resolved/dismissed. Does not merge relations.
+
+    action=merge is rejected: use POST /actors/{id}/merge which moves relations
+    and only then closes the conflict in the same transaction.
+    """
+
+    from opn_oracle.oracle.actor_tax_id import resolve_tax_id_conflict
+
+    payload = _payload()
+    action = str(payload.get("action", "keep_winner")).strip().lower()
+    if action == "merge":
+        return problem_response(
+            422,
+            detail=(
+                "No se puede marcar un conflicto como fusionado aquí sin mover relaciones. "
+                "Use POST /api/v1/actors/{target_id}/merge con confirmación y versiones CAS."
+            ),
+            code="merge_requires_merge_endpoint",
+        )
+    try:
+        row = resolve_tax_id_conflict(
+            db.session(),
+            tenant_id=g.active_tenant_id,
+            conflict_id=conflict_id,
+            action=action,
+            note=str(payload.get("note", "")),
+            actor_id=current_user.id,
+        )
+        db.session.commit()
+        return _serialize(row)
+    except LookupError as error:
+        db.session.rollback()
+        return problem_response(404, detail=str(error), code="not_found")
+    except ValueError as error:
+        db.session.rollback()
+        return problem_response(422, detail=str(error), code="validation_error")
+
+
+@bp.post("/actors/<uuid:target_id>/merge/preview")
+@require_permission("actor.read")
+def actors_merge_preview(target_id: uuid.UUID) -> Any:
+    """Explicit pre-mutation preview: tax provenance, aliases and reference impact."""
+
+    payload = _payload()
+    try:
+        source_id = uuid.UUID(str(payload["source_actor_id"]))
+        return preview_merge_actors(
+            db.session(),
+            target_id,
+            source_id,
+            actor_id=current_user.id,
+        )
+    except (KeyError, ValueError, DomainValidationError, ResourceNotFound) as error:
+        return _domain_error(error)
 
 
 @bp.post("/actors/<uuid:target_id>/merge")
 @require_permission("actor.write")
 def actors_merge(target_id: uuid.UUID) -> Any:
+    """Human-confirmed merge with CAS versions and tax-safe identity rules."""
+
     payload = _payload()
     try:
         source_id = uuid.UUID(str(payload["source_actor_id"]))
+        expected_target = payload.get("expected_target_version")
+        expected_source = payload.get("expected_source_version")
+        if expected_target is None or expected_source is None:
+            raise DomainValidationError(
+                "expected_target_version y expected_source_version son obligatorios (CAS)."
+            )
         row = merge_actors(
             db.session(),
             target_id,
             source_id,
             actor_id=current_user.id,
             reason=str(payload.get("reason", "")),
+            expected_target_version=int(expected_target),
+            expected_source_version=int(expected_source),
+            confirm=bool(payload.get("confirm", False)),
+            match_reason=(
+                str(payload["match_reason"]) if payload.get("match_reason") is not None else None
+            ),
         )
         return _serialize(row)
-    except (KeyError, ValueError, DomainValidationError, ResourceNotFound, IntegrityError) as error:
+    except (
+        KeyError,
+        ValueError,
+        DomainValidationError,
+        ResourceNotFound,
+        VersionConflict,
+        IntegrityError,
+        TaxIdFiscalReviewRequired,
+        TaxIdMergeBlocked,
+    ) as error:
         db.session.rollback()
         return _domain_error(error)
 
