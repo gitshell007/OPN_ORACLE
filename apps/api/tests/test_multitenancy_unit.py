@@ -114,6 +114,53 @@ def test_audit_event_is_sanitized_and_bound_to_context() -> None:
     assert session.added == [event]
 
 
+def test_append_audit_event_optional_event_id_is_retrocompatible() -> None:
+    """Callers without event_id keep random UUID semantics; explicit id is used as PK.
+
+    Tenant/actor still derive exclusively from TenantContext (not from kwargs).
+    """
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+
+        def add(self, value: object) -> None:
+            self.added.append(value)
+
+    session = FakeSession()
+    tenant_id, actor_id = uuid.uuid4(), uuid.uuid4()
+    explicit_id = uuid.uuid4()
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=actor_id)):
+        default_event = append_audit_event(  # type: ignore[arg-type]
+            session,
+            action="tenant.access",
+            resource_type="tenant",
+            result="success",
+        )
+        explicit_event = append_audit_event(  # type: ignore[arg-type]
+            session,
+            action="ai.market_competitor_discovery.accept",
+            resource_type="ai_artifact",
+            result="success",
+            event_id=explicit_id,
+            metadata={"gate": "market_competitor_discovery.accept"},
+        )
+    # Without event_id: id left to model default (random UUID at flush; None until then).
+    # Retrocompatible: callers that omit event_id do not get a forced PK.
+    assert default_event.id is None or (
+        isinstance(default_event.id, uuid.UUID) and default_event.id != explicit_id
+    )
+    assert default_event.tenant_id == tenant_id
+    assert default_event.actor_id == actor_id
+    assert default_event.actor_type == "user"
+    # With event_id: PK is the server-owned value; actor/tenant still from context.
+    assert explicit_event.id == explicit_id
+    assert explicit_event.tenant_id == tenant_id
+    assert explicit_event.actor_id == actor_id
+    assert explicit_event.actor_type == "user"
+    assert session.added == [default_event, explicit_event]
+
+
 def test_production_requires_rls_and_normalizes_migration_url() -> None:
     with pytest.raises(ConfigError, match="RLS_ENABLED"):
         Settings.load(

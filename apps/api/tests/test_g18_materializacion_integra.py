@@ -7,6 +7,7 @@ y ORACLE_RUN_INTEGRATION=1, falla cerrado (no PASS conceptual).
 from __future__ import annotations
 
 import hashlib
+import inspect
 import os
 import threading
 import uuid
@@ -913,7 +914,6 @@ def test_rollback_mid_materialize(g18_pg: tuple[Any, dict[str, Any]]) -> None:
                 {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]},
                 {"candidate_id": ctx["c2"], "source_ids": [ctx["s2"]]},
             ],
-            actor_user_id=ctx["user_id"],
             fail_after_index=0,
         )
     assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
@@ -933,11 +933,121 @@ def test_rollback_after_audit(g18_pg: tuple[Any, dict[str, Any]]) -> None:
             selected=[
                 {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]},
             ],
-            actor_user_id=ctx["user_id"],
             fail_after_audit=True,
         )
     assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
     assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
+
+
+def test_service_actor_from_context_only(g18_pg: tuple[Any, dict[str, Any]]) -> None:
+    """No public param to forge actor; TenantContext actor A is stored as A."""
+
+    app, ctx = g18_pg
+    # Signature must not expose actor_user_id / actor_id as a writable parameter.
+    sig = inspect.signature(accept_and_materialize)
+    assert "actor_user_id" not in sig.parameters
+    assert "actor_id" not in sig.parameters
+    fault_sig = inspect.signature(accept_and_materialize_with_fault)
+    assert "actor_user_id" not in fault_sig.parameters
+    assert "actor_id" not in fault_sig.parameters
+
+    with app.app_context(), tenant_context(
+        TenantContext(tenant_id=ctx["tenant_id"], actor_id=ctx["user_id"])
+    ):
+        out = accept_and_materialize(
+            artifact_id=ctx["artifact_id"],
+            dossier_id=ctx["dossier_id"],
+            selected=[{"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}],
+            expected_version=1,
+        )
+    assert out["count"] == 1
+    assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (1, 1)
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 1
+    audits = _list_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"])
+    assert audits[0].actor_id == ctx["user_id"]
+    assert audits[0].actor_type == "user"
+    assert audits[0].tenant_id == ctx["tenant_id"]
+
+
+def test_service_no_actor_context_writes_zero(g18_pg: tuple[Any, dict[str, Any]]) -> None:
+    """Context without actor fails closed before commit: 0/0/0."""
+
+    app, ctx = g18_pg
+    with app.app_context(), tenant_context(
+        TenantContext(tenant_id=ctx["tenant_id"], actor_id=None)
+    ):
+        with pytest.raises(MaterializeError) as exc_info:
+            accept_and_materialize(
+                artifact_id=ctx["artifact_id"],
+                dossier_id=ctx["dossier_id"],
+                selected=[{"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}],
+            )
+        assert exc_info.value.code == "actor_required"
+        assert exc_info.value.status == 401
+    assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
+
+
+def test_http_actor_context_mismatch_writes_zero(
+    g18_pg: tuple[Any, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defensive route check: TenantContext.actor_id != current_user.id → 0/0/0."""
+
+    app, ctx = g18_pg
+    client = app.test_client()
+    # Authenticate as user A, but inject tenant context with a different actor B.
+    other_actor = uuid.uuid4()
+    user = User(
+        id=ctx["user_id"],
+        email="g18-mat@example.test",
+        display_name="G18 Mat",
+        status="active",
+    )
+    principal = type("Principal", (), {"id": user.id, "is_authenticated": True})()
+    monkeypatch.setattr(permissions, "current_user", principal)
+    monkeypatch.setattr(ai_routes, "current_user", principal)
+    monkeypatch.setattr(
+        permissions,
+        "current_permissions",
+        lambda user_id, active_tenant_id: frozenset(
+            {"ai.execute", "dossier.write", "dossier.read"}
+        ),
+    )
+    before = app.before_request_funcs.get(None, [])
+    index = next(
+        i
+        for i, function in enumerate(before)
+        if function.__name__ == "protect_csrf_and_install_identity"
+    )
+    original = before[index]
+
+    def install_mismatch_identity() -> None:
+        g.active_tenant_id = ctx["tenant_id"]
+        manager = tenant_context(
+            TenantContext(tenant_id=ctx["tenant_id"], actor_id=other_actor)
+        )
+        manager.__enter__()
+        g.auth_tenant_context_manager = manager
+
+    before[index] = install_mismatch_identity
+    try:
+        r = client.post(
+            "/api/v1/ai/market-competitor-discovery/accept",
+            json={
+                "artifact_id": str(ctx["artifact_id"]),
+                "dossier_id": str(ctx["dossier_id"]),
+                "selected": [{"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}],
+                "expected_version": 1,
+            },
+        )
+    finally:
+        before[index] = original
+    assert r.status_code == 401, r.get_json()
+    body = r.get_json()
+    assert body["code"] == "actor_context_mismatch"
+    assert _count_evidence(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == (0, 0)
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=ctx["user_id"]) == 0
+    assert _count_accept_audits(app, ctx["tenant_id"], actor_id=other_actor) == 0
 
 
 def test_concurrent_accept_one_evidence(
@@ -966,7 +1076,6 @@ def test_concurrent_accept_one_evidence(
                     selected=[
                         {"candidate_id": ctx["c1"], "source_ids": [ctx["s1"]]}
                     ],
-                    actor_user_id=ctx["user_id"],
                 )
                 with lock:
                     results.append(out)
