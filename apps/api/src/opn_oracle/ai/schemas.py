@@ -1280,16 +1280,49 @@ class SourceUrlMeta(StrictModel):
     verified: bool = False
 
 
+class CitableSourcePublic(StrictModel):
+    """UI-facing closed source (no provider/checksum internals)."""
+
+    source_id: UUID
+    title: str = Field(default="", max_length=300)
+    url: str = Field(default="", max_length=1500)
+    snippet: str = Field(default="", max_length=800)
+    rank: int = Field(default=1, ge=0, le=100)
+    domain: str = Field(default="", max_length=300)
+    label: str = Field(default="", max_length=300)
+    origin: str = Field(default="web_search", max_length=40)
+    origin_label: str = Field(default="Fuente encontrada por búsqueda", max_length=120)
+
+
+class ReservedCitableSource(StrictModel):
+    """Server-owned reservation (audit fields retained for materialization)."""
+
+    source_id: UUID
+    title: str = Field(default="", max_length=300)
+    url: str = Field(default="", max_length=1500)
+    snippet: str = Field(default="", max_length=800)
+    provider: str = Field(default="", max_length=40)
+    rank: int = Field(default=1, ge=0, le=100)
+    content_checksum: str = Field(default="", max_length=80)
+    origin: str = Field(default="web_search", max_length=40)
+    domain: str = Field(default="", max_length=300)
+    label: str = Field(default="", max_length=300)
+    origin_label: str = Field(default="Fuente encontrada por búsqueda", max_length=120)
+
+
 class MarketCompetitorCandidate(StrictModel):
     name: str = Field(min_length=1, max_length=300)
     country: str = Field(default="", max_length=120)
     rationale: str = Field(min_length=1, max_length=1000)
-    # list[str] sin AnyUrl a propósito histórico; la política en
-    # ``source_url_policy`` sanea forma http(s)+host y etiqueta «no verificada».
+    # G-18: authoritative citations are evidence_ids (= Signal source_id).
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    # Deprecated read-compat: model URLs never accredit; not used for Evidence.
     source_urls: list[str] = Field(default_factory=list, max_length=5)
     source_urls_meta: list[SourceUrlMeta] = Field(default_factory=list, max_length=5)
     source_urls_status: str | None = None
     source_urls_label: str | None = None
+    # Server/UI projection of closed sources cited by this candidate.
+    citable_sources: list[CitableSourcePublic] = Field(default_factory=list, max_length=8)
     confidence: int = Field(ge=0, le=100)
 
     @model_validator(mode="after")
@@ -1301,6 +1334,7 @@ class MarketCompetitorCandidate(StrictModel):
             sanitize_source_urls,
         )
 
+        # Keep deprecated URLs labelled if present, but they never accredit.
         cleaned = sanitize_source_urls(self.source_urls, max_items=5)
         meta = annotate_source_urls(cleaned, max_items=5)
         self.source_urls = cleaned
@@ -1314,7 +1348,11 @@ class MarketCompetitorDiscoveryOutput(StrictModel):
     """Candidate competitors for a market; the user reviews and picks, never auto-added."""
 
     candidates: list[MarketCompetitorCandidate] = Field(default_factory=list, max_length=15)
-    warnings: list[str] = Field(default_factory=list, max_length=10)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    # Server-owned closed sources cited by surviving candidates (tenant/artifact scoped).
+    reserved_citable_sources: list[ReservedCitableSource] = Field(
+        default_factory=list, max_length=20
+    )
 
     @model_validator(mode="after")
     def _label_unverified_sources(self) -> MarketCompetitorDiscoveryOutput:
@@ -1324,11 +1362,12 @@ class MarketCompetitorDiscoveryOutput(StrictModel):
         if not has_urls:
             return self
         note = (
-            "Las source_urls se validan solo en forma (http/https + host) y se etiquetan "
-            f"«{SOURCE_URL_UNVERIFIED_LABEL}»; no se comprueba su contenido en red."
+            "Las source_urls del modelo (si aparecen) se etiquetan "
+            f"«{SOURCE_URL_UNVERIFIED_LABEL}» y no acreditan al candidato; "
+            "solo evidence_ids de citable_sources de Signal son citas."
         )
         if note not in self.warnings:
-            self.warnings = [*self.warnings, note][:10]
+            self.warnings = [*self.warnings, note][:20]
         return self
 
 

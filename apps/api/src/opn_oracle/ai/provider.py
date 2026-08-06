@@ -55,6 +55,11 @@ class LLMResult:
     safe_fallback_used: bool = False
     # Canonical SHA-256 of Signal validated_output (dossier_question_answer only).
     validated_output_sha256: str | None = None
+    # G-18: closed citable sources + search metadata from Signal top-level only.
+    # Other providers leave these empty/None (no regression).
+    citable_sources: tuple[Any, ...] = ()
+    search_metadata: Any | None = None
+    source_warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +181,11 @@ class MockLLMProvider:
                 model=self.model,
             )
         if request.agent == "market_competitor_discovery":
+            from opn_oracle.ai.citable_sources import (
+                CitableSource,
+                apply_market_competitor_citable_gate,
+            )
+
             countries = [
                 str(item) for item in request.context.get("countries", []) if str(item).strip()
             ]
@@ -185,33 +195,72 @@ class MockLLMProvider:
                 if str(item).strip()
             }
             fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
-            # Mock: una URL inventada (debe etiquetarse «no verificada») y basura filtrada.
-            proposed: list[dict[str, Any]] = [
-                {
-                    "name": f"Competidor Sintetico {index}",
-                    "country": countries[index % len(countries)] if countries else "",
-                    "rationale": (
-                        "Candidato determinista del proveedor mock para revision humana; "
-                        "sin fuentes reales."
-                    ),
-                    "source_urls": [
-                        "https://www.empresa-inventada-xyz.es/perfil",
-                        "not-a-url",
-                        "javascript:alert(1)",
-                    ]
-                    if index == 1
-                    else [],
-                    "confidence": 40 - index * 5,
-                }
-                for index in range(1, 4)
-            ]
-            output = schema.model_validate(
-                {
-                    "candidates": [
-                        item for item in proposed if str(item["name"]).lower() not in known
-                    ],
-                    "warnings": ["Resultado generado por proveedor mock determinista."],
-                }
+            # Optional closed sources injected via context for offline tests.
+            mock_sources_raw = request.context.get("mock_citable_sources") or []
+            mock_sources: list[CitableSource] = []
+            if isinstance(mock_sources_raw, list):
+                for item in mock_sources_raw:
+                    if isinstance(item, CitableSource):
+                        mock_sources.append(item)
+                    elif isinstance(item, dict) and item.get("source_id"):
+                        try:
+                            mock_sources.append(
+                                CitableSource(
+                                    source_id=str(uuid.UUID(str(item["source_id"]))),
+                                    title=str(item.get("title") or "")[:300],
+                                    url=str(item.get("url") or ""),
+                                    snippet=str(item.get("snippet") or "")[:800],
+                                    provider=str(item.get("provider") or "mock")[:40],
+                                    rank=int(item.get("rank") or 1),
+                                    content_checksum=str(
+                                        item.get("content_checksum") or "sha256:" + "0" * 64
+                                    ),
+                                )
+                            )
+                        except (ValueError, TypeError, AttributeError):
+                            continue
+            source_ids = [s.source_id for s in mock_sources]
+            proposed: list[dict[str, Any]] = []
+            for index in range(1, 4):
+                # Index 1 may cite first closed source; others may invent alien IDs/URLs.
+                evidence_ids: list[str] = []
+                if source_ids and index == 1:
+                    evidence_ids = [source_ids[0]]
+                elif index == 2 and source_ids:
+                    evidence_ids = [source_ids[0]]
+                    if len(source_ids) > 1:
+                        evidence_ids = [source_ids[1]]
+                proposed.append(
+                    {
+                        "name": f"Competidor Sintetico {index}",
+                        "country": countries[index % len(countries)] if countries else "",
+                        "rationale": (
+                            "Candidato determinista del proveedor mock para revision humana."
+                        ),
+                        # Model URLs never accredit (G-18); gate clears them.
+                        "source_urls": [
+                            "https://www.empresa-inventada-xyz.es/perfil",
+                            "not-a-url",
+                            "javascript:alert(1)",
+                        ]
+                        if index == 1
+                        else [],
+                        "evidence_ids": evidence_ids,
+                        "confidence": 40 - index * 5,
+                    }
+                )
+            raw_output = {
+                "candidates": [
+                    item for item in proposed if str(item["name"]).lower() not in known
+                ],
+                "warnings": ["Resultado generado por proveedor mock determinista."],
+            }
+            gated = apply_market_competitor_citable_gate(
+                raw_output,
+                citable_sources=tuple(mock_sources),
+            )
+            output = schema.model_validate_json(
+                json.dumps(gated, ensure_ascii=False, default=str)
             )
             return LLMResult(
                 output,
@@ -221,6 +270,7 @@ class MockLLMProvider:
                 1,
                 provider="mock",
                 model=self.model,
+                citable_sources=tuple(mock_sources),
             )
         if request.agent == "tender_search_wizard":
             from opn_oracle.oracle.comparable_procurement import title_terms
@@ -1668,6 +1718,12 @@ class SignalGovernedLLMProvider:
         self.consumer = consumer
 
     def generate_structured(self, request: LLMRequest, schema: type[T]) -> LLMResult:
+        from opn_oracle.ai.citable_sources import (
+            apply_market_competitor_citable_gate,
+            discovery_intent_fields,
+            extract_signal_envelope,
+        )
+
         schema_json = json.dumps(
             schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")
         )
@@ -1682,36 +1738,50 @@ class SignalGovernedLLMProvider:
             "Si la lista está vacía, deja vacías todas las secciones cuyos elementos "
             "exijan evidence_ids."
         )
+        if request.agent == "market_competitor_discovery":
+            evidence_rule = (
+                "Cita exclusivamente con evidence_ids = source_id del conjunto cerrado "
+                "CITABLE_SOURCES que Signal inyecta en el prompt. No inventes UUIDs ni URLs. "
+                "source_urls del modelo no acreditan al candidato."
+            )
+        input_body: dict[str, Any] = {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{request.system_prompt}\n\n"
+                        f"{evidence_rule}\n\n"
+                        "Devuelve exclusivamente JSON válido que cumpla este esquema: "
+                        f"{schema_json}"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"{request.task_prompt}\n\nContexto autorizado (JSON):\n{context_json}"
+                    ),
+                },
+            ],
+            "format": "json",
+            "max_output_tokens": request.max_output_tokens,
+            "allowed_evidence_ids": allowed_evidence_ids,
+            "requested_scope": (
+                request.context.get("requested_scope")
+                if isinstance(request.context.get("requested_scope"), dict)
+                else {"allowed_evidence_ids": allowed_evidence_ids}
+            ),
+        }
+        # G-18: limited domain intent for discovery (never provider/model/search gov).
+        if request.agent == "market_competitor_discovery":
+            intent = discovery_intent_fields(request.context)
+            for key, value in intent.items():
+                # Do not overwrite messages/format/tokens with intent keys.
+                if key not in input_body:
+                    input_body[key] = value
         body: dict[str, Any] = {
             "task_key": request.agent,
             "allowed_evidence_ids": allowed_evidence_ids,
-            "input": {
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{request.system_prompt}\n\n"
-                            f"{evidence_rule}\n\n"
-                            "Devuelve exclusivamente JSON válido que cumpla este esquema: "
-                            f"{schema_json}"
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"{request.task_prompt}\n\nContexto autorizado (JSON):\n{context_json}"
-                        ),
-                    },
-                ],
-                "format": "json",
-                "max_output_tokens": request.max_output_tokens,
-                "allowed_evidence_ids": allowed_evidence_ids,
-                "requested_scope": (
-                    request.context.get("requested_scope")
-                    if isinstance(request.context.get("requested_scope"), dict)
-                    else {"allowed_evidence_ids": allowed_evidence_ids}
-                ),
-            },
+            "input": input_body,
         }
         started = time.monotonic()
         safe_fallback_used = False
@@ -1728,7 +1798,23 @@ class SignalGovernedLLMProvider:
                 usage=usage,
                 started=started,
             )
-        normalized_output = _signal_output(payload)
+        try:
+            envelope = extract_signal_envelope(payload)
+        except ValueError as error:
+            raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.") from error
+        citable_sources = envelope.citable_sources
+        search_metadata = envelope.search
+        source_warnings = envelope.source_warnings
+        # Expand allowlist only with validated source_ids of this same Signal response.
+        if citable_sources:
+            expanded = list(allowed_evidence_ids)
+            seen = set(expanded)
+            for src in citable_sources:
+                if src.source_id not in seen:
+                    seen.add(src.source_id)
+                    expanded.append(src.source_id)
+            allowed_evidence_ids = expanded
+        normalized_output = envelope.model_text
         normalized_output = _normalize_signal_candidate_json(
             request, normalized_output, allowed_evidence_ids
         )
@@ -1739,8 +1825,22 @@ class SignalGovernedLLMProvider:
         except UncitedFactsError:
             raise
         try:
-            output = schema.model_validate_json(normalized_output)
-            _validate_allowed_evidence(output, allowed_evidence_ids)
+            if request.agent == "market_competitor_discovery":
+                raw_candidate = json.loads(normalized_output)
+                if not isinstance(raw_candidate, dict):
+                    raise ValueError("market_competitor_discovery output must be object")
+                gated = apply_market_competitor_citable_gate(
+                    raw_candidate,
+                    citable_sources=citable_sources,
+                    extra_warnings=source_warnings,
+                )
+                # JSON round-trip so UUID fields coerce under StrictModel.
+                output = schema.model_validate_json(
+                    json.dumps(gated, ensure_ascii=False, default=str)
+                )
+            else:
+                output = schema.model_validate_json(normalized_output)
+                _validate_allowed_evidence(output, allowed_evidence_ids)
             if request.agent == "dossier_situation_summary" and not allowed_evidence_ids:
                 output = _safe_empty_evidence_summary(request, schema)
                 safe_fallback_used = True
@@ -1799,13 +1899,44 @@ class SignalGovernedLLMProvider:
                 + _non_negative_int(repaired_usage.get("cost_micros")),
             }
             try:
+                repair_envelope = extract_signal_envelope(payload)
+                # Keep first-response closed sources; repair may omit them.
+                if repair_envelope.citable_sources and not citable_sources:
+                    citable_sources = repair_envelope.citable_sources
+                    source_warnings = repair_envelope.source_warnings
+                    if citable_sources:
+                        expanded = list(allowed_evidence_ids)
+                        seen = set(expanded)
+                        for src in citable_sources:
+                            if src.source_id not in seen:
+                                seen.add(src.source_id)
+                                expanded.append(src.source_id)
+                        allowed_evidence_ids = expanded
+                if repair_envelope.search is not None and search_metadata is None:
+                    search_metadata = repair_envelope.search
                 repaired_raw_output = _normalize_signal_candidate_json(
-                    request, _signal_output(payload), allowed_evidence_ids
+                    request, repair_envelope.model_text, allowed_evidence_ids
                 )
                 repaired_raw_output = _sanitize_uncited_facts_json(
                     repaired_raw_output, agent=request.agent
                 )
-                repaired_output = schema.model_validate_json(repaired_raw_output)
+                if request.agent == "market_competitor_discovery":
+                    repaired_candidate = json.loads(repaired_raw_output)
+                    if not isinstance(repaired_candidate, dict):
+                        raise ValueError("market_competitor_discovery repair must be object")
+                    repaired_output = schema.model_validate_json(
+                        json.dumps(
+                            apply_market_competitor_citable_gate(
+                                repaired_candidate,
+                                citable_sources=citable_sources,
+                                extra_warnings=source_warnings,
+                            ),
+                            ensure_ascii=False,
+                            default=str,
+                        )
+                    )
+                else:
+                    repaired_output = schema.model_validate_json(repaired_raw_output)
             except UncitedFactsError:
                 raise
             except ValueError:
@@ -1814,21 +1945,24 @@ class SignalGovernedLLMProvider:
                 output = _safe_empty_evidence_summary(request, schema)
                 safe_fallback_used = True
             else:
-                try:
-                    _validate_allowed_evidence(repaired_output, allowed_evidence_ids)
-                except ValueError:
-                    try:
-                        output = _strip_unauthorized_evidence_blocks(
-                            repaired_output, allowed_evidence_ids
-                        )
-                        _validate_allowed_evidence(output, allowed_evidence_ids)
-                    except ValueError:
-                        if allowed_evidence_ids:
-                            raise
-                        output = _safe_empty_evidence_summary(request, schema)
-                        safe_fallback_used = True
-                else:
+                if request.agent == "market_competitor_discovery":
                     output = repaired_output
+                else:
+                    try:
+                        _validate_allowed_evidence(repaired_output, allowed_evidence_ids)
+                    except ValueError:
+                        try:
+                            output = _strip_unauthorized_evidence_blocks(
+                                repaired_output, allowed_evidence_ids
+                            )
+                            _validate_allowed_evidence(output, allowed_evidence_ids)
+                        except ValueError:
+                            if allowed_evidence_ids:
+                                raise
+                            output = _safe_empty_evidence_summary(request, schema)
+                            safe_fallback_used = True
+                    else:
+                        output = repaired_output
         elapsed_ms = max(0, round((time.monotonic() - started) * 1000))
         return LLMResult(
             output=output,
@@ -1840,6 +1974,9 @@ class SignalGovernedLLMProvider:
             model=str(payload.get("model") or payload.get("actual_model") or request.model),
             fallback_used=bool(payload.get("fallback_used", False)),
             safe_fallback_used=safe_fallback_used,
+            citable_sources=citable_sources,
+            search_metadata=search_metadata,
+            source_warnings=source_warnings,
         )
 
     def _consume_validated_dossier_question(
@@ -2005,31 +2142,14 @@ def _usage_tokens(usage: dict[str, Any], direction: str) -> int:
 
 
 def _signal_output(payload: dict[str, Any]) -> str:
-    result_payload = payload.get("result")
-    if not isinstance(result_payload, dict):
-        raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
-    # Signal reenvía la respuesta cruda del proveedor upstream, y su forma cambia con
-    # el proveedor: Ollama devuelve `message.content` (chat) o `response` (generate),
-    # mientras que OpenRouter/OpenAI devuelve `choices[0].message.content`. Sin la rama
-    # OpenAI, cambiar la task a OpenRouter hacía que Oracle no encontrara el contenido y
-    # fallara con "AIUnavailable" pese a un 200 real del modelo.
-    message = result_payload.get("message")
-    output_payload = message.get("content") if isinstance(message, dict) else None
-    output_payload = output_payload or result_payload.get("response")
-    if not isinstance(output_payload, str):
-        choices = result_payload.get("choices")
-        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-            choice_message = choices[0].get("message")
-            if isinstance(choice_message, dict):
-                output_payload = choice_message.get("content")
-    if not isinstance(output_payload, str):
-        raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.")
-    normalized = output_payload.strip()
-    if normalized.startswith("```"):
-        normalized = normalized.split("\n", 1)[1] if "\n" in normalized else ""
-        if normalized.endswith("```"):
-            normalized = normalized[:-3].strip()
-    return normalized
+    """Extract model text via the shared typed envelope (no second divergent path)."""
+
+    from opn_oracle.ai.citable_sources import extract_signal_envelope
+
+    try:
+        return extract_signal_envelope(payload).model_text
+    except ValueError as error:
+        raise AIUnavailable("Signal devolvio una respuesta IA sin JSON estructurado.") from error
 
 
 def provider_from_config(config: dict[str, Any]) -> LLMProvider:

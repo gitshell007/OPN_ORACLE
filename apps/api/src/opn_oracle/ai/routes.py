@@ -161,20 +161,51 @@ class SourceUrlMetaSchema(Schema):
     verified = Boolean(required=True)
 
 
+class CitableSourcePublicSchema(Schema):
+    source_id = String(required=True)
+    title = String(load_default="")
+    url = String(load_default="")
+    snippet = String(load_default="")
+    rank = Integer(load_default=1)
+    domain = String(load_default="")
+    label = String(load_default="")
+    origin = String(load_default="web_search")
+    origin_label = String(load_default="Fuente encontrada por búsqueda")
+
+
+class ReservedCitableSourceSchema(Schema):
+    source_id = String(required=True)
+    title = String(load_default="")
+    url = String(load_default="")
+    snippet = String(load_default="")
+    provider = String(load_default="")
+    rank = Integer(load_default=1)
+    content_checksum = String(load_default="")
+    origin = String(load_default="web_search")
+    domain = String(load_default="")
+    label = String(load_default="")
+    origin_label = String(load_default="Fuente encontrada por búsqueda")
+
+
 class MarketCompetitorCandidateSchema(Schema):
     name = String(required=True)
     country = String(required=True)
     rationale = String(required=True)
-    source_urls = List(String(), required=True)
+    evidence_ids = List(String(), load_default=[])
+    # Deprecated: model URLs never accredit (G-18).
+    source_urls = List(String(), load_default=[])
     source_urls_meta = List(Nested(SourceUrlMetaSchema), load_default=[])
     source_urls_status = String(allow_none=True, load_default=None)
     source_urls_label = String(allow_none=True, load_default=None)
+    citable_sources = List(Nested(CitableSourcePublicSchema), load_default=[])
     confidence = Integer(required=True)
+    selectable = Boolean(load_default=True)
 
 
 class MarketCompetitorDiscoveryOutputSchema(Schema):
     candidates = List(Nested(MarketCompetitorCandidateSchema), required=True)
     warnings = List(String(), required=True)
+    reserved_citable_sources = List(Nested(ReservedCitableSourceSchema), load_default=[])
 
 
 class MarketCompetitorDiscoveryArtifactSchema(Schema):
@@ -198,6 +229,34 @@ class MarketCompetitorDiscoveryRunResponseSchema(Schema):
 class MarketCompetitorDiscoveryLatestResponseSchema(Schema):
     job = Nested(TenderSearchWizardJobSchema, allow_none=True)
     artifact = Nested(MarketCompetitorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketCompetitorSelectionSchema(Schema):
+    name = String(load_default="")
+    source_ids = List(String(), load_default=[])
+    evidence_ids = List(String(), load_default=[])
+
+
+class MarketCompetitorAcceptInputSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    selected = List(Nested(MarketCompetitorSelectionSchema), required=True)
+    expected_version = Integer(allow_none=True, load_default=None)
+
+
+class MaterializedEvidenceSchema(Schema):
+    evidence_id = String(required=True)
+    source_id = String(required=True)
+    source_kind = String(required=True)
+    source_url = String(allow_none=True)
+    label = String(load_default="")
+
+
+class MarketCompetitorAcceptResponseSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    materialized = List(Nested(MaterializedEvidenceSchema), required=True)
+    count = Integer(required=True)
 
 
 def _tender_wizard_problem(status: int, *, detail: str, code: str) -> Response:
@@ -713,6 +772,115 @@ def _latest_market_discovery_job() -> BackgroundJob | None:
     )
 
 
+def _serialize_market_discovery_artifact(artifact: AIArtifact | None) -> dict[str, Any] | None:
+    """Serialize latest discovery: candidates + reserved sources needed for UI.
+
+    Never leaks secrets or sources from other tenants/artifacts. Marks
+    candidates without evidence_ids as non-selectable. Strips provider/checksum
+    from per-candidate public sources; reserved block keeps audit fields for
+    materialization clients that need them.
+    """
+
+    base = _serialize_wizard_artifact(artifact)
+    if base is None:
+        return None
+    output = base.get("output")
+    if not isinstance(output, dict):
+        return base
+    reserved_raw = output.get("reserved_citable_sources") or []
+    reserved_public: list[dict[str, Any]] = []
+    if isinstance(reserved_raw, list):
+        for item in reserved_raw:
+            if not isinstance(item, dict):
+                continue
+            reserved_public.append(
+                {
+                    "source_id": str(item.get("source_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "url": str(item.get("url") or ""),
+                    "snippet": str(item.get("snippet") or ""),
+                    "provider": str(item.get("provider") or ""),
+                    "rank": int(item.get("rank") or 0) if item.get("rank") is not None else 0,
+                    "content_checksum": str(item.get("content_checksum") or ""),
+                    "origin": str(item.get("origin") or "web_search"),
+                    "domain": str(item.get("domain") or ""),
+                    "label": str(item.get("label") or item.get("title") or ""),
+                    "origin_label": str(
+                        item.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+    candidates_out: list[dict[str, Any]] = []
+    for cand in output.get("candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        evidence_ids = [
+            str(item)
+            for item in (cand.get("evidence_ids") or [])
+            if item is not None and str(item).strip()
+        ]
+        public_sources = []
+        for src in cand.get("citable_sources") or []:
+            if not isinstance(src, dict):
+                continue
+            public_sources.append(
+                {
+                    "source_id": str(src.get("source_id") or ""),
+                    "title": str(src.get("title") or ""),
+                    "url": str(src.get("url") or ""),
+                    "snippet": str(src.get("snippet") or ""),
+                    "rank": int(src.get("rank") or 0) if src.get("rank") is not None else 0,
+                    "domain": str(src.get("domain") or ""),
+                    "label": str(src.get("label") or src.get("title") or ""),
+                    "origin": str(src.get("origin") or "web_search"),
+                    "origin_label": str(
+                        src.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+        # If citable_sources missing but evidence_ids present, project from reserved.
+        if not public_sources and evidence_ids:
+            by_id = {r["source_id"]: r for r in reserved_public}
+            for sid in evidence_ids:
+                if sid in by_id:
+                    r = by_id[sid]
+                    public_sources.append(
+                        {
+                            "source_id": r["source_id"],
+                            "title": r["title"],
+                            "url": r["url"],
+                            "snippet": r["snippet"],
+                            "rank": r["rank"],
+                            "domain": r["domain"],
+                            "label": r["label"],
+                            "origin": r["origin"],
+                            "origin_label": r["origin_label"],
+                        }
+                    )
+        selectable = len(evidence_ids) > 0 and len(public_sources) > 0
+        candidates_out.append(
+            {
+                "name": str(cand.get("name") or ""),
+                "country": str(cand.get("country") or ""),
+                "rationale": str(cand.get("rationale") or ""),
+                "evidence_ids": evidence_ids,
+                "source_urls": [],  # never surface model URLs as citations
+                "source_urls_meta": [],
+                "source_urls_status": None,
+                "source_urls_label": None,
+                "citable_sources": public_sources,
+                "confidence": int(cand.get("confidence") or 0),
+                "selectable": selectable,
+            }
+        )
+    base["output"] = {
+        "candidates": candidates_out,
+        "warnings": list(output.get("warnings") or []),
+        "reserved_citable_sources": reserved_public,
+    }
+    return base
+
+
 def _market_discovery_input(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Payload no válido.")
@@ -786,7 +954,7 @@ def enqueue_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
         )
     return {
         "job": serialize_job(job),
-        "artifact": _serialize_wizard_artifact(_latest_market_discovery_artifact()),
+        "artifact": _serialize_market_discovery_artifact(_latest_market_discovery_artifact()),
     }, 202
 
 
@@ -797,8 +965,69 @@ def latest_market_competitor_discovery() -> Any:
     job = _latest_market_discovery_job()
     return {
         "job": serialize_job(job) if job else None,
-        "artifact": _serialize_wizard_artifact(_latest_market_discovery_artifact()),
+        "artifact": _serialize_market_discovery_artifact(_latest_market_discovery_artifact()),
     }
+
+
+@bp.post("/market-competitor-discovery/accept")
+@require_permission("ai.execute")
+@bp.input(MarketCompetitorAcceptInputSchema)
+@bp.output(MarketCompetitorAcceptResponseSchema)
+def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
+    """Human gate: materialize selected reserved sources into Evidence for a dossier.
+
+    Requires artifact_id + dossier_id + selected candidates/source_ids.
+    Fail-closed on cross-tenant, superseded artifact, version drift, alien UUIDs.
+    Idempotent: two retries do not duplicate Evidence rows.
+    """
+
+    from opn_oracle.ai.market_materialize import MaterializeError, accept_and_materialize
+
+    try:
+        artifact_id = uuid.UUID(str(json_data["artifact_id"]))
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
+    except (KeyError, TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="artifact_id y dossier_id deben ser UUID válidos.",
+            code="validation_error",
+        )
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == g.active_tenant_id,
+        )
+    )
+    if dossier is None or not dossier_accessible(
+        db.session(), dossier, current_user.id, write=True
+    ):
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    selected = json_data.get("selected") or []
+    if not isinstance(selected, list):
+        return _tender_wizard_problem(
+            422,
+            detail="selected debe ser una lista.",
+            code="validation_error",
+        )
+    expected_version = json_data.get("expected_version")
+    try:
+        result = accept_and_materialize(
+            artifact_id=artifact_id,
+            dossier_id=dossier_id,
+            selected=selected,
+            expected_version=int(expected_version) if expected_version is not None else None,
+        )
+    except MaterializeError as error:
+        return _tender_wizard_problem(
+            error.status,
+            detail=error.detail,
+            code=error.code,
+        )
+    return result
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/completion-wizard/runs")

@@ -1135,6 +1135,50 @@
         ],
         "type": "object"
       },
+      "CitableSourcePublic": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "default": "",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "type": "string"
+          },
+          "origin": {
+            "default": "web_search",
+            "type": "string"
+          },
+          "origin_label": {
+            "default": "Fuente encontrada por b\u00fasqueda",
+            "type": "string"
+          },
+          "rank": {
+            "default": 1,
+            "type": "integer"
+          },
+          "snippet": {
+            "default": "",
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "type": "object"
+      },
       "CollaboratorResource": {
         "additionalProperties": false,
         "properties": {
@@ -5601,14 +5645,83 @@
         ],
         "type": "object"
       },
+      "MarketCompetitorAcceptInput": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "expected_version": {
+            "default": null,
+            "nullable": true,
+            "type": "integer"
+          },
+          "selected": {
+            "items": {
+              "$ref": "#/components/schemas/MarketCompetitorSelection"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "dossier_id",
+          "selected"
+        ],
+        "type": "object"
+      },
+      "MarketCompetitorAcceptResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "dossier_id": {
+            "type": "string"
+          },
+          "materialized": {
+            "items": {
+              "$ref": "#/components/schemas/MaterializedEvidence"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "count",
+          "dossier_id",
+          "materialized"
+        ],
+        "type": "object"
+      },
       "MarketCompetitorCandidate": {
         "additionalProperties": false,
         "properties": {
+          "citable_sources": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CitableSourcePublic"
+            },
+            "type": "array"
+          },
           "confidence": {
             "type": "integer"
           },
           "country": {
             "type": "string"
+          },
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "name": {
             "type": "string"
@@ -5616,7 +5729,12 @@
           "rationale": {
             "type": "string"
           },
+          "selectable": {
+            "default": true,
+            "type": "boolean"
+          },
           "source_urls": {
+            "default": [],
             "items": {
               "type": "string"
             },
@@ -5644,8 +5762,7 @@
           "confidence",
           "country",
           "name",
-          "rationale",
-          "source_urls"
+          "rationale"
         ],
         "type": "object"
       },
@@ -5795,6 +5912,13 @@
             },
             "type": "array"
           },
+          "reserved_citable_sources": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReservedCitableSource"
+            },
+            "type": "array"
+          },
           "warnings": {
             "items": {
               "type": "string"
@@ -5829,6 +5953,30 @@
         "required": [
           "job"
         ],
+        "type": "object"
+      },
+      "MarketCompetitorSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "default": "",
+            "type": "string"
+          },
+          "source_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "MarketProfileInput": {
@@ -5927,6 +6075,34 @@
         "required": [
           "own_offer",
           "decision_to_make"
+        ],
+        "type": "object"
+      },
+      "MaterializedEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_url": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "source_id",
+          "source_kind"
         ],
         "type": "object"
       },
@@ -8894,6 +9070,58 @@
           "status",
           "success_criteria",
           "tenant_id"
+        ],
+        "type": "object"
+      },
+      "ReservedCitableSource": {
+        "additionalProperties": false,
+        "properties": {
+          "content_checksum": {
+            "default": "",
+            "type": "string"
+          },
+          "domain": {
+            "default": "",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "type": "string"
+          },
+          "origin": {
+            "default": "web_search",
+            "type": "string"
+          },
+          "origin_label": {
+            "default": "Fuente encontrada por b\u00fasqueda",
+            "type": "string"
+          },
+          "provider": {
+            "default": "",
+            "type": "string"
+          },
+          "rank": {
+            "default": 1,
+            "type": "integer"
+          },
+          "snippet": {
+            "default": "",
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
         ],
         "type": "object"
       },
@@ -14250,6 +14478,92 @@
           }
         ],
         "summary": "Lanza el agente de riesgo: propone; no crea el riesgo.",
+        "tags": [
+          "IA"
+        ]
+      }
+    },
+    "/api/v1/ai/market-competitor-discovery/accept": {
+      "post": {
+        "description": "Requires artifact_id + dossier_id + selected candidates/source_ids.\nFail-closed on cross-tenant, superseded artifact, version drift, alien UUIDs.\nIdempotent: two retries do not duplicate Evidence rows.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketCompetitorAcceptInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketCompetitorAcceptResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Human gate: materialize selected reserved sources into Evidence for a dossier.",
         "tags": [
           "IA"
         ]

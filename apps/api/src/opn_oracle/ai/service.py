@@ -1625,6 +1625,24 @@ def execute_agent(
         # SV2-PERFIL-EVIDENCIA: primero separar declarado de oficial; si no, un
         # fact que cite UUID declared tumba validate_evidence (solo ORM oficial).
         output = result.output.model_dump(mode="json")
+        # G-18: server-owned reserved citable sources on market discovery artifacts.
+        if agent == "market_competitor_discovery":
+            from opn_oracle.ai.citable_sources import (
+                apply_market_competitor_citable_gate,
+                reserved_sources_for_output,
+            )
+
+            citable = getattr(result, "citable_sources", ()) or ()
+            if citable and not output.get("reserved_citable_sources"):
+                output = apply_market_competitor_citable_gate(
+                    output,
+                    citable_sources=citable,
+                    extra_warnings=getattr(result, "source_warnings", ()) or (),
+                )
+            elif citable and output.get("reserved_citable_sources") is None:
+                output["reserved_citable_sources"] = reserved_sources_for_output(citable)
+            # Never create Evidence ORM during discovery (human gate later).
+            output.pop("materialized_evidence_ids", None)
         if agent == "opportunity":
             declared_set: set[uuid.UUID] = set()
             for raw_id in context.manifest.get("declared_evidence_ids") or []:

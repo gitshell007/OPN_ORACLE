@@ -2534,6 +2534,34 @@ export interface SourceUrlMeta {
   verified: false;
 }
 
+/** G-18: closed Signal source projected for UI (no provider/checksum). */
+export interface CitableSourcePublic {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet?: string;
+  rank?: number;
+  domain?: string;
+  label?: string;
+  origin?: string;
+  origin_label?: string;
+}
+
+/** G-18: server-owned reserved source (audit fields for materialization). */
+export interface ReservedCitableSource {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet?: string;
+  provider?: string;
+  rank?: number;
+  content_checksum?: string;
+  origin?: string;
+  domain?: string;
+  label?: string;
+  origin_label?: string;
+}
+
 export interface MarketCompetitorDiscoveryInput {
   description: string;
   own_offer?: string;
@@ -2549,16 +2577,23 @@ export interface MarketCompetitorCandidate {
   name: string;
   country: string;
   rationale: string;
-  source_urls: string[];
+  /** Authoritative citations (= Signal source_id). Required for selectable. */
+  evidence_ids: string[];
+  /** @deprecated Model URLs never accredit; do not use as evidence. */
+  source_urls?: string[];
   source_urls_meta?: SourceUrlMeta[];
   source_urls_status?: string | null;
   source_urls_label?: string | null;
+  citable_sources?: CitableSourcePublic[];
   confidence: number;
+  /** Server: false when candidate has no closed citation. */
+  selectable?: boolean;
 }
 
 export interface MarketCompetitorDiscoveryOutput {
   candidates: MarketCompetitorCandidate[];
   warnings: string[];
+  reserved_citable_sources?: ReservedCitableSource[];
 }
 
 export interface MarketCompetitorDiscoveryArtifact {
@@ -2582,6 +2617,34 @@ export interface MarketCompetitorDiscoveryRunResponse {
 export interface MarketCompetitorDiscoveryLatestResponse {
   job: TenderSearchWizardJob | null;
   artifact: MarketCompetitorDiscoveryArtifact | null;
+}
+
+export interface MarketCompetitorSelection {
+  name?: string;
+  source_ids?: string[];
+  evidence_ids?: string[];
+}
+
+export interface MarketCompetitorAcceptInput {
+  artifact_id: string;
+  dossier_id: string;
+  selected: MarketCompetitorSelection[];
+  expected_version?: number | null;
+}
+
+export interface MaterializedEvidence {
+  evidence_id: string;
+  source_id: string;
+  source_kind: string;
+  source_url?: string | null;
+  label?: string;
+}
+
+export interface MarketCompetitorAcceptResponse {
+  artifact_id: string;
+  dossier_id: string;
+  materialized: MaterializedEvidence[];
+  count: number;
 }
 
 export type ProcurementSearchProfile =
@@ -2983,6 +3046,12 @@ const marketCompetitorDiscovery = {
     request<MarketCompetitorDiscoveryRunResponse>(
       "/api/v1/ai/market-competitor-discovery/runs",
       { method: "POST", body: input, idempotencyKey },
+    ),
+  /** Human gate: materialize selected reserved sources into Evidence for a dossier. */
+  accept: (input: MarketCompetitorAcceptInput) =>
+    request<MarketCompetitorAcceptResponse>(
+      "/api/v1/ai/market-competitor-discovery/accept",
+      { method: "POST", body: input },
     ),
 };
 

@@ -2206,6 +2206,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/market-competitor-discovery/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Human gate: materialize selected reserved sources into Evidence for a dossier.
+         * @description Requires artifact_id + dossier_id + selected candidates/source_ids.
+         *     Fail-closed on cross-tenant, superseded artifact, version drift, alien UUIDs.
+         *     Idempotent: two retries do not duplicate Evidence rows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketCompetitorAcceptInput"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketCompetitorAcceptResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/market-competitor-discovery/latest": {
         parameters: {
             query?: never;
@@ -33242,6 +33325,25 @@ export interface components {
             /** Format: password */
             new_password: string;
         };
+        CitableSourcePublic: {
+            /** @default  */
+            domain: string;
+            /** @default  */
+            label: string;
+            /** @default web_search */
+            origin: string;
+            /** @default Fuente encontrada por búsqueda */
+            origin_label: string;
+            /** @default 1 */
+            rank: number;
+            /** @default  */
+            snippet: string;
+            source_id: string;
+            /** @default  */
+            title: string;
+            /** @default  */
+            url: string;
+        };
         CollaboratorResource: {
             /** Format: date-time */
             created_at?: string;
@@ -34474,11 +34576,31 @@ export interface components {
             /** Format: uuid */
             session_id: string;
         };
+        MarketCompetitorAcceptInput: {
+            artifact_id: string;
+            dossier_id: string;
+            /** @default null */
+            expected_version: number | null;
+            selected: components["schemas"]["MarketCompetitorSelection"][];
+        };
+        MarketCompetitorAcceptResponse: {
+            artifact_id: string;
+            count: number;
+            dossier_id: string;
+            materialized: components["schemas"]["MaterializedEvidence"][];
+        };
         MarketCompetitorCandidate: {
+            /** @default [] */
+            citable_sources: components["schemas"]["CitableSourcePublic"][];
             confidence: number;
             country: string;
+            /** @default [] */
+            evidence_ids: string[];
             name: string;
             rationale: string;
+            /** @default true */
+            selectable: boolean;
+            /** @default [] */
             source_urls: string[];
             /** @default null */
             source_urls_label: string | null;
@@ -34523,11 +34645,21 @@ export interface components {
         };
         MarketCompetitorDiscoveryOutput: {
             candidates: components["schemas"]["MarketCompetitorCandidate"][];
+            /** @default [] */
+            reserved_citable_sources: components["schemas"]["ReservedCitableSource"][];
             warnings: string[];
         };
         MarketCompetitorDiscoveryRunResponse: {
             artifact?: (Record<string, never> | null) | components["schemas"]["MarketCompetitorDiscoveryArtifact"];
             job: components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketCompetitorSelection: {
+            /** @default [] */
+            evidence_ids: string[];
+            /** @default  */
+            name: string;
+            /** @default [] */
+            source_ids: string[];
         };
         MarketProfileInput: {
             /** @description Volumen anual de negocio declarado (EUR). Declarado por el cliente; no sustituye certificados ni documentación oficial. */
@@ -34551,6 +34683,14 @@ export interface components {
             segments?: string[];
             success_indicators?: string[];
             target_buyers?: string[];
+        };
+        MaterializedEvidence: {
+            evidence_id: string;
+            /** @default  */
+            label: string;
+            source_id: string;
+            source_kind: string;
+            source_url?: string | null;
         };
         MeResponse: {
             /** Format: uuid */
@@ -35378,6 +35518,29 @@ export interface components {
             success_criteria: string[];
             tenant_id: string;
             updated_at?: string | null;
+        };
+        ReservedCitableSource: {
+            /** @default  */
+            content_checksum: string;
+            /** @default  */
+            domain: string;
+            /** @default  */
+            label: string;
+            /** @default web_search */
+            origin: string;
+            /** @default Fuente encontrada por búsqueda */
+            origin_label: string;
+            /** @default  */
+            provider: string;
+            /** @default 1 */
+            rank: number;
+            /** @default  */
+            snippet: string;
+            source_id: string;
+            /** @default  */
+            title: string;
+            /** @default  */
+            url: string;
         };
         ResetPasswordInput: {
             /** Format: password */
