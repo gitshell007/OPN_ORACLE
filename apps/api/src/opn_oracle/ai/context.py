@@ -414,12 +414,14 @@ def build_market_actor_discovery_context(
     known_names: list[str],
     max_tokens: int,
     languages: list[str] | None = None,
+    dossier_id: uuid.UUID | str | None = None,
 ) -> BuiltContext:
-    """Build dossierless actor-discovery context; never concatenates title/goal.
+    """Build actor-discovery context from server-owned intent; never concatenates title/goal.
 
     ``discovery_intent`` is stored as the user wrote it after whitespace collapse
     only (no reinterpretation). ``known_names`` are exclusions solely for this
     objective — never partners/regulators/competitors from the global profile.
+    When ``dossier_id`` is set, the artifact lifecycle is scoped to that dossier.
     """
 
     from opn_oracle.ai.schemas import MARKET_ACTOR_TYPES
@@ -446,6 +448,9 @@ def build_market_actor_discovery_context(
     # Only names the user declared as already known *for this objective*.
     cleaned_known = _clean_list(known_names or [], limit=50)
     langs = _clean_list(languages or [], limit=10)
+    dossier_ref: str | None = None
+    if dossier_id is not None:
+        dossier_ref = str(uuid.UUID(str(dossier_id)))
 
     raw_payload: dict[str, Any] = {
         "tenant_id": str(tenant_id),
@@ -466,6 +471,8 @@ def build_market_actor_discovery_context(
             "acreditan. Si no hay respaldo citable, abstente (candidates vacío)."
         ),
     }
+    if dossier_ref is not None:
+        raw_payload["dossier_id"] = dossier_ref
     indicators: list[str] = []
     sanitized, redactions = _sanitize(raw_payload, indicators)
     fitted_payload = _fit_budget(
@@ -477,7 +484,7 @@ def build_market_actor_discovery_context(
         payload=cast(dict[str, Any], json.loads(encoded.decode())),
         manifest={
             "snapshot_kind": "market_actor_discovery",
-            "dossier_id": None,
+            "dossier_id": dossier_ref,
             "evidence_ids": [],
             "evidence_hashes": {},
         },

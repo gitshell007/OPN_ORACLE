@@ -1,14 +1,31 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), readiness: vi.fn(), push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  readiness: vi.fn(),
+  push: vi.fn(),
+  run: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastMessage: vi.fn(),
+}));
 
 vi.mock("@oracle/api-client", () => ({
-  ApiError: class ApiError extends Error {},
-  api: { dossiers: { create: mocks.create, competitiveReadiness: mocks.readiness } },
+  ApiError: class ApiError extends Error {
+    problem = { detail: this.message };
+    constructor(message: string) {
+      super(message);
+    }
+  },
+  api: {
+    dossiers: { create: mocks.create, competitiveReadiness: mocks.readiness },
+    marketActorDiscovery: { run: mocks.run },
+  },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { success: mocks.toastSuccess, message: mocks.toastMessage },
+}));
 
 import {
   CreateProductDossierDialog,
@@ -19,6 +36,7 @@ describe("CreateProductDossierDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.create.mockResolvedValue({ id: "dossier-1" });
+    mocks.run.mockResolvedValue({ job: { id: "job-1", status: "queued" }, artifact: null });
     mocks.readiness.mockResolvedValue({
       ready: false,
       checks: [
@@ -307,5 +325,128 @@ describe("marketStepBlockers", () => {
         discoveryActorType: "research_group",
       }).some((b) => b.includes("encontrar") || b.includes("Intención")),
     ).toBe(true);
+  });
+});
+
+const FR_INTENT =
+  "quiero contactar con grupos de investigación en Francia que trabajen en grafeno";
+
+async function fillMarketWizardToDecision(options?: {
+  withActorDiscovery?: boolean;
+}) {
+  const withActor = options?.withActorDiscovery ?? false;
+  fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "market" } });
+  fireEvent.change(screen.getByLabelText("Nombre"), {
+    target: { value: "Grupos investigación FR grafeno" },
+  });
+  fireEvent.change(screen.getByLabelText("Objetivo estratégico"), {
+    target: { value: "Contactar laboratorios" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+  expect(await screen.findByText("Paso 2 de 4")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Oferta o capacidades propias"), {
+    target: { value: "Colaboración I+D grafeno" },
+  });
+  fireEvent.change(screen.getByLabelText("Sector"), { target: { value: "materiales" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+  expect(await screen.findByText("Paso 3 de 4")).toBeInTheDocument();
+  if (withActor) {
+    fireEvent.change(screen.getByTestId("discovery-intent"), {
+      target: { value: FR_INTENT },
+    });
+    fireEvent.change(screen.getByTestId("discovery-actor-type"), {
+      target: { value: "research_group" },
+    });
+  } else {
+    fireEvent.click(screen.getByRole("radio", { name: "Aún no lo sé" }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+  expect(await screen.findByText("Paso 4 de 4")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Decisión concreta"), {
+    target: { value: "Priorizar 3 grupos de investigación en FR" },
+  });
+}
+
+describe("CreateProductDossierDialog G-19 intake→run", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    mocks.create.mockResolvedValue({ id: "dossier-D" });
+    mocks.run.mockResolvedValue({ job: { id: "job-1", status: "queued" }, artifact: null });
+    mocks.readiness.mockResolvedValue({
+      ready: true,
+      checks: [
+        { key: "ai", ready: true, label: "Análisis con IA", detail: "OK", action_href: "/app/admin/ai" },
+        { key: "signal", ready: true, label: "Signal Avanza", detail: "OK", action_href: "/app/admin/integrations/signal-avanza" },
+      ],
+    });
+  });
+
+  afterEach(cleanup);
+
+  it("FR/research_group/graphene: create → run una vez con solo D/idempotency → Actores", async () => {
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    await fillMarketWizardToDecision({ withActorDiscovery: true });
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "market",
+        profile_config: expect.objectContaining({
+          discovery_intent: FR_INTENT,
+          discovery_actor_type: "research_group",
+        }),
+      }),
+    );
+    await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1));
+    expect(mocks.run).toHaveBeenCalledWith(
+      { dossier_id: "dossier-D" },
+      "g19-actor-run:dossier-D:intake",
+    );
+    // No client-editable intent on run body.
+    const runArg = mocks.run.mock.calls[0][0];
+    expect(runArg).toEqual({ dossier_id: "dossier-D" });
+    expect(runArg).not.toHaveProperty("discovery_intent");
+    expect(runArg).not.toHaveProperty("actor_type");
+    expect(mocks.push).toHaveBeenCalledWith("/app/dossiers/dossier-D/actors");
+  });
+
+  it("enqueue 500: D creado, aviso correcto, navegación y create no se repite", async () => {
+    mocks.run.mockRejectedValue(new Error("enqueue failed"));
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    await fillMarketWizardToDecision({ withActorDiscovery: true });
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.toastMessage).toHaveBeenCalledWith(
+        "Expediente creado; descubrimiento pendiente",
+        expect.any(Object),
+      ),
+    );
+    expect(mocks.push).toHaveBeenCalledWith("/app/dossiers/dossier-D/actors");
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    // No "could not create" path.
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
+      "Expediente creado",
+      expect.anything(),
+    );
+  });
+
+  it("sin discovery_intent no encola run y va a settings/monitor", async () => {
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    await fillMarketWizardToDecision({ withActorDiscovery: false });
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/app/dossiers/dossier-D/settings?wizard_prefill=monitor",
+    );
   });
 });

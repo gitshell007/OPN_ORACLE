@@ -1235,11 +1235,12 @@ def execute_agent(
 ) -> dict[str, Any]:
     tenant_id = require_tenant_id()
     # Agentes sin expediente (contexto tenant-scoped propio; sin evidencia interna).
+    # market_actor_discovery is dossier-scoped (G-19 recorrido vivo); competitor
+    # discovery remains pre-creation / tenant-scoped.
     _DOSSIERLESS_AGENTS = frozenset(
         {
             "tender_search_wizard",
             "market_competitor_discovery",
-            "market_actor_discovery",
         }
     )
     if dossier_id is None and agent not in _DOSSIERLESS_AGENTS:

@@ -2662,13 +2662,9 @@ export type MarketActorType =
   | "regulator"
   | "potential_customer";
 
+/** G-19 live: client sends only dossier_id; server builds intent/type/geo from profile. */
 export interface MarketActorDiscoveryInput {
-  discovery_intent: string;
-  actor_type: MarketActorType;
-  countries?: string[];
-  languages?: string[];
-  /** Explicit exclusions for this objective only. */
-  known_names?: string[];
+  dossier_id: string;
 }
 
 export interface MarketActorCandidate {
@@ -3149,11 +3145,13 @@ const marketCompetitorDiscovery = {
 };
 
 const marketActorDiscovery = {
-  latest: () =>
+  /** Latest job/artifact for one dossier (never tenant-wide). */
+  latest: (dossierId: string) =>
     request<MarketActorDiscoveryLatestResponse>(
-      "/api/v1/ai/market-actor-discovery/latest",
+      `/api/v1/ai/market-actor-discovery/latest?dossier_id=${encodeURIComponent(dossierId)}`,
       { retry: false },
     ),
+  /** Enqueue using server-owned profile for the dossier (body is only dossier_id). */
   run: (input: MarketActorDiscoveryInput, idempotencyKey: string) =>
     request<MarketActorDiscoveryRunResponse>(
       "/api/v1/ai/market-actor-discovery/runs",

@@ -729,6 +729,16 @@ def accept_and_materialize(
         for_update=True,
         agent=agent,
     )
+    # G-19 actor discovery is dossier-scoped: accept only on the owning dossier.
+    # Competitor pre-creation may still have dossier_id=None (attach on accept).
+    if agent == "market_actor_discovery" and (
+        artifact.dossier_id is None or artifact.dossier_id != dossier_id
+    ):
+        raise MaterializeError(
+            "artifact_dossier_mismatch",
+            "El artifact de descubrimiento no pertenece a este expediente.",
+            status=404,
+        )
     source_ids, candidate_ids = resolve_selection(artifact, selected=selected)
     try:
         evidences = materialize_web_search_sources(

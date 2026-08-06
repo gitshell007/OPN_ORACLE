@@ -753,9 +753,17 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
 
             actor_intent = str(payload["discovery_intent"])
             actor_type = str(payload["actor_type"])
+            # Dossier-scoped: prefer job.dossier_id, fall back to payload (server-owned).
+            actor_dossier_id = job.dossier_id
+            if actor_dossier_id is None and payload.get("dossier_id"):
+                actor_dossier_id = uuid.UUID(str(payload["dossier_id"]))
+            if actor_dossier_id is None:
+                raise ValueError(
+                    "market_actor_discovery exige dossier_id en el job o en el payload."
+                )
             return execute_agent(
                 agent=agent,
-                dossier_id=None,
+                dossier_id=actor_dossier_id,
                 job=job,
                 context_factory=lambda max_tokens: build_market_actor_discovery_context(
                     discovery_intent=actor_intent,
@@ -764,9 +772,10 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     languages=[str(item) for item in payload.get("languages", [])],
                     known_names=[str(item) for item in payload.get("known_names", [])],
                     max_tokens=max_tokens,
+                    dossier_id=actor_dossier_id,
                 ),
-                target_type="market_actor_discovery",
-                target_id=job.tenant_id,
+                target_type="strategic_dossier",
+                target_id=actor_dossier_id,
             )
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
         if agent == "dossier_completion_wizard":

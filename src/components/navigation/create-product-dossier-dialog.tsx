@@ -422,20 +422,46 @@ export function CreateProductDossierDialog({
           // sessionStorage puede no estar disponible; el prefill es opcional.
         }
       }
+      // G-19: after market dossier exists, enqueue actor discovery from server-owned profile.
+      // Client sends only dossier_id + deterministic Idempotency-Key for this creation.
+      let discoveryEnqueueFailed = false;
+      if (isMarket && hasActorDiscovery) {
+        try {
+          await api.marketActorDiscovery.run(
+            { dossier_id: dossier.id },
+            `g19-actor-run:${dossier.id}:intake`.slice(0, 200),
+          );
+        } catch {
+          discoveryEnqueueFailed = true;
+        }
+      }
       onOpenChange(false);
       const createdMarket = isMarket;
+      const goActors = Boolean(createdMarket && hasActorDiscovery);
       resetForm();
-      toast.success("Expediente creado", {
-        description: createdMarket
-          ? "Se ha creado con su base de mercado editable. Revisa la vigilancia antes de activar el radar."
-          : type === "competitive_intelligence" && activeOnCreate
-            ? "Se ha creado activo con su base competitiva editable."
-            : "Se ha creado como borrador en el espacio de trabajo principal.",
-      });
+      if (discoveryEnqueueFailed) {
+        // Dossier already exists — never present "could not create" or re-submit create.
+        toast.message("Expediente creado; descubrimiento pendiente", {
+          description:
+            "El expediente de mercado ya está guardado. Puedes reintentar el descubrimiento de actores en la sección Actores.",
+        });
+      } else {
+        toast.success("Expediente creado", {
+          description: goActors
+            ? "Se ha encolado el descubrimiento de actores. Revisa el resultado en Actores."
+            : createdMarket
+              ? "Se ha creado con su base de mercado editable. Revisa la vigilancia antes de activar el radar."
+              : type === "competitive_intelligence" && activeOnCreate
+                ? "Se ha creado activo con su base competitiva editable."
+                : "Se ha creado como borrador en el espacio de trabajo principal.",
+        });
+      }
       router.push(
-        createdMarket
-          ? `/app/dossiers/${dossier.id}/settings?wizard_prefill=monitor`
-          : `/app/dossiers/${dossier.id}`,
+        goActors
+          ? `/app/dossiers/${dossier.id}/actors`
+          : createdMarket
+            ? `/app/dossiers/${dossier.id}/settings?wizard_prefill=monitor`
+            : `/app/dossiers/${dossier.id}`,
       );
     } catch (reason) {
       setError(

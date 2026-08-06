@@ -53,6 +53,7 @@ def test_build_market_actor_discovery_context_fr_graphene(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
     monkeypatch.setattr(ai_context, "require_tenant_id", lambda: tenant_id)
 
     context = build_market_actor_discovery_context(
@@ -62,9 +63,10 @@ def test_build_market_actor_discovery_context_fr_graphene(
         known_names=[],
         languages=["fr"],
         max_tokens=800,
+        dossier_id=dossier_id,
     )
     assert context.manifest["snapshot_kind"] == "market_actor_discovery"
-    assert context.manifest["dossier_id"] is None
+    assert context.manifest["dossier_id"] == str(dossier_id)
     assert context.evidence == ()
     assert context.payload["tenant_id"] == str(tenant_id)
     # Exact intent preserved (whitespace collapsed only; no title/goal).
@@ -347,12 +349,31 @@ def _authenticated_ai(app: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[uui
         before[index] = original
 
 
-def test_market_actor_discovery_http_enqueues_dossierless_job(
+def test_market_actor_discovery_http_enqueues_dossier_scoped_job(
     app: Any,
     client: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Run uses server-owned profile; forged client intent/type/geo are ignored."""
+
     captured: dict[str, Any] = {}
+    dossier_id = uuid.uuid4()
+
+    dossier = type(
+        "Dossier",
+        (),
+        {
+            "id": dossier_id,
+            "dossier_type": "market",
+            "geography": ["FR"],
+            "languages": ["fr"],
+            "profile_config": {
+                "discovery_intent": CANONICAL_INTENT,
+                "discovery_actor_type": "research_group",
+                "discovery_known_names": [],
+            },
+        },
+    )()
 
     def fake_enqueue(task_name: str, **kwargs: Any) -> Any:
         captured["task_name"] = task_name
@@ -373,18 +394,24 @@ def test_market_actor_discovery_http_enqueues_dossierless_job(
         "serialize_job",
         lambda job: {"id": str(job.id), "status": job.status},
     )
+    monkeypatch.setattr(ai_routes, "_dossier", lambda did, write: dossier)
     monkeypatch.setattr(
-        ai_routes, "_latest_market_actor_discovery_artifact", lambda: None
+        ai_routes,
+        "_latest_market_actor_discovery_artifact",
+        lambda did: None,
     )
 
-    with _authenticated_ai(app, monkeypatch) as tenant_id:
+    with _authenticated_ai(app, monkeypatch):
         response = client.post(
             "/api/v1/ai/market-actor-discovery/runs",
             json={
-                "discovery_intent": CANONICAL_INTENT,
-                "actor_type": "research_group",
-                "countries": ["FR"],
-                "known_names": [],
+                "dossier_id": str(dossier_id),
+                # Forged fields must not drive the payload:
+                "discovery_intent": "FORGED INTENT FROM CLIENT XXXXXXXX",
+                "actor_type": "company",
+                "countries": ["US"],
+                "languages": ["en"],
+                "known_names": ["Forged"],
             },
             headers={"Idempotency-Key": "g19-actor-run-1"},
         )
@@ -394,10 +421,12 @@ def test_market_actor_discovery_http_enqueues_dossierless_job(
     assert captured["payload"]["discovery_intent"] == CANONICAL_INTENT
     assert captured["payload"]["actor_type"] == "research_group"
     assert captured["payload"]["countries"] == ["FR"]
+    assert captured["payload"]["languages"] == ["fr"]
     assert "description" not in captured["payload"]
     assert "title" not in captured["payload"]
-    assert captured["resource_type"] == "market_actor_discovery"
-    assert captured["resource_id"] == tenant_id
+    assert captured["resource_type"] == "strategic_dossier"
+    assert captured["resource_id"] == dossier_id
+    assert captured["dossier_id"] == dossier_id
 
 
 def test_market_actor_discovery_http_requires_idempotency_key(
@@ -405,14 +434,26 @@ def test_market_actor_discovery_http_requires_idempotency_key(
     client: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    dossier_id = uuid.uuid4()
+    dossier = type(
+        "Dossier",
+        (),
+        {
+            "id": dossier_id,
+            "dossier_type": "market",
+            "geography": ["FR"],
+            "languages": ["fr"],
+            "profile_config": {
+                "discovery_intent": CANONICAL_INTENT,
+                "discovery_actor_type": "research_group",
+            },
+        },
+    )()
+    monkeypatch.setattr(ai_routes, "_dossier", lambda did, write: dossier)
     with _authenticated_ai(app, monkeypatch):
         response = client.post(
             "/api/v1/ai/market-actor-discovery/runs",
-            json={
-                "discovery_intent": CANONICAL_INTENT,
-                "actor_type": "research_group",
-                "countries": ["FR"],
-            },
+            json={"dossier_id": str(dossier_id)},
         )
     assert response.status_code == 428
 
@@ -422,13 +463,64 @@ def test_market_actor_discovery_http_validation_error(
     client: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Missing dossier_id / no intent on profile → 422."""
+
+    dossier_id = uuid.uuid4()
+    dossier = type(
+        "Dossier",
+        (),
+        {
+            "id": dossier_id,
+            "dossier_type": "market",
+            "geography": [],
+            "languages": [],
+            "profile_config": {},  # no discovery_intent
+        },
+    )()
+    monkeypatch.setattr(ai_routes, "_dossier", lambda did, write: dossier)
     with _authenticated_ai(app, monkeypatch):
         response = client.post(
             "/api/v1/ai/market-actor-discovery/runs",
-            json={"discovery_intent": "  ", "actor_type": "research_group"},
-            headers={"Idempotency-Key": "bad"},
+            json={"dossier_id": str(dossier_id)},
+            headers={"Idempotency-Key": "bad-profile"},
         )
     assert response.status_code == 422
+
+
+def test_market_actor_discovery_latest_requires_dossier_scope(
+    app: Any,
+    client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dossier_id = uuid.uuid4()
+    called: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        ai_routes,
+        "_dossier",
+        lambda did, write: type("D", (), {"id": did, "dossier_type": "market"})(),
+    )
+    def fake_job(did: uuid.UUID) -> None:
+        called["job_d"] = did
+        return None
+
+    def fake_art(did: uuid.UUID) -> None:
+        called["art_d"] = did
+        return None
+
+    monkeypatch.setattr(ai_routes, "_latest_market_actor_discovery_job", fake_job)
+    monkeypatch.setattr(ai_routes, "_latest_market_actor_discovery_artifact", fake_art)
+    monkeypatch.setattr(ai_routes, "serialize_job", lambda job: None)
+
+    with _authenticated_ai(app, monkeypatch):
+        missing = client.get("/api/v1/ai/market-actor-discovery/latest")
+        assert missing.status_code == 422
+        ok = client.get(
+            f"/api/v1/ai/market-actor-discovery/latest?dossier_id={dossier_id}"
+        )
+        assert ok.status_code == 200
+        assert called["job_d"] == dossier_id
+        assert called["art_d"] == dossier_id
 
 
 def test_execute_ai_market_actor_discovery_handler(
@@ -436,12 +528,14 @@ def test_execute_ai_market_actor_discovery_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = uuid.uuid4()
+    dossier_id = uuid.uuid4()
     captured: dict[str, Any] = {}
 
     def fake_execute_agent(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         built = kwargs["context_factory"](500)
         captured["built_payload"] = built.payload
+        captured["built_manifest"] = built.manifest
         return {"ok": True, "agent": kwargs["agent"]}
 
     monkeypatch.setattr(job_tasks, "execute_agent", fake_execute_agent)
@@ -450,11 +544,12 @@ def test_execute_ai_market_actor_discovery_handler(
     job = type(
         "Job",
         (),
-        {"id": uuid.uuid4(), "tenant_id": tenant_id, "dossier_id": None},
+        {"id": uuid.uuid4(), "tenant_id": tenant_id, "dossier_id": dossier_id},
     )()
     result = job_tasks._execute_ai(
         "market_actor_discovery",
         {
+            "dossier_id": str(dossier_id),
             "discovery_intent": CANONICAL_INTENT,
             "actor_type": "research_group",
             "countries": ["FR"],
@@ -464,10 +559,11 @@ def test_execute_ai_market_actor_discovery_handler(
     )
     assert result["ok"] is True
     assert captured["agent"] == "market_actor_discovery"
-    assert captured["dossier_id"] is None
-    assert captured["target_type"] == "market_actor_discovery"
-    assert captured["target_id"] == tenant_id
+    assert captured["dossier_id"] == dossier_id
+    assert captured["target_type"] == "strategic_dossier"
+    assert captured["target_id"] == dossier_id
     assert captured["built_payload"]["discovery_intent"] == CANONICAL_INTENT
     assert captured["built_payload"]["actor_type"] == "research_group"
     assert captured["built_payload"]["countries"] == ["FR"]
     assert captured["built_payload"]["known_names"] == []
+    assert captured["built_manifest"]["dossier_id"] == str(dossier_id)

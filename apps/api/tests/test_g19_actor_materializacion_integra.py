@@ -334,6 +334,8 @@ def g19_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
                 if agent == "market_actor_discovery"
                 else "market_discovery"
             )
+            # Actor artifacts are dossier-scoped (G-19 live); competitor stays pre-creation.
+            art_dossier = dossier_id if agent == "market_actor_discovery" else None
             conn.execute(
                 text(
                     "INSERT INTO ai_artifacts("
@@ -341,7 +343,7 @@ def g19_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
                     "schema_name, schema_version, output, output_hash, status, version, "
                     "created_at, updated_at"
                     ") VALUES ("
-                    ":id, :t, :audit, NULL, :tt, :t, :agent, :schema, 'v1', "
+                    ":id, :t, :audit, :did, :tt, :tid, :agent, :schema, 'v1', "
                     "CAST(:out AS jsonb), :h, 'candidate', 1, :now, :now"
                     ")"
                 ),
@@ -349,7 +351,9 @@ def g19_pg() -> Iterator[tuple[Any, dict[str, Any]]]:
                     "id": aid,
                     "t": tenant_id,
                     "audit": audit_row,
+                    "did": art_dossier,
                     "tt": target_type,
+                    "tid": (dossier_id if agent == "market_actor_discovery" else tenant_id),
                     "agent": agent,
                     "schema": schema_name,
                     "out": _json.dumps(out),
@@ -468,3 +472,57 @@ def test_service_rollback_zero_rows(g19_pg: tuple[Any, dict[str, Any]]) -> None:
                 agent="market_actor_discovery",
             )
         assert _counts(env["tenant_id"]) == (0, 0, 0)
+
+
+def test_accept_actor_wrong_dossier_zero_rows(g19_pg: tuple[Any, dict[str, Any]]) -> None:
+    """Accept A1 on D2 → 404 and 0 new rows; accept A1 on D1 → 1/1/1."""
+
+    app, env = g19_pg
+    d2 = uuid.uuid4()
+    with app.app_context():
+        # Second market dossier same tenant.
+        db.session.execute(
+            text(
+                "INSERT INTO strategic_dossiers("
+                "id, tenant_id, workspace_id, title, description, dossier_type, status, "
+                "strategic_goal, geography, sectors, languages, scoring_config, "
+                "health_score, opportunity_score, risk_score, score_explanation, "
+                "profile_config, owner_user_id, version, synthetic_data, "
+                "created_at, updated_at"
+                ") SELECT "
+                ":id, tenant_id, workspace_id, 'Mercado D2', '', 'market', 'active', '', "
+                "'[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 0, 0, 0, '{}'::jsonb, "
+                "'{}'::jsonb, owner_user_id, 1, false, now(), now() "
+                "FROM strategic_dossiers WHERE id = :d1"
+            ),
+            {"id": d2, "d1": env["dossier_id"]},
+        )
+        db.session.commit()
+
+    with app.app_context(), tenant_context(
+        TenantContext(
+            tenant_id=env["tenant_id"],
+            actor_id=env["user_id"],
+            platform_access=False,
+            access_reason="g19-d1d2",
+        )
+    ):
+        with pytest.raises(MaterializeError) as exc:
+            accept_and_materialize(
+                artifact_id=env["actor_artifact_id"],
+                dossier_id=d2,
+                selected=[{"candidate_id": env["c1"], "source_ids": [env["s1"]]}],
+                agent="market_actor_discovery",
+            )
+        assert exc.value.status == 404
+        assert exc.value.code == "artifact_dossier_mismatch"
+        assert _counts(env["tenant_id"]) == (0, 0, 0)
+
+        result = accept_and_materialize(
+            artifact_id=env["actor_artifact_id"],
+            dossier_id=env["dossier_id"],
+            selected=[{"candidate_id": env["c1"], "source_ids": [env["s1"]]}],
+            agent="market_actor_discovery",
+        )
+        assert result["count"] == 1
+        assert _counts(env["tenant_id"]) == (1, 1, 1)

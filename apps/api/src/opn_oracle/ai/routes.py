@@ -266,23 +266,15 @@ class MarketCompetitorAcceptResponseSchema(Schema):
 
 
 class MarketActorDiscoveryInputSchema(Schema):
-    discovery_intent = String(required=True, validate=validate.Length(min=10, max=2_000))
-    actor_type = String(
-        required=True,
-        validate=validate.OneOf(
-            [
-                "company",
-                "research_group",
-                "technology_center",
-                "regulator",
-                "potential_customer",
-            ]
-        ),
-    )
-    countries = List(String(validate=validate.Length(min=2, max=3)), load_default=[])
-    languages = List(String(validate=validate.Length(max=10)), load_default=[])
-    # Only names already known *for this objective* (never global partners/regulators).
-    known_names = List(String(validate=validate.Length(max=300)), load_default=[])
+    """Client sends only dossier_id; intent/type/geo come from persisted profile.
+
+    Extra client fields (forged intent/type/geo) are excluded, never trusted.
+    """
+
+    dossier_id = String(required=True)
+
+    class Meta:
+        unknown = "exclude"
 
 
 class MarketActorCandidateSchema(Schema):
@@ -1159,12 +1151,14 @@ def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
     return result
 
 
-def _latest_market_actor_discovery_artifact() -> AIArtifact | None:
+def _latest_market_actor_discovery_artifact(dossier_id: uuid.UUID) -> AIArtifact | None:
+    """Latest actor-discovery artifact for one market dossier (never tenant-wide)."""
+
     return db.session.scalar(
         select(AIArtifact)
         .where(
             AIArtifact.tenant_id == g.active_tenant_id,
-            AIArtifact.dossier_id.is_(None),
+            AIArtifact.dossier_id == dossier_id,
             AIArtifact.agent == MARKET_ACTOR_DISCOVERY_AGENT,
         )
         .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
@@ -1172,12 +1166,14 @@ def _latest_market_actor_discovery_artifact() -> AIArtifact | None:
     )
 
 
-def _latest_market_actor_discovery_job() -> BackgroundJob | None:
+def _latest_market_actor_discovery_job(dossier_id: uuid.UUID) -> BackgroundJob | None:
+    """Latest actor-discovery job for one market dossier (never tenant-wide)."""
+
     return db.session.scalar(
         select(BackgroundJob)
         .where(
             BackgroundJob.tenant_id == g.active_tenant_id,
-            BackgroundJob.dossier_id.is_(None),
+            BackgroundJob.dossier_id == dossier_id,
             BackgroundJob.job_type == f"oracle.ai.{MARKET_ACTOR_DISCOVERY_AGENT}",
         )
         .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
@@ -1301,8 +1297,65 @@ def _serialize_market_actor_discovery_artifact(
     return base
 
 
+def _market_actor_discovery_payload_from_dossier(dossier: StrategicDossier) -> dict[str, Any]:
+    """Build run payload exclusively from persisted market profile + dossier geo.
+
+    Client-supplied intent/type/countries/languages/known_names are ignored.
+    Never concatenates title/goal/description into discovery_intent.
+    """
+
+    from opn_oracle.ai.context import DISCOVERY_INTENT_MAX_LEN, DISCOVERY_INTENT_MIN_LEN
+    from opn_oracle.ai.schemas import MARKET_ACTOR_TYPES
+
+    if str(dossier.dossier_type or "") != "market":
+        raise ValueError(
+            "Solo un expediente de tipo market puede lanzar descubrimiento de actores."
+        )
+
+    profile = dossier.profile_config if isinstance(dossier.profile_config, dict) else {}
+    intent = " ".join(str(profile.get("discovery_intent") or "").split())
+    if len(intent) < DISCOVERY_INTENT_MIN_LEN or len(intent) > DISCOVERY_INTENT_MAX_LEN:
+        raise ValueError(
+            "El expediente no tiene discovery_intent válido en el perfil "
+            f"(entre {DISCOVERY_INTENT_MIN_LEN} y {DISCOVERY_INTENT_MAX_LEN} caracteres)."
+        )
+    actor_type = str(profile.get("discovery_actor_type") or "").strip().lower()
+    if actor_type not in MARKET_ACTOR_TYPES:
+        raise ValueError(
+            "El expediente no tiene discovery_actor_type válido en el perfil "
+            "(company, research_group, technology_center, regulator o potential_customer)."
+        )
+
+    def _clean_strings(
+        raw: Any, *, limit: int, upper: bool = False, lower: bool = False
+    ) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        cleaned = [" ".join(str(item).split())[:300] for item in raw]
+        cleaned = [item for item in cleaned if item]
+        if upper:
+            cleaned = [item.upper() for item in cleaned]
+        if lower:
+            cleaned = [item.lower() for item in cleaned]
+        return list(dict.fromkeys(cleaned))[:limit]
+
+    known_raw = profile.get("discovery_known_names") or []
+    countries = _clean_strings(dossier.geography or [], limit=27, upper=True)
+    languages = _clean_strings(dossier.languages or [], limit=10, lower=True)
+    return {
+        "dossier_id": str(dossier.id),
+        "discovery_intent": intent,
+        "actor_type": actor_type,
+        "countries": countries,
+        "languages": languages,
+        # Explicit objective exclusions only — never inject partners/regulators.
+        "known_names": _clean_strings(known_raw, limit=50),
+    }
+
+
+# Kept for unit tests that validate free-text bounds independently of a dossier.
 def _market_actor_discovery_input(value: Any) -> dict[str, Any]:
-    """Validate actor discovery run payload. Never concatenates title/goal."""
+    """Validate a raw intent payload shape (tests / internal). Prefer dossier path."""
 
     if not isinstance(value, dict):
         raise ValueError("Payload no válido.")
@@ -1341,7 +1394,6 @@ def _market_actor_discovery_input(value: Any) -> dict[str, Any]:
         "actor_type": actor_type,
         "countries": _clean_list("countries", limit=27, upper=True),
         "languages": _clean_list("languages", limit=10, lower=True),
-        # Explicit objective exclusions only — never inject partners/regulators.
         "known_names": _clean_list("known_names", limit=50),
     }
 
@@ -1351,8 +1403,30 @@ def _market_actor_discovery_input(value: Any) -> dict[str, Any]:
 @bp.input(MarketActorDiscoveryInputSchema)
 @bp.output(MarketActorDiscoveryRunResponseSchema, status_code=202)
 def enqueue_market_actor_discovery(json_data: dict[str, Any]) -> Any:
+    """Enqueue actor discovery for a market dossier using server-owned profile fields.
+
+    Request body is only ``dossier_id``. Intent, type, known_names, geography and
+    languages are loaded from the accessible market dossier; client forgeries are
+    ignored. Job/artifact are scoped to that dossier (resource_type=strategic_dossier).
+    """
+
     try:
-        payload = _market_actor_discovery_input(json_data)
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
+    except (KeyError, TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="dossier_id debe ser un UUID válido.",
+            code="validation_error",
+        )
+    dossier = _dossier(dossier_id, write=True)
+    if dossier is None:
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    try:
+        payload = _market_actor_discovery_payload_from_dossier(dossier)
     except ValueError as error:
         return _tender_wizard_problem(
             422,
@@ -1372,8 +1446,9 @@ def enqueue_market_actor_discovery(json_data: dict[str, Any]) -> Any:
             payload=payload,
             idempotency_key=key,
             requested_by_user_id=current_user.id,
-            resource_type=MARKET_ACTOR_DISCOVERY_TARGET,
-            resource_id=g.active_tenant_id,
+            dossier_id=dossier.id,
+            resource_type="strategic_dossier",
+            resource_id=dossier.id,
         )
     except ValueError as error:
         return _tender_wizard_problem(
@@ -1384,7 +1459,7 @@ def enqueue_market_actor_discovery(json_data: dict[str, Any]) -> Any:
     return {
         "job": serialize_job(job),
         "artifact": _serialize_market_actor_discovery_artifact(
-            _latest_market_actor_discovery_artifact()
+            _latest_market_actor_discovery_artifact(dossier.id)
         ),
     }, 202
 
@@ -1393,11 +1468,35 @@ def enqueue_market_actor_discovery(json_data: dict[str, Any]) -> Any:
 @require_permission("ai.execute")
 @bp.output(MarketActorDiscoveryLatestResponseSchema)
 def latest_market_actor_discovery() -> Any:
-    job = _latest_market_actor_discovery_job()
+    """Return latest job/artifact for one dossier; never a tenant-wide result."""
+
+    raw = (request.args.get("dossier_id") or "").strip()
+    if not raw:
+        return _tender_wizard_problem(
+            422,
+            detail="dossier_id es obligatorio para consultar el descubrimiento de actores.",
+            code="validation_error",
+        )
+    try:
+        dossier_id = uuid.UUID(raw)
+    except (TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="dossier_id debe ser un UUID válido.",
+            code="validation_error",
+        )
+    dossier = _dossier(dossier_id, write=False)
+    if dossier is None:
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    job = _latest_market_actor_discovery_job(dossier_id)
     return {
         "job": serialize_job(job) if job else None,
         "artifact": _serialize_market_actor_discovery_artifact(
-            _latest_market_actor_discovery_artifact()
+            _latest_market_actor_discovery_artifact(dossier_id)
         ),
     }
 

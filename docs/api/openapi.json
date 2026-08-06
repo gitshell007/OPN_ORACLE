@@ -5834,50 +5834,12 @@
       "MarketActorDiscoveryInput": {
         "additionalProperties": false,
         "properties": {
-          "actor_type": {
-            "enum": [
-              "company",
-              "research_group",
-              "technology_center",
-              "regulator",
-              "potential_customer"
-            ],
+          "dossier_id": {
             "type": "string"
-          },
-          "countries": {
-            "default": [],
-            "items": {
-              "maxLength": 3,
-              "minLength": 2,
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "discovery_intent": {
-            "maxLength": 2000,
-            "minLength": 10,
-            "type": "string"
-          },
-          "known_names": {
-            "default": [],
-            "items": {
-              "maxLength": 300,
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "languages": {
-            "default": [],
-            "items": {
-              "maxLength": 10,
-              "type": "string"
-            },
-            "type": "array"
           }
         },
         "required": [
-          "actor_type",
-          "discovery_intent"
+          "dossier_id"
         ],
         "type": "object"
       },
@@ -14931,7 +14893,17 @@
     },
     "/api/v1/ai/market-actor-discovery/latest": {
       "get": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dossier_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Market dossier UUID; scopes latest job/artifact (never tenant-wide)."
+          }
+        ],
         "responses": {
           "200": {
             "content": {

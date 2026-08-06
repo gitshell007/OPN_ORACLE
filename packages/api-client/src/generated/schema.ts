@@ -2286,7 +2286,9 @@ export interface paths {
     };
     "/api/v1/ai/market-actor-discovery/latest": {
         parameters: {
-            query?: never;
+            query?: {
+                dossier_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2294,7 +2296,10 @@ export interface paths {
         /** Latest Market Actor Discovery */
         get: {
             parameters: {
-                query?: never;
+                query: {
+                    /** Market dossier UUID; scopes latest job/artifact (never tenant-wide). */
+                    dossier_id: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -34864,15 +34869,7 @@ export interface components {
             version: number;
         };
         MarketActorDiscoveryInput: {
-            /** @enum {string} */
-            actor_type: "company" | "research_group" | "technology_center" | "regulator" | "potential_customer";
-            /** @default [] */
-            countries: string[];
-            discovery_intent: string;
-            /** @default [] */
-            known_names: string[];
-            /** @default [] */
-            languages: string[];
+            dossier_id: string;
         };
         MarketActorDiscoveryLatestResponse: {
             artifact?: (Record<string, never> | null) | components["schemas"]["MarketActorDiscoveryArtifact"];
