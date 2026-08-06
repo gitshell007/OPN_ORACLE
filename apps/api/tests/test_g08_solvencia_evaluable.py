@@ -167,6 +167,11 @@ def test_empty_solvency_is_clean_absence() -> None:
         "1.000.000 EUR",
         "about 2M",
         "NaN",
+        # Internal whitespace = thousand separators → reject (parity with FE fail-closed)
+        "1 000 000",
+        "1\t000",
+        "1\u00a0000",
+        "1\u202f000",
     ],
 )
 def test_annual_turnover_rejects_invalid(raw: object) -> None:
@@ -179,6 +184,30 @@ def test_annual_turnover_rejects_invalid(raw: object) -> None:
                 "annual_turnover": raw,
             }
         )
+
+
+def test_annual_turnover_space_thousand_separator_rejected_parity() -> None:
+    """Parity FE↔BE: space-separated thousands never normalize to a number."""
+    spaced = "1 000 000"
+    with pytest.raises(DomainValidationError, match="annual_turnover"):
+        _validated_market_profile(
+            {
+                "own_offer": "Oferta",
+                "decision_to_make": "Decidir",
+                "competitors": [{"name": "R"}],
+                "annual_turnover": spaced,
+            }
+        )
+    # Explicit number still accepted (no regression on bare digits)
+    out = _validated_market_profile(
+        {
+            "own_offer": "Oferta",
+            "decision_to_make": "Decidir",
+            "competitors": [{"name": "R"}],
+            "annual_turnover": 1_000_000,
+        }
+    )
+    assert out["annual_turnover"] == 1_000_000
 
 
 def test_past_services_rejects_bool_and_excessive_length() -> None:

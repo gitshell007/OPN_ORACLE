@@ -364,6 +364,59 @@ describe("DossierProfilePanel", () => {
     },
   );
 
+  it("market: separador de miles por espacios conserva texto, error accesible y no PATCH; corregir → número", () => {
+    const spaced = "1 000 000";
+    let current = {
+      ...marketDraft,
+      annual_turnover: spaced,
+      past_services: "Servicios OK",
+    };
+    const onSave = vi.fn((event: { preventDefault(): void }) => event.preventDefault());
+    const onDraftChange = vi.fn((next: typeof marketDraft) => {
+      current = next as typeof current;
+    });
+
+    const { rerender } = render(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="market"
+        profileConfig={{ version: "market.v1", own_offer: "Integración de baterías" }}
+        draft={current}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+      />,
+    );
+
+    const volume = screen.getByLabelText("Volumen anual de negocio declarado (EUR)");
+    expect(volume).toHaveValue(spaced);
+
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+    expect(onSave).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(ANNUAL_TURNOVER_INVALID_MSG);
+    expect(volume).toHaveAttribute("aria-invalid", "true");
+    // Exact draft text preserved (spaces not stripped, not coerced to 1000000)
+    expect(volume).toHaveValue(spaced);
+    expect(() => profileConfigFromDraft(current)).toThrow();
+
+    // Correct to bare number → error clears and save proceeds with numeric payload
+    current = { ...current, annual_turnover: "1000000" };
+    rerender(
+      <DossierProfilePanel
+        dossierId="d1"
+        dossierType="market"
+        profileConfig={{ version: "market.v1", own_offer: "Integración de baterías" }}
+        draft={current}
+        onDraftChange={onDraftChange}
+        onSave={onSave}
+      />,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Guardar perfil/ }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(profileConfigFromDraft(current).annual_turnover).toBe(1_000_000);
+  });
+
   it("servicios max+1: no trunca, error visible y onSave/PATCH bloqueado", () => {
     const over = "x".repeat(PAST_SERVICES_MAX_LEN + 1);
     const draft = { ...marketDraft, annual_turnover: "100", past_services: over };

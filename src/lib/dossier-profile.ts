@@ -158,11 +158,17 @@ export const PAST_SERVICES_TOO_LONG_MSG = (max: number) =>
 
 /**
  * Parse draft annual_turnover: empty | valid (≥0 finite) | invalid with message.
- * Empty / whitespace → empty (clean absence). `0` is valid. No permissive coercion.
+ * Empty / exterior-only whitespace → empty (clean absence). `0` is valid.
+ * Internal whitespace (space, tab, NBSP, narrow NBSP) is invalid — never stripped.
+ * No permissive coercion of thousand separators, currency, signs, or scientific notation.
  */
 export function parseAnnualTurnover(value: string): AnnualTurnoverParse {
-  const trimmed = value.trim().replace(/\s+/g, "");
+  const trimmed = value.trim();
   if (!trimmed) return { status: "empty" };
+  // Fail-closed: any internal whitespace is a thousand-separator (or garbage), not a number.
+  if (/\s/.test(trimmed)) {
+    return { status: "invalid", message: ANNUAL_TURNOVER_INVALID_MSG };
+  }
   // Single optional decimal separator; no thousands separators, currency, or signs.
   const normalized = trimmed.includes(",") && !trimmed.includes(".")
     ? trimmed.replace(",", ".")

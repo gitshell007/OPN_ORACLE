@@ -297,8 +297,15 @@ def _normalize_annual_turnover(raw: Any) -> int | float:
     if isinstance(raw, (int, float)):
         value = float(raw)
     elif isinstance(raw, str):
-        cleaned = raw.strip().replace(" ", "").replace(",", ".")
-        if not cleaned or not _CLEAN_NUMERIC_RE.fullmatch(cleaned):
+        # Exterior whitespace only; internal spaces are thousand separators → reject.
+        cleaned = raw.strip()
+        if not cleaned or re.search(r"\s", cleaned):
+            raise DomainValidationError(
+                "annual_turnover debe ser un número JSON válido ≥0 en EUR "
+                "(sin símbolos de moneda ni formatos ambiguos)."
+            )
+        cleaned = cleaned.replace(",", ".")
+        if not _CLEAN_NUMERIC_RE.fullmatch(cleaned):
             raise DomainValidationError(
                 "annual_turnover debe ser un número JSON válido ≥0 en EUR "
                 "(sin símbolos de moneda ni formatos ambiguos)."

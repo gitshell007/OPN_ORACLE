@@ -157,6 +157,8 @@ describe("dossier-profile helpers", () => {
     expect(parseAnnualTurnover("2000000")).toEqual({ status: "valid", value: 2_000_000 });
     expect(parseAnnualTurnover("2000000.50")).toEqual({ status: "valid", value: 2000000.5 });
     expect(parseAnnualTurnover("1500,25")).toEqual({ status: "valid", value: 1500.25 });
+    // Exterior-only whitespace is trimmed; value remains valid.
+    expect(parseAnnualTurnover("  1000000  ")).toEqual({ status: "valid", value: 1_000_000 });
 
     for (const bad of [
       "1.000.000 EUR",
@@ -168,6 +170,11 @@ describe("dossier-profile helpers", () => {
       "1.000.000",
       "€2000000",
       "2000000 EUR",
+      // Internal whitespace = thousand separator (or garbage) → invalid, never stripped
+      "1 000 000",
+      "1\t000",
+      "1\u00a0000",
+      "1\u202f000",
     ]) {
       const parsed = parseAnnualTurnover(bad);
       expect(parsed.status).toBe("invalid");
@@ -183,6 +190,29 @@ describe("dossier-profile helpers", () => {
         past_services: "",
       });
       expect(emptyPayload).not.toHaveProperty("annual_turnover");
+    }
+  });
+
+  it("whitespace interno (espacio, tab, NBSP, narrow NBSP) es invalid y no produce número ni ausencia", () => {
+    const spaced = [
+      "1 000 000",
+      "1\t000",
+      "1\u00a0000",
+      "1\u202f000",
+    ] as const;
+    for (const bad of spaced) {
+      expect(parseAnnualTurnover(bad)).toEqual({
+        status: "invalid",
+        message: ANNUAL_TURNOVER_INVALID_MSG,
+      });
+      expect(validateSolvencyDraft({ annual_turnover: bad, past_services: "" })).toEqual({
+        annual_turnover: ANNUAL_TURNOVER_INVALID_MSG,
+      });
+      expect(() =>
+        solvencyPayloadFromDraft({ annual_turnover: bad, past_services: "ok" }),
+      ).toThrow(/Introduce un número/);
+      // Must not coerce to number or omit silently
+      expect(() => profileConfigFromDraft({ ...emptyMarketDraft(), annual_turnover: bad })).toThrow();
     }
   });
 
