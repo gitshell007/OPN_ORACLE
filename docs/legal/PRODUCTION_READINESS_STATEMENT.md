@@ -8,7 +8,7 @@
 | Owner | OPN · cumplimiento comercial (borrador producto) |
 | Estado | `borrador interno · no contractual` |
 | Fecha de esta declaración | 2026-08-06 |
-| Base de código | `d472aeb7ff62a1fb8fff69086c63752fc37e5b39` |
+| Base de código | `044e35a8ef696faf53d3d108387d0cbed06a99dc` |
 
 ## 1. Propósito
 
@@ -48,7 +48,8 @@ validación de despliegue.
 ### Frase autorizada (ventas / pre-sales)
 
 > «OPN Oracle dispone de controles de producto verificables en repositorio (aislamiento multi-tenant,
-> RBAC, auditoría, auth con contraseña fuerte, exports con caducidad). La aptitud para un entorno
+> RBAC, auditoría, autenticación con hash Argon2id y política mínima de longitud —MFA no disponible—,
+> exports con caducidad). La aptitud para un entorno
 > productivo concreto depende del despliegue, de los features habilitados y del contrato. No
 > afirmamos certificación ISO/SOC/ENS ni readiness global de producción sin evidencia de ese
 > entorno.»

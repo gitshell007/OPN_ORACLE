@@ -2,6 +2,8 @@
 
 **Fecha:** 2026-07-20 · **Base de evidencia:** auditoría completa de código (backend Flask, frontend Next.js, 20 migraciones, 166 endpoints, 505 tests), documentación (STATUS, DECISIONS D-001–D-039, prompts 17–63, readiness de seguridad) e investigación de mercado con fuentes 2024-2026. Etiquetas: HECHO / HIPÓTESIS / INFERENCIA / RECOMENDACIÓN.
 
+> **ACTUALIZACIÓN 2026-08-07 — prevalece sobre las carencias comerciales históricas de este documento.** Ya están versionados para revisión un [one-pager honesto](ORACLE_ONE_PAGER_HONESTO.md), un [guion de demo verificable](ORACLE_DEMO_SCRIPT.md), una [plantilla de piloto](ORACLE_PROPUESTA_PILOTO.md) y una [calculadora ROI](ORACLE_ROI_CALCULATOR.html), tras auditoría técnica independiente. No equivale a material aprobado, publicado ni en producción. Pricing, entidad oferente, condiciones, residencia, subencargados y compromisos siguen **POR CONFIRMAR**. Las cifras históricas de julio no son una oferta autorizada.
+
 ---
 
 ## Veredicto
@@ -14,10 +16,10 @@ Con un matiz esencial: **el "GO" es de producto y el "CON CONDICIONES" es comerc
 
 ## El diagnóstico en cuatro frases
 
-1. **HECHO** — OPN Oracle no es un prototipo: es un backend multi-tenant real con RLS PostgreSQL, RBAC, auditoría append-only, pipeline IA con presupuestos y evidencia obligatoria, jobs durables y despliegue endurecido en producción (`oracle.opnconsultoria.com`), con al menos un usuario externo real (IACELL). Su madurez técnica supera la de muchos SaaS con clientes de pago.
-2. **HECHO** — No existe ni una sola pieza comercial: sin pricing (la pregunta "cómo se cobrará" quedó abierta el 2026-07-09 y sigue sin respuesta), sin ICP priorizado, sin demo guionizada, sin landing, sin propuesta, sin caso de éxito. 198 commits en 10 días y cero avance en venta.
+1. **HECHO DE CÓDIGO, NO SELLO DE PRODUCCIÓN** — OPN Oracle es un backend multi-tenant con RLS PostgreSQL, RBAC, auditoría y jobs durables. Dispone de controles de producto verificables en repositorio (aislamiento multi-tenant, RBAC, auditoría, auth con contraseña fuerte, exports con caducidad). La aptitud para un entorno productivo concreto depende del despliegue, de los features habilitados y del contrato. No se afirma certificación ISO/SOC/ENS ni readiness global de producción sin evidencia de ese entorno. La referencia histórica a un usuario externo y a un despliegue debe revalidarse antes de cualquier uso comercial.
+2. **HECHO HISTÓRICO A 2026-07-20** — No existía ninguna pieza comercial emitible. **Actualización:** one-pager, guion, propuesta de piloto y calculadora están versionados y auditados técnicamente; siguen pendientes de aprobación comercial, landing publicada, pricing autorizado y caso de éxito.
 3. **INFERENCIA** — La tesis declarada ("expediente estratégico genérico para cualquier sector") es invendible tal cual: no nombra comprador, ni partida presupuestaria, ni resultado medible. Pero el producto realmente construido ha derivado hacia una cuña concreta y sí vendible: **inteligencia de contratación pública (PLACSP), inteligencia de entidades (BORME) e informes con evidencia verificada**, guiada por cuentas reales (Iberdrola, CATL, ITURRI, IACELL).
-4. **HECHO (mercado)** — La banda de precio del competitive/market intelligence mid-market es 10.000–30.000 €/año; el coste LLM de servir a un cliente es <5% del ACV; lo comoditizado es el monitoreo y el resumen genérico, y lo defendible es exactamente lo que Oracle tiene: workflow expediente→decisión→evidencia y fuentes españolas.
+4. **HIPÓTESIS DE MERCADO HISTÓRICA** — La investigación de julio situó referencias de competitive/market intelligence mid-market en una banda de 10.000–30.000 €/año. Esa referencia no autoriza el precio de Oracle. El porcentaje de coste LLM sobre ACV depende de un precio todavía no aprobado y del proveedor realmente usado, por lo que debe medirse con el ledger vigente antes de presentarlo como hecho.
 
 ## Qué cambia el veredicto: la tesis revisada
 
@@ -32,15 +34,15 @@ El "expediente estratégico" sigue siendo la unidad interna correcta. Deja de se
 | # | Condición | Plazo | Criterio de cumplimiento |
 |---|---|---|---|
 | 1 | **Pivotar el posicionamiento a la cuña B2G/entidades** (desarrollo de negocio de empresas que licitan y vigilan cuentas en España), manteniendo el core genérico como arquitectura, no como mensaje | 0-30 días | Frase de categoría, pitch de 30 s y demo de 15 min aprobados y usados en 5 conversaciones reales |
-| 2 | **Fiabilidad IA demostrable antes de cualquier demo**: resolver la decisión pendiente del prompt 63 (recomendado: opción 3 — retirar el revisor semántico de la ruta de entidad y confiar en la validación estructural de citas, ya medida en 45/45/0) y estabilizar el informe de entidad | 0-15 días | Informe de entidad genera al primer intento en producción 10/10 veces; ninguna función rota visible en la demo |
-| 3 | **Tres pilotos pagados** (IACELL como primero), 4.500 € / 8 semanas, con criterios de éxito escritos y fecha de conversión a suscripción | 0-90 días | 3 pilotos firmados; ≥1 convertido a contrato anual |
-| 4 | **Pricing y packaging publicados** (Essential ~5.900 €/año, Professional ~15.000 €/año, Enterprise desde 30.000 €/año + implantación y servicios gestionados tarifados) con límites de consumo IA/señales por plan | 0-30 días | Documento de precios usado en las 3 propuestas de piloto; ningún descuento >20% sin contrapartida |
+| 2 | **Fiabilidad demostrable por recorrido**: la demo canónica de contratación de 15 minutos exige su humo completo. El prompt 63 y la validación 10/10 bloquean únicamente una demo que incluya el informe de entidad; no bloquean el recorrido canónico que no lo usa | 0-15 días | Humo del recorrido elegido sin funciones rotas; si se enseña informe de entidad, p63 resuelto y medición 10/10 registrada en el entorno autorizado, nunca inferida desde producción |
+| 3 | **Tres pilotos pagados** (IACELL como primer candidato), con precio, duración, criterios de éxito y fecha de decisión **POR CONFIRMAR** por escrito | 0-90 días | 3 pilotos firmados; ≥1 convertido a contrato anual |
+| 4 | **Pricing y packaging autorizados**: nombres, importes, límites, forma de pago, duración, descuentos e imputación del piloto **POR CONFIRMAR** por el propietario | 0-30 días | Documento de precios aprobado y usado de forma coherente; ningún descuento o compromiso no pactado |
 | 5 | **Congelar la construcción de funcionalidad nueva no ligada a venta**: cada prompt de desarrollo de los próximos 90 días debe trazarse a demo, piloto, adopción o margen. SSO/ENS se abordan solo cuando un contrato lo exija | continuo | Backlog etiquetado; ratio ≥70% de esfuerzo en iniciativas con KPI comercial |
 
 ## Lo que NO es el problema
 
-- El coste de IA (Ollama local ≈ 0 €; incluso con cloud, <5% del ACV — HECHO).
-- La calidad del código, el multi-tenant o la auditoría (por encima del estándar del segmento — HECHO).
+- El coste de IA no se considera por sí solo un bloqueo técnico, pero coste, proveedor y porcentaje sobre ACV deben medirse; precio y ACV están **POR CONFIRMAR**.
+- El repositorio contiene controles multi-tenant y de auditoría verificables; no se convierte esa evidencia en una comparación universal con otros SaaS ni en un sello de readiness.
 - La competencia directa en España en esta combinación (fragmentada por vertical: Tendios en licitaciones, GovClipping en regulatorio, nadie une entidades+licitaciones+expediente — HECHO/HIPÓTESIS).
 
 ## Los tres riesgos que pueden matar el negocio

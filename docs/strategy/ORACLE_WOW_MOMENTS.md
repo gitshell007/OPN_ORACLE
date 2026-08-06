@@ -1,27 +1,34 @@
 # OPN Oracle — Momentos wow
 
-Diseñados sobre capacidades verificadas en código (HECHO salvo nota). Criterio de inclusión: mejora venta, adopción, retención o margen; lo espectacular sin retorno se descarta al final.
+> **REVISIÓN 2026-08-07:** inventario interno de hipótesis de demostración, no
+> guion autorizado. Las etiquetas históricas «HECHO» significaban presencia en
+> código, no disponibilidad, cobertura, latencia ni funcionamiento universal en
+> un despliegue. Prevalecen el [guion canónico](ORACLE_DEMO_SCRIPT.md) y el
+> [one-pager honesto](ORACLE_ONE_PAGER_HONESTO.md).
+
+Criterio de inclusión: mejora venta, adopción, retención o margen; cada momento
+requiere humo específico y límites expresos.
 
 ---
 
-## Wow en los primeros 60 segundos (venta)
+## Aperturas posibles de una demo alternativa de entidad
 
 **W1 — "Esta es tu competencia, por dentro."**
 - Usuario: director/a de desarrollo de negocio (prospecto en demo).
 - Problema: due diligence manual de competidores/socios.
 - Entrada: nombre de un competidor real del prospecto (preparado antes de la reunión).
-- Acción de Oracle: ficha 360º de entidad — administradores, actos BORME, grafo de vínculos societarios, contratos públicos ganados, UTEs.
-- Salida: pantalla única con datos oficiales que el prospecto no tenía juntos.
-- Tiempo hasta valor: <60 s. Evidencia: fuentes BORME/PLACSP citadas en pantalla.
+- Acción de Oracle: ficha de entidad con los actos, vínculos y contratación que las fuentes y el despliegue devuelvan para esa identidad.
+- Salida: pantalla con cobertura y vacíos visibles; no se promete ficha completa.
+- Tiempo hasta valor: medir en el entorno ensayado; no existe SLA universal. Revisar las fuentes mostradas.
 - KPI: reuniones que piden segunda cita tras ver W1.
-- Dificultad técnica: 0 (existe — HECHO; requiere estabilidad del informe de entidad si se genera informe, ver p63).
+- Dificultad técnica histórica: existe base de código; requiere humo, resolución de identidad y p63 si se genera informe.
 - Impacto comercial: **el abridor de la demo**. Máximo.
 
 **W2 — "Esto es lo que se adjudicó en tu sector el último trimestre."**
 - Usuario: mismo. Entrada: CPV/sector del prospecto.
 - Acción: workspace de contratación — adjudicaciones recientes, importes, adjudicatarios, UTEs, licitaciones abiertas.
-- Salida: mapa competitivo de su mercado público. Tiempo: <2 min. 
-- Dificultad: 0 (HECHO). Impacto: alto — convierte curiosidad en dolor ("¿cuántas de estas visteis a tiempo?").
+- Salida: muestra de contratación pública según filtros y cobertura. Tiempo: medir; no prometer exhaustividad.
+- Dificultad: requiere datos y filtros ensayados. Impacto hipotético: alto.
 
 ## Wow en la demo de 15 minutos (secuencia completa en [ORACLE_DEMO_SCRIPT.md](ORACLE_DEMO_SCRIPT.md))
 
@@ -30,10 +37,10 @@ Diseñados sobre capacidades verificadas en código (HECHO salvo nota). Criterio
 - Salida: oportunidad con procedencia completa. Tiempo: 2 min.
 - KPI demo: el prospecto pregunta "¿y esto lo hace con mis proyectos?". Dificultad: 0 (HECHO). Impacto: alto — es el corazón del producto.
 
-**W4 — Informe para comité con cada afirmación citada.**
+**W4 — Informe para revisión con evidencia disponible.**
 - Entrada: expediente con señales/oportunidades. Acción: generar informe ejecutivo; abrir el visor y clicar 2-3 citas hasta su fuente.
-- Salida: informe listo para comité. Tiempo: minutos (generación asíncrona: tener uno pregenerado y lanzar otro en directo).
-- KPI: objeción "la IA se lo inventa" desactivada. Dificultad: 0 (HECHO); PDF pendiente (P0 comercial). Impacto: muy alto.
+- Salida: borrador de informe revisable; no llamarlo «listo para comité» sin aprobación humana. Tiempo y estabilidad se miden por release.
+- KPI: el revisor puede seguir las citas presentes y detectar vacíos. p63 bloquea esta demo de entidad; la muestra histórica de citas no es garantía universal.
 
 **W5 — "Qué ha cambiado" + digest semanal.**
 - Entrada: expediente con actividad. Acción: vista de cambios priorizados (5-10, no lista infinita) + digest estratégico.
@@ -71,4 +78,4 @@ Diseñados sobre capacidades verificadas en código (HECHO salvo nota). Criterio
 
 ## Regla de oro
 
-Ningún momento wow de la lista activa exige construir funcionalidad nueva salvo: estabilizar informe de entidad (p63), PDF de informes y digest por email. Todo lo demás es guion, datos de demo y práctica.
+La demo autorizable inicial es el recorrido de contratación del guion canónico. Los demás momentos quedan como candidatos hasta superar humo, cobertura y aprobación comercial propios; p63 bloquea únicamente los que incluyan informe de entidad.

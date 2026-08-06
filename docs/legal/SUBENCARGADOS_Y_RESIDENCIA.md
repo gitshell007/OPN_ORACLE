@@ -8,7 +8,7 @@
 | Owner | OPN · cumplimiento comercial (borrador producto) |
 | Estado | `borrador interno · no contractual` |
 | Fecha | 2026-08-06 |
-| Base de código | `d472aeb7ff62a1fb8fff69086c63752fc37e5b39` |
+| Base de código | `044e35a8ef696faf53d3d108387d0cbed06a99dc` |
 
 ## Principios de esta lista
 

@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>OPN Oracle · Calculadora ROI ilustrativa</title>
+  <style>
+    :root {
+      --ink: #15243a;
+      --muted: #5f6f83;
+      --line: #dce3eb;
+      --soft: #f4f7fa;
+      --paper: #ffffff;
+      --navy: #102a43;
+      --blue: #1769aa;
+      --blue-soft: #eaf4fb;
+      --gold: #9b6b11;
+      --gold-soft: #fff7df;
+      --green: #13745a;
+      --green-soft: #e8f6f0;
+      --red: #a53b3b;
+      --shadow: 0 18px 45px rgba(16, 42, 67, 0.10);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #eef3f7;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button, input { font: inherit; }
+
+    .shell {
+      width: min(1220px, calc(100% - 32px));
+      margin: 32px auto 64px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 32px;
+      border-radius: var(--radius);
+      color: #fff;
+      background: linear-gradient(125deg, #0d2742 0%, #174f79 72%, #1d6a8c 100%);
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 280px;
+      height: 280px;
+      right: -90px;
+      top: -130px;
+      border-radius: 50%;
+      border: 44px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: #acd8f5;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 800px; margin-bottom: 10px; font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.08; }
+    h2 { margin-bottom: 6px; font-size: 1.18rem; }
+    h3 { margin-bottom: 6px; font-size: 0.98rem; }
+
+    .hero-copy { max-width: 850px; margin: 0; color: #d9e9f5; }
+
+    .notice {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin-top: 20px;
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.10);
+      color: #f7fbff;
+    }
+
+    .notice strong { white-space: nowrap; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0;
+    }
+
+    button {
+      min-height: 42px;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      color: var(--navy);
+      cursor: pointer;
+      font-weight: 750;
+    }
+
+    button:hover { border-color: var(--blue); color: var(--blue); }
+    button:focus-visible, input:focus-visible { outline: 3px solid rgba(23, 105, 170, 0.25); outline-offset: 2px; }
+    button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+    button.primary:hover { background: #0f568f; color: #fff; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: 0 8px 24px rgba(16, 42, 67, 0.06);
+    }
+
+    .panel-header { padding: 20px 22px 12px; }
+    .panel-header p { margin-bottom: 0; color: var(--muted); font-size: 0.92rem; }
+    .panel-body { padding: 8px 22px 22px; }
+
+    fieldset {
+      margin: 0;
+      padding: 18px 0;
+      border: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    fieldset:first-child { border-top: 0; padding-top: 4px; }
+    legend { padding: 0; color: var(--navy); font-weight: 850; }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    label { display: block; color: var(--ink); font-size: 0.88rem; font-weight: 700; }
+
+    input[type="number"] {
+      width: 100%;
+      min-height: 44px;
+      margin-top: 5px;
+      padding: 9px 11px;
+      border: 1px solid #c7d1dc;
+      border-radius: 9px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .help { display: block; margin-top: 4px; color: var(--muted); font-size: 0.77rem; font-weight: 450; }
+    .illustrative { color: var(--gold); }
+
+    .confirm-field {
+      padding: 12px;
+      border: 1px solid #e7c97c;
+      border-radius: 10px;
+      background: var(--gold-soft);
+    }
+
+    .confirm-field input { border-color: #c99a2e; }
+
+    .results { position: sticky; top: 18px; }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 22px 18px;
+    }
+
+    .metric {
+      min-height: 118px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--soft);
+    }
+
+    .metric.primary { border-color: #b9ddce; background: var(--green-soft); }
+    .metric.caution { border-color: #ecd28a; background: var(--gold-soft); }
+    .metric span { display: block; color: var(--muted); font-size: 0.78rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.04em; }
+    .metric strong { display: block; margin: 8px 0 4px; color: var(--navy); font-size: clamp(1.35rem, 3vw, 2rem); line-height: 1; }
+    .metric small { color: var(--muted); }
+
+    .explanation {
+      margin: 0 22px 18px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--blue);
+      background: var(--blue-soft);
+      font-size: 0.9rem;
+    }
+
+    .warning {
+      margin: 0 22px 22px;
+      padding: 12px 14px;
+      border: 1px solid #e7c97c;
+      border-radius: 10px;
+      background: var(--gold-soft);
+      color: #6c4c0e;
+      font-size: 0.86rem;
+    }
+
+    .table-panel { margin-top: 18px; overflow: hidden; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 14px; border-top: 1px solid var(--line); text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); background: var(--soft); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+    details {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--paper);
+    }
+
+    summary { padding: 15px 18px; cursor: pointer; color: var(--navy); font-weight: 800; }
+    details > div { padding: 0 18px 18px; color: var(--muted); }
+    details ul { margin-bottom: 0; }
+    code { padding: 2px 5px; border-radius: 5px; background: var(--soft); color: var(--navy); }
+
+    footer { margin-top: 18px; color: var(--muted); font-size: 0.8rem; }
+
+    .action-status {
+      min-height: 42px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    .action-status:empty { display: none; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .results { position: static; }
+    }
+
+    @media (max-width: 600px) {
+      .shell { width: min(100% - 18px, 1220px); margin-top: 10px; }
+      .hero { padding: 24px 20px; }
+      .notice { display: block; }
+      .notice strong { display: block; margin-bottom: 4px; }
+      .field-grid, .result-grid { grid-template-columns: 1fr; }
+      .panel-header, .panel-body { padding-left: 16px; padding-right: 16px; }
+      .result-grid { padding-left: 16px; padding-right: 16px; }
+      .explanation, .warning { margin-left: 16px; margin-right: 16px; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .shell { width: 100%; margin: 0; }
+      .hero { box-shadow: none; print-color-adjust: exact; }
+      .toolbar { display: none; }
+      .layout { grid-template-columns: 1fr 1fr; }
+      .panel { box-shadow: none; break-inside: avoid; }
+      .results { position: static; }
+      details { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">OPN Oracle · herramienta de discovery</p>
+      <h1>Calculadora ROI ilustrativa</h1>
+      <p class="hero-copy">Convierte el proceso actual del cliente en un escenario de horas y valor económico. Todos los campos son editables; el cálculo ocurre únicamente en este navegador y no envía ni guarda datos.</p>
+      <div class="notice" role="note">
+        <strong>Importante</strong>
+        <span>Material VERSIONADO PARA REVISIÓN tras auditoría técnica independiente y pendiente de aprobación/publicación. Los valores iniciales son un ejemplo didáctico, no benchmarks, precio aprobado ni promesa de ahorro. El coste del primer año empieza vacío y debe completarse con una propuesta autorizada.</span>
+      </div>
+    </header>
+
+    <div class="toolbar" aria-label="Acciones de la calculadora">
+      <button type="button" class="primary" id="copy-summary">Copiar resumen</button>
+      <button type="button" id="print-page">Imprimir / guardar PDF</button>
+      <button type="button" id="reset-example">Restaurar ejemplo ilustrativo</button>
+      <button type="button" id="clear-all">Poner todos los valores a cero</button>
+      <span id="action-status" class="action-status" role="status" aria-live="polite" aria-atomic="true"></span>
+    </div>
+
+    <div class="layout">
+      <form class="panel" id="roi-form" autocomplete="off">
+        <div class="panel-header">
+          <h2>Datos del proceso actual</h2>
+          <p>Sustituye el ejemplo por cifras aceptadas durante el discovery.</p>
+        </div>
+        <div class="panel-body">
+          <fieldset>
+            <legend>Volumen anual</legend>
+            <div class="field-grid">
+              <label>Licitaciones revisadas
+                <input id="tenders" name="tenders" type="number" min="0" step="1" value="120" data-example="120">
+                <span class="help illustrative">Ejemplo ilustrativo: 120/año.</span>
+              </label>
+              <label>Minutos de primer filtro por licitación
+                <input id="review-minutes" name="reviewMinutes" type="number" min="0" step="1" value="25" data-example="25">
+                <span class="help illustrative">Ejemplo ilustrativo: 25 minutos.</span>
+              </label>
+              <label>Ofertas preparadas
+                <input id="offers" name="offers" type="number" min="0" step="1" value="18" data-example="18">
+                <span class="help illustrative">Ejemplo ilustrativo: 18/año.</span>
+              </label>
+              <label>Horas hasta primer borrador revisable
+                <input id="draft-hours" name="draftHours" type="number" min="0" step="0.25" value="20" data-example="20">
+                <span class="help illustrative">Por oferta; no incluye redacción final.</span>
+              </label>
+              <label>Informes/comités preparados
+                <input id="reports" name="reports" type="number" min="0" step="1" value="12" data-example="12">
+                <span class="help illustrative">Ejemplo ilustrativo: 12/año.</span>
+              </label>
+              <label>Horas por informe/comité
+                <input id="report-hours" name="reportHours" type="number" min="0" step="0.25" value="6" data-example="6">
+                <span class="help illustrative">Solo trabajo susceptible de comparación.</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Coste interno</legend>
+            <div class="field-grid">
+              <label>Coste hora cargado (€)
+                <input id="hourly-cost" name="hourlyCost" type="number" min="0" step="1" value="42" data-example="42">
+                <span class="help illustrative">Ejemplo; incluir salario, cargas y estructura según el cliente.</span>
+              </label>
+              <label>Otros costes evitables anuales (€)
+                <input id="other-savings" name="otherSavings" type="number" min="0" step="100" value="0" data-example="0">
+                <span class="help">Por defecto 0. Añadir solo costes identificados y justificables.</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Hipótesis de mejora</legend>
+            <div class="field-grid">
+              <label>Reducción del tiempo de filtro (%)
+                <input id="review-reduction" name="reviewReduction" type="number" min="0" max="100" step="1" value="20" data-example="20">
+                <span class="help illustrative">Ejemplo, no rendimiento medido.</span>
+              </label>
+              <label>Reducción hasta primer borrador (%)
+                <input id="draft-reduction" name="draftReduction" type="number" min="0" max="100" step="1" value="15" data-example="15">
+                <span class="help illustrative">Ejemplo, no rendimiento medido.</span>
+              </label>
+              <label>Reducción del tiempo de informe (%)
+                <input id="report-reduction" name="reportReduction" type="number" min="0" max="100" step="1" value="10" data-example="10">
+                <span class="help illustrative">Ejemplo, no rendimiento medido.</span>
+              </label>
+              <label>Contribución adicional demostrable (€)
+                <input id="additional-contribution" name="additionalContribution" type="number" min="0" step="100" value="0" data-example="0">
+                <span class="help">Por defecto 0. No convertir oportunidades o adjudicaciones hipotéticas en ingreso.</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Coste de la opción evaluada</legend>
+            <div class="confirm-field">
+              <label>Coste total aprobado del primer año (€)
+                <input id="evaluated-cost" name="evaluatedCost" type="number" min="0" step="100" value="" placeholder="POR CONFIRMAR">
+                <span class="help">Sin valor inicial. Sumar licencia, implantación, servicios y costes externos aplicables al primer año. No comparar el precio aislado de un piloto más corto con el beneficio anual.</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+      </form>
+
+      <section class="panel results" aria-labelledby="results-title" aria-live="polite">
+        <div class="panel-header">
+          <h2 id="results-title">Escenario calculado</h2>
+          <p id="scenario-state">Con valores ilustrativos; sustituir antes de usar.</p>
+        </div>
+        <div class="result-grid">
+          <article class="metric">
+            <span>Trabajo actual modelizado</span>
+            <strong id="current-hours">—</strong>
+            <small>horas/año en los tres bloques</small>
+          </article>
+          <article class="metric primary">
+            <span>Horas potencialmente liberadas</span>
+            <strong id="saved-hours">—</strong>
+            <small id="saved-hours-month">— al mes</small>
+          </article>
+          <article class="metric primary">
+            <span>Beneficio anual modelizado</span>
+            <strong id="gross-benefit">—</strong>
+            <small>tiempo + otros costes + contribución declarada</small>
+          </article>
+          <article class="metric caution">
+            <span>Beneficio neto</span>
+            <strong id="net-benefit">POR CONFIRMAR</strong>
+            <small>requiere coste de la opción</small>
+          </article>
+          <article class="metric caution">
+            <span>ROI</span>
+            <strong id="roi-value">POR CONFIRMAR</strong>
+            <small>(beneficio − coste) / coste</small>
+          </article>
+          <article class="metric caution">
+            <span>Recuperación estimada</span>
+            <strong id="payback">POR CONFIRMAR</strong>
+            <small>requiere beneficio positivo y coste</small>
+          </article>
+        </div>
+        <div class="explanation" id="calculation-explanation">Completa los campos para ver cómo se forma el resultado.</div>
+        <div class="warning">
+          <strong>No es una promesa comercial.</strong> El cálculo no incluye probabilidad de adopción, calidad de datos, costes de cambio, riesgo de implantación ni adjudicaciones futuras salvo que se introduzcan explícitamente. Entradas, beneficio y coste deben cubrir el mismo primer año. Validar línea base y resultado durante el piloto.
+        </div>
+      </section>
+    </div>
+
+    <section class="panel table-panel" aria-labelledby="sensitivity-title">
+      <div class="panel-header">
+        <h2 id="sensitivity-title">Sensibilidad de las hipótesis</h2>
+        <p>Compara la mitad, el valor introducido y una vez y media los porcentajes de reducción; ningún porcentaje supera el 100 %.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Escenario</th>
+              <th>Horas liberadas</th>
+              <th>Beneficio bruto</th>
+              <th>Beneficio neto</th>
+              <th>ROI</th>
+            </tr>
+          </thead>
+          <tbody id="sensitivity-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <details>
+      <summary>Cómo se calcula</summary>
+      <div>
+        <ul>
+          <li><strong>Horas actuales:</strong> licitaciones × minutos de filtro / 60 + ofertas × horas hasta borrador + informes × horas por informe.</li>
+          <li><strong>Horas liberadas:</strong> cada bloque de horas × su porcentaje de reducción.</li>
+          <li><strong>Valor del tiempo:</strong> horas liberadas × coste hora cargado.</li>
+          <li><strong>Beneficio bruto:</strong> valor del tiempo + otros costes evitables + contribución adicional introducida.</li>
+          <li><strong>Beneficio neto:</strong> beneficio bruto anual − coste total aprobado del primer año.</li>
+          <li><strong>ROI:</strong> beneficio neto / coste total del primer año × 100.</li>
+          <li><strong>Recuperación:</strong> coste total del primer año / (beneficio bruto anual / 12).</li>
+        </ul>
+        <p>La comparación se hace sobre el primer año completo. El valor adicional se deja en cero para evitar atribuir adjudicaciones a Oracle sin evidencia.</p>
+      </div>
+    </details>
+
+    <footer>
+      OPN Oracle · Calculadora autónoma sin dependencias externas · Versión 2026-08-07 · Estado: VERSIONADO PARA REVISIÓN tras auditoría técnica independiente; pendiente de aprobación y publicación. Material de discovery vinculado al <a href="ORACLE_ONE_PAGER_HONESTO.md">one-pager honesto</a> y a la <a href="ORACLE_PROPUESTA_PILOTO.md">plantilla de piloto</a>.
+    </footer>
+  </main>
+
+  <script>
+    "use strict";
+
+    const form = document.getElementById("roi-form");
+    const fields = Array.from(form.querySelectorAll("input[type='number']"));
+    const actionStatus = document.getElementById("action-status");
+    const euro = new Intl.NumberFormat("es-ES", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 0
+    });
+    const number = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 });
+    const percent = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
+
+    function value(id) {
+      const input = document.getElementById(id);
+      const parsed = Number.parseFloat(input.value);
+      if (!Number.isFinite(parsed)) return 0;
+      const minimum = input.min === "" ? -Infinity : Number(input.min);
+      const maximum = input.max === "" ? Infinity : Number(input.max);
+      return Math.min(maximum, Math.max(minimum, parsed));
+    }
+
+    function inputsAreExample() {
+      return fields
+        .filter((input) => input.id !== "evaluated-cost")
+        .every((input) => input.value === input.dataset.example);
+    }
+
+    function model(multiplier) {
+      const reviewHours = value("tenders") * value("review-minutes") / 60;
+      const draftHours = value("offers") * value("draft-hours");
+      const reportHours = value("reports") * value("report-hours");
+      const reduction = (id) => Math.min(100, value(id) * multiplier) / 100;
+      const savedReview = reviewHours * reduction("review-reduction");
+      const savedDraft = draftHours * reduction("draft-reduction");
+      const savedReport = reportHours * reduction("report-reduction");
+      const savedHours = savedReview + savedDraft + savedReport;
+      const timeValue = savedHours * value("hourly-cost");
+      const grossBenefit = timeValue + value("other-savings") + value("additional-contribution");
+      const costInput = document.getElementById("evaluated-cost").value.trim();
+      const hasCost = costInput !== "" && value("evaluated-cost") > 0;
+      const cost = hasCost ? value("evaluated-cost") : 0;
+      const netBenefit = hasCost ? grossBenefit - cost : null;
+      const roi = hasCost ? netBenefit / cost * 100 : null;
+      const payback = hasCost && grossBenefit > 0 ? cost / (grossBenefit / 12) : null;
+      return {
+        reviewHours,
+        draftHours,
+        reportHours,
+        currentHours: reviewHours + draftHours + reportHours,
+        savedReview,
+        savedDraft,
+        savedReport,
+        savedHours,
+        timeValue,
+        grossBenefit,
+        hasCost,
+        cost,
+        netBenefit,
+        roi,
+        payback
+      };
+    }
+
+    function moneyOrPending(amount) {
+      return amount === null ? "POR CONFIRMAR" : euro.format(amount);
+    }
+
+    function roiOrPending(amount) {
+      return amount === null ? "POR CONFIRMAR" : `${percent.format(amount)} %`;
+    }
+
+    function renderSensitivity(base) {
+      const body = document.getElementById("sensitivity-body");
+      const rows = [
+        ["Conservador · 50 % de las reducciones", model(0.5)],
+        ["Introducido · 100 %", base],
+        ["Alto · 150 % de las reducciones", model(1.5)]
+      ];
+      body.replaceChildren();
+      for (const [label, result] of rows) {
+        const row = document.createElement("tr");
+        const values = [
+          label,
+          `${number.format(result.savedHours)} h`,
+          euro.format(result.grossBenefit),
+          moneyOrPending(result.netBenefit),
+          roiOrPending(result.roi)
+        ];
+        values.forEach((content) => {
+          const cell = document.createElement("td");
+          cell.textContent = content;
+          row.appendChild(cell);
+        });
+        body.appendChild(row);
+      }
+    }
+
+    function calculate() {
+      const result = model(1);
+      document.getElementById("current-hours").textContent = `${number.format(result.currentHours)} h`;
+      document.getElementById("saved-hours").textContent = `${number.format(result.savedHours)} h`;
+      document.getElementById("saved-hours-month").textContent = `${number.format(result.savedHours / 12)} h al mes`;
+      document.getElementById("gross-benefit").textContent = euro.format(result.grossBenefit);
+      document.getElementById("net-benefit").textContent = moneyOrPending(result.netBenefit);
+      document.getElementById("roi-value").textContent = roiOrPending(result.roi);
+      document.getElementById("payback").textContent = result.payback === null
+        ? "POR CONFIRMAR"
+        : `${number.format(result.payback)} meses`;
+      document.getElementById("scenario-state").textContent = inputsAreExample()
+        ? "Con valores ilustrativos; sustituir antes de usar."
+        : "Con entradas editadas; validar fuente y periodo con el cliente.";
+      document.getElementById("calculation-explanation").textContent =
+        `${number.format(result.savedHours)} horas = ` +
+        `${number.format(result.savedReview)} h de filtro + ` +
+        `${number.format(result.savedDraft)} h hasta primer borrador + ` +
+        `${number.format(result.savedReport)} h de informes. ` +
+        `Valor del tiempo: ${euro.format(result.timeValue)}. ` +
+        (result.hasCost
+          ? `Coste total aprobado del primer año: ${euro.format(result.cost)}.`
+          : "Falta el coste total aprobado del primer año para calcular neto, ROI y recuperación.");
+      renderSensitivity(result);
+    }
+
+    function summaryText() {
+      const result = model(1);
+      return [
+        "OPN Oracle · Escenario ROI",
+        `Trabajo actual modelizado: ${number.format(result.currentHours)} h/año`,
+        `Horas potencialmente liberadas: ${number.format(result.savedHours)} h/año`,
+        `Beneficio bruto modelizado: ${euro.format(result.grossBenefit)}`,
+        `Coste total del primer año: ${result.hasCost ? euro.format(result.cost) : "POR CONFIRMAR"}`,
+        `Beneficio neto: ${moneyOrPending(result.netBenefit)}`,
+        `ROI: ${roiOrPending(result.roi)}`,
+        `Recuperación: ${result.payback === null ? "POR CONFIRMAR" : `${number.format(result.payback)} meses`}`,
+        "Aviso: escenario ilustrativo; validar entradas y resultados del primer año con el cliente."
+      ].join("\n");
+    }
+
+    fields.forEach((input) => input.addEventListener("input", () => {
+      actionStatus.textContent = "";
+      calculate();
+    }));
+
+    document.getElementById("reset-example").addEventListener("click", () => {
+      fields.forEach((input) => {
+        input.value = input.id === "evaluated-cost" ? "" : (input.dataset.example || "0");
+      });
+      calculate();
+      actionStatus.textContent = "Ejemplo ilustrativo restaurado.";
+    });
+
+    document.getElementById("clear-all").addEventListener("click", () => {
+      fields.forEach((input) => { input.value = input.id === "evaluated-cost" ? "" : "0"; });
+      calculate();
+      actionStatus.textContent = "Valores puestos a cero; el coste del primer año queda POR CONFIRMAR.";
+    });
+
+    document.getElementById("print-page").addEventListener("click", () => window.print());
+
+    document.getElementById("copy-summary").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(summaryText());
+        actionStatus.textContent = "Resumen copiado.";
+      } catch {
+        actionStatus.textContent = "No se pudo copiar; use imprimir o seleccione los resultados.";
+      }
+    });
+
+    calculate();
+  </script>
+</body>
+</html>

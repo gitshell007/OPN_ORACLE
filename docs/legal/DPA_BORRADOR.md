@@ -8,7 +8,7 @@
 | Owner | OPN · cumplimiento comercial (borrador producto) |
 | Estado | `borrador interno · no contractual · no firmable sin abogado` |
 | Fecha | 2026-08-06 |
-| Base de código inventariada | `d472aeb7ff62a1fb8fff69086c63752fc37e5b39` |
+| Base de código inventariada | `044e35a8ef696faf53d3d108387d0cbed06a99dc` |
 
 ## Aviso importante
 
@@ -71,6 +71,12 @@ El Encargado solo tratará datos conforme a:
 El Encargado informará si una instrucción es, a su juicio, contraria al RGPD u otra norma
 aplicable (checklist art. 28.3).
 
+Si el Derecho de la Unión o de un Estado miembro obliga al Encargado a tratar datos fuera de las
+instrucciones documentadas, el Encargado informará previamente al Responsable de esa exigencia y
+de su fundamento, salvo que la propia norma prohíba informar por razones importantes de interés
+público. Esta cláusula es un checklist pendiente de revisión jurídica, basado en el
+[art. 28.3.a RGPD](https://eur-lex.europa.eu/legal-content/ES/TXT/?uri=CELEX:32016R0679).
+
 ## 5. Confidencialidad
 
 1. Personas autorizadas del Encargado sujetas a deber de confidencialidad.
@@ -113,6 +119,10 @@ documentado en [MATRIZ_CONTROLES_Y_ALEGACIONES.md](./MATRIZ_CONTROLES_Y_ALEGACIO
    (`[POR CONFIRMAR: p. ej. 15/30 días]`) la incorporación o sustitución de subencargados que
    traten datos del cliente, con derecho de oposición según se negocie.
 4. El Encargado impondrá obligaciones equivalentes en lo esencial a los subencargados.
+5. Si un subencargado incumple sus obligaciones de protección de datos, el Encargado inicial
+   seguirá siendo responsable ante el Responsable por el cumplimiento de las obligaciones del
+   subencargado, sin perjuicio de la distribución de responsabilidades que legal concrete en el
+   contrato definitivo (checklist [art. 28.4 RGPD](https://eur-lex.europa.eu/legal-content/ES/TXT/?uri=CELEX:32016R0679)).
 
 ## 8. Asistencia al Responsable
 
@@ -146,6 +156,10 @@ Al finalizar el encargo, a elección del Responsable y según lo pactado:
 2. **Supresión:** borrado de datos del tenant en sistemas activos y, en la medida practicable,
    de backups según la política de retención de copias.
 3. **Certificación de borrado:** `[POR CONFIRMAR formato y responsable]`.
+4. **Excepción legal:** si el Derecho de la Unión o de un Estado miembro exige conservar alguna
+   categoría, se documentarán fundamento, categorías, plazo y acceso restringido; esos datos no se
+   usarán para otros fines. Legal debe concretar esta excepción antes de firma (checklist
+   [art. 28.3.g RGPD](https://eur-lex.europa.eu/legal-content/ES/TXT/?uri=CELEX:32016R0679)).
 
 **Brecha documentada con honestidad:** no existe en el repositorio un flujo único verificado de
 «supresión total de tenant + purga de backups + certificación» como producto cerrado. Debe
@@ -172,6 +186,22 @@ acordarse operativamente. Detalle: [PRIVACIDAD_RETENCION_Y_SUPRESION.md](./PRIVA
 1. Este DPA forma parte del contrato de servicio.
 2. En caso de conflicto sobre protección de datos, prevalece este DPA salvo norma imperativa.
 3. Limitaciones de responsabilidad: según contrato principal `[POR CONFIRMAR]`.
+
+## 13 bis. Mapa de roles Oracle / Signal / fuentes públicas / IA
+
+Antes de firmar, las partes completarán una matriz por tratamiento; no se presume un único rol para
+todo el sistema:
+
+| Flujo | Rol propuesto | Decisión obligatoria antes de firma |
+|---|---|---|
+| Datos que el cliente introduce y opera en Oracle | Cliente Responsable; prestador Oracle Encargado | Confirmar despliegue, soporte y acceso operativo |
+| Oracle → Signal para búsqueda, memoria o IA gobernada | Signal como componente del Encargado o subencargado, según entidad operadora | Identificar entidad, instrucciones, datos, región, retención y proveedores efectivos |
+| Datos personales obtenidos de fuentes públicas | **POR CONFIRMAR**: puede requerir Responsable autónomo o corresponsabilidad | Documentar finalidad, base jurídica, información, oposición y roles reales |
+| Proveedor externo de IA/búsqueda, si se activa | Subencargado solo tras autorización y anexo vigente | Identidad, país, residencia, entrenamiento, retención y transferencias |
+
+La configuración técnica o el nombre del servicio no decide por sí solo la calificación jurídica.
+Véase [BASE_JURIDICA_INVESTIGACIONES.md](./BASE_JURIDICA_INVESTIGACIONES.md) y
+[SUBENCARGADOS_Y_RESIDENCIA.md](./SUBENCARGADOS_Y_RESIDENCIA.md).
 
 ## 14. Derecho aplicable y fuero
 

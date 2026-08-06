@@ -8,7 +8,7 @@
 | Owner | OPN · cumplimiento comercial (borrador producto) |
 | Estado | `borrador interno · no contractual` |
 | Fecha de corte documental | 2026-08-06 |
-| Base de código inventariada | `d472aeb7ff62a1fb8fff69086c63752fc37e5b39` (`sv2/g19-recorrido-vivo`) |
+| Base de código inventariada | `044e35a8ef696faf53d3d108387d0cbed06a99dc` (`codex/consolidacion-oracle-20260806`) |
 | Prompt origen | `SV2-G21-CARPETA-CUMPLIMIENTO-COMERCIAL` |
 
 ## Para qué sirve este paquete
