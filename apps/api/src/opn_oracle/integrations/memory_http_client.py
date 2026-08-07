@@ -14,7 +14,12 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
+
+from opn_oracle.integrations.memory_contract_v1 import (
+    complete_retrieve_response_stub,
+    validate_retrieve_response_frozen,
+)
 
 DEFAULT_ALLOWED_HOSTS = frozenset(
     {
@@ -64,17 +69,23 @@ class Transport(Protocol):
     ) -> tuple[int, dict[str, str], bytes]: ...
 
 
+def _default_mock_body() -> bytes:
+    return json.dumps(complete_retrieve_response_stub()).encode()
+
+
 @dataclass
 class MockTransport:
     responses: dict[str, tuple[int, dict[str, str], bytes]] = field(default_factory=dict)
     calls: list[dict[str, Any]] = field(default_factory=list)
-    default: tuple[int, dict[str, str], bytes] = (
-        200,
-        {"content-type": "application/json"},
-        b'{"api_version":"memory.v1","items":[],"coverage_manifest":{"version":"coverage_manifest.v1","requested":[],"consulted":[],"failed":[],"excluded":[],"used":[],"truncated":false,"truncation_notes":[],"cutoff_at":null,"token_budget":0,"token_used_estimate":0},"watermark":null}',
-    )
+    default: tuple[int, dict[str, str], bytes] | None = None
     # optional DNS rebind simulation for tests
     resolve_override: dict[str, list[str]] | None = None
+    # when True, request() records the peer URL after pin (tests)
+    last_peer_url: str | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        if self.default is None:
+            self.default = (200, {"content-type": "application/json"}, _default_mock_body())
 
     def request(
         self,
@@ -112,6 +123,8 @@ class MockTransport:
         for suffix, resp in self.responses.items():
             if path.endswith(suffix) or suffix in path:
                 return resp
+        if self.default is None:
+            self.default = (200, {"content-type": "application/json"}, _default_mock_body())
         return self.default
 
 
@@ -152,6 +165,28 @@ def validate_url_ssrf(
     require_https: bool = True,
     dns_override: dict[str, list[str]] | None = None,
 ) -> str:
+    """Validate URL SSRF policy and return the original URL (host form).
+
+    Use :func:`validated_destination` when the transport must pin to the
+    resolved peer IP so a post-check DNS rebind cannot redirect the socket.
+    """
+    dest = validated_destination(
+        url,
+        allowed_hosts=allowed_hosts,
+        require_https=require_https,
+        dns_override=dns_override,
+    )
+    return str(dest["url"])
+
+
+def validated_destination(
+    url: str,
+    *,
+    allowed_hosts: frozenset[str],
+    require_https: bool = True,
+    dns_override: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Return validated destination with pinned peer IP for transport use."""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if (
@@ -165,6 +200,7 @@ def validate_url_ssrf(
     if host not in allowed_hosts:
         raise MemoryHttpError("ssrf_blocked", "host not in allowlist", retryable=False)
     ips = _resolve_host_ips(host, dns_override)
+    allowed_ips: list[str] = []
     for ip_s in ips:
         try:
             ip = ipaddress.ip_address(ip_s)
@@ -176,7 +212,26 @@ def validate_url_ssrf(
                 raise MemoryHttpError("ssrf_rebind", "DNS rebind blocked", retryable=False)
         elif ip.is_link_local or ip.is_multicast or ip.is_loopback or ip.is_private:
             raise MemoryHttpError("ssrf_blocked", "resolved IP not allowed", retryable=False)
-    return url.rstrip("/")
+        allowed_ips.append(ip_s)
+    if not allowed_ips:
+        raise MemoryHttpError("ssrf_blocked", "no allowed resolved IPs", retryable=False)
+    pin_ip = allowed_ips[0]
+    # Build peer URL with literal IP; host header keeps original name (SNI).
+    netloc = pin_ip
+    if parsed.port:
+        netloc = f"{pin_ip}:{parsed.port}"
+    elif ":" in pin_ip and not pin_ip.startswith("["):
+        netloc = f"[{pin_ip}]"
+    pinned = urlunparse(
+        (parsed.scheme, netloc, parsed.path or "", parsed.params, parsed.query, parsed.fragment)
+    )
+    return {
+        "url": url.rstrip("/"),
+        "host": host,
+        "pinned_url": pinned.rstrip("/"),
+        "peer_ip": pin_ip,
+        "allowed_ips": allowed_ips,
+    }
 
 
 def classify_http_error(status: int) -> tuple[str, bool]:
@@ -194,37 +249,27 @@ def classify_http_error(status: int) -> tuple[str, bool]:
 
 
 def validate_memory_v1_response(data: Any) -> dict[str, Any]:
+    """Validate full response against frozen memory.v1 retrieve_response schema."""
     if not isinstance(data, dict):
         raise MemoryHttpError("invalid_json", "response not object", retryable=False)
     if data.get("api_version") != "memory.v1":
         raise MemoryHttpError(
             "unsupported_api_version", "api_version must be memory.v1", retryable=False
         )
-    items = data.get("items")
-    if items is None:
-        items = []
-    if not isinstance(items, list):
-        raise MemoryHttpError("schema_validation", "items must be list", retryable=False)
-    for it in items:
+    try:
+        validated = validate_retrieve_response_frozen(data)
+    except ValueError as exc:
+        raise MemoryHttpError(
+            "schema_validation", f"memory.v1 schema: {exc}", retryable=False
+        ) from exc
+    # Extra allowlist gate for kinds (defense in depth; schema enum is primary).
+    for it in validated.get("items") or []:
         if not isinstance(it, dict):
-            raise MemoryHttpError("schema_validation", "item must be object", retryable=False)
+            continue
         kind = it.get("kind")
         if kind is not None and str(kind) not in ALLOWED_KINDS:
             raise MemoryHttpError("schema_validation", f"invalid kind {kind}", retryable=False)
-    cov = data.get("coverage_manifest")
-    if cov is not None:
-        if not isinstance(cov, dict):
-            raise MemoryHttpError(
-                "schema_validation", "coverage_manifest must be object", retryable=False
-            )
-        if cov.get("version") not in (None, "coverage_manifest.v1"):
-            raise MemoryHttpError("schema_validation", "bad coverage version", retryable=False)
-        # failure vs empty: failed non-empty is not legitimate empty
-        failed = cov.get("failed") or []
-        if failed and items == []:
-            # ok: explicit failure with empty items
-            pass
-    return data
+    return validated
 
 
 class SignalMemoryHttpClient:
@@ -249,19 +294,27 @@ class SignalMemoryHttpClient:
         headers: dict[str, str],
         json_body: dict[str, Any] | None,
     ) -> tuple[int, dict[str, str], bytes]:
-        # Per-request SSRF + DNS rebind check (destination must not change to bad IP)
+        # Per-request SSRF + DNS rebind: pin transport to validated peer IP.
         url = f"{self.base}{path}"
-        validate_url_ssrf(
+        dest = validated_destination(
             url,
             allowed_hosts=self.config.allowed_hosts,
             require_https=self.config.require_https,
             dns_override=self._effective_dns_override(),
         )
+        peer_headers = dict(headers)
+        # Preserve original host for virtual hosting / TLS SNI semantics.
+        peer_headers.setdefault("Host", dest["host"])
+        peer_url = str(dest["pinned_url"])
+        # MockTransport keeps logical URL; HttpxTransport uses pinned peer.
+        transport_url = peer_url if isinstance(self.transport, HttpxTransport) else url
+        if isinstance(self.transport, MockTransport):
+            self.transport.last_peer_url = peer_url
         try:
             return self.transport.request(
                 method,
-                url,
-                headers=headers,
+                transport_url,
+                headers=peer_headers,
                 json_body=json_body,
                 timeout=(self.config.connect_timeout, self.config.read_timeout),
             )
@@ -422,10 +475,14 @@ class SignalMemoryHttpClient:
 
 
 class HttpxTransport:
+    """Real httpx transport. Never follows redirects; peer is pre-pinned by client."""
+
     def __init__(self) -> None:
         import httpx
 
         self._client = httpx.Client(follow_redirects=False, timeout=20.0)
+        self.last_peer_url: str | None = None
+        self.last_effective_url: str | None = None
 
     def request(
         self,
@@ -438,6 +495,7 @@ class HttpxTransport:
     ) -> tuple[int, dict[str, str], bytes]:
         import httpx
 
+        self.last_peer_url = url
         try:
             resp = self._client.request(
                 method,
@@ -445,10 +503,15 @@ class HttpxTransport:
                 headers=headers,
                 json=json_body,
                 timeout=httpx.Timeout(timeout[1], connect=timeout[0]),
+                follow_redirects=False,
             )
         except httpx.TimeoutException as exc:
             raise MemoryHttpError("timeout", "request timed out", retryable=True) from exc
         except httpx.HTTPError as exc:
             raise MemoryHttpError("transport_error", "httpx failure", retryable=True) from exc
+        self.last_effective_url = str(resp.url)
+        # Refuse to accept if the effective peer drifted (redirects disabled, belt+suspenders).
+        if resp.history:
+            raise MemoryHttpError("ssrf_blocked", "redirects are not followed", retryable=False)
         content = resp.content[: MAX_RESPONSE_BYTES + 1]
         return resp.status_code, {k.lower(): v for k, v in resp.headers.items()}, content

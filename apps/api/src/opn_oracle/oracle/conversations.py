@@ -641,6 +641,7 @@ def process_dossier_question_answer(
         "message_id": str(message_id),
         "job_id": str(job.id),
     }
+    snapshot_id = None
     try:
         retrieval = adapter.retrieve(
             scope_hint,
@@ -648,9 +649,24 @@ def process_dossier_question_answer(
             "question",
             20,
         )
+        # Prefer items_for_prompt when present (empty list in shadow is intentional).
+        if "items_for_prompt" in retrieval:
+            items = list(retrieval.get("items_for_prompt") or [])
+        else:
+            items = list(retrieval.get("items") or [])
         coverage = dict(retrieval.get("coverage_manifest") or {})
-        items = list(retrieval.get("items") or [])
         policy = str(retrieval.get("policy_version") or "unknown")
+        # Persist immutable retrieval snapshot on the same Session/UoW.
+        # Failures must propagate — never silence; adapter never commits.
+        from opn_oracle.integrations.memory_context import persist_snapshot_from_retrieve_result
+
+        if isinstance(retrieval, dict) and retrieval.get("snapshot_meta"):
+            # Enrich meta with tenant when adapter omitted it (mock paths).
+            meta = dict(retrieval["snapshot_meta"])
+            meta.setdefault("tenant_id", str(tenant_id))
+            meta.setdefault("dossier_id", str(dossier_id))
+            retrieval = {**retrieval, "snapshot_meta": meta}
+            snapshot_id = persist_snapshot_from_retrieve_result(session, retrieval)
     except MemoryContextDisabled:
         from opn_oracle.integrations.memory_context import empty_coverage_manifest
 
@@ -674,7 +690,12 @@ def process_dossier_question_answer(
     if cancel_requested_after_retrieval:
         cancel_message(message)
         session.flush()
-        return {"message_id": str(message.id), "status": "cancelled", "cancelled": True}
+        return {
+            "message_id": str(message.id),
+            "status": "cancelled",
+            "cancelled": True,
+            "snapshot_id": str(snapshot_id) if snapshot_id else None,
+        }
 
     signal_meta: dict[str, Any] = {}
     body: str
@@ -755,6 +776,7 @@ def process_dossier_question_answer(
             "item_count": len(items),
             "mutates_intent": False,
             "mutates_memory_facts": False,
+            "snapshot_id": str(snapshot_id) if snapshot_id else None,
             **signal_meta,
         },
     )
@@ -766,6 +788,7 @@ def process_dossier_question_answer(
         "policy_version": policy,
         "mutates_intent": False,
         "mutates_memory_facts": False,
+        "snapshot_id": str(snapshot_id) if snapshot_id else None,
         **signal_meta,
     }
 

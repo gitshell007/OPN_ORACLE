@@ -303,3 +303,193 @@ def coverage_from_failure(
 
 def is_legitimate_empty_success(coverage: CoverageManifestV1) -> bool:
     return not coverage.failed
+
+
+# ---------------------------------------------------------------------------
+# Frozen JSON Schema validation (memory.v1 retrieve_response) — no partials.
+# ---------------------------------------------------------------------------
+
+_SCHEMA_CACHE: dict[str, dict[str, Any]] | None = None
+
+
+def _schema_store() -> dict[str, dict[str, Any]]:
+    global _SCHEMA_CACHE
+    if _SCHEMA_CACHE is not None:
+        return _SCHEMA_CACHE
+    root = contract_root() / "schemas"
+    store: dict[str, dict[str, Any]] = {}
+    for path in root.glob("*.json"):
+        schema = cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
+        store[path.name] = schema
+        sid = schema.get("$id")
+        if isinstance(sid, str):
+            store[sid] = schema
+            # basename form used by $ref
+            store[sid.rsplit("/", 1)[-1]] = schema
+    _SCHEMA_CACHE = store
+    return store
+
+
+def _resolve_ref(ref: str, store: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    key = ref.rsplit("/", 1)[-1] if "/" in ref else ref
+    if key not in store and ref not in store:
+        raise ValueError(f"unresolved $ref: {ref}")
+    return store.get(ref) or store[key]
+
+
+def _type_ok(value: Any, expected: str | list[str]) -> bool:
+    types = expected if isinstance(expected, list) else [expected]
+    for t in types:
+        if t == "null" and value is None:
+            return True
+        if t == "object" and isinstance(value, dict):
+            return True
+        if t == "array" and isinstance(value, list):
+            return True
+        if t == "string" and isinstance(value, str):
+            return True
+        if t == "integer" and isinstance(value, int) and not isinstance(value, bool):
+            return True
+        if t == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return True
+        if t == "boolean" and isinstance(value, bool):
+            return True
+    return False
+
+
+def _validate_schema_instance(
+    instance: Any, schema: dict[str, Any], store: dict[str, dict[str, Any]], path: str = "$"
+) -> None:
+    if "$ref" in schema:
+        resolved = _resolve_ref(str(schema["$ref"]), store)
+        return _validate_schema_instance(instance, resolved, store, path)
+
+    if "const" in schema and instance != schema["const"]:
+        raise ValueError(f"{path}: expected const {schema['const']!r}")
+
+    if "enum" in schema and instance not in schema["enum"]:
+        raise ValueError(f"{path}: value not in enum")
+
+    if "type" in schema and not _type_ok(instance, schema["type"]):
+        raise ValueError(f"{path}: type mismatch expected {schema['type']}")
+
+    if isinstance(instance, str):
+        if "minLength" in schema and len(instance) < int(schema["minLength"]):
+            raise ValueError(f"{path}: minLength")
+        if "maxLength" in schema and len(instance) > int(schema["maxLength"]):
+            raise ValueError(f"{path}: maxLength")
+        if "pattern" in schema and not re.search(str(schema["pattern"]), instance):
+            raise ValueError(f"{path}: pattern")
+        if schema.get("format") == "uuid":
+            try:
+                uuid.UUID(instance)
+            except ValueError as exc:
+                raise ValueError(f"{path}: not a uuid") from exc
+
+    if isinstance(instance, (int, float)) and not isinstance(instance, bool):
+        if "minimum" in schema and instance < schema["minimum"]:
+            raise ValueError(f"{path}: minimum")
+        if "maximum" in schema and instance > schema["maximum"]:
+            raise ValueError(f"{path}: maximum")
+
+    if isinstance(instance, list) and "items" in schema:
+        item_schema = schema["items"]
+        if isinstance(item_schema, dict):
+            for i, item in enumerate(instance):
+                _validate_schema_instance(item, item_schema, store, f"{path}[{i}]")
+
+    if isinstance(instance, dict):
+        required = schema.get("required") or []
+        for key in required:
+            if key not in instance:
+                raise ValueError(f"{path}: missing required {key}")
+        props = schema.get("properties") or {}
+        additional = schema.get("additionalProperties", True)
+        for key, value in instance.items():
+            if key in props:
+                _validate_schema_instance(value, props[key], store, f"{path}.{key}")
+            elif additional is False:
+                raise ValueError(f"{path}: additional property {key}")
+            elif isinstance(additional, dict):
+                _validate_schema_instance(value, additional, store, f"{path}.{key}")
+
+
+def validate_retrieve_response_frozen(data: Any) -> dict[str, Any]:
+    """Validate complete retrieve response against frozen memory.v1 JSON Schema."""
+    if not isinstance(data, dict):
+        raise ValueError("response must be object")
+    store = _schema_store()
+    schema = store["retrieve_response.schema.json"]
+    _validate_schema_instance(data, schema, store)
+    return cast(dict[str, Any], data)
+
+
+def complete_retrieve_response_stub(
+    *,
+    dossier_id: str = "11111111-1111-4111-8111-111111111111",
+    query: str = "q",
+    purpose: str = "question",
+    limit: int = 20,
+    items: list[dict[str, Any]] | None = None,
+    request_id: str | None = None,
+    tenant_key: str = "c:1|t:tenant-a",
+    token_budget: int = 4000,
+) -> dict[str, Any]:
+    """Build a response that passes the frozen retrieve_response schema."""
+    return {
+        "api_version": API_VERSION,
+        "request_id": request_id or str(uuid.uuid4()),
+        "scope": {
+            "tenant_key": tenant_key,
+            "product_code": "oracle",
+            "scope_type": "dossier",
+            "scope_id": str(uuid.UUID(str(dossier_id))),
+        },
+        "items": list(items or []),
+        "coverage_manifest": {
+            "version": "coverage_manifest.v1",
+            "requested": ["retrieval"],
+            "consulted": [],
+            "failed": [],
+            "excluded": [],
+            "used": [],
+            "truncated": False,
+            "truncation_notes": [],
+            "cutoff_at": None,
+            "token_budget": int(token_budget),
+            "token_used_estimate": 0,
+        },
+        "query": query,
+        "purpose": purpose,
+        "limit": int(limit),
+        "policy_version": "consumer_memory_settings.v1",
+        "watermark": None,
+    }
+
+
+def complete_retrieval_item(
+    *,
+    item_id: str = "1",
+    kind: str = "chunk",
+    text: str = "hello",
+    checksum: str = "abc",
+) -> dict[str, Any]:
+    """Minimal item that satisfies frozen retrieval_item.schema.json."""
+    return {
+        "kind": kind,
+        "id": item_id,
+        "text": text,
+        "score": 0.5,
+        "rank_explanation": "test",
+        "source_ref": "src:test",
+        "checksum": checksum,
+        "locator": "chunk:0",
+        "classification": "internal",
+        "occurred_at": None,
+        "received_at": None,
+        "factual_status": "candidate",
+        "support_evidence_refs": [],
+        "contradiction_evidence_refs": [],
+        "policy_version": "consumer_memory_settings.v1",
+        "watermark": "wm:test",
+    }

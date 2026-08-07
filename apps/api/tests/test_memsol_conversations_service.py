@@ -467,6 +467,70 @@ def test_process_memory_error_marks_failed(monkeypatch: pytest.MonkeyPatch) -> N
     assert message.error_code == "memory_context_error"
 
 
+def test_process_persists_snapshot_on_same_session_no_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Http adapter snapshot_meta is written via Session without commit in job path."""
+    tenant_id = _tenant()
+    dossier_id = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    message = _message(tenant_id, dossier_id, conversation_id, status="queued")
+    session = MagicMock()
+    session.add = MagicMock()
+    session.commit = MagicMock(side_effect=AssertionError("job UoW owns commit"))
+    job = _job()
+    monkeypatch.setattr(conv, "get_message", lambda *a, **k: message)
+    snap_id = uuid.uuid4()
+
+    class SnapAdapter:
+        def retrieve(self, *a: Any, **k: Any) -> dict[str, Any]:
+            return {
+                "items": [{"text": "fact"}],
+                "items_for_prompt": [],  # shadow
+                "coverage_manifest": empty_coverage_manifest(requested=["retrieval"]),
+                "policy_version": "memory.v1",
+                "snapshot": {
+                    "mode": "shadow",
+                    "failed": False,
+                    "inject_into_llm": False,
+                    "items": [],
+                    "items_observed": 1,
+                },
+                "snapshot_meta": {
+                    "tenant_id": str(tenant_id),
+                    "dossier_id": str(dossier_id),
+                    "connection_id": None,
+                    "mode": "shadow",
+                    "correlation_id": "corr-snap",
+                },
+            }
+
+    def _fake_persist(sess: Any, result: Any) -> uuid.UUID:
+        assert sess is session
+        assert result.get("snapshot_meta", {}).get("mode") == "shadow"
+        return snap_id
+
+    monkeypatch.setattr(
+        "opn_oracle.integrations.memory_context.persist_snapshot_from_retrieve_result",
+        _fake_persist,
+    )
+    with tenant_context(_ctx(tenant_id)):
+        out = conv.process_dossier_question_answer(
+            session,
+            {
+                "message_id": str(message.id),
+                "conversation_id": str(conversation_id),
+                "dossier_id": str(dossier_id),
+            },
+            job,
+            memory_adapter=SnapAdapter(),
+        )
+    assert out["status"] == "succeeded"
+    assert out.get("snapshot_id") == str(snap_id)
+    assert out["item_count"] == 0  # shadow: items_for_prompt empty
+    session.commit.assert_not_called()
+
+
 def test_process_cancel_after_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id = _tenant()
     message = _message(tenant_id, uuid.uuid4(), uuid.uuid4(), status="queued")

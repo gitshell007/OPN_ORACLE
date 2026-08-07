@@ -7,6 +7,14 @@ con el comando real o con el archivo que las contiene.
 
 
 
+## 2026-08-02  — ORC-MEM-001 / MDEV-04 attempt-4 final
+
+- Funcionalidad: ORC-MEM-001 — adapter Oracle + settings (MDEV-04 cuarto intento).
+- Estado honesto: `implemented_with_debt` o PASS si CI #16 cierra verde; no merge/deploy.
+- Cambios: RLS FORCE + grants runtime en 0029; schema memory.v1 congelado; snapshot en job
+  conversación; peer pin SSRF; OpenAPI/client regenerados; Vitest+Playwright memoria.
+- Gates locales: ruff/mypy limpios; suite backend ~910+; cobertura cerca del gate 84%.
+
 ## 2026-08-01  — ORC-MEM-001 / MDEV-01 REWORK-2
 
 - Trabajo: cierre seguridad/durabilidad/gate verde (legacy key ban, analysis durable,

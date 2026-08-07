@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   createMonitor: vi.fn(),
   monitorAction: vi.fn(),
   success: vi.fn(),
+  memoryGetEffective: vi.fn(),
+  memoryPutProfile: vi.fn(),
+  memoryTestConnection: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => ({
@@ -27,6 +30,11 @@ vi.mock("@oracle/api-client", () => ({
       monitors: mocks.monitors,
       createMonitor: mocks.createMonitor,
       action: mocks.monitorAction,
+    },
+    dossierMemory: {
+      getEffective: mocks.memoryGetEffective,
+      putProfile: mocks.memoryPutProfile,
+      testConnection: mocks.memoryTestConnection,
     },
   },
 }));
@@ -87,6 +95,65 @@ describe("DossierSettingsSection", () => {
     mocks.monitors.mockResolvedValue({ data: [] });
     mocks.createMonitor.mockResolvedValue({ id: "monitor-1", outbox_event_id: "event-1" });
     mocks.update.mockResolvedValue({ ...dossier, status: "paused", version: 5 });
+    mocks.memoryGetEffective.mockResolvedValue({
+      id: null,
+      tenant_id: "tenant-1",
+      dossier_id: "dossier-1",
+      connection_id: null,
+      mode: "disabled",
+      mode_label_es: "Desactivada",
+      version: 0,
+      etag: 'W/"dmp-v0"',
+      sources: ["document", "signal"],
+      kinds: ["fact", "chunk"],
+      classifications_allowed: ["public", "internal"],
+      token_budget: 4000,
+      limit: 20,
+      status: "ephemeral_default",
+      provenance: "effective_default_not_persisted",
+      last_test_at: null,
+      last_test_status: null,
+      last_error: null,
+      last_coverage: null,
+      updated_at: null,
+      persisted: false,
+      publisher_reliable: false,
+      actions_reliable: false,
+      deferred_blockers: ["RACE-MDEV02-003"],
+    });
+    mocks.memoryPutProfile.mockResolvedValue({
+      id: "profile-1",
+      tenant_id: "tenant-1",
+      dossier_id: "dossier-1",
+      connection_id: null,
+      mode: "shadow",
+      mode_label_es: "Solo observar",
+      version: 1,
+      etag: 'W/"dmp-v1"',
+      sources: ["document", "signal"],
+      kinds: ["fact", "chunk"],
+      classifications_allowed: ["public", "internal"],
+      token_budget: 4000,
+      limit: 10,
+      status: "active",
+      provenance: "tenant_default",
+      last_test_at: null,
+      last_test_status: null,
+      last_error: null,
+      last_coverage: null,
+      updated_at: "2026-08-02T00:00:00Z",
+      persisted: true,
+      publisher_reliable: false,
+      actions_reliable: false,
+      deferred_blockers: ["RACE-MDEV02-003"],
+    });
+    mocks.memoryTestConnection.mockResolvedValue({
+      ok: true,
+      status: "ok",
+      synthetic: false,
+      last_test_status: "ok",
+      message: null,
+    });
   });
   afterEach(cleanup);
 
@@ -224,5 +291,50 @@ describe("DossierSettingsSection", () => {
     );
     expect(screen.getByRole("button", { name: "Quitar Alemania" })).toBeInTheDocument();
     expect(sessionStorage.getItem("oracle:wizard-prefill:dossier-1:monitor")).toBeNull();
+  });
+
+  it("carga la sección Memoria con defaults no persistidos y banner degradado", async () => {
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    expect(within(section).getByRole("heading", { name: "Memoria del expediente" })).toBeVisible();
+    expect(within(section).getByText(/defaults no persistidos/i)).toBeVisible();
+    expect(within(section).getByText(/servicio degradado/i)).toBeVisible();
+    expect(mocks.memoryGetEffective).toHaveBeenCalledWith("dossier-1");
+  });
+
+  it("guarda el perfil de memoria con If-Match (etag) y modo shadow", async () => {
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    const mode = within(section).getByLabelText("Modo");
+    fireEvent.change(mode, { target: { value: "shadow" } });
+    const limit = within(section).getByLabelText("Límite de resultados");
+    fireEvent.change(limit, { target: { value: "10" } });
+    fireEvent.click(within(section).getByRole("button", { name: /Guardar memoria/i }));
+    await waitFor(() =>
+      expect(mocks.memoryPutProfile).toHaveBeenCalledWith(
+        "dossier-1",
+        expect.objectContaining({ mode: "shadow", limit: 10 }),
+        'W/"dmp-v0"',
+      ),
+    );
+    expect(mocks.success).toHaveBeenCalled();
+  });
+
+  it("prueba la conexión de memoria y recarga el perfil", async () => {
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    // Probar conexión is disabled while mode is disabled.
+    fireEvent.change(within(section).getByLabelText("Modo"), { target: { value: "shadow" } });
+    fireEvent.click(within(section).getByRole("button", { name: /Probar conexión/i }));
+    await waitFor(() => expect(mocks.memoryTestConnection).toHaveBeenCalledWith("dossier-1"));
+    await waitFor(() => expect(mocks.memoryGetEffective.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("muestra error de memoria degradado sin tumbar el resto de la config", async () => {
+    mocks.memoryGetEffective.mockRejectedValueOnce(new Error("permission denied"));
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    expect(await screen.findByRole("heading", { name: "Configuración" })).toBeVisible();
+    expect(await screen.findByText(/No se pudo cargar la memoria/i)).toBeVisible();
+    expect(screen.getByLabelText("Título")).toHaveValue("Expansión Delta");
   });
 });

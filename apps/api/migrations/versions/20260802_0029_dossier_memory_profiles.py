@@ -2,6 +2,10 @@
 
 Revision ID: 20260802_0029
 Revises: 20260731_0028
+
+Expand-only: new tenant-scoped tables with FORCE RLS + runtime grants.
+Verified not applied on Dev (oracle_dev alembic at 20260726_0026) nor Prod
+at the time of this REWORK-3 fix — safe to amend 0029 in place.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ down_revision: str | None = "20260731_0028"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+
 TABLES = (
     "dossier_memory_profiles",
     "memory_retrieval_snapshots",
@@ -24,7 +29,7 @@ TABLES = (
 
 
 def _enable_rls(table: str) -> None:
-    """Match canonical tenant-table pattern (ENABLE+FORCE RLS, policy, oracle_app grants)."""
+    """Canonical tenant RLS + oracle_app DML grants (same pattern as 0028)."""
     op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
     op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
     op.execute(
@@ -36,6 +41,17 @@ def _enable_rls(table: str) -> None:
         f"""
         DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='oracle_app') THEN
           GRANT SELECT,INSERT,UPDATE,DELETE ON {table} TO oracle_app;
+        END IF; END $$
+        """
+    )
+
+
+def _drop_rls(table: str) -> None:
+    op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
+    op.execute(
+        f"""
+        DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='oracle_app') THEN
+          REVOKE SELECT,INSERT,UPDATE,DELETE ON {table} FROM oracle_app;
         END IF; END $$
         """
     )
@@ -126,9 +142,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Policies/grants drop with table; explicit policy drop for safety if table remains.
-    for table in TABLES:
-        op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
+    for table in reversed(TABLES):
+        _drop_rls(table)
     op.drop_index("ix_mrs_tenant_dossier", table_name="memory_retrieval_snapshots")
     op.drop_table("memory_retrieval_snapshots")
     op.drop_index(

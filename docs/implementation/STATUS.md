@@ -4396,7 +4396,22 @@ recomendado, no gate estricto activo.
 - TS export DossierMemoryProfile; UI Memoria filters (sources/kinds/classifications/limit/token_budget)
 - Residual debt: PG multi-tenant integration, OpenAPI regen, Playwright/Vitest, full suite/CI, Celery cancel, schema freeze full memory.v1
 
-## MDEV-04 attempt-4 (2026-08-02)
-- RLS FORCE + tenant_isolation policy + oracle_app grants on dossier_memory_profiles / memory_retrieval_snapshots
-- mutation subprocess strips ORACLE_RUN_INTEGRATION/TEST_* URLs + --no-cov (mutation-J pattern)
-- residual: full PG HTTP e2e, OpenAPI, Playwright, coverage gate, CI conclusion
+## MDEV-04 attempt-4 final (2026-08-02)
+
+- branch: `mdev/04-oracle-adapter-settings` · PR Oracle #16 · tip pending push
+- **RLS/grants (0029 amend):** `ENABLE`+`FORCE ROW LEVEL SECURITY`, policy `tenant_isolation`,
+  `GRANT SELECT,INSERT,UPDATE,DELETE` to `oracle_app` for `dossier_memory_profiles` and
+  `memory_retrieval_snapshots`. Verified **not applied** on Dev (`oracle_dev` alembic
+  `20260726_0026`) nor Prod → amend 0029 in place (no 0030 corrective).
+- **Mutations:** child pytest strips `ORACLE_RUN_INTEGRATION`/`TEST_*_URL` + `--no-cov` + 45s
+  timeout (mutation-J pattern); RED preserved.
+- **Schema:** frozen `retrieve_response.schema.json` full validation (no partial).
+- **SSRF:** peer IP pin via `validated_destination`; redirects never followed.
+- **Snapshot:** `persist_snapshot_from_retrieve_result` in `process_dossier_question_answer`
+  (same Session/UoW; no commit in adapter); shadow uses empty `items_for_prompt`.
+- **OpenAPI/client:** regenerated paths memory profile/effective/test-connection/capability.
+- **UI:** Vitest Memoria controls + Playwright `dossier-memory-settings.spec.ts` (desktop/narrow/axe).
+- **PG:** `test_integration_mdev04_memory_migration.py` 0028↔0029 roundtrip, A/B RLS, unique NULL scope, FK.
+- Residual (honest): full dual-tenant Flask HTTP against real runtime role in CI E2E depends on
+  grants (fixed); Celery cancel/deadline deep matrix and production migration still offline.
+  No deploy/merge/prod/secrets.

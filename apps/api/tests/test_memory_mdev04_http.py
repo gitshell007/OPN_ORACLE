@@ -543,3 +543,76 @@ def test_put_updates_existing_profile(
     assert resp.get_json()["mode"] == "augment"
     assert existing.version == 2
     assert session.commits == 1
+
+
+@pytest.mark.unit
+def test_memory_effective_and_capability(
+    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.config["MEMORY_CONTEXT_MODE"] = "http"
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read"})) as (
+        _user,
+        tenant_id,
+    ):
+        dossier = _dossier(tenant_id)
+        session = _FakeSession(dossier=dossier)
+        _wire_session(monkeypatch, session)
+        eff = client.get(f"/api/v1/dossiers/{dossier.id}/memory/effective")
+        cap = client.get("/api/v1/memory/capability")
+    assert eff.status_code == 200
+    body = eff.get_json()
+    assert body["persisted"] is False
+    assert "capability" in body
+    assert body["capability"]["publisher_reliable"] is False
+    assert cap.status_code == 200
+    assert cap.get_json()["effective_mode"] in {"disabled", "shadow", "augment"}
+
+
+@pytest.mark.unit
+def test_test_connection_host_disabled(
+    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.config["MEMORY_CONTEXT_MODE"] = "disabled"
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
+        _user,
+        tenant_id,
+    ):
+        dossier = _dossier(tenant_id)
+        session = _FakeSession(dossier=dossier)
+        _wire_session(monkeypatch, session)
+        resp = client.post(f"/api/v1/dossiers/{dossier.id}/memory/test-connection")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is False
+    assert body["status"] == "host_disabled"
+
+
+@pytest.mark.unit
+def test_put_invalid_limit_and_sources_422(
+    app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _authenticated_http_probe(
+        app, monkeypatch, frozenset({"dossier.read", "dossier.write"})
+    ) as (
+        _user,
+        tenant_id,
+    ):
+        dossier = _dossier(tenant_id)
+        session = _FakeSession(dossier=dossier)
+        _wire_session(monkeypatch, session)
+        get = client.get(f"/api/v1/dossiers/{dossier.id}/memory/profile")
+        etag = get.headers.get("ETag") or get.get_json()["etag"]
+        bad_limit = client.put(
+            f"/api/v1/dossiers/{dossier.id}/memory/profile",
+            json={"mode": "shadow", "limit": 9999},
+            headers={"If-Match": etag},
+        )
+        bad_src = client.put(
+            f"/api/v1/dossiers/{dossier.id}/memory/profile",
+            json={"mode": "shadow", "sources": ["not-allowed-source"]},
+            headers={"If-Match": etag},
+        )
+    assert bad_limit.status_code == 422
+    assert bad_src.status_code == 422
