@@ -11413,6 +11413,20 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "user_agent": {
+            "nullable": true,
+            "type": "string"
           }
         },
         "required": [
@@ -18605,6 +18619,7 @@
     },
     "/api/v1/auth/sessions": {
       "get": {
+        "description": "Historical rows with ``revoked_at`` set (or idle/absolute expiry already\npast) stay in PostgreSQL for audit, but must not appear as \"active\" in the\nUI \u2014 otherwise \"Cerrar las dem\u00e1s sesiones\" looks like it only removed one\nentry while the rest of the ghost sessions remain.",
         "parameters": [],
         "responses": {
           "200": {
@@ -18663,7 +18678,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Sessions List",
+        "summary": "List only live sessions for the account security screen.",
         "tags": [
           "Autenticaci\u00f3n"
         ]

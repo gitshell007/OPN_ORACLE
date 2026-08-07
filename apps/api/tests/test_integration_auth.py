@@ -345,6 +345,8 @@ def test_session_list_reauth_revoke_others_and_switch_denied(
     )
     assert reauth.status_code == 200
     csrf = _csrf(first)
+    before_revoke = first.get("/api/v1/auth/sessions").get_json()["items"]
+    assert len(before_revoke) >= 2
     assert (
         first.post(
             "/api/v1/auth/sessions/revoke-others", headers={"X-CSRF-Token": csrf}
@@ -353,9 +355,11 @@ def test_session_list_reauth_revoke_others_and_switch_denied(
     )
     assert second.get("/api/v1/auth/me").status_code == 401
     sessions = first.get("/api/v1/auth/sessions").get_json()["items"]
-    assert any(
-        item["current"] and item["active_tenant_id"] == str(ids["tenant"]) for item in sessions
-    )
+    # Only the caller's live session must remain; revoked ghosts must not reappear.
+    assert len(sessions) == 1
+    assert sessions[0]["current"] is True
+    assert sessions[0]["active_tenant_id"] == str(ids["tenant"])
+    assert sessions[0].get("revoked_at") is None
     before = first.get_cookie(app.config["SESSION_COOKIE_NAME"])
     csrf = _csrf(first)
     switched = first.post(

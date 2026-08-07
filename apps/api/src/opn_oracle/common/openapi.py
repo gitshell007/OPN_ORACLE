@@ -795,7 +795,10 @@ def _response_schemas() -> dict[str, Any]:
                 "current": {"type": "boolean"},
                 "active_tenant_id": nullable_uuid,
                 "created_at": {"type": "string", "format": "date-time"},
+                "last_seen_at": {"type": "string", "format": "date-time", "nullable": True},
                 "expires_at": {"type": "string", "format": "date-time"},
+                "revoked_at": {"type": "string", "format": "date-time", "nullable": True},
+                "user_agent": {"type": "string", "nullable": True},
             },
         },
         "TenantResponse": {

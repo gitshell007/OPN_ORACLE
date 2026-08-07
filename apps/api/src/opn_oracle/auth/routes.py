@@ -584,9 +584,22 @@ def accept_invitation() -> tuple[Any, int] | tuple[str, int]:
 @bp.get("/sessions")
 @login_required
 def sessions_list() -> dict[str, Any]:
+    """List only live sessions for the account security screen.
+
+    Historical rows with ``revoked_at`` set (or idle/absolute expiry already
+    past) stay in PostgreSQL for audit, but must not appear as "active" in the
+    UI — otherwise "Cerrar las demás sesiones" looks like it only removed one
+    entry while the rest of the ghost sessions remain.
+    """
+    now = datetime.now(UTC)
     rows = db.session.scalars(
         select(UserSession)
-        .where(UserSession.user_id == current_user.id)
+        .where(
+            UserSession.user_id == current_user.id,
+            UserSession.revoked_at.is_(None),
+            UserSession.absolute_expires_at > now,
+            UserSession.idle_expires_at > now,
+        )
         .order_by(UserSession.created_at.desc())
     )
     current_id = session.get("user_session_id")
@@ -599,7 +612,7 @@ def sessions_list() -> dict[str, Any]:
                 "created_at": row.created_at.isoformat(),
                 "last_seen_at": row.last_seen_at.isoformat(),
                 "expires_at": row.absolute_expires_at.isoformat(),
-                "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+                "revoked_at": None,
                 "user_agent": row.user_agent_summary,
             }
             for row in rows
@@ -630,16 +643,23 @@ def revoke_session(session_id: UUID) -> tuple[Any, int] | tuple[str, int]:
 @recent_auth_required
 def revoke_others() -> tuple[str, int]:
     current_id = UUID(session["user_session_id"])
-    db.session.execute(
+    now = datetime.now(UTC)
+    result = db.session.execute(
         update(UserSession)
         .where(
             UserSession.user_id == current_user.id,
             UserSession.id != current_id,
             UserSession.revoked_at.is_(None),
         )
-        .values(revoked_at=datetime.now(UTC))
+        .values(revoked_at=now)
     )
-    _audit("auth.sessions.others_revoked", "success", resource_id=current_user.id)
+    revoked = int(result.rowcount or 0)
+    _audit(
+        "auth.sessions.others_revoked",
+        "success",
+        resource_id=current_user.id,
+        metadata={"revoked_count": revoked},
+    )
     db.session.commit()
     return "", 204
 

@@ -4371,7 +4371,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Sessions List */
+        /**
+         * List only live sessions for the account security screen.
+         * @description Historical rows with ``revoked_at`` set (or idle/absolute expiry already
+         *     past) stay in PostgreSQL for audit, but must not appear as "active" in the
+         *     UI — otherwise "Cerrar las demás sesiones" looks like it only removed one
+         *     entry while the rest of the ghost sessions remain.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -37527,6 +37533,11 @@ export interface components {
             expires_at: string;
             /** Format: uuid */
             id: string;
+            /** Format: date-time */
+            last_seen_at?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            user_agent?: string | null;
         };
         SessionUserResponse: {
             display_name: string;

@@ -201,6 +201,26 @@ export function SecuritySettings() {
   );
 }
 
+function formatSessionInstant(value: string): string {
+  return new Intl.DateTimeFormat("es-ES", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function sessionDeviceLabel(item: Session): string {
+  if (item.current) return "Este dispositivo";
+  const agent = item.user_agent?.trim();
+  if (!agent) return "Otro dispositivo";
+  // Resumen corto del user-agent sin pretender un parser completo.
+  if (/Edg\//i.test(agent)) return "Microsoft Edge";
+  if (/Chrome\//i.test(agent) && !/Edg\//i.test(agent)) return "Google Chrome";
+  if (/Firefox\//i.test(agent)) return "Mozilla Firefox";
+  if (/Safari\//i.test(agent) && !/Chrome\//i.test(agent)) return "Safari";
+  if (/Mobile|Android|iPhone/i.test(agent)) return "Dispositivo móvil";
+  return "Otro dispositivo";
+}
+
 export function SessionsSettings() {
   const auth = useAuth();
   const recent = useRecentAuth();
@@ -208,11 +228,14 @@ export function SessionsSettings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmOthers, setConfirmOthers] = useState(false);
+  const otherSessions = sessions.filter((item) => !item.current);
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setSessions((await api.auth.sessions()).items);
+      // Defensa: el API ya filtra revocadas/caducadas; no reintroducir fantasmas.
+      const items = (await api.auth.sessions()).items;
+      setSessions(items.filter((item) => item.revoked_at == null));
     } catch (reason) {
       setError(
         reason instanceof ApiError
@@ -228,19 +251,43 @@ export function SessionsSettings() {
     return () => window.clearTimeout(kickoff);
   }, [load]);
   async function revoke(item: Session) {
-    await recent.run(() => api.auth.revokeSession(item.id));
-    if (item.current) {
-      await auth.refresh();
-      return;
+    try {
+      await recent.run(() => api.auth.revokeSession(item.id));
+      if (item.current) {
+        await auth.refresh();
+        return;
+      }
+      setSessions((prev) => prev.filter((row) => row.id !== item.id));
+      await load();
+      toast.success("Sesión revocada");
+    } catch (reason) {
+      toast.error(
+        reason instanceof ApiError
+          ? reason.message
+          : "No se pudo revocar la sesión.",
+      );
     }
-    await load();
-    toast.success("Sesión revocada");
   }
   async function revokeOthers() {
-    await recent.run(() => api.auth.revokeOthers());
-    setConfirmOthers(false);
-    await load();
-    toast.success("Las demás sesiones se han cerrado");
+    const pending = otherSessions.length;
+    try {
+      await recent.run(() => api.auth.revokeOthers());
+      setConfirmOthers(false);
+      // Feedback inmediato: solo debe quedar la sesión actual.
+      setSessions((prev) => prev.filter((item) => item.current));
+      await load();
+      toast.success(
+        pending <= 1
+          ? "La otra sesión se ha cerrado"
+          : `Se han cerrado ${pending} sesiones`,
+      );
+    } catch (reason) {
+      toast.error(
+        reason instanceof ApiError
+          ? reason.message
+          : "No se pudieron cerrar las demás sesiones.",
+      );
+    }
   }
   return (
     <div className="settings-page">
@@ -255,7 +302,10 @@ export function SessionsSettings() {
       <section className="settings-section">
         <header>
           <h2>Dispositivos conectados</h2>
-          <p>Las fechas proceden del registro seguro de sesiones.</p>
+          <p>
+            Solo se muestran sesiones vivas. Las revocadas desaparecen de esta
+            lista al instante.
+          </p>
         </header>
         {loading ? (
           <p role="status">Cargando sesiones…</p>
@@ -264,6 +314,8 @@ export function SessionsSettings() {
             {error}
             <button onClick={() => void load()}>Reintentar</button>
           </div>
+        ) : sessions.length === 0 ? (
+          <p role="status">No hay sesiones activas.</p>
         ) : (
           <div className="session-list">
             {sessions.map((item) => (
@@ -272,23 +324,14 @@ export function SessionsSettings() {
                   <Laptop size={19} />
                 </span>
                 <div>
-                  <strong>
-                    {item.current ? "Este dispositivo" : "Sesión de Oracle"}
-                  </strong>
-                  <small>
-                    Iniciada{" "}
-                    {new Intl.DateTimeFormat("es-ES", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(new Date(item.created_at))}
-                  </small>
-                  <small>
-                    Caduca{" "}
-                    {new Intl.DateTimeFormat("es-ES", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(new Date(item.expires_at))}
-                  </small>
+                  <strong>{sessionDeviceLabel(item)}</strong>
+                  <small>Iniciada {formatSessionInstant(item.created_at)}</small>
+                  {item.last_seen_at && (
+                    <small>
+                      Última actividad {formatSessionInstant(item.last_seen_at)}
+                    </small>
+                  )}
+                  <small>Caduca {formatSessionInstant(item.expires_at)}</small>
                 </div>
                 {item.current && <span className="status active">Actual</span>}
                 <AsyncActionButton
@@ -306,7 +349,11 @@ export function SessionsSettings() {
         <div className="session-actions">
           {confirmOthers ? (
             <>
-              <span>¿Cerrar todas las demás sesiones?</span>
+              <span>
+                ¿Cerrar las {otherSessions.length} sesión
+                {otherSessions.length === 1 ? "" : "es"} restante
+                {otherSessions.length === 1 ? "" : "s"}?
+              </span>
               <AsyncActionButton
                 className="vector-danger"
                 onClick={() => void revokeOthers()}
@@ -324,9 +371,16 @@ export function SessionsSettings() {
             <button
               className="vector-secondary"
               onClick={() => setConfirmOthers(true)}
+              disabled={otherSessions.length === 0 || loading}
+              title={
+                otherSessions.length === 0
+                  ? "No hay otras sesiones activas"
+                  : undefined
+              }
             >
               <LogOut size={15} />
               Cerrar las demás sesiones
+              {otherSessions.length > 0 ? ` (${otherSessions.length})` : ""}
             </button>
           )}
         </div>
