@@ -1,0 +1,290 @@
+{
+  "schema": "sv2-memory-baseline-eval-set-v1",
+  "version": "2.0.0",
+  "id": "sv2-memory-baseline-real-v2",
+  "title": "Baseline de recuperación de memoria · corpus real (sin datos ficticios)",
+  "created_at": "2026-08-07",
+  "prompt_tag": "SV2-BASELINE-MEMORIA",
+  "dossier": {
+    "id": "ab7bba16-3e55-4f35-ad73-0c84e2850688",
+    "tenant_id": "a6edb3c8-0611-4d7a-a6e1-e882c7460539",
+    "name": "Nexus Ibérica Sistemas S.L.",
+    "notes": "Hechos verificados contra memory.memory_facts + chunks en signal-dev (tenant c:64|t:<tenant_id>) el 2026-08-04. Corpus fuente versionado en fixtures/sv2_memory_baseline/v1/dossier_source_corpus.txt."
+  },
+  "scoring": {
+    "must_all": "Todas las cadenas must_contain (case-insensitive, acentos flexibles en nombres) deben aparecer en la respuesta.",
+    "must_any": "Al menos un grupo de must_any_groups debe tener todos sus tokens presentes.",
+    "trap": "La respuesta debe abstenerse (indicar que no consta / no hay evidencia / no se dispone / no hay información disponible en las evidencias autorizadas) y NO inventar hechos concretos de la lista forbidden_claims. El scorer une DEFAULT_ABSTENTION_MARKERS del corredor con abstention_markers de la pregunta (congelar scorer en commit antes de re-medir).",
+    "citations": "Se reporta el número de citas del answer_payload; no bloquea el acierto factual salvo require_citations=true."
+  },
+  "questions": [
+    {
+      "id": "Q01",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el expediente de la licitación de agentes inteligentes de Illes Balears?",
+      "criteria": {
+        "must_contain": [
+          "11077"
+        ],
+        "notes": "chunks del extracto CONTR 2026 11077 (6 apariciones)"
+      }
+    },
+    {
+      "id": "Q02",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el valor estimado del contrato de la licitación CONTR 2026 11077?",
+      "criteria": {
+        "must_contain": [
+          "5.450.796,93"
+        ],
+        "notes": "valor estimado en el extracto PCAP (6 apariciones)"
+      }
+    },
+    {
+      "id": "Q03",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cómo se titula el lote 2 de la licitación de Illes Balears?",
+      "criteria": {
+        "must_contain": [
+          "Red de agentes"
+        ],
+        "notes": "lotes del pliego (20 apariciones)"
+      }
+    },
+    {
+      "id": "Q04",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Qué organismo licita la plataforma multiagente de Illes Balears?",
+      "criteria": {
+        "must_contain": [
+          "Balear"
+        ],
+        "notes": "buyer: Agencia Balear de Digitalización / GOIB",
+        "accept_name_variants": [
+          "Agencia Balear de Digitalización",
+          "GOIB",
+          "Govern de les Illes Balears"
+        ]
+      }
+    },
+    {
+      "id": "Q05",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el CPV principal de la licitación de Illes Balears?",
+      "criteria": {
+        "must_contain": [
+          "72000000"
+        ],
+        "notes": "tender.cpv is_main=true"
+      }
+    },
+    {
+      "id": "Q06",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el presupuesto de la licitación del Ayuntamiento de Sagunto?",
+      "criteria": {
+        "must_contain": [
+          "92.555"
+        ],
+        "notes": "tender.amount proc:2026044323",
+        "accept_name_variants": [
+          "92555",
+          "92.555"
+        ]
+      }
+    },
+    {
+      "id": "Q07",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Hasta cuándo se pueden presentar ofertas a la licitación de Sagunto?",
+      "criteria": {
+        "must_contain": [
+          "2026-08-06"
+        ],
+        "notes": "tender.deadline proc:2026044323",
+        "accept_name_variants": [
+          "6 de agosto",
+          "2026-08-06"
+        ]
+      }
+    },
+    {
+      "id": "Q08",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Qué importe tiene la licitación del Ministerio de Vivienda y Agenda Urbana?",
+      "criteria": {
+        "must_contain": [
+          "907.715"
+        ],
+        "notes": "tender.amount proc:2601ctrdt001",
+        "accept_name_variants": [
+          "907715,06",
+          "907.715,06"
+        ]
+      }
+    },
+    {
+      "id": "Q09",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuál es el CPV de la licitación del Ministerio de Vivienda?",
+      "criteria": {
+        "must_contain": [
+          "72253200"
+        ],
+        "notes": "tender.cpv proc:2601ctrdt001"
+      }
+    },
+    {
+      "id": "Q10",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Hasta cuándo admite ofertas la licitación del Ministerio de Vivienda?",
+      "criteria": {
+        "must_contain": [
+          "2026-08-21"
+        ],
+        "notes": "tender.deadline proc:2601ctrdt001",
+        "accept_name_variants": [
+          "21 de agosto",
+          "2026-08-21"
+        ]
+      }
+    },
+    {
+      "id": "Q11",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "Nombra una empresa adjudicataria real que aparezca en las adjudicaciones del expediente.",
+      "criteria": {
+        "must_contain": [
+          "Capgemini"
+        ],
+        "notes": "company.legal_name reales",
+        "accept_name_variants": [
+          "Capgemini",
+          "Inetum",
+          "NTT DATA",
+          "Indra"
+        ]
+      }
+    },
+    {
+      "id": "Q12",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Qué requisito de volumen anual de negocio exige la solvencia F.2 del pliego?",
+      "criteria": {
+        "must_contain": [
+          "1,5"
+        ],
+        "notes": "F.2 del PCAP: volumen anual >= 1,5x valor estimado",
+        "accept_name_variants": [
+          "1,5",
+          "1.5"
+        ]
+      }
+    },
+    {
+      "id": "Q13",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Cuántos años de servicios exige la solvencia técnica F.3 del pliego?",
+      "criteria": {
+        "must_contain": [
+          "3"
+        ],
+        "notes": "F.3: servicios de los ultimos tres años",
+        "accept_name_variants": [
+          "tres",
+          "3"
+        ]
+      }
+    },
+    {
+      "id": "Q14",
+      "difficulty": "direct",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Qué importe tiene la licitación adjudicada a Babel Sistemas de Información?",
+      "criteria": {
+        "must_contain": [
+          "869.205"
+        ],
+        "notes": "tender.amount proc:1022026",
+        "accept_name_variants": [
+          "869205,39",
+          "869.205,39"
+        ]
+      }
+    },
+    {
+      "id": "Q15",
+      "difficulty": "compound",
+      "kind": "fact",
+      "folder_compare": true,
+      "question": "¿Qué expediente y qué importe corresponden a la licitación de Illes Balears?",
+      "criteria": {
+        "must_contain": [
+          "11077",
+          "5.450.796,93"
+        ],
+        "notes": "pregunta compuesta: dos hechos reales"
+      }
+    },
+    {
+      "id": "Q16",
+      "difficulty": "direct",
+      "kind": "trap",
+      "folder_compare": false,
+      "question": "¿Cuántos empleados tiene Capgemini España a 31 de diciembre de 2025?",
+      "criteria": {
+        "must_contain": [],
+        "notes": "TRAMPA: el corpus no tiene plantillas de empleados"
+      }
+    },
+    {
+      "id": "Q17",
+      "difficulty": "direct",
+      "kind": "trap",
+      "folder_compare": false,
+      "question": "¿Qué EBITDA reportó Inetum España en el ejercicio 2024?",
+      "criteria": {
+        "must_contain": [],
+        "notes": "TRAMPA: no hay cuentas anuales en el corpus"
+      }
+    },
+    {
+      "id": "Q18",
+      "difficulty": "direct",
+      "kind": "trap",
+      "folder_compare": false,
+      "question": "¿Cuál es el domicilio social de NTT DATA en Madrid?",
+      "criteria": {
+        "must_contain": [],
+        "notes": "TRAMPA: no hay domicilios de adjudicatarias reales"
+      }
+    }
+  ]
+}

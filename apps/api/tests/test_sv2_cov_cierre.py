@@ -2707,3 +2707,43 @@ def test_notification_handlers_temporary_errors(app: Any, monkeypatch: pytest.Mo
     )
     with app.app_context(), pytest.raises(PermanentJobError, match="gone"):
         tasks._send_digest({"preference_id": str(uuid.uuid4())}, job)  # type: ignore[arg-type]
+
+
+def test_resumen_de_respaldo_etiqueta_sin_ocultar() -> None:
+    """El informe se publica siempre; el lector debe saber de qué fiarse.
+
+    Una sección sin cita no se descarta ni se esconde: queda marcada, y el resumen viaja
+    dentro del artefacto descargable para que la etiqueta sobreviva a la exportación.
+    """
+    from opn_oracle.oracle.custom_report_lifecycle import summarize_section_sourcing
+
+    secciones = [
+        {"title": "Situación", "citations": [{"evidence_id": "aaaa"}]},
+        {"title": "Riesgos", "citations": []},
+        {"title": "Acciones"},
+    ]
+    resumen = summarize_section_sourcing(secciones)
+
+    assert resumen["sections_total"] == 3
+    assert resumen["sections_with_source"] == 1
+    assert resumen["sections_without_source"] == 2
+    assert resumen["unsourced_titles"] == ["Riesgos", "Acciones"]
+    assert resumen["label"] == "1 de 3 secciones con fuente verificable"
+    assert "hipótesis" in resumen["notice"]
+
+    # las secciones sin respaldo quedan marcadas en el propio documento
+    assert secciones[1]["unsourced"] is True
+    assert secciones[1]["sourcing_label"] == "SIN FUENTE VERIFICABLE"
+    assert secciones[2]["sourcing_label"] == "SIN FUENTE VERIFICABLE"
+    # la que sí tiene cita no se toca
+    assert "unsourced" not in secciones[0]
+
+
+def test_resumen_de_respaldo_sin_avisos_cuando_todo_esta_citado() -> None:
+    """Si todo está respaldado, no se añade ruido al informe."""
+    from opn_oracle.oracle.custom_report_lifecycle import summarize_section_sourcing
+
+    resumen = summarize_section_sourcing([{"title": "A", "citations": [{"evidence_id": "x"}]}])
+    assert resumen["sections_without_source"] == 0
+    assert resumen["notice"] == ""
+    assert resumen["label"] == "1 de 1 secciones con fuente verificable"

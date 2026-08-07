@@ -1810,6 +1810,7 @@ def process_custom_brief_review(
         "snapshot_hash": current_hash,
         "accepted_plan": options.get("accepted_plan"),
         "sections": writer_output.get("sections"),
+        "sourcing": summarize_section_sourcing(writer_output.get("sections")),
         "facts": writer_output.get("facts") or [],
         "claims": writer_output.get("claims") or [],
         "conflicts": writer_output.get("conflicts") or [],
@@ -1899,6 +1900,49 @@ def process_custom_brief_review(
         "byte_size": byte_size,
         "snapshot_hash": current_hash,
         "review_approved": True,
+    }
+
+
+def summarize_section_sourcing(sections: Any) -> dict[str, Any]:
+    """Resume que secciones del informe tienen respaldo y cuales no.
+
+    El informe se publica siempre; lo que cambia es que el lector sepa de que se fia.
+    Una seccion sin cita no se oculta ni se descarta: se etiqueta, y ese resumen viaja
+    dentro del artefacto descargable para que sobreviva a la exportacion. Una etiqueta
+    que solo existe en pantalla desaparece en cuanto el informe sale a Word.
+    """
+
+    total = 0
+    con_fuente = 0
+    sin_fuente: list[str] = []
+    if isinstance(sections, list):
+        for idx, sec in enumerate(sections, 1):
+            if not isinstance(sec, dict):
+                continue
+            total += 1
+            cits = sec.get("citations")
+            titulo = str(sec.get("title") or f"Sección {idx}").strip()
+            if isinstance(cits, list) and cits:
+                con_fuente += 1
+            else:
+                sin_fuente.append(titulo)
+                sec["unsourced"] = True
+                sec["sourcing_label"] = "SIN FUENTE VERIFICABLE"
+    etiqueta = (
+        f"{con_fuente} de {total} secciones con fuente verificable" if total else "sin secciones"
+    )
+    return {
+        "sections_total": total,
+        "sections_with_source": con_fuente,
+        "sections_without_source": len(sin_fuente),
+        "unsourced_titles": sin_fuente,
+        "label": etiqueta,
+        "notice": (
+            "Las secciones marcadas SIN FUENTE VERIFICABLE no están respaldadas por "
+            "evidencia autorizada del expediente: trátalas como hipótesis, no como hechos."
+        )
+        if sin_fuente
+        else "",
     }
 
 
