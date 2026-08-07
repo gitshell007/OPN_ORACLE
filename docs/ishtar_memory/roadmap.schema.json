@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opnconsultoria.local/ishtar-memory/roadmap.schema.json",
+  "title": "Ishtar Memory roadmap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "state_revision", "project_id", "sequences", "settings", "tasks"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "state_revision": { "type": "integer", "minimum": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "sequences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task", "activity"],
+      "properties": {
+        "task": { "type": "integer", "minimum": 0 },
+        "activity": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_statuses", "allowed_priorities"],
+      "properties": {
+        "allowed_statuses": {
+          "type": "array",
+          "items": { "enum": ["pending", "in_progress", "blocked", "done"] }
+        },
+        "allowed_priorities": {
+          "type": "array",
+          "items": { "enum": ["low", "medium", "high", "critical"] }
+        }
+      }
+    },
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } }
+  },
+  "$defs": {
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "title", "status", "priority", "parent_id", "children",
+        "prompt_records", "created_at", "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]+(-[A-Z0-9]+)*-[0-9]{3,}$",
+          "description": "Identificador propio y estable. Nunca se deriva de la posición en el árbol."
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "objective": { "type": "string" },
+        "status": { "enum": ["pending", "in_progress", "blocked", "done"] },
+        "priority": { "enum": ["low", "medium", "high", "critical"] },
+        "parent_id": {
+          "type": ["string", "null"],
+          "description": "Debe coincidir con el id del nodo que contiene la tarea."
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/task" },
+          "description": "Profundidad no acotada. El orden es manual y el sistema no lo reordena."
+        },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "acceptance_criteria": { "type": "array" },
+        "comments": { "type": "array" },
+        "evidence": { "type": "array" },
+        "related_files": { "type": "array", "items": { "type": "string" } },
+        "tests": { "type": "array" },
+        "prompt_records": { "type": "array", "items": { "$ref": "#/$defs/prompt" } },
+        "blocked_reason": { "type": ["string", "null"] },
+        "completion_override": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason", "created_at", "actor"],
+              "properties": {
+                "reason": { "type": "string", "minLength": 1 },
+                "created_at": { "type": "string" },
+                "actor": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "completed_at": { "type": ["string", "null"] }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "prompt_text", "revision_history", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^.+-P[0-9]{3,}$" },
+        "title": { "type": "string", "minLength": 1 },
+        "prompt_text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Texto literal. Se conservan saltos de línea, Markdown y bloques de código."
+        },
+        "purpose": { "type": "string" },
+        "tool_or_model": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" },
+        "result_summary": { "type": "string" },
+        "related_files": { "type": "array", "items": { "type": "string" } },
+        "revision_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["revision", "prompt_text", "changed_at"],
+            "properties": {
+              "revision": { "type": "integer", "minimum": 1 },
+              "prompt_text": { "type": "string" },
+              "changed_at": { "type": "string" },
+              "change_reason": { "type": "string" },
+              "actor": { "type": "string" }
+            }
+          }
+        },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "archived_at": {
+          "type": ["string", "null"],
+          "description": "Los prompts se archivan; nunca se eliminan desde la interfaz."
+        }
+      }
+    }
+  }
+}

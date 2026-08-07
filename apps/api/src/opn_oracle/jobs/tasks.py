@@ -19,6 +19,7 @@ from sqlalchemy import delete, or_, select, update
 
 from opn_oracle.ai.context import (
     build_dossier_completion_context,
+    build_market_competitor_discovery_context,
     build_tender_search_replan_context,
     build_tender_search_wizard_context,
 )
@@ -433,6 +434,7 @@ HANDLERS: dict[str, Handler] = {
             "dossier_situation_summary",
             "dossier_completion_wizard",
             "tender_search_wizard",
+            "market_competitor_discovery",
         )
     },
 }
@@ -612,6 +614,25 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     max_tokens=max_tokens,
                 ),
                 target_type="tenant_search_profile",
+                target_id=job.tenant_id,
+            )
+        if agent == "market_competitor_discovery":
+            discovery_description = str(payload["description"])
+            discovery_own_offer = str(payload.get("own_offer", ""))
+            return execute_agent(
+                agent=agent,
+                dossier_id=None,
+                job=job,
+                context_factory=lambda max_tokens: build_market_competitor_discovery_context(
+                    description=discovery_description,
+                    own_offer=discovery_own_offer,
+                    sectors=[str(item) for item in payload.get("sectors", [])],
+                    countries=[str(item) for item in payload.get("countries", [])],
+                    languages=[str(item) for item in payload.get("languages", [])],
+                    known_names=[str(item) for item in payload.get("known_names", [])],
+                    max_tokens=max_tokens,
+                ),
+                target_type="market_discovery",
                 target_id=job.tenant_id,
             )
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
@@ -1048,6 +1069,7 @@ AI_DURABLE_TASKS = {
         "dossier_situation_summary",
         "dossier_completion_wizard",
         "tender_search_wizard",
+        "market_competitor_discovery",
     )
 }
 

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "id": "OPN-ORACLE",
+    "name": "OPN Oracle",
+    "slug": "opn-oracle",
+    "task_prefix": "ORC",
+    "description": "Plataforma OPN Oracle. Este archivo define la identidad del proyecto para Ishtar Memory; cámbialo para reutilizar el sistema en otro repositorio sin tocar el código del generador."
+  },
+  "ui": {
+    "dashboard_title": "Development Command Center",
+    "default_collapsed_depth": 2,
+    "locale": "es-ES"
+  },
+  "features": {
+    "manual_status_updates": true,
+    "task_prompt_registry": true,
+    "automatic_prompt_recording": false
+  }
+}

@@ -1,8 +1,8 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { ApiError, api } from "@oracle/api-client";
-import { AlertTriangle, CheckCircle2, FilePlus2, X } from "lucide-react";
+import { ApiError, api, type MarketCompetitorCandidate } from "@oracle/api-client";
+import { AlertTriangle, CheckCircle2, FilePlus2, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -72,6 +72,10 @@ export function CreateProductDossierDialog({
     languagesForCountries(PRIORITY_COUNTRY_CODES).join(", "),
   );
   const [languagesTouched, setLanguagesTouched] = useState(false);
+  const [noCompetitorsYet, setNoCompetitorsYet] = useState(false);
+  const [discoveryBusy, setDiscoveryBusy] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<MarketCompetitorCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedProfile = starterProfileFor(type);
@@ -110,6 +114,10 @@ export function CreateProductDossierDialog({
     setMarketCountries([...PRIORITY_COUNTRY_CODES]);
     setMarketLanguages(languagesForCountries(PRIORITY_COUNTRY_CODES).join(", "));
     setLanguagesTouched(false);
+    setNoCompetitorsYet(false);
+    setDiscoveryBusy(false);
+    setDiscoveryError(null);
+    setCandidates(null);
     setError(null);
   }
 
@@ -133,8 +141,56 @@ export function CreateProductDossierDialog({
       : step === "scope"
         ? Boolean(ownOffer.trim()) && marketCountries.length > 0
         : step === "ecosystem"
-          ? list(competitors).length > 0
+          ? list(competitors).length > 0 || noCompetitorsYet
           : Boolean(decisionToMake.trim());
+
+  function toggleCandidate(name: string) {
+    const current = list(competitors);
+    const exists = current.some((item) => item.toLowerCase() === name.toLowerCase());
+    const next = exists
+      ? current.filter((item) => item.toLowerCase() !== name.toLowerCase())
+      : [...current, name];
+    setCompetitors(next.join(", "));
+  }
+
+  async function suggestCompetitors() {
+    setDiscoveryBusy(true);
+    setDiscoveryError(null);
+    try {
+      const run = await api.marketCompetitorDiscovery.run(
+        {
+          description: [title.trim(), goal.trim(), description.trim()].filter(Boolean).join(". "),
+          own_offer: ownOffer.trim(),
+          sectors: list(sectors),
+          countries: marketCountries,
+          languages: list(marketLanguages).map((item) => item.toLowerCase()),
+          known_names: [...list(competitors), ...list(partners), ...list(regulators)],
+        },
+        crypto.randomUUID(),
+      );
+      const jobId = run.job.id;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        const latest = await api.marketCompetitorDiscovery.latest();
+        if (!latest.job || latest.job.id !== jobId) continue;
+        if (latest.job.status === "succeeded") {
+          setCandidates(latest.artifact?.output.candidates ?? []);
+          return;
+        }
+        if (latest.job.status === "failed" || latest.job.status === "cancelled") {
+          setDiscoveryError(latest.job.error_message || "La propuesta de competidores falló.");
+          return;
+        }
+      }
+      setDiscoveryError("La propuesta está tardando demasiado; vuelve a intentarlo en unos minutos.");
+    } catch (reason) {
+      setDiscoveryError(
+        reason instanceof ApiError ? reason.problem.detail : "No se pudieron proponer competidores.",
+      );
+    } finally {
+      setDiscoveryBusy(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();

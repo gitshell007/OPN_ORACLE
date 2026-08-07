@@ -1249,6 +1249,163 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/market-competitor-discovery/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Market Competitor Discovery */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketCompetitorDiscoveryLatestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-competitor-discovery/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue Market Competitor Discovery */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketCompetitorDiscoveryInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Successful response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketCompetitorDiscoveryRunResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/tender-search-wizard/latest": {
         parameters: {
             query?: never;
@@ -29038,10 +29195,54 @@ export interface components {
             /** Format: uuid */
             session_id: string;
         };
+        MarketCompetitorCandidate: {
+            confidence: number;
+            country: string;
+            name: string;
+            rationale: string;
+            source_urls: string[];
+        };
+        MarketCompetitorDiscoveryArtifact: {
+            agent: string;
+            created_at: string;
+            dossier_id?: string | null;
+            id: string;
+            output: components["schemas"]["MarketCompetitorDiscoveryOutput"];
+            schema_name: string;
+            schema_version: string;
+            status: string;
+            updated_at: string;
+            version: number;
+        };
+        MarketCompetitorDiscoveryInput: {
+            /** @default [] */
+            countries: string[];
+            description: string;
+            /** @default [] */
+            known_names: string[];
+            /** @default [] */
+            languages: string[];
+            /** @default  */
+            own_offer: string;
+            /** @default [] */
+            sectors: string[];
+        };
+        MarketCompetitorDiscoveryLatestResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["MarketCompetitorDiscoveryArtifact"];
+            job?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketCompetitorDiscoveryOutput: {
+            candidates: components["schemas"]["MarketCompetitorCandidate"][];
+            warnings: string[];
+        };
+        MarketCompetitorDiscoveryRunResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["MarketCompetitorDiscoveryArtifact"];
+            job: components["schemas"]["TenderSearchWizardJob"];
+        };
         MarketProfileInput: {
             barriers?: string[];
             channels?: string[];
-            competitors: components["schemas"]["CompetitiveCompetitorInput"][];
+            competitors?: components["schemas"]["CompetitiveCompetitorInput"][];
             decision_to_make: string;
             horizon?: string;
             keywords?: string[];

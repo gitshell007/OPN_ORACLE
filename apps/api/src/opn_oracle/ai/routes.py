@@ -38,6 +38,8 @@ public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA"
 DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
 TENDER_SEARCH_WIZARD_TARGET = "tenant_search_profile"
+MARKET_COMPETITOR_DISCOVERY_AGENT = "market_competitor_discovery"
+MARKET_COMPETITOR_DISCOVERY_TARGET = "market_discovery"
 
 
 class TenderSearchWizardInputSchema(Schema):
@@ -132,6 +134,51 @@ class TenderSearchWizardLatestResponseSchema(TenderSearchWizardRunResponseSchema
     job = Nested(TenderSearchWizardJobSchema, allow_none=True)
     input = Nested(TenderSearchWizardLatestInputSchema, allow_none=True)
     acceptance = Nested(TenderSearchWizardAcceptanceSchema, allow_none=True)
+
+
+class MarketCompetitorDiscoveryInputSchema(Schema):
+    description = String(required=True, validate=validate.Length(min=10, max=4_000))
+    own_offer = String(load_default="", validate=validate.Length(max=1_000))
+    sectors = List(String(validate=validate.Length(max=300)), load_default=[])
+    countries = List(String(validate=validate.Length(min=2, max=3)), load_default=[])
+    languages = List(String(validate=validate.Length(max=10)), load_default=[])
+    known_names = List(String(validate=validate.Length(max=300)), load_default=[])
+
+
+class MarketCompetitorCandidateSchema(Schema):
+    name = String(required=True)
+    country = String(required=True)
+    rationale = String(required=True)
+    source_urls = List(String(), required=True)
+    confidence = Integer(required=True)
+
+
+class MarketCompetitorDiscoveryOutputSchema(Schema):
+    candidates = List(Nested(MarketCompetitorCandidateSchema), required=True)
+    warnings = List(String(), required=True)
+
+
+class MarketCompetitorDiscoveryArtifactSchema(Schema):
+    id = String(required=True)
+    dossier_id = String(allow_none=True)
+    agent = String(required=True)
+    schema_name = String(required=True)
+    schema_version = String(required=True)
+    status = String(required=True)
+    output = Nested(MarketCompetitorDiscoveryOutputSchema, required=True)
+    created_at = String(required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class MarketCompetitorDiscoveryRunResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, required=True)
+    artifact = Nested(MarketCompetitorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketCompetitorDiscoveryLatestResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, allow_none=True)
+    artifact = Nested(MarketCompetitorDiscoveryArtifactSchema, allow_none=True)
 
 
 def _tender_wizard_problem(status: int, *, detail: str, code: str) -> Response:
@@ -357,6 +404,115 @@ def latest_tender_search_wizard() -> Any:
             if accepted_profile is not None
             else None
         ),
+    }
+
+
+def _latest_market_discovery_artifact() -> AIArtifact | None:
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id.is_(None),
+            AIArtifact.agent == MARKET_COMPETITOR_DISCOVERY_AGENT,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_market_discovery_job() -> BackgroundJob | None:
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id.is_(None),
+            BackgroundJob.job_type == f"oracle.ai.{MARKET_COMPETITOR_DISCOVERY_AGENT}",
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _market_discovery_input(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("Payload no válido.")
+
+    def _clean_list(
+        field: str, *, limit: int, upper: bool = False, lower: bool = False
+    ) -> list[str]:
+        items = value.get(field) or []
+        if not isinstance(items, list):
+            raise ValueError(f"{field} debe ser una lista.")
+        cleaned = [" ".join(str(item).split())[:300] for item in items]
+        cleaned = [item for item in cleaned if item]
+        if upper:
+            cleaned = [item.upper() for item in cleaned]
+        if lower:
+            cleaned = [item.lower() for item in cleaned]
+        return list(dict.fromkeys(cleaned))[:limit]
+
+    description = " ".join(str(value.get("description") or "").split())
+    if len(description) < 10 or len(description) > 4_000:
+        raise ValueError("La descripción debe tener entre 10 y 4000 caracteres.")
+    return {
+        "description": description,
+        "own_offer": " ".join(str(value.get("own_offer") or "").split())[:1000],
+        "sectors": _clean_list("sectors", limit=10),
+        "countries": _clean_list("countries", limit=27, upper=True),
+        "languages": _clean_list("languages", limit=10, lower=True),
+        "known_names": _clean_list("known_names", limit=50),
+    }
+
+
+@bp.post("/market-competitor-discovery/runs")
+@require_permission("ai.execute")
+@bp.input(MarketCompetitorDiscoveryInputSchema)
+@bp.output(MarketCompetitorDiscoveryRunResponseSchema, status_code=202)
+def enqueue_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
+    try:
+        payload = _market_discovery_input(json_data)
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return _tender_wizard_problem(
+            428,
+            detail="Idempotency-Key es obligatorio para proponer competidores.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{MARKET_COMPETITOR_DISCOVERY_AGENT}",
+            payload=payload,
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            resource_type=MARKET_COMPETITOR_DISCOVERY_TARGET,
+            resource_id=g.active_tenant_id,
+        )
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_wizard_artifact(_latest_market_discovery_artifact()),
+    }, 202
+
+
+@bp.get("/market-competitor-discovery/latest")
+@require_permission("ai.execute")
+@bp.output(MarketCompetitorDiscoveryLatestResponseSchema)
+def latest_market_competitor_discovery() -> Any:
+    job = _latest_market_discovery_job()
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_wizard_artifact(_latest_market_discovery_artifact()),
     }
 
 

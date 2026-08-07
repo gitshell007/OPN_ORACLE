@@ -668,3 +668,68 @@ Las nuevas ideas se registran como `proposed` o `needs_definition` después de b
 definir usuarios, dependencias, riesgos y criterios de aceptación. No se implementan por inferencia.
 La auditoría y el dashboard deben conservar separados lo comprobado, parcialmente comprobado,
 propuesto y desconocido, especialmente para Signal, IA, fuentes externas y despliegues.
+
+## 23. Ishtar Memory
+
+Ishtar Memory es el sistema de planificación reutilizable del repositorio. Vive en
+`docs/ishtar_memory/` y su motor es `scripts/ishtar_memory.py`. Convive con la sección 22: el
+roadmap heredado de `docs/development/` sigue intacto y solo se importa con `migrate --apply`
+cuando el usuario lo pida expresamente.
+
+Reglas de trabajo:
+
+1. Lee `docs/ishtar_memory/README.md` antes de operar sobre el sistema.
+2. Lee `docs/ishtar_memory/project-config.json` para conocer la identidad y el prefijo del proyecto.
+3. Lee `docs/ishtar_memory/roadmap.json` antes de trabajar en una tarea.
+4. No asumas tareas inexistentes. Si el usuario menciona un ID que no está, dilo en lugar de crearlo.
+5. No crees tareas sin instrucción o aprobación explícita del usuario.
+6. Respeta las IDs existentes: son estables y no dependen de la posición en el árbol.
+7. Respeta la jerarquía; `parent_id` debe coincidir siempre con el nodo que contiene la tarea.
+8. No reordenes ramas automáticamente. El orden de `children` es manual.
+9. Actualiza la tarea trabajada: descripción, criterios, archivos, pruebas y evidencias reales.
+10. Registra pruebas y evidencias solo cuando existan: comando ejecutado, archivo o resultado real.
+11. Registra prompts cuando el usuario lo pida.
+12. Conserva los prompts de forma literal: saltos de línea, Markdown, bloques de código y acentos.
+13. No almacenes contraseñas, tokens, claves privadas, credenciales ni datos sensibles innecesarios.
+14. Registra las decisiones relevantes en `docs/ishtar_memory/decisions.md`.
+15. Toda escritura queda registrada en `docs/ishtar_memory/activity.jsonl`.
+16. Regenera el dashboard después de cambiar datos:
+
+    ```bash
+    python scripts/ishtar_memory.py generate
+    ```
+
+    Usa `check` para validar sin reemplazar. El generador falla con datos inválidos y no sobrescribe
+    el HTML anterior.
+17. No marques tareas como realizadas automáticamente. El estado es una decisión del usuario.
+18. Usa `completion_override` únicamente con orden expresa del usuario, y guarda su motivo literal.
+19. No edites a mano los datos incrustados en `dashboard.html`: es un artefacto generado.
+20. Mantén seguridad, permisos, auditoría y aislamiento multi-tenant cuando sean aplicables.
+
+### Registro de prompts
+
+Cuando el usuario indique expresamente que un texto es un prompt asociado a una tarea —por ejemplo
+«Guarda este prompt en ORC-ALT-001», «Registra el siguiente prompt para ORC-ALT-001 y ejecútalo»,
+«Añade este prompt al historial de ORC-ALT-001» o «Asocia las siguientes instrucciones a la tarea
+ORC-ALT-001»—:
+
+1. Localiza la tarea.
+2. Registra el texto literal **antes** de empezar el trabajo.
+3. Asigna la ID de prompt que genere el sistema.
+4. Conserva el contenido completo, sin resumir ni reformatear.
+5. Comprueba que la actividad quedó registrada.
+6. Continúa con la tarea solicitada.
+
+No registres automáticamente conversaciones informales, mensajes sin relación clara con una tarea
+ni ningún secreto. Con `automatic_prompt_recording` en `false` —el valor por defecto— los prompts
+solo se registran desde el modal, por instrucción explícita o mediante la API.
+
+### Comandos
+
+```bash
+python scripts/ishtar_memory.py validate
+python scripts/ishtar_memory.py generate
+python scripts/ishtar_memory.py check
+python scripts/ishtar_memory.py serve
+python3 tests/test_ishtar_memory.py
+```

@@ -563,6 +563,21 @@ class TenderSearchWizardOutput(StrictModel):
     discarded_reasons: dict[str, int] = Field(default_factory=dict)
 
 
+class MarketCompetitorCandidate(StrictModel):
+    name: str = Field(min_length=1, max_length=300)
+    country: str = Field(default="", max_length=120)
+    rationale: str = Field(min_length=1, max_length=1000)
+    source_urls: list[str] = Field(default_factory=list, max_length=5)
+    confidence: int = Field(ge=0, le=100)
+
+
+class MarketCompetitorDiscoveryOutput(StrictModel):
+    """Candidate competitors for a market; the user reviews and picks, never auto-added."""
+
+    candidates: list[MarketCompetitorCandidate] = Field(default_factory=list, max_length=15)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+
+
 AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeOutput,
     "signal_triage": SignalTriageOutput,
@@ -580,4 +595,5 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "dossier_situation_summary": DossierSituationSummaryOutput,
     "dossier_completion_wizard": DossierCompletionWizardOutput,
     "tender_search_wizard": TenderSearchWizardOutput,
+    "market_competitor_discovery": MarketCompetitorDiscoveryOutput,
 }

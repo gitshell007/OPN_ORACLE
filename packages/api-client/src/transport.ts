@@ -1857,6 +1857,14 @@ export type TenderSearchWizardLatestResponse =
   };
 export type TenderSearchWizardRunResponse =
   components["schemas"]["TenderSearchWizardRunResponse"];
+export type MarketCompetitorDiscoveryInput =
+  components["schemas"]["MarketCompetitorDiscoveryInput"];
+export type MarketCompetitorCandidate =
+  components["schemas"]["MarketCompetitorCandidate"];
+export type MarketCompetitorDiscoveryRunResponse =
+  components["schemas"]["MarketCompetitorDiscoveryRunResponse"];
+export type MarketCompetitorDiscoveryLatestResponse =
+  components["schemas"]["MarketCompetitorDiscoveryLatestResponse"];
 export type ProcurementSearchProfile =
   components["schemas"]["ProcurementSearchProfileResponse"];
 export type ProcurementSearchProfileList =
@@ -2242,6 +2250,19 @@ const tenderSearchWizard = {
   run: (input: TenderSearchWizardInput, idempotencyKey: string) =>
     request<TenderSearchWizardRunResponse>(
       "/api/v1/ai/tender-search-wizard/runs",
+      { method: "POST", body: input, idempotencyKey },
+    ),
+};
+
+const marketCompetitorDiscovery = {
+  latest: () =>
+    request<MarketCompetitorDiscoveryLatestResponse>(
+      "/api/v1/ai/market-competitor-discovery/latest",
+      { retry: false },
+    ),
+  run: (input: MarketCompetitorDiscoveryInput, idempotencyKey: string) =>
+    request<MarketCompetitorDiscoveryRunResponse>(
+      "/api/v1/ai/market-competitor-discovery/runs",
       { method: "POST", body: input, idempotencyKey },
     ),
 };
@@ -2745,6 +2766,7 @@ export const api = {
   entityIntel,
   procurement,
   tenderSearchWizard,
+  marketCompetitorDiscovery,
   procurementSearchProfiles,
   procurementSearchWatches,
   dossierProcurement,

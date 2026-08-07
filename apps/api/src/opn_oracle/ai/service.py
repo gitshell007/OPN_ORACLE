@@ -570,6 +570,11 @@ def validate_dossier_completion_output(output: dict[str, Any], context: BuiltCon
             )
 
 
+# Agentes que pueden ejecutarse sin expediente (contexto tenant-scoped construido por su
+# propia factory; sin evidencia interna y con manifest dossier_id=None).
+DOSSIERLESS_AGENTS = frozenset({"tender_search_wizard", "market_competitor_discovery"})
+
+
 def execute_agent(
     *,
     agent: str,
@@ -582,8 +587,8 @@ def execute_agent(
     target_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     tenant_id = require_tenant_id()
-    if dossier_id is None and agent != "tender_search_wizard":
-        raise AIPolicyDenied("Solo el wizard de licitaciones admite ejecución sin expediente.")
+    if dossier_id is None and agent not in DOSSIERLESS_AGENTS:
+        raise AIPolicyDenied("Este agente exige un expediente para ejecutarse.")
     if dossier_id is None and context_override is None and context_factory is None:
         raise AIPolicyDenied("La ejecución sin expediente requiere contexto tenant-scoped.")
     # Serialize the idempotency slot before policy/quota reservation. The lock is

@@ -173,6 +173,46 @@ class MockLLMProvider:
                 provider="mock",
                 model=self.model,
             )
+        if request.agent == "market_competitor_discovery":
+            countries = [
+                str(item) for item in request.context.get("countries", []) if str(item).strip()
+            ]
+            known = {
+                str(item).strip().lower()
+                for item in request.context.get("known_names", [])
+                if str(item).strip()
+            }
+            fingerprint = hashlib.sha256((self.seed + request.agent).encode()).digest()
+            proposed: list[dict[str, Any]] = [
+                {
+                    "name": f"Competidor Sintetico {index}",
+                    "country": countries[index % len(countries)] if countries else "",
+                    "rationale": (
+                        "Candidato determinista del proveedor mock para revision humana; "
+                        "sin fuentes reales."
+                    ),
+                    "source_urls": [],
+                    "confidence": 40 - index * 5,
+                }
+                for index in range(1, 4)
+            ]
+            output = schema.model_validate(
+                {
+                    "candidates": [
+                        item for item in proposed if str(item["name"]).lower() not in known
+                    ],
+                    "warnings": ["Resultado generado por proveedor mock determinista."],
+                }
+            )
+            return LLMResult(
+                output,
+                100 + fingerprint[0],
+                50 + fingerprint[1],
+                0,
+                1,
+                provider="mock",
+                model=self.model,
+            )
         if request.agent == "tender_search_wizard":
             from opn_oracle.oracle.comparable_procurement import title_terms
 

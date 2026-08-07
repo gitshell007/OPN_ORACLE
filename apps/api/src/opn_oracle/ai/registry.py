@@ -59,6 +59,9 @@ PURPOSES = {
     "tender_search_wizard": (
         "Proponer un plan de búsqueda de licitaciones revisable sin ejecutar ni aceptar búsquedas."
     ),
+    "market_competitor_discovery": (
+        "Proponer competidores candidatos de un mercado con URLs de respaldo para revisión humana."
+    ),
 }
 
 INPUT_CONTRACTS = {
@@ -123,6 +126,16 @@ INPUT_CONTRACTS = {
         "feedback_digest",
         "allowed_evidence_ids",
     ),
+    "market_competitor_discovery": (
+        "tenant_id",
+        "description",
+        "own_offer",
+        "sectors",
+        "countries",
+        "languages",
+        "known_names",
+        "allowed_evidence_ids",
+    ),
 }
 
 # Qué agentes pasan por `evidence_reviewer` tras generar. Se indexa DIRECTAMENTE (sin
@@ -141,6 +154,9 @@ INPUT_CONTRACTS = {
 #   - `tender_search_wizard`: propone filtros candidatos, no afirmaciones sobre hechos.
 #     Oracle valida de forma determinista CPV y términos y ninguna propuesta se acepta,
 #     ejecuta o guarda sin una acción humana posterior.
+#   - `market_competitor_discovery`: propone candidatos pre-creación (sin expediente ni
+#     evidencia interna que citar); las URLs van en la propia salida y el usuario decide
+#     uno a uno qué añadir — nada se persiste sin esa revisión humana.
 EVIDENCE_REVIEW_REQUIRED = {
     "intake": True,
     "signal_triage": True,
@@ -158,6 +174,7 @@ EVIDENCE_REVIEW_REQUIRED = {
     "dossier_situation_summary": True,
     "dossier_completion_wizard": False,
     "tender_search_wizard": False,
+    "market_competitor_discovery": False,
 }
 
 # Respuesta al veredicto `fail`, declarada por agente y consultada directamente.
@@ -184,6 +201,7 @@ EVIDENCE_REVIEW_FAILURE_POLICY: dict[str, EvidenceReviewFailurePolicy] = {
     "dossier_situation_summary": "strip_claims",
     "dossier_completion_wizard": "not_required",
     "tender_search_wizard": "not_required",
+    "market_competitor_discovery": "not_required",
 }
 
 PROMPT_VERSIONS = {
@@ -229,6 +247,8 @@ def _max_output_tokens(name: str, version: str) -> int:
         return 4500
     if name == "tender_search_wizard":
         return 3000
+    if name == "market_competitor_discovery":
+        return 2500
     if name != "dossier_situation_summary":
         return 2000
     return {"v1": 3000, "v2": 2000, "v3": 1600, "v4": 1900, "v5": 2600}[version]

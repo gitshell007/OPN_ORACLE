@@ -267,11 +267,13 @@ def _validated_competitors(raw_competitors: Any) -> list[dict[str, Any]]:
 def _validated_market_profile(value: dict[str, Any]) -> dict[str, Any]:
     own_offer = " ".join(str(value.get("own_offer", "")).strip().split())[:500]
     decision_to_make = str(value.get("decision_to_make", "")).strip()[:2000]
+    # Los competidores pueden llegar vacíos (vía de escape consciente del wizard): el
+    # expediente y su base existen igualmente, pero el radar no producirá señales hasta
+    # añadir al menos una empresa con nombre.
     competitors = _validated_competitors(value.get("competitors", []))
-    if not own_offer or not decision_to_make or not competitors:
+    if not own_offer or not decision_to_make:
         raise DomainValidationError(
-            "El expediente de mercado exige oferta propia, decisión a tomar y al menos "
-            "un competidor con nombre."
+            "El expediente de mercado exige oferta propia y la decisión a tomar."
         )
     return {
         "version": "market.v1",

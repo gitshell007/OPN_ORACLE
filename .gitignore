@@ -238,3 +238,7 @@ artifacts/
 
 # Entorno de desarrollo local sin Docker
 .dev-local/
+
+# Ishtar Memory: artefactos de ejecución local (el roadmap y el dashboard sí se versionan)
+docs/ishtar_memory/.ishtar.lock
+docs/ishtar_memory/migration-backup/

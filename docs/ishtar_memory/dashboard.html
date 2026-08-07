@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Development Command Center</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --bg: #0b0f16; --bg-soft: #111725; --panel: #151d2c; --panel-2: #1a2334;
+  --line: #24304a; --line-soft: #1c2537;
+  --text: #e8edf7; --muted: #97a3ba; --faint: #6c7a93;
+  --accent: #6ea8fe; --accent-soft: rgba(110,168,254,.14);
+  --pending: #8b98ad; --progress: #f0b232; --blocked: #f2555a; --done: #3fb27f;
+  --low: #6c7a93; --medium: #6ea8fe; --high: #f0b232; --critical: #f2555a;
+  --radius: 12px; --radius-sm: 8px;
+  --shadow: 0 18px 48px rgba(0,0,0,.45);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6fb; --bg-soft: #ffffff; --panel: #ffffff; --panel-2: #f7f9fd;
+    --line: #dde3ee; --line-soft: #e8edf6;
+    --text: #16203a; --muted: #5a6883; --faint: #7d8aa3;
+    --accent: #2f6fdd; --accent-soft: rgba(47,111,221,.10);
+    --pending: #77839a; --progress: #b9791a; --blocked: #cf3239; --done: #1f855a;
+    --low: #7d8aa3; --medium: #2f6fdd; --high: #b9791a; --critical: #cf3239;
+    --shadow: 0 14px 36px rgba(22,32,58,.14);
+  }
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+button { font: inherit; color: inherit; cursor: pointer; }
+h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
+
+/* ---------- cabecera ---------- */
+.shell { max-width: 1400px; margin: 0 auto; padding: 22px 24px 64px; }
+header.top {
+  display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  justify-content: space-between; padding-bottom: 18px;
+}
+.brand { display: flex; align-items: center; gap: 13px; }
+.sigil {
+  width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+  background: linear-gradient(150deg, var(--accent), #a06ffe);
+  color: #fff; font-weight: 700; font-size: 15px; letter-spacing: .04em;
+  box-shadow: 0 6px 18px rgba(110,168,254,.32);
+}
+.brand h1 { font-size: 17px; }
+.brand .sub { color: var(--muted); font-size: 12px; }
+.head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mode-badge {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--panel);
+  font-size: 12px; font-weight: 600;
+}
+.mode-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pending); }
+.mode-badge.edit { border-color: rgba(63,178,127,.5); color: var(--done); }
+.mode-badge.edit .dot { background: var(--done); }
+.mode-note {
+  border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius);
+  padding: 11px 14px; color: var(--muted); font-size: 13px; margin-bottom: 16px;
+}
+.mode-note code { font-family: var(--mono); color: var(--text); background: var(--panel-2);
+  padding: 2px 6px; border-radius: 5px; border: 1px solid var(--line-soft); }
+
+/* ---------- pestañas ---------- */
+nav.tabs {
+  display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line);
+  margin-bottom: 18px; padding-bottom: 0;
+}
+nav.tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+  padding: 10px 14px; font-size: 13px; font-weight: 600; white-space: nowrap; border-radius: 0;
+}
+nav.tabs button:hover { color: var(--text); }
+nav.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+nav.tabs .count {
+  font-size: 11px; color: var(--faint); background: var(--panel-2);
+  border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 6px; margin-left: 6px;
+}
+section.tab[hidden] { display: none; }
+
+/* ---------- tarjetas ---------- */
+.grid { display: grid; gap: 14px; }
+.grid.kpi { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 15px 16px;
+}
+.card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 12px; }
+.kpi .label { font-size: 12px; color: var(--muted); }
+.kpi .value { font-size: 27px; font-weight: 680; letter-spacing: -.02em; margin-top: 3px; }
+.kpi .value small { font-size: 13px; color: var(--faint); font-weight: 500; }
+.meta-list { display: grid; gap: 8px; }
+.meta-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.meta-row dt { color: var(--muted); }
+.meta-row dd { margin: 0; font-weight: 600; text-align: right; word-break: break-word; }
+
+.bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--line-soft); }
+.bar > span { display: block; height: 100%; background: var(--done); }
+.branch { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.branch:last-child { border-bottom: 0; }
+.branch .line1 { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.branch .line2 { font-size: 12px; color: var(--muted); }
+
+/* ---------- distintivos ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 650;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2);
+  white-space: nowrap;
+}
+.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.s-pending { color: var(--pending); }
+.badge.s-in_progress { color: var(--progress); }
+.badge.s-blocked { color: var(--blocked); }
+.badge.s-done { color: var(--done); }
+.badge.p-low { color: var(--low); } .badge.p-medium { color: var(--medium); }
+.badge.p-high { color: var(--high); } .badge.p-critical { color: var(--critical); }
+.badge.warn { color: var(--progress); border-color: rgba(240,178,50,.42); }
+.tid { font-family: var(--mono); font-size: 12px; color: var(--accent); font-weight: 600; }
+
+/* ---------- filtros ---------- */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+input[type="text"], input[type="search"], select, textarea {
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  border-radius: var(--radius-sm); padding: 7px 10px; font: inherit; outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.filters input[type="search"] { min-width: 240px; flex: 1 1 240px; }
+.btn {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 7px 12px; font-size: 13px; font-weight: 600;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; }
+.btn.tiny { padding: 3px 8px; font-size: 11.5px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn[disabled]:hover { border-color: var(--line); }
+
+/* ---------- checklist ---------- */
+.tree { display: grid; gap: 7px; }
+.node { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.node.depth-1 { margin-left: 20px; } .node.depth-2 { margin-left: 40px; }
+.node.depth-3 { margin-left: 60px; } .node.depth-4 { margin-left: 80px; }
+.node.depth-5 { margin-left: 100px; } .node.depth-6 { margin-left: 116px; }
+.node.hit { border-color: var(--accent); }
+.row1 { display: flex; align-items: center; gap: 9px; padding: 9px 12px 3px; flex-wrap: wrap; }
+.row2 { display: flex; align-items: center; gap: 9px; padding: 0 12px 9px 12px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted); }
+.twisty {
+  background: none; border: 1px solid var(--line); border-radius: 6px; width: 21px; height: 21px;
+  display: grid; place-items: center; font-size: 10px; color: var(--muted); flex: none; padding: 0;
+}
+.twisty.leaf { visibility: hidden; }
+.title { font-weight: 600; flex: 1 1 220px; min-width: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 3px 9px; font-size: 11.5px;
+  font-weight: 600; color: var(--muted); border-radius: 0; }
+.seg button:hover:not([disabled]) { background: var(--panel-2); color: var(--text); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.seg button[disabled] { opacity: .45; cursor: not-allowed; }
+.detail { border-top: 1px solid var(--line-soft); padding: 12px; display: grid; gap: 13px; }
+.detail[hidden] { display: none; }
+.detail h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin-bottom: 5px; }
+.detail p { margin: 0; font-size: 13px; }
+.detail ul { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 3px; }
+.detail .cols { display: grid; gap: 13px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.chip { display: inline-block; font-family: var(--mono); font-size: 11.5px; background: var(--panel-2);
+  border: 1px solid var(--line-soft); border-radius: 6px; padding: 1px 6px; margin: 2px 3px 0 0; }
+.empty { color: var(--muted); font-size: 13px; padding: 26px 16px; text-align: center;
+  border: 1px dashed var(--line); border-radius: var(--radius); background: var(--panel); }
+.empty strong { display: block; color: var(--text); margin-bottom: 5px; font-size: 14px; }
+
+/* ---------- tablas ---------- */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 650;
+  position: sticky; top: 0; background: var(--panel-2); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--panel-2); }
+
+/* ---------- grafo ---------- */
+.graph-wrap { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .graph-wrap { grid-template-columns: minmax(0,1fr); } }
+.graph-canvas { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+  overflow: hidden; position: relative; min-height: 460px; }
+.graph-canvas svg { display: block; width: 100%; height: 560px; cursor: grab; touch-action: none; }
+.graph-canvas svg.dragging { cursor: grabbing; }
+.gnode rect { stroke-width: 1.4px; }
+.gnode text { font-family: var(--sans); pointer-events: none; }
+.gnode { cursor: pointer; }
+.glink { fill: none; stroke: var(--line); stroke-width: 1.6px; }
+.gdep { fill: none; stroke: var(--progress); stroke-width: 1.4px; stroke-dasharray: 5 4; opacity: .85; }
+.graph-tools { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* ---------- modal ---------- */
+.backdrop {
+  position: fixed; inset: 0; background: rgba(4,7,12,.68); backdrop-filter: blur(3px);
+  display: grid; place-items: center; padding: 22px; z-index: 60;
+}
+.backdrop[hidden] { display: none; }
+.modal {
+  background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); width: min(880px, 100%); max-height: min(88vh, 900px);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal.narrow { width: min(560px, 100%); }
+.modal header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 15px 17px; border-bottom: 1px solid var(--line);
+}
+.modal header h2 { font-size: 15px; }
+.modal header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.modal .body { padding: 15px 17px; overflow: auto; display: grid; gap: 14px; }
+.modal footer { padding: 12px 17px; border-top: 1px solid var(--line);
+  display: flex; gap: 9px; justify-content: flex-end; flex-wrap: wrap; }
+.x { background: none; border: 1px solid var(--line); border-radius: 8px; width: 28px; height: 28px;
+  display: grid; place-items: center; color: var(--muted); flex: none; padding: 0; }
+.modal-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding: 0 17px; }
+.modal-tabs button { background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 9px 12px; font-size: 13px; font-weight: 600; color: var(--muted); border-radius: 0; }
+.modal-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.field { display: grid; gap: 5px; }
+.field label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.field .hint { font-size: 11.5px; color: var(--faint); }
+.field textarea { min-height: 190px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  resize: vertical; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.field.req label::after { content: " *"; color: var(--blocked); }
+.two-col { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+pre.prompt-text {
+  margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap;
+  word-break: break-word; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 12px; max-height: 380px; overflow: auto;
+}
+.prompt-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px;
+  display: grid; gap: 7px; background: var(--panel); }
+.prompt-item.archived { opacity: .62; }
+.prompt-item .pl1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prompt-item .pl2 { font-size: 12px; color: var(--muted); }
+.prompt-item .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 16px; font-size: 13px; box-shadow: var(--shadow); z-index: 90; max-width: 90vw;
+}
+.toast[hidden] { display: none; }
+.toast.err { border-color: var(--blocked); color: var(--blocked); }
+.toast.ok { border-color: var(--done); color: var(--done); }
+.md h2 { font-size: 16px; margin: 18px 0 8px; }
+.md h3 { font-size: 14px; margin: 15px 0 6px; }
+.md p { margin: 0 0 9px; font-size: 13.5px; }
+.md ul { margin: 0 0 10px; padding-left: 19px; font-size: 13.5px; }
+.md pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 11px; overflow: auto; font-family: var(--mono); font-size: 12.5px; margin: 0 0 11px; }
+.md code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2);
+  border: 1px solid var(--line-soft); border-radius: 5px; padding: 1px 5px; }
+.md pre code { border: 0; background: none; padding: 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="sigil" aria-hidden="true">IM</div>
+      <div>
+        <h1>Development Command Center</h1>
+        <div class="sub">Ishtar Memory · OPN Oracle</div>
+      </div>
+    </div>
+    <div class="head-right">
+      <button class="btn" id="btn-refresh" type="button" hidden>Actualizar datos</button>
+      <span class="mode-badge" id="mode-badge"><span class="dot"></span>Modo consulta</span>
+    </div>
+  </header>
+
+  <div class="mode-note" id="mode-note">
+    <strong>Modo consulta.</strong> Para guardar cambios en el proyecto, inicia el modo de edición local:
+    <code>python scripts/ishtar_memory.py serve</code> y abre <code>http://127.0.0.1:8765</code>.
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="summary" aria-selected="true">Resumen</button>
+    <button type="button" role="tab" data-tab="checklist" aria-selected="false">Checklist<span class="count" data-count="checklist">0</span></button>
+    <button type="button" role="tab" data-tab="graph" aria-selected="false">Grafo</button>
+    <button type="button" role="tab" data-tab="prompts" aria-selected="false">Prompts<span class="count" data-count="prompts">0</span></button>
+    <button type="button" role="tab" data-tab="activity" aria-selected="false">Actividad<span class="count" data-count="activity">0</span></button>
+    <button type="button" role="tab" data-tab="decisions" aria-selected="false">Decisiones</button>
+    <button type="button" role="tab" data-tab="architecture" aria-selected="false">Arquitectura</button>
+  </nav>
+
+  <section class="tab" data-tab="summary" role="tabpanel">
+    <div id="tab-summary"></div>
+    <div class="card" style="margin-top:14px">
+      <h3>Progreso registrado</h3>
+      <div class="md" id="doc-progress"></div>
+    </div>
+  </section>
+
+  <section class="tab" data-tab="checklist" role="tabpanel" hidden>
+    <div class="filters">
+      <input type="search" id="f-text" placeholder="Buscar por texto o ID" aria-label="Buscar tareas">
+      <select id="f-status" aria-label="Filtrar por estado">
+        <option value="">Todos los estados</option>
+        <option value="pending">Pendiente</option>
+        <option value="in_progress">En progreso</option>
+        <option value="blocked">Bloqueada</option>
+        <option value="done">Realizada</option>
+      </select>
+      <select id="f-priority" aria-label="Filtrar por prioridad">
+        <option value="">Todas las prioridades</option>
+        <option value="low">Baja</option>
+        <option value="medium">Media</option>
+        <option value="high">Alta</option>
+        <option value="critical">Crítica</option>
+      </select>
+      <select id="f-special" aria-label="Filtros especiales">
+        <option value="">Sin filtro adicional</option>
+        <option value="with_prompts">Con prompts</option>
+        <option value="without_prompts">Sin prompts</option>
+        <option value="blocked">Bloqueadas</option>
+        <option value="override">Con override de finalización</option>
+      </select>
+      <button class="btn" id="f-clear" type="button">Limpiar</button>
+      <button class="btn" id="f-expand" type="button">Expandir</button>
+      <button class="btn" id="f-collapse" type="button">Contraer</button>
+      <span class="sub" id="checklist-count" style="color:var(--muted);font-size:12px"></span>
+    </div>
+    <div class="tree" id="tree"></div>
+  </section>
+
+  <section class="tab" data-tab="graph" role="tabpanel" hidden>
+    <div class="graph-wrap">
+      <div>
+        <div class="graph-canvas">
+          <div class="graph-tools">
+            <button class="btn tiny" id="g-out" type="button" aria-label="Alejar">−</button>
+            <button class="btn tiny" id="g-in" type="button" aria-label="Acercar">+</button>
+            <button class="btn tiny" id="g-reset" type="button">Centrar</button>
+          </div>
+          <svg id="graph-svg" role="img" aria-label="Mapa jerárquico de tareas"></svg>
+          <div class="empty" id="graph-empty" style="position:absolute;inset:auto 0 0 0;top:40%;border:0;background:none" hidden>
+            <strong>Todavía no hay tareas registradas.</strong>
+            <span>El árbol se construirá progresivamente a partir de las instrucciones del usuario.</span>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i style="background:#8b98ad"></i>Pendiente</span>
+          <span><i style="background:#f0b232"></i>En progreso</span>
+          <span><i style="background:#f2555a"></i>Bloqueada</span>
+          <span><i style="background:#3fb27f"></i>Realizada</span>
+          <span><i style="background:#f0b232;border-radius:0;height:2px;width:16px"></i>Dependencia</span>
+        </div>
+      </div>
+      <div id="graph-panel"></div>
+    </div>
+  </section>
+
+  <section class="tab" data-tab="prompts" role="tabpanel" hidden>
+    <div class="filters">
+      <input type="search" id="p-text" placeholder="Buscar en prompts" aria-label="Buscar prompts">
+      <select id="p-task" aria-label="Filtrar por tarea"><option value="">Todas las tareas</option></select>
+      <input type="text" id="p-tag" placeholder="Etiqueta" aria-label="Filtrar por etiqueta" style="max-width:150px">
+      <input type="text" id="p-model" placeholder="Modelo" aria-label="Filtrar por modelo" style="max-width:150px">
+      <input type="text" id="p-date" placeholder="AAAA-MM-DD" aria-label="Filtrar por fecha" style="max-width:130px">
+      <select id="p-archived" aria-label="Filtrar por estado de archivado">
+        <option value="active">Solo activos</option>
+        <option value="">Activos y archivados</option>
+        <option value="archived">Solo archivados</option>
+      </select>
+      <span id="prompts-count" style="color:var(--muted);font-size:12px"></span>
+    </div>
+    <div id="prompts-body"></div>
+  </section>
+
+  <section class="tab" data-tab="activity" role="tabpanel" hidden>
+    <div class="filters">
+      <select id="a-action" aria-label="Filtrar por acción">
+        <option value="">Todas las acciones</option>
+        <option value="task_created">Tarea creada</option>
+        <option value="task_updated">Tarea actualizada</option>
+        <option value="task_moved">Tarea movida</option>
+        <option value="task_status_changed">Cambio de estado</option>
+        <option value="task_completion_overridden">Realizada manualmente</option>
+        <option value="prompt_created">Prompt añadido</option>
+        <option value="prompt_revised">Prompt revisado</option>
+        <option value="prompt_archived">Prompt archivado</option>
+        <option value="comment_created">Comentario añadido</option>
+        <option value="evidence_created">Evidencia añadida</option>
+        <option value="dashboard_generated">Dashboard regenerado</option>
+      </select>
+      <span id="activity-count" style="color:var(--muted);font-size:12px"></span>
+    </div>
+    <div id="activity-body"></div>
+  </section>
+
+  <section class="tab" data-tab="decisions" role="tabpanel" hidden>
+    <div class="card md" id="doc-decisions"></div>
+  </section>
+
+  <section class="tab" data-tab="architecture" role="tabpanel" hidden>
+    <div class="card md" id="doc-architecture"></div>
+  </section>
+</div>
+
+<div class="backdrop" id="prompt-backdrop" hidden><div id="prompt-host"></div></div>
+<div class="backdrop" id="dialog-backdrop" hidden><div id="dialog-host"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="application/json" id="ishtar-data">{"state_revision": 2, "config": {"project_id": "OPN-ORACLE", "project_name": "OPN Oracle", "task_prefix": "ORC", "locale": "es-ES", "default_collapsed_depth": 2}, "roadmap": {"schema_version": "1.0.0", "state_revision": 2, "project_id": "OPN-ORACLE", "sequences": {"task": 41, "activity": 43}, "settings": {"allowed_statuses": ["pending", "in_progress", "blocked", "done"], "allowed_priorities": ["low", "medium", "high", "critical"]}, "tasks": [{"id": "ORC-MOD-001", "title": "Gobernanza y arquitectura", "description": "Fuente estructurada de planificación, documentación, decisiones, evidencias y contexto entre sesiones.", "objective": "Alta para continuar el desarrollo; requiere disciplina de actualización.", "status": "done", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-GOV-001", "title": "Sistema vivo de planificación y desarrollo", "description": "Roadmap JSON, registros documentales, validador, generador y dashboard HTML autónomo para dirigir el desarrollo entre sesiones.", "objective": "Aumentar la trazabilidad y reducir el trabajo perdido entre sesiones.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-001", "children": [], "dependencies": [], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'La fuente principal es oracle-roadmap.json y el dashboard se genera desde ella.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'El generador detecta IDs duplicados, dependencias inexistentes, estados inválidos y evidencias ausentes.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'El HTML autónomo incluye resumen, checklist filtrable, grafo, arquitectura, decisiones, historial y próximo trabajo.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-4', 'text': 'Una entrada inválida no sobrescribe el HTML existente.', 'status': 'met'}", "met": true}], "comments": [{"text": "Primera entrega de gobernanza. No implica que las funcionalidades de negocio estén completadas.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "scripts/generate-development-dashboard.py", "claim": "Valida y genera el artefacto autónomo.", "confidence": "high"}, {"type": "test", "path": "scripts/generate-development-dashboard.py", "claim": "La comprobación --check se ejecuta contra el roadmap inicial.", "confidence": "high"}, {"type": "file", "path": "docs/development/oracle-development-dashboard.html", "claim": "Dashboard generado con las pestañas requeridas.", "confidence": "high"}], "related_files": ["scripts/generate-development-dashboard.py", "docs/development/oracle-roadmap.json", "docs/development/oracle-development-dashboard.html", "docs/development/oracle-decisions.md", "docs/development/oracle-progress.md", "docs/development/oracle-architecture.md"], "tests": [{"command": "command: python3 scripts/generate-development-dashboard.py --check", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-GOV-002", "title": "Retirada controlada del prototipo Horizon", "description": "Migrar las rutas de Vector a la aplicación autenticada y retirar concept-b solo cuando existan pruebas que protejan la transición.", "objective": "Concentrar inversión y reducir divergencia UX.", "status": "pending", "priority": "medium", "parent_id": "ORC-MOD-001", "children": [], "dependencies": ["ORC-UX-002", "ORC-UX-003"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Vector cubre las rutas productivas autenticadas sin depender de concept-b.', 'status': 'pending'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'Existe una decisión explícita de archivo o borrado y una suite que evita regresiones.', 'status': 'pending'}", "met": false}], "comments": [{"text": "Se mantiene diferido por seguridad de cambio y porque no forma parte de la primera ejecución.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "docs/architecture/REPOSITORY_MAP.md", "claim": "Documenta concept-b como prototipo no canónico.", "confidence": "high"}], "related_files": ["src/app/concept-b/page.tsx", "src/app/app/layout.tsx", "docs/UI_DECISION_GUIDE.md"], "tests": [{"command": "src/lib/app-routes.test.ts", "result": null}, {"command": "tests/e2e/smoke.spec.ts", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": [], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": "2026-08-01T09:32:52+00:00"}, {"id": "ORC-MOD-002", "title": "Plataforma, identidad y seguridad", "description": "Fundación Flask, tenant context, sesiones, CSRF, RBAC, auditoría y operación de la plataforma.", "objective": "Alta, con gates operativos y de seguridad pendientes de mantener en cada release.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-PLAT-001", "title": "Fundación Flask, OpenAPI y health checks", "description": "Application factory, configuración tipada, extensiones desacopladas, contrato OpenAPI, errores y endpoints de salud.", "objective": "Reducir riesgo de integración y hacer reproducible el backend.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-002", "children": [], "dependencies": [], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'La aplicación se crea mediante create_app y registra módulos sin lógica de negocio en Node.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'El contrato OpenAPI se exporta de forma reproducible bajo /api/v1.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Existen probes live/ready y errores problem+json.', 'status': 'met'}", "met": true}], "comments": [{"text": "La documentación histórica de repository map necesita una actualización posterior para reflejar la superficie /app actual.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/app.py", "claim": "Application factory y registro de módulos.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_contract.py", "claim": "Contrato HTTP/OpenAPI cubierto.", "confidence": "high"}, {"type": "file", "path": "docs/api/openapi.json", "claim": "Artefacto OpenAPI versionado.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/app.py", "apps/api/src/opn_oracle/config.py", "apps/api/src/opn_oracle/extensions.py", "apps/api/src/opn_oracle/common/openapi.py", "apps/api/src/opn_oracle/api/health.py", "docs/api/openapi.json"], "tests": [{"command": "apps/api/tests/test_app.py", "result": "passed"}, {"command": "apps/api/tests/test_health.py", "result": "passed"}, {"command": "apps/api/tests/test_contract.py", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-SEC-001", "title": "Aislamiento multi-tenant, RBAC y auditoría", "description": "Contexto tenant derivado de sesión, repositorios scoped, permisos por acción/recurso, RLS como defensa y AuditEvent.", "objective": "Hacer confiable el producto B2B multi-tenant.", "status": "in_progress", "priority": "critical", "parent_id": "ORC-MOD-002", "children": [], "dependencies": ["ORC-PLAT-001", "ORC-AUTH-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Las consultas de negocio derivan tenant de sesión/contexto y no confían en tenant_id del cliente.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'Existen controles por permiso y pruebas de aislamiento entre tenants.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'Los accesos de superadmin a datos privados exigen selección, motivo y auditoría.', 'status': 'partial'}", "met": false}], "comments": [{"text": "Se mantiene under_review por la obligación de revisar cada superficie nueva y por la parte de superadmin/operación real.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_integration_multitenancy.py", "claim": "Aislamiento tenant por despacho HTTP y base real.", "confidence": "high"}, {"type": "file", "path": "docs/security/MULTITENANCY.md", "claim": "Invariantes y riesgos de aislamiento documentados.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/tenants/context.py", "apps/api/src/opn_oracle/tenants/repository.py", "apps/api/src/opn_oracle/auth/permissions.py", "apps/api/src/opn_oracle/platform/audit.py", "docs/security/MULTITENANCY.md"], "tests": [{"command": "apps/api/tests/test_multitenancy_unit.py", "result": null}, {"command": "apps/api/tests/test_integration_multitenancy.py", "result": null}, {"command": "apps/api/tests/test_auth_security.py", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}, {"id": "ORC-AUTH-001", "title": "Sesiones opacas, CSRF e invitaciones", "description": "Login, logout, revocación, sesión server-side, rotación, CSRF, recuperación y aceptación de invitación.", "objective": "Proporcionar acceso empresarial seguro y operable.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-002", "children": [], "dependencies": ["ORC-PLAT-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Cookie de sesión HttpOnly/Secure/SameSite y estado server-side.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Mutaciones exigen CSRF y se renueva/rota el contexto en cambios sensibles.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Login/reset/invite tienen límites, mensajes anti-enumeración y tokens de un solo uso.', 'status': 'met'}", "met": true}], "comments": [{"text": "La activación productiva debe conservar configuración segura de cookie y Redis.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_auth_security.py", "claim": "Controles de auth, CSRF y sesión.", "confidence": "high"}, {"type": "file", "path": "apps/api/src/opn_oracle/auth/runtime.py", "claim": "Rotación, CSRF y revocación server-side.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/auth/routes.py", "apps/api/src/opn_oracle/auth/runtime.py", "apps/api/src/opn_oracle/auth/passwords.py", "src/lib/auth/api-transport.test.ts", "src/app/login/page.tsx"], "tests": [{"command": "apps/api/tests/test_auth_security.py", "result": "passed"}, {"command": "apps/api/tests/test_integration_auth.py", "result": "passed"}, {"command": "src/lib/auth/api-transport.test.ts", "result": "passed"}, {"command": "tests/e2e/accessibility-security.spec.ts", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-OPS-001", "title": "Despliegue nativo de oracle-dev", "description": "Gunicorn, Next standalone, Celery worker/beat, PostgreSQL, Redis, Nginx y TLS operados mediante release reproducible.", "objective": "Reducir riesgo de puesta en marcha y habilitar validación UAT.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-002", "children": [], "dependencies": ["ORC-PLAT-001", "ORC-AUTH-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Existe un release identificable activo con API, web, worker, beat, PostgreSQL, Redis, Nginx y TLS.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Hay evidencia de backup, health y runbook de operación.', 'status': 'met'}", "met": true}], "comments": [{"text": "El estado deployed se refiere a oracle-dev, no a una afirmación de producción pública del producto completo.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Release nativo oracle-dev y servicios activos descritos con SHA/release.", "confidence": "medium"}, {"type": "file", "path": "docs/operations/DEV_NATIVE_DEPLOY.md", "claim": "Runbook de despliegue observado.", "confidence": "high"}], "related_files": ["infra/native-dev/activate-release.sh", "infra/native-dev/build-release.sh", "infra/nginx/oracle-https.conf", "docs/operations/DEV_NATIVE_DEPLOY.md", "docs/operations/DEPLOYMENT.md"], "tests": [{"command": "scripts/smoke-production.sh", "result": "passed"}, {"command": "tests/operations/test-backup-infrastructure.sh", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-28"}], "dependencies": [], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-003", "title": "Expediente estratégico y acción", "description": "Unidad central de Oracle y sus flujos de señales, oportunidades, riesgos, reuniones, decisiones y tareas.", "objective": "Alta para uso dirigido; pendiente cerrar los gates del wizard y la migración de UI.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-DOS-001", "title": "Expediente, objetivos e hipótesis", "description": "CRUD tenant-scoped de StrategicDossier, objetivos, hipótesis, watchlists y resumen de portfolio.", "objective": "Convertir proyectos importantes en expedientes vivos.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-003", "children": [], "dependencies": ["ORC-SEC-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El expediente es tenant-scoped y tiene CRUD, versión y archivo.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Objetivos e hipótesis se pueden consultar y editar desde API/UI.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'El portfolio muestra atención y KPIs coherentes.', 'status': 'met'}", "met": true}], "comments": [{"text": "El frontend contiene todavía compatibilidad histórica con prototipos; la superficie /app es la referencia actual.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/oracle/models.py", "claim": "Modelos centrales del expediente.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_integration_oracle_domain.py", "claim": "Flujos de expediente por HTTP y PostgreSQL.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/oracle/models.py", "apps/api/src/opn_oracle/oracle/service.py", "apps/api/src/opn_oracle/oracle/routes.py", "src/app/app/dossiers/page.tsx", "src/app/app/dossiers/[id]/page.tsx"], "tests": [{"command": "apps/api/tests/test_integration_oracle_domain.py", "result": "passed"}, {"command": "apps/api/tests/test_oracle_scoring.py", "result": "passed"}, {"command": "src/components/dossiers/dossier-inventory.test.tsx", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-DOS-002", "title": "De señal a acción estratégica", "description": "Inbox de señales, revisión, scoring, promoción a oportunidad/riesgo y navegación hacia la siguiente acción.", "objective": "Aumentar la velocidad entre detección y acción.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-003", "children": [], "dependencies": ["ORC-DOS-001", "ORC-SIG-002"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'La señal conserva fuente, estado de revisión y relación con el expediente.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'La promoción crea un recurso accionable sin perder evidencia ni tenant.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'El estado no puntuado se diferencia de una puntuación cero.', 'status': 'met'}", "met": true}], "comments": [{"text": "La calidad final del triaje IA queda separada en ORC-SIG-003.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "src/components/dossiers/dossier-intelligence-section.test.tsx", "claim": "Review y promoción se reflejan en el flujo UI.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/20_SIGNAL_TO_STRATEGIC_ACTION_FLOW.md", "claim": "Arco señal-acción documentado.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/oracle/routes.py", "apps/api/src/opn_oracle/oracle/scoring.py", "src/components/dossiers/dossier-intelligence-section.tsx", "docs/implementation/prompts/20_SIGNAL_TO_STRATEGIC_ACTION_FLOW.md"], "tests": [{"command": "apps/api/tests/test_integration_oracle_domain.py", "result": "passed"}, {"command": "apps/api/tests/test_oracle_scoring.py", "result": "passed"}, {"command": "src/components/dossiers/dossier-intelligence-section.test.tsx", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-DOS-003", "title": "Reuniones, decisiones y tareas", "description": "Briefings, resultados de reuniones, decisiones y tareas persistentes vinculadas al expediente.", "objective": "Cerrar el ciclo entre inteligencia, conversación y ejecución.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-003", "children": [], "dependencies": ["ORC-DOS-001", "ORC-ACT-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Una reunión puede generar briefing, decisiones y tareas con idempotencia.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Las tareas admiten estado, versión y permisos.', 'status': 'met'}", "met": true}], "comments": [{"text": "La generación de contenido IA del briefing está gobernada en ORC-AI-001.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "src/components/dossiers/dossier-work-transport.test.ts", "claim": "Cliente despacha acciones de reunión/tarea con contrato HTTP.", "confidence": "high"}, {"type": "file", "path": "apps/api/src/opn_oracle/oracle/jobs.py", "claim": "Jobs y recursos persistentes del flujo.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/oracle/routes.py", "apps/api/src/opn_oracle/oracle/briefings.py", "apps/api/src/opn_oracle/oracle/jobs.py", "src/components/dossiers/dossier-work-section.tsx"], "tests": [{"command": "apps/api/tests/test_integration_oracle_domain.py", "result": "passed"}, {"command": "apps/api/tests/test_integration_jobs.py", "result": "passed"}, {"command": "src/components/dossiers/dossier-work-section.test.tsx", "result": "passed"}, {"command": "src/components/dossiers/dossier-work-transport.test.ts", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-DOS-004", "title": "Wizard de completitud del expediente", "description": "Wizard que detecta huecos del expediente, propone acciones y enlaza objetivos, señales, actores, documentos e hipótesis.", "objective": "Aumentar activación y calidad de expedientes nuevos.", "status": "in_progress", "priority": "high", "parent_id": "ORC-MOD-003", "children": [], "dependencies": ["ORC-DOS-001", "ORC-DOS-002", "ORC-AI-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El backend devuelve huecos y acciones con contrato versionado.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'La UI permite aceptar, editar o descartar propuestas sin mutar silenciosamente el expediente.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'El wizard respeta evidencia y permisos en rutas bloqueadas.', 'status': 'partial'}", "met": false}], "comments": [{"text": "No se marca validated mientras exista el caso de bloqueo conocido.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "src/components/dossiers/dossier-completion-wizard.test.tsx", "claim": "Wizard navega y persiste prefill de forma observable.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/62_WIZARD_BLOQUEADO_POR_EL_REVISOR_DE_EVIDENCIA.md", "claim": "Gate de revisor documentado como riesgo real.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/ai/routes.py", "apps/api/src/opn_oracle/ai/service.py", "src/components/dossiers/dossier-completion-wizard.tsx", "docs/implementation/prompts/51_DOSSIER_COMPLETION_WIZARD_UI.md"], "tests": [{"command": "apps/api/tests/test_integration_oracle_domain.py", "result": null}, {"command": "src/components/dossiers/dossier-completion-wizard.test.tsx", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": ["ORC-MOD-002"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-004", "title": "Signal e ingesta externa", "description": "Adaptadores, vigilancia, ingesta incremental, deduplicación, webhooks y triaje de señales.", "objective": "Media: los contratos locales están avanzados, la operación externa no está habilitada por defecto.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-SIG-001", "title": "Contrato Signal Avanza y adaptadores", "description": "Protocolo desacoplado, mock determinista, HTTP real y configuración de timeout/credenciales para monitores y señales.", "objective": "Mantener interoperabilidad y permitir desarrollo sin dependencia externa.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-004", "children": [], "dependencies": ["ORC-PLAT-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Existe interfaz con create/update/pause/sync/get y mock determinista.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'El HTTP adapter aplica timeout, autenticación y observabilidad sin filtraciones.', 'status': 'partial'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Ningún componente frontend llama Signal directamente.', 'status': 'met'}", "met": true}], "comments": [{"text": "Se distingue implementación local de activación externa validada.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/integrations/signal_avanza.py", "claim": "Adaptador desacoplado de Signal.", "confidence": "high"}, {"type": "file", "path": "docs/operations/SIGNAL.md", "claim": "Contrato y operación documentados.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/integrations/signal_avanza.py", "apps/api/src/opn_oracle/integrations/service.py", "apps/api/src/opn_oracle/integrations/webhooks.py", "docs/architecture/0006-signal-adapter.md", "docs/operations/SIGNAL.md"], "tests": [{"command": "apps/api/tests/test_integration_dependencies.py", "result": "passed"}, {"command": "apps/api/tests/test_contract.py", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-08-01T09:32:52+00:00"}, {"id": "ORC-SIG-002", "title": "Ingesta incremental, deduplicación y webhooks", "description": "Outbox/inbox, hash de señal, cursor incremental, idempotencia, retries y trazabilidad de entregas.", "objective": "Mantener un inbox de señales fiable y reintentable.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-004", "children": [], "dependencies": ["ORC-SIG-001", "ORC-DOS-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Mismo event/provider/hash no crea duplicados.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Sync usa cursor incremental y registra fallos reintentables.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Webhook valida HMAC/timestamp y responde de forma idempotente.', 'status': 'met'}", "met": true}], "comments": [{"text": "La validación local no implica que la cobertura de fuentes externas sea completa.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/integrations/service.py", "claim": "Hash, locks, outbox e ingesta normalizada.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_integration_dependencies.py", "claim": "Dependencias, idempotencia y adapter tienen cobertura de integración.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/28_SIGNAL_INGEST_DEDUPE.md", "claim": "Deduplicación registrada como cambio comprobado.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/integrations/service.py", "apps/api/src/opn_oracle/integrations/tasks.py", "apps/api/src/opn_oracle/integrations/webhooks.py", "docs/implementation/prompts/28_SIGNAL_INGEST_DEDUPE.md"], "tests": [{"command": "apps/api/tests/test_integration_dependencies.py", "result": "passed"}, {"command": "apps/api/tests/test_integration_oracle_domain.py", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-SIG-003", "title": "Triaje y scoring IA gobernados", "description": "Clasificación de señales, relevancia, confianza, feedback humano, prompts versionados y límites de proveedor.", "objective": "Acelerar análisis sin perder control humano ni trazabilidad.", "status": "in_progress", "priority": "high", "parent_id": "ORC-MOD-004", "children": [], "dependencies": ["ORC-SIG-002", "ORC-AI-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El score conserva explicación, fecha, evidencia y confianza.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'El feedback humano persiste y puede gobernar una replanificación explícita.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'La configuración de proveedor/modelo respeta allowlist y presupuesto.', 'status': 'partial'}", "met": false}], "comments": [{"text": "La clasificación no se eleva a validated hasta cerrar los gates de operación y proveedor.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_ai_runtime.py", "claim": "Políticas y runtime IA tienen pruebas.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/OPEN_QUESTIONS.md", "claim": "Gates de activación cloud permanecen explícitos.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/ai/service.py", "apps/api/src/opn_oracle/ai/provider.py", "apps/api/src/opn_oracle/ai/context.py", "docs/operations/AI_RUNTIME.md"], "tests": [{"command": "apps/api/tests/test_ai_runtime.py", "result": null}, {"command": "apps/api/tests/test_integration_oracle_domain.py", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": ["ORC-MOD-002", "ORC-MOD-003"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-005", "title": "Documentos, evidencias e IA", "description": "Carga segura, parsing, chunks, evidencia citable, proveedores IA, auditoría y revisión humana.", "objective": "Media-baja: implementación amplia, con configuración de producción y cobertura aún abiertas.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-EVID-001", "title": "Documentos y evidencia citable", "description": "Carga, almacenamiento, antivirus, parsing, chunks, retención, vinculación a entidades y citas reproducibles.", "objective": "Convertir documentación en evidencia fiable para análisis y decisiones.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-005", "children": [], "dependencies": ["ORC-SEC-001", "ORC-DOS-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El documento tiene versión, estado, hash y tenant.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'El procesamiento largo ocurre en Celery y produce chunks/evidencias.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'El flujo productivo tiene scanner y retención configurados.', 'status': 'partial'}", "met": true}], "comments": [{"text": "Implementado no equivale a validado en producción: falta activar scanner/documentos con runbook y smoke.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_documents.py", "claim": "Contrato documental y scanner tienen cobertura.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Estado de documentos y configuración del entorno observado.", "confidence": "medium"}], "related_files": ["apps/api/src/opn_oracle/documents/models.py", "apps/api/src/opn_oracle/documents/routes.py", "apps/api/src/opn_oracle/documents/tasks.py", "apps/api/src/opn_oracle/documents/scanner.py", "docs/operations/DOCUMENTS_EVIDENCE_SEARCH.md"], "tests": [{"command": "apps/api/tests/test_documents.py", "result": "passed"}, {"command": "apps/api/tests/test_integration_oracle_domain.py", "result": "passed"}, {"command": "src/components/dossiers/dossier-documents-section.test.tsx", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-08-01T09:32:52+00:00"}, {"id": "ORC-AI-001", "title": "Outputs IA con evidencia y revisión humana", "description": "Context snapshots, schemas, prompts versionados, reviewer, auditoría, usage ledger y artefactos de informe.", "objective": "Usar IA como acelerador gobernado de inteligencia estratégica.", "status": "in_progress", "priority": "critical", "parent_id": "ORC-MOD-005", "children": [], "dependencies": ["ORC-EVID-001", "ORC-SEC-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Outputs se validan con schema y no se guardan como insight válido si fallan.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'Toda afirmación relevante enlaza evidencia y confianza.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'El revisor bloquea o recorta outputs sin evidencia de forma accionable.', 'status': 'partial'}", "met": false}], "comments": [{"text": "La diferencia entre código implementado y operación IA aprobada es deliberada.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_ai_runtime.py", "claim": "Runtime, policies y validación IA cubiertos.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/60_REVISOR_DE_EVIDENCIA_BLOQUEA_INFORMES_LARGOS.md", "claim": "Gate de evidencia y límites documentado.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/ai/models.py", "apps/api/src/opn_oracle/ai/service.py", "apps/api/src/opn_oracle/ai/routes.py", "apps/api/src/opn_oracle/reporting/rendering.py", "docs/implementation/prompts/63_UNIFICAR_LA_REVISION_DE_SALIDAS_IA.md"], "tests": [{"command": "apps/api/tests/test_ai_runtime.py", "result": null}, {"command": "apps/api/tests/test_integration_oracle_domain.py", "result": null}, {"command": "src/components/dossiers/dossier-oracle-summary-panel.test.tsx", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}, {"id": "ORC-INV-001", "title": "Investigaciones empresariales trazables", "description": "Workbench de investigación, documentos, identidad, candidatos, doble ciego y revisión humana para análisis de entidades y contratación.", "objective": "Convertir investigaciones puntuales en un flujo reproducible y auditable.", "status": "in_progress", "priority": "high", "parent_id": "ORC-MOD-005", "children": [], "dependencies": ["ORC-EVID-001", "ORC-ACT-002", "ORC-PROC-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Cada investigación conserva protocolo, fuentes, ventanas, documentos y resultado.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'La revisión humana distingue localizado, no localizado y no aplicable.', 'status': 'partial'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'La cobertura comunicada no promete exhaustividad sin evidencia.', 'status': 'met'}", "met": false}], "comments": [{"text": "El diagnóstico de participantes nominales es explícitamente una deuda de cobertura, no una funcionalidad asumida.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md", "claim": "Agregado de investigación y límites documentados.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_integration_investigations.py", "claim": "Despacho HTTP e integración de investigación.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/oracle/investigations.py", "apps/api/src/opn_oracle/oracle/investigation_routes.py", "docs/product/INVESTIGATION_WORKBENCH_PROPOSAL.md", "docs/implementation/spikes/75_investigation_protocol_v1.md"], "tests": [{"command": "apps/api/tests/test_investigation_spike.py", "result": null}, {"command": "apps/api/tests/test_integration_investigations.py", "result": null}, {"command": "apps/api/tests/test_investigation_documents.py", "result": null}, {"command": "src/components/dossiers/dossier-investigations-section.test.tsx", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": ["ORC-MOD-002", "ORC-MOD-003"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-006", "title": "Actores e inteligencia de entidades", "description": "Actores, relaciones, grafos, candidatos, identidad y reportes de entidad con trazabilidad.", "objective": "Media: el flujo principal existe, pero la evidencia de cobertura y los informes siguen bajo revisión.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-ACT-001", "title": "Actores, relaciones y grafo navegable", "description": "Actores, vínculos dossier-actor, relaciones, candidatos, evidencia y grafo legible/filtrable.", "objective": "Hacer visible quién importa y qué relación sostiene una hipótesis.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-006", "children": [], "dependencies": ["ORC-DOS-001", "ORC-EVID-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El grafo mantiene layout legible, filtros, foco y fuentes.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Candidatos requieren revisión/importación explícita.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Relaciones y actores respetan tenant y permisos.', 'status': 'met'}", "met": true}], "comments": [{"text": "La resolución de identidad empresarial profunda queda separada en ORC-ACT-002 y ORC-INV-001.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "apps/api/src/opn_oracle/oracle/links.py", "claim": "Enlaces con evidencia para actores y relaciones.", "confidence": "high"}, {"type": "test", "path": "apps/api/tests/test_entity_intel.py", "claim": "Entidad/grafo y permisos tienen cobertura de test.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/67_GRAFO_DE_ENTIDAD_LEGIBLE_FILTRABLE_Y_ENFOCABLE.md", "claim": "Grafo legible y enfocable documentado.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/oracle/models.py", "apps/api/src/opn_oracle/oracle/links.py", "apps/api/src/opn_oracle/oracle/routes.py", "src/components/entity-intel/entity-graph-v2.tsx", "docs/implementation/prompts/67_GRAFO_DE_ENTIDAD_LEGIBLE_FILTRABLE_Y_ENFOCABLE.md"], "tests": [{"command": "apps/api/tests/test_entity_intel.py", "result": "passed"}, {"command": "src/components/entity-intel/entity-graph-v2.test.tsx", "result": "passed"}, {"command": "src/components/dossiers/dossier-intelligence-section.test.tsx", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-ACT-002", "title": "Inteligencia de entidades y reportes citables", "description": "Registro de entidad, historial registral, marcas/patentes, grafo y reportes de entidad con evidencia citable.", "objective": "Producir inteligencia competitiva confiable sobre actores y empresas.", "status": "in_progress", "priority": "high", "parent_id": "ORC-MOD-006", "children": [], "dependencies": ["ORC-ACT-001", "ORC-EVID-001", "ORC-AI-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'La ficha distingue hechos, cobertura y fuentes recuperadas.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'El informe no afirma más allá de evidencia ni pierde contexto histórico.', 'status': 'partial'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'Patentes/marcas y noticias reflejan estados de cobertura honestos.', 'status': 'partial'}", "met": false}], "comments": [{"text": "Se conserva under_review porque la documentación registra fallos históricos de evidencia y output.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_entity_dossier_report.py", "claim": "Informe de entidad tiene pruebas de comportamiento.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "La saga del revisor y los límites de fuentes están documentados.", "confidence": "medium"}], "related_files": ["apps/api/src/opn_oracle/integrations/entity_intel.py", "apps/api/src/opn_oracle/integrations/entity_intel_routes.py", "apps/api/src/opn_oracle/oracle/entity_dossier_report.py", "docs/implementation/prompts/54_ENTITY_REPORT_CITABLE_EVIDENCE.md", "docs/implementation/prompts/66_EL_INFORME_DE_ENTIDAD_NO_VE_LA_HISTORIA_RECUPERADA.md"], "tests": [{"command": "apps/api/tests/test_entity_intel.py", "result": null}, {"command": "apps/api/tests/test_entity_dossier_report.py", "result": null}, {"command": "src/components/entity-intel/registry-status.test.ts", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": ["ORC-MOD-003", "ORC-MOD-005"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-007", "title": "Contratación pública y mercado", "description": "Proxy PLACSP/Signal, búsqueda multisector, CPV, comparables, informes competitivos y participantes.", "objective": "Media-alta: la búsqueda está desplegada, la cobertura nominal de participantes está bloqueada.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-PROC-001", "title": "Proxy de contratación pública y navegación de licitaciones", "description": "Cliente Flask/Signal para tenders, awards, sugerencias, estadísticas y acciones con aislamiento y rate limit.", "objective": "Descubrir oportunidades de mercado y contexto competitivo.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-007", "children": [], "dependencies": ["ORC-DOS-001", "ORC-SIG-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El navegador consume Flask, nunca Signal directamente.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Se aplican filtros, paginación, rate limit y permisos tenant.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'La cobertura se presenta como snapshot acotado, no como ranking histórico global.', 'status': 'met'}", "met": true}], "comments": [{"text": "Deployed se refiere al release de oracle-dev/UAT descrito en STATUS.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Búsqueda y proxy PLACSP descritos como activos en release UAT.", "confidence": "medium"}, {"type": "test", "path": "apps/api/tests/test_procurement.py", "claim": "Normalización y proxy tienen pruebas.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/integrations/procurement.py", "apps/api/src/opn_oracle/integrations/procurement_routes.py", "src/app/app/procurement/page.tsx", "docs/implementation/prompts/96_LICITACIONES_BUSCAR_CON_ORACLE.md"], "tests": [{"command": "apps/api/tests/test_procurement.py", "result": "passed"}, {"command": "apps/api/tests/test_integration_tender_search_wizard.py", "result": "passed"}, {"command": "src/components/procurement/procurement-transport.test.ts", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-26"}, {"id": "ORC-PROC-002", "title": "Wizard de búsqueda multisector y CPV", "description": "Plan editable, retrieval CPV, ejecución multisonda, deduplicación por folder_id, vigilancia opcional y replanificación.", "objective": "Aumentar recall útil sin sacrificar control humano.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-007", "children": [], "dependencies": ["ORC-PROC-001", "ORC-SIG-003"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El plan propone términos/CPV y deja edición humana explícita.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'La ejecución limita sondas, deduplica, ordena y comunica límites de snapshot.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Guardar vigilancia es opcional y reintentar reutiliza el plan durable.', 'status': 'met'}", "met": true}], "comments": [{"text": "El E2E de procurement-wizard figura rojo en el estado del entorno aunque el release se activó; no se eleva a validated del todo por esa discrepancia.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Release UAT documenta el wizard multisector activo.", "confidence": "medium"}, {"type": "test", "path": "apps/api/tests/test_integration_tender_search_wizard.py", "claim": "Preview/execute y tenant derivado se prueban por HTTP.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/97_LICITACIONES_CPV_RETRIEVAL_Y_EJECUCION_MULTISECTOR.md", "claim": "Ejecución multisector documentada con límites medidos.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/ai/tender_search_wizard.py", "apps/api/src/opn_oracle/oracle/procurement_search_preview.py", "apps/api/src/opn_oracle/oracle/procurement_search_profiles.py", "src/app/app/procurement/page.tsx", "docs/implementation/prompts/97_LICITACIONES_CPV_RETRIEVAL_Y_EJECUCION_MULTISECTOR.md"], "tests": [{"command": "apps/api/tests/test_integration_tender_search_wizard.py", "result": "passed"}, {"command": "src/components/procurement/procurement-transport.test.ts", "result": "passed"}, {"command": "tests/e2e/procurement-wizard.spec.ts", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-26"}, {"id": "ORC-PROC-003", "title": "Comparables e inteligencia competitiva", "description": "Perfil comparable medido, histórico de contratación e informes competitivos con términos, CPV, compradores, importes y UTE.", "objective": "Mejorar selección de oportunidades y lectura competitiva.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-007", "children": [], "dependencies": ["ORC-PROC-001", "ORC-EVID-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El perfil calcula medidas desde corpus y ventana definidos.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'El informe expresa corpus, exclusiones y fecha de medición.', 'status': 'met'}", "met": true}], "comments": [{"text": "Sin afirmar exhaustividad histórica más allá del corpus disponible.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_comparable_procurement.py", "claim": "Medición de perfil comparable cubierta.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/76_LA_COMPARABLE_SE_MIDE_NO_SE_PREGUNTA.md", "claim": "Decisión de medir comparable documentada.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/oracle/comparable_procurement.py", "apps/api/src/opn_oracle/oracle/competitive_procurement.py", "apps/api/src/opn_oracle/oracle/competitive_procurement_report.py", "docs/implementation/prompts/76_LA_COMPARABLE_SE_MIDE_NO_SE_PREGUNTA.md"], "tests": [{"command": "apps/api/tests/test_comparable_procurement.py", "result": "passed"}, {"command": "apps/api/tests/test_competitive_procurement.py", "result": "passed"}, {"command": "apps/api/tests/test_procurement_document_report.py", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-PROC-004", "title": "Cobertura nominal de participantes de licitaciones", "description": "Identificar participantes admitidos, excluidos, perdedores o no localizados con rol y evidencia de página/fragmento.", "objective": "Mejorar inteligencia competitiva sin convertir huecos de fuente en hechos.", "status": "blocked", "priority": "high", "parent_id": "ORC-MOD-007", "children": [], "dependencies": ["ORC-PROC-001", "ORC-INV-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Cada participante lleva rol, fuente, página/fragmento y estado de cobertura.', 'status': 'pending'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'La UI no transforma «no localizado» en «no se presentó». ', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'Existe medición representativa de cobertura antes de prometer exhaustividad.', 'status': 'pending'}", "met": false}], "comments": [{"text": "Bloqueada por cobertura de fuente, no por falta de UI.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "docs/implementation/STATUS.md", "claim": "El diagnóstico comunica límites reales de ReceivedTenderQuantity y participantes nominales.", "confidence": "high"}], "related_files": ["docs/implementation/spikes/77_investigation_protocol_v1_1.md", "docs/implementation/evaluations/2026-07-23_ITURRI_tender_search_wizard.md", "apps/api/src/opn_oracle/oracle/investigations.py"], "tests": [{"command": "apps/api/tests/test_investigation_spike.py", "result": null}], "prompt_records": [], "blocked_reason": "Signal/PLACSP no ofrece aún lista nominal reconciliable con cobertura suficiente.", "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": ["ORC-MOD-003", "ORC-MOD-004"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-008", "title": "Informes y notificaciones", "description": "Plantillas versionadas, revisiones, artefactos, PDF, notificaciones, alertas y digest estratégico.", "objective": "Media: existen flujos productivos, con gate PDF/revisor y contexto que requieren seguimiento.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-REP-001", "title": "Informes versionados, revisión y PDF", "description": "Plantillas, snapshots de evidencia, revisiones, artefactos, exportación y PDF como salida operativa.", "objective": "Entregar informes ejecutivos accionables y auditables.", "status": "in_progress", "priority": "critical", "parent_id": "ORC-MOD-008", "children": [], "dependencies": ["ORC-EVID-001", "ORC-AI-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Cada informe conserva template version, input snapshot y revisiones.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'El revisor bloquea claims sin evidencia y devuelve errores accionables.', 'status': 'partial'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'PDF se genera con layout validado y artefacto session-bound.', 'status': 'partial'}", "met": false}], "comments": [{"text": "Se mantiene under_review hasta repetir el gate completo en el entorno objetivo.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_integration_reporting_extra.py", "claim": "Workflow y artefactos de reporting cubiertos.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/89_EL_MOTOR_DE_PDF_BLOQUEA_LA_RELEASE.md", "claim": "Gate PDF reconocido como riesgo de release.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/reporting/models.py", "apps/api/src/opn_oracle/reporting/routes.py", "apps/api/src/opn_oracle/reporting/rendering.py", "docs/implementation/prompts/89_EL_MOTOR_DE_PDF_BLOQUEA_LA_RELEASE.md"], "tests": [{"command": "apps/api/tests/test_integration_reporting_extra.py", "result": null}, {"command": "apps/api/tests/test_entity_dossier_report.py", "result": null}, {"command": "src/components/reporting/reports.test.tsx", "result": null}, {"command": "src/components/reporting/exports.test.tsx", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}, {"id": "ORC-REP-002", "title": "Alertas, notificaciones y digest", "description": "Notificaciones in-app/email, preferencias, alertas accionables y resumen semanal/nocturno del expediente.", "objective": "Convertir cambios y resultados en acciones priorizadas.", "status": "done", "priority": "high", "parent_id": "ORC-MOD-008", "children": [], "dependencies": ["ORC-DOS-002", "ORC-REP-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Alertas y notificaciones guardan estado de lectura/preferencia y tenant.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'El digest comunica cambios con evidencia y siguiente acción.', 'status': 'met'}", "met": true}], "comments": [{"text": "Email de producción depende de backend SMTP/Graph configurado y fail-closed.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "apps/api/tests/test_integration_alerts.py", "claim": "Alertas y lectura HTTP tienen cobertura.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/prompts/30_WEEKLY_CHANGE_DIGEST.md", "claim": "Digest estratégico documentado.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/reporting/notifications.py", "apps/api/src/opn_oracle/notifications/email.py", "apps/api/src/opn_oracle/reporting/routes.py", "docs/implementation/prompts/30_WEEKLY_CHANGE_DIGEST.md"], "tests": [{"command": "apps/api/tests/test_alerts.py", "result": "passed"}, {"command": "apps/api/tests/test_integration_alerts.py", "result": "passed"}, {"command": "apps/api/tests/test_email.py", "result": "passed"}, {"command": "src/components/reporting/notifications.test.tsx", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}], "dependencies": ["ORC-MOD-003", "ORC-MOD-005"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-009", "title": "Frontend Vector", "description": "Shell canónico, pantallas autenticadas, cliente API, accesibilidad, responsive y retirada controlada del prototipo Horizon.", "objective": "Media: Vector ya es la base canónica, la migración autoritativa y la limpieza del prototipo siguen pendientes.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-UX-001", "title": "Shell y rutas Vector canónicas", "description": "Interfaz Vector autenticada para portfolio, expedientes, informes, procurement, cuenta, administración y plataforma.", "objective": "Dar una experiencia enterprise única y accionable.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-009", "children": [], "dependencies": ["ORC-AUTH-001", "ORC-DOS-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Las rutas /app cubren portfolio, dossiers, reports, procurement, account, admin y platform.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Vector es la base canónica y concept-b no recibe nuevas capacidades.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'La interfaz consume auth/API reales en todas las superficies productivas.', 'status': 'partial'}", "met": true}], "comments": [{"text": "Implemented porque existe superficie y tests; la integración completa de API queda en ORC-UX-002.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "src/app/app/layout.tsx", "claim": "Shell autenticado /app.", "confidence": "high"}, {"type": "test", "path": "src/lib/app-routes.test.ts", "claim": "Rutas y permisos de navegación cubiertos.", "confidence": "high"}], "related_files": ["src/app/app/layout.tsx", "src/app/app/portfolio/page.tsx", "src/app/app/dossiers/[id]/page.tsx", "src/app/app/admin/page.tsx", "docs/product/NAVIGATION_SPEC.md"], "tests": [{"command": "src/lib/app-routes.test.ts", "result": "passed"}, {"command": "tests/e2e/smoke.spec.ts", "result": "passed"}, {"command": "tests/e2e/accessibility-security.spec.ts", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-08-01T09:32:52+00:00"}, {"id": "ORC-UX-002", "title": "Migración completa al cliente API autoritativo", "description": "Sustituir fixtures/localStorage de prototipo por el cliente TypeScript generado desde OpenAPI en todas las rutas Vector.", "objective": "Alinear la experiencia visible con datos y permisos reales.", "status": "in_progress", "priority": "critical", "parent_id": "ORC-MOD-009", "children": [], "dependencies": ["ORC-PLAT-001", "ORC-AUTH-001", "ORC-UX-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Todas las mutaciones productivas despachan Flask y no localStorage.', 'status': 'partial'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'El cliente generado se mantiene alineado con OpenAPI en CI.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'Los datos de demo quedan aislados de rutas productivas.', 'status': 'partial'}", "met": false}], "comments": [{"text": "Estado deliberadamente in_progress: no confundir tests de transport con migración completa de la app.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "packages/api-client/src/generated/schema.ts", "claim": "Cliente generado desde OpenAPI presente.", "confidence": "high"}, {"type": "file", "path": "src/lib/oracle/mock-repository.ts", "claim": "Persistencia de demo aún existe y delimita deuda de migración.", "confidence": "high"}], "related_files": ["packages/api-client/src/generated/schema.ts", "packages/api-client/src/transport.ts", "src/components/shared/oracle-provider.tsx", "src/lib/oracle/mock-repository.ts", "docs/architecture/REPOSITORY_MAP.md"], "tests": [{"command": "src/lib/auth/api-transport.test.ts", "result": null}, {"command": "src/components/dossiers/api-transport.test.ts", "result": null}, {"command": "src/components/procurement/procurement-transport.test.ts", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}, {"id": "ORC-UX-003", "title": "Calidad UX, accesibilidad y responsive", "description": "Estados loading/error/empty/forbidden/session expired, WCAG, responsive y smoke visual sin errores de consola.", "objective": "Hacer la operación diaria comprensible y resistente.", "status": "in_progress", "priority": "high", "parent_id": "ORC-MOD-009", "children": [], "dependencies": ["ORC-UX-001", "ORC-UX-002"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Las rutas críticas tienen estados de carga, vacío, error, forbidden y sesión expirada.', 'status': 'partial'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'Axe/smoke y revisión manual no dejan errores relevantes de consola.', 'status': 'partial'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'La UI es usable en viewport responsive y teclado.', 'status': 'met'}", "met": false}], "comments": [{"text": "No se marca validated por la discrepancia de E2E conocida.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "tests/e2e/accessibility-security.spec.ts", "claim": "Suite E2E de accesibilidad/seguridad existente.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Estado registra gate E2E rojo en procurement-wizard.", "confidence": "medium"}], "related_files": ["tests/e2e/accessibility-security.spec.ts", "tests/e2e/smoke.spec.ts", "src/app/globals.css", "docs/quality/TEST_STRATEGY.md"], "tests": [{"command": "tests/e2e/accessibility-security.spec.ts", "result": null}, {"command": "tests/e2e/smoke.spec.ts", "result": null}, {"command": "src/lib/http-security.test.ts", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}, {"id": "ORC-UX-004", "title": "Selector A/B y separación de prototipos", "description": "Mantener concept-a/vector y concept-b/horizon como superficies claramente separadas hasta su retirada autorizada.", "objective": "Preservar foco de inversión y evitar ambigüedad de producto.", "status": "pending", "priority": "medium", "parent_id": "ORC-MOD-009", "children": [], "dependencies": ["ORC-GOV-002"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'No se añade lógica productiva nueva a concept-b.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'La retirada o archivo se documenta y prueba.', 'status': 'pending'}", "met": false}], "comments": [{"text": "No es una prioridad de negocio mientras Vector continúe migrándose.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": "docs/architecture/REPOSITORY_MAP.md", "claim": "Frontera concept-a/concept-b documentada.", "confidence": "high"}], "related_files": ["src/app/page.tsx", "src/app/concept-b/page.tsx", "README_UI_PROTOTYPES.md"], "tests": [{"command": "tests/e2e/smoke.spec.ts", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}], "dependencies": ["ORC-MOD-002", "ORC-MOD-003"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}, {"id": "ORC-MOD-010", "title": "Calidad, observabilidad y releases", "description": "CI, pruebas, backups, restore, métricas, despliegue reproducible y rollback.", "objective": "Media-alta: hay runbooks y despliegue observado, pero debe mantenerse evidencia por release.", "status": "in_progress", "priority": "medium", "parent_id": null, "children": [{"id": "ORC-QA-001", "title": "Gates de CI y cobertura conductual", "description": "Ruff, mypy, pytest, integración, contrato OpenAPI, Vitest, build, Playwright, seguridad, imágenes y SBOM.", "objective": "Reducir regresiones y evitar releases basados en afirmaciones no verificadas.", "status": "in_progress", "priority": "critical", "parent_id": "ORC-MOD-010", "children": [], "dependencies": ["ORC-PLAT-001", "ORC-UX-003"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'CI ejecuta lint, format check, tipos, tests, build y cliente OpenAPI.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-2', 'text': 'La integración con PostgreSQL/Redis se ejecuta cuando el cambio la requiere.', 'status': 'met'}", "met": false}, {"text": "{'id': 'AC-3', 'text': 'Un gate rojo impide release y queda registrado con logs.', 'status': 'partial'}", "met": false}], "comments": [{"text": "Estado bajo revisión hasta resolver el E2E rojo y mantener integración real en cambios de dominio.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "file", "path": ".github/workflows/ci.yml", "claim": "Workflow con gates backend/frontend/E2E.", "confidence": "high"}, {"type": "file", "path": "docs/implementation/STATUS.md", "claim": "Registra resultados mixtos del entorno observado.", "confidence": "medium"}], "related_files": [".github/workflows/ci.yml", "apps/api/Makefile", "package.json", "docs/quality/TEST_MATRIX.md", "docs/quality/TEST_STRATEGY.md"], "tests": [{"command": ".github/workflows/ci.yml", "result": null}, {"command": "apps/api/tests/test_contract.py", "result": null}, {"command": "tests/e2e/smoke.spec.ts", "result": null}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": null}, {"id": "ORC-QA-002", "title": "Backup, restore y observabilidad operativa", "description": "Backups cifrados/offsite, restore aislado, health/readiness, métricas, logs JSON, rotación y runbooks.", "objective": "Poder recuperar datos y explicar incidentes sin exponer secretos.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-010", "children": [], "dependencies": ["ORC-PLAT-001", "ORC-SEC-001"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'Backup y restore se prueban en destino aislado sin sobrescribir producción.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Health/live no depende de DB y ready comprueba dependencias críticas.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'Logs/métricas/auditoría redaccionan secretos y PII sensible.', 'status': 'met'}", "met": true}], "comments": [{"text": "Validado por artefactos y tests de operación; debe repetirse por release.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "test", "path": "tests/operations/test-backup-infrastructure.sh", "claim": "Infra de backup tiene test script.", "confidence": "high"}, {"type": "file", "path": "docs/operations/BACKUP_RESTORE.md", "claim": "Restore aislado y límites documentados.", "confidence": "high"}], "related_files": ["apps/api/src/opn_oracle/api/health.py", "apps/api/src/opn_oracle/common/metrics.py", "scripts/backup-production.sh", "scripts/restore-test-production.sh", "docs/operations/BACKUP_RESTORE.md"], "tests": [{"command": "tests/operations/test-backup-infrastructure.sh", "result": "passed"}, {"command": "apps/api/tests/test_backup_agent.py", "result": "passed"}, {"command": "apps/api/tests/test_health.py", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-31"}, {"id": "ORC-QA-003", "title": "Release reproducible y rollback", "description": "Build, migración separada, activación, smoke HTTPS, rollback y trazabilidad de SHA/release.", "objective": "Publicar cambios de forma reversible y auditable.", "status": "done", "priority": "critical", "parent_id": "ORC-MOD-010", "children": [], "dependencies": ["ORC-QA-001", "ORC-QA-002"], "acceptance_criteria": [{"text": "{'id': 'AC-1', 'text': 'El release se identifica por SHA y no mezcla artefactos no validados.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-2', 'text': 'Migración, smoke y rollback tienen comandos/runbook.', 'status': 'met'}", "met": true}, {"text": "{'id': 'AC-3', 'text': 'No se fuerza push ni se destruyen datos durante rollback.', 'status': 'met'}", "met": true}], "comments": [{"text": "Deployed se limita al entorno con evidencia en runbook; no afirma todos los gates productivos futuros.", "author": "migración", "created_at": "2026-08-01T09:32:52+00:00"}], "evidence": [{"type": "deployment", "path": "docs/implementation/STATUS.md", "claim": "Release nativo/UAT documentado con SHA y smoke.", "confidence": "medium"}, {"type": "file", "path": "docs/operations/ROLLBACK.md", "claim": "Rollback documentado.", "confidence": "high"}], "related_files": ["infra/native-dev/activate-release.sh", "infra/native-dev/build-release.sh", "scripts/deploy-production.sh", "docs/operations/RELEASE.md", "docs/operations/ROLLBACK.md"], "tests": [{"command": "scripts/smoke-production.sh", "result": "passed"}, {"command": "tests/operations/test-backup-infrastructure.sh", "result": "passed"}, {"command": ".github/workflows/release.yml", "result": "passed"}], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-07-31", "updated_at": "2026-07-31", "completed_at": "2026-07-28"}], "dependencies": ["ORC-MOD-002"], "acceptance_criteria": [], "comments": [], "evidence": [], "related_files": [], "tests": [], "prompt_records": [], "blocked_reason": null, "completion_override": null, "created_at": "2026-08-01T09:32:52+00:00", "updated_at": "2026-08-01T09:32:52+00:00", "completed_at": null}]}, "activity": [{"event_id": "EVT-000001", "timestamp": "2026-08-01T09:06:01+00:00", "actor": "user", "source": "cli", "action": "dashboard_generated", "task_id": null, "before": {}, "after": {}, "metadata": {"tasks": 0}}, {"event_id": "EVT-000002", "timestamp": "2026-08-01T09:17:34+00:00", "actor": "user", "source": "cli", "action": "dashboard_generated", "task_id": null, "before": {}, "after": {}, "metadata": {"tasks": 0}}, {"event_id": "EVT-000003", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-001", "before": {}, "after": {"title": "Gobernanza y arquitectura", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000004", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-002", "before": {}, "after": {"title": "Plataforma, identidad y seguridad", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000005", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-003", "before": {}, "after": {"title": "Expediente estratégico y acción", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000006", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-004", "before": {}, "after": {"title": "Signal e ingesta externa", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000007", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-005", "before": {}, "after": {"title": "Documentos, evidencias e IA", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000008", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-006", "before": {}, "after": {"title": "Actores e inteligencia de entidades", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000009", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-007", "before": {}, "after": {"title": "Contratación pública y mercado", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000010", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-008", "before": {}, "after": {"title": "Informes y notificaciones", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000011", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-009", "before": {}, "after": {"title": "Frontend Vector", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000012", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-MOD-010", "before": {}, "after": {"title": "Calidad, observabilidad y releases", "parent_id": null}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000013", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-GOV-001", "before": {}, "after": {"title": "Sistema vivo de planificación y desarrollo", "parent_id": "ORC-MOD-001"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000014", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-GOV-002", "before": {}, "after": {"title": "Retirada controlada del prototipo Horizon", "parent_id": "ORC-MOD-001"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000015", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-PLAT-001", "before": {}, "after": {"title": "Fundación Flask, OpenAPI y health checks", "parent_id": "ORC-MOD-002"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000016", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-SEC-001", "before": {}, "after": {"title": "Aislamiento multi-tenant, RBAC y auditoría", "parent_id": "ORC-MOD-002"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000017", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-AUTH-001", "before": {}, "after": {"title": "Sesiones opacas, CSRF e invitaciones", "parent_id": "ORC-MOD-002"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000018", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-OPS-001", "before": {}, "after": {"title": "Despliegue nativo de oracle-dev", "parent_id": "ORC-MOD-002"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000019", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-DOS-001", "before": {}, "after": {"title": "Expediente, objetivos e hipótesis", "parent_id": "ORC-MOD-003"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000020", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-DOS-002", "before": {}, "after": {"title": "De señal a acción estratégica", "parent_id": "ORC-MOD-003"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000021", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-DOS-003", "before": {}, "after": {"title": "Reuniones, decisiones y tareas", "parent_id": "ORC-MOD-003"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000022", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-DOS-004", "before": {}, "after": {"title": "Wizard de completitud del expediente", "parent_id": "ORC-MOD-003"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000023", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-SIG-001", "before": {}, "after": {"title": "Contrato Signal Avanza y adaptadores", "parent_id": "ORC-MOD-004"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000024", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-SIG-002", "before": {}, "after": {"title": "Ingesta incremental, deduplicación y webhooks", "parent_id": "ORC-MOD-004"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000025", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-SIG-003", "before": {}, "after": {"title": "Triaje y scoring IA gobernados", "parent_id": "ORC-MOD-004"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000026", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-EVID-001", "before": {}, "after": {"title": "Documentos y evidencia citable", "parent_id": "ORC-MOD-005"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000027", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-AI-001", "before": {}, "after": {"title": "Outputs IA con evidencia y revisión humana", "parent_id": "ORC-MOD-005"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000028", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-INV-001", "before": {}, "after": {"title": "Investigaciones empresariales trazables", "parent_id": "ORC-MOD-005"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000029", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-ACT-001", "before": {}, "after": {"title": "Actores, relaciones y grafo navegable", "parent_id": "ORC-MOD-006"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000030", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-ACT-002", "before": {}, "after": {"title": "Inteligencia de entidades y reportes citables", "parent_id": "ORC-MOD-006"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000031", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-PROC-001", "before": {}, "after": {"title": "Proxy de contratación pública y navegación de licitaciones", "parent_id": "ORC-MOD-007"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000032", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-PROC-002", "before": {}, "after": {"title": "Wizard de búsqueda multisector y CPV", "parent_id": "ORC-MOD-007"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000033", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-PROC-003", "before": {}, "after": {"title": "Comparables e inteligencia competitiva", "parent_id": "ORC-MOD-007"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000034", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-PROC-004", "before": {}, "after": {"title": "Cobertura nominal de participantes de licitaciones", "parent_id": "ORC-MOD-007"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000035", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-REP-001", "before": {}, "after": {"title": "Informes versionados, revisión y PDF", "parent_id": "ORC-MOD-008"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000036", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-REP-002", "before": {}, "after": {"title": "Alertas, notificaciones y digest", "parent_id": "ORC-MOD-008"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000037", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-UX-001", "before": {}, "after": {"title": "Shell y rutas Vector canónicas", "parent_id": "ORC-MOD-009"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000038", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-UX-002", "before": {}, "after": {"title": "Migración completa al cliente API autoritativo", "parent_id": "ORC-MOD-009"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000039", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-UX-003", "before": {}, "after": {"title": "Calidad UX, accesibilidad y responsive", "parent_id": "ORC-MOD-009"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000040", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-UX-004", "before": {}, "after": {"title": "Selector A/B y separación de prototipos", "parent_id": "ORC-MOD-009"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000041", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-QA-001", "before": {}, "after": {"title": "Gates de CI y cobertura conductual", "parent_id": "ORC-MOD-010"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000042", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-QA-002", "before": {}, "after": {"title": "Backup, restore y observabilidad operativa", "parent_id": "ORC-MOD-010"}, "metadata": {"origin": "oracle-roadmap.json"}}, {"event_id": "EVT-000043", "timestamp": "2026-08-01T09:32:52+00:00", "actor": "user", "source": "migration", "action": "task_created", "task_id": "ORC-QA-003", "before": {}, "after": {"title": "Release reproducible y rollback", "parent_id": "ORC-MOD-010"}, "metadata": {"origin": "oracle-roadmap.json"}}], "metrics": {"project_id": "OPN-ORACLE", "state_revision": 2, "total_tasks": 41, "root_tasks": 10, "by_status": {"pending": 2, "in_progress": 19, "blocked": 1, "done": 19}, "prompts_total": 0, "prompts_active": 0, "prompts_archived": 0, "tasks_without_prompts": 41, "completion_overrides": 0, "progress_percent": 46, "activity_events": 43, "last_update": "2026-08-01T09:32:52+00:00"}, "branches": [{"id": "ORC-MOD-001", "title": "Gobernanza y arquitectura", "status": "done", "total": 3, "done": 2, "children_total": 2, "children_done": 1, "percent": 67}, {"id": "ORC-MOD-002", "title": "Plataforma, identidad y seguridad", "status": "in_progress", "total": 5, "done": 3, "children_total": 4, "children_done": 3, "percent": 60}, {"id": "ORC-MOD-003", "title": "Expediente estratégico y acción", "status": "in_progress", "total": 5, "done": 3, "children_total": 4, "children_done": 3, "percent": 60}, {"id": "ORC-MOD-004", "title": "Signal e ingesta externa", "status": "in_progress", "total": 4, "done": 2, "children_total": 3, "children_done": 2, "percent": 50}, {"id": "ORC-MOD-005", "title": "Documentos, evidencias e IA", "status": "in_progress", "total": 4, "done": 1, "children_total": 3, "children_done": 1, "percent": 25}, {"id": "ORC-MOD-006", "title": "Actores e inteligencia de entidades", "status": "in_progress", "total": 3, "done": 1, "children_total": 2, "children_done": 1, "percent": 33}, {"id": "ORC-MOD-007", "title": "Contratación pública y mercado", "status": "in_progress", "total": 5, "done": 3, "children_total": 4, "children_done": 3, "percent": 60}, {"id": "ORC-MOD-008", "title": "Informes y notificaciones", "status": "in_progress", "total": 3, "done": 1, "children_total": 2, "children_done": 1, "percent": 33}, {"id": "ORC-MOD-009", "title": "Frontend Vector", "status": "in_progress", "total": 5, "done": 1, "children_total": 4, "children_done": 1, "percent": 20}, {"id": "ORC-MOD-010", "title": "Calidad, observabilidad y releases", "status": "in_progress", "total": 4, "done": 2, "children_total": 3, "children_done": 2, "percent": 50}], "docs": {"decisions": "# Decisiones\n\nRegistro de decisiones relevantes tomadas durante el desarrollo. Una entrada por decisión,\nen orden cronológico inverso. Este archivo se muestra en la pestaña **Decisiones** del dashboard.\n\nFormato sugerido:\n\n```text\n## AAAA-MM-DD · Título corto\n\n- Contexto: qué problema obligaba a decidir.\n- Decisión: qué se eligió.\n- Alternativas descartadas: qué se valoró y por qué no.\n- Consecuencias: qué queda condicionado.\n- Tareas afectadas: IDs de Ishtar Memory.\n```\n\n## 2026-08-01 · Ishtar Memory como sistema de planificación del repositorio\n\n- Contexto: el estado del desarrollo no debe depender del historial conversacional ni de un HTML\n  editado a mano, y el mismo mecanismo debe servir para otros proyectos de OPN.\n- Decisión: la fuente única de verdad es `roadmap.json`; el dashboard es siempre un artefacto\n  generado; la identidad del proyecto vive en `project-config.json` y no en el código.\n- Alternativas descartadas: mantener el estado dentro del HTML (se desincroniza) y usar\n  `localStorage` como almacén (no es compartible ni versionable).\n- Consecuencias: toda escritura pasa por validación, control de revisión y registro de actividad.\n- Tareas afectadas: ninguna todavía. El árbol se construye a partir de las instrucciones del usuario.\n\n## 2026-08-01 · El roadmap arranca vacío y la migración es explícita\n\n- Contexto: el repositorio ya contenía un roadmap heredado en `docs/development/oracle-roadmap.json`.\n- Decisión: Ishtar Memory se implanta con cero tareas de negocio y la importación del roadmap\n  anterior se ejecuta bajo demanda con `migrate --apply`, que crea copia de seguridad y no borra\n  los archivos previos.\n- Alternativas descartadas: importar automáticamente durante la instalación, que habría creado\n  tareas sin instrucción expresa del usuario.\n- Consecuencias: los datos heredados siguen intactos y disponibles hasta que se decida migrarlos.\n- Tareas afectadas: ninguna.\n", "architecture": "# Arquitectura de Ishtar Memory\n\nDescribe cómo funciona el propio sistema de planificación. No documenta la arquitectura de negocio\ndel proyecto, que vive en `docs/architecture/`. Se muestra en la pestaña **Arquitectura**.\n\n## Piezas\n\n```text\ndocs/ishtar_memory/\n├── project-config.json   Identidad del proyecto. Único punto de acoplamiento.\n├── roadmap.json          Fuente única de verdad: árbol de tareas y prompts.\n├── roadmap.schema.json   Contrato del roadmap.\n├── activity.jsonl        Registro cronológico, una línea JSON por evento.\n├── decisions.md          Decisiones relevantes.\n├── progress.md           Avance legible por sesiones.\n├── architecture.md       Este documento.\n├── README.md             Manual de uso.\n└── dashboard.html        Artefacto generado. Nunca se edita a mano.\n\nscripts/ishtar_memory.py  Validador, generador, servidor local y API.\ntests/test_ishtar_memory.py  Pruebas del sistema.\n```\n\n## Flujo de datos\n\n```text\nroadmap.json ──▶ validación ──▶ métricas ──▶ dashboard.html\n     ▲                                            │\n     │                                            ▼\n  API local ◀──── modo edición ◀──── navegador (127.0.0.1)\n     │\n     └──▶ activity.jsonl\n```\n\nEl HTML nunca es la fuente de verdad. Cada escritura sigue el mismo orden: validar la petición,\ncomprobar la revisión esperada, modificar la estructura en memoria, escribir el JSON de forma\natómica, registrar la actividad, regenerar el HTML y devolver el nuevo estado al navegador.\n\n## Dos modos\n\n- **Consulta.** El HTML se abre directamente desde el sistema de archivos. Funciona sin servidor y\n  sin conexión, con los datos incrustados en la última generación. Los controles de edición\n  aparecen desactivados y no se escribe nada en el repositorio.\n- **Edición.** `python scripts/ishtar_memory.py serve` levanta un servidor en `127.0.0.1` que sirve\n  el dashboard y expone la API local. El navegador detecta la API en `/api/bootstrap` y activa los\n  controles.\n\nNo se usa `localStorage` como fuente de verdad: el estado canónico permanece siempre en los\narchivos del repositorio.\n\n## Concurrencia y consistencia\n\n- `state_revision` se incrementa tras cada escritura válida.\n- Toda operación de escritura envía `expected_revision`; si no coincide, la API responde 409 con\n  `REVISION_CONFLICT` y el navegador recarga los datos sin sobrescribir cambios más recientes.\n- Un bloqueo de archivo serializa las escrituras entre el servidor y la línea de comandos.\n- La escritura es atómica: archivo temporal, `fsync` y reemplazo. Ante cualquier error se conserva\n  el último JSON y el último HTML válidos.\n\n## Seguridad del servidor local\n\n- Escucha únicamente en `127.0.0.1` y valida el encabezado `Host`.\n- Valida `Origin` y `Referer`; no habilita CORS abierto.\n- Exige un token CSRF generado al iniciar y entregado en `/api/bootstrap`.\n- Limita el tamaño de las peticiones y valida tipos y longitudes.\n- No sirve rutas arbitrarias del sistema de archivos: solo el dashboard generado.\n- No ejecuta prompts ni comandos del sistema.\n- Todo el contenido se pinta en el navegador con nodos de texto, nunca interpretando HTML.\n\n## Modelo de tareas\n\nCada nodo es recursivo y tiene identificador propio. `parent_id` debe coincidir con el nodo que lo\ncontiene; si no coincide, la validación falla y el sistema no corrige la incoherencia en silencio.\nLas dependencias son distintas de la relación padre-hijo. Mover una tarea conserva su ID y todos\nsus descendientes. El estado de una tarea padre nunca se deriva automáticamente: se calcula y se\nmuestra el progreso de sus hijos, pero la decisión sigue siendo manual.\n", "progress": "# Progreso\n\nResumen legible del avance real. El detalle estructurado vive en `roadmap.json`; este archivo\nrecoge el contexto que no cabe en un campo: qué se está haciendo, qué se ha comprobado y qué\nsigue abierto. Se muestra en la pestaña **Resumen** del dashboard.\n\n## Estado actual\n\n- Tareas de negocio registradas: 0.\n- Prompts registrados: 0.\n- El árbol de trabajo se construirá progresivamente a partir de las instrucciones del usuario.\n\n## Cómo mantener este archivo\n\n- Escribe una entrada por sesión de trabajo, con fecha y los IDs tocados.\n- No declares nada como terminado sin evidencia real: comando ejecutado, archivo, prueba o captura.\n- Separa siempre lo comprobado, lo parcialmente comprobado y lo desconocido.\n- No dupliques aquí el contenido del roadmap; enlaza los IDs.\n\n## Sesiones\n\n### 2026-08-01\n\n- Implantado Ishtar Memory: configuración, roadmap vacío, validador, generador, servidor local,\n  API, dashboard y pruebas.\n- Sin cambios en funcionalidades de negocio.\n"}}</script>
+<script>
+'use strict';
+// Ishtar Memory. Todo el contenido se pinta con textContent o createTextNode:
+// nunca se interpreta HTML ni se ejecuta JavaScript procedente de los datos.
+var BOOT = JSON.parse(document.getElementById('ishtar-data').textContent);
+var S = {
+  mode: 'read', csrf: null, revision: BOOT.state_revision,
+  roadmap: BOOT.roadmap, activity: BOOT.activity, metrics: BOOT.metrics,
+  branches: BOOT.branches, config: BOOT.config, docs: BOOT.docs,
+  open: {}, tab: 'summary', modalTask: null, modalTab: 'history',
+  showArchived: false, filters: {}, selected: null, dirty: false
+};
+var STATUS = ['pending', 'in_progress', 'blocked', 'done'];
+var STATUS_LABEL = { pending: 'Pendiente', in_progress: 'En progreso', blocked: 'Bloqueada', done: 'Realizada' };
+var PRIORITY_LABEL = { low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' };
+
+function el(tag, attrs, kids) {
+  var node = document.createElement(tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    var v = attrs[k];
+    if (v === null || v === undefined || v === false) return;
+    if (k === 'text') { node.textContent = String(v); }
+    else if (k === 'cls') { node.className = String(v); }
+    else if (k === 'on') { Object.keys(v).forEach(function (ev) { node.addEventListener(ev, v[ev]); }); }
+    else if (k === 'data') { Object.keys(v).forEach(function (d) { node.dataset[d] = String(v[d]); }); }
+    else { node.setAttribute(k, v === true ? '' : String(v)); }
+  });
+  (kids || []).forEach(function (kid) {
+    if (kid === null || kid === undefined || kid === false) return;
+    node.appendChild(typeof kid === 'string' ? document.createTextNode(kid) : kid);
+  });
+  return node;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+function $(sel) { return document.querySelector(sel); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString(S.config.locale || 'es-ES') + ' ' +
+    d.toLocaleTimeString(S.config.locale || 'es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+function flatten(tasks, parent, depth, out) {
+  out = out || []; depth = depth || 0;
+  (tasks || []).forEach(function (t) {
+    out.push({ task: t, parent: parent || null, depth: depth });
+    flatten(t.children || [], t, depth + 1, out);
+  });
+  return out;
+}
+function allTasks() { return flatten(S.roadmap.tasks).map(function (r) { return r.task; }); }
+function taskById(id) {
+  var found = null;
+  allTasks().forEach(function (t) { if (t.id === id) found = t; });
+  return found;
+}
+function activePrompts(task) {
+  return (task.prompt_records || []).filter(function (p) { return !p.archived_at; });
+}
+function statusBadge(status) {
+  return el('span', { cls: 'badge s-' + status }, [el('span', { cls: 'dot' }), STATUS_LABEL[status] || status]);
+}
+function priorityBadge(p) {
+  return el('span', { cls: 'badge p-' + p, title: 'Prioridad' }, ['Prioridad ' + (PRIORITY_LABEL[p] || p).toLowerCase()]);
+}
+
+/* ---------- avisos ---------- */
+var toastTimer = null;
+function toast(message, kind) {
+  var node = $('#toast');
+  node.className = 'toast' + (kind ? ' ' + kind : '');
+  node.textContent = message;
+  node.hidden = false;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { node.hidden = true; }, kind === 'err' ? 7000 : 3600);
+}
+
+/* ---------- API local ---------- */
+function api(method, path, body) {
+  var headers = { 'Accept': 'application/json' };
+  if (body) headers['Content-Type'] = 'application/json';
+  if (S.csrf) headers['X-Ishtar-CSRF'] = S.csrf;
+  return fetch(path, {
+    method: method, headers: headers, credentials: 'same-origin',
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function (res) {
+    return res.json().catch(function () { return { ok: false, error: { code: 'BAD_RESPONSE', message: 'Respuesta ilegible del servidor.' } }; })
+      .then(function (data) { return { status: res.status, data: data }; });
+  });
+}
+function applyState(data) {
+  if (!data) return;
+  if (data.roadmap) S.roadmap = data.roadmap;
+  if (data.activity) S.activity = data.activity;
+  if (data.metrics) S.metrics = data.metrics;
+  if (data.branches) S.branches = data.branches;
+  if (typeof data.state_revision === 'number') S.revision = data.state_revision;
+  renderAll();
+}
+function refresh() {
+  return api('GET', '/api/bootstrap').then(function (r) {
+    if (r.data && r.data.ok) { S.csrf = r.data.csrf_token; applyState(r.data); }
+    return r;
+  });
+}
+function write(method, path, body, onOk) {
+  body = body || {};
+  body.expected_revision = S.revision;
+  return api(method, path, body).then(function (r) {
+    if (r.data && r.data.ok) {
+      applyState(r.data);
+      if (onOk) onOk(r.data);
+      return r.data;
+    }
+    var err = (r.data && r.data.error) || { code: 'UNKNOWN', message: 'Error desconocido.' };
+    if (err.code === 'REVISION_CONFLICT') {
+      refresh().then(function () {
+        toast('El estado del proyecto ha cambiado. Datos actualizados: revisa y repite el cambio.', 'err');
+      });
+      return null;
+    }
+    var e = new Error(err.message); e.code = err.code; e.meta = err;
+    throw e;
+  });
+}
+
+/* ---------- pestañas ---------- */
+function setTab(name) {
+  S.tab = name;
+  document.querySelectorAll('nav.tabs button').forEach(function (b) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === name));
+  });
+  document.querySelectorAll('section.tab').forEach(function (s) { s.hidden = s.dataset.tab !== name; });
+  if (name === 'graph') drawGraph();
+}
+
+/* ---------- resumen ---------- */
+function kpi(label, value, extra) {
+  return el('div', { cls: 'card kpi' }, [
+    el('div', { cls: 'label', text: label }),
+    el('div', { cls: 'value' }, [String(value), extra ? el('small', { text: ' ' + extra }) : null])
+  ]);
+}
+function renderSummary() {
+  var m = S.metrics, host = $('#tab-summary');
+  clear(host);
+  host.appendChild(el('div', { cls: 'grid kpi' }, [
+    kpi('Tareas totales', m.total_tasks, m.total_tasks ? '· ' + plural(m.root_tasks, 'raíz', 'raíces') : ''),
+    kpi('Pendientes', m.by_status.pending),
+    kpi('En progreso', m.by_status.in_progress),
+    kpi('Bloqueadas', m.by_status.blocked),
+    kpi('Realizadas', m.by_status.done, m.total_tasks ? '· ' + m.progress_percent + ' %' : ''),
+    kpi('Prompts registrados', m.prompts_total, m.prompts_archived ? '· ' + m.prompts_archived + ' arch.' : '')
+  ]));
+
+  var facts = el('div', { cls: 'card' }, [el('h3', { text: 'Proyecto' })]);
+  var dl = el('dl', { cls: 'meta-list' });
+  [
+    ['Nombre', S.config.project_name],
+    ['Identificador', S.config.project_id],
+    ['Prefijo de tareas', S.config.task_prefix],
+    ['Revisión del estado', String(m.state_revision)],
+    ['Última actualización', fmtDate(m.last_update)],
+    ['Tareas sin prompts', String(m.tasks_without_prompts)],
+    ['Realizadas manualmente', String(m.completion_overrides)],
+    ['Eventos registrados', String(m.activity_events)]
+  ].forEach(function (row) {
+    dl.appendChild(el('div', { cls: 'meta-row' }, [el('dt', { text: row[0] }), el('dd', { text: row[1] || '—' })]));
+  });
+  facts.appendChild(dl);
+
+  var branchCard = el('div', { cls: 'card' }, [el('h3', { text: 'Progreso por rama' })]);
+  if (!S.branches.length) {
+    branchCard.appendChild(el('p', { cls: 'empty', text: 'Todavía no hay ramas registradas.' }));
+  } else {
+    S.branches.forEach(function (b) {
+      branchCard.appendChild(el('div', { cls: 'branch' }, [
+        el('div', { cls: 'line1' }, [
+          el('span', {}, [el('span', { cls: 'tid', text: b.id }), ' ', b.title]),
+          statusBadge(b.status)
+        ]),
+        el('div', { cls: 'bar' }, [el('span', { style: 'width:' + b.percent + '%' })]),
+        el('div', { cls: 'line2', text: 'Estado manual: ' + (STATUS_LABEL[b.status] || b.status) +
+          ' · Subtareas realizadas: ' + b.children_done + ' de ' + b.children_total +
+          ' · Progreso calculado: ' + b.percent + ' %' })
+      ]));
+    });
+  }
+
+  var recent = el('div', { cls: 'card' }, [el('h3', { text: 'Últimos cambios' })]);
+  var last = S.activity.slice(-8).reverse();
+  if (!last.length) {
+    recent.appendChild(el('p', { cls: 'empty', text: 'Todavía no se han registrado cambios.' }));
+  } else {
+    last.forEach(function (e) {
+      recent.appendChild(el('div', { cls: 'branch' }, [
+        el('div', { cls: 'line1' }, [
+          el('span', {}, [e.task_id ? el('span', { cls: 'tid', text: e.task_id }) : el('span', { cls: 'tid', text: '—' }), ' ', actionLabel(e.action)]),
+          el('span', { cls: 'badge', text: fmtDate(e.timestamp) })
+        ])
+      ]));
+    });
+  }
+  host.appendChild(el('div', { cls: 'grid two', style: 'margin-top:14px' }, [facts, branchCard]));
+  host.appendChild(el('div', { cls: 'grid', style: 'margin-top:14px' }, [recent]));
+}
+
+var ACTION_LABEL = {
+  task_created: 'Tarea creada', task_updated: 'Tarea actualizada', task_moved: 'Tarea movida',
+  task_status_changed: 'Cambio de estado', task_completion_overridden: 'Realizada manualmente',
+  prompt_created: 'Prompt añadido', prompt_revised: 'Prompt revisado', prompt_archived: 'Prompt archivado',
+  comment_created: 'Comentario añadido', evidence_created: 'Evidencia añadida',
+  dashboard_generated: 'Dashboard regenerado'
+};
+function actionLabel(a) { return ACTION_LABEL[a] || a; }
+
+
+/* ---------- checklist ---------- */
+function readFilters() {
+  return {
+    text: ($('#f-text').value || '').trim().toLowerCase(),
+    status: $('#f-status').value,
+    priority: $('#f-priority').value,
+    special: $('#f-special').value
+  };
+}
+function matches(task, f) {
+  if (f.status && task.status !== f.status) return false;
+  if (f.priority && task.priority !== f.priority) return false;
+  if (f.special === 'with_prompts' && !(task.prompt_records || []).length) return false;
+  if (f.special === 'without_prompts' && (task.prompt_records || []).length) return false;
+  if (f.special === 'blocked' && task.status !== 'blocked') return false;
+  if (f.special === 'override' && !task.completion_override) return false;
+  if (f.text) {
+    var hay = [task.id, task.title, task.description, task.objective].join(' ').toLowerCase();
+    if (hay.indexOf(f.text) === -1) return false;
+  }
+  return true;
+}
+function visibleSet(f) {
+  // Una tarea se muestra si coincide o si alguno de sus descendientes coincide.
+  var keep = {};
+  function walk(task, ancestors) {
+    var self = matches(task, f);
+    var kids = (task.children || []).map(function (c) { return walk(c, ancestors.concat([task.id])); });
+    var any = self || kids.some(Boolean);
+    if (any) { keep[task.id] = true; ancestors.forEach(function (a) { keep[a] = true; }); }
+    return any;
+  }
+  (S.roadmap.tasks || []).forEach(function (t) { walk(t, []); });
+  return keep;
+}
+function segControl(task) {
+  var wrap = el('div', { cls: 'seg', role: 'group', 'aria-label': 'Estado de ' + task.id });
+  [['pending', 'Pendiente'], ['in_progress', 'En progreso'], ['done', 'Realizada']].forEach(function (pair) {
+    wrap.appendChild(el('button', {
+      type: 'button', text: pair[1], 'aria-pressed': String(task.status === pair[0]),
+      disabled: S.mode !== 'edit', title: S.mode === 'edit' ? 'Marcar como ' + pair[1].toLowerCase() : 'Modo consulta',
+      on: { click: function () { requestStatus(task, pair[0]); } }
+    }));
+  });
+  var more = el('button', {
+    type: 'button', text: '⋯', 'aria-label': 'Más estados para ' + task.id,
+    disabled: S.mode !== 'edit', 'aria-pressed': String(task.status === 'blocked'),
+    on: { click: function () { openBlockedDialog(task); } }
+  });
+  wrap.appendChild(more);
+  return wrap;
+}
+function nodeRow(entry, keep) {
+  var task = entry.task;
+  var kids = task.children || [];
+  var opened = S.open[task.id] !== undefined ? S.open[task.id] : entry.depth < (S.config.default_collapsed_depth || 2);
+  var node = el('div', { cls: 'node depth-' + Math.min(entry.depth, 6) + (S.selected === task.id ? ' hit' : ''), id: 'node-' + task.id });
+
+  var twisty = el('button', {
+    cls: 'twisty' + (kids.length ? '' : ' leaf'), type: 'button', text: opened ? '▾' : '▸',
+    'aria-expanded': String(opened), 'aria-label': (opened ? 'Contraer ' : 'Expandir ') + task.id,
+    on: { click: function () { S.open[task.id] = !opened; renderChecklist(); } }
+  });
+  var doneKids = kids.filter(function (c) { return c.status === 'done'; }).length;
+  var criteria = task.acceptance_criteria || [];
+  var metCriteria = criteria.filter(function (c) { return c && c.met; }).length;
+  var prompts = task.prompt_records || [];
+
+  node.appendChild(el('div', { cls: 'row1' }, [
+    twisty,
+    el('span', { cls: 'tid', text: task.id }),
+    el('span', { cls: 'title', text: task.title }),
+    statusBadge(task.status),
+    priorityBadge(task.priority),
+    task.completion_override ? el('span', { cls: 'badge warn', title: task.completion_override.reason,
+      text: 'Realizada manualmente con elementos pendientes' }) : null
+  ]));
+
+  var bits = [];
+  if (kids.length) bits.push(plural(kids.length, 'subtarea', 'subtareas') + ' · ' + doneKids + '/' + kids.length + ' realizadas');
+  if (criteria.length) bits.push(metCriteria + '/' + criteria.length + ' criterios');
+  bits.push(plural(prompts.length, 'prompt', 'prompts'));
+  bits.push('actualizada ' + fmtDate(task.updated_at));
+
+  var detailOpen = !!S.open['d:' + task.id];
+  node.appendChild(el('div', { cls: 'row2' }, [
+    el('span', { text: bits.join(' · ') }),
+    el('span', { style: 'flex:1' }),
+    segControl(task),
+    el('button', { cls: 'btn tiny', type: 'button', text: 'Prompts · ' + prompts.length,
+      on: { click: function () { openPromptModal(task.id); } } }),
+    el('button', { cls: 'btn tiny ghost', type: 'button', text: detailOpen ? 'Ocultar detalle' : 'Ver detalle',
+      on: { click: function () { S.open['d:' + task.id] = !detailOpen; renderChecklist(); } } }),
+    el('button', { cls: 'btn tiny ghost', type: 'button', text: 'Copiar ID',
+      on: { click: function () { copyText(task.id, 'ID copiado: ' + task.id); } } }),
+    el('button', { cls: 'btn tiny ghost', type: 'button', text: 'Enfocar rama',
+      on: { click: function () { focusBranch(task.id); } } })
+  ]));
+
+  if (detailOpen) node.appendChild(taskDetail(task));
+  var out = [node];
+  if (opened) {
+    kids.forEach(function (child) {
+      if (keep && !keep[child.id]) return;
+      out = out.concat(nodeRow({ task: child, depth: entry.depth + 1 }, keep));
+    });
+  }
+  return out;
+}
+function listBlock(title, items, mapper) {
+  if (!items || !items.length) return null;
+  return el('div', {}, [
+    el('h4', { text: title }),
+    el('ul', {}, items.map(function (i) { return el('li', { text: mapper(i) }); }))
+  ]);
+}
+function taskDetail(task) {
+  var d = el('div', { cls: 'detail' });
+  if (task.description) d.appendChild(el('div', {}, [el('h4', { text: 'Descripción' }), el('p', { text: task.description })]));
+  if (task.objective) d.appendChild(el('div', {}, [el('h4', { text: 'Objetivo' }), el('p', { text: task.objective })]));
+  if (task.blocked_reason) d.appendChild(el('div', {}, [el('h4', { text: 'Bloqueo' }), el('p', { text: task.blocked_reason })]));
+  if (task.completion_override) {
+    d.appendChild(el('div', {}, [el('h4', { text: 'Motivo del cierre manual' }),
+      el('p', { text: task.completion_override.reason + ' (' + fmtDate(task.completion_override.created_at) + ')' })]));
+  }
+
+  var cols = el('div', { cls: 'cols' });
+  var criteria = listBlock('Criterios de aceptación', task.acceptance_criteria, function (c) {
+    if (typeof c === 'string') return '• ' + c;
+    return (c.met ? '✔ ' : '○ ') + (c.text || c.title || JSON.stringify(c));
+  });
+  if (criteria) cols.appendChild(criteria);
+  var deps = listBlock('Dependencias', task.dependencies, function (x) { return String(x); });
+  if (deps) cols.appendChild(deps);
+  var comments = listBlock('Comentarios', task.comments, function (c) {
+    return typeof c === 'string' ? c : ((c.author ? c.author + ': ' : '') + (c.text || ''));
+  });
+  if (comments) cols.appendChild(comments);
+  var evidence = listBlock('Evidencias', task.evidence, function (e) {
+    return typeof e === 'string' ? e : ((e.type ? '[' + e.type + '] ' : '') + (e.path || '') + (e.claim ? ' — ' + e.claim : ''));
+  });
+  if (evidence) cols.appendChild(evidence);
+  var tests = listBlock('Pruebas', task.tests, function (t) {
+    return typeof t === 'string' ? t : ((t.command || t.path || '') + (t.result ? ' → ' + t.result : ''));
+  });
+  if (tests) cols.appendChild(tests);
+  if (cols.childNodes.length) d.appendChild(cols);
+
+  if ((task.related_files || []).length) {
+    var files = el('div', {}, [el('h4', { text: 'Archivos relacionados' })]);
+    task.related_files.forEach(function (f) { files.appendChild(el('span', { cls: 'chip', text: f })); });
+    d.appendChild(files);
+  }
+
+  var recent = (task.prompt_records || []).slice(-3).reverse();
+  var promptBlock = el('div', {}, [el('h4', { text: 'Prompts recientes' })]);
+  if (!recent.length) {
+    promptBlock.appendChild(el('p', { text: 'Esta tarea todavía no tiene prompts registrados.' }));
+  } else {
+    recent.forEach(function (p) {
+      promptBlock.appendChild(el('div', {}, [
+        el('span', { cls: 'chip', text: p.id }), ' ',
+        el('span', { text: p.title + ' · ' + fmtDate(p.created_at) + (p.archived_at ? ' · archivado' : '') })
+      ]));
+    });
+  }
+  d.appendChild(promptBlock);
+
+  var history = S.activity.filter(function (e) {
+    return e.task_id === task.id && e.action === 'task_status_changed';
+  }).slice(-6).reverse();
+  var hist = el('div', {}, [el('h4', { text: 'Historial de estado' })]);
+  if (!history.length) {
+    hist.appendChild(el('p', { text: 'Sin cambios de estado registrados.' }));
+  } else {
+    hist.appendChild(el('ul', {}, history.map(function (e) {
+      var from = (e.before && e.before.status) || '—', to = (e.after && e.after.status) || '—';
+      return el('li', { text: fmtDate(e.timestamp) + ': ' + (STATUS_LABEL[from] || from) + ' → ' + (STATUS_LABEL[to] || to) });
+    })));
+  }
+  d.appendChild(hist);
+  return d;
+}
+function renderChecklist() {
+  var host = $('#tree');
+  clear(host);
+  var f = readFilters();
+  var filtering = !!(f.text || f.status || f.priority || f.special);
+  var keep = filtering ? visibleSet(f) : null;
+  var roots = (S.roadmap.tasks || []).filter(function (t) { return !keep || keep[t.id]; });
+
+  if (!(S.roadmap.tasks || []).length) {
+    host.appendChild(el('div', { cls: 'empty' }, [
+      el('strong', { text: 'Todavía no hay tareas registradas.' }),
+      el('span', { text: 'El árbol se construirá progresivamente a partir de las instrucciones del usuario.' })
+    ]));
+    $('#checklist-count').textContent = '';
+    return;
+  }
+  if (!roots.length) {
+    host.appendChild(el('div', { cls: 'empty' }, [el('strong', { text: 'Ningún elemento coincide con los filtros.' })]));
+  }
+  roots.forEach(function (t) {
+    nodeRow({ task: t, depth: 0 }, keep).forEach(function (n) { host.appendChild(n); });
+  });
+  var shown = keep ? Object.keys(keep).length : allTasks().length;
+  $('#checklist-count').textContent = shown + ' de ' + allTasks().length + ' elementos';
+}
+function focusBranch(id) {
+  S.selected = id;
+  var task = taskById(id);
+  S.open[id] = true;
+  (function openAncestors(target) {
+    flatten(S.roadmap.tasks).forEach(function (row) {
+      if (row.task.id === target && row.parent) { S.open[row.parent.id] = true; openAncestors(row.parent.id); }
+    });
+  })(id);
+  if (task) (task.children || []).forEach(function (c) { S.open[c.id] = true; });
+  setTab('checklist');
+  renderChecklist();
+  var node = document.getElementById('node-' + id);
+  if (node) node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+function copyText(text, okMessage) {
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var done = false;
+    try { done = document.execCommand('copy'); } catch (e) { done = false; }
+    document.body.removeChild(ta);
+    toast(done ? okMessage : 'No se pudo copiar automáticamente. Selecciona el texto y cópialo.', done ? 'ok' : 'err');
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(function () { toast(okMessage, 'ok'); }, fallback);
+  } else { fallback(); }
+}
+
+
+/* ---------- diálogos genéricos ---------- */
+function closeDialog() {
+  var back = $('#dialog-backdrop');
+  back.hidden = true;
+  clear($('#dialog-host'));
+}
+function openDialog(opts) {
+  var host = $('#dialog-host');
+  clear(host);
+  var modal = el('div', { cls: 'modal narrow', role: 'dialog', 'aria-modal': 'true', 'aria-label': opts.title });
+  modal.appendChild(el('header', {}, [
+    el('div', {}, [el('h2', { text: opts.title }), opts.subtitle ? el('div', { cls: 'sub', text: opts.subtitle }) : null]),
+    el('button', { cls: 'x', type: 'button', text: '✕', 'aria-label': 'Cerrar', on: { click: closeDialog } })
+  ]));
+  var body = el('div', { cls: 'body' });
+  (opts.body || []).forEach(function (n) { body.appendChild(n); });
+  modal.appendChild(body);
+  modal.appendChild(el('footer', {}, (opts.actions || []).map(function (a) {
+    return el('button', { cls: 'btn' + (a.primary ? ' primary' : ''), type: 'button', text: a.label, on: { click: a.onClick } });
+  })));
+  host.appendChild(modal);
+  $('#dialog-backdrop').hidden = false;
+  var first = modal.querySelector('textarea, input, button.primary');
+  if (first) first.focus();
+}
+
+/* ---------- cambio de estado ---------- */
+function requestStatus(task, status) {
+  if (S.mode !== 'edit') { toast('Modo consulta: inicia el modo de edición local para guardar cambios.', 'err'); return; }
+  if (task.status === status) return;
+  write('PATCH', '/api/tasks/' + encodeURIComponent(task.id) + '/status', { status: status }, function () {
+    toast(task.id + ' → ' + STATUS_LABEL[status], 'ok');
+  }).catch(function (err) {
+    if (err.code === 'COMPLETION_REQUIRES_OVERRIDE') { openOverrideDialog(task, err.meta.warnings || []); return; }
+    if (err.code === 'BLOCKED_REQUIRES_REASON') { openBlockedDialog(task); return; }
+    toast(err.message, 'err');
+  });
+}
+function openOverrideDialog(task, warnings) {
+  var reason = el('textarea', { rows: '3', style: 'min-height:80px;font-family:var(--sans);white-space:pre-wrap',
+    placeholder: 'Motivo por el que se marca como realizada' });
+  openDialog({
+    title: 'Esta tarea todavía contiene elementos pendientes',
+    subtitle: task.id + ' · ' + task.title,
+    body: [
+      el('p', { text: 'Puedes cancelar el cambio o marcarla manualmente como realizada indicando un motivo.' }),
+      el('ul', {}, warnings.map(function (w) { return el('li', { text: w }); })),
+      el('div', { cls: 'field req' }, [el('label', { text: 'Motivo' }), reason])
+    ],
+    actions: [
+      { label: 'Cancelar', onClick: closeDialog },
+      { label: 'Marcar como realizada', primary: true, onClick: function () {
+        var value = (reason.value || '').trim();
+        if (!value) { toast('Indica un motivo para continuar.', 'err'); return; }
+        write('PATCH', '/api/tasks/' + encodeURIComponent(task.id) + '/status',
+          { status: 'done', override_reason: value }, function () {
+            closeDialog(); toast(task.id + ' marcada manualmente como realizada.', 'ok');
+          }).catch(function (e) { toast(e.message, 'err'); });
+      } }
+    ]
+  });
+}
+function openBlockedDialog(task) {
+  if (S.mode !== 'edit') { toast('Modo consulta: inicia el modo de edición local para guardar cambios.', 'err'); return; }
+  var reason = el('textarea', { rows: '3', style: 'min-height:80px;font-family:var(--sans);white-space:pre-wrap',
+    placeholder: 'Motivo del bloqueo' });
+  reason.value = task.blocked_reason || '';
+  var actions = [{ label: 'Cancelar', onClick: closeDialog }];
+  if (task.status === 'blocked') {
+    actions.push({ label: 'Quitar bloqueo', onClick: function () {
+      write('PATCH', '/api/tasks/' + encodeURIComponent(task.id) + '/status', { status: 'in_progress' }, function () {
+        closeDialog(); toast(task.id + ' → En progreso', 'ok');
+      }).catch(function (e) { toast(e.message, 'err'); });
+    } });
+  }
+  actions.push({ label: 'Marcar como bloqueada', primary: true, onClick: function () {
+    var value = (reason.value || '').trim();
+    if (!value) { toast('Indica el motivo del bloqueo.', 'err'); return; }
+    write('PATCH', '/api/tasks/' + encodeURIComponent(task.id) + '/status',
+      { status: 'blocked', blocked_reason: value }, function () {
+        closeDialog(); toast(task.id + ' → Bloqueada', 'ok');
+      }).catch(function (e) { toast(e.message, 'err'); });
+  } });
+  openDialog({ title: 'Bloquear tarea', subtitle: task.id + ' · ' + task.title,
+    body: [el('div', { cls: 'field req' }, [el('label', { text: 'Motivo del bloqueo' }), reason,
+      el('span', { cls: 'hint', text: 'Una tarea bloqueada sin motivo no supera la validación.' })])],
+    actions: actions });
+}
+
+/* ---------- modal de prompts ---------- */
+function closePromptModal(force) {
+  if (S.dirty && !force) {
+    if (!window.confirm('Hay cambios sin guardar en el formulario. ¿Cerrar de todos modos?')) return;
+  }
+  S.dirty = false; S.modalTask = null;
+  $('#prompt-backdrop').hidden = true;
+  clear($('#prompt-host'));
+}
+function openPromptModal(taskId, tab) {
+  S.modalTask = taskId;
+  S.modalTab = tab || 'history';
+  S.dirty = false;
+  renderPromptModal();
+  $('#prompt-backdrop').hidden = false;
+}
+function renderPromptModal() {
+  var task = taskById(S.modalTask);
+  if (!task) { closePromptModal(true); return; }
+  var host = $('#prompt-host');
+  clear(host);
+  var modal = el('div', { cls: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Prompts de ' + task.id });
+  modal.appendChild(el('header', {}, [
+    el('div', {}, [
+      el('h2', { text: 'Prompts · ' + task.id }),
+      el('div', { cls: 'sub', text: task.title })
+    ]),
+    el('button', { cls: 'x', type: 'button', text: '✕', 'aria-label': 'Cerrar', on: { click: function () { closePromptModal(); } } })
+  ]));
+  var tabs = el('div', { cls: 'modal-tabs' });
+  [['history', 'Historial'], ['add', 'Añadir prompt']].forEach(function (pair) {
+    tabs.appendChild(el('button', {
+      type: 'button', text: pair[1], 'aria-selected': String(S.modalTab === pair[0]),
+      on: { click: function () {
+        if (S.modalTab === 'add' && pair[0] !== 'add' && S.dirty &&
+            !window.confirm('Hay cambios sin guardar en el formulario. ¿Continuar?')) return;
+        S.dirty = false; S.modalTab = pair[0]; renderPromptModal();
+      } }
+    }));
+  });
+  modal.appendChild(tabs);
+  var body = el('div', { cls: 'body' });
+  if (S.modalTab === 'history') promptHistoryView(body, task);
+  else if (S.modalTab === 'add') promptFormView(body, task, null);
+  else if (S.modalTab.indexOf('view:') === 0) promptDetailView(body, task, S.modalTab.slice(5));
+  else if (S.modalTab.indexOf('edit:') === 0) promptFormView(body, task, S.modalTab.slice(5));
+  modal.appendChild(body);
+  modal.appendChild(el('footer', {}, [
+    el('button', { cls: 'btn ghost', type: 'button', text: 'Cerrar', on: { click: function () { closePromptModal(); } } })
+  ]));
+  host.appendChild(modal);
+}
+function promptHistoryView(body, task) {
+  var records = (task.prompt_records || []).filter(function (p) { return S.showArchived || !p.archived_at; });
+  body.appendChild(el('div', { cls: 'filters' }, [
+    el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)' }, [
+      el('input', { type: 'checkbox', checked: S.showArchived || null,
+        on: { change: function (ev) { S.showArchived = ev.target.checked; renderPromptModal(); } } }),
+      'Mostrar prompts archivados'
+    ]),
+    el('span', { style: 'flex:1' }),
+    el('button', { cls: 'btn tiny primary', type: 'button', text: 'Añadir prompt',
+      on: { click: function () { S.modalTab = 'add'; renderPromptModal(); } } })
+  ]));
+  if (!records.length) {
+    body.appendChild(el('div', { cls: 'empty' }, [
+      el('strong', { text: 'Esta tarea todavía no tiene prompts registrados.' })
+    ]));
+    return;
+  }
+  records.slice().reverse().forEach(function (p) {
+    body.appendChild(el('div', { cls: 'prompt-item' + (p.archived_at ? ' archived' : '') }, [
+      el('div', { cls: 'pl1' }, [
+        el('span', { cls: 'tid', text: p.id }),
+        el('strong', { text: p.title }),
+        p.archived_at ? el('span', { cls: 'badge', text: 'Archivado' }) : el('span', { cls: 'badge s-done', text: 'Activo' }),
+        (p.revision_history || []).length ? el('span', { cls: 'badge', text: plural(p.revision_history.length, 'revisión', 'revisiones') }) : null
+      ]),
+      el('div', { cls: 'pl2', text: fmtDate(p.created_at) + (p.tool_or_model ? ' · ' + p.tool_or_model : '') +
+        ((p.tags || []).length ? ' · ' + p.tags.join(', ') : '') }),
+      el('div', { cls: 'acts' }, [
+        el('button', { cls: 'btn tiny', type: 'button', text: 'Ver',
+          on: { click: function () { S.modalTab = 'view:' + p.id; renderPromptModal(); } } }),
+        el('button', { cls: 'btn tiny', type: 'button', text: 'Copiar',
+          on: { click: function () { copyText(p.prompt_text, 'Prompt ' + p.id + ' copiado.'); } } }),
+        el('button', { cls: 'btn tiny', type: 'button', text: 'Revisar', disabled: S.mode !== 'edit' || !!p.archived_at,
+          on: { click: function () { S.modalTab = 'edit:' + p.id; renderPromptModal(); } } }),
+        el('button', { cls: 'btn tiny', type: 'button', text: 'Archivar', disabled: S.mode !== 'edit' || !!p.archived_at,
+          on: { click: function () { archivePrompt(task, p); } } })
+      ])
+    ]));
+  });
+}
+function promptDetailView(body, task, promptId) {
+  var p = (task.prompt_records || []).filter(function (r) { return r.id === promptId; })[0];
+  if (!p) { S.modalTab = 'history'; renderPromptModal(); return; }
+  body.appendChild(el('div', { cls: 'filters' }, [
+    el('button', { cls: 'btn tiny ghost', type: 'button', text: '← Volver a la lista',
+      on: { click: function () { S.modalTab = 'history'; renderPromptModal(); } } }),
+    el('span', { style: 'flex:1' }),
+    el('button', { cls: 'btn tiny', type: 'button', text: 'Copiar prompt',
+      on: { click: function () { copyText(p.prompt_text, 'Prompt ' + p.id + ' copiado.'); } } })
+  ]));
+  var dl = el('dl', { cls: 'meta-list' });
+  [['ID', p.id], ['Título', p.title], ['Finalidad', p.purpose], ['Herramienta o modelo', p.tool_or_model],
+   ['Etiquetas', (p.tags || []).join(', ')], ['Creado', fmtDate(p.created_at)], ['Actualizado', fmtDate(p.updated_at)],
+   ['Estado', p.archived_at ? 'Archivado el ' + fmtDate(p.archived_at) : 'Activo'],
+   ['Notas', p.notes], ['Resumen del resultado', p.result_summary]
+  ].forEach(function (row) {
+    if (!row[1]) return;
+    dl.appendChild(el('div', { cls: 'meta-row' }, [el('dt', { text: row[0] }), el('dd', { text: row[1] })]));
+  });
+  body.appendChild(el('div', { cls: 'card' }, [el('h3', { text: 'Metadatos' }), dl]));
+  // El texto va en <pre> con textContent: nunca se interpreta como HTML.
+  body.appendChild(el('div', {}, [el('h4', { text: 'Texto del prompt' }), el('pre', { cls: 'prompt-text', text: p.prompt_text })]));
+  if ((p.related_files || []).length) {
+    var files = el('div', {}, [el('h4', { text: 'Archivos relacionados' })]);
+    p.related_files.forEach(function (f) { files.appendChild(el('span', { cls: 'chip', text: f })); });
+    body.appendChild(files);
+  }
+  var history = p.revision_history || [];
+  var hist = el('div', {}, [el('h4', { text: 'Versiones anteriores (' + history.length + ')' })]);
+  if (!history.length) hist.appendChild(el('p', { text: 'Este prompt no tiene revisiones.' }));
+  history.slice().reverse().forEach(function (rev) {
+    hist.appendChild(el('div', { cls: 'prompt-item' }, [
+      el('div', { cls: 'pl2', text: 'Revisión ' + rev.revision + ' · ' + fmtDate(rev.changed_at) +
+        (rev.change_reason ? ' · ' + rev.change_reason : '') }),
+      el('pre', { cls: 'prompt-text', text: rev.prompt_text })
+    ]));
+  });
+  body.appendChild(hist);
+}
+function promptFormView(body, task, promptId) {
+  var existing = promptId ? (task.prompt_records || []).filter(function (r) { return r.id === promptId; })[0] : null;
+  var f = {};
+  function field(key, label, opts) {
+    opts = opts || {};
+    var input = opts.area
+      ? el('textarea', { placeholder: opts.placeholder || '', spellcheck: 'false' })
+      : el('input', { type: 'text', placeholder: opts.placeholder || '' });
+    if (existing) {
+      var v = existing[key];
+      input.value = Array.isArray(v) ? v.join(', ') : (v || '');
+    }
+    input.addEventListener('input', function () { S.dirty = true; if (opts.counter) updateCounter(); });
+    if (opts.area) {
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Tab') return;           // el textarea admite tabulaciones literales
+        ev.preventDefault();
+        var start = input.selectionStart, end = input.selectionEnd;
+        input.value = input.value.slice(0, start) + '\t' + input.value.slice(end);
+        input.selectionStart = input.selectionEnd = start + 1;
+        S.dirty = true; if (opts.counter) updateCounter();
+      });
+    }
+    f[key] = input;
+    var wrap = el('div', { cls: 'field' + (opts.required ? ' req' : '') }, [
+      el('label', { text: label }), input,
+      opts.hint ? el('span', { cls: 'hint', text: opts.hint }) : null
+    ]);
+    return wrap;
+  }
+  var counter = el('span', { cls: 'hint', text: '0 caracteres' });
+  function updateCounter() {
+    var value = f.prompt_text.value || '';
+    counter.textContent = value.length + ' caracteres · ' + value.split('\n').length + ' líneas';
+  }
+
+  body.appendChild(el('div', { cls: 'filters' }, [
+    el('button', { cls: 'btn tiny ghost', type: 'button', text: '← Volver a la lista',
+      on: { click: function () {
+        if (S.dirty && !window.confirm('Hay cambios sin guardar en el formulario. ¿Continuar?')) return;
+        S.dirty = false; S.modalTab = 'history'; renderPromptModal();
+      } } }),
+    el('span', { style: 'flex:1' }),
+    el('span', { cls: 'hint', text: existing ? 'Revisando ' + existing.id : 'Nuevo prompt para ' + task.id })
+  ]));
+  body.appendChild(field('title', 'Título', { required: true, placeholder: 'Título del prompt' }));
+  var textField = field('prompt_text', 'Texto completo del prompt', {
+    required: true, area: true, counter: true,
+    placeholder: 'Pega aquí el texto literal. Se conservan saltos de línea, Markdown y bloques de código.'
+  });
+  textField.appendChild(counter);
+  body.appendChild(textField);
+  body.appendChild(el('div', { cls: 'two-col' }, [
+    field('purpose', 'Finalidad'),
+    field('tool_or_model', 'Herramienta o modelo', { placeholder: 'Codex, Claude, revisión manual…' })
+  ]));
+  body.appendChild(el('div', { cls: 'two-col' }, [
+    field('tags', 'Etiquetas', { hint: 'Separadas por comas' }),
+    field('related_files', 'Archivos relacionados', { hint: 'Rutas relativas separadas por comas' })
+  ]));
+  body.appendChild(field('notes', 'Notas', { area: true }));
+  body.appendChild(field('result_summary', 'Resumen del resultado', { area: true }));
+  if (existing) body.appendChild(field('change_reason', 'Motivo de la modificación', { hint: 'Se guarda junto a la versión anterior.' }));
+  updateCounter();
+
+  var save = el('button', { cls: 'btn primary', type: 'button', disabled: S.mode !== 'edit',
+    text: existing ? 'Guardar revisión' : 'Guardar prompt',
+    on: { click: function () { submitPrompt(task, existing, f); } } });
+  body.appendChild(el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' }, [
+    S.mode !== 'edit' ? el('span', { cls: 'hint', text: 'Modo consulta: inicia el modo de edición local para guardar.' }) : null,
+    save
+  ]));
+}
+function splitList(value) {
+  return (value || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+}
+function submitPrompt(task, existing, f) {
+  var payload = {
+    title: (f.title.value || '').trim(),
+    prompt_text: f.prompt_text.value || '',
+    purpose: f.purpose.value || '',
+    tool_or_model: f.tool_or_model.value || '',
+    tags: splitList(f.tags.value),
+    notes: f.notes.value || '',
+    result_summary: f.result_summary.value || '',
+    related_files: splitList(f.related_files.value)
+  };
+  if (!payload.title) { toast('El prompt necesita un título.', 'err'); f.title.focus(); return; }
+  if (!payload.prompt_text.trim()) { toast('El prompt necesita un texto.', 'err'); f.prompt_text.focus(); return; }
+  var base = '/api/tasks/' + encodeURIComponent(task.id) + '/prompts';
+  var request;
+  if (existing) {
+    payload.change_reason = (f.change_reason.value || '').trim();
+    request = write('PATCH', base + '/' + encodeURIComponent(existing.id), payload);
+  } else {
+    request = write('POST', base, payload);
+  }
+  request.then(function (data) {
+    if (!data) return;
+    S.dirty = false;
+    S.modalTab = 'history';
+    renderPromptModal();
+    toast(existing ? 'Revisión guardada en ' + existing.id : 'Prompt registrado con ID ' + (data.prompt && data.prompt.id), 'ok');
+  }).catch(function (e) { toast(e.message, 'err'); });
+}
+function archivePrompt(task, prompt) {
+  if (!window.confirm('¿Archivar ' + prompt.id + '? Se conserva en el roadmap y podrá consultarse con el filtro de archivados.')) return;
+  write('POST', '/api/tasks/' + encodeURIComponent(task.id) + '/prompts/' + encodeURIComponent(prompt.id) + '/archive', {},
+    function () { renderPromptModal(); toast(prompt.id + ' archivado.', 'ok'); }
+  ).catch(function (e) { toast(e.message, 'err'); });
+}
+
+
+/* ---------- vista global de prompts ---------- */
+function allPromptRows() {
+  var rows = [];
+  allTasks().forEach(function (task) {
+    (task.prompt_records || []).forEach(function (p) { rows.push({ task: task, prompt: p }); });
+  });
+  return rows.sort(function (a, b) { return String(b.prompt.created_at).localeCompare(String(a.prompt.created_at)); });
+}
+function renderPrompts() {
+  var host = $('#prompts-body');
+  clear(host);
+  var rows = allPromptRows();
+  var taskSel = $('#p-task'), current = taskSel.value;
+  clear(taskSel);
+  taskSel.appendChild(el('option', { value: '', text: 'Todas las tareas' }));
+  allTasks().forEach(function (t) {
+    if (!(t.prompt_records || []).length) return;
+    taskSel.appendChild(el('option', { value: t.id, text: t.id + ' · ' + t.title }));
+  });
+  taskSel.value = current || '';
+
+  var text = ($('#p-text').value || '').trim().toLowerCase();
+  var tag = ($('#p-tag').value || '').trim().toLowerCase();
+  var model = ($('#p-model').value || '').trim().toLowerCase();
+  var date = ($('#p-date').value || '').trim();
+  var archived = $('#p-archived').value;
+
+  var filtered = rows.filter(function (r) {
+    var p = r.prompt;
+    if (taskSel.value && r.task.id !== taskSel.value) return false;
+    if (archived === 'active' && p.archived_at) return false;
+    if (archived === 'archived' && !p.archived_at) return false;
+    if (tag && (p.tags || []).join(' ').toLowerCase().indexOf(tag) === -1) return false;
+    if (model && String(p.tool_or_model || '').toLowerCase().indexOf(model) === -1) return false;
+    if (date && String(p.created_at || '').slice(0, 10) !== date) return false;
+    if (text) {
+      var hay = [p.id, p.title, p.purpose, p.notes, p.result_summary, p.prompt_text, r.task.title].join(' ').toLowerCase();
+      if (hay.indexOf(text) === -1) return false;
+    }
+    return true;
+  });
+
+  $('#prompts-count').textContent = filtered.length + ' de ' + rows.length + ' prompts';
+  if (!rows.length) {
+    host.appendChild(el('div', { cls: 'empty' }, [
+      el('strong', { text: 'Todavía no hay prompts registrados.' }),
+      el('span', { text: 'Los prompts se añaden desde el modal de cada tarea en modo edición.' })
+    ]));
+    return;
+  }
+  var table = el('table');
+  table.appendChild(el('thead', {}, [el('tr', {}, [
+    'Prompt', 'Tarea', 'Título', 'Fecha', 'Modelo', 'Etiquetas', 'Estado', 'Rev.', ''
+  ].map(function (h) { return el('th', { text: h }); }))]));
+  var tbody = el('tbody');
+  filtered.forEach(function (r) {
+    var p = r.prompt;
+    tbody.appendChild(el('tr', {}, [
+      el('td', {}, [el('span', { cls: 'tid', text: p.id })]),
+      el('td', {}, [el('span', { cls: 'tid', text: r.task.id })]),
+      el('td', {}, [el('div', { text: p.title }), el('div', { cls: 'pl2', style: 'color:var(--muted);font-size:12px', text: r.task.title })]),
+      el('td', { text: fmtDate(p.created_at) }),
+      el('td', { text: p.tool_or_model || '—' }),
+      el('td', { text: (p.tags || []).join(', ') || '—' }),
+      el('td', {}, [p.archived_at ? el('span', { cls: 'badge', text: 'Archivado' }) : el('span', { cls: 'badge s-done', text: 'Activo' })]),
+      el('td', { text: String((p.revision_history || []).length) }),
+      el('td', {}, [el('button', { cls: 'btn tiny', type: 'button', text: 'Abrir',
+        on: { click: function () { openPromptModal(r.task.id, 'view:' + p.id); } } })])
+    ]));
+  });
+  table.appendChild(tbody);
+  host.appendChild(el('div', { cls: 'table-wrap' }, [table]));
+}
+
+/* ---------- actividad ---------- */
+function renderActivity() {
+  var host = $('#activity-body');
+  clear(host);
+  var filter = $('#a-action').value;
+  var events = S.activity.slice().reverse().filter(function (e) { return !filter || e.action === filter; });
+  $('#activity-count').textContent = events.length + ' de ' + S.activity.length + ' eventos';
+  if (!S.activity.length) {
+    host.appendChild(el('div', { cls: 'empty' }, [el('strong', { text: 'Todavía no se han registrado cambios.' })]));
+    return;
+  }
+  var table = el('table');
+  table.appendChild(el('thead', {}, [el('tr', {}, ['Evento', 'Fecha', 'Acción', 'Tarea', 'Origen', 'Detalle']
+    .map(function (h) { return el('th', { text: h }); }))]));
+  var tbody = el('tbody');
+  events.forEach(function (e) {
+    var detail = [];
+    if (e.before && e.before.status) detail.push((STATUS_LABEL[e.before.status] || e.before.status) + ' →');
+    if (e.after && e.after.status) detail.push(STATUS_LABEL[e.after.status] || e.after.status);
+    if (e.after && e.after.prompt_id) detail.push(e.after.prompt_id + (e.after.title ? ' · ' + e.after.title : ''));
+    if (e.after && e.after.reason) detail.push('Motivo: ' + e.after.reason);
+    if (e.after && e.after.title && !(e.after.prompt_id)) detail.push(e.after.title);
+    tbody.appendChild(el('tr', {}, [
+      el('td', {}, [el('span', { cls: 'tid', text: e.event_id })]),
+      el('td', { text: fmtDate(e.timestamp) }),
+      el('td', { text: actionLabel(e.action) }),
+      el('td', {}, [e.task_id ? el('span', { cls: 'tid', text: e.task_id }) : document.createTextNode('—')]),
+      el('td', { text: e.source || '—' }),
+      el('td', { text: detail.join(' ') || '—' })
+    ]));
+  });
+  table.appendChild(tbody);
+  host.appendChild(el('div', { cls: 'table-wrap' }, [table]));
+}
+
+/* ---------- grafo / mindmap ---------- */
+var GVIEW = { x: 0, y: 0, k: 1 };
+var STATUS_FILL = { pending: '#8b98ad', in_progress: '#f0b232', blocked: '#f2555a', done: '#3fb27f' };
+function svgEl(name, attrs) {
+  var node = document.createElementNS('http://www.w3.org/2000/svg', name);
+  Object.keys(attrs || {}).forEach(function (k) {
+    if (attrs[k] === null || attrs[k] === undefined) return;
+    node.setAttribute(k, String(attrs[k]));
+  });
+  return node;
+}
+function layout() {
+  var nodes = [], links = [], row = 0;
+  function walk(task, depth, parent) {
+    var opened = S.open['g:' + task.id] !== false;
+    var node = { id: task.id, task: task, depth: depth, y: 0, x: depth * 230 + 30 };
+    nodes.push(node);
+    var kids = task.children || [];
+    if (kids.length && opened) {
+      var ys = [];
+      kids.forEach(function (child) { ys.push(walk(child, depth + 1, node)); });
+      node.y = (ys[0] + ys[ys.length - 1]) / 2;
+    } else {
+      node.y = row * 52 + 34; row += 1;
+    }
+    if (parent) links.push({ from: parent, to: node });
+    node.collapsed = kids.length && !opened;
+    return node.y;
+  }
+  (S.roadmap.tasks || []).forEach(function (t) { walk(t, 0, null); row += 1; });
+  var index = {};
+  nodes.forEach(function (n) { index[n.id] = n; });
+  var deps = [];
+  nodes.forEach(function (n) {
+    (n.task.dependencies || []).forEach(function (d) {
+      if (index[d]) deps.push({ from: index[d], to: n });
+    });
+  });
+  return { nodes: nodes, links: links, deps: deps, height: row * 52 + 70 };
+}
+function drawGraph() {
+  var host = $('#graph-svg');
+  clear(host);
+  if (!(S.roadmap.tasks || []).length) {
+    $('#graph-empty').hidden = false;
+    return;
+  }
+  $('#graph-empty').hidden = true;
+  var g = layout();
+  var width = Math.max(900, Math.max.apply(null, g.nodes.map(function (n) { return n.x; })) + 260);
+  host.setAttribute('viewBox', '0 0 ' + width + ' ' + Math.max(420, g.height));
+  var root = svgEl('g', { transform: 'translate(' + GVIEW.x + ',' + GVIEW.y + ') scale(' + GVIEW.k + ')' });
+  host.appendChild(root);
+
+  g.links.forEach(function (l) {
+    var x1 = l.from.x + 190, y1 = l.from.y, x2 = l.to.x, y2 = l.to.y, mid = (x1 + x2) / 2;
+    root.appendChild(svgEl('path', { class: 'glink', d: 'M' + x1 + ',' + y1 + ' C' + mid + ',' + y1 + ' ' + mid + ',' + y2 + ' ' + x2 + ',' + y2 }));
+  });
+  g.deps.forEach(function (l) {
+    var x1 = l.from.x + 190, y1 = l.from.y + 10, x2 = l.to.x, y2 = l.to.y + 10;
+    root.appendChild(svgEl('path', { class: 'gdep', 'marker-end': 'url(#arrow)',
+      d: 'M' + x1 + ',' + y1 + ' C' + (x1 + 60) + ',' + (y1 + 34) + ' ' + (x2 - 60) + ',' + (y2 + 34) + ' ' + x2 + ',' + y2 }));
+  });
+  var defs = svgEl('defs');
+  var marker = svgEl('marker', { id: 'arrow', viewBox: '0 0 8 8', refX: '7', refY: '4', markerWidth: '6', markerHeight: '6', orient: 'auto' });
+  marker.appendChild(svgEl('path', { d: 'M0,0 L8,4 L0,8 z', fill: '#f0b232' }));
+  defs.appendChild(marker);
+  host.insertBefore(defs, root);
+
+  g.nodes.forEach(function (n) {
+    var task = n.task;
+    var group = svgEl('g', { class: 'gnode', tabindex: '0', role: 'button' });
+    group.appendChild(svgEl('title')).textContent = task.id + ' · ' + task.title;
+    var selected = S.selected === task.id;
+    group.appendChild(svgEl('rect', {
+      x: n.x, y: n.y - 17, width: 190, height: 36, rx: 9,
+      fill: 'var(--panel-2)', stroke: selected ? 'var(--accent)' : 'var(--line)'
+    }));
+    group.appendChild(svgEl('rect', { x: n.x, y: n.y - 17, width: 4, height: 36, rx: 2, fill: STATUS_FILL[task.status] || '#8b98ad' }));
+    var idText = svgEl('text', { x: n.x + 12, y: n.y - 3, 'font-size': '10', fill: 'var(--accent)', 'font-weight': '600' });
+    idText.textContent = task.id;
+    group.appendChild(idText);
+    var titleText = svgEl('text', { x: n.x + 12, y: n.y + 11, 'font-size': '11.5', fill: 'var(--text)' });
+    titleText.textContent = task.title.length > 26 ? task.title.slice(0, 25) + '…' : task.title;
+    group.appendChild(titleText);
+    if (task.blocked_reason) {
+      var warn = svgEl('text', { x: n.x + 175, y: n.y + 4, 'font-size': '12', fill: '#f2555a' });
+      warn.textContent = '⚠';
+      group.appendChild(warn);
+    }
+    if ((task.children || []).length) {
+      var toggle = svgEl('g', { class: 'gnode' });
+      toggle.appendChild(svgEl('circle', { cx: n.x + 190, cy: n.y, r: 8, fill: 'var(--panel)', stroke: 'var(--line)' }));
+      var sign = svgEl('text', { x: n.x + 190, y: n.y + 4, 'font-size': '11', fill: 'var(--muted)', 'text-anchor': 'middle' });
+      sign.textContent = n.collapsed ? '+' : '−';
+      toggle.appendChild(sign);
+      toggle.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        S.open['g:' + task.id] = S.open['g:' + task.id] === false;
+        drawGraph();
+      });
+      group.appendChild(toggle);
+    }
+    function select() { S.selected = task.id; drawGraph(); renderGraphPanel(task); }
+    group.addEventListener('click', select);
+    group.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(); } });
+    root.appendChild(group);
+  });
+}
+function renderGraphPanel(task) {
+  var host = $('#graph-panel');
+  clear(host);
+  if (!task) {
+    host.appendChild(el('p', { cls: 'hint', text: 'Selecciona un nodo para ver su información.' }));
+    return;
+  }
+  host.appendChild(el('div', { cls: 'card' }, [
+    el('h3', { text: 'Nodo seleccionado' }),
+    el('div', { style: 'display:grid;gap:8px' }, [
+      el('div', {}, [el('span', { cls: 'tid', text: task.id })]),
+      el('strong', { text: task.title }),
+      el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' }, [statusBadge(task.status), priorityBadge(task.priority)]),
+      task.blocked_reason ? el('p', { style: 'font-size:12.5px;color:var(--blocked)', text: 'Bloqueo: ' + task.blocked_reason }) : null,
+      task.description ? el('p', { style: 'font-size:12.5px;color:var(--muted)', text: task.description }) : null,
+      el('div', { style: 'font-size:12px;color:var(--muted)',
+        text: plural((task.children || []).length, 'subtarea', 'subtareas') + ' · ' +
+              plural((task.prompt_records || []).length, 'prompt', 'prompts') + ' · ' +
+              plural((task.dependencies || []).length, 'dependencia', 'dependencias') }),
+      segControl(task),
+      el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' }, [
+        el('button', { cls: 'btn tiny', type: 'button', text: 'Ir al checklist', on: { click: function () { focusBranch(task.id); } } }),
+        el('button', { cls: 'btn tiny', type: 'button', text: 'Prompts · ' + (task.prompt_records || []).length,
+          on: { click: function () { openPromptModal(task.id); } } })
+      ])
+    ])
+  ]));
+}
+function initGraphInteractions() {
+  var svg = $('#graph-svg');
+  var drag = null;
+  svg.addEventListener('pointerdown', function (ev) {
+    if (ev.target.closest && ev.target.closest('.gnode')) return;
+    drag = { x: ev.clientX, y: ev.clientY, ox: GVIEW.x, oy: GVIEW.y };
+    svg.classList.add('dragging'); svg.setPointerCapture(ev.pointerId);
+  });
+  svg.addEventListener('pointermove', function (ev) {
+    if (!drag) return;
+    GVIEW.x = drag.ox + (ev.clientX - drag.x); GVIEW.y = drag.oy + (ev.clientY - drag.y);
+    var root = svg.querySelector('g:not(defs g)');
+    if (root) root.setAttribute('transform', 'translate(' + GVIEW.x + ',' + GVIEW.y + ') scale(' + GVIEW.k + ')');
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (name) {
+    svg.addEventListener(name, function () { drag = null; svg.classList.remove('dragging'); });
+  });
+  $('#g-in').addEventListener('click', function () { GVIEW.k = Math.min(2.4, GVIEW.k * 1.2); drawGraph(); });
+  $('#g-out').addEventListener('click', function () { GVIEW.k = Math.max(0.35, GVIEW.k / 1.2); drawGraph(); });
+  $('#g-reset').addEventListener('click', function () { GVIEW = { x: 0, y: 0, k: 1 }; drawGraph(); });
+}
+
+/* ---------- documentos ---------- */
+function renderMarkdown(text, host) {
+  clear(host);
+  if (!text || !text.trim()) {
+    host.appendChild(el('div', { cls: 'empty' }, [el('strong', { text: 'Documento vacío.' })]));
+    return;
+  }
+  var lines = text.split('\n'), buffer = [], listItems = [], inCode = false, codeLines = [];
+  function flushParagraph() {
+    if (!buffer.length) return;
+    host.appendChild(el('p', { text: buffer.join(' ') }));
+    buffer = [];
+  }
+  function flushList() {
+    if (!listItems.length) return;
+    host.appendChild(el('ul', {}, listItems.map(function (i) { return el('li', { text: i }); })));
+    listItems = [];
+  }
+  lines.forEach(function (raw) {
+    var line = raw.replace(/\s+$/, '');
+    if (line.trim().indexOf('```') === 0) {
+      if (inCode) {
+        host.appendChild(el('pre', {}, [el('code', { text: codeLines.join('\n') })]));
+        codeLines = []; inCode = false;
+      } else { flushParagraph(); flushList(); inCode = true; }
+      return;
+    }
+    if (inCode) { codeLines.push(raw); return; }
+    var heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      flushParagraph(); flushList();
+      var level = Math.min(4, Math.max(2, heading[1].length));
+      host.appendChild(el('h' + level, { text: heading[2] }));
+      return;
+    }
+    var item = /^\s*[-*+]\s+(.*)$/.exec(line) || /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    if (item) { flushParagraph(); listItems.push(item[1]); return; }
+    if (!line.trim()) { flushParagraph(); flushList(); return; }
+    buffer.push(line.trim());
+  });
+  if (inCode) host.appendChild(el('pre', {}, [el('code', { text: codeLines.join('\n') })]));
+  flushParagraph(); flushList();
+}
+
+/* ---------- arranque ---------- */
+function renderAll() {
+  renderSummary();
+  renderChecklist();
+  renderPrompts();
+  renderActivity();
+  if (S.tab === 'graph') drawGraph();
+  if (S.modalTask && !$('#prompt-backdrop').hidden) renderPromptModal();
+  document.querySelectorAll('nav.tabs .count').forEach(function (node) {
+    var key = node.dataset.count;
+    if (key === 'checklist') node.textContent = String(S.metrics.total_tasks);
+    if (key === 'prompts') node.textContent = String(S.metrics.prompts_total);
+    if (key === 'activity') node.textContent = String(S.metrics.activity_events);
+  });
+}
+function setMode(mode) {
+  S.mode = mode;
+  var badge = $('#mode-badge');
+  badge.className = 'mode-badge' + (mode === 'edit' ? ' edit' : '');
+  clear(badge);
+  badge.appendChild(el('span', { cls: 'dot' }));
+  badge.appendChild(document.createTextNode(mode === 'edit' ? 'Modo edición' : 'Modo consulta'));
+  $('#mode-note').hidden = mode === 'edit';
+  $('#btn-refresh').hidden = mode !== 'edit';
+}
+function boot() {
+  document.querySelectorAll('nav.tabs button').forEach(function (b) {
+    b.addEventListener('click', function () { setTab(b.dataset.tab); });
+  });
+  ['f-text', 'f-status', 'f-priority', 'f-special'].forEach(function (id) {
+    var node = document.getElementById(id);
+    node.addEventListener('input', renderChecklist);
+    node.addEventListener('change', renderChecklist);
+  });
+  ['p-text', 'p-task', 'p-tag', 'p-model', 'p-date', 'p-archived'].forEach(function (id) {
+    var node = document.getElementById(id);
+    node.addEventListener('input', renderPrompts);
+    node.addEventListener('change', renderPrompts);
+  });
+  $('#a-action').addEventListener('change', renderActivity);
+  $('#f-clear').addEventListener('click', function () {
+    ['f-text', 'f-status', 'f-priority', 'f-special'].forEach(function (id) { document.getElementById(id).value = ''; });
+    renderChecklist();
+  });
+  $('#f-expand').addEventListener('click', function () {
+    allTasks().forEach(function (t) { S.open[t.id] = true; }); renderChecklist();
+  });
+  $('#f-collapse').addEventListener('click', function () {
+    allTasks().forEach(function (t) { S.open[t.id] = false; }); renderChecklist();
+  });
+  $('#btn-refresh').addEventListener('click', function () {
+    refresh().then(function () { toast('Datos actualizados.', 'ok'); });
+  });
+  $('#prompt-backdrop').addEventListener('click', function (ev) { if (ev.target === ev.currentTarget) closePromptModal(); });
+  $('#dialog-backdrop').addEventListener('click', function (ev) { if (ev.target === ev.currentTarget) closeDialog(); });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') return;
+    if (!$('#dialog-backdrop').hidden) closeDialog();
+    else if (!$('#prompt-backdrop').hidden) closePromptModal();
+  });
+  window.addEventListener('beforeunload', function (ev) {
+    if (S.dirty) { ev.preventDefault(); ev.returnValue = ''; }
+  });
+  initGraphInteractions();
+  renderMarkdown(S.docs.decisions, $('#doc-decisions'));
+  renderMarkdown(S.docs.architecture, $('#doc-architecture'));
+  renderMarkdown(S.docs.progress, $('#doc-progress'));
+  renderGraphPanel(null);
+  setMode('read');
+  renderAll();
+  setTab('summary');
+
+  if (location.protocol === 'http:' || location.protocol === 'https:') {
+    refresh().then(function (r) {
+      if (r && r.data && r.data.ok && r.data.mode === 'edit') { setMode('edit'); renderAll(); }
+    }).catch(function () { /* sin servidor local: se mantiene el modo consulta */ });
+  }
+}
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
