@@ -1,0 +1,107 @@
+keys_preview_len 46 primary 1
+STEP oracle_ic: {"canary": {"name": "signal-dev-mdev10-canary", "status": "active", "base_url": "https://signal-dev.opnconsultoria.com"}, "production": {"name": "production", "status": "disabled", "base_url": "https://signal.opnconsultoria.com/api/v1/oracle"}, "dmp": {"mode": "shadow", "etag": "W/\"dmp-mdev10-v1\"", "version": 1}, "snaps": 1, "cred_fp": "8bae98b6558a9d95e71ab6e9aad503e6"}
+token_sha16 70a69b584cbbef9c len 47
+STEP healthz: {"status": 200, "body": {"status": "ok", "service": "opn_signal", "version": "0.1.0"}}
+STEP retrieve_sano: {"status": 200, "err": null, "n_items": 0, "wm": "wm_8dea1a66587dcdee", "snip": "{'api_version': 'memory.v1', 'request_id': None, 'scope': {'tenant_key': 'c:64|t:mdev10-canary-tenant', 'product_code': 'oracle', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6'}, 'items': [], 'coverage_manifest': {'version': 'coverage_manifest.v1', 'requested': ['retrieval', 'facts', 'claims', 'conflicts', 'summaries', "}
+STEP freeze_sano: {"status": 404, "err": null, "wm": null, "n": 0, "store": null}
+STEP get_stats: {"status": 404, "snip": "{'detail': 'Not Found'}"}
+STEP get_scopes: {"status": 404, "snip": "{'detail': 'Not Found'}"}
+STEP ingest_http: {"status": 200, "err": null, "body": "{'scope': {'tenant_key': 'c:64|t:mdev10-canary-tenant', 'product_code': 'oracle', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6'}, 'accepted': 1, 'stats': {'sources_created': 1, 'sources_reused': 0, 'chunks_created': 1, 'chunks_updated': 0, 'chunks_unchanged': 0, 'jobs_enqueued': 0}, 'status': 'ok'}"}
+STEP retrieve_after_ingest: {"status": 200, "n_items": 0, "err": null, "wm": "wm_8dea1a66587dcdee", "snip": "{'api_version': 'memory.v1', 'request_id': None, 'scope': {'tenant_key': 'c:64|t:mdev10-canary-tenant', 'product_code': 'oracle', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6'}, 'items': [], 'coverage_manifest': {'version': 'coverage_manifest.v1', 'requested': ['retrieval', 'facts', 'claims', 'conflicts', 'summaries', "}
+STEP iso_wrong_dossier: {"status": 404, "err": "dossier_not_authorized", "has_items": false, "snip": "{'error_code': 'dossier_not_authorized', 'http_status': 404, 'retryable': False, 'message': 'dossier not authorized for this consumer/tenant', 'detail': None}"}
+STEP iso_note: {"note": "credential is tenant-bound; second Dev tenant session requires designated owner account (A14 debt)"}
+RESULT_JSON_START
+{
+  "run_id": "mdev11-uat-20260802T052826Z",
+  "ts": "2026-08-02T05:28:26.859697+00:00",
+  "steps": [
+    {
+      "name": "oracle_ic",
+      "canary": {
+        "name": "signal-dev-mdev10-canary",
+        "status": "active",
+        "base_url": "https://signal-dev.opnconsultoria.com"
+      },
+      "production": {
+        "name": "production",
+        "status": "disabled",
+        "base_url": "https://signal.opnconsultoria.com/api/v1/oracle"
+      },
+      "dmp": {
+        "mode": "shadow",
+        "etag": "W/\"dmp-mdev10-v1\"",
+        "version": 1
+      },
+      "snaps": 1,
+      "cred_fp": "8bae98b6558a9d95e71ab6e9aad503e6"
+    },
+    {
+      "name": "healthz",
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "service": "opn_signal",
+        "version": "0.1.0"
+      }
+    },
+    {
+      "name": "retrieve_sano",
+      "status": 200,
+      "err": null,
+      "n_items": 0,
+      "wm": "wm_8dea1a66587dcdee",
+      "snip": "{'api_version': 'memory.v1', 'request_id': None, 'scope': {'tenant_key': 'c:64|t:mdev10-canary-tenant', 'product_code': 'oracle', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6'}, 'items': [], 'coverage_manifest': {'version': 'coverage_manifest.v1', 'requested': ['retrieval', 'facts', 'claims', 'conflicts', 'summaries', "
+    },
+    {
+      "name": "freeze_sano",
+      "status": 404,
+      "err": null,
+      "wm": null,
+      "n": 0,
+      "store": null
+    },
+    {
+      "name": "get_stats",
+      "status": 404,
+      "snip": "{'detail': 'Not Found'}"
+    },
+    {
+      "name": "get_scopes",
+      "status": 404,
+      "snip": "{'detail': 'Not Found'}"
+    },
+    {
+      "name": "ingest_http",
+      "status": 200,
+      "err": null,
+      "body": "{'scope': {'tenant_key': 'c:64|t:mdev10-canary-tenant', 'product_code': 'oracle', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6'}, 'accepted': 1, 'stats': {'sources_created': 1, 'sources_reused': 0, 'chunks_created': 1, 'chunks_updated': 0, 'chunks_unchanged': 0, 'jobs_enqueued': 0}, 'status': 'ok'}"
+    },
+    {
+      "name": "retrieve_after_ingest",
+      "status": 200,
+      "n_items": 0,
+      "err": null,
+      "wm": "wm_8dea1a66587dcdee",
+      "snip": "{'api_version': 'memory.v1', 'request_id': None, 'scope': {'tenant_key': 'c:64|t:mdev10-canary-tenant', 'product_code': 'oracle', 'scope_type': 'dossier', 'scope_id': '726bfb3d-090e-470b-b343-596cf5604ed6'}, 'items': [], 'coverage_manifest': {'version': 'coverage_manifest.v1', 'requested': ['retrieval', 'facts', 'claims', 'conflicts', 'summaries', "
+    },
+    {
+      "name": "iso_wrong_dossier",
+      "status": 404,
+      "err": "dossier_not_authorized",
+      "has_items": false,
+      "snip": "{'error_code': 'dossier_not_authorized', 'http_status': 404, 'retryable': False, 'message': 'dossier not authorized for this consumer/tenant', 'detail': None}"
+    },
+    {
+      "name": "iso_note",
+      "note": "credential is tenant-bound; second Dev tenant session requires designated owner account (A14 debt)"
+    }
+  ],
+  "security": {
+    "token_sha16": "70a69b584cbbef9c",
+    "cred_fp": "8bae98b6558a9d95e71ab6e9aad503e6",
+    "wrong_dossier_status": 404,
+    "wrong_dossier_items": false
+  },
+  "errors": []
+}
+RESULT_JSON_END

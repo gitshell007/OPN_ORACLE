@@ -1,0 +1,41 @@
+=== SHA / REVISION ===
+total 2404
+drwxr-x--- 12 root opn-oracle    4096 Aug  2 06:10 .
+drwxr-x---  9 root opn-oracle    4096 Aug  2 06:10 ..
+-rw-r--r--  1 root opn-oracle     269 Jul 28 10:55 .dockerignore
+drwxr-x---  3 root opn-oracle    4096 Jul 28 10:55 .github
+=== SERVICES DETAIL ===
+opn-oracle-api: active
+opn-oracle-web: active
+opn-oracle-worker: active
+opn-oracle-beat: active
+nginx: active
+redis-server: active
+postgresql: active
+=== PORTS ===
+LISTEN 0      511          0.0.0.0:80        0.0.0.0:*    users:(("nginx",pid=13824,fd=5),("nginx",pid=13823,fd=5),("nginx",pid=13822,fd=5),("nginx",pid=13821,fd=5),("nginx",pid=7704,fd=5))     
+LISTEN 0      511          0.0.0.0:443       0.0.0.0:*    users:(("nginx",pid=13824,fd=14),("nginx",pid=13823,fd=14),("nginx",pid=13822,fd=14),("nginx",pid=13821,fd=14),("nginx",pid=7704,fd=14))
+LISTEN 0      511        127.0.0.1:6379      0.0.0.0:*    users:(("redis-server",pid=10843,fd=8))                                                                                                 
+LISTEN 0      200        127.0.0.1:5432      0.0.0.0:*    users:(("postgres",pid=10675,fd=7))                                                                                                     
+LISTEN 0      511             [::]:80           [::]:*    users:(("nginx",pid=13824,fd=6),("nginx",pid=13823,fd=6),("nginx",pid=13822,fd=6),("nginx",pid=13821,fd=6),("nginx",pid=7704,fd=6))     
+LISTEN 0      511             [::]:443          [::]:*    users:(("nginx",pid=13824,fd=27),("nginx",pid=13823,fd=27),("nginx",pid=13822,fd=27),("nginx",pid=13821,fd=27),("nginx",pid=7704,fd=27))
+LISTEN 0      511            [::1]:6379         [::]:*    users:(("redis-server",pid=10843,fd=9))                                                                                                 
+LISTEN 0      200            [::1]:5432         [::]:*    users:(("postgres",pid=10675,fd=6))                                                                                                     
+=== HEALTH URLS ===
+http://127.0.0.1:8000/api/health -> 000 
+http://127.0.0.1:8000/health -> 000 
+http://127.0.0.1:8000/healthz -> 000 
+http://127.0.0.1:8000/api/v1/health -> 000 
+http://127.0.0.1:3000/ -> 000 
+http://127.0.0.1/health -> 404 <html> <head><title>404 Not Found</title></head> <body> <center><h1>404 Not Found</h1></center> 
+https://127.0.0.1/health -> 404 <!DOCTYPE html><html lang="es" data-scroll-behavior="smooth"><head><meta charSet="utf-8"/><meta name
+=== PUBLIC DEV URLS (local curl) ===
+https://oracle-dev.opnconsultoria.com/ -> 307 /app
+https://oracle-dev.opnconsultoria.com/api/health -> 404 {"code":"not_found","detail":"The requested URL was not found on the server. If 
+https://signal-dev.opnconsultoria.com/healthz -> 200 {"status":"ok","service":"opn_signal","version":"0.1.0"}
+https://signal-dev.opnconsultoria.com/ -> 303 
+=== ENV FILES (redacted) ===
+EnvironmentFiles=/etc/opn-oracle-dev/oracle.env (ignore_errors=no)
+FragmentPath=/etc/systemd/system/opn-oracle-api.service
+=== DB IC QUERY (no secrets) ===
+=== DONE ===

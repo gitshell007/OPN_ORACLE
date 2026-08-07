@@ -1,0 +1,104 @@
+=== HOST ===
+v2202607388167489649
+v2202607388167489649.happysrv.de
+159.195.216.184/22
+172.17.0.1/16
+172.18.0.1/16
+2026-08-02T07:24:56+02:00
+=== APP ===
+total 228
+drwxr-xr-x 14 root root  4096 Aug  2 06:07 .
+drwxr-xr-x  3 root root  4096 Jul 28 10:20 ..
+drwxr-xr-x  8 root root  4096 Aug  2 06:58 .git
+-rw-r--r--  1 root root   167 Aug  2 06:07 .gitignore
+drwxr-xr-x  3 root root  4096 Jul 28 10:38 .pytest_cache
+drwxr-xr-x  3 root root  4096 Jul 28 10:59 .ruff_cache
+drwxr-xr-x  5 root root  4096 Jul 28 10:20 .venv
+-rw-r--r--  1 root root 12972 Jul 30 19:22 AGENTS.md
+-rw-r--r--  1 root root   206 Jul 28 10:20 CLAUDE.md
+-rw-r--r--  1 root root   819 Jul 28 10:20 Dockerfile
+-rw-r--r--  1 root root  6148 Jul 28 10:20 PROMPT_ORACLE_backfill_archivo_licitaciones.md
+-rw-r--r--  1 root root  9752 Jul 28 10:20 PROMPT_ORACLE_licitaciones_archivo_y_contrato_v2.md
+-rw-r--r--  1 root root  5837 Jul 28 10:20 PROMPT_ORACLE_parser_ofertas_y_revision.md
+-rw-r--r--  1 root root  7232 Jul 28 10:20 PROMPT_ORACLE_reingesta_completa_placsp.md
+PWD=/opt/apps/opn_signal_dev
+c8bcd1e1e7fe98dbaa12a1550e39ca006926cce7
+HEAD
+## HEAD (no branch)
+c8bcd1e fix(memory): wire CMS kill switch as authoritative data-plane gate
+=== SERVICES ===
+opn-signal-dev-api: active
+enabled
+opn-signal-dev-worker: active
+enabled
+opn-signal-dev-beat: active
+disabled
+ollama: active
+enabled
+  ollama.service                loaded active running Ollama Service
+  opn-signal-dev-api.service    loaded active running OPN SIGNAL DEV - FastAPI (uvicorn)
+  opn-signal-dev-beat.service   loaded active running OPN SIGNAL DEV - Celery beat (DISABLED by default policy after data restore)
+  opn-signal-dev-worker.service loaded active running OPN SIGNAL DEV - Celery worker
+=== PORTS ===
+LISTEN 0      511          0.0.0.0:443        0.0.0.0:*    users:(("nginx",pid=13375,fd=21),("nginx",pid=13374,fd=21),("nginx",pid=13373,fd=21),("nginx",pid=13371,fd=21),("nginx",pid=2931,fd=21))
+LISTEN 0      511          0.0.0.0:80         0.0.0.0:*    users:(("nginx",pid=13375,fd=5),("nginx",pid=13374,fd=5),("nginx",pid=13373,fd=5),("nginx",pid=13371,fd=5),("nginx",pid=2931,fd=5))     
+LISTEN 0      2048       127.0.0.1:8010       0.0.0.0:*    users:(("python3",pid=3308501,fd=3),("python3",pid=3308500,fd=3),("uvicorn",pid=3308496,fd=3))                                          
+LISTEN 0      4096       127.0.0.1:11434      0.0.0.0:*    users:(("ollama",pid=3305435,fd=4))                                                                                                     
+LISTEN 0      4096       127.0.0.1:6380       0.0.0.0:*    users:(("docker-proxy",pid=5175,fd=8))                                                                                                  
+LISTEN 0      511             [::]:443           [::]:*    users:(("nginx",pid=13375,fd=22),("nginx",pid=13374,fd=22),("nginx",pid=13373,fd=22),("nginx",pid=13371,fd=22),("nginx",pid=2931,fd=22))
+LISTEN 0      511             [::]:80            [::]:*    users:(("nginx",pid=13375,fd=6),("nginx",pid=13374,fd=6),("nginx",pid=13373,fd=6),("nginx",pid=13371,fd=6),("nginx",pid=2931,fd=6))     
+=== HEALTH ===
+http://127.0.0.1:8000/healthz -> 000 
+http://127.0.0.1:8080/healthz -> 000 
+http://127.0.0.1:8000/health -> 000 
+http://127.0.0.1:8000/api/healthz -> 000 
+=== OLLAMA ===
+{"models":[{"name":"llama3.2:3b","model":"llama3.2:3b","modified_at":"2026-08-02T07:04:02.286356066+02:00","size":2019393189,"digest":"a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72","details":{"parent_model":"","format":"gguf","family":"llama","families":["llama"],"parameter_size":"3.2B","quantization_level":"Q4_K_M","context_length":131072,"embedding_length":3072},"capabilities":["completion","tools"]}]}
+active
+ollama version is 0.32.5
+=== SETTINGS FLAGS ===
+FILE=/opt/apps/opn_signal_dev/settings.env
+CELERY_PROBE_CONNECTORS_SECONDS=600
+LLM_API_KEY=***
+LLM_BASE_URL=http://gpu18.mercurydefense.es:60003/v1
+LLM_MODEL=qwen2.5:7b-instruct
+LLM_PROVIDER_ORDER=ollama
+LLM_TIMEOUT_SECONDS=90
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_REQUEST_TIMEOUT_SECONDS=120
+OLLAMA_TITAN_BASE_URL=http://gpu17.mercurydefense.es:60004/v1
+OLLAMA_TITAN_REQUEST_TIMEOUT_SECONDS=180
+OPENROUTER_API_KEY=***
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=google/gemini-2.5-flash
+OPENROUTER_MONTHLY_BUDGET_USD=5
+OPENROUTER_REQUEST_TIMEOUT_SECONDS=60
+WEB_SEARCH_PROVIDER=disabled
+MEMORY_ENGINE_ENABLED=1
+MEMORY_ANALYST_ENABLED=0
+MEMORY_SUMMARIES_ENABLED=1
+MEMORY_INGESTION_ENABLED=1
+MEMORY_EXTRACTION_ENABLED=1
+MEMORY_CONSOLIDATION_ENABLED=1
+MEMORY_CELERY_QUEUE=memory
+MEMORY_REFRESH_ENABLED=0
+MEMORY_REFRESH_SECONDS=21600
+MEMORY_REFRESH_ALLOW_LLM=0
+MEMORY_TARGET_ENTITIES=
+MEMORY_PROBE_ENABLED=0
+MEMORY_PROBE_SECONDS=2700
+MEMORY_PROBE_MISSING_ENTITY=ZZZ_NO_ENTITY_XYZ_999
+MEMORY_PROBE_BASE_URL=http://127.0.0.1:8010
+MEMORY_REFRESH_ENTITY_INGEST=0
+OLLAMA_MODEL=llama3.2:3b
+/opt/apps/opn_signal_dev/settings.env
+=== BACKUPS ===
+drwxr-xr-x  2 root root       4096 Jul 31 23:20 memsol-ai-pilot-20260731T232044
+-rw-------  1 root root 1720029579 Jul 29 03:18 opn_signal_dev_20260729T011501Z.dump
+-rw-------  1 root root 1574920080 Jul 30 03:17 opn_signal_dev_20260730T011501Z.dump
+-rw-------  1 root root 1583237895 Jul 31 03:17 opn_signal_dev_20260731T011501Z.dump
+-rw-------  1 root root 1565896328 Aug  2 05:57 opn_signal_dev_20260802T035442Z.dump
+-rw-------  1 root root       3212 Aug  2 07:04 settings.env.bak-ollama-local-20260802T050843Z
+-rw-------  1 root root 1716952228 Jul 28 10:24 signal_prod_for_dev_20260728T082008Z.dump
+drwxr-xr-x  7 root root       4096 Jul 31 23:25 wip-stash-20260731T232539
+=== DONE SIGNAL ===

@@ -1,0 +1,12 @@
+IC|production|disabled|https://signal.opnconsultoria.com/api/v1/oracle
+IC|signal-dev-mdev10-canary|active|https://signal-dev.opnconsultoria.com
+DMP|shadow|W/"dmp-mdev10-v1"|1|726bfb3d-090e-470b-b343-596cf5604ed6
+SNAP|1
+SNAP_MODES|shadow|1
+404
+{"code":"not_found","detail":"The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.","instance":"/api/v1/health","request_id":"b56bb9
+AI_MODE=signal
+SIGNAL_AI_BASE_URL=https://signal-dev.opnconsultoria.com
+SIGNAL_AI_ALLOWED_HOSTS=signal-dev.opnconsultoria.com
+release_dir /opt/opn-oracle/releases/20260802T040823Z-native-4b454e1
+name_has_sha True
