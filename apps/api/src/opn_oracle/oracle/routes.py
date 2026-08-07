@@ -1132,7 +1132,13 @@ def dossiers_bulk_delete() -> Any:
             "deleted_ids": [str(dossier_id) for dossier_id in deleted_ids],
             "deleted_count": len(deleted_ids),
         }
-    except (DomainValidationError, ResourceNotFound, ValueError, TypeError) as error:
+    except (
+        DomainValidationError,
+        ResourceNotFound,
+        ValueError,
+        TypeError,
+        IntegrityError,
+    ) as error:
         db.session.rollback()
         return _domain_error(error)
 

@@ -4738,6 +4738,136 @@ def test_bulk_dossier_delete_clears_ai_context_evidence_restrict(
     assert owner.get(f"/api/v1/dossiers/{dossier_id}").status_code == 404
 
 
+def test_bulk_dossier_delete_clears_report_snapshot_and_artifact_restrict(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Report snapshot evidence + AI artifact RESTRICT chains must not 500 bulk-delete."""
+
+    _, ids, _ = oracle_stack
+    owner = _client(oracle_stack)
+    one = _create_dossier(owner, ids, "Borrar informe A")
+    two = _create_dossier(owner, ids, "Borrar informe B")
+    dossier_ids = [uuid.UUID(one["id"]), uuid.UUID(two["id"])]
+    tenant_id = ids["tenant_a"]
+    digest = hashlib.sha256(b"delete-report-snapshot").digest()
+
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    with engine.begin() as connection:
+        for dossier_id in dossier_ids:
+            signal_id = uuid.uuid4()
+            evidence_id = uuid.uuid4()
+            audit_id = uuid.uuid4()
+            artifact_id = uuid.uuid4()
+            report_id = uuid.uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO signals(id,tenant_id,provider,external_id,title,summary,source_type,"
+                    "source_name,ingested_at,tags,entities,categories,raw_hash,credibility,"
+                    "raw_payload,created_at,updated_at) VALUES ("
+                    ":id,:t,'synthetic',:ext,'Señal report','','report','Fixture',now(),"
+                    "'[]','[]','[]',:hash,80,'{}',now(),now())"
+                ),
+                {
+                    "id": signal_id,
+                    "t": tenant_id,
+                    "ext": f"del-rep-{dossier_id}",
+                    "hash": digest,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO evidence(id,tenant_id,signal_id,source_kind,extract,locator,"
+                    "checksum,classification,provenance,created_at,updated_at) VALUES ("
+                    ":id,:t,:s,'signal','Evidencia report','{}',:hash,'internal','{}',now(),now())"
+                ),
+                {"id": evidence_id, "t": tenant_id, "s": signal_id, "hash": digest},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO evidence_dossiers(tenant_id,evidence_id,dossier_id) "
+                    "VALUES (:t,:e,:d)"
+                ),
+                {"t": tenant_id, "e": evidence_id, "d": dossier_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO ai_audit_logs("
+                    "id,tenant_id,dossier_id,use_case,agent,action,provider,model,"
+                    "prompt_name,prompt_version,prompt_hash,schema_name,schema_version,input_hash,"
+                    "source_ids,status,data_classification,redaction_applied,redaction_summary,"
+                    "input_tokens,output_tokens,actual_cost_micros,currency,attempt_count,"
+                    "human_review_state,created_at,updated_at"
+                    ") VALUES ("
+                    ":id,:t,:d,'dossier_summary','dossier_situation_summary','generate',"
+                    "'mock','mock-v1','summary','v1',:hash,'DossierSituationSummary','v1',:hash,"
+                    "'[]','succeeded','internal',false,'{}',0,0,0,'EUR',1,'not_required',now(),now())"
+                ),
+                {"id": audit_id, "t": tenant_id, "d": dossier_id, "hash": digest},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO ai_artifacts("
+                    "id,tenant_id,audit_log_id,dossier_id,target_type,agent,schema_name,"
+                    "schema_version,output,output_hash,status,version,created_at,updated_at"
+                    ") VALUES ("
+                    ":id,:t,:a,:d,'dossier','dossier_situation_summary','DossierSituationSummary',"
+                    "'v1','{}',:hash,'valid',1,now(),now())"
+                ),
+                {"id": artifact_id, "t": tenant_id, "a": audit_id, "d": dossier_id, "hash": digest},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO reports("
+                    "id,tenant_id,dossier_id,title,status,content,report_type,template_key,"
+                    "template_version,generation_version,idempotency_key,request_hash,version,"
+                    "options,source_snapshot,source_snapshot_hash,snapshot_hash_algorithm,"
+                    "classification,confidentiality_label,requested_by_user_id,ai_artifact_id,"
+                    "created_at,updated_at"
+                    ") VALUES ("
+                    ":id,:t,:d,'Informe delete','ready','{}'::jsonb,'custom','custom','v1',1,"
+                    ":idem,:hash,1,'{}'::jsonb,'{}'::jsonb,:hash,'canonical-json-sha256-v1',"
+                    "'internal','Uso interno',:user,:art,now(),now())"
+                ),
+                {
+                    "id": report_id,
+                    "t": tenant_id,
+                    "d": dossier_id,
+                    "idem": f"bulk-del-{report_id}",
+                    "hash": digest,
+                    "user": ids["user"],
+                    "art": artifact_id,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO report_snapshot_evidence("
+                    "tenant_id,report_id,evidence_id,dossier_id,evidence_hash,extract,locator,"
+                    "classification,source_label"
+                    ") VALUES (:t,:r,:e,:d,:hash,'extract','{}','internal','fixture')"
+                ),
+                {
+                    "t": tenant_id,
+                    "r": report_id,
+                    "e": evidence_id,
+                    "d": dossier_id,
+                    "hash": digest,
+                },
+            )
+    engine.dispose()
+
+    deleted = owner.post(
+        "/api/v1/dossiers/bulk-delete",
+        json={"dossier_ids": [str(item) for item in dossier_ids]},
+        headers={"X-CSRF-Token": _csrf(owner)},
+    )
+    assert deleted.status_code == 200, deleted.get_json()
+    assert set(deleted.get_json()["deleted_ids"]) == {str(item) for item in dossier_ids}
+    assert deleted.get_json()["deleted_count"] == 2
+    assert all(
+        owner.get(f"/api/v1/dossiers/{dossier_id}").status_code == 404 for dossier_id in dossier_ids
+    )
+
+
 def test_signal_many_to_many_review_promote_idempotency_and_audit(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:

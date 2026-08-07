@@ -214,6 +214,20 @@ def test_dossier_archive_and_bulk_delete_validation(
     assert body["deleted_count"] == 2
     assert set(body["deleted_ids"]) == {str(x) for x in deleted}
 
+    from sqlalchemy.exc import IntegrityError
+
+    def _raise_fk(*_a: object, **_k: object) -> list[uuid.UUID]:
+        raise IntegrityError("DELETE strategic_dossiers", {}, Exception("fk_restrict"))
+
+    monkeypatch.setattr(oracle_routes, "delete_dossiers", _raise_fk)
+    with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.delete"})):
+        fk_fail = client.post(
+            "/api/v1/dossiers/bulk-delete",
+            json={"dossier_ids": [str(uuid.uuid4())]},
+        )
+    assert fk_fail.status_code == 422
+    assert fk_fail.get_json()["code"] in {"domain_validation", "http_error"}
+
 
 def test_signal_review_and_promote_contracts(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch

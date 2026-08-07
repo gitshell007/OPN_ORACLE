@@ -10,11 +10,17 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from opn_oracle.ai.models import AIArtifact, AIContextEvidence, AIHumanReview
+from opn_oracle.ai.models import (
+    AIArtifact,
+    AIContextEvidence,
+    AIHumanReview,
+    AIUsageLedger,
+    OpportunityOfferDraft,
+)
 from opn_oracle.oracle.actor_candidates import ACTOR_TYPES, clean_labels
 from opn_oracle.oracle.actor_tax_id import (
     TaxIdConflictError,
@@ -31,7 +37,7 @@ from opn_oracle.oracle.intent import (
     IntelligenceRequirement,
     compute_intent_content_hash,
 )
-from opn_oracle.oracle.jobs import BackgroundJob
+from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.links import (
     DossierCollaborator,
     MeetingActor,
@@ -46,11 +52,13 @@ from opn_oracle.oracle.models import (
     Decision,
     DossierActor,
     DossierObjective,
+    DossierProcurementItem,
     DossierSignal,
     Hypothesis,
     Meeting,
     Opportunity,
     Relationship,
+    Report,
     RiskItem,
     ScoreHistory,
     Signal,
@@ -83,6 +91,7 @@ from opn_oracle.oracle.starter_profiles import (
 )
 from opn_oracle.platform.audit import append_audit_event
 from opn_oracle.platform.models import Workspace
+from opn_oracle.reporting.models import ReportSnapshotEvidence
 from opn_oracle.tenants.context import require_tenant_id
 
 DOSSIER_TYPES = frozenset(
@@ -1238,9 +1247,13 @@ def delete_dossiers(
 ) -> list[uuid.UUID]:
     """Permanently remove a bounded, fully authorized set of dossiers.
 
-    Most dependent records cascade from ``strategic_dossiers``. Two AI graphs use
-    RESTRICT and must be cleared first: context evidence anchored on
-    ``evidence_dossiers``, and human reviews that pin AI artifacts.
+    Most dependent records cascade from ``strategic_dossiers``. Several graphs use
+    RESTRICT between siblings of that cascade (AI context evidence, report
+    snapshot evidence, human reviews, offer drafts, report parent/artifact/job
+    pins, AI usage ledgers, procurement→opportunity links). Those must be
+    cleared or nulled **before** deleting the dossiers; otherwise PostgreSQL
+    raises IntegrityError and the API used to surface a bare 500.
+
     Audit events deliberately remain: their dossier reference is set to null by
     the foreign-key policy, while resource id and metadata preserve the trail.
     """
@@ -1267,14 +1280,21 @@ def delete_dossiers(
         # a partial deletion if the selection changed between listing and submission.
         raise ResourceNotFound("Uno o varios expedientes ya no están disponibles.")
 
-    # RESTRICT on evidence_dossiers blocks the cascade when AI context still points
-    # at those join rows; clear them before deleting the dossiers.
+    # --- RESTRICT pins on evidence_dossiers (must go before dossier cascade) ---
     session.execute(
         delete(AIContextEvidence).where(
             AIContextEvidence.tenant_id == tenant_id,
             AIContextEvidence.dossier_id.in_(unique_ids),
         )
     )
+    session.execute(
+        delete(ReportSnapshotEvidence).where(
+            ReportSnapshotEvidence.tenant_id == tenant_id,
+            ReportSnapshotEvidence.dossier_id.in_(unique_ids),
+        )
+    )
+
+    # --- AI artifact graph: reviews + offer drafts RESTRICT artifact delete ---
     artifact_ids = list(
         session.scalars(
             select(AIArtifact.id).where(
@@ -1290,6 +1310,64 @@ def delete_dossiers(
                 AIHumanReview.artifact_id.in_(artifact_ids),
             )
         )
+    session.execute(
+        delete(OpportunityOfferDraft).where(
+            OpportunityOfferDraft.tenant_id == tenant_id,
+            OpportunityOfferDraft.dossier_id.in_(unique_ids),
+        )
+    )
+
+    # --- Reports: self-parent, artifact and job pins are RESTRICT ---
+    session.execute(
+        update(Report)
+        .where(Report.tenant_id == tenant_id, Report.dossier_id.in_(unique_ids))
+        .values(
+            parent_report_id=None,
+            ai_artifact_id=None,
+            background_job_id=None,
+        )
+    )
+
+    # --- AI audit → job RESTRICT; usage ledger → audit RESTRICT ---
+    audit_ids = list(
+        session.scalars(
+            select(AIAuditLog.id).where(
+                AIAuditLog.tenant_id == tenant_id,
+                AIAuditLog.dossier_id.in_(unique_ids),
+            )
+        )
+    )
+    if audit_ids:
+        session.execute(
+            delete(AIUsageLedger).where(
+                AIUsageLedger.tenant_id == tenant_id,
+                AIUsageLedger.audit_log_id.in_(audit_ids),
+            )
+        )
+    session.execute(
+        update(AIAuditLog)
+        .where(AIAuditLog.tenant_id == tenant_id, AIAuditLog.dossier_id.in_(unique_ids))
+        .values(background_job_id=None)
+    )
+
+    # Delete artifacts before audits cascade from the dossier (artifact→audit is RESTRICT).
+    if artifact_ids:
+        session.execute(
+            delete(AIArtifact).where(
+                AIArtifact.tenant_id == tenant_id,
+                AIArtifact.id.in_(artifact_ids),
+            )
+        )
+
+    # Procurement pins may RESTRICT opportunities that also cascade from the dossier.
+    session.execute(
+        update(DossierProcurementItem)
+        .where(
+            DossierProcurementItem.tenant_id == tenant_id,
+            DossierProcurementItem.dossier_id.in_(unique_ids),
+        )
+        .values(linked_opportunity_id=None)
+    )
 
     deleted_ids: list[uuid.UUID] = []
     for dossier in dossiers:
@@ -1308,7 +1386,15 @@ def delete_dossiers(
         )
         deleted_ids.append(dossier.id)
         session.delete(dossier)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise DomainValidationError(
+            "No se pudieron eliminar los expedientes por dependencias activas "
+            "(informes, evidencias o jobs). Inténtalo de nuevo o elimina antes "
+            "los recursos vinculados."
+        ) from error
     return deleted_ids
 
 
