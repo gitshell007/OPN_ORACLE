@@ -33299,7 +33299,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Activate/deactivate AI and toggle the kill switch for the active tenant. */
+        /** Activate/deactivate AI policy; kill_switch is platform-super_admin only. */
         patch: {
             parameters: {
                 query?: never;
@@ -36174,7 +36174,9 @@ export interface components {
             cancel_requested?: boolean;
             /** Format: date-time */
             created_at: string;
+            /** @description Código de fallo estable para la máquina (snake_case). Valores conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. Otros: permanent_failure (último recurso), temporary_failure, retry_exhausted, broker_unavailable, worker_lost. No mostrar el código crudo al usuario; usar error_message para el texto en español. */
             error_code?: string | null;
+            /** @description Mensaje legible en español para operador y soporte. La UI no debe clasificar la causa por este texto. */
             error_message?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
@@ -38271,7 +38273,9 @@ export interface components {
             attempts: number;
             cancel_requested: boolean;
             created_at: string;
+            /** @description Código de fallo estable (snake_case). Conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. permanent_failure es el último recurso. No mostrar crudo al usuario. */
             error_code?: string | null;
+            /** @description Mensaje legible en español. La UI clasifica por error_code, no por este texto. */
             error_message?: string | null;
             finished_at?: string | null;
             heartbeat_at?: string | null;

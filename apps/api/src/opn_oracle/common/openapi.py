@@ -1086,8 +1086,27 @@ def _response_schemas() -> dict[str, Any]:
                 "started_at": {"type": "string", "format": "date-time", "nullable": True},
                 "finished_at": {"type": "string", "format": "date-time", "nullable": True},
                 "heartbeat_at": {"type": "string", "format": "date-time", "nullable": True},
-                "error_code": {"type": "string", "nullable": True},
-                "error_message": {"type": "string", "nullable": True},
+                "error_code": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "Código de fallo estable para la máquina (snake_case). "
+                        "Valores conocidos de IA: ai_policy_denied, "
+                        "ai_provider_unauthorized, ai_provider_unavailable. "
+                        "Otros: permanent_failure (último recurso), temporary_failure, "
+                        "retry_exhausted, broker_unavailable, worker_lost. "
+                        "No mostrar el código crudo al usuario; usar error_message "
+                        "para el texto en español."
+                    ),
+                },
+                "error_message": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "Mensaje legible en español para operador y soporte. "
+                        "La UI no debe clasificar la causa por este texto."
+                    ),
+                },
                 "cancel_requested": {"type": "boolean"},
                 "result": {
                     "type": "object",

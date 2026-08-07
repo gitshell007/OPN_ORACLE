@@ -143,6 +143,34 @@ AI_RETRY_CAUSE_JOB_TYPES = {
 logger = logging.getLogger(__name__)
 
 
+# Machine-stable terminal codes for background_jobs.error_code (UI contract).
+# Do not show these raw to end users; keep Spanish prose in error_message.
+JOB_ERROR_AI_POLICY_DENIED = "ai_policy_denied"
+JOB_ERROR_AI_PROVIDER_UNAUTHORIZED = "ai_provider_unauthorized"
+JOB_ERROR_AI_PROVIDER_UNAVAILABLE = "ai_provider_unavailable"
+JOB_ERROR_PERMANENT_FAILURE = "permanent_failure"
+KNOWN_AI_JOB_ERROR_CODES = frozenset(
+    {
+        JOB_ERROR_AI_POLICY_DENIED,
+        JOB_ERROR_AI_PROVIDER_UNAUTHORIZED,
+        JOB_ERROR_AI_PROVIDER_UNAVAILABLE,
+    }
+)
+
+
+def _exception_chain(error: BaseException) -> list[BaseException]:
+    """Outer-first chain following ``__cause__`` without cycles."""
+
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(current)
+        current = current.__cause__
+    return chain
+
+
 def _exception_cause_text(error: BaseException) -> str:
     """Type + message of the deepest __cause__, falling back to the outer error.
 
@@ -150,11 +178,7 @@ def _exception_cause_text(error: BaseException) -> str:
     row must still keep the operator-facing root cause (type + message).
     """
 
-    seen: set[int] = set()
-    current: BaseException = error
-    while current.__cause__ is not None and id(current.__cause__) not in seen:
-        seen.add(id(current))
-        current = current.__cause__
+    current = _exception_chain(error)[-1]
     text = redact(str(current)).strip()
     type_name = type(current).__name__
     if not text:
@@ -162,6 +186,27 @@ def _exception_cause_text(error: BaseException) -> str:
     if text.startswith(type_name):
         return text
     return f"{type_name}: {text}"
+
+
+def _classify_job_error_code(error: BaseException) -> str | None:
+    """Return a stable AI/job error code when the chain has a known root cause."""
+
+    for current in _exception_chain(error):
+        attr = getattr(current, "job_error_code", None)
+        if isinstance(attr, str) and attr in KNOWN_AI_JOB_ERROR_CODES:
+            return attr
+        if isinstance(current, AIPolicyDenied):
+            return JOB_ERROR_AI_POLICY_DENIED
+        if isinstance(current, AIUnavailable):
+            # Subclasses / bare AIUnavailable default to provider unavailable.
+            return JOB_ERROR_AI_PROVIDER_UNAVAILABLE
+    return None
+
+
+def _permanent_failure_code(error: BaseException) -> str:
+    """Specific code when classifiable; ``permanent_failure`` only as last resort."""
+
+    return _classify_job_error_code(error) or JOB_ERROR_PERMANENT_FAILURE
 
 
 def _ai_handler(agent: str) -> Handler:
@@ -1074,7 +1119,9 @@ def _execute_claimed_delivery(
         if owned.attempts >= owned.max_attempts:
             owned.status, owned.stage, owned.retryable = "failed", "retry_exhausted", True
             owned.finished_at = datetime.now(UTC)
-            owned.error_code = "retry_exhausted"
+            # Prefer a specific AI code when the root cause is classifiable; otherwise
+            # keep the retry-exhaustion marker for operators/retry UI.
+            owned.error_code = _classify_job_error_code(error) or "retry_exhausted"
             owned.error_message = _retry_exhausted_message(owned, root_message)
             _revoke_email_delivery(owned)
             _audit_job_failure(owned)
@@ -1102,7 +1149,7 @@ def _execute_claimed_delivery(
             return {"ignored": True, "reason": "lease_lost"}
         owned.status, owned.stage, owned.retryable = "failed", "failed", False
         owned.finished_at = datetime.now(UTC)
-        owned.error_code = "permanent_failure"
+        owned.error_code = _permanent_failure_code(error)
         owned.error_message = _permanent_failure_message(owned, error)
         _revoke_email_delivery(owned)
         owned.execution_lease_id = None

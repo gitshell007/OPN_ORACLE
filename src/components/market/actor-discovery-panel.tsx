@@ -18,6 +18,7 @@ import { RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/components/auth/auth-provider";
 import {
   ActorDiscoveryList,
   actorIsSelectable,
@@ -27,6 +28,11 @@ import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { productActorTypeLabel, productStatusLabel } from "@/lib/product-copy";
 
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
+
+/** Códigos de job estables (contrato backend). No mostrar crudos al usuario. */
+export const JOB_ERROR_AI_POLICY_DENIED = "ai_policy_denied";
+export const JOB_ERROR_AI_PROVIDER_UNAUTHORIZED = "ai_provider_unauthorized";
+export const JOB_ERROR_AI_PROVIDER_UNAVAILABLE = "ai_provider_unavailable";
 
 export type ActorDiscoveryFailureKind =
   | "ai_policy_denied"
@@ -39,6 +45,11 @@ export type ActorDiscoveryFailureInfo = {
   message: string;
   actionHref?: string;
   actionLabel?: string;
+};
+
+export type ResolveActorDiscoveryFailureOptions = {
+  /** Kill switch de IA: solo platform super_admin puede activarla. */
+  isPlatformSuperAdmin?: boolean;
 };
 
 function errorMessage(reason: unknown, fallback: string) {
@@ -61,63 +72,70 @@ function retryIdempotencyKey(dossierId: string): string {
   return `g19-actor-run:${dossierId}:retry:${suffix}`.slice(0, 200);
 }
 
-/** Interpreta error_code / error_message del job (causa raíz en background_jobs). */
+/**
+ * Clasifica el fallo del job por error_code estable (no por prosa).
+ * error_message solo aporta detalle humano en el caso genérico.
+ */
 export function resolveActorDiscoveryFailure(
   job: Pick<TenderSearchWizardJob, "error_code" | "error_message"> | null | undefined,
+  options: ResolveActorDiscoveryFailureOptions = {},
 ): ActorDiscoveryFailureInfo {
-  const code = String(job?.error_code ?? "");
-  const raw = String(job?.error_message ?? "");
-  const haystack = `${code}\n${raw}`;
+  const code = String(job?.error_code ?? "").trim();
+  const human = String(job?.error_message ?? "").trim();
 
-  if (
-    /\bAIPolicyDenied\b/i.test(haystack) ||
-    /IA está deshabilitada para este tenant/i.test(raw) ||
-    /inteligencia artificial.*desactivad/i.test(raw)
-  ) {
-    return {
-      kind: "ai_policy_denied",
-      headline: "La inteligencia artificial está desactivada",
-      message:
-        "Su organización tiene la IA deshabilitada, por eso no se puede buscar actores. Un administrador puede activarla en Administración › Inteligencia artificial.",
-      actionHref: "/app/admin/ai",
-      actionLabel: "Ir a Inteligencia artificial",
-    };
+  switch (code) {
+    case JOB_ERROR_AI_POLICY_DENIED: {
+      if (options.isPlatformSuperAdmin) {
+        return {
+          kind: "ai_policy_denied",
+          headline: "La inteligencia artificial está desactivada",
+          message:
+            "La IA está deshabilitada para esta organización, por eso no se puede buscar actores. Como administrador de plataforma puedes activarla en Administración › Inteligencia artificial.",
+          actionHref: "/app/admin/ai",
+          actionLabel: "Ir a Inteligencia artificial",
+        };
+      }
+      return {
+        kind: "ai_policy_denied",
+        headline: "La inteligencia artificial está desactivada",
+        message:
+          "La IA está deshabilitada para esta organización, por eso no se puede buscar actores. Debe pedírselo a un administrador de plataforma; no se resuelve desde Administración de la organización ni desde esta pantalla.",
+      };
+    }
+    case JOB_ERROR_AI_PROVIDER_UNAUTHORIZED:
+      return {
+        kind: "ai_unavailable",
+        headline: "El servicio de análisis no autorizó esta búsqueda",
+        message:
+          "El proveedor externo no autorizó la tarea de análisis. No depende de la configuración de su cuenta ni se resuelve desde Administración de la organización. Contacte al administrador de la plataforma.",
+      };
+    case JOB_ERROR_AI_PROVIDER_UNAVAILABLE:
+      return {
+        kind: "ai_unavailable",
+        headline: "El servicio de análisis no está disponible",
+        message:
+          "El proveedor de análisis no está disponible en este momento. No depende de la configuración de su cuenta. Puede reintentar más tarde o contactar al administrador de la plataforma si el problema persiste.",
+      };
+    default: {
+      // Único caso de reserva: códigos desconocidos o genéricos.
+      if (
+        human &&
+        !/^(permanent_failure|temporary_failure|retry_exhausted)$/i.test(human)
+      ) {
+        return {
+          kind: "generic",
+          headline: "No se pudo completar el descubrimiento",
+          message: human.length > 280 ? `${human.slice(0, 277)}…` : human,
+        };
+      }
+      return {
+        kind: "generic",
+        headline: "No se pudo completar el descubrimiento",
+        message:
+          "La última ejecución no se pudo completar. Puede reintentarla sin duplicar el expediente.",
+      };
+    }
   }
-
-  if (
-    /\bAIUnavailable\b/i.test(haystack) ||
-    /Signal (tiene deshabilitada|rechazó|rechazo|no est)/i.test(raw) ||
-    /no autorizad/i.test(raw) ||
-    /consumidor/i.test(raw)
-  ) {
-    return {
-      kind: "ai_unavailable",
-      headline: "El servicio de análisis no pudo completar la búsqueda",
-      message:
-        "El proveedor externo rechazó o no autorizó esta tarea. No depende de la configuración de su cuenta ni se resuelve desde Administración de la organización. Puede reintentar más tarde o contactar al administrador de la plataforma.",
-    };
-  }
-
-  const stripped = raw
-    .replace(/^El job no pudo completarse\.\s*(Causa:\s*)?/i, "")
-    .replace(/^Se agotaron los reintentos permitidos\.\s*(Última causa:\s*)?/i, "")
-    .replace(/^[A-Za-z]+Error:\s*/g, "")
-    .trim();
-
-  if (stripped && !/^(permanent_failure|temporary_failure|retry_exhausted)$/i.test(stripped)) {
-    return {
-      kind: "generic",
-      headline: "No se pudo completar el descubrimiento",
-      message: stripped.length > 280 ? `${stripped.slice(0, 277)}…` : stripped,
-    };
-  }
-
-  return {
-    kind: "generic",
-    headline: "No se pudo completar el descubrimiento",
-    message:
-      "La última ejecución no se pudo completar. Puede reintentarla sin duplicar el expediente.",
-  };
 }
 
 function discoveryJobStatusLabel(
@@ -138,6 +156,9 @@ function discoveryJobStatusLabel(
 }
 
 export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
+  const auth = useAuth();
+  const isPlatformSuperAdmin =
+    auth.identity?.user?.platform_role === "super_admin";
   const [dossier, setDossier] = useState<BackendDossier | null>(null);
   const [artifact, setArtifact] = useState<MarketActorDiscoveryArtifact | null>(null);
   const [job, setJob] = useState<TenderSearchWizardJob | null>(null);
@@ -294,7 +315,9 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
   const jobStatus = job?.status ?? null;
   const statusLabel = discoveryJobStatusLabel(loading, running, jobStatus, Boolean(artifact));
   const failure =
-    !loading && jobStatus === "failed" ? resolveActorDiscoveryFailure(job) : null;
+    !loading && jobStatus === "failed"
+      ? resolveActorDiscoveryFailure(job, { isPlatformSuperAdmin })
+      : null;
 
   const showList =
     Boolean(artifact?.output) &&

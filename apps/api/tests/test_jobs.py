@@ -289,3 +289,34 @@ def test_permanent_failure_message_keeps_root_cause_for_dossier_question() -> No
 
     generic_job = SimpleNamespace(job_type="notifications.send_email")
     assert _permanent_failure_message(generic_job, outer) == "El job no pudo completarse."  # type: ignore[arg-type]
+
+
+def test_permanent_failure_code_classifies_ai_roots_not_prose() -> None:
+    """ORA-ERR-CODES: terminal error_code is machine-stable, not permanent_failure by default."""
+    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.ai.service import AIPolicyDenied
+    from opn_oracle.jobs.tasks import (
+        PermanentJobError,
+        _permanent_failure_code,
+    )
+
+    policy = AIPolicyDenied("La IA está deshabilitada para este tenant.")
+    wrapped_policy = PermanentJobError(str(policy))
+    wrapped_policy.__cause__ = policy
+    assert _permanent_failure_code(wrapped_policy) == "ai_policy_denied"
+    assert _permanent_failure_code(policy) == "ai_policy_denied"
+
+    unauthorized = AIUnavailable(
+        "Signal tiene deshabilitada la IA para este consumidor.",
+        job_error_code="ai_provider_unauthorized",
+    )
+    assert _permanent_failure_code(unauthorized) == "ai_provider_unauthorized"
+
+    unavailable = AIUnavailable("Signal no esta disponible para ejecutar IA.")
+    assert _permanent_failure_code(unavailable) == "ai_provider_unavailable"
+
+    wrapped_unavail = PermanentJobError("x")
+    wrapped_unavail.__cause__ = unavailable
+    assert _permanent_failure_code(wrapped_unavail) == "ai_provider_unavailable"
+
+    assert _permanent_failure_code(ValueError("payload basura")) == "permanent_failure"

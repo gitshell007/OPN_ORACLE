@@ -5493,10 +5493,12 @@
             "type": "string"
           },
           "error_code": {
+            "description": "C\u00f3digo de fallo estable para la m\u00e1quina (snake_case). Valores conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. Otros: permanent_failure (\u00faltimo recurso), temporary_failure, retry_exhausted, broker_unavailable, worker_lost. No mostrar el c\u00f3digo crudo al usuario; usar error_message para el texto en espa\u00f1ol.",
             "nullable": true,
             "type": "string"
           },
           "error_message": {
+            "description": "Mensaje legible en espa\u00f1ol para operador y soporte. La UI no debe clasificar la causa por este texto.",
             "nullable": true,
             "type": "string"
           },
@@ -13252,10 +13254,12 @@
             "type": "string"
           },
           "error_code": {
+            "description": "C\u00f3digo de fallo estable (snake_case). Conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. permanent_failure es el \u00faltimo recurso. No mostrar crudo al usuario.",
             "nullable": true,
             "type": "string"
           },
           "error_message": {
+            "description": "Mensaje legible en espa\u00f1ol. La UI clasifica por error_code, no por este texto.",
             "nullable": true,
             "type": "string"
           },
@@ -56307,7 +56311,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Activate/deactivate AI and toggle the kill switch for the active tenant.",
+        "summary": "Activate/deactivate AI policy; kill_switch is platform-super_admin only.",
         "tags": [
           "Administraci\u00f3n de tenant"
         ]

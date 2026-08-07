@@ -28,7 +28,19 @@ def _decimal_or_none(value: Any) -> Decimal | None:
 
 
 class AIUnavailable(RuntimeError):
-    pass
+    """Provider/runtime outage or refusal to run AI.
+
+    ``job_error_code`` is a stable, machine-facing code for durable jobs
+    (see ``jobs.tasks._classify_job_error_code``). Human-readable detail stays
+    in the exception message / ``error_message``.
+    """
+
+    job_error_code: str = "ai_provider_unavailable"
+
+    def __init__(self, message: str = "", *, job_error_code: str | None = None) -> None:
+        super().__init__(message)
+        if job_error_code is not None:
+            self.job_error_code = job_error_code
 
 
 class AIRejected(AIUnavailable):
@@ -46,7 +58,7 @@ class AIRejected(AIUnavailable):
         error_code: str,
         request_id: str | None = None,
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, job_error_code="ai_provider_unavailable")
         self.status_code = int(status_code)
         self.error_code = error_code
         self.request_id = request_id
@@ -2230,12 +2242,19 @@ class SignalGovernedLLMProvider:
                     task = str(body.get("task_key") or "desconocida")
                     raise AIUnavailable(
                         "Signal rechazó la tarea de IA "
-                        f"('{task}'): no está autorizada para este consumidor."
+                        f"('{task}'): no está autorizada para este consumidor.",
+                        job_error_code="ai_provider_unauthorized",
                     )
                 if detail == "consumer_ai_disabled":
-                    raise AIUnavailable("Signal tiene deshabilitada la IA para este consumidor.")
+                    raise AIUnavailable(
+                        "Signal tiene deshabilitada la IA para este consumidor.",
+                        job_error_code="ai_provider_unauthorized",
+                    )
                 if detail:
-                    raise AIUnavailable(f"Signal rechazó la ejecución de IA ({detail}).")
+                    raise AIUnavailable(
+                        f"Signal rechazó la ejecución de IA ({detail}).",
+                        job_error_code="ai_provider_unauthorized",
+                    )
             response.raise_for_status()
             payload = response.json()
         except AIUnavailable:

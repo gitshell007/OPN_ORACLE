@@ -48,7 +48,12 @@ from opn_oracle.tenants.context import require_tenant_id
 
 
 class AIPolicyDenied(RuntimeError):
-    pass
+    """Tenant/platform policy refused the AI execution.
+
+    ``job_error_code`` is stable for durable job rows and UI classification.
+    """
+
+    job_error_code: str = "ai_policy_denied"
 
 
 class SignalTriageRejected(RuntimeError):

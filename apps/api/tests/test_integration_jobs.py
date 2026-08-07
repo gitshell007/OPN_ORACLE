@@ -1562,6 +1562,69 @@ def test_real_worker_retry_permanent_error_and_sanitization(
     assert "Payload" not in (permanent.error_message or "")
 
 
+def test_terminal_ai_failures_store_stable_error_codes(
+    jobs_stack: tuple[Any, dict[str, uuid.UUID]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ORA-ERR-CODES: AIPolicyDenied / AIUnavailable → specific codes, not permanent_failure."""
+
+    app, ids = jobs_stack
+    cases: list[tuple[str, Exception, str]] = [
+        (
+            "policy",
+            AIPolicyDenied("La IA está deshabilitada para este tenant."),
+            "ai_policy_denied",
+        ),
+        (
+            "unauthorized",
+            AIUnavailable(
+                "Signal tiene deshabilitada la IA para este consumidor.",
+                job_error_code="ai_provider_unauthorized",
+            ),
+            "ai_provider_unauthorized",
+        ),
+        (
+            "unavailable",
+            AIUnavailable("Signal no esta disponible para ejecutar IA."),
+            "ai_provider_unavailable",
+        ),
+        (
+            "generic",
+            RuntimeError("fallo no clasificable de prueba"),
+            "permanent_failure",
+        ),
+    ]
+
+    def _handler_factory(exc: Exception) -> Any:
+        def _raise(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+            del payload, job
+            raise exc
+
+        return _raise
+
+    for suffix, exc, expected_code in cases:
+        monkeypatch.setitem(job_tasks.HANDLERS, "oracle.signal.triage", _handler_factory(exc))
+        with (
+            app.app_context(),
+            tenant_context(TenantContext(tenant_id=ids["tenant"], actor_id=ids["user"])),
+        ):
+            job = enqueue_job(
+                "oracle.signal.triage",
+                payload={},
+                idempotency_key=f"err-code-{suffix}-{uuid.uuid4()}",
+                requested_by_user_id=ids["user"],
+                max_attempts=1,
+            )
+            job_id = job.id
+        failed = _wait_job(app, ids, job_id, "failed")
+        assert failed.error_code == expected_code, (
+            f"{suffix}: expected {expected_code}, got {failed.error_code!r} "
+            f"message={failed.error_message!r}"
+        )
+        assert failed.status == "failed"
+        assert (failed.error_message or "").strip()
+
+
 def test_publish_failure_reconciles_once_and_scheduler_commit_survives_crash(
     jobs_stack: tuple[Any, dict[str, uuid.UUID]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

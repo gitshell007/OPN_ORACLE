@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   accept: vi.fn(),
   toastSuccess: vi.fn(),
   toastMessage: vi.fn(),
+  authIdentity: {
+    user: { id: "u1", platform_role: null as string | null },
+    active_tenant_id: "t1",
+    permissions: [] as string[],
+  },
 }));
 
 vi.mock("@oracle/api-client", () => ({
@@ -46,6 +51,19 @@ vi.mock("next/link", () => ({
       {children}
     </a>
   ),
+}));
+
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    status: "authenticated",
+    identity: mocks.authIdentity,
+    error: null,
+    can: () => true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+    switchTenant: vi.fn(),
+  }),
 }));
 
 import {
@@ -96,26 +114,46 @@ function marketDossier(actorType = "research_group") {
 }
 
 describe("resolveActorDiscoveryFailure", () => {
-  it("mapea AIPolicyDenied a mensaje accionable con enlace de administración", () => {
+  it("clasifica por error_code aunque el mensaje cambie de redacción", () => {
+    const info = resolveActorDiscoveryFailure({
+      error_code: "ai_policy_denied",
+      error_message: "redacción totalmente distinta que ya no menciona IA ni tenant",
+    });
+    expect(info.kind).toBe("ai_policy_denied");
+    expect(info.message).toMatch(/administrador de plataforma/i);
+    expect(info.actionHref).toBeUndefined();
+  });
+
+  it("con ai_policy_denied y super_admin ofrece enlace a IA", () => {
+    const info = resolveActorDiscoveryFailure(
+      {
+        error_code: "ai_policy_denied",
+        error_message: "cualquier prosa",
+      },
+      { isPlatformSuperAdmin: true },
+    );
+    expect(info.kind).toBe("ai_policy_denied");
+    expect(info.actionHref).toBe("/app/admin/ai");
+    expect(info.message).toMatch(/puedes activarla/i);
+  });
+
+  it("con ai_provider_unauthorized no depende del usuario", () => {
+    const info = resolveActorDiscoveryFailure({
+      error_code: "ai_provider_unauthorized",
+      error_message: "prosa irrelevante con la palabra consumidor",
+    });
+    expect(info.kind).toBe("ai_unavailable");
+    expect(info.message).toMatch(/no autoriz|no depende/i);
+    expect(info.actionHref).toBeUndefined();
+  });
+
+  it("no clasifica por prosa cuando el código es genérico", () => {
     const info = resolveActorDiscoveryFailure({
       error_code: "permanent_failure",
       error_message:
         "El job no pudo completarse. Causa: AIPolicyDenied: La IA está deshabilitada para este tenant.",
     });
-    expect(info.kind).toBe("ai_policy_denied");
-    expect(info.message).toMatch(/deshabilitad|desactivad/i);
-    expect(info.actionHref).toBe("/app/admin/ai");
-    expect(info.actionLabel).toMatch(/inteligencia artificial/i);
-  });
-
-  it("mapea AIUnavailable a causa que no depende del usuario", () => {
-    const info = resolveActorDiscoveryFailure({
-      error_code: "permanent_failure",
-      error_message:
-        "El job no pudo completarse. Causa: AIUnavailable: Signal tiene deshabilitada la IA para este consumidor.",
-    });
-    expect(info.kind).toBe("ai_unavailable");
-    expect(info.message).toMatch(/no depende/i);
+    expect(info.kind).toBe("generic");
     expect(info.actionHref).toBeUndefined();
   });
 });
@@ -123,6 +161,7 @@ describe("resolveActorDiscoveryFailure", () => {
 describe("ActorDiscoveryPanel — lenguaje de producto", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.authIdentity.user.platform_role = null;
     mocks.getDossier.mockResolvedValue(marketDossier());
     mocks.latest.mockResolvedValue({ job: null, artifact: null });
     mocks.run.mockResolvedValue({
@@ -163,14 +202,14 @@ describe("ActorDiscoveryPanel — lenguaje de producto", () => {
     expect(within(meta).queryByText("company")).not.toBeInTheDocument();
   });
 
-  it("con AIPolicyDenied muestra mensaje accionable y enlace a Administración IA", async () => {
+  it("propietario sin super_admin no recibe enlace a /app/admin/ai", async () => {
+    mocks.authIdentity.user.platform_role = null;
     mocks.latest.mockResolvedValue({
       job: {
         id: "job-fail",
         status: "failed",
-        error_code: "permanent_failure",
-        error_message:
-          "El job no pudo completarse. Causa: AIPolicyDenied: La IA está deshabilitada para este tenant.",
+        error_code: "ai_policy_denied",
+        error_message: "redacción distinta sin palabras clave antiguas",
       },
       artifact: null,
     });
@@ -178,21 +217,37 @@ describe("ActorDiscoveryPanel — lenguaje de producto", () => {
     const failed = await screen.findByTestId("actor-discovery-failed");
     expect(failed).toHaveAttribute("role", "alert");
     expect(failed).toHaveAttribute("data-failure-kind", "ai_policy_denied");
-    expect(failed).toHaveTextContent(/desactivad|deshabilitad/i);
-    expect(failed).toHaveTextContent(/Administración/i);
-    const link = screen.getByTestId("actor-discovery-failure-action");
-    expect(link).toHaveAttribute("href", "/app/admin/ai");
-    expect(screen.getByTestId("actor-discovery-status")).toHaveTextContent("Fallido");
+    expect(failed).toHaveTextContent(/administrador de plataforma/i);
+    expect(screen.queryByTestId("actor-discovery-failure-action")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /inteligencia artificial/i })).not.toBeInTheDocument();
   });
 
-  it("con AIUnavailable indica que no depende del usuario y no enlaza a admin tenant", async () => {
+  it("super_admin con ai_policy_denied ve enlace accionable", async () => {
+    mocks.authIdentity.user.platform_role = "super_admin";
     mocks.latest.mockResolvedValue({
       job: {
         id: "job-fail",
         status: "failed",
-        error_code: "permanent_failure",
-        error_message:
-          "El job no pudo completarse. Causa: AIUnavailable: Signal tiene deshabilitada la IA para este consumidor.",
+        error_code: "ai_policy_denied",
+        error_message: "otra redacción cualquiera",
+      },
+      artifact: null,
+    });
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    const failed = await screen.findByTestId("actor-discovery-failed");
+    expect(failed).toHaveAttribute("data-failure-kind", "ai_policy_denied");
+    const link = screen.getByTestId("actor-discovery-failure-action");
+    expect(link).toHaveAttribute("href", "/app/admin/ai");
+  });
+
+  it("con ai_provider_unavailable indica que no depende del usuario", async () => {
+    mocks.authIdentity.user.platform_role = null;
+    mocks.latest.mockResolvedValue({
+      job: {
+        id: "job-fail",
+        status: "failed",
+        error_code: "ai_provider_unavailable",
+        error_message: "prosa irrelevante",
       },
       artifact: null,
     });

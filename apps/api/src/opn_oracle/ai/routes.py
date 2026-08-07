@@ -140,8 +140,24 @@ class TenderSearchWizardJobSchema(Schema):
     started_at = String(allow_none=True)
     finished_at = String(allow_none=True)
     heartbeat_at = String(allow_none=True)
-    error_code = String(allow_none=True)
-    error_message = String(allow_none=True)
+    error_code = String(
+        allow_none=True,
+        metadata={
+            "description": (
+                "Código de fallo estable (snake_case). Conocidos de IA: "
+                "ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. "
+                "permanent_failure es el último recurso. No mostrar crudo al usuario."
+            )
+        },
+    )
+    error_message = String(
+        allow_none=True,
+        metadata={
+            "description": (
+                "Mensaje legible en español. La UI clasifica por error_code, no por este texto."
+            )
+        },
+    )
     cancel_requested = Boolean(required=True)
     result = Dict(keys=String(), values=Raw(), required=True)
     updated_at = String(required=True)
