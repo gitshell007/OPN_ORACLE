@@ -1,5 +1,6 @@
 export type { components, operations, paths } from "./generated/schema";
 export { ApiError, api, isProblem } from "./transport";
+export type { BinaryDownload } from "./transport";
 export type {
   AssignableUser,
   MembershipSummary,
@@ -12,13 +13,24 @@ export type {
   SignalMonitorEntityInput,
   SignalMonitorSourceType,
 } from "./transport";
-export type { DossierMemoryProfile } from "./transport";
+export type {
+  DossierMemoryProfile,
+  DossierMemoryScope,
+  EffectiveMemoryIdentity,
+} from "./transport";
 export type {
   AiAuditDetail,
   AiAuditListItem,
   AiAuditListQuery,
 } from "./transport";
-export type { DocumentSearchResult, OracleDocument } from "./transport";
+export type {
+  DocumentSearchResult,
+  OracleDocument,
+  PliegoAcquisitionItem,
+  PliegoAcquisitionResponse,
+  PliegoAcquisitionStatus,
+  PliegoPcapUploadResponse,
+} from "./transport";
 export type { BackendDossier } from "./transport";
 export type {
   DossierCollaborator,
@@ -52,6 +64,15 @@ export type {
   IntakeRecommendation,
   IntakeRunResponse,
   OpportunityAnalysisArtifact,
+  OpportunityOfferDraftSection,
+  OpportunityOfferDraftResource,
+  OpportunityOfferDraftResponse,
+  OpportunityOfferDraftCreateResponse,
+  OpportunityOfferDraftPatchInput,
+  OpportunityOfferLifecycleStatus,
+  OpportunityOfferLifecycleResource,
+  OpportunityOfferLifecycleResponse,
+  OpportunityOfferLifecyclePatchInput,
   OpportunityAnalysisOutput,
   OpportunityAnalysisRunResponse,
   RiskAnalysisArtifact,
@@ -110,6 +131,10 @@ export type {
   DossierProcurementKind,
   DossierProcurementListResponse,
   ActorAliasCandidate,
+  ActorAliasCandidateActor,
+  ActorAliasCandidatesMeta,
+  ActorAliasCandidatesResponse,
+  ActorMergePreview,
   ProcurementDocumentReportResponse,
   CustomBriefAccepted,
   CustomBriefDetail,
@@ -166,12 +191,28 @@ export type {
   TenderSearchWizardLatestResponse,
   TenderSearchWizardRunResponse,
   SourceUrlMeta,
+  CitableSourcePublic,
+  ReservedCitableSource,
   MarketCompetitorDiscoveryInput,
   MarketCompetitorCandidate,
   MarketCompetitorDiscoveryOutput,
   MarketCompetitorDiscoveryArtifact,
   MarketCompetitorDiscoveryRunResponse,
   MarketCompetitorDiscoveryLatestResponse,
+  MarketCompetitorSelection,
+  MarketCompetitorAcceptInput,
+  MarketCompetitorAcceptResponse,
+  MarketActorType,
+  MarketActorDiscoveryInput,
+  MarketActorCandidate,
+  MarketActorDiscoveryOutput,
+  MarketActorDiscoveryArtifact,
+  MarketActorDiscoveryRunResponse,
+  MarketActorDiscoveryLatestResponse,
+  MarketActorSelection,
+  MarketActorAcceptInput,
+  MarketActorAcceptResponse,
+  MaterializedEvidence,
   ProcurementSearchProfile,
   ProcurementSearchProfileList,
   CreateProcurementSearchProfile,

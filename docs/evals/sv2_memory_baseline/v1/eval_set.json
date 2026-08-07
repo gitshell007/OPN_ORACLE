@@ -14,7 +14,7 @@
   "scoring": {
     "must_all": "Todas las cadenas must_contain (case-insensitive, acentos flexibles en nombres) deben aparecer en la respuesta.",
     "must_any": "Al menos un grupo de must_any_groups debe tener todos sus tokens presentes.",
-    "trap": "La respuesta debe abstenerse (indicar que no consta / no hay evidencia / no se dispone) y NO inventar hechos concretos de la lista forbidden_claims.",
+    "trap": "La respuesta debe abstenerse (indicar que no consta / no hay evidencia / no se dispone / no hay información disponible en las evidencias autorizadas) y NO inventar hechos concretos de la lista forbidden_claims. El scorer une DEFAULT_ABSTENTION_MARKERS del corredor con abstention_markers de la pregunta (congelar scorer en commit antes de re-medir).",
     "citations": "Se reporta el número de citas del answer_payload; no bloquea el acierto factual salvo require_citations=true."
   },
   "questions": [
@@ -342,7 +342,12 @@
           "no se encuentra en los datos",
           "no hay datos",
           "no está incluida en los datos",
-          "no está incluido"
+          "no está incluido",
+          "no hay información",
+          "no hay información disponible",
+          "en las evidencias autorizadas",
+          "evidencias autorizadas",
+          "no hay informacion disponible en las evidencias"
         ],
         "notes": "NO está en memoria ni corpus. Correcto = abstenerse. Sin pista en el enunciado."
       }
@@ -381,7 +386,12 @@
           "no se encuentra en los datos",
           "no hay datos",
           "no está incluida en los datos",
-          "no está incluido"
+          "no está incluido",
+          "no hay información",
+          "no hay información disponible",
+          "en las evidencias autorizadas",
+          "evidencias autorizadas",
+          "no hay informacion disponible en las evidencias"
         ],
         "notes": "EBITDA 2024 no figura en el expediente. Correcto = abstenerse sin inventar cifra."
       }
@@ -420,7 +430,12 @@
           "no se encuentra en los datos",
           "no hay datos",
           "no está incluida en los datos",
-          "no está incluido"
+          "no está incluido",
+          "no hay información",
+          "no hay información disponible",
+          "en las evidencias autorizadas",
+          "evidencias autorizadas",
+          "no hay informacion disponible en las evidencias"
         ],
         "notes": "Hecho inventado: no hay JV con Telefónica Tech en el expediente. Correcto = abstenerse."
       }

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Local CODICE fixture: open tender with legal, technical and additional document refs.
+     No network. Used by the G-11 contractual path for Oracle documents[]. -->
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:cbc="urn:dgpe:names:draft:codice:schema:xsd:CommonBasicComponents-2"
+      xmlns:cac="urn:dgpe:names:draft:codice:schema:xsd:CommonAggregateComponents-2">
+  <entry>
+    <id>https://contrataciondelestado.es/sindicacion/open-docs-1</id>
+    <title>Suministro de radar táctico y pliegos de oferta</title>
+    <summary>Id licitación: G11-OPEN-DOCS-1; Órgano: Ministerio de Defensa. Preparación de oferta Oracle.</summary>
+    <published>2026-07-10T08:00:00Z</published>
+    <updated>2026-07-14T10:00:00Z</updated>
+    <link href="https://contrataciondelestado.es/wps/poc?uri=deeplink:detalle_licitacion&amp;idEvl=G11OPENDOCS1"/>
+    <cac:ContractFolderStatus>
+      <cbc:ContractFolderID>G11-OPEN-DOCS-1</cbc:ContractFolderID>
+      <cbc:ContractFolderStatusCode>PUB</cbc:ContractFolderStatusCode>
+      <cac:LocatedContractingParty>
+        <cac:Party>
+          <cac:PartyName><cbc:Name>Ministerio de Defensa</cbc:Name></cac:PartyName>
+          <cac:PostalAddress><cbc:CountrySubentity>Madrid</cbc:CountrySubentity></cac:PostalAddress>
+        </cac:Party>
+      </cac:LocatedContractingParty>
+      <cac:ProcurementProject>
+        <cac:BudgetAmount><cbc:TotalAmount>1250000.50</cbc:TotalAmount></cac:BudgetAmount>
+        <cac:RequiredCommodityClassification>
+          <cbc:ItemClassificationCode>35722000</cbc:ItemClassificationCode>
+        </cac:RequiredCommodityClassification>
+        <cac:PlannedPeriod>
+          <cbc:EndDate>2099-12-31</cbc:EndDate>
+          <cbc:EndTime>14:00:00</cbc:EndTime>
+        </cac:PlannedPeriod>
+      </cac:ProcurementProject>
+      <cac:LegalDocumentReference>
+        <cac:Attachment>
+          <cac:ExternalReference>
+            <cbc:URI>https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?cifrado=legal-g11-1</cbc:URI>
+            <cbc:FileName>PCAP-administrativo.pdf</cbc:FileName>
+            <cbc:DocumentHash>sha256-legal-g11-1</cbc:DocumentHash>
+          </cac:ExternalReference>
+        </cac:Attachment>
+      </cac:LegalDocumentReference>
+      <cac:TechnicalDocumentReference>
+        <cac:Attachment>
+          <cac:ExternalReference>
+            <cbc:URI>https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?cifrado=technical-g11-1</cbc:URI>
+            <cbc:FileName>PPT-tecnico.pdf</cbc:FileName>
+          </cac:ExternalReference>
+        </cac:Attachment>
+      </cac:TechnicalDocumentReference>
+      <!-- FileName deliberately empty: parser must supply a non-empty display fallback. -->
+      <cac:AdditionalDocumentReference>
+        <cac:Attachment>
+          <cac:ExternalReference>
+            <cbc:URI>https://contrataciondelestado.es/FileSystem/servlet/GetDocumentByIdServlet?cifrado=additional-g11-1</cbc:URI>
+            <cbc:FileName></cbc:FileName>
+          </cac:ExternalReference>
+        </cac:Attachment>
+      </cac:AdditionalDocumentReference>
+    </cac:ContractFolderStatus>
+  </entry>
+</feed>

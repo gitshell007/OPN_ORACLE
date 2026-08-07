@@ -75,15 +75,7 @@ cd "$REPO_DIR/apps/api"
 uv sync --frozen
 echo "== api unit tests =="
 cd "$REPO_DIR"
-if [[ -x scripts/api-test.sh ]]; then
-  bash scripts/api-test.sh --unit || {
-    echo "api-test.sh --unit failed; continuing only if env lacks DB (dev host will re-run post-import)" >&2
-    # On a host without test DB this may fail; require success when ORACLE_REQUIRE_API_UNIT=1
-    if [[ "${ORACLE_REQUIRE_API_UNIT:-0}" == "1" ]]; then
-      exit 1
-    fi
-  }
-fi
+bash scripts/lib/native_release_api_gate.sh "$REPO_DIR"
 
 echo "== materialize release tree =="
 install -d -m 0750 -o root -g opn-oracle "$RELEASE_DIR"

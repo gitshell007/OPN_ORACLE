@@ -2,6 +2,11 @@
 
 Base: auditoría de código del frontend (rutas, navegación, componentes) y docs de producto. Etiquetas: HECHO / INFERENCIA / RECOMENDACIÓN.
 
+> **Control 2026-08-07:** evaluación histórica interna. «Productiva» o «HECHO»
+> describe la observación original, no certifica el release vivo ni autoriza una
+> promesa. Para demo prevalece `ORACLE_DEMO_SCRIPT.md`; p63 bloquea solo la ruta
+> que incluya informe de entidad, no el recorrido canónico de contratación.
+
 ---
 
 ## 1. ¿La experiencia responde a las ocho preguntas?
@@ -45,7 +50,7 @@ El menú actual (HECHO: Trabajo estratégico / Inteligencia / Ejecución / Admin
 | Revisión de señales → promoción | HECHO, excelente (ETag, transiciones, evidencia) | Ninguno relevante |
 | Scoring explicado | HECHO (explicación + confianza + feedback) | Exponer "cómo puntuamos" en un tooltip/página corta para la demo |
 | Informes | HECHO | **PDF** (P0 comercial); plantilla go/no-go de licitación (P1, vendible) |
-| Informe de entidad | Roto en producción (p63) | **P0: estabilizar antes de cualquier demo** |
+| Informe de entidad | Históricamente bloqueado por p63 | **P0 antes de una demo que incluya este informe; no bloquea la demo canónica de contratación** |
 | Qué ha cambiado | HECHO | "Marcar revisado" pendiente (menor); digest por email (P0 retención) |
 | Móvil / accesibilidad | HECHO: listas móviles, ARIA, foco, teclado | Suficiente; no invertir más ahora |
 
@@ -56,7 +61,7 @@ HECHO: todo en español de España, con dos auditorías lingüísticas que elimi
 ## 7. Lo que puede perjudicar la adopción
 
 1. **Cold start** (INFERENCIA, riesgo nº1): tenant nuevo = señales vacías. Mitigar con onboarding que precarga PLACSP/BORME del cliente el día 1 y un monitor semilla por expediente.
-2. Generación asíncrona sin expectativas: informes tardan ~1-2 min (HECHO: ~80 s el de entidad); la UI ya usa JobProgress — en demo, pregenerar.
+2. Generación asíncrona sin expectativas: la latencia varía por release/proveedor/carga; la medición histórica no es SLA. La UI usa JobProgress; en una demo de informe, medir y disponer de respaldo pregenerado identificado como tal.
 3. Densidad para el patrocinador directivo: resuelto vía digest/PDF, no vía rediseño.
 
 ## 8. Qué es "premium sin sacrificar claridad"

@@ -25,7 +25,7 @@ SIGNAL_VERIFIED_RUNTIMES: dict[str, dict[str, str]] = {
     "RT-08": {
         "task_key": "report_custom_brief_plan",
         "runtime_id": "RT-08",
-        "prompt_sha256": "3768e8828e623cf69608ed799f900f389b4e3e9d57b85fbcc189bb67bf4c92fe",
+        "prompt_sha256": "d9ebd175f23dcb0f83f1ad43b45ecac0afe9990a64cd5bd21c2223e067c84e7f",
         "schema_sha256": "949a1b57b628246594ffc169d77a7cb676a11d90fa43a5910ab455920e7028f7",
         "prompt_version": "1.0.2",
         "schema_version": "custom_brief_plan.v1",
@@ -33,15 +33,15 @@ SIGNAL_VERIFIED_RUNTIMES: dict[str, dict[str, str]] = {
     "RT-09": {
         "task_key": "report_custom_writer",
         "runtime_id": "RT-09",
-        "prompt_sha256": "39b0397fe5e91678e7bb152213b4a4b9fa3dbbb75c1e77af2cf55c1c0d633973",
+        "prompt_sha256": "829d609bf0d0d8e1975e774208cb372eff369ea17fa1d01956a6951478f6d3d3",
         "schema_sha256": "e80bfa4f2e3bd211af6de9eb6d9840081bf93873b2c60cca164039cec4ff77c5",
-        "prompt_version": "1.0.1",
+        "prompt_version": "1.0.2",
         "schema_version": "custom_report_writer.v1",
     },
     "RT-10": {
         "task_key": "report_custom_review",
         "runtime_id": "RT-10",
-        "prompt_sha256": "5c8d6f60454013757605306e24d3e00fae7c1a204c77639a7e398821454c6d07",
+        "prompt_sha256": "4699d12b0d51188b5cbdf0a3ef320983c0cf3893d515b2dccc1d3bbab4a5b5ea",
         "schema_sha256": "921c5a06ec686f975de01b0bec0556857cc1c2b2cc9e8121240d94c412a44710",
         "prompt_version": "1.0.1",
         "schema_version": "custom_report_review.v1",

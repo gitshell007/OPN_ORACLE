@@ -403,7 +403,12 @@ def get_memory_context_adapter() -> MemoryContextAdapter:
 
 
 def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str, Any]:
-    """Health/capability for UI — no secrets."""
+    """Health/capability for UI — no secrets.
+
+    G-29 honesty: retrieval is always dossier-scoped when enabled. There is no
+    global, cross-tenant or tenant_curated memory capability in the motor.
+    Available operational modes are disabled|shadow|augment only.
+    """
     eff = resolve_effective_mode(
         host_memory_context_mode=host_mode,
         connection_healthy=connection_healthy,
@@ -414,23 +419,26 @@ def capability_payload(*, host_mode: str, connection_healthy: bool) -> dict[str,
     host = str(host_mode or "").strip().lower() or "disabled"
     host_enabled = host not in {"disabled", "mock"}
     publisher_ok = bool(connection_healthy and host_enabled)
+    # Público: solo señales de salud comprensibles. Códigos internos de deuda
+    # (RACE/DB/SEC/MIG-MDEV*) y actions_reliable quedan fuera del contrato cliente.
     return {
         "host_mode": host_mode,
         "effective_mode": eff.mode,
         "publisher_reliable": publisher_ok,
         "publisher_status": "ok" if publisher_ok else "unavailable",
-        "deferred_blockers": [
-            "RACE-MDEV02-003",
-            "DB-MDEV02-001",
-            "MIG-MDEV02-002",
-            "SEC-MDEV03-001",
-        ],
-        "actions_reliable": False,
         "message": (
-            "Memory retrieve path operational."
+            "Memory retrieve path operational (dossier-scoped only)."
             if publisher_ok
             else "Memory publisher unavailable (host disabled or connection unhealthy)."
         ),
+        # Explicit non-claims so UI/OpenAPI cannot imply total memory.
+        "scope_type": "dossier",
+        "dossier_only": True,
+        "uses_global_memory": False,
+        "uses_tenant_curated": False,
+        "cross_tenant": False,
+        "available_modes": ["augment", "disabled", "shadow"],
+        "retrieval_semantics": "dossier_scoped_signal_memory_v1",
     }
 
 
@@ -468,6 +476,18 @@ def persist_retrieval_snapshot(
         "schema": "memory.v1",
         # Reflect real failure; do not invent publisher debt on healthy retrieves.
         "publisher_degraded": bool(snapshot.get("failed")),
+        # G-29: snapshot preserves mode + identity of scoped retrieval.
+        "tenant_id": str(tenant_id),
+        "dossier_id": str(dossier_id),
+        "connection_id": str(connection_id) if connection_id else None,
+        "scope_type": "dossier",
+        "profile_version": snapshot.get("profile_version"),
+        "profile_id": snapshot.get("profile_id"),
+        "item_ids_used": [
+            str(it.get("id") or it.get("signal_item_id") or "")
+            for it in items_list[:50]
+            if isinstance(it, dict)
+        ],
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     if len(raw) > 200_000:

@@ -145,9 +145,10 @@ def _wire_session(monkeypatch: pytest.MonkeyPatch, session: _FakeSession) -> Non
 
 
 @pytest.mark.unit
-def test_get_profile_returns_ephemeral_without_commit(
+def test_get_profile_returns_legacy_missing_without_commit(
     app: Any, client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """G-29: missing row → legacy_missing, zero writes on GET."""
     with _authenticated_http_probe(app, monkeypatch, frozenset({"dossier.read"})) as (
         _user,
         tenant_id,
@@ -159,7 +160,12 @@ def test_get_profile_returns_ephemeral_without_commit(
     assert resp.status_code == 200, resp.get_json()
     body = resp.get_json()
     assert body["persisted"] is False
+    assert body["status"] == "legacy_missing"
+    assert body["state"] == "legacy_missing"
     assert body["mode"] == "disabled"
+    assert body["scope"]["dossier_only"] is True
+    assert body["scope"]["uses_global_memory"] is False
+    assert body["scope"]["uses_tenant_curated"] is False
     assert body["etag"]
     assert resp.headers.get("ETag") == body["etag"]
     assert session.commits == 0

@@ -2,6 +2,12 @@
 
 Etiqueta: `#ORACLE#EXP#INVESTIGACIONES` · Estado: **borrador para revisión** · Fecha: 2026-07-23
 
+> **CONTROL DE VIGENCIA 2026-08-07:** documento exploratorio e histórico, no
+> material comercial ni contrato. Las etiquetas «Producción», porcentajes,
+> precios de terceros y afirmaciones legales describen la investigación de julio
+> y no acreditan el release/despliegue actual. Deben revalidarse en código,
+> entorno y fuentes primarias antes de implementar, presupuestar o comunicar.
+
 Objetivo del documento: dado un objetivo de investigación (p. ej. la filial española de una
 multinacional), mapear su red de administradores y sociedades vinculadas en varios niveles,
 cruzar esa red con la contratación pública, y producir un informe con listados + narrativa

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import json
 import uuid
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 from opn_oracle.ai.context import (
     declared_evidence_id,
@@ -18,6 +22,8 @@ from opn_oracle.ai.draft_offer import (
     unique_gap_strings,
 )
 from opn_oracle.ai.draft_prose import (
+    DraftProseBatchOutput,
+    _batch_llm_polish,
     extract_protected_tokens,
     polish_draft_offer_prose,
     polish_text_with_guardrail,
@@ -505,6 +511,266 @@ def test_polish_fallback_on_invention_per_section() -> None:
     assert sec["prose_polished"] is False
     assert sec["our_response_draft"] == seed
     assert str(sec.get("prose_polish_reason") or "").startswith("invented_tokens")
+
+
+class _ScriptedProseProvider:
+    """Proveedor local: ejercita el contrato gobernado sin red ni coste."""
+
+    def __init__(self, *actions: Any) -> None:
+        self.actions = list(actions)
+        self.requests: list[Any] = []
+        self.schemas: list[type[Any]] = []
+
+    def generate_structured(self, request: Any, schema: type[Any]) -> Any:
+        self.requests.append(request)
+        self.schemas.append(schema)
+        action = self.actions.pop(0)
+        if isinstance(action, BaseException):
+            raise action
+        return SimpleNamespace(output=action)
+
+
+def test_batch_prose_uses_governed_task_fallback_chain_and_validates_dict() -> None:
+    """Una tarea no autorizada cae solo a task_keys gobernadas y conserva el contrato."""
+
+    seed = "[borrador declarado — no es hecho] Respuesta sobre F.2."
+    provider = _ScriptedProseProvider(
+        RuntimeError("TASK_NOT_ALLOWED: draft_prose_polish"),
+        RuntimeError("La tarea opportunity no está autorizada"),
+        {
+            "sections": [{"key": "economic", "polished_text": seed}],
+            "statement": "Resumen comercial sin datos nuevos.",
+        },
+    )
+
+    output = _batch_llm_polish(
+        provider,
+        sections=[("economic", seed)],
+        statement="Resumen comercial.",
+        max_output_tokens=777,
+    )
+
+    assert isinstance(output, DraftProseBatchOutput)
+    assert output.sections[0].key == "economic"
+    assert output.statement == "Resumen comercial sin datos nuevos."
+    assert [request.agent for request in provider.requests] == [
+        "draft_prose_polish",
+        "opportunity",
+        "tender_summary",
+    ]
+    assert all(request.model == "qwen3.6:27b" for request in provider.requests)
+    assert all(request.classification == "internal" for request in provider.requests)
+    assert all(request.max_output_tokens == 777 for request in provider.requests)
+    assert all(
+        request.context["draft_prose_polish"] == "sv2_prosa_v1" for request in provider.requests
+    )
+    assert provider.schemas == [DraftProseBatchOutput] * 3
+
+
+def test_batch_prose_accepts_object_output_after_aiunavailable_fallback() -> None:
+    """Signal puede devolver un objeto compatible; también se valida antes de usarlo."""
+
+    class ProviderAIUnavailable(RuntimeError):
+        pass
+
+    provider = _ScriptedProseProvider(
+        ProviderAIUnavailable("consumer task unavailable"),
+        SimpleNamespace(
+            sections=[
+                {
+                    "key": "technical",
+                    "polished_text": "[borrador declarado — no es hecho] Respuesta técnica.",
+                }
+            ],
+            statement="Resumen técnico.",
+        ),
+    )
+
+    output = _batch_llm_polish(
+        provider,
+        sections=[("technical", "[borrador declarado — no es hecho] Semilla técnica.")],
+        statement="Resumen.",
+    )
+
+    assert [request.agent for request in provider.requests] == [
+        "draft_prose_polish",
+        "opportunity",
+    ]
+    assert output.sections[0].key == "technical"
+    assert output.statement == "Resumen técnico."
+
+
+def test_batch_prose_propagates_non_authorization_provider_errors() -> None:
+    provider = _ScriptedProseProvider(TimeoutError("Signal no responde"))
+
+    with pytest.raises(TimeoutError, match="Signal no responde"):
+        _batch_llm_polish(
+            provider,
+            sections=[("economic", "[borrador declarado — no es hecho] Semilla.")],
+            statement="Resumen.",
+        )
+
+    assert [request.agent for request in provider.requests] == ["draft_prose_polish"]
+
+
+def test_batch_prose_fails_closed_when_no_governed_task_is_authorized() -> None:
+    provider = _ScriptedProseProvider(
+        RuntimeError("task_not_allowed"),
+        RuntimeError("no esta autorizada"),
+        RuntimeError("no está autorizada: tender_summary"),
+    )
+
+    with pytest.raises(RuntimeError, match="tender_summary"):
+        _batch_llm_polish(
+            provider,
+            sections=[("economic", "[borrador declarado — no es hecho] Semilla.")],
+            statement="Resumen.",
+        )
+
+    assert [request.agent for request in provider.requests] == [
+        "draft_prose_polish",
+        "opportunity",
+        "tender_summary",
+    ]
+
+
+def test_batch_prose_preserves_already_validated_model_output() -> None:
+    expected = DraftProseBatchOutput.model_validate(
+        {
+            "sections": [
+                {
+                    "key": "economic",
+                    "polished_text": "[borrador declarado — no es hecho] Respuesta.",
+                }
+            ],
+            "statement": None,
+        }
+    )
+    provider = _ScriptedProseProvider(expected)
+
+    output = _batch_llm_polish(
+        provider,
+        sections=[("economic", "[borrador declarado — no es hecho] Semilla.")],
+        statement="",
+    )
+
+    assert output is expected
+
+
+def test_polish_draft_offer_with_provider_preserves_seeds_and_section_budget() -> None:
+    """El batch pule solo el presupuesto pedido y deja trazabilidad por sección."""
+
+    first_seed = "[borrador declarado — no es hecho] Semilla económica sin cifras."
+    deferred_seed = "[borrador declarado — no es hecho] Semilla técnica sin cifras."
+    provider = _ScriptedProseProvider(
+        {
+            "sections": [
+                {
+                    "key": "economic",
+                    "polished_text": "Respuesta económica más natural, sin cifras.",
+                }
+            ],
+            "statement": "Resumen ejecutivo más natural.",
+        }
+    )
+    draft = {
+        "statement": "Resumen ejecutivo original.",
+        "sections": [
+            {"key": "economic", "our_response_draft": first_seed},
+            "entrada inválida que debe ignorarse",
+            {
+                "key": "technical",
+                "our_response_draft": deferred_seed,
+                "our_response_seed": deferred_seed,
+            },
+            {"key": "empty", "our_response_draft": ""},
+        ],
+    }
+
+    output = polish_draft_offer_prose(draft, provider=provider, max_sections=1)
+
+    assert output["statement_seed"] == "Resumen ejecutivo original."
+    assert output["statement"] == "Resumen ejecutivo más natural."
+    assert output["statement_prose_polished"] is True
+    assert output["prose_polished_count"] == 2
+    assert len(output["sections"]) == 3
+    first, deferred, empty = output["sections"]
+    assert first["our_response_seed"] == first_seed
+    assert first["our_response_draft"].startswith("[borrador declarado — no es hecho]")
+    assert first["prose_polished"] is True
+    assert first["prose_polish_reason"] == "ok"
+    assert deferred["our_response_draft"] == deferred_seed
+    assert deferred["prose_polished"] is False
+    assert deferred["prose_polish_reason"] == "fallback:no_candidate"
+    assert empty["prose_polished"] is False
+    assert len(provider.requests) == 1
+    assert "economic" in provider.requests[0].task_prompt
+    assert "technical" not in provider.requests[0].task_prompt
+
+
+def test_polish_draft_offer_falls_back_as_one_batch_on_provider_failure() -> None:
+    seed = "[borrador declarado — no es hecho] Semilla comercial."
+    provider = _ScriptedProseProvider(TimeoutError("Signal agotó el plazo"))
+
+    output = polish_draft_offer_prose(
+        {
+            "statement": "Resumen original.",
+            "sections": [{"key": "economic", "our_response_draft": seed}],
+        },
+        provider=provider,
+    )
+
+    section = output["sections"][0]
+    assert section["our_response_draft"] == seed
+    assert section["prose_polished"] is False
+    assert section["prose_polish_reason"] == "fallback:TimeoutError"
+    assert output["statement"] == "Resumen original."
+    assert output["statement_prose_polished"] is False
+    assert output["statement_prose_polish_reason"] == "fallback:TimeoutError"
+    assert output["prose_polished_count"] == 0
+
+
+def test_polish_draft_offer_disabled_invalid_and_empty_statement_candidate() -> None:
+    seed = "[borrador declarado — no es hecho] Semilla comercial."
+    assert polish_draft_offer_prose([]) == {}
+
+    disabled = polish_draft_offer_prose(
+        {"statement": "Resumen.", "sections": [{"our_response_draft": seed}]}
+    )
+    assert disabled["sections"][0]["prose_polished"] is False
+    assert disabled["sections"][0]["prose_polish_reason"] == "polish_disabled"
+    assert disabled["statement_prose_polished"] is False
+
+    def empty_statement(key: str, _text: str) -> str:
+        if key == "statement":
+            return "   "
+        return seed
+
+    empty = polish_draft_offer_prose(
+        {"statement": "Resumen.", "sections": [{"our_response_draft": seed}]},
+        polish_fn=empty_statement,
+    )
+    assert empty["statement"] == "Resumen."
+    assert empty["statement_prose_polished"] is False
+    assert empty["statement_prose_polish_reason"] == "empty"
+
+
+def test_polish_draft_offer_rejects_invented_statement_tokens() -> None:
+    seed = "[borrador declarado — no es hecho] Semilla comercial."
+
+    def invented_statement(key: str, _text: str) -> str:
+        if key == "statement":
+            return "Resumen con presupuesto 9999."
+        return seed
+
+    output = polish_draft_offer_prose(
+        {"statement": "Resumen sin presupuesto.", "sections": [{"our_response_draft": seed}]},
+        polish_fn=invented_statement,
+    )
+
+    assert output["statement"] == "Resumen sin presupuesto."
+    assert output["statement_prose_polished"] is False
+    assert output["statement_prose_polish_reason"] == "invented_tokens:9999"
 
 
 def test_opportunity_schema_accepts_prose_fields() -> None:

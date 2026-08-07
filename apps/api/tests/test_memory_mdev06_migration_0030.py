@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from flask_migrate import downgrade, upgrade
 from sqlalchemy import create_engine, text
 
 from opn_oracle import create_app
+from tests.conftest import assert_integration_schema_head
 
 pytestmark = pytest.mark.integration
 
@@ -43,7 +46,8 @@ def _env() -> tuple[str, str, str]:
     return migration_url, runtime_url, redis_url
 
 
-def test_memory_signal_0030_up_down_up_counts() -> None:
+@pytest.fixture
+def migration_0030_state() -> Iterator[tuple[Any, Any, uuid.UUID, str, str]]:
     migration_url, runtime_url, redis_url = _env()
     app = create_app(
         {
@@ -62,6 +66,25 @@ def test_memory_signal_0030_up_down_up_counts() -> None:
 
     migrator = create_engine(migration_url)
     tenant_id = uuid.uuid4()
+    try:
+        yield app, migrator, tenant_id, migration_url, migrations
+    finally:
+        # Restore the real checkout head and remove all rows owned by this test even
+        # when its body fails at an intermediate migration revision.
+        try:
+            with app.app_context():
+                upgrade(directory=migrations, revision="head")
+            with migrator.begin() as connection:
+                connection.execute(text("DELETE FROM tenants WHERE id=:id"), {"id": tenant_id})
+            assert_integration_schema_head(migration_url, migrations)
+        finally:
+            migrator.dispose()
+
+
+def test_memory_signal_0030_up_down_up_counts(
+    migration_0030_state: tuple[Any, Any, uuid.UUID, str, str],
+) -> None:
+    app, migrator, tenant_id, _, migrations = migration_0030_state
     evidence_id = uuid.uuid4()
     with migrator.begin() as connection:
         # Minimal tenant for FK if required — evidence.tenant_id FK to tenants.
@@ -135,3 +158,35 @@ def test_memory_signal_0030_up_down_up_counts() -> None:
             text("SELECT count(*) FROM evidence WHERE source_kind='memory_signal'")
         )
         assert count >= 1
+
+
+def test_migration_0030_finalizer_restores_head_after_consumer_failure() -> None:
+    """Drive the yield fixture with a thrown exception and verify real DB cleanup."""
+
+    fixture = migration_0030_state.__wrapped__()
+    app, migrator, tenant_id, migration_url, migrations = next(fixture)
+    with migrator.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO tenants(id, slug, name, status, locale, timezone, settings, "
+                "created_at, updated_at) VALUES ("
+                ":id, :slug, 'MDEV06-finalizer', 'active', 'es-ES', 'UTC', "
+                "'{}'::jsonb, now(), now())"
+            ),
+            {"id": tenant_id, "slug": f"mdev06-finalizer-{tenant_id.hex[:8]}"},
+        )
+    with app.app_context():
+        downgrade(directory=migrations, revision="20260802_0029")
+    with pytest.raises(RuntimeError, match="simulated migration-test failure"):
+        fixture.throw(RuntimeError("simulated migration-test failure"))
+
+    assert_integration_schema_head(migration_url, migrations)
+    verification = create_engine(migration_url)
+    try:
+        with verification.connect() as connection:
+            residue = connection.scalar(
+                text("SELECT count(*) FROM tenants WHERE id=:id"), {"id": tenant_id}
+            )
+    finally:
+        verification.dispose()
+    assert residue == 0

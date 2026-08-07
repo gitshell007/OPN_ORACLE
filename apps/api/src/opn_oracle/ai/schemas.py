@@ -1280,16 +1280,49 @@ class SourceUrlMeta(StrictModel):
     verified: bool = False
 
 
+class CitableSourcePublic(StrictModel):
+    """UI-facing closed source (no provider/checksum internals)."""
+
+    source_id: UUID
+    title: str = Field(default="", max_length=300)
+    url: str = Field(default="", max_length=1500)
+    snippet: str = Field(default="", max_length=800)
+    rank: int = Field(default=1, ge=0, le=100)
+    domain: str = Field(default="", max_length=300)
+    label: str = Field(default="", max_length=300)
+    origin: str = Field(default="web_search", max_length=40)
+    origin_label: str = Field(default="Fuente encontrada por búsqueda", max_length=120)
+
+
+class ReservedCitableSource(StrictModel):
+    """Server-owned reservation (audit fields retained for materialization)."""
+
+    source_id: UUID
+    title: str = Field(default="", max_length=300)
+    url: str = Field(default="", max_length=1500)
+    snippet: str = Field(default="", max_length=800)
+    provider: str = Field(default="", max_length=40)
+    rank: int = Field(default=1, ge=0, le=100)
+    content_checksum: str = Field(default="", max_length=80)
+    origin: str = Field(default="web_search", max_length=40)
+    domain: str = Field(default="", max_length=300)
+    label: str = Field(default="", max_length=300)
+    origin_label: str = Field(default="Fuente encontrada por búsqueda", max_length=120)
+
+
 class MarketCompetitorCandidate(StrictModel):
     name: str = Field(min_length=1, max_length=300)
     country: str = Field(default="", max_length=120)
     rationale: str = Field(min_length=1, max_length=1000)
-    # list[str] sin AnyUrl a propósito histórico; la política en
-    # ``source_url_policy`` sanea forma http(s)+host y etiqueta «no verificada».
+    # G-18: authoritative citations are evidence_ids (= Signal source_id).
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    # Deprecated read-compat: model URLs never accredit; not used for Evidence.
     source_urls: list[str] = Field(default_factory=list, max_length=5)
     source_urls_meta: list[SourceUrlMeta] = Field(default_factory=list, max_length=5)
     source_urls_status: str | None = None
     source_urls_label: str | None = None
+    # Server/UI projection of closed sources cited by this candidate.
+    citable_sources: list[CitableSourcePublic] = Field(default_factory=list, max_length=8)
     confidence: int = Field(ge=0, le=100)
 
     @model_validator(mode="after")
@@ -1301,6 +1334,7 @@ class MarketCompetitorCandidate(StrictModel):
             sanitize_source_urls,
         )
 
+        # Keep deprecated URLs labelled if present, but they never accredit.
         cleaned = sanitize_source_urls(self.source_urls, max_items=5)
         meta = annotate_source_urls(cleaned, max_items=5)
         self.source_urls = cleaned
@@ -1314,7 +1348,11 @@ class MarketCompetitorDiscoveryOutput(StrictModel):
     """Candidate competitors for a market; the user reviews and picks, never auto-added."""
 
     candidates: list[MarketCompetitorCandidate] = Field(default_factory=list, max_length=15)
-    warnings: list[str] = Field(default_factory=list, max_length=10)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    # Server-owned closed sources cited by surviving candidates (tenant/artifact scoped).
+    reserved_citable_sources: list[ReservedCitableSource] = Field(
+        default_factory=list, max_length=20
+    )
 
     @model_validator(mode="after")
     def _label_unverified_sources(self) -> MarketCompetitorDiscoveryOutput:
@@ -1324,11 +1362,119 @@ class MarketCompetitorDiscoveryOutput(StrictModel):
         if not has_urls:
             return self
         note = (
-            "Las source_urls se validan solo en forma (http/https + host) y se etiquetan "
-            f"«{SOURCE_URL_UNVERIFIED_LABEL}»; no se comprueba su contenido en red."
+            "Las source_urls del modelo (si aparecen) se etiquetan "
+            f"«{SOURCE_URL_UNVERIFIED_LABEL}» y no acreditan al candidato; "
+            "solo evidence_ids de citable_sources de Signal son citas."
         )
         if note not in self.warnings:
-            self.warnings = [*self.warnings, note][:10]
+            self.warnings = [*self.warnings, note][:20]
+        return self
+
+
+# G-19 · actores no competidores (grupos de investigación, centros, etc.).
+MarketActorType = Literal[
+    "company",
+    "research_group",
+    "technology_center",
+    "regulator",
+    "potential_customer",
+]
+MARKET_ACTOR_TYPES: tuple[str, ...] = (
+    "company",
+    "research_group",
+    "technology_center",
+    "regulator",
+    "potential_customer",
+)
+
+
+class MarketActorCandidate(StrictModel):
+    """Candidate non-competitor actor; human reviews before materialization.
+
+    G-20-B: optional structured identity/ranking snapshot fields from Signal
+    free sources (RNSR/ROR/HAL/CORDIS). Model free-text never overrides ids.
+    """
+
+    actor_type: MarketActorType
+    organization: str = Field(min_length=1, max_length=300)
+    affiliation: str = Field(default="", max_length=300)
+    country: str = Field(default="", max_length=120)
+    summary: str = Field(default="", max_length=1000)
+    # Compat with shared citable gate warnings (organization identity).
+    rationale: str = Field(default="", max_length=1000)
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    source_urls: list[str] = Field(default_factory=list, max_length=5)
+    source_urls_meta: list[SourceUrlMeta] = Field(default_factory=list, max_length=5)
+    source_urls_status: str | None = None
+    source_urls_label: str | None = None
+    citable_sources: list[CitableSourcePublic] = Field(default_factory=list, max_length=8)
+    confidence: int = Field(ge=0, le=100)
+    # G-20-B structured snapshot (server-owned after gate; optional for legacy web-only).
+    ids: dict[str, str] = Field(default_factory=dict)
+    identity_status: str = Field(default="", max_length=40)
+    identity_reasons: list[str] = Field(default_factory=list, max_length=20)
+    unresolved_reason: str | None = Field(default=None, max_length=200)
+    rank: int | None = Field(default=None, ge=1, le=100)
+    score: float | None = Field(default=None, ge=0, le=200)
+    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    ranking_reasons: list[str] = Field(default_factory=list, max_length=30)
+    affiliations: list[str] = Field(default_factory=list, max_length=20)
+    parent_organization: str | None = Field(default=None, max_length=300)
+    merge_rules_applied: list[str] = Field(default_factory=list, max_length=20)
+    candidate_key: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _normalize_and_policy(self) -> MarketActorCandidate:
+        from opn_oracle.ai.source_url_policy import (
+            SOURCE_URL_UNVERIFIED_LABEL,
+            SOURCE_URL_UNVERIFIED_STATUS,
+            annotate_source_urls,
+            sanitize_source_urls,
+        )
+
+        # Prefer summary; fall back to rationale (and vice versa) so either field works.
+        summary = " ".join((self.summary or "").split())
+        rationale = " ".join((self.rationale or "").split())
+        if not summary and rationale:
+            summary = rationale
+        if not rationale and summary:
+            rationale = summary
+        if not summary:
+            raise ValueError("summary o rationale es obligatorio")
+        self.summary = summary[:1000]
+        self.rationale = rationale[:1000]
+        cleaned = sanitize_source_urls(self.source_urls, max_items=5)
+        meta = annotate_source_urls(cleaned, max_items=5)
+        self.source_urls = cleaned
+        self.source_urls_meta = [SourceUrlMeta.model_validate(item) for item in meta]
+        self.source_urls_status = SOURCE_URL_UNVERIFIED_STATUS if cleaned else None
+        self.source_urls_label = SOURCE_URL_UNVERIFIED_LABEL if cleaned else None
+        return self
+
+
+class MarketActorDiscoveryOutput(StrictModel):
+    """Candidate actors for a market; user reviews and picks, never auto-added."""
+
+    candidates: list[MarketActorCandidate] = Field(default_factory=list, max_length=15)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    reserved_citable_sources: list[ReservedCitableSource] = Field(
+        default_factory=list, max_length=20
+    )
+
+    @model_validator(mode="after")
+    def _label_unverified_sources(self) -> MarketActorDiscoveryOutput:
+        from opn_oracle.ai.source_url_policy import SOURCE_URL_UNVERIFIED_LABEL
+
+        has_urls = any(item.source_urls for item in self.candidates)
+        if not has_urls:
+            return self
+        note = (
+            "Las source_urls del modelo (si aparecen) se etiquetan "
+            f"«{SOURCE_URL_UNVERIFIED_LABEL}» y no acreditan al candidato; "
+            "solo evidence_ids de citable_sources de Signal son citas."
+        )
+        if note not in self.warnings:
+            self.warnings = [*self.warnings, note][:20]
         return self
 
 
@@ -1352,4 +1498,5 @@ AGENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "dossier_question_answer": DossierQuestionAnswerOutput,
     "report_custom_brief_plan": ReportCustomBriefPlanOutput,
     "market_competitor_discovery": MarketCompetitorDiscoveryOutput,
+    "market_actor_discovery": MarketActorDiscoveryOutput,
 }

@@ -5,6 +5,9 @@ Lanza el set versionado de preguntas por el camino real de Preguntar (augment),
 evalúa criterios verificables, mide latencias y, para un subconjunto, compara
 contra «buscar en la carpeta» (grep sobre el corpus fuente del expediente).
 
+Cada corrida registra release_id / release_sha del entorno medido (GET /api/v1/meta).
+Si el entorno no expone release, la corrida falla de forma visible (no se mide a ciegas).
+
   python3 scripts/sv2_memory_baseline.py
   python3 scripts/sv2_memory_baseline.py --limit 3          # smoke
   python3 scripts/sv2_memory_baseline.py --ids Q01,Q12,Q16  # subset
@@ -45,6 +48,7 @@ from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +73,43 @@ DEFAULT_ORACLE_SSH = "root@oracle-dev.opnconsultoria.com"
 DEFAULT_BASE_URL = "https://oracle-dev.opnconsultoria.com"
 DEFAULT_REMOTE_CREDS = "/root/sv2_demo_owner_credentials.txt"
 DEFAULT_ASK_TIMEOUT_S = 180
+REPORT_TZ = ZoneInfo("Europe/Madrid")
+
+# Scorer freeze surface: default markers unioned with per-question markers.
+# Includes the manual-form abstention used by Preguntar on oracle-dev
+# («No hay información disponible en las evidencias autorizadas…»).
+DEFAULT_ABSTENTION_MARKERS: tuple[str, ...] = (
+    "no consta",
+    "no se dispone",
+    "no hay evidencia",
+    "no hay informacion",
+    "no hay información disponible",
+    "en las evidencias autorizadas",
+    "evidencias autorizadas",
+    "no figura",
+    "no aparece",
+    "sin informacion",
+    "no se encuentra",
+    "no tengo informacion",
+    "no esta en",
+    "no disponible",
+    "no se menciona",
+    "no se indica",
+    "desconozco",
+    "no puedo determinar",
+    "no se especifica",
+    "no se aporta",
+    "carece de",
+    "no existe evidencia",
+    "no esta incluida",
+    "no se ha proporcionado",
+    "no se proporciona",
+    "no se ha registrado",
+    "no se encuentra en los datos",
+    "no hay datos",
+    "no esta incluida en los datos",
+    "no esta incluido",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -295,13 +336,27 @@ def score_fact(answer: str, criteria: dict[str, Any]) -> tuple[bool, str]:
 
 
 def score_trap(answer: str, criteria: dict[str, Any]) -> tuple[bool, str]:
+    """Score a trap question: correct = explicit abstention, no invented claim.
+
+    Markers are the union of DEFAULT_ABSTENTION_MARKERS and per-question
+    ``abstention_markers``. This is intentional scorer surface (frozen in git
+    before re-measurement — do not silently widen mid-run without a commit).
+    """
     if not answer or not answer.strip():
         return False, "empty_answer"
     lower = fold(answer)
-    markers = [fold(m) for m in (criteria.get("abstention_markers") or [])]
-    abstained = any(m in lower for m in markers if m)
-    if abstained:
-        return True, "abstained"
+    question_markers = [str(m) for m in (criteria.get("abstention_markers") or [])]
+    markers = [fold(m) for m in (*DEFAULT_ABSTENTION_MARKERS, *question_markers) if m]
+    # Dedup preserving order
+    seen: set[str] = set()
+    uniq_markers: list[str] = []
+    for m in markers:
+        if m and m not in seen:
+            seen.add(m)
+            uniq_markers.append(m)
+    for m in uniq_markers:
+        if m in lower:
+            return True, "abstained"
     return False, "no_abstention"
 
 
@@ -624,10 +679,16 @@ class RunReport:
     schema: str = "sv2-memory-baseline-run-v1"
     started_at: str = ""
     finished_at: str = ""
+    measured_at: str = ""
+    measured_at_tz: str = "Europe/Madrid"
     eval_set_id: str = ""
     eval_set_version: str = ""
     dossier_id: str = ""
     base_url: str = ""
+    release_id: str = ""
+    release_sha: str = ""
+    release_environment: str = ""
+    scorer_freeze_sha: str = ""
     n_questions: int = 0
     n_jobs_ok: int = 0
     n_fact: int = 0
@@ -646,16 +707,225 @@ class RunReport:
     folder_compare: dict[str, Any] = field(default_factory=dict)
     results: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    statement: str = ""
 
 
-def summarize(results: list[AskResult], *, eval_meta: dict[str, Any], base_url: str) -> RunReport:
+def now_madrid_iso() -> str:
+    return datetime.now(REPORT_TZ).isoformat(timespec="seconds")
+
+
+def now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def fetch_release_meta(base_url: str, *, timeout: float = 20.0) -> dict[str, str]:
+    """GET /api/v1/meta from the measured environment. Fail closed if no release."""
+    url = base_url.rstrip("/") + "/api/v1/meta"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8") if resp else ""
+            status = int(resp.status)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(
+            f"FATAL: /api/v1/meta HTTP {error.code} — no se mide a ciegas."
+        ) from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            f"FATAL: /api/v1/meta inalcanzable ({error.reason!r}) — no se mide a ciegas."
+        ) from error
+    if status != 200:
+        raise RuntimeError(f"FATAL: /api/v1/meta HTTP {status} — no se mide a ciegas.")
+    try:
+        payload = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f"FATAL: /api/v1/meta no es JSON ({raw[:200]!r}) — no se mide a ciegas."
+        ) from error
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"FATAL: /api/v1/meta payload inesperado: {payload!r}")
+
+    release_id = str(payload.get("release") or "").strip()
+    if not release_id:
+        raise RuntimeError(
+            f"FATAL: /api/v1/meta sin campo release (payload={payload!r}) — "
+            "no se mide a ciegas."
+        )
+
+    release_sha = str(
+        payload.get("git_sha")
+        or payload.get("sha")
+        or payload.get("commit")
+        or ""
+    ).strip()
+    if not release_sha:
+        match = re.search(r"([0-9a-f]{7,40})$", release_id, flags=re.IGNORECASE)
+        if match:
+            release_sha = match.group(1)
+
+    if not release_sha:
+        raise RuntimeError(
+            f"FATAL: no se pudo derivar release_sha de release_id={release_id!r} "
+            f"(payload={payload!r}) — no se mide a ciegas."
+        )
+
+    return {
+        "release_id": release_id,
+        "release_sha": release_sha,
+        "release_environment": str(payload.get("environment") or ""),
+        "api_version": str(payload.get("version") or ""),
+    }
+
+
+def git_head_sha(*, short: bool = False) -> str:
+    """Best-effort HEAD of the runner checkout (scorer freeze citation)."""
+    try:
+        args = ["git", "-C", str(REPO_ROOT), "rev-parse"]
+        if short:
+            args.append("--short=12")
+        args.append("HEAD")
+        completed = subprocess.run(
+            args, capture_output=True, text=True, timeout=10, check=False
+        )
+        if completed.returncode == 0:
+            return completed.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
+def list_immutable_runs(out_dir: Path) -> list[Path]:
+    """run_*.json only — never LATEST.* (mutable pointer, gitignored)."""
+    if not out_dir.is_dir():
+        return []
+    return sorted(out_dir.glob("run_*.json"))
+
+
+def load_previous_run(out_dir: Path) -> dict[str, Any] | None:
+    runs = list_immutable_runs(out_dir)
+    if not runs:
+        return None
+    try:
+        return json.loads(runs[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def build_run_notes(
+    *,
+    report: RunReport,
+    previous: dict[str, Any] | None,
+    product_changed: bool,
+) -> list[str]:
+    """Honest notes for this run — never a fixed slogan stamped on every run."""
+    notes: list[str] = []
+    notes.append("Coste esperado 0 € (Titan local vía Signal).")
+    if report.scorer_freeze_sha:
+        notes.append(
+            f"Scorer congelado en commit {report.scorer_freeze_sha} "
+            "(reconocimiento de abstenciones ampliado antes de medir)."
+        )
+    if report.release_id:
+        notes.append(
+            f"Entorno medido: release_id={report.release_id} "
+            f"release_sha={report.release_sha} base_url={report.base_url}."
+        )
+    if previous:
+        prev_stamp = previous.get("finished_at") or previous.get("started_at") or "?"
+        prev_fact = (
+            f"{previous.get('n_fact_hit')}/{previous.get('n_fact')} "
+            f"fact (rate={previous.get('hit_rate_fact')})"
+        )
+        prev_trap = (
+            f"{previous.get('n_trap_abstain')}/{previous.get('n_trap')} "
+            f"trampas (rate={previous.get('trap_abstention_rate')})"
+        )
+        notes.append(
+            f"Corrida inmutable anterior ({prev_stamp}): {prev_fact}; {prev_trap}."
+        )
+        same_fact = (
+            previous.get("n_fact_hit") == report.n_fact_hit
+            and previous.get("n_fact") == report.n_fact
+        )
+        same_trap = (
+            previous.get("n_trap_abstain") == report.n_trap_abstain
+            and previous.get("n_trap") == report.n_trap
+        )
+        if same_fact and same_trap:
+            notes.append(
+                "Delta de puntuación vs anterior: sin cambio en fact/trampas."
+            )
+        else:
+            notes.append(
+                "Delta de puntuación vs anterior: "
+                f"fact {previous.get('n_fact_hit')}/{previous.get('n_fact')} → "
+                f"{report.n_fact_hit}/{report.n_fact}; "
+                f"trampas {previous.get('n_trap_abstain')}/{previous.get('n_trap')} → "
+                f"{report.n_trap_abstain}/{report.n_trap}."
+            )
+    else:
+        notes.append("Sin corrida inmutable anterior en este out_dir.")
+
+    if product_changed:
+        notes.append(
+            "Hubo cambios de producto/prompts entre esta corrida y la anterior; "
+            "la cifra no es comparable 1:1."
+        )
+    else:
+        notes.append(
+            "Sin ajuste de prompts ni parámetros de Preguntar en esta pasada "
+            "(solo instrumentación / scorer de eval)."
+        )
+    return notes
+
+
+def build_proposal_statement(report: RunReport) -> str:
+    """Literal client-facing statement with version ownership."""
+    freeze = report.scorer_freeze_sha or "«sin-freeze-registrado»"
+    release = report.release_id or "«sin-release»"
+    when = report.measured_at or report.finished_at or "«sin-fecha»"
+    return (
+        f"{report.n_fact_hit} de {report.n_fact} aciertos factuales y "
+        f"{report.n_trap_abstain} de {report.n_trap} abstenciones sobre un "
+        f"conjunto versionado de {report.n_questions} preguntas, scorer "
+        f"congelado en `{freeze}`, medido sobre `{release}` el `{when}`."
+    )
+
+
+def update_latest_symlinks(out_dir: Path, out_json: Path, out_md: Path) -> None:
+    """Point LATEST.* at this run via relative symlinks (gitignored; not content).
+
+    Decision: LATEST is a local pointer only. Immutable truth is run_*.json
+    with the greatest timestamp. Commits of unrelated work can no longer
+    clobber scored content under LATEST.json because that file is not tracked.
+    """
+    for name, target in (("LATEST.json", out_json), ("LATEST.md", out_md)):
+        link = out_dir / name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(target.name)
+
+
+def summarize(
+    results: list[AskResult],
+    *,
+    eval_meta: dict[str, Any],
+    base_url: str,
+) -> RunReport:
+    measured = now_madrid_iso()
     report = RunReport(
         started_at=eval_meta.get("started_at", ""),
-        finished_at=datetime.now(timezone.utc).isoformat(),
+        finished_at=now_utc_iso(),
+        measured_at=measured,
+        measured_at_tz="Europe/Madrid",
         eval_set_id=str(eval_meta.get("eval_set_id", "")),
         eval_set_version=str(eval_meta.get("eval_set_version", "")),
         dossier_id=str(eval_meta.get("dossier_id", "")),
         base_url=base_url,
+        release_id=str(eval_meta.get("release_id", "")),
+        release_sha=str(eval_meta.get("release_sha", "")),
+        release_environment=str(eval_meta.get("release_environment", "")),
+        scorer_freeze_sha=str(eval_meta.get("scorer_freeze_sha", "")),
         n_questions=len(results),
     )
     facts = [r for r in results if r.kind != "trap"]
@@ -732,6 +1002,12 @@ def summarize(results: list[AskResult], *, eval_meta: dict[str, Any], base_url: 
 def print_summary(report: RunReport) -> None:
     print("\n========== SV2 MEMORY BASELINE ==========", flush=True)
     print(f"eval_set={report.eval_set_id} v={report.eval_set_version}", flush=True)
+    print(
+        f"release_id={report.release_id} release_sha={report.release_sha}",
+        flush=True,
+    )
+    print(f"scorer_freeze_sha={report.scorer_freeze_sha}", flush=True)
+    print(f"measured_at={report.measured_at} ({report.measured_at_tz})", flush=True)
     print(f"questions={report.n_questions} jobs_ok={report.n_jobs_ok}", flush=True)
     print(
         f"fact_hit={report.n_fact_hit}/{report.n_fact} "
@@ -824,7 +1100,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"WARN: corpus no encontrado ({corpus_path}); folder_compare limited")
 
-    started = datetime.now(timezone.utc).isoformat()
+    started = now_utc_iso()
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    previous_run = load_previous_run(out_dir)
+    scorer_freeze_sha = env("SCORER_FREEZE_SHA", "") or git_head_sha(short=True)
+
     print(
         f"[baseline] eval={eval_set.get('id')} n={len(questions)} "
         f"dossier={dossier_id} base={base_url}",
@@ -833,7 +1114,30 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_score:
         print("dry-score mode: no network", flush=True)
-        return 0
+        # Self-check canonical Q16 abstention phrase against frozen scorer.
+        sample = (
+            "No hay información disponible en las evidencias autorizadas "
+            "sobre el número de empleados."
+        )
+        hit, reason = score_trap(sample, {"trap": True, "abstention_markers": []})
+        print(f"dry-score Q16-form: hit={hit} reason={reason}", flush=True)
+        return 0 if hit else 3
+
+    # Fail closed before any measurement if the environment has no release owner.
+    try:
+        release_meta = fetch_release_meta(base_url)
+    except RuntimeError as error:
+        print(str(error), file=sys.stderr, flush=True)
+        return 4
+
+    print(
+        f"[baseline] release_id={release_meta['release_id']} "
+        f"release_sha={release_meta['release_sha']} "
+        f"env={release_meta.get('release_environment')}",
+        flush=True,
+    )
+    if scorer_freeze_sha:
+        print(f"[baseline] scorer_freeze_sha={scorer_freeze_sha}", flush=True)
 
     email, password = load_credentials(
         local_path=None,
@@ -886,20 +1190,24 @@ def main(argv: list[str] | None = None) -> int:
             "eval_set_id": eval_set.get("id"),
             "eval_set_version": eval_set.get("version"),
             "dossier_id": dossier_id,
+            "release_id": release_meta["release_id"],
+            "release_sha": release_meta["release_sha"],
+            "release_environment": release_meta.get("release_environment", ""),
+            "scorer_freeze_sha": scorer_freeze_sha,
         },
         base_url=base_url,
     )
-    report.notes.append(
-        "Primera medición honesta: no se ajustaron prompts ni parámetros."
+    report.notes = build_run_notes(
+        report=report,
+        previous=previous_run,
+        product_changed=False,
     )
-    report.notes.append("Coste esperado 0 € (Titan local vía Signal).")
     if any(r.memory_mode and r.memory_mode != "augment" for r in results if r.ok_job):
         report.notes.append(
             "Algunas respuestas no reportaron memory_mode=augment; revisar allowlist."
         )
+    report.statement = build_proposal_statement(report)
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     out_json = out_dir / f"run_{stamp}.json"
     out_md = out_dir / f"run_{stamp}.md"
@@ -908,27 +1216,34 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     out_md.write_text(render_markdown(report), encoding="utf-8")
-    # Also write latest pointers
-    (out_dir / "LATEST.json").write_text(
-        json.dumps(asdict(report), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    (out_dir / "LATEST.md").write_text(render_markdown(report), encoding="utf-8")
+    # Local mutable pointer only (symlink). Content of runs is never under LATEST.
+    update_latest_symlinks(out_dir, out_json, out_md)
 
     print_summary(report)
+    print(f"[baseline] statement: {report.statement}", flush=True)
     print(f"[baseline] wrote {out_json}", flush=True)
     print(f"[baseline] wrote {out_md}", flush=True)
+    print(f"[baseline] LATEST → {out_json.name} (symlink, gitignored)", flush=True)
     return 0
 
 
 def render_markdown(report: RunReport) -> str:
     lines = [
-        f"# SV2 Memory Baseline Run · {report.finished_at}",
+        f"# SV2 Memory Baseline Run · {report.measured_at or report.finished_at}",
         "",
         f"- eval_set: `{report.eval_set_id}` v`{report.eval_set_version}`",
         f"- dossier: `{report.dossier_id}`",
         f"- base_url: `{report.base_url}`",
+        f"- release_id: `{report.release_id}`",
+        f"- release_sha: `{report.release_sha}`",
+        f"- release_environment: `{report.release_environment}`",
+        f"- scorer_freeze_sha: `{report.scorer_freeze_sha}`",
+        f"- measured_at ({report.measured_at_tz}): `{report.measured_at}`",
         f"- questions: **{report.n_questions}** · jobs_ok: **{report.n_jobs_ok}**",
+        "",
+        "## Statement (propuesta)",
+        "",
+        f"> {report.statement or build_proposal_statement(report)}",
         "",
         "## Métricas",
         "",

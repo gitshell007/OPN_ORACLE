@@ -15,9 +15,10 @@ Uso: scripts/api-test.sh [--unit]
                PostgreSQL/Redis desechables. Es el único modo válido antes de un release.
                Falla cerrado si no hay entorno de integración: no da falso verde.
 
-  --unit       Comprobación rápida sin Docker: lint, formato, tipos y solo los tests
-               unitarios, sin umbral de cobertura. NO sustituye al gate completo, pero
-               detecta la mayoría de las regresiones antes de entregar el trabajo.
+  --unit       Comprobación rápida sin Docker: lint, formato, tipos y los tests que
+               pueden ejecutarse sin servicios, sin umbral de cobertura. Las integraciones
+               sin entorno se aceptan solo con su motivo explícito y auditable.
+               NO sustituye al gate completo.
 EOF
 }
 
@@ -96,9 +97,24 @@ passed_match = re.search(r"(\d+) passed", summary)
 skipped_match = re.search(r"(\d+) skipped", summary)
 passed = int(passed_match.group(1)) if passed_match else 0
 skipped = int(skipped_match.group(1)) if skipped_match else 0
-if skipped:
+skip_details = [line.strip() for line in output.splitlines() if line.startswith("SKIPPED ")]
+expected_reason = "ORACLE_RUN_INTEGRATION"
+unexpected_skips = [line for line in skip_details if expected_reason not in line]
+accounted_skips = 0
+for line in skip_details:
+    match = re.match(r"SKIPPED \[(\d+)\]", line)
+    accounted_skips += int(match.group(1)) if match else 1
+if unexpected_skips:
     print(
-        f"ERROR: el modo unitario no puede ocultar tests: {skipped} skipped en {summary!r}.",
+        "ERROR: el modo unitario detectó skips no autorizados:\n- "
+        + "\n- ".join(unexpected_skips[:20]),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+if accounted_skips != skipped:
+    print(
+        "ERROR: el resumen declara "
+        f"{skipped} skips pero solo {accounted_skips} tienen detalle auditable.",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -108,13 +124,17 @@ if passed < minimum:
         file=sys.stderr,
     )
     sys.exit(1)
-print(f"Guard unitario OK: {passed} tests ejecutados, 0 skipped.")
+print(
+    f"Guard unitario OK: {passed} tests ejecutados; "
+    f"{skipped} integraciones omitidas con motivo explícito."
+)
 PY
   rm -f "$UNIT_OUTPUT"
   cat >&2 <<'EOF'
 
-⚠  MODO PARCIAL: solo se han ejecutado los tests unitarios, sin cobertura.
-   Los de integración (PostgreSQL, Redis, Celery, migraciones, RLS) NO se han ejecutado.
+⚠  MODO PARCIAL: se han ejecutado los tests disponibles sin servicios, sin cobertura.
+   Las integraciones (PostgreSQL, Redis, Celery, migraciones, RLS) se han omitido
+   únicamente cuando declararon ORACLE_RUN_INTEGRATION=1 como requisito.
    Esto NO es el gate de release: antes de desplegar hace falta CI verde del SHA exacto.
 EOF
   exit 0

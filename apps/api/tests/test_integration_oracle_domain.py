@@ -53,6 +53,7 @@ from opn_oracle.documents.storage import (
     StoredObject,
     object_key,
 )
+from opn_oracle.documents.tasks import documents_retention
 from opn_oracle.extensions import db
 from opn_oracle.integrations import entity_intel_routes
 from opn_oracle.integrations import procurement as procurement_integration
@@ -719,6 +720,23 @@ def test_document_purge_legal_hold_and_orphan_reconciliation(
             storage.get(orphan_key)
 
 
+def test_document_retention_task_closes_unscoped_transaction_before_tenants(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str], tmp_path: Path
+) -> None:
+    app, _, _ = oracle_stack
+    app.extensions["object_storage"] = LocalObjectStorage(tmp_path / "retention-task")
+
+    with app.app_context():
+        # The task enumerates every tenant without a tenant context and then opens
+        # one scoped transaction per tenant. This reproduces the Celery/beat path.
+        processed = documents_retention.run()
+
+    # Earlier tests in this module may leave recoverable document attempts. The
+    # regression is that the cross-tenant loop completes, not a fixed item count.
+    assert isinstance(processed, int)
+    assert processed >= 0
+
+
 def test_document_job_survives_broker_publish_failure(
     oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
     tmp_path: Path,
@@ -1113,6 +1131,51 @@ def _enable_mock_ai(app: Any, ids: dict[str, uuid.UUID]) -> None:
             policy.max_classification = "internal"
             policy.kill_switch = False
         db.session.commit()
+
+
+def test_opportunity_analysis_routes_expose_runtime_envelope(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    client = _client(oracle_stack)
+    _, ids, _ = oracle_stack
+    dossier = _create_dossier(client, ids, "Contrato HTTP de oportunidad")
+    path = f"/api/v1/ai/dossiers/{dossier['id']}/opportunity"
+
+    missing_key = client.post(
+        f"{path}/runs",
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert missing_key.status_code == 428
+    assert missing_key.get_json()["code"] == "precondition_required"
+
+    enqueued = client.post(
+        f"{path}/runs",
+        headers={
+            "X-CSRF-Token": _csrf(client),
+            "Idempotency-Key": f"opportunity-contract-{dossier['id']}",
+        },
+    )
+    assert enqueued.status_code == 202
+    run_payload = enqueued.get_json()
+    assert set(run_payload) == {"artifact", "job"}
+    assert run_payload["job"]["job_type"] == "oracle.ai.opportunity"
+    assert run_payload["job"]["status"] in {
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+    }
+    if run_payload["artifact"] is not None:
+        assert {"fit_assessment", "draft_offer"} <= set(run_payload["artifact"]["output"])
+
+    latest = client.get(f"{path}/latest")
+    assert latest.status_code == 200
+    latest_payload = latest.get_json()
+    assert set(latest_payload) == {"artifact", "job"}
+    assert latest_payload["job"]["id"] == run_payload["job"]["id"]
+    if latest_payload["artifact"] is not None:
+        assert {"fit_assessment", "draft_offer"} <= set(latest_payload["artifact"]["output"])
 
 
 def _entity_signal_payload() -> dict[str, Any]:
@@ -2176,7 +2239,19 @@ def test_dossier_completion_context_trims_large_payload_to_budget_deterministica
     assert low_first.payload == low_second.payload
     assert low_first.context_hash == low_second.context_hash
     assert low_first.context_hash != high.context_hash
-    assert low_first.manifest == high.manifest
+    # G-26 adds bounded mixer diagnostics to the manifest. Source identity stays
+    # stable across budgets, while the requested/used budget must truthfully differ.
+    low_identity = {key: value for key, value in low_first.manifest.items() if key != "context_mix"}
+    high_identity = {key: value for key, value in high.manifest.items() if key != "context_mix"}
+    assert low_identity == high_identity
+    assert low_first.manifest["context_mix"] == low_second.manifest["context_mix"]
+    low_mix = dict(low_first.manifest["context_mix"])
+    high_mix = dict(high.manifest["context_mix"])
+    assert low_mix.pop("budget_tokens_requested") == 1_024
+    assert high_mix.pop("budget_tokens_requested") == 10_000
+    assert low_mix.pop("budget_chars_requested") == 1_024 * 4
+    assert high_mix.pop("budget_chars_requested") == 10_000 * 4
+    assert low_mix == high_mix
     assert low_first.manifest["answer_count"] == 1
 
 
@@ -5710,12 +5785,21 @@ def test_core_resource_crud_actions_and_actor_merge(
         ).status_code
         == 200
     )
+    # Target was patched once → version 2; source still at create version.
+    target_version = actor_patch.get_json()["version"]
+    source_version = source["version"]
     merged = client.post(
         f"/api/v1/actors/{target['id']}/merge",
-        json={"source_actor_id": source["id"], "reason": "Duplicado verificado"},
+        json={
+            "source_actor_id": source["id"],
+            "reason": "Duplicado verificado",
+            "confirm": True,
+            "expected_target_version": target_version,
+            "expected_source_version": source_version,
+        },
         headers={"X-CSRF-Token": _csrf(client)},
     )
-    assert merged.status_code == 200
+    assert merged.status_code == 200, merged.get_data(as_text=True)[:500]
     assert "Actor origen" in merged.get_json()["aliases"]
     feedback = client.post(
         "/api/v1/feedback",
@@ -5794,7 +5878,13 @@ def test_core_resource_crud_actions_and_actor_merge(
     assert (
         client.post(
             f"/api/v1/actors/{archived_target['id']}/merge",
-            json={"source_actor_id": archived_source["id"], "reason": "No permitido"},
+            json={
+                "source_actor_id": archived_source["id"],
+                "reason": "No permitido",
+                "confirm": True,
+                "expected_target_version": archived_target["version"],
+                "expected_source_version": archived_source["version"],
+            },
             headers={"X-CSRF-Token": _csrf(client)},
         ).status_code
         == 422

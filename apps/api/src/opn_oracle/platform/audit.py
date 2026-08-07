@@ -29,25 +29,36 @@ def append_audit_event(
     correlation_id: str | None = None,
     dossier_id: UUID | None = None,
     allow_global: bool = False,
+    event_id: UUID | None = None,
 ) -> AuditEvent:
+    """Append a tenant-scoped audit event.
+
+    Tenant, actor_type and actor_id are always derived from ``TenantContext``.
+    ``event_id`` is optional and server-owned (e.g. deterministic PK for
+    idempotent human gates). When omitted, the model default assigns a random UUID.
+    """
+
     context = get_tenant_context(required=False)
     if (context is None or context.tenant_id is None) and not allow_global:
         raise TenantContextMissing(
             "Un evento global requiere allow_global=True en un flujo de plataforma explícito."
         )
-    event = AuditEvent(
-        tenant_id=context.tenant_id if context else None,
-        actor_type="user" if context and context.actor_id else "service",
-        actor_id=context.actor_id if context else None,
-        action=action,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        result=result,
-        request_id=request_id,
-        correlation_id=correlation_id,
-        dossier_id=dossier_id,
-        event_metadata=sanitize_audit_metadata(metadata or {}),
-    )
+    event_kwargs: dict[str, Any] = {
+        "tenant_id": context.tenant_id if context else None,
+        "actor_type": "user" if context and context.actor_id else "service",
+        "actor_id": context.actor_id if context else None,
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "result": result,
+        "request_id": request_id,
+        "correlation_id": correlation_id,
+        "dossier_id": dossier_id,
+        "event_metadata": sanitize_audit_metadata(metadata or {}),
+    }
+    if event_id is not None:
+        event_kwargs["id"] = event_id
+    event = AuditEvent(**event_kwargs)
     session.add(event)
     return event
 

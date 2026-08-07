@@ -278,7 +278,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Actor Alias Candidate List */
+        /** Tax-first duplicate detector (G-16-B / G-17). Propose-only; never mutates. */
         get: {
             parameters: {
                 query?: never;
@@ -355,6 +355,198 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actors/tax-id-conflicts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List resolvable tax_id collisions (G-16 backend contract; UI in G-16-B/G-17). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actors/tax-id-conflicts/{conflict_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a tax_id conflict resolved/dismissed. Does not merge relations.
+         * @description action=merge is rejected: use POST /actors/{id}/merge which moves relations
+         *     and only then closes the conflict in the same transaction.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    conflict_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ActorWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -546,7 +738,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Actors Merge */
+        /** Human-confirmed merge with CAS versions and tax-safe identity rules. */
         post: {
             parameters: {
                 query?: never;
@@ -566,6 +758,104 @@ export interface paths {
             responses: {
                 /** @description Operación de dominio completada */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActorResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actors/{target_id}/merge/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicit pre-mutation preview: tax provenance, aliases and reference impact. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    target_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ActorWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1845,6 +2135,89 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpportunityAnalysisLatestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Expediente no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Borrador de oferta durable del expediente (edición humana persistente). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
                 /** @description Operación de dominio completada */
                 200: {
                     headers: {
@@ -1911,23 +2284,12 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Lanza el agente de oportunidad: propone; no crea la oportunidad. */
+        /**
+         * Materializa un borrador editable desde el draft_offer calculado del análisis.
+         * @description Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.
+         *     Bajo carrera en el unique (tenant_id, dossier_id), el perdedor recupera la fila
+         *     existente (sin 500 ni segunda fila).
+         */
         post: {
             parameters: {
                 query?: never;
@@ -1992,6 +2354,300 @@ export interface paths {
                 };
                 /** @description Datos no válidos */
                 422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Actualiza campos editables del borrador con CAS atómico (version en el UPDATE). */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    /** @description Versión ETag; puede enviarse `version` en el cuerpo como alternativa. */
+                    "If-Match"?: string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft/export.docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Exportar borrador de oferta como DOCX editable
+         * @description Descarga el OpportunityOfferDraft persistido como documento Word (.docx) editable. Requiere precondición de versión (query `version` o cabecera If-Match). No regenera desde el artifact de análisis.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Versión durable que la UI muestra; debe coincidir. */
+                    version?: number;
+                };
+                header?: {
+                    /** @description ETag de versión (p. ej. W/"ood-v3") como alternativa a version. */
+                    "If-Match"?: string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Documento Word editable generado desde el borrador durable */
+                200: {
+                    headers: {
+                        /** @description attachment; filename=… */
+                        "Content-Disposition"?: string;
+                        /** @description ETag del borrador exportado */
+                        ETag?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": string;
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Se requiere version o cabecera If-Match */
+                428: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lanza el agente de oportunidad: propone; no crea la oportunidad. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    /** @description Clave estable del intento para no duplicar el job. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpportunityAnalysisRunResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Expediente no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Se requiere Idempotency-Key */
+                428: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2173,6 +2829,329 @@ export interface paths {
                 };
                 /** @description Conflicto de versión o idempotencia */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-actor-discovery/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Human gate for actor discovery; refuses competitor artifacts (cross-agent). */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketActorAcceptInput"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketActorAcceptResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-actor-discovery/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return latest job/artifact for one dossier; never a tenant-wide result. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketActorDiscoveryLatestResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-actor-discovery/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue actor discovery for a market dossier using server-owned profile fields.
+         * @description Request body is only ``dossier_id``. Intent, type, known_names, geography and
+         *     languages are loaded from the accessible market dossier; client forgeries are
+         *     ignored. Job/artifact are scoped to that dossier (resource_type=strategic_dossier).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketActorDiscoveryInput"];
+                };
+            };
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Successful response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketActorDiscoveryRunResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/market-competitor-discovery/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Human gate: materialize selected reserved sources into Evidence for a dossier.
+         * @description Requires artifact_id + dossier_id + selected[{candidate_id, source_ids}].
+         *     Fail-closed on cross-tenant, non-candidate status, version drift, alien UUIDs.
+         *     Idempotent: two retries do not duplicate Evidence rows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketCompetitorAcceptInput"];
+                };
+            };
+            responses: {
+                /** @description Successful response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketCompetitorAcceptResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -10139,7 +11118,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Memory Effective */
+        /**
+         * Effective profile + host health. Shared SSOT with conversation jobs.
+         * @description Uses ``resolve_effective_dossier_memory_profile`` (same function as ask/answer).
+         *     Returns configured_profile vs effective_profile; connection overrides are
+         *     listed as deferred, never silently selected.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -10400,7 +11384,12 @@ export interface paths {
                 };
             };
         };
-        /** Put Memory Profile */
+        /**
+         * Update the product **default** profile only (connection_id IS NULL).
+         * @description Body ``connection_id`` is ignored for write targeting so an arbitrary
+         *     connection cannot create a parallel product profile. Connection-bound
+         *     overrides are deferred product capability (no silent create path here).
+         */
         put: {
             parameters: {
                 query?: never;
@@ -10484,6 +11473,109 @@ export interface paths {
             };
         };
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/memory/profile/materialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Idempotent, audited materialization of legacy_missing **default** profiles.
+         * @description Does not silent-backfill on GET. Re-call returns existing row without
+         *     version inflation when already persisted. Body connection_id is ignored;
+         *     only the default profile (connection_id NULL) is materialized.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -11133,6 +12225,195 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Consulta de solo lectura del seguimiento comercial de la oferta.
+         * @description Nunca INSERT/UPDATE/COMMIT ni crea auditoría. Si aún no hay fila, devuelve un
+         *     contrato virtual (materialized=false, version=0, campos vacíos) útil para la UI.
+         *     Independiente de artifacts IA, fit o verdict: basta con la oportunidad CRM.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                    opportunity_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpportunityResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edita o materializa el seguimiento con CAS (version / If-Match).
+         * @description - version=0 (o If-Match ool-v0) materializa la primera fila de forma atómica.
+         *     - Campos desconocidos / typos → 422; PATCH sin campo comercial → 422 (no-op).
+         *     - Actor server-owned vía TenantContext + current_user.
+         *     - No modifica Opportunity.status (CRM).
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                    /** @description Versión ETag; puede enviarse `version` en el cuerpo como alternativa. */
+                    "If-Match"?: string;
+                };
+                path: {
+                    dossier_id: string;
+                    opportunity_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OpportunityWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpportunityResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/dossiers/{dossier_id}/oracle-summary": {
         parameters: {
             query?: never;
@@ -11530,6 +12811,208 @@ export interface paths {
                 };
                 /** @description Recurso no encontrado */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/pliego-acquisition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado durable/honesto de adquisición de pliego (G-11).
+         * @description Siempre ofrece CTA de subida manual; no confunde documents=[] con éxito.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación de dominio completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dossiers/{dossier_id}/pliego-pcap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Subida manual del PCAP: pipeline real de parsing/chunking/evidencia + auditoría. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    dossier_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DossierWriteInput"];
+                };
+            };
+            responses: {
+                /** @description Operación de dominio completada */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DossierResource"];
+                    };
+                };
+                /** @description Operación completada */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PliegoPcapUploadResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Recurso no encontrado */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Conflicto de versión o idempotencia */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -33055,6 +34538,10 @@ export interface components {
             title: string;
         };
         ActorMergeInput: {
+            confirm: boolean;
+            expected_source_version: number;
+            expected_target_version: number;
+            match_reason?: string;
             reason: string;
             /** Format: uuid */
             source_actor_id: string;
@@ -33071,11 +34558,39 @@ export interface components {
             identifiers?: components["schemas"]["JsonObject"];
             metadata?: components["schemas"]["JsonObject"];
             provenance?: components["schemas"]["JsonObject"];
+            tax_id?: string | null;
+            tax_id_country?: string | null;
+            tax_id_scheme?: string | null;
             /** Format: uuid */
             tenant_id: string;
             /** Format: date-time */
             updated_at?: string;
             version?: number;
+        };
+        ActorTaxIdConflictResource: {
+            /** Format: date-time */
+            created_at?: string;
+            declared_identifiers?: components["schemas"]["JsonObject"];
+            declared_tax_id?: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            loser_actor_id?: string;
+            resolution_note?: string | null;
+            /** Format: date-time */
+            resolved_at?: string | null;
+            /** Format: uuid */
+            resolved_by_user_id?: string | null;
+            /** @enum {string} */
+            status?: "open" | "resolved" | "dismissed";
+            tax_id?: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            updated_at?: string;
+            version?: number;
+            /** Format: uuid */
+            winner_actor_id?: string;
         };
         ActorWriteInput: {
             actor_type?: string;
@@ -33123,6 +34638,9 @@ export interface components {
             items: {
                 [key: string]: unknown;
             }[];
+            meta?: {
+                [key: string]: unknown;
+            };
         };
         AssignableUserListResponse: {
             items: components["schemas"]["AssignableUserResponse"][];
@@ -33237,6 +34755,25 @@ export interface components {
             current_password: string;
             /** Format: password */
             new_password: string;
+        };
+        CitableSourcePublic: {
+            /** @default  */
+            domain: string;
+            /** @default  */
+            label: string;
+            /** @default web_search */
+            origin: string;
+            /** @default Fuente encontrada por búsqueda */
+            origin_label: string;
+            /** @default 1 */
+            rank: number;
+            /** @default  */
+            snippet: string;
+            source_id: string;
+            /** @default  */
+            title: string;
+            /** @default  */
+            url: string;
         };
         CollaboratorResource: {
             /** Format: date-time */
@@ -33408,6 +34945,8 @@ export interface components {
             website?: string;
         };
         CompetitiveProfileInput: {
+            /** @description Volumen anual de negocio declarado (EUR). Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            annual_turnover?: number;
             business_objective: string;
             competitors: components["schemas"]["CompetitiveCompetitorInput"][];
             cpv?: string[];
@@ -33417,6 +34956,8 @@ export interface components {
             keywords?: string[];
             own_offer: string;
             participation_criteria?: string;
+            /** @description Servicios similares de los últimos 3 años y su acreditación. Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            past_services?: string;
             segments?: string[];
             sources?: string[];
             success_indicators?: string[];
@@ -34466,11 +36007,125 @@ export interface components {
             /** Format: uuid */
             session_id: string;
         };
-        MarketCompetitorCandidate: {
+        MarketActorAcceptInput: {
+            artifact_id: string;
+            dossier_id: string;
+            /** @default null */
+            expected_version: number | null;
+            selected: components["schemas"]["MarketActorSelection"][];
+        };
+        MarketActorAcceptResponse: {
+            actors?: components["schemas"]["MarketActorMaterializedActor"][];
+            /** @default 0 */
+            actors_count: number;
+            artifact_id: string;
+            count: number;
+            dossier_id: string;
+            materialized: components["schemas"]["MaterializedEvidence"][];
+        };
+        MarketActorCandidate: {
+            actor_type: string;
+            /** @default  */
+            affiliation: string;
+            /** @default null */
+            candidate_id: string | null;
+            /** @default [] */
+            citable_sources: components["schemas"]["CitableSourcePublic"][];
             confidence: number;
             country: string;
+            /** @default [] */
+            evidence_ids: string[];
+            organization: string;
+            /** @default  */
+            rationale: string;
+            /** @default true */
+            selectable: boolean;
+            /** @default [] */
+            source_urls: string[];
+            /** @default null */
+            source_urls_label: string | null;
+            /** @default [] */
+            source_urls_meta: components["schemas"]["SourceUrlMeta"][];
+            /** @default null */
+            source_urls_status: string | null;
+            summary: string;
+        };
+        MarketActorDiscoveryArtifact: {
+            agent: string;
+            created_at: string;
+            dossier_id?: string | null;
+            id: string;
+            output: components["schemas"]["MarketActorDiscoveryOutput"];
+            schema_name: string;
+            schema_version: string;
+            status: string;
+            updated_at: string;
+            version: number;
+        };
+        MarketActorDiscoveryInput: {
+            dossier_id: string;
+        };
+        MarketActorDiscoveryLatestResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["MarketActorDiscoveryArtifact"];
+            job?: (Record<string, never> | null) | components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketActorDiscoveryOutput: {
+            candidates: components["schemas"]["MarketActorCandidate"][];
+            /** @default [] */
+            reserved_citable_sources: components["schemas"]["ReservedCitableSource"][];
+            warnings: string[];
+        };
+        MarketActorDiscoveryRunResponse: {
+            artifact?: (Record<string, never> | null) | components["schemas"]["MarketActorDiscoveryArtifact"];
+            job: components["schemas"]["TenderSearchWizardJob"];
+        };
+        MarketActorMaterializedActor: {
+            actor_id: string;
+            candidate_id: string;
+            canonical_key: string;
+            dossier_actor_id: string;
+            identifiers?: {
+                [key: string]: string;
+            };
+            identity_status: string;
+        };
+        MarketActorSelection: {
+            candidate_id: string;
+            /** @default [] */
+            evidence_ids: string[];
+            /** @default  */
+            name: string;
+            /** @default  */
+            organization: string;
+            source_ids: string[];
+        };
+        MarketCompetitorAcceptInput: {
+            artifact_id: string;
+            dossier_id: string;
+            /** @default null */
+            expected_version: number | null;
+            selected: components["schemas"]["MarketCompetitorSelection"][];
+        };
+        MarketCompetitorAcceptResponse: {
+            artifact_id: string;
+            count: number;
+            dossier_id: string;
+            materialized: components["schemas"]["MaterializedEvidence"][];
+        };
+        MarketCompetitorCandidate: {
+            /** @default null */
+            candidate_id: string | null;
+            /** @default [] */
+            citable_sources: components["schemas"]["CitableSourcePublic"][];
+            confidence: number;
+            country: string;
+            /** @default [] */
+            evidence_ids: string[];
             name: string;
             rationale: string;
+            /** @default true */
+            selectable: boolean;
+            /** @default [] */
             source_urls: string[];
             /** @default null */
             source_urls_label: string | null;
@@ -34492,6 +36147,11 @@ export interface components {
             version: number;
         };
         MarketCompetitorDiscoveryInput: {
+            /**
+             * @default known
+             * @enum {string}
+             */
+            competitors_knowledge: "known" | "unknown" | "not_seeking";
             /** @default [] */
             countries: string[];
             description: string;
@@ -34510,25 +36170,52 @@ export interface components {
         };
         MarketCompetitorDiscoveryOutput: {
             candidates: components["schemas"]["MarketCompetitorCandidate"][];
+            /** @default [] */
+            reserved_citable_sources: components["schemas"]["ReservedCitableSource"][];
             warnings: string[];
         };
         MarketCompetitorDiscoveryRunResponse: {
             artifact?: (Record<string, never> | null) | components["schemas"]["MarketCompetitorDiscoveryArtifact"];
             job: components["schemas"]["TenderSearchWizardJob"];
         };
+        MarketCompetitorSelection: {
+            candidate_id: string;
+            /** @default [] */
+            evidence_ids: string[];
+            /** @default  */
+            name: string;
+            source_ids: string[];
+        };
         MarketProfileInput: {
+            /** @description Volumen anual de negocio declarado (EUR). Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            annual_turnover?: number;
             barriers?: string[];
             channels?: string[];
-            competitors: components["schemas"]["CompetitiveCompetitorInput"][];
+            competitors?: components["schemas"]["CompetitiveCompetitorInput"][];
+            /**
+             * @description Honest intent: known (names are exclusions for discovery), unknown (aún no lo sé), not_seeking (no busco competidores).
+             * @enum {string}
+             */
+            competitors_knowledge?: "known" | "unknown" | "not_seeking";
             decision_to_make: string;
             horizon?: string;
             keywords?: string[];
             own_offer: string;
             partners?: string[];
+            /** @description Servicios similares de los últimos 3 años y su acreditación. Declarado por el cliente; no sustituye certificados ni documentación oficial. */
+            past_services?: string;
             regulators?: string[];
             segments?: string[];
             success_indicators?: string[];
             target_buyers?: string[];
+        };
+        MaterializedEvidence: {
+            evidence_id: string;
+            /** @default  */
+            label: string;
+            source_id: string;
+            source_kind: string;
+            source_url?: string | null;
         };
         MeResponse: {
             /** Format: uuid */
@@ -34803,6 +36490,299 @@ export interface components {
             tenant_id: string;
             updated_at?: string | null;
         };
+        OpportunityAnalysisArtifact: {
+            agent: string;
+            audit_log_id: string | null;
+            created_at: string;
+            dossier_id: string | null;
+            id: string;
+            output: components["schemas"]["OpportunityAnalysisOutput"];
+            schema_name: string;
+            schema_version: string;
+            status: string;
+            updated_at: string;
+            version: number;
+        };
+        OpportunityAnalysisLatestResponse: {
+            artifact: components["schemas"]["OpportunityAnalysisArtifact"] | null;
+            job: components["schemas"]["TenderSearchWizardJob"] | null;
+        };
+        OpportunityAnalysisOutput: {
+            blockers: string[];
+            candidate_actors: components["schemas"]["OpportunityCandidateActor"][];
+            confidence: number;
+            confirmed_requirements: string[];
+            deadline: string | null;
+            draft_offer: components["schemas"]["OpportunityDraftOffer"] | null;
+            facts: components["schemas"]["OpportunityFact"][];
+            fit_assessment: components["schemas"]["OpportunityFitAssessment"] | null;
+            inferences: components["schemas"]["OpportunityInference"][];
+            next_best_action: components["schemas"]["OpportunityNextBestAction"] | null;
+            open_questions: string[];
+            /** @enum {string} */
+            opportunity_type: "grant" | "tender" | "partner" | "client" | "market" | "investment" | "media" | "regulatory" | "other";
+            /** @enum {string} */
+            recommendation: "go" | "investigate" | "hold" | "no_go";
+            recommendations: components["schemas"]["OpportunityRecommendation"][];
+            scores: components["schemas"]["OpportunityScores"];
+            summary: string;
+            title: string;
+            unknown_requirements: string[];
+            warnings: string[];
+        };
+        OpportunityAnalysisRunResponse: {
+            artifact: components["schemas"]["OpportunityAnalysisArtifact"] | null;
+            job: components["schemas"]["TenderSearchWizardJob"];
+        };
+        OpportunityCandidateActor: {
+            actor_id: string | null;
+            evidence_ids: string[];
+            name: string;
+            role: string;
+        };
+        OpportunityDraftOffer: {
+            administrative_checklist: components["schemas"]["OpportunityDraftOfferChecklistItem"][];
+            banner: string;
+            based_on_verdict: string | null;
+            declared_evidence_ids: string[];
+            draft_engine: string | null;
+            drafted_as_of: string | null;
+            gaps: components["schemas"]["OpportunityDraftOfferGap"][];
+            gaps_summary: string[];
+            /** @enum {string} */
+            human_gate: "draft_requires_human_edit";
+            lot_hint: string | null;
+            official_evidence_ids: string[];
+            /** @enum {string} */
+            origin: "declared_draft";
+            prose_engine: string | null;
+            prose_polished_count: number;
+            sections: components["schemas"]["OpportunityDraftOfferSection"][];
+            statement: string;
+            statement_prose_polish_reason: string | null;
+            statement_prose_polished: boolean;
+            statement_seed: string | null;
+            tender_ref: string | null;
+        };
+        OpportunityDraftOfferChecklistItem: {
+            description: string;
+            key: string;
+            label: string;
+            /** @enum {string} */
+            source: "pliego" | "admin";
+            /** @enum {string} */
+            status: "pending" | "ready" | "blocked";
+        };
+        OpportunityDraftOfferGap: {
+            code: string;
+            description: string;
+            /** @enum {string} */
+            origin: "verdict_condition" | "pliego" | "profile";
+            /** @enum {string} */
+            severity: "blocking" | "important" | "info";
+        };
+        OpportunityDraftOfferSection: {
+            declared_evidence_ids: string[];
+            gaps: string[];
+            key: string;
+            official_evidence_ids: string[];
+            our_response_draft: string;
+            our_response_seed: string | null;
+            points_hint: string | null;
+            prose_polish_reason: string | null;
+            prose_polished: boolean;
+            requirement: string;
+            /** @enum {string} */
+            requirement_origin: "official";
+            /** @enum {string} */
+            response_origin: "declared_generated";
+            title: string;
+        };
+        OpportunityFact: {
+            evidence_ids: string[];
+            statement: string;
+        };
+        OpportunityFitAssessment: {
+            confidence: number;
+            declared_evidence_ids: string[];
+            dimensions: components["schemas"]["OpportunityFitDimension"][];
+            official_evidence_ids: string[];
+            /** @enum {string} */
+            origin: "declared_by_client";
+            scored_as_of: string | null;
+            scoring_engine: string | null;
+            statement: string;
+            tender_ref: string | null;
+            verdict: components["schemas"]["OpportunityFitVerdict"] | null;
+        };
+        OpportunityFitDimension: {
+            capability: string;
+            /** @enum {string} */
+            capability_origin: "declared_by_client";
+            declared_evidence_ids: string[];
+            /** @enum {string} */
+            key: "cpv" | "solvency" | "lots" | "deadline" | "other";
+            label: string;
+            official_evidence_ids: string[];
+            requirement: string;
+            /** @enum {string} */
+            requirement_origin: "official";
+            /** @enum {string} */
+            status: "fit" | "partial" | "no_fit" | "not_evaluable";
+            status_reason: string;
+        };
+        OpportunityFitVerdict: {
+            conditions: string[];
+            /** @enum {string} */
+            human_gate: "awaiting_user_confirmation";
+            rationale: string;
+            /** @enum {string} */
+            recommendation: "go" | "no_go" | "go_conditioned";
+        };
+        OpportunityInference: {
+            confidence: number;
+            evidence_ids: string[];
+            reasoning_summary: string;
+            statement: string;
+        };
+        OpportunityNextBestAction: {
+            action: string;
+            due_date: string | null;
+            owner_role: string;
+            rationale: string;
+        };
+        OpportunityOfferDraftCreateResponse: {
+            created: boolean;
+            draft: components["schemas"]["OpportunityOfferDraftResource"];
+        };
+        OpportunityOfferDraftPatchInput: {
+            sections?: components["schemas"]["OpportunityOfferDraftSectionPatchInput"][];
+            statement?: string;
+            version?: number;
+        };
+        OpportunityOfferDraftResource: {
+            administrative_checklist?: {
+                [key: string]: unknown;
+            }[];
+            banner: string;
+            based_on_verdict?: string | null;
+            content?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at?: string;
+            declared_evidence_ids?: string[];
+            /** Format: uuid */
+            dossier_id: string;
+            draft_engine?: string | null;
+            drafted_as_of?: string | null;
+            etag: string;
+            gaps?: {
+                [key: string]: unknown;
+            }[];
+            gaps_summary?: string[];
+            human_gate: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            last_edited_by_user_id?: string;
+            lot_hint?: string | null;
+            official_evidence_ids?: string[];
+            /** @enum {string} */
+            origin: "declared_draft";
+            prose_engine?: string | null;
+            sections: {
+                [key: string]: unknown;
+            }[];
+            /** Format: uuid */
+            source_artifact_id: string;
+            statement: string;
+            tender_ref?: string | null;
+            /** Format: date-time */
+            updated_at?: string;
+            version: number;
+        };
+        OpportunityOfferDraftResponse: {
+            draft: components["schemas"]["OpportunityOfferDraftResource"];
+        };
+        OpportunityOfferDraftSectionPatchInput: {
+            key: string;
+            our_response_draft: string;
+        };
+        /** @description PATCH estricto: additionalProperties=false (typos → 422). Requiere al menos un campo comercial editable además de version. */
+        OpportunityOfferLifecyclePatchInput: {
+            /** @description Baja explícita 0-100 (porcentaje). Null limpia. */
+            baja_porcentaje?: string | null;
+            /** Format: date */
+            fecha_mesa?: string | null;
+            /** @description Garantía provisional en euros (decimal string). Null limpia. */
+            garantia_provisional?: string | null;
+            /** @description Importe ofertado en euros (decimal como string). Null limpia. */
+            importe_ofertado?: string | null;
+            lotes?: string[];
+            /** @description Obligatorio solo si status=excluida; rechazado/limpiado en otros estados. */
+            motivo_exclusion?: string | null;
+            /** @enum {string} */
+            status?: "preparando" | "presentada" | "en_evaluacion" | "adjudicada" | "perdida" | "excluida";
+            /** @description CAS: 0 materializa la primera fila; N>=1 actualiza la fila existente con esa versión. También aceptable vía If-Match. */
+            version?: number;
+        };
+        OpportunityOfferLifecycleResource: {
+            baja_porcentaje?: string | null;
+            /**
+             * Format: date-time
+             * @description Null cuando materialized=false.
+             */
+            created_at: string | null;
+            /** @description Recordatorio de que el estado CRM de la oportunidad es independiente. */
+            crm_status_note: string;
+            /** Format: uuid */
+            dossier_id: string;
+            etag: string;
+            /** Format: date */
+            fecha_mesa?: string | null;
+            garantia_provisional?: string | null;
+            /**
+             * Format: uuid
+             * @description Null cuando materialized=false (sin fila persistida).
+             */
+            id: string | null;
+            importe_ofertado?: string | null;
+            /**
+             * Format: uuid
+             * @description Null cuando materialized=false.
+             */
+            last_edited_by_user_id: string | null;
+            lotes: string[];
+            /** @description False: contrato virtual de GET (sin INSERT). True: fila durable en opportunity_offer_lifecycles. */
+            materialized: boolean;
+            motivo_exclusion?: string | null;
+            /** Format: uuid */
+            opportunity_id: string;
+            /** @enum {string} */
+            status: "preparando" | "presentada" | "en_evaluacion" | "adjudicada" | "perdida" | "excluida";
+            status_label: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /**
+             * Format: date-time
+             * @description Null cuando materialized=false.
+             */
+            updated_at: string | null;
+            /** @description 0 = virtual no materializado; >=1 = fila persistida. */
+            version: number;
+        };
+        OpportunityOfferLifecycleResponse: {
+            lifecycle: components["schemas"]["OpportunityOfferLifecycleResource"];
+            /** @description False si aún no existe fila (GET virtual). True tras materialización o cuando la fila ya existía. */
+            materialized: boolean;
+        };
+        OpportunityRecommendation: {
+            action: string;
+            /** @enum {string} */
+            priority: "low" | "medium" | "high" | "critical";
+            rationale: string;
+        };
         OpportunityResource: {
             actionability?: number;
             blocking_risk?: number;
@@ -34839,6 +36819,18 @@ export interface components {
             updated_at?: string;
             urgency?: number;
             version?: number;
+        };
+        OpportunityScores: {
+            actionability: number;
+            blocking_risk: number;
+            confidence: number;
+            execution_effort: number;
+            expected_value: number;
+            overall: number;
+            relationship_leverage: number;
+            strategic_fit: number;
+            timing: number;
+            urgency: number;
         };
         OpportunityWriteInput: {
             actionability?: number;
@@ -34958,6 +36950,35 @@ export interface components {
         PasswordInput: {
             /** Format: password */
             password: string;
+        };
+        /** @description Estado honesto de adquisición de pliego (G-11). La descarga automática es best-effort; siempre se ofrece subida manual. */
+        PliegoAcquisitionResponse: {
+            acquisitions: components["schemas"]["JsonObject"][];
+            cta: components["schemas"]["JsonObject"];
+            /** Format: uuid */
+            dossier_id: string;
+            manual_upload_offered: boolean;
+            manual_upload_priority?: boolean;
+            /** Format: uuid */
+            opportunity_id?: string | null;
+            overall_reason?: string;
+            overall_reason_code?: string;
+            /** @enum {string} */
+            overall_status: "procesando" | "descargado" | "subido" | "extracto_parcial" | "no_disponible";
+            pins_without_documents?: number;
+            preferred_document?: components["schemas"]["JsonObject"] | null;
+            signal_document_refs?: number;
+        };
+        PliegoPcapUploadResponse: {
+            /**
+             * @description procesando = recepción no terminal; subido solo tras oracle.document.process ready; no_disponible = fallo terminal.
+             * @enum {string}
+             */
+            acquisition_status: "procesando" | "subido" | "no_disponible";
+            document: components["schemas"]["JsonObject"];
+            job_id: string | null;
+            message: string;
+            pliego_acquisition?: components["schemas"]["PliegoAcquisitionResponse"];
         };
         Problem: {
             code: string;
@@ -35214,10 +37235,14 @@ export interface components {
             confidentiality_label?: string;
             /** Format: date-time */
             created_at?: string;
+            /** @description Estado honesto por documento/adquisición: procesando, descargado, subido, extracto_parcial, no_disponible. */
+            document_acquisitions?: components["schemas"]["JsonObject"][];
             /** @description Avisos legibles para el cliente (p. ej. análisis sobre extracto porque el PDF original del pliego está cifrado). */
             document_notes?: string[];
             /** Format: uuid */
             dossier_id: string;
+            /** @description True cuando la descarga HTTP/WAF falló y se usó extracto parcial o se ofreció subida manual (G-11). */
+            download_fallback?: boolean;
             /** @description True cuando el informe se basó en extractos del expediente porque el PDF oficial venía cifrado. */
             encrypted_pdf_fallback?: boolean;
             error_code?: string | null;
@@ -35237,8 +37262,15 @@ export interface components {
             id: string;
             /** Format: uuid */
             job_id?: string | null;
+            /** @description Siempre true: la UI debe ofrecer CTA «Subir PCAP». */
+            manual_pcap_upload_offered?: boolean;
             /** Format: uuid */
             parent_report_id?: string | null;
+            /**
+             * @description Estado agregado de adquisición del pliego (G-11).
+             * @enum {string|null}
+             */
+            pliego_acquisition_status?: "procesando" | "descargado" | "subido" | "extracto_parcial" | "no_disponible" | null;
             /** Format: date-time */
             published_at?: string | null;
             /** Format: date-time */
@@ -35356,6 +37388,29 @@ export interface components {
             success_criteria: string[];
             tenant_id: string;
             updated_at?: string | null;
+        };
+        ReservedCitableSource: {
+            /** @default  */
+            content_checksum: string;
+            /** @default  */
+            domain: string;
+            /** @default  */
+            label: string;
+            /** @default web_search */
+            origin: string;
+            /** @default Fuente encontrada por búsqueda */
+            origin_label: string;
+            /** @default  */
+            provider: string;
+            /** @default 1 */
+            rank: number;
+            /** @default  */
+            snippet: string;
+            source_id: string;
+            /** @default  */
+            title: string;
+            /** @default  */
+            url: string;
         };
         ResetPasswordInput: {
             /** Format: password */

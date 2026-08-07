@@ -7,6 +7,7 @@ a useful, explicitly Oracle-ranked table without claiming provider-global rank.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -25,6 +26,41 @@ TOTAL_PROBE_LIMIT = TERM_PROBE_LIMIT + CPV_PROBE_LIMIT
 PREVIEW_RESULT_LIMIT = 20
 EXECUTION_RESULT_WINDOW_LIMIT = 100
 TRANSLATION_VERSION = "tender-search-plan-to-signal-v3"
+PRECISION_FILTER_VERSION = "procurement-intent-precision-v1"
+
+_CLOTHING_INTENT_TOKENS = frozenset(
+    {
+        "calzado",
+        "laboral",
+        "prenda",
+        "prendas",
+        "ropa",
+        "textil",
+        "textiles",
+        "uniforme",
+        "uniformes",
+        "vestuario",
+    }
+)
+_FACILITY_INTENT_TOKENS = frozenset(
+    {
+        "acondicionamiento",
+        "construccion",
+        "deportiva",
+        "deportivas",
+        "instalacion",
+        "instalaciones",
+        "mejora",
+        "pabellon",
+        "piscina",
+        "polideportivo",
+        "reforma",
+        "vestuarios",
+    }
+)
+_SPORTS_FACILITY_TOKENS = frozenset(
+    {"instalacion", "instalaciones", "pabellon", "piscina", "polideportivo"}
+)
 
 
 class SearchPlanExecutionError(ValueError):
@@ -89,6 +125,52 @@ def _plan_text(plan: dict[str, Any]) -> str:
         *_strings(plan.get("synonyms")),
     ]
     return " ".join(value for value in values if isinstance(value, str))
+
+
+def _item_cpv_codes(item: dict[str, Any]) -> list[str]:
+    raw = item.get("cpv")
+    if raw is None:
+        raw = item.get("cpvs")
+    values = raw if isinstance(raw, list) else [raw]
+    codes: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            code_value: Any = value
+        elif isinstance(value, dict):
+            code_value = value.get("code")
+        else:
+            continue
+        if isinstance(code_value, str) and code_value.strip():
+            codes.append(code_value.strip())
+    return codes
+
+
+def _precision_exclusion_reason(plan: dict[str, Any], item: dict[str, Any]) -> str | None:
+    """Reject only a clear clothing-vs-building sense mismatch.
+
+    ``vestuario`` singular is a common clothing query in procurement. A title using
+    plural ``vestuarios`` is not rejected on that fact alone: it also needs a sports
+    facility marker or a construction CPV plus facility language. Explicit facility
+    intent in the plan always wins and disables this narrow guard.
+    """
+
+    plan_tokens = procurement_text_tokens(_plan_text(plan))
+    clothing_intent = bool(plan_tokens & _CLOTHING_INTENT_TOKENS)
+    facility_intent = bool(plan_tokens & _FACILITY_INTENT_TOKENS)
+    if not clothing_intent or facility_intent:
+        return None
+
+    title = item.get("title") or item.get("name") or ""
+    title_tokens = procurement_text_tokens(str(title))
+    facility_tokens = title_tokens & _FACILITY_INTENT_TOKENS
+    construction_cpv = any(code.startswith("45") for code in _item_cpv_codes(item))
+    plural_with_facility = "vestuarios" in title_tokens and bool(
+        title_tokens & _SPORTS_FACILITY_TOKENS
+    )
+    construction_facility = construction_cpv and len(facility_tokens) >= 2
+    if plural_with_facility or construction_facility:
+        return "intent_mismatch_clothing_vs_facility"
+    return None
 
 
 def _cpv_probe_score(probe: SearchProbe, plan: dict[str, Any]) -> float:
@@ -349,6 +431,7 @@ def execute_search_plan(
         ),
     )
     by_folder: dict[str, dict[str, Any]] = {}
+    precision_excluded: dict[str, str] = {}
     order: list[str] = []
     order_index: dict[str, int] = {}
     probe_stats: list[dict[str, Any]] = []
@@ -385,6 +468,10 @@ def execute_search_plan(
             if not isinstance(folder_id, str) or not folder_id.strip():
                 continue
             key = folder_id.strip()
+            exclusion_reason = _precision_exclusion_reason(plan, item)
+            if exclusion_reason is not None:
+                precision_excluded[key] = exclusion_reason
+                continue
             hits += 1
             existing = by_folder.get(key)
             if existing is None:
@@ -460,10 +547,16 @@ def execute_search_plan(
                 "global_order": False,
                 "result_window_cap": EXECUTION_RESULT_WINDOW_LIMIT,
                 "matched_before_window_cap": len(by_folder),
+                "precision_filter": {
+                    "version": PRECISION_FILTER_VERSION,
+                    "excluded": len(precision_excluded),
+                    "reason_counts": dict(Counter(precision_excluded.values())),
+                },
                 "limitations": [
                     "Resultados unidos por folder_id a partir de sondas independientes.",
                     "No se aplica el filtro de comprador/geografía del plan (evita 0 hits).",
                     "Signal no garantiza un ranking global entre sondas.",
+                    "Se excluyen solo desajustes léxicos inequívocos y explicables de intención.",
                 ],
             },
         },

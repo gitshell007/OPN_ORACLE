@@ -137,6 +137,7 @@ class Settings:
     database_migration_url: str
     rls_enabled: bool
     redis_url: str
+    session_type: str
     session_redis_url: str
     ratelimit_storage_url: str
     log_level: str
@@ -286,6 +287,7 @@ class Settings:
             database_migration_url=database_migration_url,
             rls_enabled=_as_bool(values.get("RLS_ENABLED", True)),
             redis_url=redis_url,
+            session_type=str(values.get("SESSION_TYPE", "redis")).strip().lower(),
             session_redis_url=str(values.get("SESSION_REDIS_URL", redis_url)),
             ratelimit_storage_url=str(values.get("RATELIMIT_STORAGE_URL", redis_url)),
             log_level=str(values.get("LOG_LEVEL", "INFO")).upper(),
@@ -677,6 +679,12 @@ class Settings:
             raise ConfigError("DOCUMENT_SCANNER_MODE debe ser noop o clamav.")
         if self.report_pdf_mode not in {"disabled", "weasyprint"}:
             raise ConfigError("REPORT_PDF_MODE debe ser disabled o weasyprint.")
+        if self.session_type not in {"redis", "cachelib"}:
+            raise ConfigError("SESSION_TYPE debe ser redis o cachelib.")
+        if self.session_type == "cachelib" and self.app_env != "test":
+            raise ConfigError("SESSION_TYPE=cachelib solo está permitido en test.")
+        if self.ratelimit_storage_url == "memory://" and self.app_env != "test":
+            raise ConfigError("RATELIMIT_STORAGE_URL=memory:// solo está permitido en test.")
         if not Path(self.backup_storage_path).is_absolute():
             raise ConfigError("BACKUP_STORAGE_PATH debe ser una ruta absoluta.")
         if self.document_scanner_mode == "clamav" and not self.document_clamav_host:
@@ -781,7 +789,7 @@ class Settings:
                 "OPENAPI_JSON_PATH": "openapi.json",
                 "SWAGGER_UI_PATH": "/docs" if self.openapi_enabled else None,
                 "TESTING": self.app_env == "test",
-                "SESSION_TYPE": "redis",
+                "SESSION_TYPE": self.session_type,
                 "SESSION_KEY_PREFIX": "opn-oracle:session:",
                 "SESSION_COOKIE_NAME": self.session_cookie_name,
                 "SESSION_COOKIE_HTTPONLY": True,

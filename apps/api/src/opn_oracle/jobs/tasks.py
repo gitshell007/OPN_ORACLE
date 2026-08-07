@@ -481,6 +481,7 @@ HANDLERS: dict[str, Handler] = {
             "dossier_completion_wizard",
             "tender_search_wizard",
             "market_competitor_discovery",
+            "market_actor_discovery",
         )
     },
 }
@@ -662,12 +663,27 @@ def _send_digest(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
 
 
 def _process_document(payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
+    """Procesa el documento y cierra adquisición G-11 de PCAP manual si aplica."""
+    from opn_oracle.oracle.pliego_acquisition import finalize_manual_pcap_after_process
+
     try:
         document_id = uuid.UUID(str(payload["document_id"]))
         version_id = uuid.UUID(str(payload["version_id"]))
-        return process_document(document_id, version_id, job)
-    except (KeyError, ValueError, DocumentError) as error:
+    except (KeyError, ValueError) as error:
         raise PermanentJobError(str(error)) from error
+    try:
+        result = process_document(document_id, version_id, job)
+    except DocumentError as error:
+        finalize_manual_pcap_after_process(document_id=document_id, job=job, error=error)
+        raise PermanentJobError(str(error)) from error
+    # Éxito, replay o ignore temporal: el finalizer decide (solo ready/failed).
+    process_result = result if isinstance(result, dict) else None
+    finalize_manual_pcap_after_process(
+        document_id=document_id,
+        job=job,
+        process_result=process_result,
+    )
+    return result
 
 
 def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict[str, Any]:
@@ -741,10 +757,40 @@ def _execute_ai(agent: str, payload: dict[str, Any], job: BackgroundJob) -> dict
                     countries=[str(item) for item in payload.get("countries", [])],
                     languages=[str(item) for item in payload.get("languages", [])],
                     known_names=[str(item) for item in payload.get("known_names", [])],
+                    competitors_knowledge=str(payload.get("competitors_knowledge", "known")),
                     max_tokens=max_tokens,
                 ),
                 target_type="market_discovery",
                 target_id=job.tenant_id,
+            )
+        if agent == "market_actor_discovery":
+            from opn_oracle.ai.context import build_market_actor_discovery_context
+
+            actor_intent = str(payload["discovery_intent"])
+            actor_type = str(payload["actor_type"])
+            # Dossier-scoped: prefer job.dossier_id, fall back to payload (server-owned).
+            actor_dossier_id = job.dossier_id
+            if actor_dossier_id is None and payload.get("dossier_id"):
+                actor_dossier_id = uuid.UUID(str(payload["dossier_id"]))
+            if actor_dossier_id is None:
+                raise ValueError(
+                    "market_actor_discovery exige dossier_id en el job o en el payload."
+                )
+            return execute_agent(
+                agent=agent,
+                dossier_id=actor_dossier_id,
+                job=job,
+                context_factory=lambda max_tokens: build_market_actor_discovery_context(
+                    discovery_intent=actor_intent,
+                    actor_type=actor_type,
+                    countries=[str(item) for item in payload.get("countries", [])],
+                    languages=[str(item) for item in payload.get("languages", [])],
+                    known_names=[str(item) for item in payload.get("known_names", [])],
+                    max_tokens=max_tokens,
+                    dossier_id=actor_dossier_id,
+                ),
+                target_type="strategic_dossier",
+                target_id=actor_dossier_id,
             )
         dossier_id = uuid.UUID(str(payload["dossier_id"]))
         if agent == "dossier_completion_wizard":
@@ -1229,6 +1275,7 @@ AI_DURABLE_TASKS = {
         "dossier_completion_wizard",
         "tender_search_wizard",
         "market_competitor_discovery",
+        "market_actor_discovery",
     )
 }
 

@@ -635,6 +635,12 @@ def process_dossier_question_answer(
 
     Never mutates IntentRevision or promotes memory facts. Uses no paid providers
     unless AI_MODE=signal. ``memory_adapter`` is injectable for tests.
+
+    Memory mode SSOT (G-29): derived exclusively from
+    ``resolve_effective_dossier_memory_profile`` (default profile or
+    legacy_missing→disabled). ``payload.memory_mode`` is always ignored.
+    The ``memory_mode`` kwarg is a unit-test inject only when TESTING=true;
+    production jobs never pass it (see jobs/tasks.py).
     """
 
     from dataclasses import replace as dc_replace
@@ -716,46 +722,10 @@ def process_dossier_question_answer(
         except Exception as error:  # pragma: no cover - defensive config
             raise ConversationError("No se pudo resolver el adaptador de memoria.") from error
 
-    # SV2-AUG: resolve dossier DMP mode (canary) before adapter default (shadow).
-    # Product mechanism: DossierMemoryProfile.mode via PUT /memory/profile.
-    profile_mode = None
-    profile_cfg: dict[str, Any] = {}
-    if memory_mode is None and not (isinstance(payload, Mapping) and payload.get("memory_mode")):
-        try:
-            from sqlalchemy import select as sa_select
+    # G-29 SSOT: effective mode from persisted default profile only.
+    # payload.memory_mode is client/job-overridable noise — always ignored.
+    import os as _os
 
-            from opn_oracle.integrations.models import DossierMemoryProfile
-
-            dmp_rows = list(
-                session.scalars(
-                    sa_select(DossierMemoryProfile).where(
-                        DossierMemoryProfile.tenant_id == tenant_id,
-                        DossierMemoryProfile.dossier_id == dossier_id,
-                    )
-                ).all()
-            )
-            # Prefer IC-bound profile (connection_id set) for canary dossier.
-            dmp_rows.sort(key=lambda r: 0 if getattr(r, "connection_id", None) else 1)
-            for row in dmp_rows:
-                cfg = dict(row.profile_config or {})
-                m = str(cfg.get("mode") or row.mode or "").strip().lower()
-                if m in {"disabled", "shadow", "augment"}:
-                    profile_mode = m
-                    profile_cfg = cfg
-                    break
-        except Exception:
-            profile_mode = None
-            profile_cfg = {}
-
-    raw_mode = (
-        memory_mode
-        or (payload.get("memory_mode") if isinstance(payload, Mapping) else None)
-        or profile_mode
-        or getattr(adapter, "effective_mode", None)
-    )
-    # Fail-closed: missing/unknown mode is never augment. Productive default is disabled
-    # unless the adapter/profile supplies a validated shadow|augment mode.
-    # mock-inject is only allowed behind explicit TESTING (Flask testing or env).
     testing_active = False
     try:
         from flask import current_app, has_app_context
@@ -767,28 +737,66 @@ def process_dossier_question_answer(
     except Exception:  # pragma: no cover - no app context
         testing_active = False
     if not testing_active:
-        import os as _os
-
         testing_active = str(_os.environ.get("TESTING") or "").strip().lower() in {
             "1",
             "true",
             "yes",
         }
+    # Pure unit tests (no Flask app) still run under pytest; Celery jobs never set this.
+    if not testing_active:
+        testing_active = bool(_os.environ.get("PYTEST_CURRENT_TEST"))
 
-    effective_mode = "disabled" if raw_mode is None else str(raw_mode).strip().lower()
-    if effective_mode not in {"disabled", "shadow", "augment"}:
-        if effective_mode == "mock":
-            # Mock-inject only in explicit TESTING; production maps mock → disabled.
-            effective_mode = "augment" if testing_active else "disabled"
-        elif effective_mode == "http":
-            # Host transport mode is not a profile mode; fail-closed to shadow only when
-            # the adapter already resolved an effective profile mode elsewhere.
-            adapter_mode = str(getattr(adapter, "effective_mode", "") or "").strip().lower()
-            effective_mode = (
-                adapter_mode if adapter_mode in {"disabled", "shadow", "augment"} else "shadow"
-            )
-        else:
-            effective_mode = "disabled"
+    from opn_oracle.integrations.memory_profile import (
+        normalize_operational_mode,
+        resolve_effective_dossier_memory_profile,
+    )
+
+    try:
+        mem_resolution = resolve_effective_dossier_memory_profile(
+            session, tenant_id=tenant_id, dossier_id=dossier_id
+        )
+    except Exception:
+        # Fail-closed: never invent memory if resolution blows up.
+        from opn_oracle.integrations.memory_profile import EffectiveMemoryResolution
+
+        mem_resolution = EffectiveMemoryResolution(
+            mode="disabled",
+            profile_id=None,
+            version=None,
+            scope_type="dossier",
+            resolution_source="legacy_missing",
+            persisted=False,
+            state="legacy_missing",
+            profile_config={},
+            reason_es="resolution_error_fail_closed",
+        )
+
+    profile_cfg: dict[str, Any] = dict(mem_resolution.profile_config or {})
+    profile_version: int | None = mem_resolution.version
+    profile_id: str | None = mem_resolution.profile_id
+    resolution_source: str = mem_resolution.resolution_source
+    effective_mode: str = mem_resolution.mode
+
+    # Unit-test inject ONLY: kwarg memory_mode when TESTING=true.
+    # Never honors payload.memory_mode (jobs could carry client-forged values).
+    if testing_active and memory_mode is not None:
+        injected = normalize_operational_mode(memory_mode)
+        if str(memory_mode).strip().lower() == "mock":
+            injected = "augment"
+        effective_mode = injected
+        resolution_source = "testing_inject"
+    elif not testing_active and memory_mode is not None:
+        # Defensive: ignore kwarg outside TESTING (jobs must not pass it).
+        pass
+
+    # Honesty: never report augment/shadow without a real profile identity,
+    # unless this is an explicit unit-test inject (no DB profile needed).
+    if (
+        effective_mode in {"augment", "shadow"}
+        and resolution_source != "testing_inject"
+        and (not profile_id or profile_version is None or int(profile_version) < 1)
+    ):
+        effective_mode = "disabled"
 
     scope_hint: dict[str, Any] = {
         "tenant_id": str(tenant_id),
@@ -797,6 +805,10 @@ def process_dossier_question_answer(
         "message_id": str(message_id),
         "job_id": str(job.id),
         "mode": effective_mode,
+        "memory_profile_id": profile_id,
+        "memory_profile_version": profile_version,
+        "resolution_source": resolution_source,
+        "scope_type": "dossier",
     }
     if profile_cfg:
         if profile_cfg.get("token_budget") is not None:
@@ -891,14 +903,6 @@ def process_dossier_question_answer(
         session.flush()
         raise ConversationError(f"Fallo al recuperar contexto: {error}") from error
 
-    # Load real Oracle authority (tenant+dossier-scoped) from the same UoW session.
-    oracle_authority = load_oracle_authority_from_session(
-        session,
-        tenant_id=tenant_id,
-        dossier_id=dossier_id,
-        question=message.content_text,
-    )
-
     typed_mode: MemoryMode
     if effective_mode == "augment":
         typed_mode = "augment"
@@ -907,6 +911,16 @@ def process_dossier_question_answer(
     else:
         typed_mode = "disabled"
         effective_mode = "disabled"
+
+    # Load real Oracle authority (tenant+dossier-scoped) from the same UoW session.
+    # G-26 family mix + G-29 memory_mode (disabled/shadow/augment) applied here.
+    oracle_authority = load_oracle_authority_from_session(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        question=message.content_text,
+        memory_mode=typed_mode,
+    )
 
     # Reuse durable memory_signal Evidence by source_ref+checksum across turns
     # so Preguntar does not mint a fresh uuid4 row per fact on every ask.
@@ -1086,6 +1100,16 @@ def process_dossier_question_answer(
         items_for_prompt = list(signal_block.get("items") or [])
 
     snapshot_payload = dual_context_to_snapshot(dual)
+    if isinstance(snapshot_payload, dict):
+        snapshot_payload = {
+            **snapshot_payload,
+            "profile_version": profile_version,
+            "profile_id": profile_id,
+            "scope_type": "dossier",
+            "resolution_source": resolution_source,
+            "tenant_id": str(tenant_id),
+            "dossier_id": str(dossier_id),
+        }
     if _raw_retrieval and isinstance(_raw_retrieval, dict) and _raw_retrieval.get("snapshot_meta"):
         enriched = {
             **_raw_retrieval,
@@ -1093,6 +1117,10 @@ def process_dossier_question_answer(
             "snapshot_meta": {
                 **dict(_raw_retrieval["snapshot_meta"]),
                 "mode": effective_mode,
+                "profile_version": profile_version,
+                "profile_id": profile_id,
+                "resolution_source": resolution_source,
+                "scope_type": "dossier",
             },
         }
         # Snapshot failures must not be silent: mark coverage, rebuild effective
@@ -1251,6 +1279,10 @@ def process_dossier_question_answer(
         answer_payload = {
             "policy_version": policy,
             "memory_mode": effective_mode,
+            "memory_profile_version": profile_version,
+            "memory_profile_id": profile_id,
+            "memory_scope_type": "dossier",
+            "resolution_source": resolution_source,
             "item_count": len(items_for_prompt),
             "items_observed": len(items_observed),
             "unknowns": unknowns,
@@ -1280,6 +1312,10 @@ def process_dossier_question_answer(
         }
 
     answer_payload.setdefault("memory_mode", effective_mode)
+    answer_payload.setdefault("memory_profile_version", profile_version)
+    answer_payload.setdefault("memory_profile_id", profile_id)
+    answer_payload.setdefault("memory_scope_type", "dossier")
+    answer_payload.setdefault("resolution_source", resolution_source)
     answer_payload.setdefault("allowed_evidence_ids", allowed_ids)
     answer_payload.setdefault("input_manifest_hash", dual.input_manifest_hash)
     # Always own degraded flags from measured path (publisher/persist/coverage.failed).
@@ -1359,6 +1395,10 @@ def process_dossier_question_answer(
             "job_id": str(job.id),
             "policy_version": policy,
             "memory_mode": effective_mode,
+            "memory_profile_version": profile_version,
+            "memory_profile_id": profile_id,
+            "memory_scope_type": "dossier",
+            "resolution_source": resolution_source,
             "item_count": len(items_for_prompt),
             "items_observed": len(items_observed),
             "allowed_evidence_count": len(allowed_ids),
@@ -1378,6 +1418,10 @@ def process_dossier_question_answer(
         "items_observed": len(items_observed),
         "policy_version": policy,
         "memory_mode": effective_mode,
+        "memory_profile_version": profile_version,
+        "memory_profile_id": profile_id,
+        "memory_scope_type": "dossier",
+        "resolution_source": resolution_source,
         "allowed_evidence_ids": allowed_ids,
         "input_manifest_hash": dual.input_manifest_hash,
         "mutates_intent": False,
@@ -1430,7 +1474,16 @@ def _answer_via_signal(
         agent="dossier_question_answer",
         dossier_id=dossier_id,
         job=job,
-        context_factory=lambda max_tokens: build_context(dossier_id, max_tokens=max_tokens),
+        # Ask owns a stricter memory allowlist than the generic dossier context:
+        # only the current dual-memory materialization below is citable.  Keeping
+        # generic ``memory_signal`` rows here can expose stale IDs to Signal that
+        # the conversation-layer validator correctly rejects afterwards.
+        context_factory=lambda max_tokens: build_context(
+            dossier_id,
+            max_tokens=max_tokens,
+            question=message.content_text,
+            memory_mode="disabled",
+        ),
         supplemental_context={
             "question": message.content_text,
             "oracle_authority": dict((dual_blocks or {}).get("oracle_authority") or {}),
@@ -1486,6 +1539,7 @@ def _answer_via_signal(
         build_evidence_text_index,
         enforce_citation_support,
         format_support_rejection_summary,
+        issue_to_public,
     )
 
     evidence_index = build_evidence_text_index(
@@ -1535,17 +1589,8 @@ def _answer_via_signal(
                 "withdrawn": support.withdrawn_count,
                 "degraded": support.degraded_count,
                 "kept": support.kept_count,
-                "issues": [
-                    {
-                        "path": issue.path,
-                        "action": issue.action,
-                        "reason": issue.reason,
-                        "missing_anchors": issue.missing_anchors,
-                        "evidence_ids": issue.evidence_ids,
-                        "claim_kind": issue.claim_kind,
-                    }
-                    for issue in support.issues
-                ],
+                # Público: sin path JSON ni missing_anchors crudos (telemetría interna).
+                "issues": [issue_to_public(issue) for issue in support.issues],
             },
             "job_id": str(job.id),
             "artifact_id": str(artifact.id),

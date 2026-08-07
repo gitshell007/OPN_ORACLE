@@ -62,6 +62,11 @@ export FRONTEND_ORIGIN="http://127.0.0.1:3000"
 export RLS_ENABLED=1
 export LOG_FORMAT=console
 export TRUSTED_PROXY_COUNT=1
+# G-14 must exercise the real Flask/Celery AI path without network or paid calls.
+export AI_ENABLED=true
+export AI_MODE=mock
+export AI_DEFAULT_MODEL=mock-oracle-v1
+export AI_MOCK_SEED=frontend-e2e-g14
 
 cd apps/api
 uv run flask --app opn_oracle.wsgi:app db upgrade >/dev/null

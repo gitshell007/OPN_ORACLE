@@ -75,6 +75,12 @@ vi.mock("@/components/auth/auth-provider", () => ({
     identity: { user: { id: "user-1" } },
   }),
 }));
+// Panel G-19 tested in actor-discovery-panel.test.tsx; keep work-section focused.
+vi.mock("@/components/market/actor-discovery-panel", () => ({
+  ActorDiscoveryPanel: ({ dossierId }: { dossierId: string }) => (
+    <div data-testid="actor-discovery-panel-stub" data-dossier-id={dossierId} />
+  ),
+}));
 
 import { DossierWorkSection } from "./dossier-work-section";
 
@@ -206,6 +212,12 @@ describe("DossierWorkSection", () => {
       1,
       expect.any(String),
     ));
+  });
+
+  it("monta el panel de descubrimiento de actores en la pantalla real Actores", async () => {
+    render(<DossierWorkSection dossierId="dossier-1" kind="actors" />);
+    const panel = await screen.findByTestId("actor-discovery-panel-stub");
+    expect(panel).toHaveAttribute("data-dossier-id", "dossier-1");
   });
 
   it("vincula un actor existente sin enviar tenant desde el navegador", async () => {

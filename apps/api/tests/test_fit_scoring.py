@@ -159,6 +159,7 @@ def test_solvency_with_declared_volume_can_fail() -> None:
     declared = {
         **_nexus_declared_fields(dossier_id),
         "annual_turnover": str(declared_evidence_id(dossier_id, "annual_turnover")),
+        "past_services": str(declared_evidence_id(dossier_id, "past_services")),
     }
     scored = score_profile_tender_fit(
         profile=profile,
@@ -170,6 +171,11 @@ def test_solvency_with_declared_volume_can_fail() -> None:
     solv = next(d for d in scored["dimensions"] if d["key"] == "solvency")
     assert solv["status"] == "no_fit"
     assert scored["verdict"]["recommendation"] == "no_go"
+    # Exact F.2+F.3 citations — no own_offer/barriers context IDs
+    assert solv["declared_evidence_ids"] == [
+        declared["annual_turnover"],
+        declared["past_services"],
+    ]
 
 
 def test_closed_deadline_is_no_go() -> None:

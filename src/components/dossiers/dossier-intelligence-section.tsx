@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { PermissionGate } from "@/components/auth/auth-boundary";
 import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
+import { OpportunityOfferLifecyclePanel } from "@/components/dossiers/opportunity-offer-lifecycle-panel";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { productScoreDetailLabel, productSignalTypeLabel } from "@/lib/product-copy";
 
@@ -967,6 +968,14 @@ export function DossierIntelligenceSection({
                   ) : (
                     <>
                       <ScoreExplanation resource={selected} kind={kind} />
+                      {kind === "opportunities" && !isSignal(selected) && (
+                        <OpportunityOfferLifecyclePanel
+                          dossierId={dossierId}
+                          opportunityId={selected.id}
+                          crmStatus={status(selected)}
+                          crmStatusLabel={STATUS_LABELS[status(selected)] ?? status(selected)}
+                        />
+                      )}
                       <section className="intelligence-detail-block evidence-block">
                         <h2>Evidencias enlazadas</h2>
                         {evidenceLoading ? (

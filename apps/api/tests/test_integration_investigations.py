@@ -222,11 +222,19 @@ def test_actor_alias_candidates_are_organization_only_and_do_not_mutate(
 
     response = client.get("/api/v1/actors/alias-candidates")
     assert response.status_code == 200
-    candidates = response.get_json()["items"]
+    payload = response.get_json()
+    assert "meta" in payload
+    assert "organizations_evaluated" in payload["meta"]
+    candidates = payload["items"]
     iturri = next(item for item in candidates if item["identity_key"] == "ITURRI")
+    assert iturri.get("match_reason") == "normalized_name"
     assert {actor["name"] for actor in iturri["actors"]} == {"ITURRI SA", "Iturri"}
     assert all(actor["name"] != "ITURRI SL" for actor in iturri["actors"])
     assert all(actor["name"] != "ITURRI FRANCO JUAN FRANCISCO" for actor in iturri["actors"])
+    # person actors never appear; durable tax fields present on org candidates
+    for actor in iturri["actors"]:
+        assert "version" in actor
+        assert "tax_id" in actor
 
     repeated = client.get("/api/v1/actors/alias-candidates")
     assert repeated.status_code == 200

@@ -59,7 +59,7 @@ if [[ -z "${ORACLE_E2E_EMAIL:-}" || -z "${ORACLE_E2E_PASSWORD:-}" ]]; then
 fi
 
 echo "[run-sv2-demo-e2e] baseURL=${PLAYWRIGHT_BASE_URL}"
-echo "[run-sv2-demo-e2e] email=${ORACLE_E2E_EMAIL}"
+echo "[run-sv2-demo-e2e] credenciales=loaded"
 echo "[run-sv2-demo-e2e] repeat=${REPEAT}"
 
 # Resolver binario de Playwright (worktree local o monorepo padre).
@@ -87,7 +87,7 @@ run_once() {
   echo ""
   echo "========== SV2-E2E-CAMINO run ${n}/${REPEAT} =========="
   if "$PW_BIN" test tests/e2e/sv2-demo-walkthrough.spec.ts \
-    --project=desktop \
+    --project=sv2-demo \
     --reporter=list; then
     echo "[run-sv2-demo-e2e] run ${n}: PASS"
   else

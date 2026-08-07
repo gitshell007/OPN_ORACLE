@@ -503,6 +503,30 @@ Un `AuditEvent` debe registrar quién, tenant, acción, recurso, resultado, time
 
 Para tareas amplias, usa subagentes aislados por módulo: backend, frontend, DB, tests, seguridad e infraestructura. Integra y revisa todo antes de finalizar.
 
+### Estado de entrega en tres niveles
+
+Toda acta, resumen de turno o documento de estado debe separar explícitamente:
+
+- **AUDITADA EN RAMA**: commit/branch exactos y gates ejecutados sobre ese SHA;
+- **EN TRONCO**: prueba de que el commit es ancestro del tronco vigente (`master`), sin inferirlo
+  porque esté en una rama de integración;
+- **EN PRODUCCIÓN**: release/SHA realmente activo y verificación viva del entorno.
+
+Una entrega puede estar en uno solo de esos niveles. Nunca uses «terminado», «desplegado» o
+«funciona en producción» para resumir estados distintos.
+
+### Consolidación de ramas
+
+- Audita primero `merge-base`, commits exclusivos, diff y contenido único; no fusiones una rama
+  grande en bloque solo porque sus pruebas históricas fueron verdes.
+- Integra por unidades lógicas revisables, con objetivo aproximado de **5.000 líneas de diff o
+  menos por PR/merge**. Si una unidad indivisible lo supera, documenta el motivo y añade revisión
+  independiente antes de integrar.
+- Cada lote requiere tests proporcionales y evidencia del SHA resultante. El verde de una rama no
+  sustituye el gate del commit de integración.
+- No borres ramas ni worktrees durante la consolidación. La poda es una operación posterior,
+  explícita y recuperable, tras demostrar que no queda contenido único.
+
 ### Commits
 
 **Commitea siempre en `master` al terminar, sin preguntar.** En este proyecto conviven varias

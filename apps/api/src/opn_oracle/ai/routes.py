@@ -17,12 +17,33 @@ from apiflask.fields import (
     Raw,
     String,
 )
-from flask import Response, g, request
+from flask import Response, g, jsonify, make_response, request
 from flask_login import current_user
 from marshmallow import validate
 from sqlalchemy import case, select
+from sqlalchemy.exc import IntegrityError
 
-from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview
+from opn_oracle.ai.models import AIArtifact, AIAttempt, AIHumanReview, OpportunityOfferDraft
+from opn_oracle.ai.offer_draft import (
+    OfferDraftError,
+    OfferDraftVersionConflict,
+    apply_editable_patch,
+    cas_update_offer_draft_sql,
+    make_etag,
+    materialize_content_from_calculated,
+    parse_expected_version,
+    serialize_offer_draft,
+    utc_now,
+)
+from opn_oracle.ai.offer_draft_docx import (
+    DOCX_MEDIA_TYPE,
+    build_offer_draft_docx,
+    collect_evidence_ids,
+    content_disposition_attachment,
+    load_evidence_citation_lookup,
+    resolve_evidence_citations,
+    sanitize_export_filename,
+)
 from opn_oracle.ai.schemas import AGENT_SCHEMAS
 from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
@@ -32,6 +53,7 @@ from opn_oracle.oracle.jobs import AIAuditLog, BackgroundJob
 from opn_oracle.oracle.models import DossierSignal, Feedback, Insight, StrategicDossier
 from opn_oracle.oracle.policy import dossier_accessible
 from opn_oracle.oracle.procurement_search_profiles import get_artifact_acceptance
+from opn_oracle.platform.audit import append_audit_event
 
 bp = APIBlueprint("ai", __name__, url_prefix="/api/v1/ai", tag="IA")
 public_bp = APIBlueprint("ai_contract", __name__, url_prefix="/api/v1", tag="IA")
@@ -39,6 +61,8 @@ DOSSIER_COMPLETION_WIZARD_AGENT = "dossier_completion_wizard"
 TENDER_SEARCH_WIZARD_AGENT = "tender_search_wizard"
 MARKET_COMPETITOR_DISCOVERY_AGENT = "market_competitor_discovery"
 MARKET_COMPETITOR_DISCOVERY_TARGET = "market_discovery"
+MARKET_ACTOR_DISCOVERY_AGENT = "market_actor_discovery"
+MARKET_ACTOR_DISCOVERY_TARGET = "market_actor_discovery"
 INTAKE_AGENT = "intake"
 OPPORTUNITY_AGENT = "opportunity"
 RISK_AGENT = "risk"
@@ -141,6 +165,289 @@ class TenderSearchWizardLatestResponseSchema(TenderSearchWizardRunResponseSchema
     acceptance = Nested(TenderSearchWizardAcceptanceSchema, allow_none=True)
 
 
+class OpportunityFactSchema(Schema):
+    statement = String(required=True)
+    evidence_ids = List(String(), required=True)
+
+
+class OpportunityInferenceSchema(Schema):
+    statement = String(required=True)
+    reasoning_summary = String(required=True)
+    confidence = Integer(required=True)
+    evidence_ids = List(String(), required=True)
+
+
+class OpportunityRecommendationSchema(Schema):
+    action = String(required=True)
+    rationale = String(required=True)
+    priority = String(
+        required=True,
+        validate=validate.OneOf(["low", "medium", "high", "critical"]),
+    )
+
+
+class OpportunityScoresSchema(Schema):
+    strategic_fit = Integer(required=True)
+    urgency = Integer(required=True)
+    expected_value = Integer(required=True)
+    actionability = Integer(required=True)
+    relationship_leverage = Integer(required=True)
+    timing = Integer(required=True)
+    confidence = Integer(required=True)
+    execution_effort = Integer(required=True)
+    blocking_risk = Integer(required=True)
+    overall = Integer(required=True)
+
+
+class OpportunityCandidateActorSchema(Schema):
+    actor_id = String(allow_none=True, required=True)
+    name = String(required=True)
+    role = String(required=True)
+    evidence_ids = List(String(), required=True)
+
+
+class OpportunityNextBestActionSchema(Schema):
+    action = String(required=True)
+    owner_role = String(required=True)
+    due_date = String(allow_none=True, required=True)
+    rationale = String(required=True)
+
+
+class OpportunityFitDimensionSchema(Schema):
+    key = String(
+        required=True,
+        validate=validate.OneOf(["cpv", "solvency", "lots", "deadline", "other"]),
+    )
+    label = String(required=True)
+    requirement = String(required=True)
+    requirement_origin = String(
+        required=True,
+        validate=validate.OneOf(["official"]),
+    )
+    official_evidence_ids = List(String(), required=True)
+    capability = String(required=True)
+    capability_origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_by_client"]),
+    )
+    declared_evidence_ids = List(String(), required=True)
+    status = String(
+        required=True,
+        validate=validate.OneOf(["fit", "partial", "no_fit", "not_evaluable"]),
+    )
+    status_reason = String(required=True)
+
+
+class OpportunityFitVerdictSchema(Schema):
+    recommendation = String(
+        required=True,
+        validate=validate.OneOf(["go", "no_go", "go_conditioned"]),
+    )
+    conditions = List(String(), required=True)
+    human_gate = String(
+        required=True,
+        validate=validate.OneOf(["awaiting_user_confirmation"]),
+    )
+    rationale = String(required=True)
+
+
+class OpportunityFitAssessmentSchema(Schema):
+    statement = String(required=True)
+    declared_evidence_ids = List(String(), required=True)
+    official_evidence_ids = List(String(), required=True)
+    confidence = Integer(required=True)
+    origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_by_client"]),
+    )
+    dimensions = List(Nested(OpportunityFitDimensionSchema), required=True)
+    verdict = Nested(OpportunityFitVerdictSchema, allow_none=True, required=True)
+    tender_ref = String(allow_none=True, required=True)
+    scoring_engine = String(allow_none=True, required=True)
+    scored_as_of = String(allow_none=True, required=True)
+
+
+class OpportunityDraftOfferGapSchema(Schema):
+    code = String(required=True)
+    description = String(required=True)
+    severity = String(
+        required=True,
+        validate=validate.OneOf(["blocking", "important", "info"]),
+    )
+    origin = String(
+        required=True,
+        validate=validate.OneOf(["verdict_condition", "pliego", "profile"]),
+    )
+
+
+class OpportunityDraftOfferSectionSchema(Schema):
+    key = String(required=True)
+    title = String(required=True)
+    points_hint = String(allow_none=True, required=True)
+    requirement = String(required=True)
+    requirement_origin = String(
+        required=True,
+        validate=validate.OneOf(["official"]),
+    )
+    official_evidence_ids = List(String(), required=True)
+    our_response_draft = String(required=True)
+    our_response_seed = String(allow_none=True, required=True)
+    response_origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_generated"]),
+    )
+    declared_evidence_ids = List(String(), required=True)
+    gaps = List(String(), required=True)
+    prose_polished = Boolean(required=True)
+    prose_polish_reason = String(allow_none=True, required=True)
+
+
+class OpportunityDraftOfferChecklistItemSchema(Schema):
+    key = String(required=True)
+    label = String(required=True)
+    description = String(required=True)
+    status = String(
+        required=True,
+        validate=validate.OneOf(["pending", "ready", "blocked"]),
+    )
+    source = String(
+        required=True,
+        validate=validate.OneOf(["pliego", "admin"]),
+    )
+
+
+class OpportunityDraftOfferSchema(Schema):
+    banner = String(required=True)
+    human_gate = String(
+        required=True,
+        validate=validate.OneOf(["draft_requires_human_edit"]),
+    )
+    statement = String(required=True)
+    tender_ref = String(allow_none=True, required=True)
+    lot_hint = String(allow_none=True, required=True)
+    sections = List(Nested(OpportunityDraftOfferSectionSchema), required=True)
+    administrative_checklist = List(
+        Nested(OpportunityDraftOfferChecklistItemSchema),
+        required=True,
+    )
+    gaps_summary = List(String(), required=True)
+    gaps = List(Nested(OpportunityDraftOfferGapSchema), required=True)
+    draft_engine = String(allow_none=True, required=True)
+    prose_engine = String(allow_none=True, required=True)
+    drafted_as_of = String(allow_none=True, required=True)
+    origin = String(
+        required=True,
+        validate=validate.OneOf(["declared_draft"]),
+    )
+    based_on_verdict = String(allow_none=True, required=True)
+    official_evidence_ids = List(String(), required=True)
+    declared_evidence_ids = List(String(), required=True)
+    statement_seed = String(allow_none=True, required=True)
+    statement_prose_polished = Boolean(required=True)
+    statement_prose_polish_reason = String(allow_none=True, required=True)
+    prose_polished_count = Integer(required=True)
+
+
+class OpportunityAnalysisOutputSchema(Schema):
+    facts = List(Nested(OpportunityFactSchema), required=True)
+    inferences = List(Nested(OpportunityInferenceSchema), required=True)
+    recommendations = List(Nested(OpportunityRecommendationSchema), required=True)
+    confidence = Integer(required=True)
+    open_questions = List(String(), required=True)
+    warnings = List(String(), required=True)
+    title = String(required=True)
+    opportunity_type = String(
+        required=True,
+        validate=validate.OneOf(
+            [
+                "grant",
+                "tender",
+                "partner",
+                "client",
+                "market",
+                "investment",
+                "media",
+                "regulatory",
+                "other",
+            ]
+        ),
+    )
+    summary = String(required=True)
+    recommendation = String(
+        required=True,
+        validate=validate.OneOf(["go", "investigate", "hold", "no_go"]),
+    )
+    scores = Nested(OpportunityScoresSchema, required=True)
+    deadline = String(allow_none=True, required=True)
+    confirmed_requirements = List(String(), required=True)
+    unknown_requirements = List(String(), required=True)
+    blockers = List(String(), required=True)
+    candidate_actors = List(Nested(OpportunityCandidateActorSchema), required=True)
+    next_best_action = Nested(
+        OpportunityNextBestActionSchema,
+        allow_none=True,
+        required=True,
+    )
+    fit_assessment = Nested(
+        OpportunityFitAssessmentSchema,
+        allow_none=True,
+        required=True,
+    )
+    draft_offer = Nested(
+        OpportunityDraftOfferSchema,
+        allow_none=True,
+        required=True,
+    )
+
+
+class OpportunityAnalysisArtifactSchema(Schema):
+    id = String(required=True)
+    dossier_id = String(allow_none=True, required=True)
+    agent = String(required=True)
+    schema_name = String(required=True)
+    schema_version = String(required=True)
+    status = String(required=True)
+    output = Nested(OpportunityAnalysisOutputSchema, required=True)
+    audit_log_id = String(allow_none=True, required=True)
+    created_at = String(required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class OpportunityAnalysisRunResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, required=True)
+    artifact = Nested(
+        OpportunityAnalysisArtifactSchema,
+        allow_none=True,
+        required=True,
+    )
+
+
+class OpportunityAnalysisLatestResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, allow_none=True, required=True)
+    artifact = Nested(
+        OpportunityAnalysisArtifactSchema,
+        allow_none=True,
+        required=True,
+    )
+
+
+OPPORTUNITY_ANALYSIS_RUN_RESPONSES: dict[int | str, dict[str, str | dict[str, dict[str, Any]]]] = {
+    202: {
+        "description": "Análisis de oportunidad encolado",
+        "content": {"application/json": {"schema": OpportunityAnalysisRunResponseSchema}},
+    }
+}
+OPPORTUNITY_ANALYSIS_LATEST_RESPONSES: dict[
+    int | str, dict[str, str | dict[str, dict[str, Any]]]
+] = {
+    200: {
+        "description": "Último análisis de oportunidad",
+        "content": {"application/json": {"schema": OpportunityAnalysisLatestResponseSchema}},
+    }
+}
+
+
 class MarketCompetitorDiscoveryInputSchema(Schema):
     description = String(required=True, validate=validate.Length(min=10, max=4_000))
     own_offer = String(load_default="", validate=validate.Length(max=1_000))
@@ -148,6 +455,10 @@ class MarketCompetitorDiscoveryInputSchema(Schema):
     countries = List(String(validate=validate.Length(min=2, max=3)), load_default=[])
     languages = List(String(validate=validate.Length(max=10)), load_default=[])
     known_names = List(String(validate=validate.Length(max=300)), load_default=[])
+    competitors_knowledge = String(
+        load_default="known",
+        validate=validate.OneOf(["known", "unknown", "not_seeking"]),
+    )
 
 
 class SourceUrlMetaSchema(Schema):
@@ -157,20 +468,53 @@ class SourceUrlMetaSchema(Schema):
     verified = Boolean(required=True)
 
 
+class CitableSourcePublicSchema(Schema):
+    source_id = String(required=True)
+    title = String(load_default="")
+    url = String(load_default="")
+    snippet = String(load_default="")
+    rank = Integer(load_default=1)
+    domain = String(load_default="")
+    label = String(load_default="")
+    origin = String(load_default="web_search")
+    origin_label = String(load_default="Fuente encontrada por búsqueda")
+
+
+class ReservedCitableSourceSchema(Schema):
+    source_id = String(required=True)
+    title = String(load_default="")
+    url = String(load_default="")
+    snippet = String(load_default="")
+    provider = String(load_default="")
+    rank = Integer(load_default=1)
+    content_checksum = String(load_default="")
+    origin = String(load_default="web_search")
+    domain = String(load_default="")
+    label = String(load_default="")
+    origin_label = String(load_default="Fuente encontrada por búsqueda")
+
+
 class MarketCompetitorCandidateSchema(Schema):
+    # Server-owned deterministic id (never from model JSON).
+    candidate_id = String(allow_none=True, load_default=None)
     name = String(required=True)
     country = String(required=True)
     rationale = String(required=True)
-    source_urls = List(String(), required=True)
+    evidence_ids = List(String(), load_default=[])
+    # Deprecated: model URLs never accredit (G-18).
+    source_urls = List(String(), load_default=[])
     source_urls_meta = List(Nested(SourceUrlMetaSchema), load_default=[])
     source_urls_status = String(allow_none=True, load_default=None)
     source_urls_label = String(allow_none=True, load_default=None)
+    citable_sources = List(Nested(CitableSourcePublicSchema), load_default=[])
     confidence = Integer(required=True)
+    selectable = Boolean(load_default=True)
 
 
 class MarketCompetitorDiscoveryOutputSchema(Schema):
     candidates = List(Nested(MarketCompetitorCandidateSchema), required=True)
     warnings = List(String(), required=True)
+    reserved_citable_sources = List(Nested(ReservedCitableSourceSchema), load_default=[])
 
 
 class MarketCompetitorDiscoveryArtifactSchema(Schema):
@@ -194,6 +538,129 @@ class MarketCompetitorDiscoveryRunResponseSchema(Schema):
 class MarketCompetitorDiscoveryLatestResponseSchema(Schema):
     job = Nested(TenderSearchWizardJobSchema, allow_none=True)
     artifact = Nested(MarketCompetitorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketCompetitorSelectionSchema(Schema):
+    # Required on write: server-owned candidate_id (UUID). name is display-only.
+    candidate_id = String(required=True)
+    name = String(load_default="")  # display-only; not used for identity
+    source_ids = List(String(), required=True)
+    evidence_ids = List(String(), load_default=[])  # alias accepted, not preferred
+
+
+class MarketCompetitorAcceptInputSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    selected = List(Nested(MarketCompetitorSelectionSchema), required=True)
+    expected_version = Integer(allow_none=True, load_default=None)
+
+
+class MaterializedEvidenceSchema(Schema):
+    evidence_id = String(required=True)
+    source_id = String(required=True)
+    source_kind = String(required=True)
+    source_url = String(allow_none=True)
+    label = String(load_default="")
+
+
+class MarketCompetitorAcceptResponseSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    materialized = List(Nested(MaterializedEvidenceSchema), required=True)
+    count = Integer(required=True)
+
+
+class MarketActorDiscoveryInputSchema(Schema):
+    """Client sends only dossier_id; intent/type/geo come from persisted profile.
+
+    Extra client fields (forged intent/type/geo) are excluded, never trusted.
+    """
+
+    dossier_id = String(required=True)
+
+    class Meta:
+        unknown = "exclude"
+
+
+class MarketActorCandidateSchema(Schema):
+    candidate_id = String(allow_none=True, load_default=None)
+    actor_type = String(required=True)
+    organization = String(required=True)
+    affiliation = String(load_default="")
+    country = String(required=True)
+    summary = String(required=True)
+    rationale = String(load_default="")
+    evidence_ids = List(String(), load_default=[])
+    source_urls = List(String(), load_default=[])
+    source_urls_meta = List(Nested(SourceUrlMetaSchema), load_default=[])
+    source_urls_status = String(allow_none=True, load_default=None)
+    source_urls_label = String(allow_none=True, load_default=None)
+    citable_sources = List(Nested(CitableSourcePublicSchema), load_default=[])
+    confidence = Integer(required=True)
+    selectable = Boolean(load_default=True)
+
+
+class MarketActorDiscoveryOutputSchema(Schema):
+    candidates = List(Nested(MarketActorCandidateSchema), required=True)
+    warnings = List(String(), required=True)
+    reserved_citable_sources = List(Nested(ReservedCitableSourceSchema), load_default=[])
+
+
+class MarketActorDiscoveryArtifactSchema(Schema):
+    id = String(required=True)
+    dossier_id = String(allow_none=True)
+    agent = String(required=True)
+    schema_name = String(required=True)
+    schema_version = String(required=True)
+    status = String(required=True)
+    output = Nested(MarketActorDiscoveryOutputSchema, required=True)
+    created_at = String(required=True)
+    updated_at = String(required=True)
+    version = Integer(required=True)
+
+
+class MarketActorDiscoveryRunResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, required=True)
+    artifact = Nested(MarketActorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketActorDiscoveryLatestResponseSchema(Schema):
+    job = Nested(TenderSearchWizardJobSchema, allow_none=True)
+    artifact = Nested(MarketActorDiscoveryArtifactSchema, allow_none=True)
+
+
+class MarketActorSelectionSchema(Schema):
+    candidate_id = String(required=True)
+    organization = String(load_default="")
+    name = String(load_default="")  # display-only alias
+    source_ids = List(String(), required=True)
+    evidence_ids = List(String(), load_default=[])
+
+
+class MarketActorAcceptInputSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    selected = List(Nested(MarketActorSelectionSchema), required=True)
+    expected_version = Integer(allow_none=True, load_default=None)
+
+
+class MarketActorMaterializedActorSchema(Schema):
+    candidate_id = String(required=True)
+    actor_id = String(required=True)
+    dossier_actor_id = String(required=True)
+    canonical_key = String(required=True)
+    identifiers = Dict(keys=String(), values=String(), load_default=dict)
+    identity_status = String(required=True)
+
+
+class MarketActorAcceptResponseSchema(Schema):
+    artifact_id = String(required=True)
+    dossier_id = String(required=True)
+    materialized = List(Nested(MaterializedEvidenceSchema), required=True)
+    count = Integer(required=True)
+    # G-20-B: durable actors for the selected subset (optional for legacy clients).
+    actors = List(Nested(MarketActorMaterializedActorSchema), load_default=list)
+    actors_count = Integer(load_default=0)
 
 
 def _tender_wizard_problem(status: int, *, detail: str, code: str) -> Response:
@@ -444,8 +911,389 @@ def _latest_analysis_agent(dossier_id: uuid.UUID, agent: str) -> Any:
     }
 
 
+class OpportunityOfferDraftSectionPatchSchema(Schema):
+    key = String(required=True, validate=validate.Length(min=1, max=80))
+    our_response_draft = String(required=True, validate=validate.Length(min=1, max=2000))
+
+
+class OpportunityOfferDraftPatchSchema(Schema):
+    version = Integer(required=False, load_default=None, validate=validate.Range(min=1))
+    statement = String(required=False, load_default=None, validate=validate.Length(min=1, max=4000))
+    sections = List(
+        Nested(OpportunityOfferDraftSectionPatchSchema),
+        required=False,
+        load_default=None,
+    )
+
+
+def _offer_draft_problem(exc: OfferDraftError) -> Any:
+    return problem_response(exc.status, detail=exc.message, code=exc.code)
+
+
+def _load_offer_draft(dossier_id: uuid.UUID) -> OpportunityOfferDraft | None:
+    return db.session.scalar(
+        select(OpportunityOfferDraft).where(
+            OpportunityOfferDraft.tenant_id == g.active_tenant_id,
+            OpportunityOfferDraft.dossier_id == dossier_id,
+        )
+    )
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/offer-draft")
+@require_permission("ai.execute")
+def get_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
+    """Borrador de oferta durable del expediente (edición humana persistente)."""
+    if _dossier(dossier_id, write=False) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+    body = serialize_offer_draft(row)
+    response = {"draft": body}
+    # APIFlask/flask jsonify via dict return
+    r = make_response(jsonify(response), 200)
+    r.headers["ETag"] = row.etag
+    return r
+
+
+def _serialize_offer_draft_response(
+    row: OpportunityOfferDraft, *, created: bool | None = None, status: int = 200
+) -> Any:
+    body = serialize_offer_draft(row)
+    payload: dict[str, Any] = {"draft": body}
+    if created is not None:
+        payload["created"] = created
+    r = make_response(jsonify(payload), status)
+    r.headers["ETag"] = row.etag
+    return r
+
+
+@bp.post("/dossiers/<uuid:dossier_id>/opportunity/offer-draft")
+@require_permission("ai.execute")
+def prepare_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
+    """Materializa un borrador editable desde el draft_offer calculado del análisis.
+
+    Idempotente: si ya existe borrador durable, lo devuelve sin sobrescribir.
+    Bajo carrera en el unique (tenant_id, dossier_id), el perdedor recupera la fila
+    existente (sin 500 ni segunda fila).
+    """
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+
+    existing = _load_offer_draft(dossier_id)
+    if existing is not None:
+        return _serialize_offer_draft_response(existing, created=False, status=200)
+
+    artifact = _latest_agent_artifact(dossier_id, OPPORTUNITY_AGENT)
+    if artifact is None or not isinstance(artifact.output, dict):
+        return problem_response(
+            422,
+            detail=(
+                "No hay análisis de oportunidad con borrador calculado. "
+                "Ejecuta el análisis con veredicto de encaje."
+            ),
+            code="draft_offer_missing",
+        )
+    calculated = artifact.output.get("draft_offer")
+    try:
+        content = materialize_content_from_calculated(
+            calculated if isinstance(calculated, dict) else {}
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    actor_id = current_user.id
+    now = utc_now()
+    row = OpportunityOfferDraft(
+        id=uuid.uuid4(),
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        source_artifact_id=artifact.id,
+        version=1,
+        etag=make_etag(1),
+        content=content,
+        last_edited_by_user_id=actor_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.add(row)
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.create",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "source_artifact_id": str(artifact.id),
+            "version": 1,
+            "section_count": len(content.get("sections") or []),
+        },
+    )
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Concurrent prepare: unique (tenant_id, dossier_id) — recover existing row.
+        db.session.rollback()
+        recovered = _load_offer_draft(dossier_id)
+        if recovered is None:
+            return problem_response(
+                409,
+                detail="No se pudo materializar el borrador por conflicto concurrente.",
+                code="version_conflict",
+            )
+        return _serialize_offer_draft_response(recovered, created=False, status=200)
+
+    return _serialize_offer_draft_response(row, created=True, status=201)
+
+
+@bp.patch("/dossiers/<uuid:dossier_id>/opportunity/offer-draft")
+@require_permission("ai.execute")
+def patch_opportunity_offer_draft(dossier_id: uuid.UUID) -> Any:
+    """Actualiza campos editables del borrador con CAS atómico (version en el UPDATE)."""
+    if _dossier(dossier_id, write=True) is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return problem_response(
+            422, detail="El cuerpo debe ser un objeto JSON.", code="schema_validation_failed"
+        )
+    # Reject client-supplied tenant/actor identities.
+    for forbidden in ("tenant_id", "last_edited_by_user_id", "actor_id", "user_id"):
+        if forbidden in payload:
+            return problem_response(
+                422,
+                detail="No se aceptan identidades desde el cliente.",
+                code="forbidden_field",
+            )
+
+    try:
+        expected = parse_expected_version(
+            body_version=payload.get("version"),
+            if_match=request.headers.get("If-Match"),
+        )
+        if expected is None:
+            raise OfferDraftError(
+                "Se requiere version o cabecera If-Match para guardar el borrador.",
+                code="precondition_required",
+                status=428,
+            )
+        base = row.content if isinstance(row.content, dict) else {}
+        next_content = apply_editable_patch(base, payload)
+    except OfferDraftVersionConflict as exc:
+        return problem_response(
+            exc.status,
+            detail=exc.message,
+            code=exc.code,
+            errors={"current_version": exc.current_version},
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    before_version = int(expected)
+    after_version = before_version + 1
+    after_etag = make_etag(after_version)
+    now = utc_now()
+    actor_id = current_user.id
+    tenant_id = g.active_tenant_id
+
+    # Atomic CAS: only one concurrent writer can match version == expected.
+    result = db.session.execute(
+        cas_update_offer_draft_sql(
+            tenant_id=tenant_id,
+            dossier_id=dossier_id,
+            expected_version=before_version,
+            next_content=next_content,
+            actor_id=actor_id,
+            new_version=after_version,
+            new_etag=after_etag,
+            updated_at=now,
+        )
+    )
+    if int(getattr(result, "rowcount", 0) or 0) != 1:
+        db.session.rollback()
+        current = _load_offer_draft(dossier_id)
+        current_version = int(current.version) if current is not None else before_version
+        return problem_response(
+            409,
+            detail="El borrador ha cambiado; recarga y vuelve a guardar.",
+            code="version_conflict",
+            errors={"current_version": current_version},
+        )
+
+    # Audit only after winning the CAS, same transaction.
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.update",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "before_version": before_version,
+            "after_version": after_version,
+            "source_artifact_id": str(row.source_artifact_id),
+        },
+    )
+    db.session.commit()
+
+    # Re-load post-CAS for response (identity server-owned).
+    saved = _load_offer_draft(dossier_id)
+    if saved is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+    return _serialize_offer_draft_response(saved, status=200)
+
+
+@bp.get("/dossiers/<uuid:dossier_id>/opportunity/offer-draft/export.docx")
+@require_permission("ai.execute")
+def export_opportunity_offer_draft_docx(dossier_id: uuid.UUID) -> Any:
+    """Exporta el borrador durable persistido como DOCX editable (Word).
+
+    Requiere precondición de versión (``version`` query o ``If-Match``). Si el
+    servidor tiene otra versión, responde 409 sin regenerar desde artifact.
+    Sin fila durable: 404 honesto.
+    """
+    dossier = _dossier(dossier_id, write=False)
+    if dossier is None:
+        return problem_response(404, detail="Expediente no disponible.", code="not_found")
+    row = _load_offer_draft(dossier_id)
+    if row is None:
+        return problem_response(
+            404,
+            detail="No hay borrador de oferta persistido para este expediente.",
+            code="offer_draft_not_found",
+        )
+
+    try:
+        expected = parse_expected_version(
+            body_version=request.args.get("version"),
+            if_match=request.headers.get("If-Match"),
+        )
+        if expected is None:
+            raise OfferDraftError(
+                "Se requiere version o cabecera If-Match para exportar el borrador.",
+                code="precondition_required",
+                status=428,
+            )
+        if int(row.version) != int(expected):
+            raise OfferDraftVersionConflict(current_version=int(row.version))
+    except OfferDraftVersionConflict as exc:
+        # Audit.result only allows success|denied|failure (not "conflict").
+        append_audit_event(
+            db.session,
+            action="opportunity.offer_draft.export",
+            resource_type="opportunity_offer_draft",
+            resource_id=row.id,
+            result="failure",
+            dossier_id=dossier_id,
+            metadata={
+                "draft_id": str(row.id),
+                "dossier_id": str(dossier_id),
+                "version": int(row.version),
+                "requested_version": int(expected) if expected is not None else None,
+                "format": "docx",
+                "result": "conflict",
+                "error_code": "version_conflict",
+            },
+        )
+        db.session.commit()
+        return problem_response(
+            exc.status,
+            detail=exc.message,
+            code=exc.code,
+            errors={"current_version": exc.current_version},
+        )
+    except OfferDraftError as exc:
+        return _offer_draft_problem(exc)
+
+    content = row.content if isinstance(row.content, dict) else {}
+    evidence_ids = collect_evidence_ids(content)
+    lookup = load_evidence_citation_lookup(
+        tenant_id=g.active_tenant_id,
+        dossier_id=dossier_id,
+        evidence_ids=evidence_ids,
+    )
+    citations = resolve_evidence_citations(evidence_ids, lookup=lookup)
+    exported_at = utc_now()
+    try:
+        payload = build_offer_draft_docx(
+            content,
+            dossier_title=str(dossier.title or "Expediente"),
+            version=int(row.version),
+            exported_at=exported_at,
+            citations=citations,
+        )
+    except OfferDraftError as exc:
+        append_audit_event(
+            db.session,
+            action="opportunity.offer_draft.export",
+            resource_type="opportunity_offer_draft",
+            resource_id=row.id,
+            result="failure",
+            dossier_id=dossier_id,
+            metadata={
+                "draft_id": str(row.id),
+                "dossier_id": str(dossier_id),
+                "version": int(row.version),
+                "format": "docx",
+                "result": "failure",
+                "error_code": exc.code,
+            },
+        )
+        db.session.commit()
+        return _offer_draft_problem(exc)
+
+    filename = sanitize_export_filename(
+        str(dossier.title or "Expediente"), version=int(row.version)
+    )
+    append_audit_event(
+        db.session,
+        action="opportunity.offer_draft.export",
+        resource_type="opportunity_offer_draft",
+        resource_id=row.id,
+        result="success",
+        dossier_id=dossier_id,
+        metadata={
+            "draft_id": str(row.id),
+            "dossier_id": str(dossier_id),
+            "version": int(row.version),
+            "format": "docx",
+            "result": "success",
+            "byte_size": len(payload),
+            "filename": filename,
+            # Never include document body / statement / sections.
+        },
+    )
+    db.session.commit()
+
+    response = Response(payload, mimetype=DOCX_MEDIA_TYPE)
+    response.headers["Content-Disposition"] = content_disposition_attachment(filename)
+    response.headers["Content-Length"] = str(len(payload))
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["ETag"] = row.etag
+    return response
+
+
 @bp.post("/dossiers/<uuid:dossier_id>/opportunity/runs")
 @require_permission("ai.execute")
+@bp.doc(responses=OPPORTUNITY_ANALYSIS_RUN_RESPONSES)
 def enqueue_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
     """Lanza el agente de oportunidad: propone; no crea la oportunidad."""
     return _enqueue_analysis_agent(dossier_id, OPPORTUNITY_AGENT, label="oportunidad")
@@ -453,6 +1301,7 @@ def enqueue_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
 
 @bp.get("/dossiers/<uuid:dossier_id>/opportunity/latest")
 @require_permission("ai.execute")
+@bp.doc(responses=OPPORTUNITY_ANALYSIS_LATEST_RESPONSES)
 def latest_opportunity_analysis(dossier_id: uuid.UUID) -> Any:
     """Última propuesta de oportunidad del expediente (solo lectura; la persona confirma)."""
     return _latest_analysis_agent(dossier_id, OPPORTUNITY_AGENT)
@@ -709,6 +1558,123 @@ def _latest_market_discovery_job() -> BackgroundJob | None:
     )
 
 
+def _serialize_market_discovery_artifact(artifact: AIArtifact | None) -> dict[str, Any] | None:
+    """Serialize latest discovery: candidates + reserved sources needed for UI.
+
+    Never leaks secrets or sources from other tenants/artifacts. Marks
+    candidates without evidence_ids as non-selectable. Strips provider/checksum
+    from per-candidate public sources; reserved block keeps audit fields for
+    materialization clients that need them.
+    """
+
+    base = _serialize_wizard_artifact(artifact)
+    if base is None:
+        return None
+    output = base.get("output")
+    if not isinstance(output, dict):
+        return base
+    reserved_raw = output.get("reserved_citable_sources") or []
+    reserved_public: list[dict[str, Any]] = []
+    if isinstance(reserved_raw, list):
+        for item in reserved_raw:
+            if not isinstance(item, dict):
+                continue
+            reserved_public.append(
+                {
+                    "source_id": str(item.get("source_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "url": str(item.get("url") or ""),
+                    "snippet": str(item.get("snippet") or ""),
+                    "provider": str(item.get("provider") or ""),
+                    "rank": int(item.get("rank") or 0) if item.get("rank") is not None else 0,
+                    "content_checksum": str(item.get("content_checksum") or ""),
+                    "origin": str(item.get("origin") or "web_search"),
+                    "domain": str(item.get("domain") or ""),
+                    "label": str(item.get("label") or item.get("title") or ""),
+                    "origin_label": str(
+                        item.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+    candidates_out: list[dict[str, Any]] = []
+    for cand in output.get("candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        evidence_ids = [
+            str(item)
+            for item in (cand.get("evidence_ids") or [])
+            if item is not None and str(item).strip()
+        ]
+        public_sources = []
+        for src in cand.get("citable_sources") or []:
+            if not isinstance(src, dict):
+                continue
+            public_sources.append(
+                {
+                    "source_id": str(src.get("source_id") or ""),
+                    "title": str(src.get("title") or ""),
+                    "url": str(src.get("url") or ""),
+                    "snippet": str(src.get("snippet") or ""),
+                    "rank": int(src.get("rank") or 0) if src.get("rank") is not None else 0,
+                    "domain": str(src.get("domain") or ""),
+                    "label": str(src.get("label") or src.get("title") or ""),
+                    "origin": str(src.get("origin") or "web_search"),
+                    "origin_label": str(
+                        src.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+        # If citable_sources missing but evidence_ids present, project from reserved.
+        if not public_sources and evidence_ids:
+            by_id = {r["source_id"]: r for r in reserved_public}
+            for sid in evidence_ids:
+                if sid in by_id:
+                    r = by_id[sid]
+                    public_sources.append(
+                        {
+                            "source_id": r["source_id"],
+                            "title": r["title"],
+                            "url": r["url"],
+                            "snippet": r["snippet"],
+                            "rank": r["rank"],
+                            "domain": r["domain"],
+                            "label": r["label"],
+                            "origin": r["origin"],
+                            "origin_label": r["origin_label"],
+                        }
+                    )
+        selectable = len(evidence_ids) > 0 and len(public_sources) > 0
+        raw_cid = cand.get("candidate_id")
+        candidate_id = None
+        if raw_cid is not None and str(raw_cid).strip():
+            try:
+                candidate_id = str(uuid.UUID(str(raw_cid)))
+            except (ValueError, TypeError, AttributeError):
+                candidate_id = None
+        candidates_out.append(
+            {
+                "candidate_id": candidate_id,
+                "name": str(cand.get("name") or ""),
+                "country": str(cand.get("country") or ""),
+                "rationale": str(cand.get("rationale") or ""),
+                "evidence_ids": evidence_ids,
+                "source_urls": [],  # never surface model URLs as citations
+                "source_urls_meta": [],
+                "source_urls_status": None,
+                "source_urls_label": None,
+                "citable_sources": public_sources,
+                "confidence": int(cand.get("confidence") or 0),
+                "selectable": selectable and candidate_id is not None,
+            }
+        )
+    base["output"] = {
+        "candidates": candidates_out,
+        "warnings": list(output.get("warnings") or []),
+        "reserved_citable_sources": reserved_public,
+    }
+    return base
+
+
 def _market_discovery_input(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Payload no válido.")
@@ -730,13 +1696,18 @@ def _market_discovery_input(value: Any) -> dict[str, Any]:
     description = " ".join(str(value.get("description") or "").split())
     if len(description) < 10 or len(description) > 4_000:
         raise ValueError("La descripción debe tener entre 10 y 4000 caracteres.")
+    knowledge = str(value.get("competitors_knowledge") or "known").strip().lower()
+    if knowledge not in {"known", "unknown", "not_seeking"}:
+        raise ValueError("competitors_knowledge debe ser known, unknown o not_seeking.")
+    known_names = _clean_list("known_names", limit=50) if knowledge == "known" else []
     return {
         "description": description,
         "own_offer": " ".join(str(value.get("own_offer") or "").split())[:1000],
         "sectors": _clean_list("sectors", limit=10),
         "countries": _clean_list("countries", limit=27, upper=True),
         "languages": _clean_list("languages", limit=10, lower=True),
-        "known_names": _clean_list("known_names", limit=50),
+        "known_names": known_names,
+        "competitors_knowledge": knowledge,
     }
 
 
@@ -777,7 +1748,7 @@ def enqueue_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
         )
     return {
         "job": serialize_job(job),
-        "artifact": _serialize_wizard_artifact(_latest_market_discovery_artifact()),
+        "artifact": _serialize_market_discovery_artifact(_latest_market_discovery_artifact()),
     }, 202
 
 
@@ -788,8 +1759,570 @@ def latest_market_competitor_discovery() -> Any:
     job = _latest_market_discovery_job()
     return {
         "job": serialize_job(job) if job else None,
-        "artifact": _serialize_wizard_artifact(_latest_market_discovery_artifact()),
+        "artifact": _serialize_market_discovery_artifact(_latest_market_discovery_artifact()),
     }
+
+
+@bp.post("/market-competitor-discovery/accept")
+@require_permission("ai.execute")
+@bp.input(MarketCompetitorAcceptInputSchema)
+@bp.output(MarketCompetitorAcceptResponseSchema)
+def accept_market_competitor_discovery(json_data: dict[str, Any]) -> Any:
+    """Human gate: materialize selected reserved sources into Evidence for a dossier.
+
+    Requires artifact_id + dossier_id + selected[{candidate_id, source_ids}].
+    Fail-closed on cross-tenant, non-candidate status, version drift, alien UUIDs.
+    Idempotent: two retries do not duplicate Evidence rows.
+    """
+
+    from opn_oracle.ai.market_materialize import MaterializeError, accept_and_materialize
+
+    try:
+        artifact_id = uuid.UUID(str(json_data["artifact_id"]))
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
+    except (KeyError, TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="artifact_id y dossier_id deben ser UUID válidos.",
+            code="validation_error",
+        )
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == g.active_tenant_id,
+        )
+    )
+    if dossier is None or not dossier_accessible(
+        db.session(), dossier, current_user.id, write=True
+    ):
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    if str(dossier.dossier_type or "") != "market":
+        return _tender_wizard_problem(
+            422,
+            detail="Solo un expediente de tipo market puede recibir evidencias de discovery.",
+            code="dossier_not_market",
+        )
+    selected = json_data.get("selected") or []
+    if not isinstance(selected, list):
+        return _tender_wizard_problem(
+            422,
+            detail="selected debe ser una lista.",
+            code="validation_error",
+        )
+    expected_version = json_data.get("expected_version")
+    # Actor/tenant authority is exclusively TenantContext (service has no
+    # actor parameter). Defensive: context actor must match the authenticated
+    # principal; mismatch fails closed with zero rows written.
+    # Client-supplied actor_id / reviewer_user_id in JSON are never read.
+    from opn_oracle.tenants.context import get_tenant_context
+
+    context = get_tenant_context(required=False)
+    if context is None or context.actor_id is None:
+        return _tender_wizard_problem(
+            401,
+            detail="Se requiere un actor autenticado en el servidor para registrar la aceptación.",
+            code="actor_required",
+        )
+    if context.actor_id != current_user.id:
+        return _tender_wizard_problem(
+            401,
+            detail="El actor del contexto de servidor no coincide con el usuario autenticado.",
+            code="actor_context_mismatch",
+        )
+    try:
+        result = accept_and_materialize(
+            artifact_id=artifact_id,
+            dossier_id=dossier_id,
+            selected=selected,
+            expected_version=int(expected_version) if expected_version is not None else None,
+            agent=MARKET_COMPETITOR_DISCOVERY_AGENT,
+        )
+    except MaterializeError as error:
+        return _tender_wizard_problem(
+            error.status,
+            detail=error.detail,
+            code=error.code,
+        )
+    return result
+
+
+def _latest_market_actor_discovery_artifact(dossier_id: uuid.UUID) -> AIArtifact | None:
+    """Latest actor-discovery artifact for one market dossier (never tenant-wide)."""
+
+    return db.session.scalar(
+        select(AIArtifact)
+        .where(
+            AIArtifact.tenant_id == g.active_tenant_id,
+            AIArtifact.dossier_id == dossier_id,
+            AIArtifact.agent == MARKET_ACTOR_DISCOVERY_AGENT,
+        )
+        .order_by(AIArtifact.created_at.desc(), AIArtifact.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_market_actor_discovery_job(dossier_id: uuid.UUID) -> BackgroundJob | None:
+    """Latest actor-discovery job for one market dossier (never tenant-wide)."""
+
+    return db.session.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.tenant_id == g.active_tenant_id,
+            BackgroundJob.dossier_id == dossier_id,
+            BackgroundJob.job_type == f"oracle.ai.{MARKET_ACTOR_DISCOVERY_AGENT}",
+        )
+        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .limit(1)
+    )
+
+
+def _serialize_market_actor_discovery_artifact(
+    artifact: AIArtifact | None,
+) -> dict[str, Any] | None:
+    """Serialize actor discovery: organization/type/country + closed citations."""
+
+    base = _serialize_wizard_artifact(artifact)
+    if base is None:
+        return None
+    output = base.get("output")
+    if not isinstance(output, dict):
+        return base
+    reserved_raw = output.get("reserved_citable_sources") or []
+    reserved_public: list[dict[str, Any]] = []
+    if isinstance(reserved_raw, list):
+        for item in reserved_raw:
+            if not isinstance(item, dict):
+                continue
+            reserved_public.append(
+                {
+                    "source_id": str(item.get("source_id") or ""),
+                    "title": str(item.get("title") or ""),
+                    "url": str(item.get("url") or ""),
+                    "snippet": str(item.get("snippet") or ""),
+                    "provider": str(item.get("provider") or ""),
+                    "rank": int(item.get("rank") or 0) if item.get("rank") is not None else 0,
+                    "content_checksum": str(item.get("content_checksum") or ""),
+                    "origin": str(item.get("origin") or "web_search"),
+                    "domain": str(item.get("domain") or ""),
+                    "label": str(item.get("label") or item.get("title") or ""),
+                    "origin_label": str(
+                        item.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+    candidates_out: list[dict[str, Any]] = []
+    for cand in output.get("candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        evidence_ids = [
+            str(item)
+            for item in (cand.get("evidence_ids") or [])
+            if item is not None and str(item).strip()
+        ]
+        public_sources = []
+        for src in cand.get("citable_sources") or []:
+            if not isinstance(src, dict):
+                continue
+            public_sources.append(
+                {
+                    "source_id": str(src.get("source_id") or ""),
+                    "title": str(src.get("title") or ""),
+                    "url": str(src.get("url") or ""),
+                    "snippet": str(src.get("snippet") or ""),
+                    "rank": int(src.get("rank") or 0) if src.get("rank") is not None else 0,
+                    "domain": str(src.get("domain") or ""),
+                    "label": str(src.get("label") or src.get("title") or ""),
+                    "origin": str(src.get("origin") or "web_search"),
+                    "origin_label": str(
+                        src.get("origin_label") or "Fuente encontrada por búsqueda"
+                    ),
+                }
+            )
+        if not public_sources and evidence_ids:
+            by_id = {r["source_id"]: r for r in reserved_public}
+            for sid in evidence_ids:
+                if sid in by_id:
+                    r = by_id[sid]
+                    public_sources.append(
+                        {
+                            "source_id": r["source_id"],
+                            "title": r["title"],
+                            "url": r["url"],
+                            "snippet": r["snippet"],
+                            "rank": r["rank"],
+                            "domain": r["domain"],
+                            "label": r["label"],
+                            "origin": r["origin"],
+                            "origin_label": r["origin_label"],
+                        }
+                    )
+        selectable = len(evidence_ids) > 0 and len(public_sources) > 0
+        raw_cid = cand.get("candidate_id")
+        candidate_id = None
+        if raw_cid is not None and str(raw_cid).strip():
+            try:
+                candidate_id = str(uuid.UUID(str(raw_cid)))
+            except (ValueError, TypeError, AttributeError):
+                candidate_id = None
+        summary = str(cand.get("summary") or cand.get("rationale") or "")
+        # G-20-B structured identity/ranking snapshot (immutable from artifact output).
+        ids_value = cand.get("ids")
+        ids_raw: dict[str, Any] = ids_value if isinstance(ids_value, dict) else {}
+        ids_out = {
+            str(k): str(v)
+            for k, v in ids_raw.items()
+            if k in {"rnsr", "ror", "hal_structure", "cordis_org", "idref"} and v
+        }
+        identity_status = str(cand.get("identity_status") or "").strip().lower()
+        score_value = cand.get("score_breakdown")
+        score_bd: dict[str, Any] = score_value if isinstance(score_value, dict) else {}
+        score_out = {str(k): float(v) for k, v in score_bd.items() if isinstance(v, (int, float))}
+        origin_labels = {
+            "structured": "Fuente estructurada (CORDIS/HAL/RNSR/ROR)",
+            "web_search": "Fuente encontrada por búsqueda",
+        }
+        for src in public_sources:
+            origin = str(src.get("origin") or "web_search")
+            if origin in origin_labels and (
+                not src.get("origin_label")
+                or src.get("origin_label") == "Fuente encontrada por búsqueda"
+            ):
+                src["origin_label"] = origin_labels[origin]
+        candidates_out.append(
+            {
+                "candidate_id": candidate_id,
+                "actor_type": str(cand.get("actor_type") or ""),
+                "organization": str(cand.get("organization") or ""),
+                "affiliation": str(cand.get("affiliation") or ""),
+                "country": str(cand.get("country") or ""),
+                "summary": summary,
+                "rationale": str(cand.get("rationale") or summary),
+                "evidence_ids": evidence_ids,
+                "source_urls": [],
+                "source_urls_meta": [],
+                "source_urls_status": None,
+                "source_urls_label": None,
+                "citable_sources": public_sources,
+                "confidence": int(cand.get("confidence") or 0),
+                "selectable": selectable and candidate_id is not None,
+                "ids": ids_out,
+                "identity_status": identity_status,
+                "identity_reasons": [str(x) for x in (cand.get("identity_reasons") or []) if x][
+                    :20
+                ],
+                "unresolved_reason": (
+                    str(cand.get("unresolved_reason")) if cand.get("unresolved_reason") else None
+                ),
+                "rank": int(cand["rank"]) if cand.get("rank") is not None else None,
+                "score": float(cand["score"]) if cand.get("score") is not None else None,
+                "score_breakdown": score_out,
+                "ranking_reasons": [str(x) for x in (cand.get("ranking_reasons") or []) if x][:30],
+                "affiliations": [str(x) for x in (cand.get("affiliations") or []) if x][:20],
+                "parent_organization": (
+                    str(cand.get("parent_organization"))
+                    if cand.get("parent_organization")
+                    else None
+                ),
+                "merge_rules_applied": [
+                    str(x) for x in (cand.get("merge_rules_applied") or []) if x
+                ][:20],
+                "candidate_key": (
+                    str(cand.get("candidate_key")) if cand.get("candidate_key") else None
+                ),
+            }
+        )
+    base["output"] = {
+        "candidates": candidates_out,
+        "warnings": list(output.get("warnings") or []),
+        "reserved_citable_sources": reserved_public,
+    }
+    return base
+
+
+def _market_actor_discovery_payload_from_dossier(dossier: StrategicDossier) -> dict[str, Any]:
+    """Build run payload exclusively from persisted market profile + dossier geo.
+
+    Client-supplied intent/type/countries/languages/known_names are ignored.
+    Never concatenates title/goal/description into discovery_intent.
+    """
+
+    from opn_oracle.ai.context import DISCOVERY_INTENT_MAX_LEN, DISCOVERY_INTENT_MIN_LEN
+    from opn_oracle.ai.schemas import MARKET_ACTOR_TYPES
+
+    if str(dossier.dossier_type or "") != "market":
+        raise ValueError(
+            "Solo un expediente de tipo market puede lanzar descubrimiento de actores."
+        )
+
+    profile = dossier.profile_config if isinstance(dossier.profile_config, dict) else {}
+    intent = " ".join(str(profile.get("discovery_intent") or "").split())
+    if len(intent) < DISCOVERY_INTENT_MIN_LEN or len(intent) > DISCOVERY_INTENT_MAX_LEN:
+        raise ValueError(
+            "El expediente no tiene discovery_intent válido en el perfil "
+            f"(entre {DISCOVERY_INTENT_MIN_LEN} y {DISCOVERY_INTENT_MAX_LEN} caracteres)."
+        )
+    actor_type = str(profile.get("discovery_actor_type") or "").strip().lower()
+    if actor_type not in MARKET_ACTOR_TYPES:
+        raise ValueError(
+            "El expediente no tiene discovery_actor_type válido en el perfil "
+            "(company, research_group, technology_center, regulator o potential_customer)."
+        )
+
+    def _clean_strings(
+        raw: Any, *, limit: int, upper: bool = False, lower: bool = False
+    ) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        cleaned = [" ".join(str(item).split())[:300] for item in raw]
+        cleaned = [item for item in cleaned if item]
+        if upper:
+            cleaned = [item.upper() for item in cleaned]
+        if lower:
+            cleaned = [item.lower() for item in cleaned]
+        return list(dict.fromkeys(cleaned))[:limit]
+
+    known_raw = profile.get("discovery_known_names") or []
+    countries = _clean_strings(dossier.geography or [], limit=27, upper=True)
+    languages = _clean_strings(dossier.languages or [], limit=10, lower=True)
+    return {
+        "dossier_id": str(dossier.id),
+        "discovery_intent": intent,
+        "actor_type": actor_type,
+        "countries": countries,
+        "languages": languages,
+        # Explicit objective exclusions only — never inject partners/regulators.
+        "known_names": _clean_strings(known_raw, limit=50),
+    }
+
+
+# Kept for unit tests that validate free-text bounds independently of a dossier.
+def _market_actor_discovery_input(value: Any) -> dict[str, Any]:
+    """Validate a raw intent payload shape (tests / internal). Prefer dossier path."""
+
+    if not isinstance(value, dict):
+        raise ValueError("Payload no válido.")
+
+    def _clean_list(
+        field: str, *, limit: int, upper: bool = False, lower: bool = False
+    ) -> list[str]:
+        items = value.get(field) or []
+        if not isinstance(items, list):
+            raise ValueError(f"{field} debe ser una lista.")
+        cleaned = [" ".join(str(item).split())[:300] for item in items]
+        cleaned = [item for item in cleaned if item]
+        if upper:
+            cleaned = [item.upper() for item in cleaned]
+        if lower:
+            cleaned = [item.lower() for item in cleaned]
+        return list(dict.fromkeys(cleaned))[:limit]
+
+    from opn_oracle.ai.context import DISCOVERY_INTENT_MAX_LEN, DISCOVERY_INTENT_MIN_LEN
+    from opn_oracle.ai.schemas import MARKET_ACTOR_TYPES
+
+    intent = " ".join(str(value.get("discovery_intent") or "").split())
+    if len(intent) < DISCOVERY_INTENT_MIN_LEN or len(intent) > DISCOVERY_INTENT_MAX_LEN:
+        raise ValueError(
+            f"discovery_intent debe tener entre {DISCOVERY_INTENT_MIN_LEN} y "
+            f"{DISCOVERY_INTENT_MAX_LEN} caracteres."
+        )
+    actor_type = str(value.get("actor_type") or "").strip().lower()
+    if actor_type not in MARKET_ACTOR_TYPES:
+        raise ValueError(
+            "actor_type debe ser company, research_group, technology_center, "
+            "regulator o potential_customer."
+        )
+    return {
+        "discovery_intent": intent,
+        "actor_type": actor_type,
+        "countries": _clean_list("countries", limit=27, upper=True),
+        "languages": _clean_list("languages", limit=10, lower=True),
+        "known_names": _clean_list("known_names", limit=50),
+    }
+
+
+@bp.post("/market-actor-discovery/runs")
+@require_permission("ai.execute")
+@bp.input(MarketActorDiscoveryInputSchema)
+@bp.output(MarketActorDiscoveryRunResponseSchema, status_code=202)
+def enqueue_market_actor_discovery(json_data: dict[str, Any]) -> Any:
+    """Enqueue actor discovery for a market dossier using server-owned profile fields.
+
+    Request body is only ``dossier_id``. Intent, type, known_names, geography and
+    languages are loaded from the accessible market dossier; client forgeries are
+    ignored. Job/artifact are scoped to that dossier (resource_type=strategic_dossier).
+    """
+
+    try:
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
+    except (KeyError, TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="dossier_id debe ser un UUID válido.",
+            code="validation_error",
+        )
+    dossier = _dossier(dossier_id, write=True)
+    if dossier is None:
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    try:
+        payload = _market_actor_discovery_payload_from_dossier(dossier)
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return _tender_wizard_problem(
+            428,
+            detail="Idempotency-Key es obligatorio para proponer actores.",
+            code="precondition_required",
+        )
+    try:
+        job = enqueue_job(
+            f"oracle.ai.{MARKET_ACTOR_DISCOVERY_AGENT}",
+            payload=payload,
+            idempotency_key=key,
+            requested_by_user_id=current_user.id,
+            dossier_id=dossier.id,
+            resource_type="strategic_dossier",
+            resource_id=dossier.id,
+        )
+    except ValueError as error:
+        return _tender_wizard_problem(
+            422,
+            detail=str(error),
+            code="validation_error",
+        )
+    return {
+        "job": serialize_job(job),
+        "artifact": _serialize_market_actor_discovery_artifact(
+            _latest_market_actor_discovery_artifact(dossier.id)
+        ),
+    }, 202
+
+
+@bp.get("/market-actor-discovery/latest")
+@require_permission("ai.execute")
+@bp.output(MarketActorDiscoveryLatestResponseSchema)
+def latest_market_actor_discovery() -> Any:
+    """Return latest job/artifact for one dossier; never a tenant-wide result."""
+
+    raw = (request.args.get("dossier_id") or "").strip()
+    if not raw:
+        return _tender_wizard_problem(
+            422,
+            detail="dossier_id es obligatorio para consultar el descubrimiento de actores.",
+            code="validation_error",
+        )
+    try:
+        dossier_id = uuid.UUID(raw)
+    except (TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="dossier_id debe ser un UUID válido.",
+            code="validation_error",
+        )
+    dossier = _dossier(dossier_id, write=False)
+    if dossier is None:
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    job = _latest_market_actor_discovery_job(dossier_id)
+    return {
+        "job": serialize_job(job) if job else None,
+        "artifact": _serialize_market_actor_discovery_artifact(
+            _latest_market_actor_discovery_artifact(dossier_id)
+        ),
+    }
+
+
+@bp.post("/market-actor-discovery/accept")
+@require_permission("ai.execute")
+@bp.input(MarketActorAcceptInputSchema)
+@bp.output(MarketActorAcceptResponseSchema)
+def accept_market_actor_discovery(json_data: dict[str, Any]) -> Any:
+    """Human gate for actor discovery; refuses competitor artifacts (cross-agent)."""
+
+    from opn_oracle.ai.market_materialize import MaterializeError, accept_and_materialize
+
+    try:
+        artifact_id = uuid.UUID(str(json_data["artifact_id"]))
+        dossier_id = uuid.UUID(str(json_data["dossier_id"]))
+    except (KeyError, TypeError, ValueError):
+        return _tender_wizard_problem(
+            422,
+            detail="artifact_id y dossier_id deben ser UUID válidos.",
+            code="validation_error",
+        )
+    dossier = db.session.scalar(
+        select(StrategicDossier).where(
+            StrategicDossier.id == dossier_id,
+            StrategicDossier.tenant_id == g.active_tenant_id,
+        )
+    )
+    if dossier is None or not dossier_accessible(
+        db.session(), dossier, current_user.id, write=True
+    ):
+        return _tender_wizard_problem(
+            404,
+            detail="Expediente no disponible.",
+            code="not_found",
+        )
+    if str(dossier.dossier_type or "") != "market":
+        return _tender_wizard_problem(
+            422,
+            detail="Solo un expediente de tipo market puede recibir evidencias de discovery.",
+            code="dossier_not_market",
+        )
+    selected = json_data.get("selected") or []
+    if not isinstance(selected, list):
+        return _tender_wizard_problem(
+            422,
+            detail="selected debe ser una lista.",
+            code="validation_error",
+        )
+    expected_version = json_data.get("expected_version")
+    from opn_oracle.tenants.context import get_tenant_context
+
+    context = get_tenant_context(required=False)
+    if context is None or context.actor_id is None:
+        return _tender_wizard_problem(
+            401,
+            detail="Se requiere un actor autenticado en el servidor para registrar la aceptación.",
+            code="actor_required",
+        )
+    if context.actor_id != current_user.id:
+        return _tender_wizard_problem(
+            401,
+            detail="El actor del contexto de servidor no coincide con el usuario autenticado.",
+            code="actor_context_mismatch",
+        )
+    try:
+        result = accept_and_materialize(
+            artifact_id=artifact_id,
+            dossier_id=dossier_id,
+            selected=selected,
+            expected_version=int(expected_version) if expected_version is not None else None,
+            agent=MARKET_ACTOR_DISCOVERY_AGENT,
+        )
+    except MaterializeError as error:
+        return _tender_wizard_problem(
+            error.status,
+            detail=error.detail,
+            code=error.code,
+        )
+    return result
 
 
 @bp.post("/dossiers/<uuid:dossier_id>/completion-wizard/runs")

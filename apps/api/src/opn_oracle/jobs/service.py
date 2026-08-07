@@ -62,6 +62,7 @@ TASK_QUEUES = {
             "dossier_completion_wizard",
             "tender_search_wizard",
             "market_competitor_discovery",
+            "market_actor_discovery",
         )
     },
 }

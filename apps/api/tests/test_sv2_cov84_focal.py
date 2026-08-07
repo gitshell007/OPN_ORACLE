@@ -7,6 +7,7 @@ Pure/unit tests — no PG. Target real product gaps measured at 80.79% total
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -446,9 +447,11 @@ def test_default_profile_and_public_dto() -> None:
     assert pub["mode_label_es"] == MODE_ES["shadow"]
     assert pub["token_budget"] == 1200
     assert pub["limit"] == 7
-    assert pub["publisher_reliable"] is True
-    assert pub["actions_reliable"] is False
-    assert "RACE-MDEV02-003" in pub["deferred_blockers"]
+    # Profile DTO is configuration-only; host health lives on /memory/effective.
+    assert "publisher_reliable" not in pub
+    assert "actions_reliable" not in pub
+    assert "deferred_blockers" not in pub
+    assert not re.search(r"(RACE|DB|SEC|MIG)-MDEV", json.dumps(pub))
     assert "api_token" not in json.dumps(pub)
     assert pub["last_test_at"] == now.isoformat()
 

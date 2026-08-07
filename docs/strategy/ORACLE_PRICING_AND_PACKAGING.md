@@ -1,70 +1,110 @@
-# OPN Oracle — Pricing y packaging
+# OPN Oracle — Hoja de decisión de pricing y packaging
 
-Base de mercado (HECHO, con fuentes en la investigación): CI mid-market 15-40 K$/año (Crayon, Klue, Contify); suelo transparente Feedly ~19,2 K$/año; media monitoring mediana 25 K$; stakeholder mgmt entrada ~9-12 K€; herramientas de licitaciones españolas 0,6-6 K€/año (categoría de bajo precio a evitar como ancla); Copilot 30 $/usuario/mes como "competidor mental". España paga ~20-30% menos que el benchmark US (HIPÓTESIS). Coste LLM <5% del ACV; con Ollama local ≈ 0 (HECHO).
+> **DOCUMENTO INTERNO · TARIFA NO APROBADA.** Precio, moneda, impuestos, duración,
+> forma de pago, límites, servicios, implantación, descuentos y renovación están
+> **POR CONFIRMAR** por el propietario. Este fichero no es una oferta, una tarifa
+> publicada ni una autorización para cotizar. Sustituye las cifras históricas de
+> julio de 2026, que eran hipótesis de trabajo y no deben reutilizarse con clientes.
 
-**Principio rector:** no vender por debajo de ~500 €/mes — te ancla en la categoría "alertas". No vender por usuario como métrica principal — castiga la adopción que necesitamos para retener.
+**Estado:** **VERSIONADO PARA REVISIÓN** tras auditoría técnica independiente;
+pendiente de aprobación escrita y publicación.
 
----
+## 1. Decisiones que deben quedar firmadas
 
-## 1. Comparativa de modelos de cobro
-
-| Modelo | Veredicto | Razón |
+| Decisión | Estado | Evidencia requerida |
 |---|---|---|
-| Por usuario | Secundario | Frena invitar al directivo/equipo; el valor no escala con seats |
-| **Por expediente activo** | **Principal** | Alinea precio con valor (proyectos importantes), fácil de entender, expande naturalmente |
-| Por volumen de señales | Solo como límite | Métrica interna, no de valor; usar como fair-use por plan |
-| Por workspace/tenant (tarifa plana por tramos) | **Envoltorio** | El plan fija tramo de expedientes+usuarios+consumo |
-| Por conectores/módulos | P1 | PLACSP/BORME incluidos (son el gancho); conectores premium futuros (prensa de pago, CRM) sí se cobran aparte |
-| Licencia + implantación | **Sí** | La implantación se cobra siempre (defensa del margen y del tiempo del fundador) |
-| Servicio de inteligencia gestionado | **Sí, opcional** | El modelo Contify demuestra que el cliente necesita 5-10 h/semana de analista; OPN puede venderlas con margen |
+| Métrica principal de valor y cobro | **POR CONFIRMAR** | Entrevistas con compradores y facilidad de medición |
+| Segmentos y nombres de planes | **POR CONFIRMAR** | ICP aprobado y recorridos realmente disponibles |
+| Precio y periodo de cada plan | **POR CONFIRMAR** | Disposición a pagar y unit economics medidos |
+| Usuarios, expedientes y consumo incluidos | **POR CONFIRMAR** | Coste real, adopción y límites aplicables en producto |
+| Implantación y formación | **POR CONFIRMAR** | Horas, responsables y tarifa interna aprobada |
+| Servicios humanos opcionales | **POR CONFIRMAR** | Alcance repetible, capacidad y margen medido |
+| Piloto: precio, duración y alcance | **POR CONFIRMAR** | Propuesta de piloto completada y autorizada |
+| Renovación, pago y política de descuentos | **POR CONFIRMAR** | Revisión comercial, financiera y contractual |
+| Costes externos y exceso de uso | **POR CONFIRMAR** | Ledger, proveedor y mecanismo de autorización |
 
-## 2. Paquetes
+No se emitirá una cifra al cliente hasta que la fila correspondiente tenga
+propietario, fecha y aprobación escrita.
 
-### Oracle Essential — 590 €/mes (facturación anual: 5.900 €/año)
-- Comprador: empresa mid-market que licita; primer contacto con la categoría.
-- Incluye: 5 usuarios, **5 expedientes activos**, PLACSP + BORME completos, señales con triaje (fair-use: ~500 señales/mes), informes con evidencia (20 generaciones IA/mes), digest semanal, soporte por email.
-- No incluye: briefings de reunión IA, informe competitivo de adjudicatario, API, SSO.
-- Expansión: pack de expedientes adicionales (+5 → +150 €/mes).
+## 2. Estructura que se debe validar
 
-### Oracle Professional — 1.290 €/mes (12.900 €/año)
-- Comprador: equipos de BD/ofertas consolidados; consultoras.
-- Incluye: 15 usuarios, **20 expedientes activos**, todo Essential + briefings de reunión, informes competitivos de contratación, wizard sin límites, alertas por email, 100 generaciones IA/mes, soporte prioritario, onboarding estándar incluido.
-- Expansión: usuarios extra (+25 €/usuario/mes a partir de 15), expedientes (+10 → +250 €/mes).
+La hipótesis de packaging que se somete a entrevistas —no una decisión— es:
 
-### Oracle Enterprise — desde 30.000 €/año (a medida)
-- Comprador: >1.000 empleados, regulados, o AAPP (futuro).
-- Incluye: usuarios/expedientes negociados, SLA, auditoría exportable, retención personalizada, **SSO y opción on-prem/servidor dedicado como compromisos de roadmap por contrato** (HECHO: hoy no existen — venderlos como hito pagado, nunca como presente), formación, gestor de cuenta.
-- Regla: no firmar Enterprise sin que el sobrecoste de sus exigencias (SSO, ENS, dedicado) esté cubierto por el precio.
+- envolver el producto en una licencia por tenant o tramo;
+- relacionar el valor con expedientes/casos de uso activos, evitando penalizar la
+  adopción interna únicamente por asiento;
+- usar usuarios, expedientes, monitores, señales y generaciones como límites de
+  alcance o *fair use* solo cuando el producto pueda medirlos y hacerlos cumplir;
+- separar licencia, implantación y trabajo humano para no esconder servicios;
+- presupuestar aparte proveedores, búsquedas, fuentes o integraciones de pago;
+- vender requisitos aún no existentes —por ejemplo SSO, ENS u on-premise— solo
+  como hito futuro expresamente contratado, nunca como capacidad presente.
 
-### Implantación (one-off, obligatoria en Professional/Enterprise)
-- Estándar: **3.500 €** — configuración de 3-5 expedientes, monitores, carga de actores, 2 sesiones de formación, 4 semanas.
-- Ampliada: 6.000-12.000 € — migración de histórico, plantillas propias, formación por roles.
+Todo lo anterior permanece **POR CONFIRMAR**.
 
-### Servicios gestionados opcionales (recurrente)
-- **Analista OPN**: 1.500 €/mes (½ día/semana) o 2.900 €/mes (1 día/semana) — triaje curado, informes revisados, preparación de comités. Margen alto y camino natural desde la consultoría actual de OPN; también el principal riesgo de "volver a ser consultora" — tarifado y acotado siempre.
+## 3. Ficha de plan que debe completarse
 
-## 3. Piloto pagado (el vehículo de los 3 primeros clientes)
+Crear una ficha por cada plan autorizado:
 
-- **Precio: 4.500 € / 8 semanas** (se descuenta 100% del primer año si convierte).
-- Alcance cerrado: 3 expedientes reales, PLACSP+BORME configurados el día 1, digest semanal activo, 1 informe competitivo y 1 informe ejecutivo entregados, 3 sesiones de seguimiento.
-- Criterios de éxito escritos en la propuesta (elegir 3): ≥N licitaciones relevantes detectadas y calificadas; informe de entidad en <10 min vs horas; ≥1 oportunidad promovida a acción real; uso semanal por ≥2 personas.
-- Anti-piloto-eterno: fecha de decisión en el contrato (semana 9); si no hay decisión, el acceso pasa a solo-lectura 30 días y expira.
-- Descuento máximo post-piloto: 15% primer año por caso de referencia público (logo + cita + métricas). Nunca descuento sin contrapartida.
+| Campo | Valor aprobado |
+|---|---|
+| Nombre del plan | **POR CONFIRMAR** |
+| ICP y problema principal | **POR CONFIRMAR** |
+| Recorridos incluidos | **POR CONFIRMAR** |
+| Usuarios incluidos | **POR CONFIRMAR** |
+| Expedientes activos incluidos | **POR CONFIRMAR** |
+| Monitores/fuentes incluidos | **POR CONFIRMAR** |
+| Consumo IA/búsqueda incluido | **POR CONFIRMAR** |
+| Soporte y formación | **POR CONFIRMAR** |
+| Precio, moneda, impuestos y periodo | **POR CONFIRMAR** |
+| Implantación | **POR CONFIRMAR** |
+| Exceso de uso y servicios adicionales | **POR CONFIRMAR** |
+| Duración, renovación y cancelación | **POR CONFIRMAR** |
+| SLA y límites técnicos | **POR CONFIRMAR** |
 
-## 4. Justificación de precio por valor
+No se incluirá un cupo comercial que el producto no pueda observar y aplicar de
+forma fiable.
 
-- Coste alternativo hoy: ½ analista dedicado a vigilancia+informes ≈ 15-20 K€/año de coste laboral; una tarde de consultor por informe de entidad; una licitación relevante perdida ≫ ACV completo.
-- Coste de servir (ver [unit economics](ORACLE_UNIT_ECONOMICS.md)): infra + IA <5% del ACV → margen bruto objetivo >80% en software.
-- Contra Feedly/Crayon: Oracle Essential cuesta ⅓ del suelo de la categoría CI internacional, con fuentes españolas que aquéllos no tienen. Espacio para subir precio con los primeros 10 clientes (RECOMENDACIÓN: revisar +15-20% tras el cliente 5).
+## 4. Piloto pagado
 
-## 5. Renovación y expansión
+El vehículo propuesto para validar valor es un piloto acotado, pero todas sus
+condiciones están **POR CONFIRMAR**:
 
-- Contrato anual, pago anual por adelantado (mid-market español acepta; mejora caja).
-- Palancas de expansión por cuenta: expedientes (+), usuarios (+), servicios de analista, informe competitivo recurrente, conectores premium (futuro).
-- Señal de renovación a vigilar desde el día 1: uso semanal de "Qué ha cambiado" y decisiones registradas (los dos mejores predictores de switching cost — INFERENCIA).
+| Campo | Decisión |
+|---|---|
+| Precio y forma de pago | **POR CONFIRMAR** |
+| Duración | **POR CONFIRMAR** |
+| Expedientes, usuarios y fuentes | **POR CONFIRMAR** |
+| Entregables y sesiones | **POR CONFIRMAR** |
+| Línea base y criterios de éxito | **POR CONFIRMAR** |
+| Fecha y órgano de decisión | **POR CONFIRMAR** |
+| Tratamiento si convierte | **POR CONFIRMAR** |
+| Descuento o contraprestación | **POR CONFIRMAR** |
+| Acceso y salida al terminar | **POR CONFIRMAR** |
 
-## 6. Límites que protegen el margen (implementar en producto, P1)
+La versión emitible se prepara únicamente desde
+[ORACLE_PROPUESTA_PILOTO.md](ORACLE_PROPUESTA_PILOTO.md), completando todos los
+campos contractuales.
 
-- Cupos de generaciones IA por plan (el ledger de uso ya existe — HECHO; falta exponerlo como límite comercial).
-- Fair-use de señales/monitores por plan.
-- Todo trabajo humano (implantación, analista, informes a medida) con tarifa publicada — nada "incluido de palabra".
+## 5. Reglas de margen y honestidad
+
+- Medir coste de infraestructura, Signal, IA/búsqueda, almacenamiento, soporte,
+  implantación y trabajo manual antes de afirmar margen.
+- El coste cero de una llamada local no equivale a coste de servicio cero.
+- No usar benchmarks de mercado como precio de Oracle ni como prueba de ahorro.
+- No atribuir adjudicaciones o ingresos futuros al producto en el ROI.
+- No conceder descuentos, devoluciones o imputaciones sin aprobación escrita.
+- Todo proveedor o fuente de pago debe estar presupuestado y autorizado.
+- La calculadora compara beneficio anual con el **coste total aprobado del primer
+  año**, no con el precio aislado de un piloto más corto.
+
+## 6. Gate antes de publicar pricing
+
+- [ ] ICP y recorrido vendible aprobados.
+- [ ] Tres o más entrevistas de disposición a pagar documentadas.
+- [ ] Coste por tenant medido con el ledger y horas humanas reales.
+- [ ] Límites del plan observables y aplicables en producto.
+- [ ] Entidad oferente, impuestos, contrato, DPA y términos revisados.
+- [ ] Tabla de precios aprobada por escrito por el propietario.
+- [ ] One-pager, propuesta, calculadora y web muestran la misma versión.
+- [ ] Se registra fecha, aprobador y versión que sustituye este estado.

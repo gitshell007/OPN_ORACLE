@@ -2,15 +2,21 @@
 
 import { Save } from "lucide-react";
 import Link from "next/link";
-import { FormEvent } from "react";
+import { FormEvent, useState } from "react";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import {
   type CompetitiveProfileDraft,
   type CustomProfileDraft,
+  type DeclaredSolvencyDraft,
   type MarketProfileDraft,
   type ProfileDraft,
+  type SolvencyFieldErrors,
+  PAST_SERVICES_MAX_LEN,
+  SOLVENCY_DECLARED_HINT,
+  hasSolvencyFieldErrors,
   profileHasContent,
   profileKindFor,
+  validateSolvencyDraft,
 } from "@/lib/dossier-profile";
 
 type Props = {
@@ -35,6 +41,8 @@ function Field({
   multiline,
   required,
   hint,
+  inputMode,
+  error,
 }: {
   id: string;
   label: string;
@@ -44,7 +52,13 @@ function Field({
   multiline?: boolean;
   required?: boolean;
   hint?: string;
+  inputMode?: "decimal" | "text";
+  error?: string;
 }) {
+  const errorId = `${id}-error`;
+  const describedBy = [hint ? `${id}-hint` : null, error ? errorId : null]
+    .filter(Boolean)
+    .join(" ") || undefined;
   return (
     <label className={`field${multiline ? " full" : ""}`}>
       <span id={`${id}-label`}>{label}</span>
@@ -52,6 +66,8 @@ function Field({
         <textarea
           id={id}
           aria-labelledby={`${id}-label`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           value={value}
           required={required}
           disabled={disabled}
@@ -61,14 +77,61 @@ function Field({
         <input
           id={id}
           aria-labelledby={`${id}-label`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           value={value}
           required={required}
           disabled={disabled}
+          inputMode={inputMode}
           onChange={(event) => onChange(event.target.value)}
         />
       )}
-      {hint ? <small>{hint}</small> : null}
+      {hint ? (
+        <small id={`${id}-hint`}>{hint}</small>
+      ) : null}
+      {error ? (
+        <small id={errorId} role="alert" data-testid={`${id}-error`} className="field-error">
+          {error}
+        </small>
+      ) : null}
     </label>
+  );
+}
+
+function SolvencyFields({
+  draft,
+  onChange,
+  disabled,
+  errors,
+}: {
+  draft: DeclaredSolvencyDraft;
+  onChange(patch: Partial<DeclaredSolvencyDraft>): void;
+  disabled?: boolean;
+  errors?: SolvencyFieldErrors;
+}) {
+  return (
+    <>
+      <Field
+        id="profile-annual-turnover"
+        label="Volumen anual de negocio declarado (EUR)"
+        value={draft.annual_turnover}
+        inputMode="decimal"
+        disabled={disabled}
+        hint={SOLVENCY_DECLARED_HINT}
+        error={errors?.annual_turnover}
+        onChange={(value) => onChange({ annual_turnover: value })}
+      />
+      <Field
+        id="profile-past-services"
+        label="Servicios similares de los últimos 3 años"
+        value={draft.past_services}
+        multiline
+        disabled={disabled}
+        hint={`${SOLVENCY_DECLARED_HINT} Máximo ${PAST_SERVICES_MAX_LEN} caracteres.`}
+        error={errors?.past_services}
+        onChange={(value) => onChange({ past_services: value })}
+      />
+    </>
   );
 }
 
@@ -86,10 +149,12 @@ function MarketFields({
   draft,
   onChange,
   disabled,
+  solvencyErrors,
 }: {
   draft: MarketProfileDraft;
   onChange(next: MarketProfileDraft): void;
   disabled?: boolean;
+  solvencyErrors?: SolvencyFieldErrors;
 }) {
   const set = <K extends keyof MarketProfileDraft>(key: K, value: MarketProfileDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -194,6 +259,12 @@ function MarketFields({
         disabled={disabled}
         onChange={(value) => set("success_indicators", value)}
       />
+      <SolvencyFields
+        draft={draft}
+        disabled={disabled}
+        errors={solvencyErrors}
+        onChange={(patch) => onChange({ ...draft, ...patch })}
+      />
     </>
   );
 }
@@ -202,10 +273,12 @@ function CompetitiveFields({
   draft,
   onChange,
   disabled,
+  solvencyErrors,
 }: {
   draft: CompetitiveProfileDraft;
   onChange(next: CompetitiveProfileDraft): void;
   disabled?: boolean;
+  solvencyErrors?: SolvencyFieldErrors;
 }) {
   const set = <K extends keyof CompetitiveProfileDraft>(
     key: K,
@@ -320,6 +393,12 @@ function CompetitiveFields({
         disabled={disabled}
         onChange={(value) => set("success_indicators", value)}
       />
+      <SolvencyFields
+        draft={draft}
+        disabled={disabled}
+        errors={solvencyErrors}
+        onChange={(patch) => onChange({ ...draft, ...patch })}
+      />
     </>
   );
 }
@@ -328,10 +407,12 @@ function CustomFields({
   draft,
   onChange,
   disabled,
+  solvencyErrors,
 }: {
   draft: CustomProfileDraft;
   onChange(next: CustomProfileDraft): void;
   disabled?: boolean;
+  solvencyErrors?: SolvencyFieldErrors;
 }) {
   const set = <K extends keyof CustomProfileDraft>(key: K, value: CustomProfileDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -437,6 +518,27 @@ function CustomFields({
         disabled={disabled}
         onChange={(value) => set("success_indicators", value)}
       />
+      <SolvencyFields
+        draft={draft}
+        disabled={disabled}
+        errors={solvencyErrors}
+        onChange={(patch) => onChange({ ...draft, ...patch })}
+      />
+    </>
+  );
+}
+
+function readOnlySolvencyRows(draft: DeclaredSolvencyDraft) {
+  return (
+    <>
+      <ReadOnlyRow
+        label="Volumen anual de negocio declarado (EUR)"
+        value={draft.annual_turnover}
+      />
+      <ReadOnlyRow
+        label="Servicios similares de los últimos 3 años"
+        value={draft.past_services}
+      />
     </>
   );
 }
@@ -452,6 +554,7 @@ function readOnlyRows(draft: ProfileDraft) {
         <ReadOnlyRow label="Segmentos" value={draft.segments} />
         <ReadOnlyRow label="Canales" value={draft.channels} />
         <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
+        {readOnlySolvencyRows(draft)}
       </>
     );
   }
@@ -465,6 +568,7 @@ function readOnlyRows(draft: ProfileDraft) {
         <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
         <ReadOnlyRow label="Geografías" value={draft.geographies} />
         <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
+        {readOnlySolvencyRows(draft)}
       </>
     );
   }
@@ -479,6 +583,7 @@ function readOnlyRows(draft: ProfileDraft) {
       <ReadOnlyRow label="Palabras clave" value={draft.keywords} />
       <ReadOnlyRow label="Geografías" value={draft.geographies} />
       <ReadOnlyRow label="Compradores" value={draft.target_buyers} />
+      {readOnlySolvencyRows(draft)}
     </>
   );
 }
@@ -496,6 +601,13 @@ export function DossierProfilePanel({
 }: Props) {
   const kind = profileKindFor(dossierType, profileConfig);
   const hasContent = profileHasContent(profileConfig);
+  const [solvencyErrors, setSolvencyErrors] = useState<SolvencyFieldErrors>({});
+  const visibleSolvencyErrors: SolvencyFieldErrors = { ...solvencyErrors };
+  if (draft && !readOnly) {
+    const currentErrors = validateSolvencyDraft(draft);
+    if (!currentErrors.annual_turnover) delete visibleSolvencyErrors.annual_turnover;
+    if (!currentErrors.past_services) delete visibleSolvencyErrors.past_services;
+  }
 
   if (kind === "empty") return null;
 
@@ -550,6 +662,31 @@ export function DossierProfilePanel({
         ? "Oferta propia, competidores, CPV y criterios del alta de inteligencia competitiva. Edítalos aquí; se guardan en profile_config."
         : "Oferta propia, competidores, CPV, barreras y decisión del expediente. Edítalos aquí; se guardan en profile_config (custom.v1).";
 
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!draft) return;
+    const errors = validateSolvencyDraft(draft);
+    if (hasSolvencyFieldErrors(errors)) {
+      setSolvencyErrors(errors);
+      // Fail-closed: do not call parent onSave → no PATCH.
+      return;
+    }
+    setSolvencyErrors({});
+    onSave(event);
+  }
+
+  function handleDraftChange(next: ProfileDraft) {
+    const nextErrors = validateSolvencyDraft(next);
+    setSolvencyErrors((prev) => {
+      if (!hasSolvencyFieldErrors(prev)) return prev;
+      const cleared: SolvencyFieldErrors = { ...prev };
+      if (!nextErrors.annual_turnover) delete cleared.annual_turnover;
+      if (!nextErrors.past_services) delete cleared.past_services;
+      return cleared;
+    });
+    onDraftChange(next);
+  }
+
   return (
     <section
       className="settings-section"
@@ -560,24 +697,27 @@ export function DossierProfilePanel({
         <h2>Perfil del expediente</h2>
         <p>{blurb}</p>
       </header>
-      <form className="dossier-settings-form competitive-intake-fields" onSubmit={onSave}>
+      <form className="dossier-settings-form competitive-intake-fields" onSubmit={handleSubmit}>
         {draft.kind === "market" ? (
           <MarketFields
             draft={draft}
             disabled={disabled || busy}
-            onChange={(next) => onDraftChange(next)}
+            solvencyErrors={visibleSolvencyErrors}
+            onChange={handleDraftChange}
           />
         ) : draft.kind === "competitive_intelligence" ? (
           <CompetitiveFields
             draft={draft}
             disabled={disabled || busy}
-            onChange={(next) => onDraftChange(next)}
+            solvencyErrors={visibleSolvencyErrors}
+            onChange={handleDraftChange}
           />
         ) : (
           <CustomFields
             draft={draft}
             disabled={disabled || busy}
-            onChange={(next) => onDraftChange(next)}
+            solvencyErrors={visibleSolvencyErrors}
+            onChange={handleDraftChange}
           />
         )}
         <div className="settings-actions full">

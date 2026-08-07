@@ -20,6 +20,7 @@ from opn_oracle.integrations.memory_contract_v1 import (
     materialize_signal_item_to_evidence,
     should_inject_into_llm,
 )
+from opn_oracle.oracle.evidence_source_kinds import DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS
 
 MemoryMode = Literal["disabled", "shadow", "augment"]
 PROMPT_RUNTIME_ID = "RT-07"
@@ -140,10 +141,11 @@ def build_oracle_authority_block(
     objectives: Sequence[Any] | None = None,
     decisions: Sequence[Mapping[str, Any]] | None = None,
     oracle_evidence: Sequence[Mapping[str, Any]] | None = None,
+    context_mix: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Oracle decisional authority — never mixed into Signal factual items."""
 
-    return {
+    block: dict[str, Any] = {
         "block": "oracle_authority",
         "tenant_id": str(tenant_id),
         "dossier_id": str(dossier_id),
@@ -162,6 +164,10 @@ def build_oracle_authority_block(
             intent or requirements or offering or objectives or decisions or oracle_evidence
         ),
     }
+    if context_mix:
+        # Bounded G-26 diagnostics only (counts / reason codes; no extracts/PII).
+        block["context_mix"] = dict(context_mix)
+    return block
 
 
 def load_oracle_authority_from_session(
@@ -170,12 +176,17 @@ def load_oracle_authority_from_session(
     tenant_id: uuid.UUID,
     dossier_id: uuid.UUID,
     question: str,
+    memory_mode: MemoryMode | str = "augment",
 ) -> dict[str, Any]:
     """Load tenant+dossier-scoped Oracle authority from PostgreSQL (no mocks).
 
     Includes accepted IntentRevision + hash, requirements, offering, objectives,
     decisions, and Evidence rows linked via EvidenceDossier for this dossier only.
     Rows belonging to other tenants/dossiers are excluded by WHERE clauses.
+
+    Evidence bag selection uses G-26 family mix (conditional floors/caps) so bulk
+    tenders cannot expel people/competitors/actors/documents/memory. ``memory_mode``
+    follows G-29: disabled→zero memory, shadow→observe only, augment→inject.
     """
 
     from sqlalchemy import select
@@ -185,8 +196,7 @@ def load_oracle_authority_from_session(
         DossierOffering,
         IntelligenceRequirement,
     )
-    from opn_oracle.oracle.links import EvidenceDossier
-    from opn_oracle.oracle.models import Decision, DossierObjective, Evidence, StrategicDossier
+    from opn_oracle.oracle.models import Decision, DossierObjective, StrategicDossier
 
     dossier = session.scalar(
         select(StrategicDossier).where(
@@ -312,64 +322,66 @@ def load_oracle_authority_from_session(
         )
     ]
 
-    evidence_ids = select(EvidenceDossier.evidence_id).where(
-        EvidenceDossier.tenant_id == tenant_id,
-        EvidenceDossier.dossier_id == dossier_id,
-    )
-    # Prefer durable dossier evidence (procurement/document/…) over bulk
-    # memory_signal rematerializations. Ask injects dual-memory separately; if we
-    # order only by created_at the 40-row cap fills with per-turn memory_signal
-    # UUIDs and hides PLACSP awards the model (and build_context) already sees.
-    #
-    # SV2-E2E-VIVO: opportunity materializes ~70 document chunks for the fit/draft
-    # bag only. Those rows must not monopolize the 40-slot oracle_authority bag
-    # (kind_rank document=1 before memory_signal) or Preguntar loses Laura/admin
-    # and Capgemini markers. Fetch a wider pool, drop opportunity-only rows, then
-    # diversify by source_kind (same policy as build_context).
-    from sqlalchemy import case
+    # G-26 corrective: family-balanced retrieval *before* the mixer cap.
+    # A global LIMIT 400 ordered by recency drops older people/competitors when
+    # 500/1000 recent tenders dominate. Per-family bounded selects share the
+    # same map_context_family taxonomy as the mixer; opportunity-only PCAP
+    # materializations stay out of the generic bag.
+    from opn_oracle.ai.context_candidate_loader import load_balanced_context_candidates
+    from opn_oracle.ai.context_mix import mix_context_evidence
 
-    from opn_oracle.ai.context import (
-        _is_opportunity_pliego_materialization,
-        diversify_evidence_by_source_kind,
+    load_result = load_balanced_context_candidates(
+        session,
+        tenant_id=tenant_id,
+        dossier_id=dossier_id,
+        exclude_opportunity_pliego=True,
     )
-
-    kind_rank = case(
-        (Evidence.source_kind == "procurement", 0),
-        (Evidence.source_kind == "document", 1),
-        (Evidence.source_kind == "entity_intel", 2),
-        (Evidence.source_kind == "signal", 3),
-        else_=9,
+    evidence_candidates = list(load_result.candidates)
+    mix_result = mix_context_evidence(
+        evidence_candidates,
+        limit=40,
+        question=question,
+        memory_mode=memory_mode,
+        family_floors={
+            "people": 1,
+            "competitors": 1,
+            "actors": 1,
+            "tenders": 1,
+            "documents": 1,
+            "memory": 1,
+            "other": 0,
+        },
+        family_caps={
+            "people": 6,
+            "competitors": 6,
+            "actors": 6,
+            "tenders": 12,
+            "documents": 10,
+            "memory": 6,
+            "other": 4,
+        },
     )
-    evidence_candidates = list(
-        session.scalars(
-            select(Evidence)
-            .where(
-                Evidence.id.in_(evidence_ids),
-                Evidence.tenant_id == tenant_id,
-                Evidence.source_kind.in_(
-                    ("signal", "document", "procurement", "entity_intel", "memory_signal")
-                ),
-            )
-            .order_by(kind_rank.asc(), Evidence.created_at.desc())
-            .limit(200)
+    evidence_rows = list(mix_result.selected)
+    mix_metadata = dict(mix_result.metadata)
+    mix_metadata["retrieval"] = dict(load_result.metadata)
+    if load_result.metadata.get("candidate_pool_truncated_before_family_floor"):
+        codes = list(mix_metadata.get("reason_codes") or [])
+        if "candidate_pool_truncated_before_family_floor" not in codes:
+            codes.append("candidate_pool_truncated_before_family_floor")
+        mix_metadata["reason_codes"] = codes
+    oracle_evidence = []
+    for row in evidence_rows:
+        item_id = str(row.id)
+        extract = mix_result.selected_extracts.get(item_id) or (row.extract or "")
+        oracle_evidence.append(
+            {
+                "id": item_id,
+                "source_kind": row.source_kind,
+                "extract": extract[:1200],
+                "classification": row.classification,
+                "checksum": row.checksum.hex() if row.checksum else None,
+            }
         )
-    )
-    evidence_candidates = [
-        row for row in evidence_candidates if not _is_opportunity_pliego_materialization(row)
-    ]
-    evidence_rows = diversify_evidence_by_source_kind(
-        evidence_candidates, limit=40, max_per_kind=12
-    )
-    oracle_evidence = [
-        {
-            "id": str(row.id),
-            "source_kind": row.source_kind,
-            "extract": (row.extract or "")[:1200],
-            "classification": row.classification,
-            "checksum": row.checksum.hex() if row.checksum else None,
-        }
-        for row in evidence_rows
-    ]
 
     return build_oracle_authority_block(
         dossier_id=str(dossier_id),
@@ -381,6 +393,7 @@ def load_oracle_authority_from_session(
         objectives=objectives,
         decisions=decisions,
         oracle_evidence=oracle_evidence,
+        context_mix=mix_metadata,
     )
 
 
@@ -1002,7 +1015,9 @@ def validate_citations_allowlist(
 # Dossier evidence kinds that are legitimately citable when linked via EvidenceDossier
 # and shown to the model (build_context / oracle_authority). Dual-memory memory_signal
 # IDs are always taken from the current materialization set, never bulk-imported.
-DOSSIER_CITABLE_SOURCE_KINDS = frozenset({"procurement", "document", "signal", "entity_intel"})
+DOSSIER_CITABLE_SOURCE_KINDS = frozenset(
+    kind for kind in DOSSIER_CORPUS_EVIDENCE_SOURCE_KINDS if kind != "memory_signal"
+)
 
 
 def merge_ask_citation_allowlist(

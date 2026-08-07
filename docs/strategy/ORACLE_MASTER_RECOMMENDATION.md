@@ -2,11 +2,13 @@
 
 Síntesis ejecutiva de la auditoría estratégica, comercial y de rentabilidad (2026-07-21). Detalle y evidencia en los 15 documentos de `docs/strategy/`.
 
+> **ACTUALIZACIÓN 2026-08-07.** Los activos no-código que este texto daba por inexistentes están **VERSIONADOS PARA REVISIÓN** tras auditoría técnica independiente: [one-pager](ORACLE_ONE_PAGER_HONESTO.md), [demo](ORACLE_DEMO_SCRIPT.md), [propuesta](ORACLE_PROPUESTA_PILOTO.md) y [calculadora](ORACLE_ROI_CALCULATOR.html). Quedan pendientes de aprobación y publicación. No implica publicación, cliente ni ingresos. Precio, duración, alcance, pago, descuentos, servicios y condiciones contractuales siguen **POR CONFIRMAR**.
+
 ---
 
 ## 1. Qué debe ser Oracle
 
-La **plataforma de inteligencia de negocio público y cuentas estratégicas**: detecta licitaciones y oportunidades que encajan, explica quién es cada competidor/socio/adjudicatario con datos oficiales (BORME, PLACSP), y lo convierte todo en expedientes con memoria e informes con evidencia citada. El "expediente estratégico genérico" sigue siendo la arquitectura; deja de ser el mensaje.
+La hipótesis de posicionamiento es **inteligencia de negocio público y trabajo de ofertas con evidencia**. La cuña demostrable reúne búsqueda de contratación pública española, PCAP aportado, encaje con capacidad declarada, borrador editable, Word y seguimiento dentro de un expediente. La inteligencia de entidades/mercado es un recorrido complementario sujeto a su propia cobertura y humo. El "expediente estratégico genérico" sigue siendo arquitectura, no una promesa comercial.
 
 ## 2. Para quién
 
@@ -18,21 +20,21 @@ Tres, por orden de apertura de puerta: (1) licitaciones detectadas tarde y sin a
 
 ## 4. Por qué se compra ahora
 
-Los presupuestos de inteligencia competitiva crecen (~24% interanual) y la IA ya tiene permiso mental en estos equipos (80% la usan en 2026); las fuentes españolas (PLACSP/BORME) no tienen dueño integrado y la ventana de soledad competitiva se estima en 12-24 meses; y para cada cliente, el calendario de licitaciones hace el coste de esperar visible cada semana.
+La investigación de mercado de julio registró indicadores de crecimiento de la inteligencia competitiva y adopción de IA, pero esas cifras y la supuesta ventana competitiva son referencias históricas que deben conservar fuente, fecha y ámbito antes de usarse externamente. La urgencia que sí debe validar cada discovery es concreta: calendario de licitaciones, capacidad del equipo y coste observable de revisar tarde.
 
 ## 5. Cinco momentos wow
 
-1. **"Tu competidor, por dentro"** — ficha 360º con BORME, grafo societario y contratos ganados, en 60 segundos.
-2. **"Tu mercado público"** — adjudicaciones y licitaciones del sector del cliente, con UTEs e importes.
-3. **Señal → oportunidad** — triaje explicado con evidencia y promoción a acción en un clic.
-4. **Informe de comité con cada afirmación citada** — cero citas inventadas, auditable.
-5. **"Qué ha cambiado"** — los 5-10 movimientos del lunes + digest semanal.
+1. **Recorrido de oferta controlado** — búsqueda → PCAP → encaje → borrador → Word → seguimiento, con revisión humana.
+2. **"Tu competidor, por dentro"** — recorrido complementario con BORME, grafo y contratación pública según cobertura; sin SLA universal.
+3. **Señal → oportunidad** — triaje y promoción revisable cuando el expediente tenga vigilancia efectiva.
+4. **Informe con evidencia disponible** — la evaluación registrada de 45 afirmaciones no detectó citas inventadas; es una muestra acotada, no garantía universal ni aplicable a toda salida.
+5. **"Qué ha cambiado"** — vista y digest solo tras validar configuración y entrega en el entorno del piloto.
 
-(Todos existen en el producto hoy; ninguno exige construir — solo estabilizar p63, PDF y digest por email.)
+Son momentos complementarios, no una única demo. La demo canónica de 15 minutos es contratación → fijación → PCAP → encaje → borrador → DOCX → seguimiento y requiere su propio humo. La ruta de informe de entidad exige además cerrar p63 y registrar su validación. PDF y digest tienen base de código, pero su configuración y entrega deben validarse en el entorno del piloto antes de prometerlos.
 
 ## 6. MVP comercial
 
-El producto actual **ya es el MVP comercial**, menos tres piezas: informe de entidad estable (decisión p63), PDF de informes, digest por email; más tres activos no-código: one-pager, guion de demo con datos del prospecto, propuesta de piloto con criterios de éxito.
+El producto actual contiene el recorrido que puede constituir el MVP comercial. Los activos no-código están **PREPARADOS EN WORKTREE**, no auditados ni integrados todavía. Antes de vender quedan la revisión independiente, las decisiones humanas —precio, contrato y posicionamiento final—, el humo completo de Dev y la validación con compradores; este documento no acredita landing, caso de éxito ni ingresos.
 
 ## 7. Qué eliminar o posponer
 
@@ -42,19 +44,19 @@ El producto actual **ya es el MVP comercial**, menos tres piezas: informe de ent
 
 ## 8. Pricing
 
-Essential **5.900 €/año** (5 usuarios, 5 expedientes) · Professional **12.900 €/año** (15 usuarios, 20 expedientes, briefings e informes competitivos) · Enterprise **desde 30.000 €/año** (SLA; SSO/dedicado como roadmap por contrato) · Implantación **3.500 €** · Analista gestionado **1.500-2.900 €/mes** · Piloto **4.500 €/8 semanas**, 100% descontable al convertir. Suelo: nunca vender por debajo de ~500 €/mes. Descuento máximo 15%, solo por referencia pública.
+**POR CONFIRMAR por el propietario antes de emitir una oferta.** Deben aprobarse por escrito: nombres y límites de planes, precio y duración, implantación, servicios, consumo externo, forma de pago, renovación, SLA y política de descuentos. La hoja [ORACLE_PRICING_AND_PACKAGING.md](ORACLE_PRICING_AND_PACKAGING.md) retira expresamente las cifras históricas y define el gate de aprobación. La calculadora compara el beneficio anual con el coste total aprobado del primer año.
 
 ## 9. Proceso de venta
 
-Red de OPN → "regalo de valor" (ficha de competidor + adjudicaciones del sector, hecha con el propio producto) → discovery de 30' → demo de 15' con datos del prospecto → business case de una página → piloto pagado con fecha de decisión → implantación plantillada de 4 semanas → ritual del lunes → QBR y expansión. Guiones completos en el playbook; demo grabada como material de formación para no depender del fundador.
+Red de OPN → "regalo de valor" (ficha de competidor + adjudicaciones del sector, hecha con el propio producto) → discovery de 30' → demo canónica de 15' con datos del prospecto → business case de una página → piloto pagado con fecha de decisión → implantación plantillada → ritual de adopción → QBR y expansión. Duración, alcance, responsables, servicios incluidos y tarifa de la implantación están **POR CONFIRMAR**. Los guiones están versionados para revisión; una demo grabada puede servir como formación tras aprobación y ensayo.
 
 ## 10. Rentabilidad
 
-Coste de servir 60-160 €/cliente/mes (IA local ≈ 0; cloud <5% del ACV) → margen bruto software >80%. El año 1 (escenario base: 5 pilotos, 3 conversiones, ~75 K€ de ingresos mixtos) valida y da caja por servicios; el punto de equilibrio real (salario de mercado del fundador) llega con 8-12 clientes Professional en 18-24 meses. La amenaza al margen no es la IA: es el trabajo manual no tarifado y la personalización — controlados por las reglas E-011.
+Coste de servicio, coste de IA, ACV, margen y punto de equilibrio están **POR CONFIRMAR**. Las cifras de julio son hipótesis históricas, no resultados medidos. Antes de defender rentabilidad hay que conciliar el ledger vigente, proveedor y modelo realmente usados, infraestructura, soporte, implantación y trabajo manual contra un precio aprobado. La personalización y los servicios no tarifados son riesgos de margen; el consumo externo también debe medirse y limitarse.
 
 ## 11. Plan de 90 días
 
-Semanas 1-2: resolver p63, one-pager, demo ensayada, pricing, lista de 30 cuentas. Semanas 3-4: formalizar IACELL, 10 regalos de valor, ≥3 discovery. Semanas 5-8: ≥4 demos, 3 pilotos activos, PDF + digest en producto. Semanas 9-12: conversión de pilotos con decisión escrita, caso de referencia IACELL, retro comercial. Presupuesto de tiempo del fundador: 40% venta / 25% pilotos / 25% producto ligado a pilotos / ≤10% resto. Meta: 13.500 € en pilotos + ≥1 contrato anual + 1 caso de referencia.
+Semanas 1-2: revisar e integrar los activos, ensayar la demo canónica, aprobar pricing y listar 30 cuentas; p63 solo entra si se va a enseñar informe de entidad. Semanas 3-4: proponer la formalización de IACELL, enviar 10 regalos de valor y realizar ≥3 discovery. Semanas 5-8: ≥4 demos, objetivo de tres pilotos activos y validación en entorno autorizado de PDF/digest. Semanas 9-12: decisiones escritas, una conversión anual, caso de referencia autorizado y retro comercial. Presupuesto de tiempo propuesto: 40% venta / 25% pilotos / 25% producto ligado a pilotos / ≤10% resto. La meta económica está **POR CONFIRMAR**.
 
 ## 12. Veredicto
 
@@ -63,9 +65,9 @@ GO CON CONDICIONES
 ```
 
 1. **Pivotar el posicionamiento** a la cuña de negocio público y cuentas (0-30 días).
-2. **Fiabilidad demostrable**: p63 resuelto y demo sin funciones inestables (0-15 días).
+2. **Fiabilidad demostrable**: humo completo del recorrido canónico; p63 resuelto únicamente antes de una demo que incluya informe de entidad (0-15 días).
 3. **Tres pilotos pagados, uno convertido** (0-90 días), empezando por IACELL.
-4. **Pricing publicado y aplicado** sin descuentos no pactados (0-30 días).
+4. **Pricing POR CONFIRMAR, aprobado y aplicado de forma coherente**; no publicar ni descontar sin autorización escrita (0-30 días).
 5. **Congelar la construcción** no ligada a venta; SSO/ENS solo bajo contrato (continuo).
 
-La conclusión de fondo: OPN Oracle tiene resuelto lo que suele faltar (producto real, seguro, barato de operar, con diferenciación verificable) y le falta lo que suele sobrar (mensaje, precio, demo, primer cliente de pago). Los próximos 90 días se juegan en conversaciones, no en commits.
+La conclusión de fondo debe expresarse con este alcance: OPN Oracle dispone de controles de producto verificables en repositorio (aislamiento multi-tenant, RBAC, auditoría, auth con contraseña fuerte, exports con caducidad). La aptitud para un entorno productivo concreto depende del despliegue, de los features habilitados y del contrato. No se afirma certificación ISO/SOC/ENS ni readiness global de producción sin evidencia de ese entorno. La IA está deshabilitada por defecto; si se habilita, Oracle enruta mediante Signal y proveedor, residencia y tratamiento deben confirmarse para ese entorno. Precio, coste de operación, material aprobado y primer cliente de pago siguen abiertos. Los próximos 90 días deben convertir esas incógnitas en evidencia comercial y operativa.

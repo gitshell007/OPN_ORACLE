@@ -24,6 +24,7 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
     schemas.update(_response_schemas())
     schemas.update(_oracle_schemas())
     schemas.update(_reporting_schemas())
+    _normalize_opportunity_analysis_nullable_refs(schemas)
     request_schemas = {
         ("/api/v1/auth/login", "post"): "LoginInput",
         ("/api/v1/auth/reauthenticate", "post"): "PasswordInput",
@@ -38,6 +39,14 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
         ("/api/v1/tenant-admin/members", "post"): "InviteMemberInput",
         ("/api/v1/tenant-admin/members/{member_id}", "patch"): "MembershipPatchInput",
         ("/api/v1/tenant-admin/members/{member_id}/roles", "patch"): "RolesInput",
+        (
+            "/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft",
+            "patch",
+        ): "OpportunityOfferDraftPatchInput",
+        (
+            "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
+            "patch",
+        ): "OpportunityOfferLifecyclePatchInput",
         ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): "IntentDraftCreateInput",
         ("/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}", "patch"): (
             "IntentDraftPatchInput"
@@ -121,6 +130,71 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
                 responses.setdefault("409", _problem("Conflicto de estado", problem_content))
             _declare_oracle_operation(path, method, operation, problem_content)
             _declare_reporting_operation(path, method, operation, problem_content)
+            if path.endswith("/opportunity/offer-draft/export.docx") and method == "get":
+                operation["summary"] = "Exportar borrador de oferta como DOCX editable"
+                operation["description"] = (
+                    "Descarga el OpportunityOfferDraft persistido como documento Word "
+                    "(.docx) editable. Requiere precondición de versión (query `version` "
+                    "o cabecera If-Match). No regenera desde el artifact de análisis."
+                )
+                _upsert_parameter(
+                    operation,
+                    {
+                        "name": "version",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1},
+                        "description": "Versión durable que la UI muestra; debe coincidir.",
+                    },
+                )
+                _upsert_parameter(
+                    operation,
+                    {
+                        "name": "If-Match",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "string"},
+                        "description": (
+                            'ETag de versión (p. ej. W/"ood-v3") como alternativa a version.'
+                        ),
+                    },
+                )
+                operation["responses"]["200"] = {
+                    "description": "Documento Word editable generado desde el borrador durable",
+                    "content": {
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                            "schema": {"type": "string", "format": "binary"}
+                        }
+                    },
+                    "headers": {
+                        "Content-Disposition": {
+                            "description": "attachment; filename=…",
+                            "schema": {"type": "string"},
+                        },
+                        "ETag": {
+                            "description": "ETag del borrador exportado",
+                            "schema": {"type": "string"},
+                        },
+                    },
+                }
+                responses.setdefault(
+                    "404",
+                    _problem("Borrador o expediente no disponible", problem_content),
+                )
+                responses.setdefault(
+                    "409",
+                    _problem(
+                        "Versión obsoleta: el borrador en servidor no coincide",
+                        problem_content,
+                    ),
+                )
+                responses.setdefault(
+                    "428",
+                    _problem(
+                        "Se requiere version o cabecera If-Match",
+                        problem_content,
+                    ),
+                )
             if path.startswith("/api/v1/jobs/{job_id}"):
                 responses.setdefault("404", _problem("Job no encontrado", problem_content))
             if path.endswith(("/cancel", "/retry")) and path.startswith("/api/v1/jobs/"):
@@ -149,6 +223,44 @@ def declare_problem_responses(spec: dict[Any, Any] | str) -> dict[Any, Any] | st
                 },
             )
     return spec
+
+
+def _normalize_opportunity_analysis_nullable_refs(schemas: dict[str, Any]) -> None:
+    """Keep nullable nested output types closed and useful to generated clients.
+
+    APISpec represents ``Nested(..., allow_none=True)`` as an ``anyOf`` with an
+    unconstrained object branch. That branch both violates Oracle's closed-schema
+    contract and lets clients accept arbitrary objects instead of the advertised
+    resource. OpenAPI 3.0 supports the precise form: nullable + allOf($ref).
+    """
+
+    nullable_nested_fields = {
+        "OpportunityAnalysisRunResponse": ("artifact",),
+        "OpportunityAnalysisLatestResponse": ("artifact", "job"),
+        "OpportunityAnalysisOutput": (
+            "next_best_action",
+            "fit_assessment",
+            "draft_offer",
+        ),
+        "OpportunityFitAssessment": ("verdict",),
+    }
+    for schema_name, field_names in nullable_nested_fields.items():
+        properties = schemas.get(schema_name, {}).get("properties", {})
+        for field_name in field_names:
+            field_schema = properties.get(field_name, {})
+            reference = next(
+                (
+                    candidate["$ref"]
+                    for candidate in field_schema.get("anyOf", [])
+                    if isinstance(candidate, dict) and isinstance(candidate.get("$ref"), str)
+                ),
+                None,
+            )
+            if reference is not None:
+                properties[field_name] = {
+                    "allOf": [{"$ref": reference}],
+                    "nullable": True,
+                }
 
 
 def _problem(description: str, content: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +422,43 @@ def _typed_responses() -> dict[tuple[str, str], tuple[str, str | None]]:
             "201",
             "ProcurementPromotionResponse",
         ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/runs", "post"): (
+            "202",
+            "OpportunityAnalysisRunResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/latest", "get"): (
+            "200",
+            "OpportunityAnalysisLatestResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "get"): (
+            "200",
+            "OpportunityOfferDraftResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "post"): (
+            "201",
+            "OpportunityOfferDraftCreateResponse",
+        ),
+        ("/api/v1/ai/dossiers/{dossier_id}/opportunity/offer-draft", "patch"): (
+            "200",
+            "OpportunityOfferDraftResponse",
+        ),
+        (
+            "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
+            "get",
+        ): ("200", "OpportunityOfferLifecycleResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/opportunities/{opportunity_id}/offer-lifecycle",
+            "patch",
+        ): ("200", "OpportunityOfferLifecycleResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/pliego-acquisition",
+            "get",
+        ): ("200", "PliegoAcquisitionResponse"),
+        (
+            "/api/v1/dossiers/{dossier_id}/pliego-pcap",
+            "post",
+        ): ("202", "PliegoPcapUploadResponse"),
+        # Binary DOCX export is handled in declare_problem_responses (not JSON typed_responses).
         ("/api/v1/dossiers/{dossier_id}/intent", "get"): ("200", "IntentOverviewResponse"),
         ("/api/v1/dossiers/{dossier_id}/intent/drafts", "post"): (
             "201",
@@ -930,6 +1079,34 @@ def _declare_oracle_operation(
             "/search",
         )
     ):
+        return
+    opportunity_analysis_path = path in {
+        "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs",
+        "/api/v1/ai/dossiers/{dossier_id}/opportunity/latest",
+    }
+    if opportunity_analysis_path:
+        operation.pop("requestBody", None)
+        responses = operation.setdefault("responses", {})
+        expected_status = "202" if method == "post" else "200"
+        for status in tuple(responses):
+            if status.startswith("2") and status != expected_status:
+                responses.pop(status)
+        if method == "post":
+            _upsert_parameter(
+                operation,
+                {
+                    "name": "Idempotency-Key",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 8, "maxLength": 200},
+                    "description": "Clave estable del intento para no duplicar el job.",
+                },
+            )
+            responses.setdefault(
+                "428",
+                _problem("Se requiere Idempotency-Key", problem_content),
+            )
+        responses["404"] = _problem("Expediente no encontrado", problem_content)
         return
     if "/oracle-summary" in path:
         _declare_oracle_summary_operation(path, method, operation, problem_content)
@@ -1789,12 +1966,29 @@ def _oracle_schemas() -> dict[str, Any]:
                 "participation_criteria": {"type": "string", "maxLength": 3000},
                 "exclusion_criteria": {"type": "string", "maxLength": 3000},
                 "success_indicators": string_array,
+                "annual_turnover": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": (
+                        "Volumen anual de negocio declarado (EUR). Declarado por el cliente; "
+                        "no sustituye certificados ni documentación oficial."
+                    ),
+                },
+                "past_services": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": (
+                        "Servicios similares de los últimos 3 años y su acreditación. "
+                        "Declarado por el cliente; no sustituye certificados "
+                        "ni documentación oficial."
+                    ),
+                },
             },
         },
         "MarketProfileInput": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["own_offer", "decision_to_make", "competitors"],
+            "required": ["own_offer", "decision_to_make"],
             "properties": {
                 "own_offer": {"type": "string", "minLength": 1, "maxLength": 2000},
                 "decision_to_make": {"type": "string", "minLength": 1, "maxLength": 2000},
@@ -1804,15 +1998,40 @@ def _oracle_schemas() -> dict[str, Any]:
                 "target_buyers": string_array,
                 "competitors": {
                     "type": "array",
-                    "minItems": 1,
+                    "minItems": 0,
                     "maxItems": 20,
                     "items": {"$ref": "#/components/schemas/CompetitiveCompetitorInput"},
+                },
+                "competitors_knowledge": {
+                    "type": "string",
+                    "enum": ["known", "unknown", "not_seeking"],
+                    "description": (
+                        "Honest intent: known (names are exclusions for discovery), "
+                        "unknown (aún no lo sé), not_seeking (no busco competidores)."
+                    ),
                 },
                 "partners": string_array,
                 "regulators": string_array,
                 "barriers": string_array,
                 "success_indicators": string_array,
                 "keywords": string_array,
+                "annual_turnover": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": (
+                        "Volumen anual de negocio declarado (EUR). Declarado por el cliente; "
+                        "no sustituye certificados ni documentación oficial."
+                    ),
+                },
+                "past_services": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": (
+                        "Servicios similares de los últimos 3 años y su acreditación. "
+                        "Declarado por el cliente; no sustituye certificados "
+                        "ni documentación oficial."
+                    ),
+                },
             },
         },
         "DossierCreateInput": {
@@ -1896,6 +2115,319 @@ def _oracle_schemas() -> dict[str, Any]:
                 "kind": {"type": "string", "minLength": 1, "maxLength": 120},
                 "ref": {"type": "string", "minLength": 1, "maxLength": 500},
                 "label": {"type": "string", "maxLength": 300},
+            },
+        },
+        "OpportunityOfferDraftSectionPatchInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["key", "our_response_draft"],
+            "properties": {
+                "key": {"type": "string", "minLength": 1, "maxLength": 80},
+                "our_response_draft": {"type": "string", "minLength": 1, "maxLength": 2000},
+            },
+        },
+        "OpportunityOfferDraftPatchInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "version": {"type": "integer", "minimum": 1},
+                "statement": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "sections": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "$ref": "#/components/schemas/OpportunityOfferDraftSectionPatchInput"
+                    },
+                },
+            },
+        },
+        "OpportunityOfferDraftResource": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "id",
+                "dossier_id",
+                "source_artifact_id",
+                "version",
+                "etag",
+                "statement",
+                "sections",
+                "origin",
+                "human_gate",
+                "banner",
+            ],
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "dossier_id": {"type": "string", "format": "uuid"},
+                "source_artifact_id": {"type": "string", "format": "uuid"},
+                "version": {"type": "integer", "minimum": 1},
+                "etag": {"type": "string"},
+                "created_at": {"type": "string", "format": "date-time"},
+                "updated_at": {"type": "string", "format": "date-time"},
+                "last_edited_by_user_id": {"type": "string", "format": "uuid"},
+                "content": {"type": "object", "additionalProperties": True},
+                "banner": {"type": "string"},
+                "human_gate": {"type": "string"},
+                "statement": {"type": "string"},
+                "tender_ref": {"type": "string", "nullable": True},
+                "lot_hint": {"type": "string", "nullable": True},
+                "sections": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
+                "administrative_checklist": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
+                "gaps_summary": {"type": "array", "items": {"type": "string"}},
+                "gaps": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
+                "origin": {"type": "string", "enum": ["declared_draft"]},
+                "based_on_verdict": {"type": "string", "nullable": True},
+                "official_evidence_ids": {"type": "array", "items": {"type": "string"}},
+                "declared_evidence_ids": {"type": "array", "items": {"type": "string"}},
+                "draft_engine": {"type": "string", "nullable": True},
+                "prose_engine": {"type": "string", "nullable": True},
+                "drafted_as_of": {"type": "string", "nullable": True},
+            },
+        },
+        "OpportunityOfferDraftResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["draft"],
+            "properties": {
+                "draft": {"$ref": "#/components/schemas/OpportunityOfferDraftResource"},
+            },
+        },
+        "OpportunityOfferDraftCreateResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["draft", "created"],
+            "properties": {
+                "draft": {"$ref": "#/components/schemas/OpportunityOfferDraftResource"},
+                "created": {"type": "boolean"},
+            },
+        },
+        "OpportunityOfferLifecyclePatchInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "CAS: 0 materializa la primera fila; N>=1 actualiza la fila "
+                        "existente con esa versión. También aceptable vía If-Match."
+                    ),
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "preparando",
+                        "presentada",
+                        "en_evaluacion",
+                        "adjudicada",
+                        "perdida",
+                        "excluida",
+                    ],
+                },
+                "importe_ofertado": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Importe ofertado en euros (decimal como string). Null limpia.",
+                },
+                "baja_porcentaje": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Baja explícita 0-100 (porcentaje). Null limpia.",
+                },
+                "lotes": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 120},
+                    "maxItems": 40,
+                },
+                "garantia_provisional": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Garantía provisional en euros (decimal string). Null limpia.",
+                },
+                "fecha_mesa": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": True,
+                },
+                "motivo_exclusion": {
+                    "type": "string",
+                    "nullable": True,
+                    "maxLength": 2000,
+                    "description": (
+                        "Obligatorio solo si status=excluida; rechazado/limpiado en otros estados."
+                    ),
+                },
+            },
+            "description": (
+                "PATCH estricto: additionalProperties=false (typos → 422). "
+                "Requiere al menos un campo comercial editable además de version."
+            ),
+        },
+        "OpportunityOfferLifecycleResource": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "id",
+                "tenant_id",
+                "dossier_id",
+                "opportunity_id",
+                "status",
+                "status_label",
+                "lotes",
+                "version",
+                "etag",
+                "last_edited_by_user_id",
+                "created_at",
+                "updated_at",
+                "materialized",
+                "crm_status_note",
+            ],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false (sin fila persistida).",
+                },
+                "tenant_id": {"type": "string", "format": "uuid"},
+                "dossier_id": {"type": "string", "format": "uuid"},
+                "opportunity_id": {"type": "string", "format": "uuid"},
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "preparando",
+                        "presentada",
+                        "en_evaluacion",
+                        "adjudicada",
+                        "perdida",
+                        "excluida",
+                    ],
+                },
+                "status_label": {"type": "string"},
+                "importe_ofertado": {"type": "string", "nullable": True},
+                "baja_porcentaje": {"type": "string", "nullable": True},
+                "lotes": {"type": "array", "items": {"type": "string"}},
+                "garantia_provisional": {"type": "string", "nullable": True},
+                "fecha_mesa": {"type": "string", "format": "date", "nullable": True},
+                "motivo_exclusion": {"type": "string", "nullable": True},
+                "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "0 = virtual no materializado; >=1 = fila persistida.",
+                },
+                "etag": {"type": "string"},
+                "last_edited_by_user_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false.",
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false.",
+                },
+                "updated_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": True,
+                    "description": "Null cuando materialized=false.",
+                },
+                "materialized": {
+                    "type": "boolean",
+                    "description": (
+                        "False: contrato virtual de GET (sin INSERT). "
+                        "True: fila durable en opportunity_offer_lifecycles."
+                    ),
+                },
+                "crm_status_note": {
+                    "type": "string",
+                    "description": (
+                        "Recordatorio de que el estado CRM de la oportunidad es independiente."
+                    ),
+                },
+            },
+        },
+        "OpportunityOfferLifecycleResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["lifecycle", "materialized"],
+            "properties": {
+                "lifecycle": {"$ref": "#/components/schemas/OpportunityOfferLifecycleResource"},
+                "materialized": {
+                    "type": "boolean",
+                    "description": (
+                        "False si aún no existe fila (GET virtual). "
+                        "True tras materialización o cuando la fila ya existía."
+                    ),
+                },
+            },
+        },
+        "PliegoAcquisitionResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "dossier_id",
+                "overall_status",
+                "manual_upload_offered",
+                "cta",
+                "acquisitions",
+            ],
+            "properties": {
+                "dossier_id": uuid,
+                "opportunity_id": nullable_uuid,
+                "overall_status": {
+                    "type": "string",
+                    "enum": [
+                        "procesando",
+                        "descargado",
+                        "subido",
+                        "extracto_parcial",
+                        "no_disponible",
+                    ],
+                },
+                "overall_reason_code": string,
+                "overall_reason": string,
+                "manual_upload_offered": {"type": "boolean"},
+                "manual_upload_priority": {"type": "boolean"},
+                "cta": json_object,
+                "signal_document_refs": {"type": "integer", "minimum": 0},
+                "pins_without_documents": {"type": "integer", "minimum": 0},
+                "preferred_document": {"oneOf": [json_object, {"type": "null"}]},
+                "acquisitions": {"type": "array", "items": json_object},
+            },
+            "description": (
+                "Estado honesto de adquisición de pliego (G-11). "
+                "La descarga automática es best-effort; siempre se ofrece subida manual."
+            ),
+        },
+        "PliegoPcapUploadResponse": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["document", "job_id", "acquisition_status", "message"],
+            "properties": {
+                "document": json_object,
+                "job_id": {"type": "string", "nullable": True},
+                "acquisition_status": {
+                    "type": "string",
+                    "enum": ["procesando", "subido", "no_disponible"],
+                    "description": (
+                        "procesando = recepción no terminal; subido solo tras "
+                        "oracle.document.process ready; no_disponible = fallo terminal."
+                    ),
+                },
+                "message": string,
+                "pliego_acquisition": {"$ref": "#/components/schemas/PliegoAcquisitionResponse"},
             },
         },
         "IntentDraftCreateInput": {
@@ -2170,7 +2702,21 @@ def _oracle_schemas() -> dict[str, Any]:
             },
         },
         "ActorMergeInput": write(
-            {"source_actor_id": uuid, "reason": string}, ["source_actor_id", "reason"]
+            {
+                "source_actor_id": uuid,
+                "reason": string,
+                "confirm": {"type": "boolean"},
+                "expected_target_version": {"type": "integer", "minimum": 1},
+                "expected_source_version": {"type": "integer", "minimum": 1},
+                "match_reason": string,
+            },
+            [
+                "source_actor_id",
+                "reason",
+                "confirm",
+                "expected_target_version",
+                "expected_source_version",
+            ],
         ),
     }
     resource_properties: dict[str, dict[str, Any]] = {
@@ -2316,10 +2862,28 @@ def _oracle_schemas() -> dict[str, Any]:
             "actor_type": string,
             "canonical_name": string,
             "canonical_key": string,
+            "tax_id": {"type": "string", "maxLength": 20, "nullable": True},
+            "tax_id_scheme": {"type": "string", "maxLength": 20, "nullable": True},
+            "tax_id_country": {"type": "string", "maxLength": 2, "nullable": True},
             "aliases": string_array,
             "identifiers": json_object,
             "metadata": json_object,
             "provenance": json_object,
+            "version": version,
+        },
+        "ActorTaxIdConflict": {
+            "tax_id": {"type": "string", "maxLength": 20},
+            "winner_actor_id": uuid,
+            "loser_actor_id": uuid,
+            "declared_tax_id": {"type": "string", "maxLength": 80},
+            "declared_identifiers": json_object,
+            "status": {
+                "type": "string",
+                "enum": ["open", "resolved", "dismissed"],
+            },
+            "resolution_note": {"type": "string", "nullable": True},
+            "resolved_at": {"type": "string", "format": "date-time", "nullable": True},
+            "resolved_by_user_id": nullable_uuid,
             "version": version,
         },
         "DossierActor": {
@@ -3209,6 +3773,37 @@ def _reporting_schemas() -> dict[str, Any]:
                     "True cuando el informe se basó en extractos del expediente "
                     "porque el PDF oficial venía cifrado."
                 ),
+            },
+            "download_fallback": {
+                "type": "boolean",
+                "description": (
+                    "True cuando la descarga HTTP/WAF falló y se usó extracto parcial "
+                    "o se ofreció subida manual (G-11)."
+                ),
+            },
+            "document_acquisitions": {
+                "type": "array",
+                "items": json_object,
+                "description": (
+                    "Estado honesto por documento/adquisición: procesando, descargado, "
+                    "subido, extracto_parcial, no_disponible."
+                ),
+            },
+            "pliego_acquisition_status": {
+                "type": "string",
+                "nullable": True,
+                "enum": [
+                    "procesando",
+                    "descargado",
+                    "subido",
+                    "extracto_parcial",
+                    "no_disponible",
+                ],
+                "description": "Estado agregado de adquisición del pliego (G-11).",
+            },
+            "manual_pcap_upload_offered": {
+                "type": "boolean",
+                "description": "Siempre true: la UI debe ofrecer CTA «Subir PCAP».",
             },
             "revision": {"oneOf": [json_object, {"type": "null"}]},
             "artifacts": {"type": "array", "items": artifact},

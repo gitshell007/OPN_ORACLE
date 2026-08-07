@@ -273,12 +273,12 @@ def test_rt08_v102_optional_arrays_and_parser_defaults() -> None:
     assert "facts" in text and "claims" in text
 
     cat = load_contractual_runtime_catalog()
-    assert cat["RT-08"]["prompt_version"] == "1.0.2"
+    assert cat["RT-08"]["prompt_version"] == "1.0.3"
     assert cat["RT-08"]["schema_sha256"] == (
         "949a1b57b628246594ffc169d77a7cb676a11d90fa43a5910ab455920e7028f7"
     )
     assert cat["RT-08"]["prompt_sha256"] == (
-        "3768e8828e623cf69608ed799f900f389b4e3e9d57b85fbcc189bb67bf4c92fe"
+        "d9ebd175f23dcb0f83f1ad43b45ecac0afe9990a64cd5bd21c2223e067c84e7f"
     )
 
     # Schema-level: without optional arrays is valid under v1.0.2 contract.

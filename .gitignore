@@ -236,5 +236,13 @@ test-results/
 artifacts/
 .codex-screenshots/
 
+# Git worktrees locales; cada rama vive en Git, no como contenido del checkout raíz.
+.worktrees/
+
 # Entorno de desarrollo local sin Docker
 .dev-local/
+
+# SV2 memory baseline: mutable local pointers only (symlinks to run_*.json/md).
+# Immutable truth = run_*.json with greatest timestamp. Never track LATEST content.
+docs/evals/sv2_memory_baseline/v1/runs/LATEST.json
+docs/evals/sv2_memory_baseline/v1/runs/LATEST.md

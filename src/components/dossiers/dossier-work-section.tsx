@@ -32,6 +32,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { entityRoute } from "@/lib/entity-route";
 import { productLinkedResourceLabel } from "@/lib/product-copy";
+import { ActorDiscoveryPanel } from "@/components/market/actor-discovery-panel";
 import { DossierActorCandidates } from "./dossier-actor-candidates";
 
 function actorEntityHref(actor: OracleActor | undefined): string | null {
@@ -673,6 +674,7 @@ export function DossierWorkSection({ dossierId, kind }: { dossierId: string; kin
       />
 
       <section className="vector-panel intelligence-section work-section" aria-labelledby={`${kind}-title`}>
+      {kind === "actors" && <ActorDiscoveryPanel dossierId={dossierId} />}
       {kind === "actors" && (
         <div className="segmented actor-view-switch" role="group" aria-label="Vista de actores">
           <button type="button" aria-pressed={actorView === "linked"} onClick={() => setActorView("linked")}>Actores vinculados</button>

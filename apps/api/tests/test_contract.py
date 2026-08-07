@@ -162,6 +162,59 @@ def test_openapi_is_generated(app: Flask, client: Any) -> None:
 
 
 @pytest.mark.unit
+def test_opportunity_analysis_openapi_matches_runtime_contract(client: Any) -> None:
+    def nested_ref(field_schema: dict[str, Any]) -> str:
+        direct = field_schema.get("$ref")
+        if isinstance(direct, str):
+            return direct
+        for keyword in ("anyOf", "allOf", "oneOf"):
+            for candidate in field_schema.get(keyword, []):
+                reference = candidate.get("$ref") if isinstance(candidate, dict) else None
+                if isinstance(reference, str):
+                    return reference
+        raise AssertionError(f"No hay referencia tipada en {field_schema!r}")
+
+    spec = client.get("/api/v1/openapi.json").get_json()
+    run = spec["paths"]["/api/v1/ai/dossiers/{dossier_id}/opportunity/runs"]["post"]
+    latest = spec["paths"]["/api/v1/ai/dossiers/{dossier_id}/opportunity/latest"]["get"]
+
+    assert "requestBody" not in run
+    assert {status for status in run["responses"] if status.startswith("2")} == {"202"}
+    assert run["responses"]["202"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/OpportunityAnalysisRunResponse"
+    }
+    idempotency = next(
+        parameter for parameter in run["parameters"] if parameter["name"] == "Idempotency-Key"
+    )
+    assert idempotency["in"] == "header"
+    assert idempotency["required"] is True
+    assert idempotency["schema"] == {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 200,
+    }
+    assert "428" in run["responses"]
+    for operation in (run, latest):
+        assert operation["responses"]["404"]["content"] == {
+            "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
+        }
+
+    assert latest["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/OpportunityAnalysisLatestResponse"
+    }
+    schemas = spec["components"]["schemas"]
+    artifact_ref = nested_ref(
+        schemas["OpportunityAnalysisLatestResponse"]["properties"]["artifact"]
+    )
+    artifact = schemas[artifact_ref.rsplit("/", 1)[-1]]
+    output_ref = nested_ref(artifact["properties"]["output"])
+    output = schemas[output_ref.rsplit("/", 1)[-1]]
+    assert {"fit_assessment", "draft_offer"} <= set(output["required"])
+    assert nested_ref(output["properties"]["fit_assessment"]).endswith("/OpportunityFitAssessment")
+    assert nested_ref(output["properties"]["draft_offer"]).endswith("/OpportunityDraftOffer")
+
+
+@pytest.mark.unit
 def test_protected_input_routes_authorize_before_validation(app: Flask) -> None:
     violations: list[str] = []
 
@@ -482,9 +535,14 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
             if status == "204":
                 assert "content" not in response
                 continue
-            schema = response.get("content", {}).get("application/json", {}).get("schema")
-            assert schema, (path, method, status)
-            _assert_closed_schema_tree(schema, schemas, set())
+            content = response.get("content", {})
+            assert content, (path, method, status)
+            response_schemas = [
+                media.get("schema") for media in content.values() if isinstance(media, dict)
+            ]
+            assert response_schemas and all(response_schemas), (path, method, status)
+            for schema in response_schemas:
+                _assert_closed_schema_tree(schema, schemas, set())
 
         bodyless_m2m_put = method == "put" and path.endswith("/{target_id}")
         bodyless_monitor_action = (
@@ -494,12 +552,16 @@ def test_oracle_openapi_contract_is_typed(client: Any) -> None:
             "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/accept",
             "/api/v1/dossiers/{dossier_id}/intent/drafts/{revision_id}/reject",
         }
+        bodyless_opportunity_run = (
+            method == "post" and path == "/api/v1/ai/dossiers/{dossier_id}/opportunity/runs"
+        )
         if (
             method in {"post", "put", "patch"}
             and not path.endswith("/archive")
             and not bodyless_m2m_put
             and not bodyless_monitor_action
             and not bodyless_intent_action
+            and not bodyless_opportunity_run
         ):
             body_schema = (
                 operation.get("requestBody", {})

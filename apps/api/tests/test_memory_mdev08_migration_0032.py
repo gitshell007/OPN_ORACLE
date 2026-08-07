@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from flask_migrate import downgrade, upgrade
 from sqlalchemy import create_engine, text
 
 from opn_oracle import create_app
+from tests.conftest import assert_integration_schema_head
 
 pytestmark = pytest.mark.integration
 
@@ -40,7 +43,8 @@ def _env() -> tuple[str, str, str]:
     return migration_url, runtime_url, redis_url
 
 
-def test_report_ai_usage_bindings_0032_up_down_up_rls_and_unique() -> None:
+@pytest.fixture
+def migration_0032_state() -> Iterator[tuple[Any, Any, uuid.UUID, str, str]]:
     migration_url, runtime_url, redis_url = _env()
     app = create_app(
         {
@@ -58,6 +62,25 @@ def test_report_ai_usage_bindings_0032_up_down_up_rls_and_unique() -> None:
 
     migrator = create_engine(migration_url)
     tenant_id = uuid.uuid4()
+    try:
+        yield app, migrator, tenant_id, migration_url, migrations
+    finally:
+        # Schema/data restoration is a fixture finalizer so an assertion failure at
+        # revision 0031/0032 cannot contaminate the following module.
+        try:
+            with app.app_context():
+                upgrade(directory=migrations, revision="head")
+            with migrator.begin() as connection:
+                connection.execute(text("DELETE FROM tenants WHERE id=:id"), {"id": tenant_id})
+            assert_integration_schema_head(migration_url, migrations)
+        finally:
+            migrator.dispose()
+
+
+def test_report_ai_usage_bindings_0032_up_down_up_rls_and_unique(
+    migration_0032_state: tuple[Any, Any, uuid.UUID, str, str],
+) -> None:
+    app, migrator, tenant_id, _, migrations = migration_0032_state
     report_id = uuid.uuid4()
     binding_id = uuid.uuid4()
     run_id = f"run-{uuid.uuid4().hex[:12]}"
@@ -200,3 +223,35 @@ def test_report_ai_usage_bindings_0032_up_down_up_rls_and_unique() -> None:
             )
         )
         assert rls2 is True
+
+
+def test_migration_0032_finalizer_restores_head_after_consumer_failure() -> None:
+    """A thrown consumer failure still restores head and deletes seeded rows."""
+
+    fixture = migration_0032_state.__wrapped__()
+    app, migrator, tenant_id, migration_url, migrations = next(fixture)
+    with migrator.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO tenants(id, slug, name, status, locale, timezone, settings, "
+                "created_at, updated_at) VALUES ("
+                ":id, :slug, 'MDEV08-finalizer', 'active', 'es-ES', 'UTC', "
+                "'{}'::jsonb, now(), now())"
+            ),
+            {"id": tenant_id, "slug": f"mdev08-finalizer-{tenant_id.hex[:8]}"},
+        )
+    with app.app_context():
+        downgrade(directory=migrations, revision="20260802_0031")
+    with pytest.raises(RuntimeError, match="simulated migration-test failure"):
+        fixture.throw(RuntimeError("simulated migration-test failure"))
+
+    assert_integration_schema_head(migration_url, migrations)
+    verification = create_engine(migration_url)
+    try:
+        with verification.connect() as connection:
+            residue = connection.scalar(
+                text("SELECT count(*) FROM tenants WHERE id=:id"), {"id": tenant_id}
+            )
+    finally:
+        verification.dispose()
+    assert residue == 0

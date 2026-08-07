@@ -20,7 +20,6 @@ from opn_oracle.ai.registry import (
     PromptRegistry,
 )
 from opn_oracle.ai.schemas import MarketCompetitorDiscoveryOutput
-from opn_oracle.ai.source_url_policy import SOURCE_URL_UNVERIFIED_LABEL
 from opn_oracle.auth import permissions
 from opn_oracle.jobs import tasks as job_tasks
 from opn_oracle.platform.models import User
@@ -35,7 +34,8 @@ def test_registry_exposes_market_competitor_discovery() -> None:
     assert EVIDENCE_REVIEW_REQUIRED["market_competitor_discovery"] is False
     assert "description" in INPUT_CONTRACTS["market_competitor_discovery"]
     assert "allowed_evidence_ids" in INPUT_CONTRACTS["market_competitor_discovery"]
-    assert "no verificada" in prompt.text.casefold() or "source_url" in prompt.text.casefold()
+    text = prompt.text.casefold()
+    assert "evidence_ids" in text or "source_id" in text or "citable" in text
 
 
 def test_build_market_competitor_discovery_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,11 +63,56 @@ def test_build_market_competitor_discovery_context(monkeypatch: pytest.MonkeyPat
     assert context.payload["countries"] == ["ES", "PT"]
     assert context.payload["languages"] == ["es", "en"]
     assert context.payload["known_names"] == ["Acme SL"]
+    assert context.payload["competitors_knowledge"] == "known"
     assert context.payload["allowed_evidence_ids"] == []
-    assert "no verificada" in context.payload["security_instruction"]
+    assert "evidence_ids" in context.payload["security_instruction"]
+    assert "source_urls del modelo no acreditan" in context.payload["security_instruction"]
 
 
-def test_mock_provider_labels_invented_source_urls() -> None:
+def test_build_market_competitor_discovery_honest_unknown_clears_exclusions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(ai_context, "require_tenant_id", lambda: tenant_id)
+
+    context = build_market_competitor_discovery_context(
+        description="Grupos de investigación en Francia sin inventar rivales",
+        own_offer="Colaboración científica",
+        sectors=["I+D"],
+        countries=["FR"],
+        languages=["fr"],
+        known_names=["Laboratorio Falso como Competidor"],
+        competitors_knowledge="unknown",
+        max_tokens=800,
+    )
+    assert context.payload["competitors_knowledge"] == "unknown"
+    # Intención real: no hay lista de exclusión aunque el caller envíe basura.
+    assert context.payload["known_names"] == []
+
+
+def test_build_market_competitor_discovery_not_seeking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    monkeypatch.setattr(ai_context, "require_tenant_id", lambda: tenant_id)
+
+    context = build_market_competitor_discovery_context(
+        description="Solo quiero partners, no competidores del mercado",
+        own_offer="Oferta",
+        sectors=[],
+        countries=["ES"],
+        languages=["es"],
+        known_names=["Alguien"],
+        competitors_knowledge="not_seeking",
+        max_tokens=400,
+    )
+    assert context.payload["competitors_knowledge"] == "not_seeking"
+    assert context.payload["known_names"] == []
+
+
+def test_mock_provider_without_closed_sources_yields_no_publishable_candidates() -> None:
+    """G-18: without Signal citable_sources, model URLs never accredit candidates."""
+
     provider = MockLLMProvider(seed="g06-market")
     request = LLMRequest(
         agent="market_competitor_discovery",
@@ -81,17 +126,47 @@ def test_mock_provider_labels_invented_source_urls() -> None:
     result = provider.generate_structured(request, MarketCompetitorDiscoveryOutput)
     output = result.output
     assert isinstance(output, MarketCompetitorDiscoveryOutput)
-    # known_names filtra el #2; quedan 1 y 3; el #1 lleva URL inventada.
-    names = {c.name for c in output.candidates}
-    assert "Competidor Sintetico 2" not in names
-    with_urls = [c for c in output.candidates if c.source_urls]
-    assert with_urls, "mock debe proponer al menos una source_url inventada"
-    cand = with_urls[0]
-    assert cand.source_urls == ["https://www.empresa-inventada-xyz.es/perfil"]
-    assert cand.source_urls_label == SOURCE_URL_UNVERIFIED_LABEL
-    assert cand.source_urls_meta[0].verified is False
-    assert cand.source_urls_meta[0].label == "no verificada"
-    assert any(SOURCE_URL_UNVERIFIED_LABEL in w for w in output.warnings)
+    assert output.candidates == []
+    assert result.citable_sources == ()
+    assert any("citable_sources" in w or "no acreditan" in w for w in output.warnings)
+
+
+def test_mock_provider_with_closed_sources_publishes_only_cited() -> None:
+    from opn_oracle.ai.citable_sources import content_checksum
+
+    sid = str(uuid.uuid4())
+    url = "https://mock-closed.example/perfil"
+    title, snippet = "Mock Co", "snippet"
+    source = {
+        "source_id": sid,
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+        "provider": "mock",
+        "rank": 1,
+        "content_checksum": content_checksum(title=title, snippet=snippet, url=url),
+    }
+    provider = MockLLMProvider(seed="g18-market-closed")
+    request = LLMRequest(
+        agent="market_competitor_discovery",
+        model="mock-oracle-v1",
+        system_prompt="sys",
+        task_prompt="user",
+        context={
+            "countries": ["ES"],
+            "known_names": [],
+            "mock_citable_sources": [source],
+        },
+        max_output_tokens=2500,
+        classification="internal",
+    )
+    result = provider.generate_structured(request, MarketCompetitorDiscoveryOutput)
+    assert result.output.candidates
+    for cand in result.output.candidates:
+        assert cand.evidence_ids
+        assert cand.source_urls == []
+        assert str(cand.evidence_ids[0]) == sid
+    assert result.output.reserved_citable_sources
 
 
 def test_market_discovery_input_validation() -> None:
@@ -108,6 +183,18 @@ def test_market_discovery_input_validation() -> None:
     assert clean["description"] == "Fabricamos baterías de litio"
     assert clean["countries"] == ["ES"]
     assert clean["languages"] == ["es"]
+    assert clean["competitors_knowledge"] == "known"
+    assert clean["known_names"] == ["X"]
+
+    honest = ai_routes._market_discovery_input(
+        {
+            "description": "Buscamos grupos de investigación en Francia",
+            "competitors_knowledge": "unknown",
+            "known_names": ["No deberían llegar como exclusión"],
+        }
+    )
+    assert honest["competitors_knowledge"] == "unknown"
+    assert honest["known_names"] == []
 
     with pytest.raises(ValueError, match="descripción"):
         ai_routes._market_discovery_input({"description": "corta"})
@@ -295,4 +382,7 @@ def test_execute_ai_market_competitor_discovery_handler(
     assert captured["target_type"] == "market_discovery"
     assert captured["target_id"] == tenant_id
     assert captured["built_payload"]["allowed_evidence_ids"] == []
-    assert "no verificada" in captured["built_payload"]["security_instruction"]
+    assert "evidence_ids" in captured["built_payload"]["security_instruction"]
+    assert (
+        "source_urls del modelo no acreditan" in captured["built_payload"]["security_instruction"]
+    )

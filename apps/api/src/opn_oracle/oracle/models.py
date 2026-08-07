@@ -436,7 +436,10 @@ class Evidence(TenantDomainMixin, Base):
             'AND provenance @> \'{"source_kind":"entity_intel"}\'::jsonb) OR '
             "(source_kind='memory_signal' AND signal_id IS NULL AND document_id IS NULL "
             "AND document_version_id IS NULL AND document_chunk_id IS NULL "
-            'AND provenance @> \'{"source_kind":"memory_signal"}\'::jsonb)',
+            'AND provenance @> \'{"source_kind":"memory_signal"}\'::jsonb) OR '
+            "(source_kind='web_search' AND signal_id IS NULL AND document_id IS NULL "
+            "AND document_version_id IS NULL AND document_chunk_id IS NULL "
+            'AND provenance @> \'{"source_kind":"web_search"}\'::jsonb)',
             name="evidence_source_shape",
         ),
     )
@@ -599,17 +602,79 @@ class Actor(TenantDomainMixin, Base):
         UniqueConstraint("id", "tenant_id", name="uq_actors_id_tenant"),
         UniqueConstraint("tenant_id", "canonical_key", name="uq_actor_canonical_key"),
         Index("ix_actors_tenant_name", "tenant_id", "canonical_name"),
+        # Partial unique: one active (non-null) tax_id per tenant — enforced in PG.
+        Index(
+            "uq_actors_tenant_tax_id_active",
+            "tenant_id",
+            "tax_id",
+            unique=True,
+            postgresql_where=text("tax_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_actors_tenant_tax_id",
+            "tenant_id",
+            "tax_id",
+            postgresql_where=text("tax_id IS NOT NULL"),
+        ),
         CheckConstraint("version >= 1", name="actor_version_positive"),
     )
     actor_type: Mapped[str] = mapped_column(String(40), nullable=False)
     canonical_name: Mapped[str] = mapped_column(String(300), nullable=False)
     canonical_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    tax_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tax_id_scheme: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tax_id_country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     aliases: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     identifiers: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     actor_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict
     )
     provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class ActorTaxIdConflict(TenantDomainMixin, Base):
+    """Resolvable tax_id collision ledger (G-16). No auto-merge of relations."""
+
+    __tablename__ = "actor_tax_id_conflicts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "tax_id",
+            "loser_actor_id",
+            name="uq_atic_tenant_tax_loser",
+        ),
+        ForeignKeyConstraint(
+            ("winner_actor_id", "tenant_id"),
+            ("actors.id", "actors.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_atic_winner_actor_tenant",
+        ),
+        ForeignKeyConstraint(
+            ("loser_actor_id", "tenant_id"),
+            ("actors.id", "actors.tenant_id"),
+            ondelete="CASCADE",
+            name="fk_atic_loser_actor_tenant",
+        ),
+        CheckConstraint(
+            "status IN ('open','resolved','dismissed')",
+            name="ck_atic_status",
+        ),
+        CheckConstraint("version >= 1", name="ck_atic_version_positive"),
+        CheckConstraint("winner_actor_id <> loser_actor_id", name="ck_atic_distinct_actors"),
+        Index("ix_atic_tenant_status_tax", "tenant_id", "status", "tax_id"),
+    )
+    tax_id: Mapped[str] = mapped_column(String(20), nullable=False)
+    winner_actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    loser_actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    declared_tax_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    declared_identifiers: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 

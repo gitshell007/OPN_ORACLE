@@ -23,6 +23,37 @@ from typing import Any, Literal
 # Aviso canónico (debe ser legible en API y UI).
 CITATION_DOES_NOT_SUPPORT = "cita no respalda la afirmación"
 
+# Frase genérica cuando los anclajes faltantes no mapean a un concepto de producto.
+_GENERIC_MISSING_CONCEPT = "la información necesaria"
+
+# Conceptos multi-token (tokens normalizados → etiqueta legible con tildes).
+# Orden: primero los más específicos (más tokens).
+_MULTI_TOKEN_CONCEPTS: tuple[tuple[frozenset[str], str], ...] = (
+    (frozenset({"razon", "social"}), "razón social"),
+    (frozenset({"domicilio", "social"}), "domicilio social"),
+    (frozenset({"objeto", "contrato"}), "objeto del contrato"),
+    (frozenset({"organo", "contratacion"}), "órgano de contratación"),
+    (frozenset({"representante", "legal"}), "representante legal"),
+)
+
+# Etiquetas de un solo token (normalizado → legible). No exponer el vector crudo.
+_SINGLE_TOKEN_CONCEPTS: dict[str, str] = {
+    "cpv": "CPV",
+    "nif": "NIF",
+    "cif": "CIF",
+    "importe": "importe",
+    "adjudicatario": "adjudicatario",
+    "contratista": "contratista",
+    "licitacion": "licitación",
+    "expediente": "expediente",
+    "administrador": "administrador",
+    "administradora": "administradora",
+    "apoderado": "apoderado",
+    "apoderada": "apoderada",
+    "cargo": "cargo",
+    "persona": "persona",
+}
+
 # Cargos / roles de persona natural: inventar un nombre es fallo de producto.
 _PERSON_ROLE_MARKERS = (
     "administrador",
@@ -394,6 +425,98 @@ def _texts_for_ids(eids: Sequence[str], evidence_text_by_id: Mapping[str, str]) 
     return [evidence_text_by_id[e] for e in eids if e in evidence_text_by_id]
 
 
+def _is_legible_proper_anchor(anchor: str) -> bool:
+    """True si el anclaje es un nombre/cifra/fecha enseñable al usuario (no token de scorer)."""
+
+    text = _norm_ws(anchor)
+    if not text or text.startswith("<"):
+        return False
+    # Cifras puras o con separadores de fecha.
+    if re.fullmatch(r"\d+(?:[./-]\d+){0,3}", text):
+        return True
+    # Nombre multi-palabra o capitalizado (p. ej. «Laura Méndez», «ACME Servicios»).
+    if " " in text:
+        return True
+    return bool(text[:1].isupper() and not text.isupper() and len(text) >= 2)
+
+
+def format_missing_concepts(missing: Sequence[str]) -> str:
+    """Traduce anclajes internos a conceptos legibles de producto (sin vector crudo).
+
+    - Pares conocidos se agrupan (``razon`` + ``social`` → «razón social»).
+    - Nombres propios, cifras y fechas se conservan si son enseñables.
+    - Tokens de scorer desconocidos → frase genérica segura.
+    """
+
+    originals = [_norm_ws(str(m)) for m in missing if _norm_ws(str(m))]
+    if not originals:
+        return _GENERIC_MISSING_CONCEPT
+
+    folded = [_fold(o) for o in originals]
+    remaining: set[str] = set(folded)
+    concepts: list[str] = []
+
+    # 1) Multi-token (más tokens primero ya está en la tupla).
+    for tokens, label in _MULTI_TOKEN_CONCEPTS:
+        if tokens.issubset(remaining):
+            concepts.append(label)
+            remaining -= tokens
+
+    # 2) Anclas legibles (nombres, cifras, fechas) en orden de aparición.
+    for orig, f in zip(originals, folded, strict=True):
+        if f not in remaining:
+            continue
+        if _is_legible_proper_anchor(orig):
+            concepts.append(orig)
+            remaining.discard(f)
+
+    # 3) Etiquetas de un token conocidas.
+    for f in folded:
+        if f not in remaining:
+            continue
+        single_label = _SINGLE_TOKEN_CONCEPTS.get(f)
+        if single_label is not None:
+            concepts.append(single_label)
+            remaining.discard(f)
+
+    # 4) Resto desconocido: no enseñar el vector; genérico solo si no hay concepto.
+    if not concepts:
+        return _GENERIC_MISSING_CONCEPT
+    # Dedup estable conservando orden.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for c in concepts:
+        key = _fold(c)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(c)
+    return ", ".join(ordered)
+
+
+def format_withdrawal_reason(statement: str, missing: Sequence[str], *, person_role: bool) -> str:
+    """Motivo público fail-closed: español legible, sin path JSON ni lista de tokens."""
+
+    snippet = _norm_ws(statement)
+    if len(snippet) > 160:
+        snippet = snippet[:157].rstrip() + "…"
+    concepts = format_missing_concepts(missing)
+    kind = "de cargo/persona " if person_role else ""
+    return f"Afirmación {kind}retirada: «{snippet}». La fuente citada no menciona: {concepts}."
+
+
+def issue_to_public(issue: SupportIssue) -> dict[str, Any]:
+    """DTO público de un issue: sin ``path`` JSON ni ``missing_anchors`` crudos."""
+
+    return {
+        "action": issue.action,
+        "reason": issue.reason,
+        "evidence_ids": list(issue.evidence_ids),
+        "claim_kind": issue.claim_kind,
+        "statement": issue.statement,
+    }
+
+
 def evaluate_material_support(
     item: Mapping[str, Any],
     evidence_text_by_id: Mapping[str, str],
@@ -417,18 +540,10 @@ def evaluate_material_support(
     # - resto: también se retira del listado de hechos/claims (no se degrada in-place con
     #   evidence_ids vacíos: tumbaría el allowlist material). El aviso legible y
     #   ``citation_support.issues`` conservan statement + motivo (nada silencioso).
+    # path / missing_anchors se conservan en el issue interno (telemetría/tests);
+    # el DTO público los omite vía ``issue_to_public``.
     action: Action = "withdraw"
-    missing_s = ", ".join(missing[:6]) if missing else "solape insuficiente"
-    if person_role:
-        reason = (
-            f"{CITATION_DOES_NOT_SUPPORT}: faltan en el fragmento citado [{missing_s}] "
-            "(afirmación de cargo/persona retirada)"
-        )
-    else:
-        reason = (
-            f"{CITATION_DOES_NOT_SUPPORT}: faltan en el fragmento citado [{missing_s}] "
-            "(afirmación retirada; no se publica con cita que no la sostiene)"
-        )
+    reason = format_withdrawal_reason(statement, missing, person_role=person_role)
     return SupportIssue(
         path=path,
         statement=statement[:500],
@@ -498,7 +613,11 @@ def enforce_citation_support(
 
 
 def format_support_rejection_summary(result: SupportEnforcementResult) -> str | None:
-    """Resumen legible para degraded_reason / warnings de cabecera."""
+    """Resumen agregado legible — sin copiar un detalle como «Ejemplo:».
+
+    Los avisos por afirmación ya viven en ``result.warnings``; el resumen solo
+    cuenta cuántas se retiraron y por qué (cita sin respaldo).
+    """
 
     if not result.issues:
         return None
@@ -508,5 +627,4 @@ def format_support_rejection_summary(result: SupportEnforcementResult) -> str | 
         parts.append(f"{result.withdrawn_count} de cargo/persona")
     if result.degraded_count:
         parts.append(f"{result.degraded_count} genérica(s)")
-    sample = result.issues[0].reason
-    return f"{CITATION_DOES_NOT_SUPPORT}: {'; '.join(parts)}. Ejemplo: {sample}"
+    return f"{CITATION_DOES_NOT_SUPPORT}: {'; '.join(parts)}."

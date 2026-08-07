@@ -14,6 +14,7 @@ El veredicto es **propuesta** con puerta humana (nunca decisión automática).
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from datetime import UTC, date, datetime
@@ -154,6 +155,27 @@ def _profile_cpvs(profile: dict[str, Any]) -> list[str]:
 def _declared_field_id(declared_by_field: dict[str, str], field: str) -> list[str]:
     eid = declared_by_field.get(field)
     return [eid] if eid else []
+
+
+def _normalized_declared_volume(value: Any) -> float | None:
+    """Use the normalized numeric profile value; no ambiguous money text parsing."""
+
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+        return number if math.isfinite(number) and number >= 0 else None
+    if isinstance(value, str):
+        cleaned = value.strip().replace(" ", "")
+        # Only accept clean decimal/integer strings already stored as numbers-as-text.
+        if not cleaned or not re.fullmatch(r"\d+(?:[.,]\d+)?", cleaned):
+            return None
+        try:
+            number = float(cleaned.replace(",", "."))
+        except ValueError:
+            return None
+        return number if math.isfinite(number) and number >= 0 else None
+    return None
 
 
 def _official_ids_matching(
@@ -516,15 +538,10 @@ def score_solvency_dimension(
         )
     requirement = " ".join(req_parts)
 
-    # Capacidad declarada
+    # Capacidad declarada (texto). own_offer / barriers = contexto, NO acreditación.
     cap_parts: list[str] = []
-    declared_ids: list[str] = []
     if annual_volume is not None and str(annual_volume).strip():
         cap_parts.append(f"[declarado] Volumen anual declarado: {annual_volume}.")
-        declared_ids.extend(
-            _declared_field_id(declared_by_field, "annual_turnover")
-            or _declared_field_id(declared_by_field, "annual_volume")
-        )
     else:
         cap_parts.append("[declarado] El perfil **no** declara volumen anual de negocio.")
     if past_services is not None and str(past_services).strip():
@@ -536,13 +553,13 @@ def score_solvency_dimension(
             "[declarado] El perfil **no** declara servicios de los últimos tres años "
             "ni certificados de buena ejecución."
         )
-    # own_offer / barriers como contexto, no como acreditación
+    # own_offer / barriers: contexto textual claramente no acreditativo.
+    # Sus UUIDs NUNCA entran en declared_evidence_ids de solvencia.
     own = str(profile.get("own_offer") or "").strip()
     if own:
         cap_parts.append(
             f"[declarado] Oferta propia (no es acreditación de solvencia): {own[:220]}."
         )
-        declared_ids.extend(_declared_field_id(declared_by_field, "own_offer"))
     barriers = profile.get("barriers") or []
     if isinstance(barriers, list) and any(
         "solvencia" in str(b).casefold() or "homolog" in str(b).casefold() for b in barriers
@@ -550,9 +567,28 @@ def score_solvency_dimension(
         cap_parts.append(
             "[declarado] El perfil reconoce barreras de homologación/solvencia en AAPP."
         )
-        declared_ids.extend(_declared_field_id(declared_by_field, "barriers"))
-    declared_ids = list(dict.fromkeys(declared_ids))
     capability = " ".join(cap_parts)
+
+    can_eval_econ = annual_volume is not None and str(annual_volume).strip() != ""
+    can_eval_tech = past_services is not None and str(past_services).strip() != ""
+
+    # Exact F.2/F.3 citations: only fields the algorithm uses for this decision.
+    # Order deterministic: turnover (if F.2 + data) then services (if F.3 + data).
+    # No own_offer / barriers; no extras from unused dimensions.
+    declared_ids: list[str] = []
+    if has_f2 and can_eval_econ:
+        declared_ids.extend(
+            _declared_field_id(declared_by_field, "annual_turnover")
+            or _declared_field_id(declared_by_field, "annual_volume")
+            or _declared_field_id(declared_by_field, "volumen_anual_negocio")
+        )
+    if has_f3 and can_eval_tech:
+        declared_ids.extend(
+            _declared_field_id(declared_by_field, "past_services")
+            or _declared_field_id(declared_by_field, "technical_references")
+            or _declared_field_id(declared_by_field, "servicios_ultimos_tres_anos")
+        )
+    declared_ids = list(dict.fromkeys(declared_ids))
 
     if not has_f2 and not has_f3:
         return _dimension(
@@ -566,9 +602,6 @@ def score_solvency_dimension(
             status_reason=_NOT_EVALUABLE
             + ": no hay requisito de solvencia en la evidencia oficial cargada.",
         )
-
-    can_eval_econ = annual_volume is not None and str(annual_volume).strip() != ""
-    can_eval_tech = past_services is not None and str(past_services).strip() != ""
 
     if has_f2 and not can_eval_econ and has_f3 and not can_eval_tech:
         return _dimension(
@@ -609,20 +642,18 @@ def score_solvency_dimension(
             status_reason=(f"{_NOT_EVALUABLE}: no hay servicios de 3 años declarados para F.3."),
         )
 
-    # Ambos evaluables: comparación simple
+    # Ambos evaluables: comparación simple sobre el número normalizado del perfil
+    # (sin heurística monetaria ambigua sobre texto libre).
     status: FitStatus = "fit"
     reason = "Los datos declarados cubren los umbrales F.2/F.3 localizados."
     if can_eval_econ and amount is not None:
-        try:
-            vol = float(str(annual_volume).replace(",", ".").replace(" ", ""))
-            if vol < amount * 1.5:
-                status = "no_fit"
-                reason = (
-                    f"Volumen declarado ({vol:,.0f}) < 1,5x valor estimado ({amount * 1.5:,.0f})."
-                )
-        except ValueError:
+        vol = _normalized_declared_volume(annual_volume)
+        if vol is None:
             status = "not_evaluable"
             reason = f"{_NOT_EVALUABLE}: volumen anual no numérico."
+        elif vol < amount * 1.5:
+            status = "no_fit"
+            reason = f"Volumen declarado ({vol:,.0f}) < 1,5x valor estimado ({amount * 1.5:,.0f})."
     return _dimension(
         key="solvency",
         label="Solvencia (F.2 / F.3)",
@@ -943,7 +974,9 @@ def _build_verdict(dimensions: list[dict[str, Any]]) -> dict[str, Any]:
         conditions.append(
             "Confirmar CPV exacto del anuncio oficial y que la oferta se ajusta al objeto del lote."
         )
-    if statuses.get("lots") in {"partial", "fit"}:
+    # Solo condicionar cuando el lote no está en fit limpio (partial).
+    # Un lots=fit no debe bloquear un GO limpio de las cuatro dimensiones.
+    if statuses.get("lots") == "partial":
         lot_reason = str((by_key.get("lots") or {}).get("status_reason") or "")
         if "Recomendación" in lot_reason or "Lote" in lot_reason:
             conditions.append(

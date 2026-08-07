@@ -91,7 +91,11 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | Bundle content_set | `e4431048e83bc678661aeb31c610db715b22635e4caf226f2cea13660ce5faa4` |
 | Bases pre-REWORK-2 | Oracle `5c2177d` · Signal `ac3c753` · prior bundle `2865ae3d…` |
 
-## Baselines
+## Baselines históricas MDEV-00 (2026-08-01)
+
+> Esta sección y las capturas operativas posteriores conservan la evidencia observada en
+> MDEV-00. No describen el estado actual de Oracle Dev o Signal Dev; el snapshot vigente se
+> registra al final del ledger sin reescribir la auditoría histórica.
 
 | Repo/entorno | Branch/ref | SHA | Migración | Estado Git | Capturado |
 |---|---|---|---|---|---|
@@ -122,7 +126,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | MDEV-08 | pending | pending | | | |
 | MDEV-09 | pending | pending | | | |
 | MDEV-10 | pending | pending | | | |
-| MDEV-11 | pending | pending | | | |
+| MDEV-11 | pending | pending | `fec3c3e` | `abc8caf` | one-tenant 6/6 a las 02:52; A/B cross-tenant bloqueado por falta de fixtures aislados; `DEV_DUAL_MEMORY_READY` no marcado |
 
 ## Contratos congelados
 
@@ -133,6 +137,8 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 - Credencial tenant-bound obligatoria en memory.v1; scopes vacíos deniegan; política rotación A
 - Citabilidad: materializar Evidence Oracle antes del LLM
 
+### Evidencia de runtime capturada en MDEV-00 (histórica)
+
 - API memory version: `memory.v1` en código `main`; **ausente** en SHA Dev `db9fd37` (HTTP 404)
 - Ingestion / retrieval / coverage: congelados en docs/contracts/memory_v1 (REWORK)
 - Retrieve stub (`main`): `items=[]` con nota pack builder pendiente
@@ -140,7 +146,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 - Pilot actual: `tenant_key=c:pilot|t:phase2`, `scope_type=pilot`, `scope_id=phase2`, `product_code=signal`
 - Config precedence: docs/contracts/memory_v1/CONFIG_PRECEDENCE.md
 
-## Configuración Dev efectiva (sin secretos)
+## Configuración Dev efectiva en MDEV-00 (histórica; sin secretos)
 
 ### Signal host gates
 
@@ -164,7 +170,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 - Celery queues: `default,signals,ai,documents,notifications,maintenance`
 - 51 tasks registradas; 12 beat entries — `evidence/mdev-00/04b_celery_tasks.txt`
 
-## Migraciones y recuentos (RO)
+## Migraciones y recuentos de MDEV-00 (históricos, RO)
 
 | Repo | Revision | Counts | Rollback path |
 |---|---|---|---|
@@ -241,7 +247,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 |---|---|---|
 | **NO_ROLLBACK** | **high** | No se demostró read-only un procedimiento real, reproducible y verificable de rollback de código/migración en Signal Dev comparable a Oracle `PREVIOUS_RELEASE`. Solo backup PG + checkout manual ad hoc. **No inventar rollback.** MDEV-10 debe resolver o documentar runbook nuevo antes de deploy coordinado. |
 
-## Suites de tests
+## Suites de tests de MDEV-00 (históricas)
 
 | Suite | En MDEV-00 | Resultado / nota |
 |---|---|---|
@@ -251,7 +257,7 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 | Signal `pytest -q` completo | **NO ejecutada** | histórico: PRs packaging/memsol #2–#5 merged |
 | Dashboard `--check` | **ejecutada** | OK tras crear paths referenciados |
 
-## Riesgos / bloqueos
+## Riesgos / bloqueos registrados en MDEV-00 (históricos)
 
 | ID | Sev | Descripción | Resuelve |
 |---|---|---|---|
@@ -265,10 +271,39 @@ APPROVED_EXTERNAL_SPEND / CLOUD_DATA_POLICY vacíos.
 
 ## UAT final
 
-(pendiente MDEV-11)
+- Golden path positivo de **un tenant**: **6/6** el 2026-08-07 a las 02:52 Europe/Madrid.
+  Preguntar devolvió 5 citas, el informe HTTP 200 y los contadores observados fueron `jobs=0` y
+  coste 0.
+- MDEV-11 permanece **pending**: falta la matriz A/B bidireccional de aislamiento cross-tenant.
+  Está bloqueada hasta crear dos fixtures aislados con owners, expedientes, documentos,
+  credenciales tenant-bound y grants propios.
+- `DEV_DUAL_MEMORY_READY` no se marca: el recorrido positivo de un tenant no sustituye la prueba
+  negativa A/B ni autoriza una conclusión sobre producción.
 
 ## Estado final del programa
 
 ```text
 IN_PROGRESS
 ```
+
+## Snapshot posterior consolidado Dev — 2026-08-07 02:52 Europe/Madrid
+
+Este snapshot actualiza el estado operativo sin alterar las decisiones históricas de las fases
+MDEV-00/01 ni convertir la integración posterior en un PASS retroactivo de MDEV-02…10.
+
+- Oracle Dev: SHA `fec3c3ee2d10cb375a6753e5d3e33ee2210a766e`, release
+  `20260807T001643Z-native-fec3c3e`; API, web, worker y beat activos, con readiness de
+  PostgreSQL/Redis en `ok`.
+- Signal Dev: SHA `abc8caf`; consumer base efectivo `64|opn-oracle-dev`.
+- Política IA efectiva del consumer: 30 tareas `local-only` sobre
+  `ollama_titan/qwen3-coder:30b`, sin fallback, proveedor cloud ni logging de prompts/respuestas.
+  Smoke `memory_extraction`: HTTP 200 y coste 0.
+- Suite Oracle: **1850 passed, 0 failed**, cobertura **84.12%**. El gate API fail-closed está
+  integrado desde `044e35a` y probado por comportamiento antes de materializar un release.
+- Retención documental: `fec3c3e` aísla la transacción por tenant; la regresión asociada pasa y el
+  job real de retención termina en verde en Oracle Dev.
+- Golden path de un tenant: **6/6** a las 02:52; Preguntar entrega 5 citas, informe HTTP 200,
+  `jobs=0` y coste 0.
+- MDEV-11: **pendiente**. La matriz A/B cross-tenant continúa bloqueada por ausencia de dos
+  fixtures aislados. No se ha marcado `DEV_DUAL_MEMORY_READY`.
+- Producción permanece fuera de alcance y esta evidencia no la declara modificada ni validada.

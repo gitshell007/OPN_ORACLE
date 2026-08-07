@@ -20,6 +20,14 @@ export type CompetitorDraft = {
   country?: string;
 };
 
+/** Shared solvency fields declared by the client (G-08). Stored as draft strings. */
+export type DeclaredSolvencyDraft = {
+  /** Volumen anual de negocio declarado (EUR); empty string = clean absence. */
+  annual_turnover: string;
+  /** Servicios similares de los últimos 3 años; empty string = clean absence. */
+  past_services: string;
+};
+
 export type MarketProfileDraft = {
   kind: "market";
   own_offer: string;
@@ -34,7 +42,7 @@ export type MarketProfileDraft = {
   barriers: string;
   success_indicators: string;
   keywords: string;
-};
+} & DeclaredSolvencyDraft;
 
 export type CompetitiveProfileDraft = {
   kind: "competitive_intelligence";
@@ -51,7 +59,7 @@ export type CompetitiveProfileDraft = {
   participation_criteria: string;
   exclusion_criteria: string;
   success_indicators: string;
-};
+} & DeclaredSolvencyDraft;
 
 /** Free-form strategic intake for custom/project and other non-typed dossier types. */
 export type CustomProfileDraft = {
@@ -68,7 +76,7 @@ export type CustomProfileDraft = {
   business_objective: string;
   success_indicators: string;
   sources: string;
-};
+} & DeclaredSolvencyDraft;
 
 export type ProfileDraft = MarketProfileDraft | CompetitiveProfileDraft | CustomProfileDraft;
 
@@ -120,6 +128,133 @@ export function stringsToField(value: unknown): string {
   return value.map(String).map((item) => item.trim()).filter(Boolean).join(", ");
 }
 
+/** Draft string for annual_turnover; empty when absent (never "0" from null). */
+export function annualTurnoverToField(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Number.isInteger(value) ? String(value) : String(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed;
+  }
+  return "";
+}
+
+/**
+ * Three-state parse of annual_turnover draft text.
+ * Invalid is NEVER represented as empty/undefined — callers must surface the message.
+ */
+export type AnnualTurnoverParse =
+  | { status: "empty" }
+  | { status: "valid"; value: number }
+  | { status: "invalid"; message: string };
+
+export const ANNUAL_TURNOVER_INVALID_MSG =
+  "Introduce un número ≥ 0 (sin moneda ni separadores de miles). Ej.: 2000000 o 2000000.50";
+
+export const PAST_SERVICES_TOO_LONG_MSG = (max: number) =>
+  `Los servicios similares no pueden superar ${max} caracteres.`;
+
+/**
+ * Parse draft annual_turnover: empty | valid (≥0 finite) | invalid with message.
+ * Empty / exterior-only whitespace → empty (clean absence). `0` is valid.
+ * Internal whitespace (space, tab, NBSP, narrow NBSP) is invalid — never stripped.
+ * No permissive coercion of thousand separators, currency, signs, or scientific notation.
+ */
+export function parseAnnualTurnover(value: string): AnnualTurnoverParse {
+  const trimmed = value.trim();
+  if (!trimmed) return { status: "empty" };
+  // Fail-closed: any internal whitespace is a thousand-separator (or garbage), not a number.
+  if (/\s/.test(trimmed)) {
+    return { status: "invalid", message: ANNUAL_TURNOVER_INVALID_MSG };
+  }
+  // Single optional decimal separator; no thousands separators, currency, or signs.
+  const normalized = trimmed.includes(",") && !trimmed.includes(".")
+    ? trimmed.replace(",", ".")
+    : trimmed;
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    return { status: "invalid", message: ANNUAL_TURNOVER_INVALID_MSG };
+  }
+  const n = Number(normalized);
+  if (!Number.isFinite(n) || n < 0) {
+    return { status: "invalid", message: ANNUAL_TURNOVER_INVALID_MSG };
+  }
+  return { status: "valid", value: Number.isInteger(n) ? n : n };
+}
+
+/**
+ * @deprecated Prefer parseAnnualTurnover — this collapses empty and invalid to undefined.
+ * Kept only for callers that need the valid number; invalid/empty both yield undefined.
+ * Serialization must use parseAnnualTurnover / solvencyPayloadFromDraft (fail-closed).
+ */
+export function annualTurnoverFromField(value: string): number | undefined {
+  const parsed = parseAnnualTurnover(value);
+  return parsed.status === "valid" ? parsed.value : undefined;
+}
+
+export function pastServicesToField(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value;
+}
+
+/** Max length mirrored with backend `_PAST_SERVICES_MAX_LEN`. */
+export const PAST_SERVICES_MAX_LEN = 4000;
+
+export const SOLVENCY_DECLARED_HINT =
+  "Declarado por el cliente; no sustituye certificados ni documentación oficial.";
+
+/** Field-level solvency validation errors (accessible UI messages). */
+export type SolvencyFieldErrors = {
+  annual_turnover?: string;
+  past_services?: string;
+};
+
+/**
+ * Validate declared solvency draft without serializing.
+ * Empty turnover → no error (clean absence). Invalid → message. Services over limit → message.
+ */
+export function validateSolvencyDraft(draft: DeclaredSolvencyDraft): SolvencyFieldErrors {
+  const errors: SolvencyFieldErrors = {};
+  const turnover = parseAnnualTurnover(draft.annual_turnover);
+  if (turnover.status === "invalid") {
+    errors.annual_turnover = turnover.message;
+  }
+  // Do not trim for length check: integrity on the exact draft string the user holds.
+  if (draft.past_services.length > PAST_SERVICES_MAX_LEN) {
+    errors.past_services = PAST_SERVICES_TOO_LONG_MSG(PAST_SERVICES_MAX_LEN);
+  }
+  return errors;
+}
+
+export function hasSolvencyFieldErrors(errors: SolvencyFieldErrors): boolean {
+  return Boolean(errors.annual_turnover || errors.past_services);
+}
+
+/**
+ * Fail-closed solvency serialization.
+ * - empty turnover → omit field (clean absence)
+ * - valid → normalized number
+ * - invalid turnover or over-long services → throws (never omit/truncate silently)
+ */
+export function solvencyPayloadFromDraft(draft: DeclaredSolvencyDraft): Record<string, unknown> {
+  const errors = validateSolvencyDraft(draft);
+  if (hasSolvencyFieldErrors(errors)) {
+    const parts = [errors.annual_turnover, errors.past_services].filter(Boolean);
+    throw new Error(parts.join(" "));
+  }
+  const payload: Record<string, unknown> = {};
+  const turnover = parseAnnualTurnover(draft.annual_turnover);
+  if (turnover.status === "valid") {
+    payload.annual_turnover = turnover.value;
+  }
+  const services = draft.past_services.trim();
+  if (services) {
+    // Length already validated; never slice.
+    payload.past_services = services;
+  }
+  return payload;
+}
 export function emptyMarketDraft(): MarketProfileDraft {
   return {
     kind: "market",
@@ -135,6 +270,8 @@ export function emptyMarketDraft(): MarketProfileDraft {
     barriers: "",
     success_indicators: "",
     keywords: "",
+    annual_turnover: "",
+    past_services: "",
   };
 }
 
@@ -154,6 +291,8 @@ export function emptyCompetitiveDraft(): CompetitiveProfileDraft {
     participation_criteria: "",
     exclusion_criteria: "",
     success_indicators: "",
+    annual_turnover: "",
+    past_services: "",
   };
 }
 
@@ -172,7 +311,21 @@ export function emptyCustomDraft(): CustomProfileDraft {
     business_objective: "",
     success_indicators: "",
     sources: "",
+    annual_turnover: "",
+    past_services: "",
   };
+}
+
+function solvencyFromProfile(profile: Record<string, unknown>): DeclaredSolvencyDraft {
+  return {
+    annual_turnover: annualTurnoverToField(profile.annual_turnover),
+    past_services: pastServicesToField(profile.past_services),
+  };
+}
+
+/** Merge optional solvency keys; fail-closed via solvencyPayloadFromDraft. */
+function solvencyToPayload(draft: DeclaredSolvencyDraft): Record<string, unknown> {
+  return solvencyPayloadFromDraft(draft);
 }
 
 function customDraftFromProfile(profile: Record<string, unknown>): CustomProfileDraft {
@@ -190,6 +343,7 @@ function customDraftFromProfile(profile: Record<string, unknown>): CustomProfile
     business_objective: String(profile.business_objective ?? ""),
     success_indicators: stringsToField(profile.success_indicators),
     sources: stringsToField(profile.sources),
+    ...solvencyFromProfile(profile),
   };
 }
 
@@ -213,6 +367,7 @@ export function draftFromProfileConfig(
       barriers: stringsToField(profile.barriers),
       success_indicators: stringsToField(profile.success_indicators),
       keywords: stringsToField(profile.keywords),
+      ...solvencyFromProfile(profile),
     };
   }
   if (dossierType === "competitive_intelligence") {
@@ -231,6 +386,7 @@ export function draftFromProfileConfig(
       participation_criteria: String(profile.participation_criteria ?? ""),
       exclusion_criteria: String(profile.exclusion_criteria ?? ""),
       success_indicators: stringsToField(profile.success_indicators),
+      ...solvencyFromProfile(profile),
     };
   }
   if (profileKindFor(dossierType, profileConfig) === "custom") {
@@ -254,6 +410,7 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
       barriers: listField(draft.barriers),
       success_indicators: listField(draft.success_indicators),
       keywords: listField(draft.keywords),
+      ...solvencyToPayload(draft),
     };
   }
   if (draft.kind === "competitive_intelligence") {
@@ -271,6 +428,7 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
       participation_criteria: draft.participation_criteria.trim(),
       exclusion_criteria: draft.exclusion_criteria.trim(),
       success_indicators: listField(draft.success_indicators),
+      ...solvencyToPayload(draft),
     };
   }
   // custom.v1: free-form strategic intake. Kept separate from market/CI schemas
@@ -289,6 +447,7 @@ export function profileConfigFromDraft(draft: ProfileDraft): Record<string, unkn
     business_objective: draft.business_objective.trim(),
     success_indicators: listField(draft.success_indicators),
     sources: listField(draft.sources),
+    ...solvencyToPayload(draft),
   };
 }
 

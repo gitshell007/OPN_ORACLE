@@ -528,14 +528,29 @@ class _FakeSession:
         *,
         dossier: Any | None = None,
         profile: Any | None = None,
+        deferred_profiles: list[Any] | None = None,
     ) -> None:
         self.dossier = dossier
         self.profile = profile
+        self.deferred_profiles = list(deferred_profiles or [])
         self.commits = 0
         self.added: list[Any] = []
 
-    def scalar(self, _q: Any) -> Any:
+    @staticmethod
+    def _selected_entity_name(query: Any) -> str | None:
+        descriptions = getattr(query, "column_descriptions", ())
+        if len(descriptions) != 1:
+            return None
+        return getattr(descriptions[0].get("entity"), "__name__", None)
+
+    def scalar(self, query: Any) -> Any:
+        if self._selected_entity_name(query) == "DossierMemoryProfile":
+            return self.profile
         return self.dossier
+
+    def scalars(self, query: Any) -> Any:
+        assert self._selected_entity_name(query) == "DossierMemoryProfile"
+        return SimpleNamespace(all=lambda: list(self.deferred_profiles))
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)
@@ -2159,7 +2174,7 @@ def test_rt09_rt10_unavailable_and_missing_validated_output(
 ) -> None:
     """Bug que cazaría: AIUnavailable o payload sin validated_output se traga como OK."""
 
-    from opn_oracle.ai.provider import AIUnavailable
+    from opn_oracle.ai.provider import AIRejected, AIUnavailable
     from opn_oracle.oracle.custom_report_lifecycle import (
         _invoke_rt09_writer_via_signal,
         _invoke_rt10_review_via_signal,
@@ -2186,6 +2201,18 @@ def test_rt09_rt10_unavailable_and_missing_validated_output(
         def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
             return {"result": {"raw": True}, "usage": {"input_tokens": 1}}
 
+    class RejectedProvider:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        def run_governed(self, body: dict[str, Any]) -> dict[str, Any]:
+            raise AIRejected(
+                "safe rejection",
+                status_code=422,
+                error_code="rt_output_not_json",
+                request_id="run-422",
+            )
+
     class OkProvider:
         def __init__(self, *a: Any, **k: Any) -> None:
             pass
@@ -2208,6 +2235,14 @@ def test_rt09_rt10_unavailable_and_missing_validated_output(
             _invoke_rt09_writer_via_signal(snap=snap, options={}, current_hash="h")
         with pytest.raises(CustomReportError, match="Signal no disponible para RT-10"):
             _invoke_rt10_review_via_signal(snap=snap, writer_output={}, current_hash="h")
+
+        monkeypatch.setattr("opn_oracle.ai.provider.SignalGovernedLLMProvider", RejectedProvider)
+        with pytest.raises(CustomReportError, match="Signal rechazó la salida") as rejected:
+            _invoke_rt09_writer_via_signal(snap=snap, options={}, current_hash="h")
+        assert rejected.value.errors == {
+            "signal_rejection": ["rt_output_not_json"],
+            "signal_request_id": ["run-422"],
+        }
 
         monkeypatch.setattr("opn_oracle.ai.provider.SignalGovernedLLMProvider", BadShapeProvider)
         with pytest.raises(CustomReportError, match="validated_output"):
@@ -2672,3 +2707,43 @@ def test_notification_handlers_temporary_errors(app: Any, monkeypatch: pytest.Mo
     )
     with app.app_context(), pytest.raises(PermanentJobError, match="gone"):
         tasks._send_digest({"preference_id": str(uuid.uuid4())}, job)  # type: ignore[arg-type]
+
+
+def test_resumen_de_respaldo_etiqueta_sin_ocultar() -> None:
+    """El informe se publica siempre; el lector debe saber de qué fiarse.
+
+    Una sección sin cita no se descarta ni se esconde: queda marcada, y el resumen viaja
+    dentro del artefacto descargable para que la etiqueta sobreviva a la exportación.
+    """
+    from opn_oracle.oracle.custom_report_lifecycle import summarize_section_sourcing
+
+    secciones = [
+        {"title": "Situación", "citations": [{"evidence_id": "aaaa"}]},
+        {"title": "Riesgos", "citations": []},
+        {"title": "Acciones"},
+    ]
+    resumen = summarize_section_sourcing(secciones)
+
+    assert resumen["sections_total"] == 3
+    assert resumen["sections_with_source"] == 1
+    assert resumen["sections_without_source"] == 2
+    assert resumen["unsourced_titles"] == ["Riesgos", "Acciones"]
+    assert resumen["label"] == "1 de 3 secciones con fuente verificable"
+    assert "hipótesis" in resumen["notice"]
+
+    # las secciones sin respaldo quedan marcadas en el propio documento
+    assert secciones[1]["unsourced"] is True
+    assert secciones[1]["sourcing_label"] == "SIN FUENTE VERIFICABLE"
+    assert secciones[2]["sourcing_label"] == "SIN FUENTE VERIFICABLE"
+    # la que sí tiene cita no se toca
+    assert "unsourced" not in secciones[0]
+
+
+def test_resumen_de_respaldo_sin_avisos_cuando_todo_esta_citado() -> None:
+    """Si todo está respaldado, no se añade ruido al informe."""
+    from opn_oracle.oracle.custom_report_lifecycle import summarize_section_sourcing
+
+    resumen = summarize_section_sourcing([{"title": "A", "citations": [{"evidence_id": "x"}]}])
+    assert resumen["sections_without_source"] == 0
+    assert resumen["notice"] == ""
+    assert resumen["label"] == "1 de 1 secciones con fuente verificable"

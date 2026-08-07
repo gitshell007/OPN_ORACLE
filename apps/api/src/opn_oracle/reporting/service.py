@@ -2033,6 +2033,23 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
     source_snapshot = getattr(report, "source_snapshot", None) or {}
     document_notes = _document_notes_from_snapshot(source_snapshot)
     encrypted_pdf_fallback = bool(source_snapshot.get("encrypted_pdf_fallback"))
+    download_fallback = bool(source_snapshot.get("download_fallback"))
+    raw_acquisitions = source_snapshot.get("document_acquisitions")
+    document_acquisitions = (
+        [item for item in raw_acquisitions if isinstance(item, dict)]
+        if isinstance(raw_acquisitions, list)
+        else []
+    )
+    pliego_acquisition_status = source_snapshot.get("pliego_acquisition_status")
+    if pliego_acquisition_status not in {
+        "procesando",
+        "descargado",
+        "subido",
+        "extracto_parcial",
+        "no_disponible",
+    }:
+        pliego_acquisition_status = None
+    manual_pcap_upload_offered = bool(source_snapshot.get("manual_pcap_upload_offered", True))
     if getattr(report, "ai_artifact_id", None) is not None:
         generation_row = db.session.execute(
             select(AIAuditLog)
@@ -2120,6 +2137,10 @@ def serialize_report(report: Report, *, detail: bool = False) -> dict[str, Any]:
         "version": report.version,
         "document_notes": document_notes,
         "encrypted_pdf_fallback": encrypted_pdf_fallback,
+        "download_fallback": download_fallback,
+        "document_acquisitions": document_acquisitions,
+        "pliego_acquisition_status": pliego_acquisition_status,
+        "manual_pcap_upload_offered": manual_pcap_upload_offered,
         "revision": revision_payload,
         "artifacts": [
             {

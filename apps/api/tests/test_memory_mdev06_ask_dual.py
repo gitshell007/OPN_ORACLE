@@ -359,6 +359,77 @@ def test_answer_via_signal_safe_answer_empty_allowlist_ok(
     assert result["answer_payload"]["validated_output_sha256"] == "b" * 64
 
 
+def test_answer_via_signal_excludes_generic_memory_from_base_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ask must expose only its current dual-memory materialization to Signal."""
+    from opn_oracle.oracle.conversations import _answer_via_signal
+
+    artifact_id = uuid.uuid4()
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        provider="mock",
+        model="m",
+        output={
+            "answer_text": "Sin hechos materiales.",
+            "citations": [],
+            "facts": [],
+            "claims": [],
+            "conflicts": [],
+            "inferences": [],
+            "recommendations": [],
+            "confidence": 0,
+            "open_questions": [],
+            "warnings": [],
+        },
+    )
+    session = MagicMock()
+    session.get.return_value = artifact
+    captured: dict[str, Any] = {}
+
+    def fake_build_context(
+        dossier_id: uuid.UUID,
+        *,
+        max_tokens: int,
+        question: str | None = None,
+        memory_mode: str = "augment",
+    ) -> SimpleNamespace:
+        captured.update(
+            dossier_id=dossier_id,
+            max_tokens=max_tokens,
+            question=question,
+            memory_mode=memory_mode,
+        )
+        return SimpleNamespace(payload={})
+
+    def fake_execute_agent(**kwargs: Any) -> dict[str, str]:
+        kwargs["context_factory"](512)
+        return {"artifact_id": str(artifact_id), "audit_log_id": "a"}
+
+    monkeypatch.setattr("opn_oracle.ai.context.build_context", fake_build_context)
+    monkeypatch.setattr("opn_oracle.ai.service.execute_agent", fake_execute_agent)
+    dossier_id = uuid.uuid4()
+    question = "¿Qué cambió en la oportunidad?"
+
+    _answer_via_signal(
+        session,
+        job=SimpleNamespace(id=uuid.uuid4(), cancel_requested=False),  # type: ignore[arg-type]
+        dossier_id=dossier_id,
+        message=SimpleNamespace(id=uuid.uuid4(), content_text=question),  # type: ignore[arg-type]
+        memory_items=[],
+        coverage={},
+        memory_policy="memory.v1",
+        allowed_evidence_ids=[],
+    )
+
+    assert captured == {
+        "dossier_id": dossier_id,
+        "max_tokens": 512,
+        "question": question,
+        "memory_mode": "disabled",
+    }
+
+
 def test_checksum_change_rematerializes_new_evidence_id() -> None:
     tenant = str(uuid.uuid4())
     dossier = str(uuid.uuid4())

@@ -219,6 +219,80 @@ async function request<T>(
   throw new Error("Solicitud agotada");
 }
 
+/** Authenticated binary download (blob + Content-Disposition filename). */
+export interface BinaryDownload {
+  blob: Blob;
+  filename: string;
+  contentType: string;
+  etag: string | null;
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  // filename*=UTF-8''...
+  const star = /filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^["']|["']$/g, ""));
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename\s*=\s*("?)([^";]+)\1/i.exec(header);
+  if (plain?.[2]) return plain[2].trim();
+  return null;
+}
+
+async function requestBlob(
+  path: string,
+  options: RequestOptions & { accept?: string; fallbackFilename?: string } = {},
+): Promise<BinaryDownload> {
+  const method = options.method ?? "GET";
+  const mutation = method !== "GET";
+  if (mutation && !csrfToken) await fetchCsrf(options.signal);
+  const headers = new Headers({
+    Accept:
+      options.accept ??
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/problem+json, application/json",
+  });
+  const id = requestId();
+  if (id) headers.set("X-Request-ID", id);
+  if (mutation) headers.set("X-CSRF-Token", csrfToken ?? "");
+  if (options.ifMatch !== undefined) {
+    const match =
+      typeof options.ifMatch === "string"
+        ? options.ifMatch
+        : `W/"ood-v${options.ifMatch}"`;
+    headers.set("If-Match", match);
+  }
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers,
+    signal: options.signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await parseError(response);
+    publishAuthError(path, error);
+    throw error;
+  }
+  const blob = await response.blob();
+  const filename =
+    parseContentDispositionFilename(response.headers.get("Content-Disposition")) ||
+    options.fallbackFilename ||
+    "download.bin";
+  return {
+    blob,
+    filename,
+    contentType:
+      response.headers.get("Content-Type") ||
+      blob.type ||
+      "application/octet-stream",
+    etag: response.headers.get("ETag"),
+  };
+}
+
 const auth = {
   me: (signal?: AbortSignal) =>
     request<SessionIdentity>("/api/v1/auth/me", { signal, retry: false }),
@@ -715,6 +789,67 @@ export interface OracleDocument {
   updated_at: string;
 }
 
+/** G-11 · estado honesto de adquisición de pliego/PCAP. */
+export type PliegoAcquisitionStatus =
+  | "procesando"
+  | "descargado"
+  | "subido"
+  | "extracto_parcial"
+  | "no_disponible";
+
+export interface PliegoAcquisitionItem {
+  key?: string;
+  status: PliegoAcquisitionStatus | string;
+  reason_code?: string;
+  reason?: string;
+  folder_id?: string | null;
+  kind?: string | null;
+  procurement_item_id?: string | null;
+  opportunity_id?: string | null;
+  source_uri?: string | null;
+  file_name?: string | null;
+  document?: {
+    id: string;
+    filename: string;
+    status: string;
+    media_type?: string;
+    byte_size?: number;
+    acquisition?: Record<string, unknown> | null;
+    created_at?: string | null;
+  } | null;
+  manual_upload_offered?: boolean;
+  http_status?: number | null;
+  is_full_pcap?: boolean;
+}
+
+export interface PliegoAcquisitionResponse {
+  dossier_id: string;
+  opportunity_id?: string | null;
+  overall_status: PliegoAcquisitionStatus;
+  overall_reason_code?: string;
+  overall_reason?: string;
+  manual_upload_offered: boolean;
+  manual_upload_priority?: boolean;
+  cta: {
+    label: string;
+    action: string;
+    hint?: string;
+  };
+  signal_document_refs?: number;
+  pins_without_documents?: number;
+  preferred_document?: PliegoAcquisitionItem["document"] | null;
+  acquisitions: PliegoAcquisitionItem[];
+}
+
+export interface PliegoPcapUploadResponse {
+  document: OracleDocument;
+  job_id: string | null;
+  /** procesando = no terminal; subido solo tras job ready; no_disponible = fallo terminal. */
+  acquisition_status: "procesando" | "subido" | "no_disponible" | string;
+  message: string;
+  pliego_acquisition?: PliegoAcquisitionResponse;
+}
+
 export interface BackendDossier {
   id: string;
   title: string;
@@ -1033,6 +1168,56 @@ function evidenceList(kind: "opportunities" | "risks", resourceId: string) {
   );
 }
 
+/** G-10 commercial offer lifecycle (independent of CRM Opportunity.status). */
+export type OpportunityOfferLifecycleStatus =
+  | "preparando"
+  | "presentada"
+  | "en_evaluacion"
+  | "adjudicada"
+  | "perdida"
+  | "excluida";
+
+export interface OpportunityOfferLifecycleResource {
+  /** Null when not yet materialized (virtual GET contract). */
+  id: string | null;
+  tenant_id: string;
+  dossier_id: string;
+  opportunity_id: string;
+  status: OpportunityOfferLifecycleStatus;
+  status_label: string;
+  importe_ofertado: string | null;
+  baja_porcentaje: string | null;
+  lotes: string[];
+  garantia_provisional: string | null;
+  fecha_mesa: string | null;
+  motivo_exclusion: string | null;
+  /** 0 = virtual (not persisted); >=1 durable CAS version. */
+  version: number;
+  etag: string;
+  last_edited_by_user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  /** False: GET defaults only; True: row exists in PostgreSQL. */
+  materialized: boolean;
+  crm_status_note: string;
+}
+
+export interface OpportunityOfferLifecycleResponse {
+  lifecycle: OpportunityOfferLifecycleResource;
+  materialized: boolean;
+}
+
+export interface OpportunityOfferLifecyclePatchInput {
+  version?: number;
+  status?: OpportunityOfferLifecycleStatus;
+  importe_ofertado?: string | null;
+  baja_porcentaje?: string | null;
+  lotes?: string[];
+  garantia_provisional?: string | null;
+  fecha_mesa?: string | null;
+  motivo_exclusion?: string | null;
+}
+
 const opportunities = {
   listGlobal: (input: DossierResourceQuery = {}) =>
     request<components["schemas"]["GlobalOpportunityListResponse"]>(
@@ -1064,6 +1249,24 @@ const opportunities = {
       { method: "PATCH", body: input, ifMatch: version },
     ),
   evidence: (resourceId: string) => evidenceList("opportunities", resourceId),
+  getOfferLifecycle: (dossierId: string, opportunityId: string) =>
+    request<OpportunityOfferLifecycleResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities/${encodeURIComponent(opportunityId)}/offer-lifecycle`,
+    ),
+  patchOfferLifecycle: (
+    dossierId: string,
+    opportunityId: string,
+    input: OpportunityOfferLifecyclePatchInput,
+    ifMatch?: number | string,
+  ) =>
+    request<OpportunityOfferLifecycleResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/opportunities/${encodeURIComponent(opportunityId)}/offer-lifecycle`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: ifMatch ?? input.version,
+      },
+    ),
 };
 
 const risks = {
@@ -1330,18 +1533,34 @@ const actors = {
       `/api/v1/dossier-actors/${encodeURIComponent(linkId)}`,
       { method: "PATCH", body: input, ifMatch: version },
     ),
-  /** Propose-only detector: organizations that share a normalized identity key. */
+  /** Propose-only detector: tax-first, then normalized name; includes coverage meta. */
   aliasCandidates: () =>
-    request<{ items: ActorAliasCandidate[] }>(
+    request<ActorAliasCandidatesResponse>(
       "/api/v1/actors/alias-candidates",
     ),
+  /** Read-only merge preview (impact, tax provenance, required CAS versions). */
+  mergePreview: (
+    targetId: string,
+    input: { source_actor_id: string },
+  ) =>
+    request<ActorMergePreview>(
+      `/api/v1/actors/${encodeURIComponent(targetId)}/merge/preview`,
+      { method: "POST", body: input },
+    ),
   /**
-   * Human-confirmed merge. Source actor is archived/deleted after links move
+   * Human-confirmed merge with CAS versions. Source is deleted after links move
    * to the target; audit event `actor.merged` records who/when/why.
    */
   merge: (
     targetId: string,
-    input: { source_actor_id: string; reason: string },
+    input: {
+      source_actor_id: string;
+      reason: string;
+      confirm: true;
+      expected_target_version: number;
+      expected_source_version: number;
+      match_reason?: string | null;
+    },
   ) =>
     request<OracleActor>(
       `/api/v1/actors/${encodeURIComponent(targetId)}/merge`,
@@ -2283,6 +2502,68 @@ const dossierIntake = {
 };
 
 
+
+/** Borrador de oferta durable editable (SV2-G09-A). */
+export interface OpportunityOfferDraftSection {
+  key: string;
+  order?: number;
+  title: string;
+  points_hint?: string | null;
+  requirement: string;
+  requirement_origin?: "official" | string;
+  official_evidence_ids?: string[];
+  our_response_draft: string;
+  our_response_seed?: string | null;
+  response_origin?: "declared_generated" | string;
+  declared_evidence_ids?: string[];
+  gaps?: string[];
+  prose_polished?: boolean;
+  prose_polish_reason?: string | null;
+}
+
+export interface OpportunityOfferDraftResource {
+  id: string;
+  dossier_id: string;
+  source_artifact_id: string;
+  version: number;
+  etag: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_edited_by_user_id?: string;
+  content?: Record<string, unknown>;
+  banner: string;
+  human_gate: string;
+  statement: string;
+  tender_ref?: string | null;
+  lot_hint?: string | null;
+  sections: OpportunityOfferDraftSection[];
+  administrative_checklist?: DraftOfferChecklistItem[];
+  gaps_summary?: string[];
+  gaps?: DraftOfferGap[];
+  origin: "declared_draft" | string;
+  based_on_verdict?: string | null;
+  official_evidence_ids?: string[];
+  declared_evidence_ids?: string[];
+  draft_engine?: string | null;
+  prose_engine?: string | null;
+  drafted_as_of?: string | null;
+}
+
+export interface OpportunityOfferDraftResponse {
+  draft: OpportunityOfferDraftResource;
+}
+
+export interface OpportunityOfferDraftCreateResponse {
+  draft: OpportunityOfferDraftResource;
+  created: boolean;
+}
+
+export interface OpportunityOfferDraftPatchInput {
+  version?: number;
+  statement?: string;
+  sections?: Array<{ key: string; our_response_draft: string }>;
+}
+
 const dossierOpportunityAnalysis = {
   latest: (dossierId: string) =>
     request<OpportunityAnalysisRunResponse>(
@@ -2305,6 +2586,46 @@ const dossierOpportunityAnalysis = {
       `/api/v1/ai/artifacts/${encodeURIComponent(artifactId)}/reviews`,
       { method: "POST", body: input },
     ),
+  getOfferDraft: (dossierId: string) =>
+    request<OpportunityOfferDraftResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+    ),
+  prepareOfferDraft: (dossierId: string) =>
+    request<OpportunityOfferDraftCreateResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+      { method: "POST", body: {} },
+    ),
+  patchOfferDraft: (
+    dossierId: string,
+    input: OpportunityOfferDraftPatchInput,
+    ifMatch?: number | string,
+  ) =>
+    request<OpportunityOfferDraftResponse>(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft`,
+      {
+        method: "PATCH",
+        body: input,
+        ifMatch: ifMatch ?? input.version,
+      },
+    ),
+  /** Descarga DOCX editable de la versión durable indicada (precondición version). */
+  exportOfferDraftDocx: (
+    dossierId: string,
+    version: number,
+    options?: { signal?: AbortSignal; ifMatch?: number | string },
+  ) => {
+    const params = new URLSearchParams({ version: String(version) });
+    return requestBlob(
+      `/api/v1/ai/dossiers/${encodeURIComponent(dossierId)}/opportunity/offer-draft/export.docx?${params.toString()}`,
+      {
+        signal: options?.signal,
+        ifMatch: options?.ifMatch ?? version,
+        fallbackFilename: `Borrador-oferta-v${version}.docx`,
+        accept:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/problem+json",
+      },
+    );
+  },
 };
 
 
@@ -2534,6 +2855,34 @@ export interface SourceUrlMeta {
   verified: false;
 }
 
+/** G-18: closed Signal source projected for UI (no provider/checksum). */
+export interface CitableSourcePublic {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet?: string;
+  rank?: number;
+  domain?: string;
+  label?: string;
+  origin?: string;
+  origin_label?: string;
+}
+
+/** G-18: server-owned reserved source (audit fields for materialization). */
+export interface ReservedCitableSource {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet?: string;
+  provider?: string;
+  rank?: number;
+  content_checksum?: string;
+  origin?: string;
+  domain?: string;
+  label?: string;
+  origin_label?: string;
+}
+
 export interface MarketCompetitorDiscoveryInput {
   description: string;
   own_offer?: string;
@@ -2541,22 +2890,33 @@ export interface MarketCompetitorDiscoveryInput {
   countries?: string[];
   languages?: string[];
   known_names?: string[];
+  /** Honest intent: known (exclude known_names), unknown, or not_seeking. */
+  competitors_knowledge?: "known" | "unknown" | "not_seeking";
 }
 
 export interface MarketCompetitorCandidate {
+  /** Server-owned deterministic UUID (never from model JSON). Required to accept. */
+  candidate_id?: string | null;
   name: string;
   country: string;
   rationale: string;
-  source_urls: string[];
+  /** Authoritative citations (= Signal source_id). Required for selectable. */
+  evidence_ids: string[];
+  /** @deprecated Model URLs never accredit; do not use as evidence. */
+  source_urls?: string[];
   source_urls_meta?: SourceUrlMeta[];
   source_urls_status?: string | null;
   source_urls_label?: string | null;
+  citable_sources?: CitableSourcePublic[];
   confidence: number;
+  /** Server: false when candidate has no closed citation or candidate_id. */
+  selectable?: boolean;
 }
 
 export interface MarketCompetitorDiscoveryOutput {
   candidates: MarketCompetitorCandidate[];
   warnings: string[];
+  reserved_citable_sources?: ReservedCitableSource[];
 }
 
 export interface MarketCompetitorDiscoveryArtifact {
@@ -2580,6 +2940,144 @@ export interface MarketCompetitorDiscoveryRunResponse {
 export interface MarketCompetitorDiscoveryLatestResponse {
   job: TenderSearchWizardJob | null;
   artifact: MarketCompetitorDiscoveryArtifact | null;
+}
+
+export interface MarketCompetitorSelection {
+  /** Required: server-owned candidate_id from latest artifact. */
+  candidate_id: string;
+  /** Display-only; not used for identity on write. */
+  name?: string;
+  /** Non-empty subset of candidate.evidence_ids. */
+  source_ids: string[];
+  /** Alias for source_ids (accepted by server). */
+  evidence_ids?: string[];
+}
+
+export interface MarketCompetitorAcceptInput {
+  artifact_id: string;
+  dossier_id: string;
+  selected: MarketCompetitorSelection[];
+  expected_version?: number | null;
+}
+
+export interface MaterializedEvidence {
+  evidence_id: string;
+  source_id: string;
+  source_kind: string;
+  source_url?: string | null;
+  label?: string;
+}
+
+export interface MarketCompetitorAcceptResponse {
+  artifact_id: string;
+  dossier_id: string;
+  materialized: MaterializedEvidence[];
+  count: number;
+}
+
+/** G-19 · market_actor_discovery */
+export type MarketActorType =
+  | "company"
+  | "research_group"
+  | "technology_center"
+  | "regulator"
+  | "potential_customer";
+
+/** G-19 live: client sends only dossier_id; server builds intent/type/geo from profile. */
+export interface MarketActorDiscoveryInput {
+  dossier_id: string;
+}
+
+export interface MarketActorCandidate {
+  candidate_id?: string | null;
+  actor_type: MarketActorType | string;
+  organization: string;
+  affiliation?: string;
+  country: string;
+  summary: string;
+  rationale?: string;
+  evidence_ids: string[];
+  source_urls?: string[];
+  source_urls_meta?: SourceUrlMeta[];
+  source_urls_status?: string | null;
+  source_urls_label?: string | null;
+  citable_sources?: CitableSourcePublic[];
+  confidence: number;
+  selectable?: boolean;
+  /** G-20-B structured identity snapshot (RNSR/ROR/HAL/CORDIS). */
+  ids?: Record<string, string>;
+  identity_status?: string;
+  identity_reasons?: string[];
+  unresolved_reason?: string | null;
+  rank?: number | null;
+  score?: number | null;
+  score_breakdown?: Record<string, number>;
+  ranking_reasons?: string[];
+  affiliations?: string[];
+  parent_organization?: string | null;
+  merge_rules_applied?: string[];
+  candidate_key?: string | null;
+}
+
+export interface MarketActorDiscoveryOutput {
+  candidates: MarketActorCandidate[];
+  warnings: string[];
+  reserved_citable_sources?: ReservedCitableSource[];
+}
+
+export interface MarketActorDiscoveryArtifact {
+  id: string;
+  dossier_id: string | null;
+  agent: string;
+  schema_name: string;
+  schema_version: string;
+  status: string;
+  output: MarketActorDiscoveryOutput;
+  created_at: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface MarketActorDiscoveryRunResponse {
+  job: TenderSearchWizardJob;
+  artifact: MarketActorDiscoveryArtifact | null;
+}
+
+export interface MarketActorDiscoveryLatestResponse {
+  job: TenderSearchWizardJob | null;
+  artifact: MarketActorDiscoveryArtifact | null;
+}
+
+export interface MarketActorSelection {
+  candidate_id: string;
+  organization?: string;
+  name?: string;
+  source_ids: string[];
+  evidence_ids?: string[];
+}
+
+export interface MarketActorAcceptInput {
+  artifact_id: string;
+  dossier_id: string;
+  selected: MarketActorSelection[];
+  expected_version?: number | null;
+}
+
+export interface MarketActorAcceptResponse {
+  artifact_id: string;
+  dossier_id: string;
+  materialized: MaterializedEvidence[];
+  count: number;
+  /** G-20-B: durable actors created/linked for the selected subset. */
+  actors?: Array<{
+    candidate_id: string;
+    actor_id: string;
+    dossier_actor_id: string;
+    canonical_key: string;
+    identifiers: Record<string, string>;
+    identity_status: string;
+  }>;
+  actors_count?: number;
 }
 
 export type ProcurementSearchProfile =
@@ -2982,6 +3480,33 @@ const marketCompetitorDiscovery = {
       "/api/v1/ai/market-competitor-discovery/runs",
       { method: "POST", body: input, idempotencyKey },
     ),
+  /** Human gate: materialize selected reserved sources into Evidence for a dossier. */
+  accept: (input: MarketCompetitorAcceptInput) =>
+    request<MarketCompetitorAcceptResponse>(
+      "/api/v1/ai/market-competitor-discovery/accept",
+      { method: "POST", body: input },
+    ),
+};
+
+const marketActorDiscovery = {
+  /** Latest job/artifact for one dossier (never tenant-wide). */
+  latest: (dossierId: string) =>
+    request<MarketActorDiscoveryLatestResponse>(
+      `/api/v1/ai/market-actor-discovery/latest?dossier_id=${encodeURIComponent(dossierId)}`,
+      { retry: false },
+    ),
+  /** Enqueue using server-owned profile for the dossier (body is only dossier_id). */
+  run: (input: MarketActorDiscoveryInput, idempotencyKey: string) =>
+    request<MarketActorDiscoveryRunResponse>(
+      "/api/v1/ai/market-actor-discovery/runs",
+      { method: "POST", body: input, idempotencyKey },
+    ),
+  /** Human gate: materialize selected reserved sources into Evidence for a market dossier. */
+  accept: (input: MarketActorAcceptInput) =>
+    request<MarketActorAcceptResponse>(
+      "/api/v1/ai/market-actor-discovery/accept",
+      { method: "POST", body: input },
+    ),
 };
 
 const procurementSearchProfiles = {
@@ -3157,6 +3682,39 @@ const dossierProcurement = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/procurement/reports`,
       { method: "POST", body: input, idempotencyKey },
     ),
+  /** G-11 · estado honesto de pliego (siempre ofrece subida manual). */
+  pliegoAcquisition: (dossierId: string, opportunityId?: string) => {
+    const query = opportunityId
+      ? `?opportunity_id=${encodeURIComponent(opportunityId)}`
+      : "";
+    return request<PliegoAcquisitionResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/pliego-acquisition${query}`,
+    );
+  },
+  /** G-11 · subida manual del PCAP por el pipeline real de documentos. */
+  uploadPliegoPcap: (
+    dossierId: string,
+    file: File,
+    options: {
+      classification?: "public" | "internal";
+      opportunityId?: string;
+      procurementItemId?: string;
+      folderId?: string;
+    } = {},
+  ) => {
+    const body = new FormData();
+    body.set("file", file);
+    body.set("classification", options.classification ?? "internal");
+    if (options.opportunityId) body.set("opportunity_id", options.opportunityId);
+    if (options.procurementItemId) {
+      body.set("procurement_item_id", options.procurementItemId);
+    }
+    if (options.folderId) body.set("folder_id", options.folderId);
+    return request<PliegoPcapUploadResponse>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/pliego-pcap`,
+      { method: "POST", body },
+    );
+  },
 };
 
 const reports = {
@@ -3426,16 +3984,81 @@ export interface InvestigationReportPreview {
   candidate_entities: InvestigationEntity[];
 }
 
+export interface ActorAliasCandidateActor {
+  id: string;
+  name: string;
+  identifiers: Record<string, unknown>;
+  aliases: unknown[];
+  tax_id?: string | null;
+  durable_tax_id?: string | null;
+  declared_tax_id?: string | null;
+  tax_id_scheme?: string | null;
+  tax_id_country?: string | null;
+  has_durable_tax_id_column?: boolean;
+  tax_id_provenance?: {
+    origin_kind?: string | null;
+    origin_label?: string;
+    declared_tax_id?: string | null;
+    folder_id?: string | null;
+    winner_name?: string | null;
+    verified?: boolean;
+  };
+  version: number;
+}
+
 export interface ActorAliasCandidate {
   identity_key: string;
   status: string;
   reason: string;
-  actors: {
-    id: string;
-    name: string;
-    identifiers: Record<string, unknown>;
-    aliases: unknown[];
-  }[];
+  match_reason?:
+    | "tax_id"
+    | "normalized_name"
+    | "tax_id_conflict"
+    | "tax_id_declared_review"
+    | string;
+  priority?: number;
+  confidence?: string;
+  suggested_target_id?: string | null;
+  tax_id?: string | null;
+  blocking_tax_ids?: string[];
+  actors: ActorAliasCandidateActor[];
+}
+
+export interface ActorAliasCandidatesMeta {
+  organizations_evaluated: number;
+  organizations_with_tax_id: number;
+  organizations_with_declared_only_tax_id?: number;
+  tax_id_coverage_pct: number;
+  declared_only_tax_id_coverage_pct?: number;
+  criteria_evaluated: string[];
+  counts: Record<string, number>;
+  limitations?: string;
+  empty_state_message?: string;
+}
+
+export interface ActorAliasCandidatesResponse {
+  items: ActorAliasCandidate[];
+  meta: ActorAliasCandidatesMeta;
+}
+
+export interface ActorMergePreview {
+  blocked: boolean;
+  block_reason?: string | null;
+  target: ActorAliasCandidateActor & { version: number };
+  source: ActorAliasCandidateActor & { version: number };
+  suggested_target_id?: string | null;
+  resulting_aliases: string[];
+  reference_impact: {
+    source_only: Record<string, number>;
+    combined_before: Record<string, number>;
+    summary: string;
+  };
+  confirmation_required: {
+    confirm: true;
+    reason_min_length: number;
+    expected_target_version: number;
+    expected_source_version: number;
+  };
 }
 
 const investigations = {
@@ -3483,7 +4106,7 @@ const investigations = {
       `/api/v1/investigations/${encodeURIComponent(runId)}/report-preview`,
     ),
   aliasCandidates: () =>
-    request<{ items: ActorAliasCandidate[] }>("/api/v1/actors/alias-candidates"),
+    request<ActorAliasCandidatesResponse>("/api/v1/actors/alias-candidates"),
 };
 
 /** MEMSOL read model of dossier activity (watchlists, monitors, jobs). */
@@ -3796,11 +4419,50 @@ const customBriefs = {
 };
 
 
+/** Host/publisher health from GET /memory/capability and nested under /memory/effective. */
+export type MemoryCapability = {
+  host_mode: string;
+  effective_mode: string;
+  publisher_reliable: boolean;
+  publisher_status: "ok" | "unavailable" | string;
+  message: string;
+};
+
+/** Honest scope of dossier memory (G-29). Always dossier-scoped; never global/cross-tenant. */
+export type DossierMemoryScope = {
+  scope_type: "dossier";
+  scope_id: string;
+  dossier_only: boolean;
+  uses_tenant_curated: boolean;
+  uses_global_memory: boolean;
+  cross_tenant: boolean;
+  included_sources: string[];
+  included_kinds: string[];
+  included_classifications: string[];
+  exclusions: string[];
+  summary_es: string;
+  retrieval_when_enabled?: string;
+};
+
+/** Shared identity of the profile/mode used by jobs, snapshot, audit and UI. */
+export type EffectiveMemoryIdentity = {
+  id: string | null;
+  mode: "disabled" | "shadow" | "augment";
+  mode_label_es?: string;
+  version: number | null;
+  scope_type: "dossier";
+  resolution_source: string;
+  persisted?: boolean;
+  state?: string;
+  connection_id?: string | null;
+};
+
 export type DossierMemoryProfile = {
   id: string | null;
   tenant_id: string;
   dossier_id: string;
   connection_id: string | null;
+  /** Engine modes only: disabled (off), shadow (observe), augment (answer). */
   mode: "disabled" | "shadow" | "augment";
   mode_label_es?: string;
   version: number;
@@ -3810,17 +4472,58 @@ export type DossierMemoryProfile = {
   classifications_allowed: string[];
   token_budget: number;
   limit: number;
+  /** active | legacy_missing | … */
   status: string;
+  state?: string;
   provenance: string;
+  /** server_policy | user | legacy_missing */
+  config_source?: string;
+  scope?: DossierMemoryScope;
+  scope_type?: "dossier";
+  available_modes?: Array<"disabled" | "shadow" | "augment">;
   last_test_at: string | null;
   last_test_status: string | null;
   last_error: string | null;
   last_coverage: Record<string, unknown> | null;
   updated_at: string | null;
   persisted?: boolean;
+  idempotent_replay?: boolean;
+  materialized?: boolean;
+  message_es?: string;
+  /**
+   * Host/publisher health for UI banners.
+   * On GET /memory/effective this is projected from `capability` (single source of truth).
+   * On GET/PUT /memory/profile it may be absent — profile endpoints do not know host health.
+   */
   publisher_reliable?: boolean;
-  actions_reliable?: boolean;
-  capability?: Record<string, unknown>;
+  publisher_status?: string;
+  message?: string;
+  /** Nested capability — same publisher_reliable as top-level when present on /effective. */
+  capability?: MemoryCapability;
+  /**
+   * Why this effective mode was chosen (default_profile | legacy_missing | …).
+   * Present on GET /memory/effective; shared with job answer/snapshot.
+   */
+  resolution_source?: string;
+  resolution_reason_es?: string;
+  /** Configured default profile (management surface). May equal effective. */
+  configured_profile?: Partial<DossierMemoryProfile>;
+  /** Mode/profile actually used by retrieval and answers. */
+  effective_profile?: EffectiveMemoryIdentity;
+  /** True when configured_profile identity/mode differs from effective. */
+  profiles_diverge?: boolean;
+  /** Schema-allowed connection-bound rows that product path deliberately ignores. */
+  deferred_connection_profiles?: Array<{
+    id: string;
+    connection_id: string | null;
+    mode: string;
+    version: number;
+    status: string;
+    product_supported: boolean;
+    note_es?: string;
+  }>;
+  deferred_connection_profile_count?: number;
+  ignored_body_connection_id?: boolean;
 };
 
 export interface AiAuditListItem {
@@ -3906,7 +4609,11 @@ const dossierMemory = {
     ),
   putProfile: (
     dossierId: string,
-    input: Partial<DossierMemoryProfile> & { mode: DossierMemoryProfile["mode"] },
+    input: Partial<DossierMemoryProfile> & {
+      mode: DossierMemoryProfile["mode"];
+      expected_version?: number;
+      reason?: string;
+    },
     etag: string,
   ) =>
     request<DossierMemoryProfile>(
@@ -3915,6 +4622,14 @@ const dossierMemory = {
         method: "PUT",
         body: input,
         ifMatch: etag,
+      },
+    ),
+  materializeProfile: (dossierId: string, reason?: string) =>
+    request<DossierMemoryProfile>(
+      `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/profile/materialize`,
+      {
+        method: "POST",
+        body: reason ? { reason } : {},
       },
     ),
   testConnection: (dossierId: string) =>
@@ -3928,7 +4643,7 @@ const dossierMemory = {
       `/api/v1/dossiers/${encodeURIComponent(dossierId)}/memory/test-connection`,
       { method: "POST" },
     ),
-  capability: () => request<Record<string, unknown>>("/api/v1/memory/capability"),
+  capability: () => request<MemoryCapability>("/api/v1/memory/capability"),
 };
 
 
@@ -3965,6 +4680,7 @@ export const api = {
   procurement,
   tenderSearchWizard,
   marketCompetitorDiscovery,
+  marketActorDiscovery,
   procurementSearchProfiles,
   procurementSearchWatches,
   dossierProcurement,

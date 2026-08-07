@@ -428,3 +428,10 @@ def test_unhandled_error_rolls_back_and_returns_safe_problem(
     assert body["code"] == "internal_error"
     assert "must-not-leak" not in response.get_data(as_text=True)
     assert rolled_back is True
+
+
+@pytest.mark.unit
+def test_unit_app_uses_process_local_session_and_rate_limit_storage(app: Any) -> None:
+    assert app.config["SESSION_TYPE"] == "cachelib"
+    assert app.config["SESSION_CACHELIB"].__class__.__name__ == "SimpleCache"
+    assert app.config["RATELIMIT_STORAGE_URI"] == "memory://"

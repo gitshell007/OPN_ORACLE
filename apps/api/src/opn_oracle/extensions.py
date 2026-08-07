@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cachelib import SimpleCache
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import LoginManager
@@ -118,11 +119,16 @@ def init_extensions(app: Any) -> None:
     _ = models.MODEL_REGISTRY
     db.init_app(app)
     migrate.init_app(app, db)
-    app.config["SESSION_REDIS"] = Redis.from_url(
-        app.config["SESSION_REDIS_URL"],
-        socket_connect_timeout=app.config["DEPENDENCY_TIMEOUT_SECONDS"],
-        socket_timeout=app.config["DEPENDENCY_TIMEOUT_SECONDS"],
-    )
+    if app.config["SESSION_TYPE"] == "redis":
+        app.config["SESSION_REDIS"] = Redis.from_url(
+            app.config["SESSION_REDIS_URL"],
+            socket_connect_timeout=app.config["DEPENDENCY_TIMEOUT_SECONDS"],
+            socket_timeout=app.config["DEPENDENCY_TIMEOUT_SECONDS"],
+        )
+    elif app.config["SESSION_TYPE"] == "cachelib":
+        app.config["SESSION_CACHELIB"] = SimpleCache()
+    else:  # Settings.validate keeps this unreachable outside malformed direct config.
+        raise RuntimeError(f"SESSION_TYPE no soportado: {app.config['SESSION_TYPE']!r}")
     server_session.init_app(app)
     login_manager.init_app(app)
     limiter.init_app(app)

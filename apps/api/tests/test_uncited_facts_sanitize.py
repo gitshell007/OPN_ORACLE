@@ -171,7 +171,10 @@ def test_uncited_fact_is_dropped_with_visible_warning(agent: str) -> None:
     data = json.loads(cleaned)
     assert len(data["facts"]) == 2
     assert all(item["evidence_ids"] for item in data["facts"])
-    assert any("Se retiraron 2 fact(s) sin evidence_ids" in w for w in data["warnings"])
+    assert any(
+        "Se retiraron 2 afirmación(es) sin respaldo documental" in w for w in data["warnings"]
+    )
+    assert any("Afirmación sin citas del modelo" in w for w in data["warnings"])
     # ≥ min del agente (todos estos min ∈ {1,2} y quedan 2) → no degrada
     assert data["confidence"] == 80
     if agent == "entity_resolution":
@@ -373,7 +376,9 @@ def test_missing_evidence_ids_key_is_treated_as_uncited() -> None:
     cleaned = _sanitize_uncited_facts_json(json.dumps(payload), agent="actor_partnership")
     data = json.loads(cleaned)
     assert len(data["facts"]) == 2
-    assert any("Se retiraron 1 fact(s)" in w for w in data["warnings"])
+    assert any(
+        "Se retiraron 1 afirmación(es) sin respaldo documental" in w for w in data["warnings"]
+    )
     ActorAnalysisOutput.model_validate_json(cleaned)
 
 
@@ -501,7 +506,8 @@ def test_situation_nested_uncited_items_dropped_with_warning(
     assert len(data[field]) == 1
     assert data[field][0]["evidence_ids"] == [eid]
     assert any(
-        f"Se retiraron 1 {label}(s) sin evidence_ids en {field}" in w for w in data["warnings"]
+        f"Se retiraron 1 {label}(s) sin respaldo documental en {field}" in w
+        for w in data["warnings"]
     )
     # Nested drop no degrada por sí solo (min facts=1 y hay 1 fact fundado)
     assert data["confidence"] == 80
