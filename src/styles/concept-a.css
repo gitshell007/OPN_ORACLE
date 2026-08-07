@@ -2443,12 +2443,13 @@
 }
 .vector-menu {
   z-index: 80;
-  min-width: 235px;
-  padding: 7px;
+  min-width: 268px;
+  max-width: min(340px, calc(100vw - 24px));
+  padding: 8px;
   background: white;
   border: 1px solid var(--va-border);
   box-shadow: 0 18px 48px #07111f33;
-  border-radius: 9px;
+  border-radius: 10px;
 }
 .vector-menu [role="menuitem"] {
   display: flex;
@@ -2457,6 +2458,9 @@
   padding: 10px;
   border-radius: 6px;
   outline: none;
+  color: var(--va-text);
+  font-size: 13px;
+  cursor: pointer;
 }
 .vector-menu [role="menuitem"]:hover,
 .vector-menu [role="menuitem"]:focus,
@@ -2469,6 +2473,42 @@
 .vector-menu [role="menuitem"] + [role="menuitem"] {
   margin-top: 2px;
 }
+/* Radix Label es un div sin role="group"; la identidad se estiliza por clase. */
+.vector-menu-identity {
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px 12px;
+  margin: 0 0 6px;
+  border-bottom: 1px solid var(--va-border);
+  outline: none;
+  cursor: default;
+}
+.vector-menu-identity-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--va-text);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.vector-menu-identity-email {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 450;
+  line-height: 1.35;
+  color: var(--va-muted);
+  overflow-wrap: anywhere;
+}
+.vector-menu-identity-context {
+  display: block;
+  margin-top: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #6b7289;
+  letter-spacing: 0.01em;
+}
 .vector-menu [role="group"] {
   padding: 6px 9px 9px;
   border-bottom: 1px solid var(--va-border);
@@ -2480,6 +2520,51 @@
   color: var(--va-muted);
   font-weight: 400;
   margin-top: 2px;
+}
+.vector-menu-separator-strong {
+  margin: 8px 4px !important;
+  background: var(--va-border);
+  height: 1px;
+}
+.vector-menu [role="menuitem"].vector-menu-logout {
+  margin-top: 2px;
+  color: var(--va-danger);
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+.vector-menu [role="menuitem"].vector-menu-logout:hover,
+.vector-menu [role="menuitem"].vector-menu-logout:focus,
+.vector-menu [role="menuitem"].vector-menu-logout:focus-visible {
+  background: #fef2f2;
+  color: var(--va-danger);
+}
+.vector-menu [role="menuitem"].vector-menu-logout:focus-visible {
+  box-shadow: inset 0 0 0 2px #f0b4b4;
+}
+.vector-menu-build {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 8px 11px 4px;
+  border-top: 1px dashed #e4e8f0;
+  user-select: text;
+  cursor: default;
+}
+.vector-menu-build-primary {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #5c6578;
+  letter-spacing: 0.01em;
+}
+.vector-menu-build-secondary {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 9.5px;
+  font-weight: 450;
+  line-height: 1.35;
+  color: #8a93a8;
+  overflow-wrap: anywhere;
 }
 .vector-topbar {
   position: sticky;

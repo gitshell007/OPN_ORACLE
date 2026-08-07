@@ -35,6 +35,11 @@ import {
   type AppRouteDefinition,
 } from "@/lib/app-routes";
 import { productRoleLabel } from "@/lib/product-copy";
+import {
+  buildRuntimeLabel,
+  fetchRuntimeMeta,
+  type RuntimeBuildLabel,
+} from "@/lib/runtime-meta";
 
 export function VectorShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -69,6 +74,7 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
     id: string;
     title: string;
   } | null>(null);
+  const [buildLabel, setBuildLabel] = useState<RuntimeBuildLabel | null>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
   const crumbs = useMemo(() => breadcrumbsForPath(pathname), [pathname]);
@@ -93,6 +99,19 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
   const activeMembership = auth.identity!.memberships.find(
     (item) => item.tenant_id === auth.identity!.active_tenant_id,
   );
+  const roleLabels =
+    auth.identity!.roles.map(productRoleLabel).join(", ") || "Sin rol asignado";
+  const tenantLabel =
+    activeMembership?.tenant_name ?? "Contexto de plataforma";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchRuntimeMeta(controller.signal).then((meta) => {
+      if (meta) setBuildLabel(buildRuntimeLabel(meta));
+    });
+    return () => controller.abort();
+  }, []);
+
   const initials = user.display_name
     .split(/\s+/)
     .slice(0, 2)
@@ -355,13 +374,14 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
               align="end"
               sideOffset={10}
             >
-              <DropdownMenu.Label>
-                {user.display_name}
-                <small>{user.email}</small>
-                <small>
-                  {activeMembership?.tenant_name ?? "Contexto de plataforma"} ·{" "}
-                  {auth.identity!.roles.map(productRoleLabel).join(", ") || "Sin rol asignado"}
-                </small>
+              <DropdownMenu.Label className="vector-menu-identity">
+                <span className="vector-menu-identity-name">
+                  {user.display_name}
+                </span>
+                <span className="vector-menu-identity-email">{user.email}</span>
+                <span className="vector-menu-identity-context">
+                  {tenantLabel} · {roleLabels}
+                </span>
               </DropdownMenu.Label>
               <DropdownMenu.Item
                 onSelect={() =>
@@ -407,8 +427,9 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
               >
                 <BookOpenCheck size={16} /> Atajos de teclado
               </DropdownMenu.Item>
-              <DropdownMenu.Separator />
+              <DropdownMenu.Separator className="vector-menu-separator-strong" />
               <DropdownMenu.Item
+                className="vector-menu-logout"
                 onSelect={() =>
                   void auth
                     .logout()
@@ -421,8 +442,22 @@ export function VectorShell({ children }: { children: React.ReactNode }) {
                     )
                 }
               >
-                <LogOut size={16} /> Cerrar sesión
+                <LogOut size={16} aria-hidden /> Cerrar sesión
               </DropdownMenu.Item>
+              {buildLabel && (
+                <div
+                  className="vector-menu-build"
+                  role="note"
+                  title={`Release ${buildLabel.release}`}
+                >
+                  <span className="vector-menu-build-primary">
+                    {buildLabel.primary}
+                  </span>
+                  <span className="vector-menu-build-secondary">
+                    {buildLabel.secondary}
+                  </span>
+                </div>
+              )}
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
