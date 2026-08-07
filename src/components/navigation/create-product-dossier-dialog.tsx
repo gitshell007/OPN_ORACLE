@@ -634,24 +634,37 @@ export function CreateProductDossierDialog({
                   <span>Oferta o capacidades propias</span>
                   <input required value={ownOffer} onChange={(event) => setOwnOffer(event.target.value)} placeholder="Ej. Integración de sistemas de baterías y O&M" />
                 </label>
-                <label className="field"><span>Sector</span><input value={sectors} onChange={(event) => setSectors(event.target.value)} placeholder="Ej. almacenamiento energético" /></label>
-                <label className="field"><span>Segmentos</span><input value={segments} onChange={(event) => setSegments(event.target.value)} placeholder="Separados por comas" /></label>
+                <div className="competitive-field-pair">
+                  <label className="field">
+                    <span>Sector</span>
+                    <input value={sectors} onChange={(event) => setSectors(event.target.value)} placeholder="Ej. almacenamiento energético" />
+                  </label>
+                  <label className="field">
+                    <span>Segmentos</span>
+                    <input value={segments} onChange={(event) => setSegments(event.target.value)} placeholder="Separados por comas" />
+                  </label>
+                </div>
                 <EuCountryMultiSelect
                   label="Países objetivo"
                   value={marketCountries}
                   onChange={changeMarketCountries}
                   hint="Ámbito global: España y Alemania van preseleccionados; puedes añadir cualquier país ISO-2 (p. ej. US, MX, JP)."
                 />
-                <label className="field">
-                  <span>Idiomas de la vigilancia</span>
-                  <input
-                    value={marketLanguages}
-                    onChange={(event) => { setMarketLanguages(event.target.value); setLanguagesTouched(true); }}
-                    placeholder="es, de"
-                  />
-                  <small>Sugeridos según los países seleccionados; edítalos si necesitas otros.</small>
-                </label>
-                <label className="field"><span>Horizonte temporal</span><input value={horizon} onChange={(event) => setHorizon(event.target.value)} placeholder="Ej. decidir antes de diciembre" /></label>
+                <div className="competitive-field-pair">
+                  <label className="field">
+                    <span>Idiomas de la vigilancia</span>
+                    <input
+                      value={marketLanguages}
+                      onChange={(event) => { setMarketLanguages(event.target.value); setLanguagesTouched(true); }}
+                      placeholder="es, de"
+                    />
+                    <small>Sugeridos según los países seleccionados; edítalos si necesitas otros.</small>
+                  </label>
+                  <label className="field">
+                    <span>Horizonte temporal</span>
+                    <input value={horizon} onChange={(event) => setHorizon(event.target.value)} placeholder="Ej. decidir antes de diciembre" />
+                  </label>
+                </div>
               </section>
             )}
             {isMarket && step === "ecosystem" && (

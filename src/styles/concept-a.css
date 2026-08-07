@@ -1598,11 +1598,13 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
   border-top: 1px solid var(--va-border);
   padding-top: 14px;
 }
 .competitive-intake-fields header,
-.competitive-intake-fields .full {
+.competitive-intake-fields .full,
+.competitive-intake-fields .competitive-field-pair {
   grid-column: 1 / -1;
 }
 .competitive-intake-fields header p,
@@ -1610,6 +1612,68 @@
   margin: 4px 0 0;
   color: var(--va-muted);
   line-height: 1.5;
+}
+/* Pares lado a lado (Sector/Segmentos, Idiomas/Horizonte…): subgrid alinea
+   etiqueta, input y ayuda aunque solo un lado tenga <small>. */
+.competitive-field-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto auto;
+  column-gap: 12px;
+  row-gap: 7px;
+  min-width: 0;
+}
+.competitive-field-pair > .field {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
+  gap: 0;
+  min-width: 0;
+  align-content: start;
+}
+.competitive-field-pair > .field > span,
+.competitive-intake-fields > .field > span {
+  display: block;
+  min-height: 1.25em;
+  color: var(--va-text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.competitive-field-pair > .field > input,
+.competitive-field-pair > .field > select,
+.competitive-field-pair > .field > textarea,
+.competitive-intake-fields > .field > input,
+.competitive-intake-fields > .field > select,
+.competitive-intake-fields > .field > textarea {
+  width: 100%;
+  max-width: 100%;
+  min-height: 40px;
+  margin: 0;
+  box-sizing: border-box;
+}
+.competitive-field-pair > .field > small,
+.competitive-intake-fields > .field > small {
+  display: block;
+  margin: 0;
+  color: var(--va-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+/* Fallback si el motor no soporta subgrid: inputs a ancho completo y columnas
+   independientes sin estirar verticalmente el control. */
+@supports not (grid-template-rows: subgrid) {
+  .competitive-field-pair {
+    grid-template-rows: none;
+    align-items: start;
+  }
+  .competitive-field-pair > .field {
+    display: grid;
+    grid-template-rows: none;
+    grid-row: auto;
+    gap: 7px;
+  }
 }
 .checkbox-row small {
   display: block;
@@ -1657,7 +1721,18 @@
 .ai-policy-grid article small { color: var(--va-muted); line-height: 1.45; }
 @media (max-width: 680px) {
   .competitive-intake-fields,
+  .competitive-field-pair,
   .competitive-review dl { grid-template-columns: 1fr; }
+  .competitive-field-pair {
+    grid-template-rows: none;
+    gap: 12px;
+  }
+  .competitive-field-pair > .field {
+    display: grid;
+    grid-template-rows: none;
+    grid-row: auto;
+    gap: 7px;
+  }
 }
 .create-product-dialog textarea {
   min-height: 82px;
