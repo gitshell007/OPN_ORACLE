@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/components/auth/auth-provider";
 import { useRecentAuth } from "@/components/auth/recent-auth";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import {
@@ -644,6 +645,9 @@ export function TenantAudit() {
 
 export function TenantAIAdmin() {
   const recent = useRecentAuth();
+  const auth = useAuth();
+  const isPlatformSuperAdmin =
+    auth.identity?.user.platform_role === "super_admin";
   const [policy, setPolicy] = useState<components["schemas"]["AIPolicyResponse"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -716,19 +720,31 @@ export function TenantAIAdmin() {
             <small>Si se desmarca, Oracle no ejecutará inferencias de la organización.</small>
           </span>
         </label>
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            data-testid="ai-policy-kill-switch"
-            checked={policy.kill_switch}
-            disabled={saving}
-            onChange={(event) => void patchPolicy({ kill_switch: event.target.checked })}
-          />
-          <span>
-            <strong>Kill switch</strong>
-            <small>Corte inmediato de seguridad. Con el interruptor activo la IA queda parada aunque la política esté habilitada.</small>
-          </span>
-        </label>
+        {isPlatformSuperAdmin ? (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              data-testid="ai-policy-kill-switch"
+              checked={policy.kill_switch}
+              disabled={saving}
+              onChange={(event) => void patchPolicy({ kill_switch: event.target.checked })}
+            />
+            <span>
+              <strong>Kill switch</strong>
+              <small>
+                Corte inmediato de seguridad (solo superadministración de
+                plataforma). Con el interruptor activo la IA queda parada aunque
+                la política esté habilitada.
+              </small>
+            </span>
+          </label>
+        ) : (
+          <p className="ai-policy-platform-note" data-testid="ai-kill-switch-platform-note">
+            Kill switch:{" "}
+            <strong>{policy.kill_switch ? "activo" : "inactivo"}</strong>. Solo
+            la superadministración de plataforma puede modificarlo.
+          </p>
+        )}
         <p className="ai-policy-effective" data-testid="ai-policy-effective">
           Estado efectivo:{" "}
           <strong>{active ? "Activa" : "Desactivada"}</strong>

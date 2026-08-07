@@ -43,6 +43,11 @@ vi.mock("@oracle/api-client", () => {
 vi.mock("@/components/auth/recent-auth", () => ({
   useRecentAuth: () => ({ run: mocks.recentRun }),
 }));
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    identity: { user: { platform_role: null } },
+  }),
+}));
 vi.mock("@/components/admin/tenant-admin", () => ({
   AdminNav: () => <nav aria-label="Administración de organización" />,
 }));
@@ -161,9 +166,13 @@ describe("SignalAdmin", () => {
     fireEvent.change(screen.getByLabelText("Versión de API"), {
       target: { value: "2026-08-01" },
     });
-    fireEvent.click(
-      screen.getByLabelText(/Confirmo el uso de esta URL aunque no coincida/i),
-    );
+    // Propietario: no se ofrece la confirmación de entorno cruzado.
+    expect(
+      screen.queryByLabelText(/Confirmo el uso de esta URL/i),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("signal-edit-cross-env-platform-note"),
+    ).toHaveTextContent(/superadministración de plataforma/i);
     fireEvent.click(screen.getByRole("button", { name: /Guardar destino/i }));
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith("connection-1", {
@@ -171,7 +180,7 @@ describe("SignalAdmin", () => {
         adapter_mode: "http",
         base_url: "https://signal.updated.test",
         api_version: "2026-08-01",
-        confirm_cross_environment: true,
+        confirm_cross_environment: undefined,
       }),
     );
   });

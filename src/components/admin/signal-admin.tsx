@@ -19,6 +19,7 @@ import {
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminNav } from "@/components/admin/tenant-admin";
+import { useAuth } from "@/components/auth/auth-provider";
 import { useRecentAuth } from "@/components/auth/recent-auth";
 import { AsyncActionButton, HydratedActionButton } from "@/components/ui/async-action-button";
 import { productStatusLabel } from "@/lib/product-copy";
@@ -57,6 +58,9 @@ function when(value: string | null) {
 
 export function SignalAdmin() {
   const recent = useRecentAuth();
+  const auth = useAuth();
+  const isPlatformSuperAdmin =
+    auth.identity?.user.platform_role === "super_admin";
   const [connections, setConnections] = useState<SignalConnection[]>([]);
   const [monitors, setMonitors] = useState<SignalMonitor[]>([]);
   const [dossierId, setDossierId] = useState("");
@@ -446,22 +450,30 @@ export function SignalAdmin() {
                 }
               />
             </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={create.confirm_cross_environment}
-                onChange={(event) =>
-                  setCreate({
-                    ...create,
-                    confirm_cross_environment: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                Confirmo que esta URL de Signal es intencional aunque no coincida
-                con el entorno de este despliegue
-              </span>
-            </label>
+            {isPlatformSuperAdmin ? (
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={create.confirm_cross_environment}
+                  onChange={(event) =>
+                    setCreate({
+                      ...create,
+                      confirm_cross_environment: event.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  Confirmo que esta URL de Signal es intencional aunque no
+                  coincida con el destino configurado en este despliegue
+                  (requiere superadministración de plataforma)
+                </span>
+              </label>
+            ) : (
+              <p className="ai-policy-platform-note" data-testid="signal-cross-env-platform-note">
+                Apuntar a una instancia de Signal distinta de la configurada en
+                este despliegue requiere superadministración de plataforma.
+              </p>
+            )}
             <AsyncActionButton className="vector-primary" type="submit" loading={busy === "create"}>
               {busy === "create" ? "Guardando…" : "Guardar conexión"}
             </AsyncActionButton>
@@ -634,22 +646,34 @@ export function SignalAdmin() {
                           }
                         />
                       </label>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={edit.confirm_cross_environment}
-                          onChange={(event) =>
-                            setEdit({
-                              ...edit,
-                              confirm_cross_environment: event.target.checked,
-                            })
-                          }
-                        />
-                        <span>
-                          Confirmo el uso de esta URL aunque no coincida con el
-                          entorno de este despliegue
-                        </span>
-                      </label>
+                      {isPlatformSuperAdmin ? (
+                        <label className="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={edit.confirm_cross_environment}
+                            onChange={(event) =>
+                              setEdit({
+                                ...edit,
+                                confirm_cross_environment: event.target.checked,
+                              })
+                            }
+                          />
+                          <span>
+                            Confirmo el uso de esta URL aunque no coincida con el
+                            destino configurado en este despliegue (requiere
+                            superadministración de plataforma)
+                          </span>
+                        </label>
+                      ) : (
+                        <p
+                          className="ai-policy-platform-note"
+                          data-testid="signal-edit-cross-env-platform-note"
+                        >
+                          Cambiar el destino de Signal fuera del configurado en
+                          este despliegue requiere superadministración de
+                          plataforma.
+                        </p>
+                      )}
                       <div>
                         <AsyncActionButton
                           className="vector-primary"

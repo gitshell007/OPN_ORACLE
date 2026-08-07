@@ -110,7 +110,7 @@ def ai_policy() -> tuple[Any, int] | dict[str, Any]:
 @require_permission("tenant.settings.manage")
 @recent_auth_required
 def update_ai_policy() -> tuple[Any, int] | dict[str, Any]:
-    """Activate/deactivate AI and toggle the kill switch for the active tenant."""
+    """Activate/deactivate AI policy; kill_switch is platform-super_admin only."""
     policy = db.session.scalar(
         select(AITenantPolicy)
         .where(AITenantPolicy.tenant_id == g.active_tenant_id)
@@ -125,6 +125,7 @@ def update_ai_policy() -> tuple[Any, int] | dict[str, Any]:
     payload = _payload()
     before = {"enabled": policy.enabled, "kill_switch": policy.kill_switch}
     changed = False
+    is_super = getattr(current_user, "platform_role", None) == "super_admin"
     if "enabled" in payload:
         if not isinstance(payload["enabled"], bool):
             return problem_response(
@@ -139,6 +140,15 @@ def update_ai_policy() -> tuple[Any, int] | dict[str, Any]:
                 422, detail="kill_switch debe ser booleano.", code="validation_failed"
             )[:2]
         if policy.kill_switch != payload["kill_switch"]:
+            if not is_super:
+                return problem_response(
+                    403,
+                    detail=(
+                        "El kill switch de IA es un control de plataforma. "
+                        "Solo un superadministrador puede modificarlo."
+                    ),
+                    code="ai_kill_switch_platform_required",
+                )[:2]
             policy.kill_switch = payload["kill_switch"]
             changed = True
     if not changed:
@@ -150,7 +160,15 @@ def update_ai_policy() -> tuple[Any, int] | dict[str, Any]:
         resource_type="ai_policy",
         resource_id=policy.id,
         result="success",
-        metadata={"before": before, "after": after},
+        metadata={
+            "before": before,
+            "after": after,
+            "actor_platform_role": getattr(current_user, "platform_role", None),
+            "authorized_by": {
+                "user_id": str(current_user.id),
+                "platform_role": getattr(current_user, "platform_role", None),
+            },
+        },
     )
     db.session.commit()
     return _serialize_ai_policy(policy)

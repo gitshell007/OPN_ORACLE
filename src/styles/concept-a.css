@@ -1731,6 +1731,16 @@
   color: var(--va-text);
   font-size: 13px;
 }
+.ai-policy-platform-note {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--va-border);
+  border-radius: 8px;
+  background: var(--va-soft);
+  color: var(--va-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .connection-status-line {
   margin: 8px 0 0;
   font-size: 12px;

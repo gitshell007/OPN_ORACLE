@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import uuid
 from typing import Any
@@ -112,9 +113,6 @@ def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
     environment-based guard is inert on the very host it was meant to protect.
     The reliable signal is ``SIGNAL_AVANZA_BASE_URL`` — the Signal this deploy
     was pointed at. Anything else is a cross-environment move.
-
-    Does not block the action; the client must send confirm_cross_environment=true
-    and the decision is recorded in the audit trail.
     """
     if not base_url or not str(base_url).strip():
         return False
@@ -127,6 +125,51 @@ def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
         return candidate != expected
     # No expected URL configured: any remote https target needs confirmation.
     return candidate.startswith("https://")
+
+
+def _is_platform_super_admin() -> bool:
+    return getattr(current_user, "platform_role", None) == "super_admin"
+
+
+def _enforce_cross_environment_authorization(
+    base_url: str | None, *, confirmed: bool
+) -> Any | None:
+    """Gate cross-environment Signal targets to platform super_admin + confirm.
+
+    Returns a problem response to short-circuit the handler, or None when allowed.
+    """
+    if not _requires_cross_environment_confirmation(base_url):
+        return None
+    if not _is_platform_super_admin():
+        return problem_response(
+            403,
+            detail=(
+                "Apuntar Signal a un destino distinto del configurado en este "
+                "despliegue requiere superadministración de plataforma."
+            ),
+            code="signal_cross_environment_platform_required",
+        )
+    if not confirmed:
+        return problem_response(
+            422,
+            detail=(
+                "La URL de Signal no coincide con el entorno de este despliegue. "
+                "Confirma explícitamente con confirm_cross_environment=true si es intencional."
+            ),
+            code="signal_cross_environment_confirmation_required",
+        )
+    return None
+
+
+def _cross_env_audit_actor() -> dict[str, Any]:
+    """Identity of who authorized a cross-environment Signal change."""
+    return {
+        "user_id": str(current_user.id),
+        "platform_role": getattr(current_user, "platform_role", None),
+        "email_hash": hashlib.sha256(
+            str(getattr(current_user, "email", "")).encode("utf-8")
+        ).hexdigest()[:16],
+    }
 
 
 def _monitor_dossier(monitor: SignalMonitor) -> StrategicDossier | None:
@@ -188,15 +231,11 @@ def create_connection() -> Any:
     if base_url == "":
         base_url = None
     cross_env = _requires_cross_environment_confirmation(base_url)
-    if cross_env and not bool(payload.get("confirm_cross_environment")):
-        return problem_response(
-            422,
-            detail=(
-                "La URL de Signal no coincide con el entorno de este despliegue. "
-                "Confirma explícitamente con confirm_cross_environment=true si es intencional."
-            ),
-            code="signal_cross_environment_confirmation_required",
-        )
+    denied = _enforce_cross_environment_authorization(
+        base_url, confirmed=bool(payload.get("confirm_cross_environment"))
+    )
+    if denied is not None:
+        return denied
     status = "active" if mode == "mock" else "pending"
     connection = IntegrationConnection(
         tenant_id=g.active_tenant_id,
@@ -227,19 +266,23 @@ def create_connection() -> Any:
     except RuntimeError as exc:
         db.session.rollback()
         return problem_response(503, detail=str(exc), code="integration_keyring_unavailable")
+    audit_meta: dict[str, Any] = {
+        "adapter_mode": mode,
+        "base_url": base_url,
+        "status": status,
+        "deactivated_connection_ids": deactivated,
+        "cross_environment_confirmed": cross_env,
+        "actor_platform_role": getattr(current_user, "platform_role", None),
+    }
+    if cross_env:
+        audit_meta["authorized_by"] = _cross_env_audit_actor()
     append_audit_event(
         db.session,
         action="integration.signal.create",
         resource_type="integration_connection",
         resource_id=connection.id,
         result="success",
-        metadata={
-            "adapter_mode": mode,
-            "base_url": base_url,
-            "status": status,
-            "deactivated_connection_ids": deactivated,
-            "cross_environment_confirmed": cross_env,
-        },
+        metadata=audit_meta,
     )
     db.session.commit()
     return jsonify(_connection_payload(connection)), 201
@@ -290,15 +333,11 @@ def update_connection(connection_id: uuid.UUID) -> Any:
         if connection.base_url == "":
             connection.base_url = None
     cross_env = _requires_cross_environment_confirmation(connection.base_url)
-    if cross_env and not bool(payload.get("confirm_cross_environment")):
-        return problem_response(
-            422,
-            detail=(
-                "La URL de Signal no coincide con el entorno de este despliegue. "
-                "Confirma explícitamente con confirm_cross_environment=true si es intencional."
-            ),
-            code="signal_cross_environment_confirmation_required",
-        )
+    denied = _enforce_cross_environment_authorization(
+        connection.base_url, confirmed=bool(payload.get("confirm_cross_environment"))
+    )
+    if denied is not None:
+        return denied
     after = {
         "base_url": connection.base_url,
         "api_version": connection.api_version,
@@ -308,17 +347,21 @@ def update_connection(connection_id: uuid.UUID) -> Any:
     if before == after:
         return jsonify(_connection_payload(connection))
     connection.version += 1
+    audit_meta: dict[str, Any] = {
+        "before": before,
+        "after": after,
+        "cross_environment_confirmed": cross_env,
+        "actor_platform_role": getattr(current_user, "platform_role", None),
+    }
+    if cross_env:
+        audit_meta["authorized_by"] = _cross_env_audit_actor()
     append_audit_event(
         db.session,
         action="integration.signal.update",
         resource_type="integration_connection",
         resource_id=connection.id,
         result="success",
-        metadata={
-            "before": before,
-            "after": after,
-            "cross_environment_confirmed": cross_env,
-        },
+        metadata=audit_meta,
     )
     db.session.commit()
     return jsonify(_connection_payload(connection))

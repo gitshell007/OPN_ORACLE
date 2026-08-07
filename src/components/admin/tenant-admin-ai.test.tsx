@@ -27,6 +27,11 @@ vi.mock("@oracle/api-client", () => {
 vi.mock("@/components/auth/recent-auth", () => ({
   useRecentAuth: () => ({ run: mocks.recentRun }),
 }));
+vi.mock("@/components/auth/auth-provider", () => ({
+  useAuth: () => ({
+    identity: { user: { platform_role: null } },
+  }),
+}));
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess },
 }));
@@ -67,7 +72,7 @@ describe("TenantAIAdmin policy controls", () => {
     }));
   });
 
-  it("activa la política y desactiva el kill switch desde la interfaz", async () => {
+  it("permite al propietario activar la política pero no expone el kill switch", async () => {
     render(<TenantAIAdmin />);
     expect(await screen.findByTestId("ai-policy-effective")).toHaveTextContent(
       /Desactivada/,
@@ -76,9 +81,9 @@ describe("TenantAIAdmin policy controls", () => {
     await waitFor(() =>
       expect(mocks.updateAIPolicy).toHaveBeenCalledWith({ enabled: true }),
     );
-    fireEvent.click(screen.getByTestId("ai-policy-kill-switch"));
-    await waitFor(() =>
-      expect(mocks.updateAIPolicy).toHaveBeenCalledWith({ kill_switch: false }),
+    expect(screen.queryByTestId("ai-policy-kill-switch")).toBeNull();
+    expect(screen.getByTestId("ai-kill-switch-platform-note")).toHaveTextContent(
+      /superadministración de plataforma/i,
     );
     expect(mocks.recentRun).toHaveBeenCalled();
   });

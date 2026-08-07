@@ -61,8 +61,10 @@ def signal_admin_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
             "tenant_b",
             "user_a",
             "user_b",
+            "user_super",
             "membership_a",
             "membership_b",
+            "membership_super",
             "role_a",
             "role_b",
         )
@@ -83,25 +85,35 @@ def signal_admin_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
         connection.execute(
             text(
                 "INSERT INTO users(id,email,display_name,password_hash,status,"
-                "email_verified_at,created_at,updated_at) VALUES "
-                "(:ua,'sig-owner-a@example.test','Owner A',:p,'active',now(),now(),now()),"
-                "(:ub,'sig-owner-b@example.test','Owner B',:p,'active',now(),now(),now())"
+                "platform_role,email_verified_at,created_at,updated_at) VALUES "
+                "(:ua,'sig-owner-a@example.test','Owner A',:p,'active',NULL,now(),now(),now()),"
+                "(:ub,'sig-owner-b@example.test','Owner B',:p,'active',NULL,now(),now(),now()),"
+                "(:us,'sig-super@example.test','Super Admin',:p,'active',"
+                "'super_admin',now(),now(),now())"
             ),
-            {"ua": ids["user_a"], "ub": ids["user_b"], "p": encoded},
+            {
+                "ua": ids["user_a"],
+                "ub": ids["user_b"],
+                "us": ids["user_super"],
+                "p": encoded,
+            },
         )
         connection.execute(
             text(
                 "INSERT INTO tenant_memberships"
                 "(id,tenant_id,user_id,status,created_at,updated_at) VALUES "
-                "(:ma,:a,:ua,'active',now(),now()),(:mb,:b,:ub,'active',now(),now())"
+                "(:ma,:a,:ua,'active',now(),now()),(:mb,:b,:ub,'active',now(),now()),"
+                "(:ms,:a,:us,'active',now(),now())"
             ),
             {
                 "ma": ids["membership_a"],
                 "mb": ids["membership_b"],
+                "ms": ids["membership_super"],
                 "a": ids["tenant_a"],
                 "b": ids["tenant_b"],
                 "ua": ids["user_a"],
                 "ub": ids["user_b"],
+                "us": ids["user_super"],
             },
         )
         connection.execute(
@@ -111,18 +123,24 @@ def signal_admin_stack() -> Iterator[tuple[Any, dict[str, uuid.UUID], str]]:
                 "(:ra,:a,'owner','Owner','Owner',true,now(),now()),"
                 "(:rb,:b,'owner','Owner','Owner',true,now(),now())"
             ),
-            {"ra": ids["role_a"], "rb": ids["role_b"], "a": ids["tenant_a"], "b": ids["tenant_b"]},
+            {
+                "ra": ids["role_a"],
+                "rb": ids["role_b"],
+                "a": ids["tenant_a"],
+                "b": ids["tenant_b"],
+            },
         )
         connection.execute(
             text(
                 "INSERT INTO membership_roles(tenant_id,membership_id,role_id) VALUES "
-                "(:a,:ma,:ra),(:b,:mb,:rb)"
+                "(:a,:ma,:ra),(:b,:mb,:rb),(:a,:ms,:ra)"
             ),
             {
                 "a": ids["tenant_a"],
                 "b": ids["tenant_b"],
                 "ma": ids["membership_a"],
                 "mb": ids["membership_b"],
+                "ms": ids["membership_super"],
                 "ra": ids["role_a"],
                 "rb": ids["role_b"],
             },
@@ -281,9 +299,10 @@ def test_tenant_cannot_touch_other_tenant_connection(
     assert patch.status_code == 404
 
 
-def test_update_destination_and_cross_env_confirmation(
+def test_owner_cannot_point_signal_outside_configured_destination(
     signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
+    """Propietario sin super_admin: 403 aunque confirme el entorno cruzado."""
     app, ids, password = signal_admin_stack
     client = app.test_client()
     assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
@@ -298,11 +317,48 @@ def test_update_destination_and_cross_env_confirmation(
     csrf = _fresh_csrf(app, client, password)
     denied = client.patch(
         f"/api/v1/integrations/signal-avanza/{connection_id}",
+        json={
+            "base_url": "https://signal.prod.example/api",
+            "confirm_cross_environment": True,
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied.status_code == 403
+    assert denied.get_json()["code"] == "signal_cross_environment_platform_required"
+    # Sin confirm también 403 (no 422): el inquilino no puede siquiera iniciar el cambio.
+    csrf = _fresh_csrf(app, client, password)
+    denied_plain = client.patch(
+        f"/api/v1/integrations/signal-avanza/{connection_id}",
         json={"base_url": "https://signal.prod.example/api"},
         headers={"X-CSRF-Token": csrf},
     )
-    assert denied.status_code == 422
-    assert denied.get_json()["code"] == "signal_cross_environment_confirmation_required"
+    assert denied_plain.status_code == 403
+    assert denied_plain.get_json()["code"] == "signal_cross_environment_platform_required"
+
+
+def test_super_admin_can_point_signal_with_confirm_and_is_audited(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = signal_admin_stack
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    created = client.post(
+        "/api/v1/integrations/signal-avanza",
+        json={"name": "super-editable", "adapter_mode": "mock"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert created.status_code == 201, created.get_json()
+    connection_id = created.get_json()["id"]
+    csrf = _fresh_csrf(app, client, password)
+    # Super_admin still needs explicit confirm.
+    missing_confirm = client.patch(
+        f"/api/v1/integrations/signal-avanza/{connection_id}",
+        json={"base_url": "https://signal.prod.example/api", "adapter_mode": "http"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert missing_confirm.status_code == 422
+    assert missing_confirm.get_json()["code"] == "signal_cross_environment_confirmation_required"
     csrf = _fresh_csrf(app, client, password)
     updated = client.patch(
         f"/api/v1/integrations/signal-avanza/{connection_id}",
@@ -319,13 +375,41 @@ def test_update_destination_and_cross_env_confirmation(
     assert body["base_url"] == "https://signal.prod.example/api"
     assert body["api_version"] == "2026-08-01"
     assert body["adapter_mode"] == "http"
-    # Credentials never appear in the payload.
     assert "api_token" not in body
     assert "webhook_secret" not in body
     assert "subscription_key" not in body
 
+    # Audit records who authorized the cross-environment move.
+    with (
+        app.app_context(),
+        tenant_context(TenantContext(tenant_id=ids["tenant_a"], actor_id=ids["user_super"])),
+    ):
+        events = (
+            db.session.execute(
+                text(
+                    "SELECT actor_id, metadata FROM audit_events "
+                    "WHERE tenant_id=:t AND action='integration.signal.update' "
+                    "ORDER BY created_at DESC LIMIT 5"
+                ),
+                {"t": ids["tenant_a"]},
+            )
+            .mappings()
+            .all()
+        )
+    assert events
+    meta = events[0]["metadata"]
+    if isinstance(meta, str):
+        import json
 
-def test_ai_policy_can_be_toggled_and_audited(
+        meta = json.loads(meta)
+    assert meta["cross_environment_confirmed"] is True
+    assert meta["authorized_by"]["user_id"] == str(ids["user_super"])
+    assert meta["authorized_by"]["platform_role"] == "super_admin"
+    assert meta["actor_platform_role"] == "super_admin"
+    assert str(events[0]["actor_id"]) == str(ids["user_super"])
+
+
+def test_owner_can_toggle_enabled_but_not_kill_switch(
     signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
     app, ids, password = signal_admin_stack
@@ -335,30 +419,63 @@ def test_ai_policy_can_be_toggled_and_audited(
     assert before.status_code == 200
     assert before.get_json()["enabled"] is True
     assert before.get_json()["kill_switch"] is False
+
+    csrf = _fresh_csrf(app, client, password)
+    kill_denied = client.patch(
+        "/api/v1/tenant-admin/ai-policy",
+        json={"kill_switch": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert kill_denied.status_code == 403
+    assert kill_denied.get_json()["code"] == "ai_kill_switch_platform_required"
+
+    # Kill switch untouched after denied attempt.
+    still = client.get("/api/v1/tenant-admin/ai-policy").get_json()
+    assert still["kill_switch"] is False
+    assert still["enabled"] is True
+
     csrf = _fresh_csrf(app, client, password)
     disabled = client.patch(
         "/api/v1/tenant-admin/ai-policy",
-        json={"enabled": False, "kill_switch": True},
+        json={"enabled": False},
         headers={"X-CSRF-Token": csrf},
     )
     assert disabled.status_code == 200, disabled.get_json()
     assert disabled.get_json()["enabled"] is False
-    assert disabled.get_json()["kill_switch"] is True
+    assert disabled.get_json()["kill_switch"] is False
+
     readiness = client.get("/api/v1/dossiers/competitive-intelligence/readiness")
     ai_check = next(c for c in readiness.get_json()["checks"] if c["key"] == "ai")
     assert ai_check["ready"] is False
+
     csrf = _fresh_csrf(app, client, password)
     enabled = client.patch(
         "/api/v1/tenant-admin/ai-policy",
-        json={"enabled": True, "kill_switch": False},
+        json={"enabled": True},
         headers={"X-CSRF-Token": csrf},
     )
     assert enabled.status_code == 200
     assert enabled.get_json()["enabled"] is True
-    assert enabled.get_json()["kill_switch"] is False
     audit = client.get("/api/v1/tenant-admin/audit").get_json()["items"]
     actions = [item["action"] for item in audit]
     assert "tenant.ai_policy.updated" in actions
+
+
+def test_super_admin_can_toggle_kill_switch(
+    signal_admin_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, password = signal_admin_stack
+    client = app.test_client()
+    assert _login(client, "sig-super@example.test", password, ids["tenant_a"]).status_code == 200
+    csrf = _fresh_csrf(app, client, password)
+    toggled = client.patch(
+        "/api/v1/tenant-admin/ai-policy",
+        json={"kill_switch": True},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert toggled.status_code == 200, toggled.get_json()
+    assert toggled.get_json()["kill_switch"] is True
+    assert toggled.get_json()["enabled"] is True
 
 
 def test_cross_environment_helper_unit() -> None:
