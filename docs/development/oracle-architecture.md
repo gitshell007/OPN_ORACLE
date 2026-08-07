@@ -1,7 +1,7 @@
 # Arquitectura viva de OPN Oracle
 
-Actualizado: 2026-07-31  
-Fuente estructurada: `docs/development/oracle-roadmap.json`  
+Actualizado: 2026-07-31
+Fuente estructurada: `docs/development/oracle-roadmap.json`
 Interfaz canónica: `CANONICAL_UI=vector`
 
 ## Lectura de la auditoría
