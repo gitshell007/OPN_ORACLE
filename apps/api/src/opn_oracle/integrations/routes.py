@@ -105,28 +105,26 @@ def _deactivate_other_active_connections(tenant_id: uuid.UUID, *, keep_id: uuid.
 
 
 def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
-    """True when a non-production deploy is pointed at a remote Signal base URL.
+    """True when the target is not the Signal this deploy was configured for.
+
+    Deliberately does NOT key off ``APP_ENV``: oracle-dev runs with
+    ``APP_ENV=production`` (see docs/operations/DEV_NATIVE_DEPLOY.md), so an
+    environment-based guard is inert on the very host it was meant to protect.
+    The reliable signal is ``SIGNAL_AVANZA_BASE_URL`` — the Signal this deploy
+    was pointed at. Anything else is a cross-environment move.
 
     Does not block the action; the client must send confirm_cross_environment=true
     and the decision is recorded in the audit trail.
     """
     if not base_url or not str(base_url).strip():
         return False
-    app_env = str(current_app.config.get("APP_ENV", "development")).lower()
-    if app_env == "production":
-        return False
     candidate = str(base_url).strip().rstrip("/")
     host = (urlparse(candidate).hostname or "").lower()
     if not host or host in {"localhost", "127.0.0.1"} or host.endswith(".local"):
         return False
     expected = str(current_app.config.get("SIGNAL_AVANZA_BASE_URL") or "").strip().rstrip("/")
-    if expected and candidate == expected:
-        # Same host the deploy was configured for — still warn if not production
-        # when expected itself is a remote production-looking endpoint.
-        expected_host = (urlparse(expected).hostname or "").lower()
-        return not (expected_host in {"localhost", "127.0.0.1"} or expected_host.endswith(".local"))
-    if expected and candidate != expected:
-        return True
+    if expected:
+        return candidate != expected
     # No expected URL configured: any remote https target needs confirmation.
     return candidate.startswith("https://")
 

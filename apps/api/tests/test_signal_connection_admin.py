@@ -370,8 +370,21 @@ def test_cross_environment_helper_unit() -> None:
     with app.app_context():
         assert signal_routes._requires_cross_environment_confirmation("https://signal.prod.example")
         assert not signal_routes._requires_cross_environment_confirmation("http://localhost:8080")
+        # El destino configurado del propio despliegue no es entorno cruzado.
+        assert not signal_routes._requires_cross_environment_confirmation(
+            "https://signal-dev.example"
+        )
+    # oracle-dev corre con APP_ENV=production (DEV_NATIVE_DEPLOY.md): el guardián
+    # NO puede depender del entorno, o queda inerte justo donde hace falta.
     app.config["APP_ENV"] = "production"
     with app.app_context():
+        assert signal_routes._requires_cross_environment_confirmation("https://signal.prod.example")
         assert not signal_routes._requires_cross_environment_confirmation(
-            "https://signal.prod.example"
+            "https://signal-dev.example"
         )
+
+    # Sin destino configurado, cualquier https remoto pide confirmación.
+    bare = Flask("cross-env-bare")
+    bare.config["APP_ENV"] = "production"
+    with bare.app_context():
+        assert signal_routes._requires_cross_environment_confirmation("https://signal.prod.example")
