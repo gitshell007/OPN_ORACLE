@@ -198,6 +198,20 @@ table {
   padding: 10px 11px;
   color: #142235;
 }
+/* Los checkboxes/radios no son campos de texto: width 100% + padding los
+   descuadra (p. ej. países objetivo al crear un expediente de mercado). */
+.field input[type="checkbox"],
+.field input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  flex: 0 0 auto;
+  accent-color: #0f5f78;
+}
 .field textarea {
   min-height: 92px;
   resize: vertical;
