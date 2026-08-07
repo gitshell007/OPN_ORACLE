@@ -137,6 +137,18 @@
         ],
         "type": "object"
       },
+      "AIPolicyUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "kill_switch": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "AIRetriageInput": {
         "additionalProperties": false,
         "properties": {},
@@ -11462,6 +11474,105 @@
           "display_name",
           "platform_role"
         ],
+        "type": "object"
+      },
+      "SignalConnectionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SignalConnectionResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "SignalConnectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_mode": {
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string"
+          },
+          "base_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "circuit_state": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "last_health_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "last_success_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "status",
+          "adapter_mode",
+          "api_version",
+          "circuit_state",
+          "version"
+        ],
+        "type": "object"
+      },
+      "SignalConnectionUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_mode": {
+            "enum": [
+              "mock",
+              "http"
+            ],
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string"
+          },
+          "base_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "confirm_cross_environment": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "SignalMonitorCommandResponse": {
@@ -39244,10 +39355,12 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SignalConnectionListResponse"
+                }
               }
             },
-            "description": "Successful response"
+            "description": "Operaci\u00f3n completada"
           },
           "401": {
             "content": {
@@ -39313,13 +39426,15 @@
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SignalConnectionResponse"
+                }
               }
             },
-            "description": "Successful response"
+            "description": "Operaci\u00f3n completada"
           },
           "401": {
             "content": {
@@ -39539,6 +39654,195 @@
         ]
       }
     },
+    "/api/v1/integrations/signal-avanza/{connection_id}": {
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalConnectionResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Edit destination settings without recreating the connection.",
+        "tags": [
+          "Signal_Integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/signal-avanza/{connection_id}/activate": {
+      "post": {
+        "description": "Also reactivates a disabled/pending/error connection. Previous actives are\ndisabled in the same transaction.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalConnectionResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Make this connection the sole active Signal connection for the tenant.",
+        "tags": [
+          "Signal_Integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/signal-avanza/{connection_id}/disable": {
       "post": {
         "parameters": [
@@ -39564,10 +39868,12 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SignalConnectionResponse"
+                }
               }
             },
-            "description": "Successful response"
+            "description": "Operaci\u00f3n completada"
           },
           "401": {
             "content": {
@@ -55928,6 +56234,80 @@
           }
         ],
         "summary": "Ai Policy",
+        "tags": [
+          "Administraci\u00f3n de tenant"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "minLength": 32,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIPolicyResponse"
+                }
+              }
+            },
+            "description": "Operaci\u00f3n completada"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Autenticaci\u00f3n requerida"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Permiso denegado"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Datos no v\u00e1lidos"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error interno"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Activate/deactivate AI and toggle the kill switch for the active tenant.",
         "tags": [
           "Administraci\u00f3n de tenant"
         ]

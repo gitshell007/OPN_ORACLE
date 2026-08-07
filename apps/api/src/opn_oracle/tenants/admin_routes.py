@@ -106,6 +106,56 @@ def ai_policy() -> tuple[Any, int] | dict[str, Any]:
     return _serialize_ai_policy(policy)
 
 
+@bp.patch("/ai-policy")
+@require_permission("tenant.settings.manage")
+@recent_auth_required
+def update_ai_policy() -> tuple[Any, int] | dict[str, Any]:
+    """Activate/deactivate AI and toggle the kill switch for the active tenant."""
+    policy = db.session.scalar(
+        select(AITenantPolicy)
+        .where(AITenantPolicy.tenant_id == g.active_tenant_id)
+        .with_for_update()
+    )
+    if policy is None:
+        return problem_response(
+            503,
+            detail="La organización no tiene una política IA provisionada.",
+            code="ai_policy_missing",
+        )[:2]
+    payload = _payload()
+    before = {"enabled": policy.enabled, "kill_switch": policy.kill_switch}
+    changed = False
+    if "enabled" in payload:
+        if not isinstance(payload["enabled"], bool):
+            return problem_response(
+                422, detail="enabled debe ser booleano.", code="validation_failed"
+            )[:2]
+        if policy.enabled != payload["enabled"]:
+            policy.enabled = payload["enabled"]
+            changed = True
+    if "kill_switch" in payload:
+        if not isinstance(payload["kill_switch"], bool):
+            return problem_response(
+                422, detail="kill_switch debe ser booleano.", code="validation_failed"
+            )[:2]
+        if policy.kill_switch != payload["kill_switch"]:
+            policy.kill_switch = payload["kill_switch"]
+            changed = True
+    if not changed:
+        return _serialize_ai_policy(policy)
+    after = {"enabled": policy.enabled, "kill_switch": policy.kill_switch}
+    append_audit_event(
+        db.session,
+        action="tenant.ai_policy.updated",
+        resource_type="ai_policy",
+        resource_id=policy.id,
+        result="success",
+        metadata={"before": before, "after": after},
+    )
+    db.session.commit()
+    return _serialize_ai_policy(policy)
+
+
 @bp.post("/ai-policy/test")
 @require_permission("tenant.settings.manage")
 def test_ai_policy() -> tuple[Any, int] | dict[str, Any]:

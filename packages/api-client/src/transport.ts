@@ -384,6 +384,11 @@ const tenantAdmin = {
     request<components["schemas"]["AIPolicyResponse"]>(
       "/api/v1/tenant-admin/ai-policy",
     ),
+  updateAIPolicy: (input: { enabled?: boolean; kill_switch?: boolean }) =>
+    request<components["schemas"]["AIPolicyResponse"]>(
+      "/api/v1/tenant-admin/ai-policy",
+      { method: "PATCH", body: input },
+    ),
   testAI: () =>
     request<components["schemas"]["AIHealthResponse"]>(
       "/api/v1/tenant-admin/ai-policy/test",
@@ -679,6 +684,7 @@ const signalAvanza = {
     api_version?: string;
     api_token?: string;
     webhook_secret?: string;
+    confirm_cross_environment?: boolean;
   }) =>
     request<SignalConnection>("/api/v1/integrations/signal-avanza", {
       method: "POST",
@@ -696,6 +702,25 @@ const signalAvanza = {
     request<SignalConnection>(
       `/api/v1/integrations/signal-avanza/${encodeURIComponent(connectionId)}/disable`,
       { method: "POST" },
+    ),
+  activate: (connectionId: string) =>
+    request<SignalConnection>(
+      `/api/v1/integrations/signal-avanza/${encodeURIComponent(connectionId)}/activate`,
+      { method: "POST" },
+    ),
+  update: (
+    connectionId: string,
+    input: {
+      name?: string;
+      base_url?: string | null;
+      api_version?: string;
+      adapter_mode?: "mock" | "http";
+      confirm_cross_environment?: boolean;
+    },
+  ) =>
+    request<SignalConnection>(
+      `/api/v1/integrations/signal-avanza/${encodeURIComponent(connectionId)}`,
+      { method: "PATCH", body: input },
     ),
   test: (connectionId: string) =>
     request<{ outbox_event_id: string; status: string }>(

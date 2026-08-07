@@ -75,7 +75,16 @@ export function SignalAdmin() {
     base_url: "",
     api_token: "",
     webhook_secret: "",
+    confirm_cross_environment: false,
   });
+  const [edit, setEdit] = useState<{
+    connectionId: string;
+    name: string;
+    adapter_mode: "mock" | "http";
+    base_url: string;
+    api_version: string;
+    confirm_cross_environment: boolean;
+  } | null>(null);
   const [monitorDraft, setMonitorDraft] = useState({
     connection_id: "",
     name: "Monitor Signal",
@@ -154,18 +163,75 @@ export function SignalAdmin() {
           base_url: create.base_url || undefined,
           api_token: create.api_token || undefined,
           webhook_secret: create.webhook_secret || undefined,
+          confirm_cross_environment: create.confirm_cross_environment || undefined,
         }),
       );
       setCreate((current) => ({
         ...current,
         api_token: "",
         webhook_secret: "",
+        confirm_cross_environment: false,
       }));
       setCreateOpen(false);
       await loadConnections();
       toast.success("Conexión Signal Avanza configurada");
     } catch (reason) {
       setError(message(reason, "No se pudo configurar la conexión."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function activateConnection(connection: SignalConnection) {
+    setBusy(`activate-${connection.id}`);
+    setError(null);
+    try {
+      await recent.run(() => api.signalAvanza.activate(connection.id));
+      await loadConnections();
+      toast.success("Conexión activada", {
+        description: "Es la única conexión Signal activa de la organización.",
+      });
+    } catch (reason) {
+      setError(message(reason, "No se pudo activar la conexión."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function disableConnection(connection: SignalConnection) {
+    setBusy(`disable-${connection.id}`);
+    setError(null);
+    try {
+      await recent.run(() => api.signalAvanza.disable(connection.id));
+      await loadConnections();
+      toast.success("Conexión desactivada");
+    } catch (reason) {
+      setError(message(reason, "No se pudo desactivar la conexión."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!edit) return;
+    setBusy(`edit-${edit.connectionId}`);
+    setError(null);
+    try {
+      await recent.run(() =>
+        api.signalAvanza.update(edit.connectionId, {
+          name: edit.name,
+          adapter_mode: edit.adapter_mode,
+          base_url: edit.base_url || null,
+          api_version: edit.api_version,
+          confirm_cross_environment: edit.confirm_cross_environment || undefined,
+        }),
+      );
+      setEdit(null);
+      await loadConnections();
+      toast.success("Destino de Signal actualizado");
+    } catch (reason) {
+      setError(message(reason, "No se pudo actualizar la conexión."));
     } finally {
       setBusy(null);
     }
@@ -380,6 +446,22 @@ export function SignalAdmin() {
                 }
               />
             </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={create.confirm_cross_environment}
+                onChange={(event) =>
+                  setCreate({
+                    ...create,
+                    confirm_cross_environment: event.target.checked,
+                  })
+                }
+              />
+              <span>
+                Confirmo que esta URL de Signal es intencional aunque no coincida
+                con el entorno de este despliegue
+              </span>
+            </label>
             <AsyncActionButton className="vector-primary" type="submit" loading={busy === "create"}>
               {busy === "create" ? "Guardando…" : "Guardar conexión"}
             </AsyncActionButton>
@@ -429,6 +511,20 @@ export function SignalAdmin() {
                   {connection.last_error && (
                     <p className="connection-error" role="status">{connection.last_error}</p>
                   )}
+                  <p className="connection-status-line">
+                    Estado:{" "}
+                    <strong data-testid={`connection-status-${connection.id}`}>
+                      {productStatusLabel(connection.status)}
+                    </strong>
+                    {connection.status === "active" && (
+                      <span className="status active"> · Activa para la organización</span>
+                    )}
+                  </p>
+                  {connection.base_url && (
+                    <p className="connection-url">
+                      <small>URL: {connection.base_url}</small>
+                    </p>
+                  )}
                   <div className="signal-actions">
                     <AsyncActionButton
                       className="vector-secondary"
@@ -437,6 +533,39 @@ export function SignalAdmin() {
                     >
                       <Activity size={15} /> Probar conexión
                     </AsyncActionButton>
+                    {connection.status !== "active" && (
+                      <AsyncActionButton
+                        className="vector-primary"
+                        loading={busy === `activate-${connection.id}`}
+                        onClick={() => void activateConnection(connection)}
+                      >
+                        <Play size={15} /> Activar
+                      </AsyncActionButton>
+                    )}
+                    {connection.status === "active" && (
+                      <AsyncActionButton
+                        className="vector-secondary"
+                        loading={busy === `disable-${connection.id}`}
+                        onClick={() => void disableConnection(connection)}
+                      >
+                        <Pause size={15} /> Desactivar
+                      </AsyncActionButton>
+                    )}
+                    <button
+                      className="vector-secondary"
+                      onClick={() =>
+                        setEdit({
+                          connectionId: connection.id,
+                          name: connection.name,
+                          adapter_mode: connection.adapter_mode as "mock" | "http",
+                          base_url: connection.base_url ?? "",
+                          api_version: connection.api_version,
+                          confirm_cross_environment: false,
+                        })
+                      }
+                    >
+                      <RotateCw size={15} /> Editar destino
+                    </button>
                     <button
                       className="vector-secondary"
                       onClick={() =>
@@ -459,6 +588,86 @@ export function SignalAdmin() {
                       </AsyncActionButton>
                     )}
                   </div>
+                  {edit?.connectionId === connection.id && (
+                    <form className="rotation-form" onSubmit={saveEdit}>
+                      <label className="field">
+                        <span>Nombre</span>
+                        <input
+                          required
+                          value={edit.name}
+                          onChange={(event) =>
+                            setEdit({ ...edit, name: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Modo</span>
+                        <select
+                          value={edit.adapter_mode}
+                          onChange={(event) =>
+                            setEdit({
+                              ...edit,
+                              adapter_mode: event.target.value as "mock" | "http",
+                            })
+                          }
+                        >
+                          <option value="mock">Simulación segura</option>
+                          <option value="http">Conexión remota confirmada</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Dirección base (URL)</span>
+                        <input
+                          type="url"
+                          value={edit.base_url}
+                          onChange={(event) =>
+                            setEdit({ ...edit, base_url: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Versión de API</span>
+                        <input
+                          value={edit.api_version}
+                          onChange={(event) =>
+                            setEdit({ ...edit, api_version: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={edit.confirm_cross_environment}
+                          onChange={(event) =>
+                            setEdit({
+                              ...edit,
+                              confirm_cross_environment: event.target.checked,
+                            })
+                          }
+                        />
+                        <span>
+                          Confirmo el uso de esta URL aunque no coincida con el
+                          entorno de este despliegue
+                        </span>
+                      </label>
+                      <div>
+                        <AsyncActionButton
+                          className="vector-primary"
+                          type="submit"
+                          loading={busy === `edit-${edit.connectionId}`}
+                        >
+                          Guardar destino
+                        </AsyncActionButton>
+                        <button
+                          type="button"
+                          className="vector-secondary"
+                          onClick={() => setEdit(null)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </form>
+                  )}
                   {rotation?.connectionId === connection.id && (
                     <form className="rotation-form" onSubmit={rotate}>
                       <label className="field">

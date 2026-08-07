@@ -1080,12 +1080,16 @@ def competitive_intelligence_readiness() -> dict[str, Any]:
     policy = db.session.scalar(
         select(AITenantPolicy).where(AITenantPolicy.tenant_id == g.active_tenant_id)
     )
+    # Exactly one active connection is enforced by activate/create; order_by is
+    # defensive so readiness never depends on physical insert order.
     connection = db.session.scalar(
-        select(IntegrationConnection).where(
+        select(IntegrationConnection)
+        .where(
             IntegrationConnection.tenant_id == g.active_tenant_id,
             IntegrationConnection.provider == "signal-avanza",
             IntegrationConnection.status == "active",
         )
+        .order_by(IntegrationConnection.updated_at.desc(), IntegrationConnection.id.desc())
     )
     ai_ready = bool(policy and policy.enabled and not policy.kill_switch)
     signal_ready = connection is not None

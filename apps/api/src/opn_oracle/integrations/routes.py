@@ -5,9 +5,10 @@ from __future__ import annotations
 import secrets
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from apiflask import APIBlueprint
-from flask import g, jsonify, request
+from flask import current_app, g, jsonify, request
 from flask_login import current_user
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -66,6 +67,70 @@ def _connection_payload(item: IntegrationConnection) -> dict[str, Any]:
     }
 
 
+def _get_tenant_connection(connection_id: uuid.UUID) -> IntegrationConnection | None:
+    return db.session.scalar(
+        select(IntegrationConnection)
+        .where(
+            IntegrationConnection.id == connection_id,
+            IntegrationConnection.tenant_id == g.active_tenant_id,
+            IntegrationConnection.provider == "signal-avanza",
+        )
+        .with_for_update()
+    )
+
+
+def _deactivate_other_active_connections(tenant_id: uuid.UUID, *, keep_id: uuid.UUID) -> list[str]:
+    """Disable every other active signal-avanza connection for the tenant.
+
+    Exactly one active connection is allowed; callers hold the keep row locked.
+    """
+    others = list(
+        db.session.scalars(
+            select(IntegrationConnection)
+            .where(
+                IntegrationConnection.tenant_id == tenant_id,
+                IntegrationConnection.provider == "signal-avanza",
+                IntegrationConnection.status == "active",
+                IntegrationConnection.id != keep_id,
+            )
+            .with_for_update()
+        )
+    )
+    deactivated: list[str] = []
+    for row in others:
+        row.status = "disabled"
+        row.version += 1
+        deactivated.append(str(row.id))
+    return deactivated
+
+
+def _requires_cross_environment_confirmation(base_url: str | None) -> bool:
+    """True when a non-production deploy is pointed at a remote Signal base URL.
+
+    Does not block the action; the client must send confirm_cross_environment=true
+    and the decision is recorded in the audit trail.
+    """
+    if not base_url or not str(base_url).strip():
+        return False
+    app_env = str(current_app.config.get("APP_ENV", "development")).lower()
+    if app_env == "production":
+        return False
+    candidate = str(base_url).strip().rstrip("/")
+    host = (urlparse(candidate).hostname or "").lower()
+    if not host or host in {"localhost", "127.0.0.1"} or host.endswith(".local"):
+        return False
+    expected = str(current_app.config.get("SIGNAL_AVANZA_BASE_URL") or "").strip().rstrip("/")
+    if expected and candidate == expected:
+        # Same host the deploy was configured for — still warn if not production
+        # when expected itself is a remote production-looking endpoint.
+        expected_host = (urlparse(expected).hostname or "").lower()
+        return not (expected_host in {"localhost", "127.0.0.1"} or expected_host.endswith(".local"))
+    if expected and candidate != expected:
+        return True
+    # No expected URL configured: any remote https target needs confirmation.
+    return candidate.startswith("https://")
+
+
 def _monitor_dossier(monitor: SignalMonitor) -> StrategicDossier | None:
     return db.session.scalar(
         select(StrategicDossier)
@@ -109,27 +174,49 @@ def create_connection() -> Any:
             422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
         )
     mode = str(payload.get("adapter_mode", "mock"))
+    if mode not in {"mock", "http"}:
+        return problem_response(422, detail="adapter_mode no válido.", code="validation_failed")
     if mode == "http" and not (
-        __import__("flask").current_app.config["SIGNAL_AVANZA_ENABLED"]
-        and __import__("flask").current_app.config["SIGNAL_AVANZA_CONTRACT_CONFIRMED"]
+        current_app.config["SIGNAL_AVANZA_ENABLED"]
+        and current_app.config["SIGNAL_AVANZA_CONTRACT_CONFIRMED"]
     ):
         return problem_response(
             409,
             detail="El contrato HTTP Signal no está confirmado.",
             code="signal_contract_unconfirmed",
         )
+    base_url_raw = payload.get("base_url")
+    base_url = str(base_url_raw).strip()[:1000] if base_url_raw else None
+    if base_url == "":
+        base_url = None
+    cross_env = _requires_cross_environment_confirmation(base_url)
+    if cross_env and not bool(payload.get("confirm_cross_environment")):
+        return problem_response(
+            422,
+            detail=(
+                "La URL de Signal no coincide con el entorno de este despliegue. "
+                "Confirma explícitamente con confirm_cross_environment=true si es intencional."
+            ),
+            code="signal_cross_environment_confirmation_required",
+        )
+    status = "active" if mode == "mock" else "pending"
     connection = IntegrationConnection(
         tenant_id=g.active_tenant_id,
         provider="signal-avanza",
         name=str(payload.get("name", "default"))[:100],
-        status="active" if mode == "mock" else "pending",
+        status=status,
         adapter_mode=mode,
-        base_url=payload.get("base_url"),
+        base_url=base_url,
         api_version=str(payload.get("api_version", "2026-07-01"))[:30],
         subscription_key=secrets.token_urlsafe(24),
     )
     db.session.add(connection)
     db.session.flush()
+    deactivated: list[str] = []
+    if status == "active":
+        deactivated = _deactivate_other_active_connections(
+            g.active_tenant_id, keep_id=connection.id
+        )
     try:
         if payload.get("api_token"):
             store_credential(
@@ -148,10 +235,131 @@ def create_connection() -> Any:
         resource_type="integration_connection",
         resource_id=connection.id,
         result="success",
-        metadata={"adapter_mode": mode},
+        metadata={
+            "adapter_mode": mode,
+            "base_url": base_url,
+            "status": status,
+            "deactivated_connection_ids": deactivated,
+            "cross_environment_confirmed": cross_env,
+        },
     )
     db.session.commit()
     return jsonify(_connection_payload(connection)), 201
+
+
+@bp.patch("/integrations/signal-avanza/<uuid:connection_id>")
+@require_permission("tenant.integrations.manage")
+@recent_auth_required
+def update_connection(connection_id: uuid.UUID) -> Any:
+    """Edit destination settings without recreating the connection."""
+    connection = _get_tenant_connection(connection_id)
+    if connection is None:
+        return problem_response(
+            404, detail="Integración no encontrada.", code="integration_not_found"
+        )
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return problem_response(
+            422, detail="El cuerpo debe ser un objeto JSON.", code="validation_failed"
+        )
+    before = {
+        "base_url": connection.base_url,
+        "api_version": connection.api_version,
+        "adapter_mode": connection.adapter_mode,
+        "name": connection.name,
+    }
+    if "name" in payload:
+        connection.name = str(payload.get("name") or connection.name)[:100]
+    if "api_version" in payload:
+        connection.api_version = str(payload.get("api_version") or connection.api_version)[:30]
+    if "adapter_mode" in payload:
+        mode = str(payload.get("adapter_mode") or "")
+        if mode not in {"mock", "http"}:
+            return problem_response(422, detail="adapter_mode no válido.", code="validation_failed")
+        if mode == "http" and not (
+            current_app.config["SIGNAL_AVANZA_ENABLED"]
+            and current_app.config["SIGNAL_AVANZA_CONTRACT_CONFIRMED"]
+        ):
+            return problem_response(
+                409,
+                detail="El contrato HTTP Signal no está confirmado.",
+                code="signal_contract_unconfirmed",
+            )
+        connection.adapter_mode = mode
+    if "base_url" in payload:
+        raw = payload.get("base_url")
+        connection.base_url = str(raw).strip()[:1000] if raw else None
+        if connection.base_url == "":
+            connection.base_url = None
+    cross_env = _requires_cross_environment_confirmation(connection.base_url)
+    if cross_env and not bool(payload.get("confirm_cross_environment")):
+        return problem_response(
+            422,
+            detail=(
+                "La URL de Signal no coincide con el entorno de este despliegue. "
+                "Confirma explícitamente con confirm_cross_environment=true si es intencional."
+            ),
+            code="signal_cross_environment_confirmation_required",
+        )
+    after = {
+        "base_url": connection.base_url,
+        "api_version": connection.api_version,
+        "adapter_mode": connection.adapter_mode,
+        "name": connection.name,
+    }
+    if before == after:
+        return jsonify(_connection_payload(connection))
+    connection.version += 1
+    append_audit_event(
+        db.session,
+        action="integration.signal.update",
+        resource_type="integration_connection",
+        resource_id=connection.id,
+        result="success",
+        metadata={
+            "before": before,
+            "after": after,
+            "cross_environment_confirmed": cross_env,
+        },
+    )
+    db.session.commit()
+    return jsonify(_connection_payload(connection))
+
+
+@bp.post("/integrations/signal-avanza/<uuid:connection_id>/activate")
+@require_permission("tenant.integrations.manage")
+@recent_auth_required
+def activate_connection(connection_id: uuid.UUID) -> Any:
+    """Make this connection the sole active Signal connection for the tenant.
+
+    Also reactivates a disabled/pending/error connection. Previous actives are
+    disabled in the same transaction.
+    """
+    connection = _get_tenant_connection(connection_id)
+    if connection is None:
+        return problem_response(
+            404, detail="Integración no encontrada.", code="integration_not_found"
+        )
+    previous_status = connection.status
+    deactivated = _deactivate_other_active_connections(g.active_tenant_id, keep_id=connection.id)
+    connection.status = "active"
+    if previous_status != "active":
+        connection.version += 1
+    append_audit_event(
+        db.session,
+        action="integration.signal.activate",
+        resource_type="integration_connection",
+        resource_id=connection.id,
+        result="success",
+        metadata={
+            "previous_status": previous_status,
+            "new_status": "active",
+            "deactivated_connection_ids": deactivated,
+            "deactivated_count": len(deactivated),
+        },
+    )
+    db.session.commit()
+    return jsonify(_connection_payload(connection))
 
 
 @bp.post("/integrations/signal-avanza/<uuid:connection_id>/rotate")
@@ -192,17 +400,12 @@ def rotate_connection(connection_id: uuid.UUID) -> Any:
 @require_permission("tenant.integrations.manage")
 @recent_auth_required
 def disable_connection(connection_id: uuid.UUID) -> Any:
-    connection = db.session.scalar(
-        select(IntegrationConnection).where(
-            IntegrationConnection.id == connection_id,
-            IntegrationConnection.tenant_id == g.active_tenant_id,
-            IntegrationConnection.provider == "signal-avanza",
-        )
-    )
+    connection = _get_tenant_connection(connection_id)
     if connection is None:
         return problem_response(
             404, detail="Integración no encontrada.", code="integration_not_found"
         )
+    previous_status = connection.status
     connection.status = "disabled"
     connection.version += 1
     append_audit_event(
@@ -211,7 +414,10 @@ def disable_connection(connection_id: uuid.UUID) -> Any:
         resource_type="integration_connection",
         resource_id=connection.id,
         result="success",
-        metadata={},
+        metadata={
+            "previous_status": previous_status,
+            "new_status": "disabled",
+        },
     )
     db.session.commit()
     return jsonify(_connection_payload(connection))

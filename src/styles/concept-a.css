@@ -1706,6 +1706,40 @@
 .competitive-review article { display: flex; gap: 9px; }
 .competitive-review article.ready svg { color: var(--va-success); }
 .competitive-review article.pending svg { color: var(--va-warning); }
+.ai-policy-controls {
+  margin-bottom: 14px;
+}
+.ai-policy-control-actions {
+  display: grid;
+  gap: 12px;
+  padding: 4px 2px 8px;
+}
+.ai-policy-control-actions .checkbox-row {
+  align-items: flex-start;
+}
+.ai-policy-control-actions .checkbox-row span {
+  display: grid;
+  gap: 2px;
+}
+.ai-policy-control-actions .checkbox-row small {
+  color: var(--va-muted);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.ai-policy-effective {
+  margin: 2px 0 0;
+  color: var(--va-text);
+  font-size: 13px;
+}
+.connection-status-line {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--va-muted);
+}
+.connection-url {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
 .ai-policy-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

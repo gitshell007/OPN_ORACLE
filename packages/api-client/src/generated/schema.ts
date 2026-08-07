@@ -20104,13 +20104,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Successful response */
+                /** @description Operación completada */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["SignalConnectionListResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -20164,13 +20164,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Successful response */
-                200: {
+                /** @description Operación completada */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["SignalConnectionResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -20376,6 +20376,180 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/signal-avanza/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit destination settings without recreating the connection. */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    connection_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignalConnectionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/integrations/signal-avanza/{connection_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make this connection the sole active Signal connection for the tenant.
+         * @description Also reactivates a disabled/pending/error connection. Previous actives are
+         *     disabled in the same transaction.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path: {
+                    connection_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignalConnectionResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HTTPError"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/signal-avanza/{connection_id}/disable": {
         parameters: {
             query?: never;
@@ -20399,13 +20573,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Successful response */
+                /** @description Operación completada */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["SignalConnectionResponse"];
                     };
                 };
                 /** @description Autenticación requerida */
@@ -33125,7 +33299,65 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Activate/deactivate AI and toggle the kill switch for the active tenant. */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-CSRF-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Operación completada */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AIPolicyResponse"];
+                    };
+                };
+                /** @description Autenticación requerida */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Permiso denegado */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Datos no válidos */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Error interno */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/v1/tenant-admin/ai-policy/test": {
@@ -34464,6 +34696,10 @@ export interface components {
             max_classification?: string;
             provider: string;
             routing_authority: string;
+        };
+        AIPolicyUpdateInput: {
+            enabled?: boolean;
+            kill_switch?: boolean;
         };
         AIRetriageInput: Record<string, never>;
         AcceptProcurementSearchProfile: {
@@ -37546,6 +37782,34 @@ export interface components {
             /** Format: uuid */
             id: string;
             platform_role: string | null;
+        };
+        SignalConnectionListResponse: {
+            items: components["schemas"]["SignalConnectionResponse"][];
+        };
+        SignalConnectionResponse: {
+            adapter_mode: string;
+            api_version: string;
+            base_url?: string | null;
+            circuit_state: string;
+            /** Format: uuid */
+            id: string;
+            last_error?: string | null;
+            /** Format: date-time */
+            last_health_at?: string | null;
+            /** Format: date-time */
+            last_success_at?: string | null;
+            name: string;
+            provider: string;
+            status: string;
+            version: number;
+        };
+        SignalConnectionUpdateInput: {
+            /** @enum {string} */
+            adapter_mode?: "mock" | "http";
+            api_version?: string;
+            base_url?: string | null;
+            confirm_cross_environment?: boolean;
+            name?: string;
         };
         SignalMonitorCommandResponse: {
             desired_status?: string;

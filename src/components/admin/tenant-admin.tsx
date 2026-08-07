@@ -643,9 +643,11 @@ export function TenantAudit() {
 }
 
 export function TenantAIAdmin() {
+  const recent = useRecentAuth();
   const [policy, setPolicy] = useState<components["schemas"]["AIPolicyResponse"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
@@ -666,17 +668,83 @@ export function TenantAIAdmin() {
       setError(reason instanceof ApiError ? reason.problem.detail : "No se pudo comprobar la configuración IA.");
     } finally { setTesting(false); }
   }
+  async function patchPolicy(input: { enabled?: boolean; kill_switch?: boolean }) {
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await recent.run(() => api.tenantAdmin.updateAIPolicy(input));
+      setPolicy(next);
+      toast.success("Política IA actualizada", {
+        description:
+          next.enabled && !next.kill_switch
+            ? "La IA de la organización está activa."
+            : "La IA de la organización queda desactivada o con kill switch.",
+      });
+    } catch (reason) {
+      setError(
+        reason instanceof ApiError
+          ? reason.problem.detail
+          : "No se pudo actualizar la política IA.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  const active = Boolean(policy?.enabled && !policy.kill_switch);
   return <div className="admin-page">
-    <header className="admin-heading"><div><p className="eyebrow">Administración de organización</p><h1>Inteligencia artificial</h1><p>Política efectiva, límites y último resultado, sin exponer credenciales.</p></div><AsyncActionButton className="vector-primary" disabled={!policy?.enabled || policy.kill_switch} loading={testing} onClick={() => void testConnection()}>{testing ? "Comprobando…" : "Comprobar configuración"}</AsyncActionButton></header>
+    <header className="admin-heading"><div><p className="eyebrow">Administración de organización</p><h1>Inteligencia artificial</h1><p>Política efectiva, límites y último resultado, sin exponer credenciales.</p></div><AsyncActionButton className="vector-primary" disabled={!active} loading={testing} onClick={() => void testConnection()}>{testing ? "Comprobando…" : "Comprobar configuración"}</AsyncActionButton></header>
     {error && <div className="inline-error" role="alert">{error}<button onClick={() => void load()}>Reintentar</button></div>}
-    {loading ? <p role="status">Cargando política IA…</p> : policy && <section className="admin-table-card ai-policy-grid">
-      <article><strong>Estado</strong><p>{policy.enabled && !policy.kill_switch ? "Activa" : "Desactivada"}</p>{(!policy.enabled || policy.kill_switch) && <small>Solicita a un administrador que revise el kill switch y la política del tenant.</small>}</article>
+    {loading ? <p role="status">Cargando política IA…</p> : policy && <>
+    <section className="admin-table-card ai-policy-controls" aria-labelledby="ai-policy-controls-title">
+      <header className="admin-card-heading">
+        <div>
+          <h2 id="ai-policy-controls-title">Control de la política</h2>
+          <p>Activa o desactiva la IA del tenant. Requiere reautenticación reciente.</p>
+        </div>
+      </header>
+      <div className="ai-policy-control-actions">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            data-testid="ai-policy-enabled"
+            checked={policy.enabled}
+            disabled={saving}
+            onChange={(event) => void patchPolicy({ enabled: event.target.checked })}
+          />
+          <span>
+            <strong>Política habilitada</strong>
+            <small>Si se desmarca, Oracle no ejecutará inferencias de la organización.</small>
+          </span>
+        </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            data-testid="ai-policy-kill-switch"
+            checked={policy.kill_switch}
+            disabled={saving}
+            onChange={(event) => void patchPolicy({ kill_switch: event.target.checked })}
+          />
+          <span>
+            <strong>Kill switch</strong>
+            <small>Corte inmediato de seguridad. Con el interruptor activo la IA queda parada aunque la política esté habilitada.</small>
+          </span>
+        </label>
+        <p className="ai-policy-effective" data-testid="ai-policy-effective">
+          Estado efectivo:{" "}
+          <strong>{active ? "Activa" : "Desactivada"}</strong>
+          {saving ? " · Guardando…" : ""}
+        </p>
+      </div>
+    </section>
+    <section className="admin-table-card ai-policy-grid">
+      <article><strong>Estado</strong><p>{active ? "Activa" : "Desactivada"}</p>{!active && <small>Revisa la habilitación y el kill switch arriba.</small>}</article>
       <article><strong>Proveedor de acceso</strong><p>{policy.provider}</p><small>{policy.routing_authority === "signal" ? "Signal decide proveedor y modelo por task_key." : "Oracle usa la política local configurada."}</small></article>
       <article><strong>Modelos permitidos</strong><p>{policy.allowed_models?.length ? policy.allowed_models.join(", ") : "Gobernados por Signal"}</p></article>
       <article><strong>Límites</strong><p>{String(policy.limits.daily_calls ?? 0)} llamadas/día · {String(policy.limits.max_concurrency ?? 0)} simultáneas</p></article>
       <article><strong>Presupuesto</strong><p>{Number(policy.limits.monthly_hard_budget_micros ?? 0) > 0 ? `${Number(policy.limits.monthly_hard_budget_micros) / 1_000_000} €` : "Sin techo económico configurado en Oracle"}</p></article>
       <article><strong>Último resultado</strong><p>{policy.last_run ? `${String(policy.last_run.status)} · ${String(policy.last_run.provider ?? "proveedor no informado")}` : "Todavía no hay ejecuciones"}</p></article>
       <article><strong>Último error</strong><p>{policy.last_error ? `${String(policy.last_error.error_code ?? "error no clasificado")} · ${String(policy.last_error.provider ?? "proveedor no informado")}` : "No hay errores registrados"}</p></article>
-    </section>}
+    </section>
+    </>}
   </div>;
 }

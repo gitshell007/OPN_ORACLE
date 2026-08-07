@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   rotate: vi.fn(),
   test: vi.fn(),
+  activate: vi.fn(),
+  disable: vi.fn(),
+  update: vi.fn(),
   monitors: vi.fn(),
   createMonitor: vi.fn(),
   action: vi.fn(),
@@ -25,6 +28,9 @@ vi.mock("@oracle/api-client", () => {
         create: mocks.create,
         rotate: mocks.rotate,
         test: mocks.test,
+        activate: mocks.activate,
+        disable: mocks.disable,
+        update: mocks.update,
         monitors: mocks.monitors,
         createMonitor: mocks.createMonitor,
         action: mocks.action,
@@ -68,6 +74,13 @@ describe("SignalAdmin", () => {
     mocks.connections.mockResolvedValue({ items: [connection] });
     mocks.rotate.mockResolvedValue({ status: "rotated" });
     mocks.test.mockResolvedValue({ outbox_event_id: "event-1", status: "pending" });
+    mocks.activate.mockResolvedValue({ ...connection, status: "active" });
+    mocks.disable.mockResolvedValue({ ...connection, status: "disabled" });
+    mocks.update.mockResolvedValue({
+      ...connection,
+      base_url: "https://signal.updated.test",
+      api_version: "2026-08-01",
+    });
     mocks.reconcile.mockResolvedValue({ requeued: 2 });
     mocks.monitors.mockResolvedValue({ data: [] });
   });
@@ -129,6 +142,38 @@ describe("SignalAdmin", () => {
       expect(mocks.action).toHaveBeenCalledWith("monitor-1", "sync"),
     );
     expect(await screen.findByText("Proceso: En cola")).toHaveAttribute("role", "status");
+  });
+
+  it("permite reactivar una conexión desactivada y editar el destino", async () => {
+    mocks.connections.mockResolvedValue({
+      items: [{ ...connection, status: "disabled" }],
+    });
+    render(<SignalAdmin />);
+    expect(await screen.findByTestId("connection-status-connection-1")).toHaveTextContent(
+      /desactivad/i,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Activar$/i }));
+    await waitFor(() => expect(mocks.activate).toHaveBeenCalledWith("connection-1"));
+    fireEvent.click(screen.getByRole("button", { name: /Editar destino/i }));
+    fireEvent.change(screen.getByLabelText("Dirección base (URL)"), {
+      target: { value: "https://signal.updated.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Versión de API"), {
+      target: { value: "2026-08-01" },
+    });
+    fireEvent.click(
+      screen.getByLabelText(/Confirmo el uso de esta URL aunque no coincida/i),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Guardar destino/i }));
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("connection-1", {
+        name: "Principal",
+        adapter_mode: "http",
+        base_url: "https://signal.updated.test",
+        api_version: "2026-08-01",
+        confirm_cross_environment: true,
+      }),
+    );
   });
 
   it("ofrece reconciliación real cuando la conexión está degradada", async () => {
