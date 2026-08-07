@@ -1,7 +1,7 @@
 # Contrato de lectura · documentos Oracle → motor de memoria
 
 **Ámbito:** cómo un lector externo en el mismo host/BD (p. ej. `opn-memory`)
-resuelve un documento Oracle como **fuente de texto libre**.  
+resuelve un documento Oracle como **fuente de texto libre**.
 **No** es la API de escritura ni el diseño del motor de memoria.
 
 Fecha: 2026-07-30 · Fuente de verdad: modelos en
@@ -34,7 +34,7 @@ Fecha: 2026-07-30 · Fuente de verdad: modelos en
 | `purge_after` | timestamptz nullable | purga física diferida (~30 días) |
 | `legal_hold` | bool | bloquea borrado |
 
-**Estados de `documents.status`:**  
+**Estados de `documents.status`:**
 `uploaded`, `queued`, `processing`, `ready`, `failed`, `quarantined`, `deleted`.
 
 Para ingestión de memoria, consumir preferentemente filas con

@@ -157,19 +157,19 @@ Payload de retrieval (respuesta):
 
 #### Automation / vigilancia (producto)
 
-`prepared → active → paused → needs_attention → retired`  
-Observado: `idle|running|retrying|error|synced`.  
+`prepared → active → paused → needs_attention → retired`
+Observado: `idle|running|retrying|error|synced`.
 Comandos: prepare, activate, pause, resume, retry, retire. Idempotency-Key en mutaciones.
 
 #### Conversation message (Preguntar a Oracle)
 
-Conversation: `open|archived`.  
-Message: `queued → running → succeeded|failed|cancelled`.  
+Conversation: `open|archived`.
+Message: `queued → running → succeeded|failed|cancelled`.
 Pregunta se persiste **antes** de encolar; API devuelve **202** + `job_id` + `message_id`.
 
 #### Report (custom assistant)
 
-`brief_draft → plan_proposed → plan_accepted → generating → reviewing → ready|failed|cancelled`.  
+`brief_draft → plan_proposed → plan_accepted → generating → reviewing → ready|failed|cancelled`.
 Informes genéricos actuales se mantienen. Tasks Signal nuevas:
 `report_brief_planner`, `custom_report_writer` (no reutilizar `report_writer` sin benchmark).
 
