@@ -797,7 +797,8 @@ def test_migration_0034_stays_in_single_head_chain() -> None:
     assert revs["20260806_0035"] == "20260806_0034"
     assert revs["20260806_0036"] == "20260806_0035"
     assert revs["20260806_0037"] == "20260806_0036"
-    assert heads == ["20260806_0037"]
+    assert revs["20260808_0038"] == "20260806_0037"
+    assert heads == ["20260808_0038"]
 
 
 def test_model_check_includes_web_search() -> None:

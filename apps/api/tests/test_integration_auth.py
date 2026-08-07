@@ -152,6 +152,16 @@ def reset_auth_state(auth_stack: tuple[Any, dict[str, uuid.UUID], str]) -> Itera
         connection.execute(text("DELETE FROM user_sessions"))
         connection.execute(text("DELETE FROM password_reset_tokens"))
         connection.execute(
+            text(
+                "DELETE FROM background_jobs "
+                "WHERE job_type = 'notifications.send_email' "
+                "AND COALESCE(input_payload->>'kind', '') = 'password_reset'"
+            )
+        )
+        connection.execute(
+            text("DELETE FROM audit_events WHERE action LIKE 'auth.password_reset.%'")
+        )
+        connection.execute(
             text("UPDATE users SET password_hash=:password,status='active' WHERE id=:id"),
             {"password": PasswordHasher().hash(password), "id": ids["user"]},
         )
@@ -372,9 +382,250 @@ def test_session_list_reauth_revoke_others_and_switch_denied(
     assert before and after and before.value != after.value
 
 
+def _count_password_reset_artifacts(user_id: uuid.UUID) -> tuple[int, int]:
+    """Return (token_count, queued_email_job_count) via migrator (BYPASSRLS)."""
+
+    migrator = create_engine(os.environ["TEST_DATABASE_URL"])
+    with migrator.connect() as connection:
+        tokens = int(
+            connection.scalar(
+                text("SELECT count(*) FROM password_reset_tokens WHERE user_id=:user_id"),
+                {"user_id": user_id},
+            )
+            or 0
+        )
+        jobs = int(
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM background_jobs "
+                    "WHERE job_type='notifications.send_email' "
+                    "AND input_payload->>'kind'='password_reset' "
+                    "AND input_payload->>'user_id'=:user_id"
+                ),
+                {"user_id": str(user_id)},
+            )
+            or 0
+        )
+    migrator.dispose()
+    return tokens, jobs
+
+
+def test_forgot_password_anonymous_queues_reset_and_token(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Real «olvidé mi contraseña»: cliente sin sesión (sin tenant context)."""
+
+    app, ids, password = auth_stack
+    anonymous = app.test_client()
+    csrf = _csrf(anonymous)
+    sender = app.extensions["email_sender"]
+    assert isinstance(sender, CaptureEmailSender)
+    previous_messages = len(sender.messages)
+
+    tokens_before, jobs_before = _count_password_reset_artifacts(ids["user"])
+    assert tokens_before == 0
+    assert jobs_before == 0
+
+    response = anonymous.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "owner@example.test"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 204
+    # Email is enqueued, not sent inline.
+    assert len(sender.messages) == previous_messages
+
+    tokens_after_queue, jobs_after_queue = _count_password_reset_artifacts(ids["user"])
+    assert jobs_after_queue == 1
+    assert tokens_after_queue == 0  # token materializes when the worker runs
+
+    migrator = create_engine(os.environ["TEST_DATABASE_URL"])
+    with migrator.connect() as connection:
+        queued_audit = connection.scalar(
+            text(
+                "SELECT count(*) FROM audit_events "
+                "WHERE action='auth.password_reset.queued' AND result='success'"
+            )
+        )
+    migrator.dispose()
+    assert queued_audit == 1
+
+    _dispatch_password_reset(app)
+    tokens_after_dispatch, _ = _count_password_reset_artifacts(ids["user"])
+    assert tokens_after_dispatch == 1
+    assert len(sender.messages) == previous_messages + 1
+
+    url = sender.messages[-1].body.splitlines()[0].split(": ", 1)[1]
+    raw = parse_qs(urlparse(url).query)["token"][0]
+    reset_client = app.test_client()
+    reset_csrf = _csrf(reset_client)
+    reset_payload = {"token": raw, "new_password": "otra frase segura distinta 2026"}
+    assert (
+        reset_client.post(
+            "/api/v1/auth/reset-password",
+            json=reset_payload,
+            headers={"X-CSRF-Token": reset_csrf},
+        ).status_code
+        == 204
+    )
+    assert (
+        reset_client.post(
+            "/api/v1/auth/reset-password",
+            json=reset_payload,
+            headers={"X-CSRF-Token": reset_csrf},
+        ).status_code
+        == 400
+    )
+    # Old password no longer works; new one does.
+    assert (
+        _login(app.test_client(), "owner@example.test", password, ids["tenant"]).status_code == 401
+    )
+    assert (
+        _login(
+            app.test_client(),
+            "owner@example.test",
+            "otra frase segura distinta 2026",
+            ids["tenant"],
+        ).status_code
+        == 200
+    )
+
+
+def test_forgot_password_unknown_email_is_silent_without_artifacts(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _password = auth_stack
+    anonymous = app.test_client()
+    csrf = _csrf(anonymous)
+    assert (
+        anonymous.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "nobody@example.test"},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 204
+    )
+    tokens, jobs = _count_password_reset_artifacts(ids["user"])
+    assert tokens == 0
+    assert jobs == 0
+    migrator = create_engine(os.environ["TEST_DATABASE_URL"])
+    with migrator.connect() as connection:
+        total_tokens = int(
+            connection.scalar(text("SELECT count(*) FROM password_reset_tokens")) or 0
+        )
+        total_jobs = int(
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM background_jobs "
+                    "WHERE job_type='notifications.send_email' "
+                    "AND input_payload->>'kind'='password_reset'"
+                )
+            )
+            or 0
+        )
+        skipped = connection.scalar(
+            text(
+                "SELECT count(*) FROM audit_events "
+                "WHERE action='auth.password_reset.skipped' "
+                "AND metadata->>'reason'='user_not_found'"
+            )
+        )
+    migrator.dispose()
+    assert total_tokens == 0
+    assert total_jobs == 0
+    assert skipped == 1
+
+
+def test_forgot_password_disabled_user_is_silent_without_artifacts(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    app, ids, _password = auth_stack
+    migrator = create_engine(os.environ["TEST_DATABASE_URL"])
+    with migrator.begin() as connection:
+        connection.execute(
+            text("UPDATE users SET status='disabled' WHERE id=:id"),
+            {"id": ids["user"]},
+        )
+    migrator.dispose()
+
+    anonymous = app.test_client()
+    csrf = _csrf(anonymous)
+    assert (
+        anonymous.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "owner@example.test"},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 204
+    )
+    tokens, jobs = _count_password_reset_artifacts(ids["user"])
+    assert tokens == 0
+    assert jobs == 0
+    migrator = create_engine(os.environ["TEST_DATABASE_URL"])
+    with migrator.connect() as connection:
+        skipped = connection.scalar(
+            text(
+                "SELECT count(*) FROM audit_events "
+                "WHERE action='auth.password_reset.skipped' "
+                "AND metadata->>'reason'='user_not_active' "
+                "AND resource_id=:user_id"
+            ),
+            {"user_id": ids["user"]},
+        )
+    migrator.dispose()
+    assert skipped == 1
+
+
+def test_password_reset_tenant_resolver_bypasses_rls_for_oracle_app(
+    auth_stack: tuple[Any, dict[str, uuid.UUID], str],
+) -> None:
+    """Anti-regression: under oracle_app RLS, direct membership SELECTs are empty;
+    the SECURITY DEFINER function still returns the tenant. If someone reverts
+    forgot-password to a plain ORM select, the anonymous HTTP test fails; this
+    documents the RLS precondition on the runtime role (not migrator).
+    """
+
+    app, ids, _password = auth_stack
+    runtime = create_engine(os.environ["TEST_RUNTIME_DATABASE_URL"])
+    with runtime.connect() as connection:
+        role = connection.scalar(text("SELECT current_user"))
+        assert role == "oracle_app"
+        direct = int(
+            connection.scalar(
+                text("SELECT count(*) FROM tenant_memberships WHERE user_id=:user_id"),
+                {"user_id": ids["user"]},
+            )
+            or 0
+        )
+        resolved = connection.scalar(
+            text("SELECT oracle_resolve_password_reset_tenant(:user_id)"),
+            {"user_id": ids["user"]},
+        )
+    runtime.dispose()
+    assert direct == 0, "FORCE RLS should hide memberships without tenant context"
+    assert resolved is not None
+    assert uuid.UUID(str(resolved)) in {ids["tenant"], ids["tenant_b"]}
+
+    # End-to-end under the same runtime role the app uses (auth_stack DATABASE_URL).
+    anonymous = app.test_client()
+    csrf = _csrf(anonymous)
+    assert (
+        anonymous.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "owner@example.test"},
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 204
+    )
+    _tokens, jobs = _count_password_reset_artifacts(ids["user"])
+    assert jobs == 1
+
+
 def test_forgot_reset_is_one_time_and_revokes_sessions(
     auth_stack: tuple[Any, dict[str, uuid.UUID], str],
 ) -> None:
+    """Keep the authenticated path green too (not the only coverage)."""
+
     app, ids, password = auth_stack
     client = app.test_client()
     assert _login(client, "owner@example.test", password, ids["tenant"]).status_code == 200

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -52,6 +53,7 @@ from opn_oracle.tenants.context import (
 )
 
 bp = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth", tag="Autenticación")
+logger = logging.getLogger(__name__)
 DUMMY_HASH = (
     "$argon2id$v=19$m=65536,t=3,p=4$eWZ4RWtzSllTNE12alV3TQ$"
     "hOB0rfR0BsNQNmF3Qk5xQb2PBGlKIj7JaPNbU6NEl2U"
@@ -412,38 +414,103 @@ def change_password() -> tuple[Any, int] | tuple[str, int]:
     return "", 204
 
 
+def _resolve_password_reset_tenant(user_id: UUID) -> UUID | None:
+    """Resolve first active membership tenant without a session tenant context.
+
+    Under FORCE RLS, direct SELECTs on ``tenant_memberships`` return zero rows
+    when ``oracle_current_tenant()`` is empty. PostgreSQL uses the narrow
+    SECURITY DEFINER function ``oracle_resolve_password_reset_tenant`` (same
+    pattern as invitation acceptance). Non-PostgreSQL dialects keep the ORM
+    path for local unit tests without RLS.
+    """
+
+    if db.engine.dialect.name == "postgresql":
+        value = db.session.scalar(
+            text("SELECT oracle_resolve_password_reset_tenant(:user_id)"),
+            {"user_id": user_id},
+        )
+        return UUID(str(value)) if value is not None else None
+    value = db.session.scalar(
+        select(TenantMembership.tenant_id)
+        .where(TenantMembership.user_id == user_id, TenantMembership.status == "active")
+        .order_by(TenantMembership.created_at.asc(), TenantMembership.id.asc())
+        .limit(1)
+    )
+    return value
+
+
+def _record_password_reset_skip(
+    *,
+    reason: str,
+    result: str,
+    user_id: UUID | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Operator-visible trail for silent 204s (anti-enumeration stays client-side)."""
+
+    metadata: dict[str, Any] = {"reason": reason, **(extra or {})}
+    log_fn = logger.warning if result == "failure" else logger.info
+    log_fn(
+        "password_reset_skipped reason=%s user_id=%s",
+        reason,
+        str(user_id) if user_id else "-",
+    )
+    _audit(
+        "auth.password_reset.skipped",
+        result,
+        resource_id=user_id,
+        metadata=metadata,
+        allow_global=True,
+    )
+    db.session.commit()
+
+
 @bp.post("/forgot-password")
 @limiter.limit("5/hour")
 def forgot_password() -> tuple[str, int]:
     email = str(_json().get("email", "")).strip().casefold()[:320]
     user = db.session.scalar(select(User).where(User.email == email)) if email else None
-    if user and user.status == "active":
-        tenant_id = db.session.scalar(
-            select(TenantMembership.tenant_id)
-            .where(TenantMembership.user_id == user.id, TenantMembership.status == "active")
-            .order_by(TenantMembership.created_at)
-            .limit(1)
+    if user is None:
+        _record_password_reset_skip(reason="user_not_found", result="success")
+        return "", 204
+    if user.status != "active":
+        _record_password_reset_skip(
+            reason="user_not_active",
+            result="success",
+            user_id=user.id,
+            extra={"status": user.status},
         )
-        if tenant_id is not None:
-            db.session.rollback()
-            with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=None)):
-                job = stage_job(
-                    "notifications.send_email",
-                    payload={"kind": "password_reset", "user_id": str(user.id)},
-                    idempotency_key=f"password-reset:{user.id}:{get_request_id()}",
-                    correlation_id=get_correlation_id(),
-                    request_id=get_request_id(),
-                )
-                append_audit_event(
-                    db.session,
-                    action="auth.password_reset.queued",
-                    resource_type="background_job",
-                    resource_id=job.id,
-                    result="success",
-                    request_id=get_request_id(),
-                    correlation_id=get_correlation_id(),
-                )
-                db.session.commit()
+        return "", 204
+
+    tenant_id = _resolve_password_reset_tenant(user.id)
+    if tenant_id is None:
+        # Active user but no resolvable org — operational failure, still 204 to client.
+        _record_password_reset_skip(
+            reason="membership_unresolved",
+            result="failure",
+            user_id=user.id,
+        )
+        return "", 204
+
+    db.session.rollback()
+    with tenant_context(TenantContext(tenant_id=tenant_id, actor_id=None)):
+        job = stage_job(
+            "notifications.send_email",
+            payload={"kind": "password_reset", "user_id": str(user.id)},
+            idempotency_key=f"password-reset:{user.id}:{get_request_id()}",
+            correlation_id=get_correlation_id(),
+            request_id=get_request_id(),
+        )
+        append_audit_event(
+            db.session,
+            action="auth.password_reset.queued",
+            resource_type="background_job",
+            resource_id=job.id,
+            result="success",
+            request_id=get_request_id(),
+            correlation_id=get_correlation_id(),
+        )
+        db.session.commit()
     return "", 204
 
 
