@@ -2,15 +2,30 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { ApiError, api } from "@oracle/api-client";
-import { AlertTriangle, CheckCircle2, FilePlus2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FilePlus2,
+  Upload,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EuCountryMultiSelect } from "@/components/ui/eu-country-multiselect";
 import { LanguageMultiSelect } from "@/components/ui/language-multiselect";
 import { starterProfileFor } from "@/lib/dossier-starter-profiles";
+import {
+  buildDossierDraftDocument,
+  dossierDraftFilename,
+  downloadJsonFile,
+  DossierDraftParseError,
+  parseDossierDraftJson,
+  type DossierDraftData,
+} from "@/lib/dossier-draft-io";
 import { PRIORITY_COUNTRY_CODES, euCountryName, languagesForCountries } from "@/lib/eu-countries";
 
 const DOSSIER_TYPES = [
@@ -143,6 +158,7 @@ export function CreateProductDossierDialog({
   onOpenChange(open: boolean): void;
 }) {
   const router = useRouter();
+  const draftFileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [type, setType] = useState("project");
   const [goal, setGoal] = useState("");
@@ -181,6 +197,175 @@ export function CreateProductDossierDialog({
   const [languagesTouched, setLanguagesTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function collectDraftData(): DossierDraftData {
+    return {
+      title,
+      goal,
+      description,
+      createStarterProfile,
+      competitors,
+      competitorsKnowledge,
+      discoveryIntent,
+      discoveryActorType,
+      discoveryKnownNames,
+      ownOffer,
+      segments,
+      geographies,
+      buyers,
+      horizon,
+      keywords,
+      cpv,
+      sources,
+      participation,
+      exclusion,
+      indicators,
+      activeOnCreate,
+      sectors,
+      channels,
+      partners,
+      regulators,
+      barriers,
+      decisionToMake,
+      marketCountries: [...marketCountries],
+      marketLanguages: [...marketLanguages],
+      languagesTouched,
+    };
+  }
+
+  function applyDraftData(data: DossierDraftData) {
+    setTitle(data.title);
+    setGoal(data.goal);
+    setDescription(data.description);
+    setCreateStarterProfile(data.createStarterProfile);
+    setCompetitors(data.competitors);
+    setCompetitorsKnowledge(data.competitorsKnowledge);
+    setDiscoveryIntent(data.discoveryIntent);
+    setDiscoveryActorType(data.discoveryActorType);
+    setDiscoveryKnownNames(data.discoveryKnownNames);
+    setOwnOffer(data.ownOffer);
+    setSegments(data.segments);
+    setGeographies(data.geographies);
+    setBuyers(data.buyers);
+    setHorizon(data.horizon);
+    setKeywords(data.keywords);
+    setCpv(data.cpv);
+    setSources(data.sources);
+    setParticipation(data.participation);
+    setExclusion(data.exclusion);
+    setIndicators(data.indicators);
+    setActiveOnCreate(data.activeOnCreate);
+    setSectors(data.sectors);
+    setChannels(data.channels);
+    setPartners(data.partners);
+    setRegulators(data.regulators);
+    setBarriers(data.barriers);
+    setDecisionToMake(data.decisionToMake);
+    setMarketCountries(
+      data.marketCountries.length > 0
+        ? data.marketCountries
+        : [...PRIORITY_COUNTRY_CODES],
+    );
+    setMarketLanguages(
+      data.marketLanguages.length > 0
+        ? data.marketLanguages
+        : languagesForCountries(
+            data.marketCountries.length > 0
+              ? data.marketCountries
+              : PRIORITY_COUNTRY_CODES,
+          ),
+    );
+    setLanguagesTouched(data.languagesTouched || data.marketLanguages.length > 0);
+  }
+
+  function exportDraft() {
+    try {
+      const document = buildDossierDraftDocument({
+        type,
+        data: collectDraftData(),
+      });
+      downloadJsonFile(dossierDraftFilename(document.data.title), document);
+      toast.success("Borrador exportado", {
+        description: "Guarda el JSON para reimportarlo más adelante.",
+      });
+    } catch (reason) {
+      setError(
+        reason instanceof DossierDraftParseError
+          ? reason.message
+          : "No se pudo exportar el borrador.",
+      );
+    }
+  }
+
+  async function importDraftFile(file: File) {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setError("No se pudo leer el fichero seleccionado.");
+      return;
+    }
+    let draft;
+    try {
+      draft = parseDossierDraftJson(text);
+    } catch (reason) {
+      // Fallo atómico: no se toca el estado del formulario.
+      setError(
+        reason instanceof DossierDraftParseError
+          ? reason.message
+          : "El borrador no es válido.",
+      );
+      return;
+    }
+    applyDraftData(draft.data);
+    setType(draft.type);
+    setError(null);
+    setBusy(false);
+    // Dejar al usuario en el paso de revisión (mercado / inteligencia competitiva).
+    if (draft.type === "market") {
+      setStep("decision");
+      setReviewing(false);
+      setReadiness(null);
+      setBusy(true);
+      try {
+        setReadiness(await api.dossiers.competitiveReadiness());
+      } catch (reason) {
+        setError(
+          reason instanceof ApiError
+            ? reason.problem.detail
+            : "Borrador importado, pero no se pudieron comprobar IA y Signal.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    } else if (draft.type === "competitive_intelligence") {
+      setStep("context");
+      setReviewing(true);
+      setReadiness(null);
+      setBusy(true);
+      try {
+        setReadiness(await api.dossiers.competitiveReadiness());
+      } catch (reason) {
+        setError(
+          reason instanceof ApiError
+            ? reason.problem.detail
+            : "Borrador importado, pero no se pudieron comprobar IA y Signal.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      setStep("context");
+      setReviewing(false);
+      setReadiness(null);
+    }
+    toast.success("Borrador importado", {
+      description:
+        draft.type === "market" || draft.type === "competitive_intelligence"
+          ? "Revisa los datos antes de crear el expediente."
+          : "Los campos se han rellenado. Revisa y crea cuando quieras.",
+    });
+  }
   const selectedProfile = starterProfileFor(type);
   const isMarket = type === "market";
   const stepIndex = MARKET_STEPS.findIndex(([value]) => value === step);
@@ -629,7 +814,39 @@ export function CreateProductDossierDialog({
                 <p>{MARKET_STEPS[stepIndex][2]}</p>
               </header>
             )}
-            {(!isMarket || step === "context") && commonFields}
+            {(!isMarket || step === "context") && (
+              <>
+                <div className="draft-io-bar" data-testid="draft-import-bar">
+                  <input
+                    ref={draftFileInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    className="sr-only"
+                    data-testid="draft-import-input"
+                    aria-label="Seleccionar fichero JSON de borrador"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) void importDraftFile(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="vector-secondary draft-io-button"
+                    data-testid="draft-import-button"
+                    onClick={() => draftFileInputRef.current?.click()}
+                  >
+                    <Upload size={16} aria-hidden />
+                    Importar borrador
+                  </button>
+                  <small>
+                    Restaura un JSON exportado desde la revisión. Si el esquema no
+                    es válido, el formulario no se modifica.
+                  </small>
+                </div>
+                {commonFields}
+              </>
+            )}
             {isMarket && step === "scope" && (
               <section className="competitive-intake-fields" aria-labelledby="market-scope-title">
                 <header>
@@ -907,6 +1124,18 @@ export function CreateProductDossierDialog({
                   onClick={() => { setError(null); setStep(MARKET_STEPS[stepIndex - 1][0]); }}
                 >
                   Atrás
+                </button>
+              )}
+              {((isMarket && step === "decision") ||
+                (type === "competitive_intelligence" && reviewing)) && (
+                <button
+                  type="button"
+                  className="vector-secondary draft-io-button"
+                  data-testid="draft-export-button"
+                  onClick={exportDraft}
+                >
+                  <Download size={16} aria-hidden />
+                  Exportar borrador (.json)
                 </button>
               )}
               <Dialog.Close className="vector-secondary" type="button">

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(),
   toastSuccess: vi.fn(),
   toastMessage: vi.fn(),
+  downloadJsonFile: vi.fn(),
 }));
 
 vi.mock("@oracle/api-client", () => ({
@@ -26,11 +27,25 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, message: mocks.toastMessage },
 }));
+vi.mock("@/lib/dossier-draft-io", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/dossier-draft-io")>(
+    "@/lib/dossier-draft-io",
+  );
+  return {
+    ...actual,
+    downloadJsonFile: mocks.downloadJsonFile,
+  };
+});
 
 import {
   CreateProductDossierDialog,
   marketStepBlockers,
 } from "./create-product-dossier-dialog";
+import {
+  DOSSIER_DRAFT_SCHEMA,
+  buildDossierDraftDocument,
+  type DossierDraftData,
+} from "@/lib/dossier-draft-io";
 
 describe("CreateProductDossierDialog", () => {
   beforeEach(() => {
@@ -233,6 +248,172 @@ describe("CreateProductDossierDialog", () => {
         competitors: [{ name: "Compañía Alfa", aliases: [] }, { name: "Compañía Beta", aliases: [] }],
       }),
     })));
+  });
+
+  it("exporta e importa un borrador de mercado restaurando el estado (ida y vuelta)", async () => {
+    sessionStorage.clear();
+    const { unmount } = render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "market" } });
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "Mercado exportable" },
+    });
+    fireEvent.change(screen.getByLabelText("Objetivo estratégico"), {
+      target: { value: "Validar ida y vuelta JSON" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    expect(await screen.findByText("Paso 2 de 4")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Oferta o capacidades propias"), {
+      target: { value: "Oferta exportada" },
+    });
+    fireEvent.change(screen.getByLabelText("Sector"), {
+      target: { value: "sector-export" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    expect(await screen.findByText("Paso 3 de 4")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Aún no lo sé" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    expect(await screen.findByText("Paso 4 de 4")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Decisión concreta"), {
+      target: { value: "Decisión exportada" },
+    });
+
+    fireEvent.click(screen.getByTestId("draft-export-button"));
+    expect(mocks.downloadJsonFile).toHaveBeenCalledTimes(1);
+    const [filename, payload] = mocks.downloadJsonFile.mock.calls[0] as [
+      string,
+      { schema: string; type: string; data: DossierDraftData },
+    ];
+    expect(filename).toMatch(/mercado-exportable-.*\.json$/);
+    expect(payload.schema).toBe(DOSSIER_DRAFT_SCHEMA);
+    expect(payload.type).toBe("market");
+    expect(payload.data.title).toBe("Mercado exportable");
+    expect(payload.data.ownOffer).toBe("Oferta exportada");
+    expect(payload.data.decisionToMake).toBe("Decisión exportada");
+    expect(payload.data.competitorsKnowledge).toBe("unknown");
+    unmount();
+
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    // Formulario limpio: no debe mostrar la revisión todavía.
+    expect(screen.queryByText("Paso 4 de 4")).not.toBeInTheDocument();
+    const file = new File([JSON.stringify(payload)], filename, {
+      type: "application/json",
+    });
+    fireEvent.change(screen.getByTestId("draft-import-input"), {
+      target: { files: [file] },
+    });
+
+    expect(await screen.findByText("Paso 4 de 4")).toBeInTheDocument();
+    expect(screen.getByLabelText("Decisión concreta")).toHaveValue("Decisión exportada");
+    expect(screen.getByText("Oferta exportada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Crear expediente" }));
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "market",
+          title: "Mercado exportable",
+          profile_config: expect.objectContaining({
+            own_offer: "Oferta exportada",
+            decision_to_make: "Decisión exportada",
+            competitors_knowledge: "unknown",
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("rechaza un JSON con schema desconocido sin alterar el formulario", async () => {
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "No tocar" },
+    });
+    fireEvent.change(screen.getByLabelText("Objetivo estratégico"), {
+      target: { value: "Estado original" },
+    });
+
+    const bad = {
+      schema: "opn.dossier-draft.v999",
+      exported_at: "2026-08-07T00:00:00.000Z",
+      type: "market",
+      data: {
+        title: "Intruso",
+        goal: "No debería aplicarse",
+      },
+    };
+    const file = new File([JSON.stringify(bad)], "bad.json", {
+      type: "application/json",
+    });
+    fireEvent.change(screen.getByTestId("draft-import-input"), {
+      target: { files: [file] },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Esquema no reconocido/i);
+    expect(screen.getByLabelText("Nombre")).toHaveValue("No tocar");
+    expect(screen.getByLabelText("Objetivo estratégico")).toHaveValue("Estado original");
+    expect(screen.queryByText("Paso 4 de 4")).not.toBeInTheDocument();
+  });
+
+  it("descarta claves desconocidas al importar un borrador válido", async () => {
+    const draft = buildDossierDraftDocument({
+      type: "project",
+      data: {
+        title: "Proyecto limpio",
+        goal: "Meta limpia",
+        description: "",
+        createStarterProfile: false,
+        competitors: "",
+        competitorsKnowledge: "",
+        discoveryIntent: "",
+        discoveryActorType: "",
+        discoveryKnownNames: "",
+        ownOffer: "",
+        segments: "",
+        geographies: "",
+        buyers: "",
+        horizon: "",
+        keywords: "",
+        cpv: "",
+        sources: "PLACSP, fuentes oficiales, noticias",
+        participation: "",
+        exclusion: "",
+        indicators: "",
+        activeOnCreate: true,
+        sectors: "",
+        channels: "",
+        partners: "",
+        regulators: "",
+        barriers: "",
+        decisionToMake: "",
+        marketCountries: ["ES"],
+        marketLanguages: ["es"],
+        languagesTouched: false,
+      },
+    });
+    const polluted = {
+      ...draft,
+      data: {
+        ...draft.data,
+        readiness: { should: "ignore" },
+        tenant_id: "nope",
+        busy: true,
+      },
+    };
+    render(<CreateProductDossierDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "Antes" },
+    });
+    const file = new File([JSON.stringify(polluted)], "ok.json", {
+      type: "application/json",
+    });
+    fireEvent.change(screen.getByTestId("draft-import-input"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Nombre")).toHaveValue("Proyecto limpio"),
+    );
+    expect(screen.getByLabelText("Objetivo estratégico")).toHaveValue("Meta limpia");
+    expect(screen.getByRole("checkbox", { name: /Crear una base inicial/i })).not.toBeChecked();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

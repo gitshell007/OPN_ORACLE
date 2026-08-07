@@ -1803,9 +1803,32 @@
 }
 .create-product-dialog .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+.draft-io-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  border: 1px solid var(--va-border);
+  border-radius: 10px;
+  background: var(--va-soft);
+  padding: 10px 12px;
+}
+.draft-io-bar > small {
+  flex: 1 1 12rem;
+  margin: 0;
+  color: var(--va-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.draft-io-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .product-home-loading {
   min-height: 360px;
