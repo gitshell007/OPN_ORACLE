@@ -653,7 +653,7 @@ def revoke_others() -> tuple[str, int]:
         )
         .values(revoked_at=now)
     )
-    revoked = int(result.rowcount or 0)
+    revoked = int(cast(Any, result).rowcount or 0)
     _audit(
         "auth.sessions.others_revoked",
         "success",
