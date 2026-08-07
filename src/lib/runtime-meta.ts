@@ -41,21 +41,23 @@ function parseNativeBuiltAt(stamp: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+const SPAIN_TZ = "Europe/Madrid";
+
 export function formatBuiltAt(date: Date): string {
-  // Español de España, fijo a UTC para que coincida con el stamp del release.
+  // Hora peninsular (UTC+1 en invierno, UTC+2 en verano / CEST).
   const datePart = new Intl.DateTimeFormat("es-ES", {
-    timeZone: "UTC",
+    timeZone: SPAIN_TZ,
     day: "numeric",
     month: "short",
     year: "numeric",
   }).format(date);
   const timePart = new Intl.DateTimeFormat("es-ES", {
-    timeZone: "UTC",
+    timeZone: SPAIN_TZ,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(date);
-  return `${datePart}, ${timePart} UTC`;
+  return `${datePart}, ${timePart} (España)`;
 }
 
 export function buildRuntimeLabel(

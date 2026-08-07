@@ -11,7 +11,9 @@ describe("buildRuntimeLabel", () => {
     expect(label.shortSha).toBe("a1b2c3d");
     expect(label.builtAt?.toISOString()).toBe("2026-08-07T14:30:22.000Z");
     expect(label.primary).toContain("2026");
-    expect(label.primary).toContain("UTC");
+    // 14:30 UTC en agosto = 16:30 en península (UTC+2 / CEST)
+    expect(label.primary).toMatch(/16:30/);
+    expect(label.primary).toContain("España");
     expect(label.secondary).toBe("a1b2c3d · development");
   });
 
@@ -39,10 +41,16 @@ describe("buildRuntimeLabel", () => {
 });
 
 describe("formatBuiltAt", () => {
-  it("formatea en español con zona UTC", () => {
-    const text = formatBuiltAt(new Date("2026-08-07T14:30:22Z"));
-    expect(text).toMatch(/2026/);
-    expect(text).toMatch(/UTC$/);
-    expect(text).toMatch(/14:30/);
+  it("formatea en hora peninsular (Europe/Madrid)", () => {
+    // Agosto: CEST = UTC+2 → 14:30Z se muestra como 16:30
+    const summer = formatBuiltAt(new Date("2026-08-07T14:30:22Z"));
+    expect(summer).toMatch(/2026/);
+    expect(summer).toMatch(/16:30/);
+    expect(summer).toContain("España");
+
+    // Enero: CET = UTC+1 → 14:30Z se muestra como 15:30
+    const winter = formatBuiltAt(new Date("2026-01-15T14:30:00Z"));
+    expect(winter).toMatch(/15:30/);
+    expect(winter).toContain("España");
   });
 });
