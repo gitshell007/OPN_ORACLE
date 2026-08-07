@@ -20,10 +20,10 @@
       "task_key": "report_custom_brief_plan"
     },
     "RT-09": {
-      "prompt_sha256": "6aa4f0e1cc175b2afef0c2c7feda2d058d125f7fab42ba10fce2a5d5e45e262c",
-      "prompt_version": "1.0.2",
+      "prompt_sha256": "829d609bf0d0d8e1975e774208cb372eff369ea17fa1d01956a6951478f6d3d3",
+      "prompt_version": "1.0.3",
       "runtime_id": "RT-09",
-      "runtime_sha256": "d608cc4292cba19388ee87e8c4d05a56532c42d386837bab3907f8beb2a30f9c",
+      "runtime_sha256": "673fe804c1b40077da03e1b64abf10171188a46116149250ebf2fc881ef959c2",
       "schema_sha256": "e80bfa4f2e3bd211af6de9eb6d9840081bf93873b2c60cca164039cec4ff77c5",
       "schema_version": "custom_report_writer.v1",
       "task_key": "report_custom_writer"
