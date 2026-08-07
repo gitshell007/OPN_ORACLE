@@ -11,10 +11,10 @@
       "task_key": "dossier_question_answer"
     },
     "RT-08": {
-      "prompt_sha256": "3768e8828e623cf69608ed799f900f389b4e3e9d57b85fbcc189bb67bf4c92fe",
-      "prompt_version": "1.0.2",
+      "prompt_sha256": "d9ebd175f23dcb0f83f1ad43b45ecac0afe9990a64cd5bd21c2223e067c84e7f",
+      "prompt_version": "1.0.3",
       "runtime_id": "RT-08",
-      "runtime_sha256": "c879fb62fa934b73617816f698f2e4b8c69717a0ae41939bbdbad3e72c4e5d02",
+      "runtime_sha256": "40b8da39676e7e47d65548de00e892f0aa6501ad01e1c3ade009751d822db090",
       "schema_sha256": "949a1b57b628246594ffc169d77a7cb676a11d90fa43a5910ab455920e7028f7",
       "schema_version": "custom_brief_plan.v1",
       "task_key": "report_custom_brief_plan"
@@ -29,10 +29,10 @@
       "task_key": "report_custom_writer"
     },
     "RT-10": {
-      "prompt_sha256": "5c8d6f60454013757605306e24d3e00fae7c1a204c77639a7e398821454c6d07",
-      "prompt_version": "1.0.1",
+      "prompt_sha256": "4699d12b0d51188b5cbdf0a3ef320983c0cf3893d515b2dccc1d3bbab4a5b5ea",
+      "prompt_version": "1.0.2",
       "runtime_id": "RT-10",
-      "runtime_sha256": "81a5460046d5db4a838ea460f32a88107dad9f770b3dcf672618a341d222ce27",
+      "runtime_sha256": "08e0b1425fde4f1d1b3b76f77a4340daea918337bc815a0524cd6f7f0178be56",
       "schema_sha256": "921c5a06ec686f975de01b0bec0556857cc1c2b2cc9e8121240d94c412a44710",
       "schema_version": "custom_report_review.v1",
       "task_key": "report_custom_review"
