@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketActorDiscoveryOutput } from "@oracle/api-client";
 
@@ -32,7 +32,26 @@ vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, message: mocks.toastMessage },
 }));
 
-import { ActorDiscoveryPanel } from "./actor-discovery-panel";
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children: React.ReactNode;
+    [key: string]: unknown;
+  }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+import {
+  ActorDiscoveryPanel,
+  resolveActorDiscoveryFailure,
+} from "./actor-discovery-panel";
 
 const INTENT =
   "quiero contactar con grupos de investigación en Francia que trabajen en grafeno";
@@ -65,17 +84,46 @@ const closedOutput: MarketActorDiscoveryOutput = {
   warnings: [],
 };
 
-describe("ActorDiscoveryPanel G-19 live", () => {
+function marketDossier(actorType = "research_group") {
+  return {
+    id: "d1",
+    dossier_type: "market",
+    profile_config: {
+      discovery_intent: INTENT,
+      discovery_actor_type: actorType,
+    },
+  };
+}
+
+describe("resolveActorDiscoveryFailure", () => {
+  it("mapea AIPolicyDenied a mensaje accionable con enlace de administración", () => {
+    const info = resolveActorDiscoveryFailure({
+      error_code: "permanent_failure",
+      error_message:
+        "El job no pudo completarse. Causa: AIPolicyDenied: La IA está deshabilitada para este tenant.",
+    });
+    expect(info.kind).toBe("ai_policy_denied");
+    expect(info.message).toMatch(/deshabilitad|desactivad/i);
+    expect(info.actionHref).toBe("/app/admin/ai");
+    expect(info.actionLabel).toMatch(/inteligencia artificial/i);
+  });
+
+  it("mapea AIUnavailable a causa que no depende del usuario", () => {
+    const info = resolveActorDiscoveryFailure({
+      error_code: "permanent_failure",
+      error_message:
+        "El job no pudo completarse. Causa: AIUnavailable: Signal tiene deshabilitada la IA para este consumidor.",
+    });
+    expect(info.kind).toBe("ai_unavailable");
+    expect(info.message).toMatch(/no depende/i);
+    expect(info.actionHref).toBeUndefined();
+  });
+});
+
+describe("ActorDiscoveryPanel — lenguaje de producto", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getDossier.mockResolvedValue({
-      id: "d1",
-      dossier_type: "market",
-      profile_config: {
-        discovery_intent: INTENT,
-        discovery_actor_type: "research_group",
-      },
-    });
+    mocks.getDossier.mockResolvedValue(marketDossier());
     mocks.latest.mockResolvedValue({ job: null, artifact: null });
     mocks.run.mockResolvedValue({
       job: { id: "job-1", status: "queued" },
@@ -90,6 +138,79 @@ describe("ActorDiscoveryPanel G-19 live", () => {
   });
 
   afterEach(cleanup);
+
+  it("no filtra códigos internos (G-19) ni jerga de servidor al usuario", async () => {
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    expect(await screen.findByTestId("actor-discovery-panel")).toBeInTheDocument();
+    expect(screen.queryByText(/G-19/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/servidor/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/materializa evidencias citables/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Actores a encontrar")).toBeInTheDocument();
+  });
+
+  it("muestra el tipo de actor traducido y nunca el enum crudo company", async () => {
+    mocks.getDossier.mockResolvedValue(marketDossier("company"));
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    expect(await screen.findByTestId("actor-discovery-intent")).toBeInTheDocument();
+    const typeLabel = screen.getByTestId("actor-discovery-type-label");
+    expect(typeLabel).toHaveTextContent("Empresa");
+    expect(typeLabel).not.toHaveTextContent(/^company$/i);
+    expect(screen.getByTestId("actor-discovery-intent")).not.toHaveTextContent(
+      /Tipo:\s*company/i,
+    );
+    // No debe aparecer el enum crudo suelto en el bloque de meta
+    const meta = screen.getByTestId("actor-discovery-intent");
+    expect(within(meta).queryByText("company")).not.toBeInTheDocument();
+  });
+
+  it("con AIPolicyDenied muestra mensaje accionable y enlace a Administración IA", async () => {
+    mocks.latest.mockResolvedValue({
+      job: {
+        id: "job-fail",
+        status: "failed",
+        error_code: "permanent_failure",
+        error_message:
+          "El job no pudo completarse. Causa: AIPolicyDenied: La IA está deshabilitada para este tenant.",
+      },
+      artifact: null,
+    });
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    const failed = await screen.findByTestId("actor-discovery-failed");
+    expect(failed).toHaveAttribute("role", "alert");
+    expect(failed).toHaveAttribute("data-failure-kind", "ai_policy_denied");
+    expect(failed).toHaveTextContent(/desactivad|deshabilitad/i);
+    expect(failed).toHaveTextContent(/Administración/i);
+    const link = screen.getByTestId("actor-discovery-failure-action");
+    expect(link).toHaveAttribute("href", "/app/admin/ai");
+    expect(screen.getByTestId("actor-discovery-status")).toHaveTextContent("Fallido");
+  });
+
+  it("con AIUnavailable indica que no depende del usuario y no enlaza a admin tenant", async () => {
+    mocks.latest.mockResolvedValue({
+      job: {
+        id: "job-fail",
+        status: "failed",
+        error_code: "permanent_failure",
+        error_message:
+          "El job no pudo completarse. Causa: AIUnavailable: Signal tiene deshabilitada la IA para este consumidor.",
+      },
+      artifact: null,
+    });
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    const failed = await screen.findByTestId("actor-discovery-failed");
+    expect(failed).toHaveAttribute("role", "alert");
+    expect(failed).toHaveAttribute("data-failure-kind", "ai_unavailable");
+    expect(failed).toHaveTextContent(/no depende/i);
+    expect(screen.queryByTestId("actor-discovery-failure-action")).not.toBeInTheDocument();
+  });
+
+  it("los botones de solo icono tienen nombre accesible", async () => {
+    render(<ActorDiscoveryPanel dossierId="d1" />);
+    expect(await screen.findByTestId("actor-discovery-panel")).toBeInTheDocument();
+    const reload = screen.getByTestId("actor-discovery-reload");
+    expect(reload).toHaveAccessibleName(/actualizar estado/i);
+    expect(reload).toHaveAttribute("title");
+  });
 
   it("no muestra ruido si el expediente no tiene discovery_intent", async () => {
     mocks.getDossier.mockResolvedValue({
@@ -190,17 +311,11 @@ describe("ActorDiscoveryPanel G-19 live", () => {
     );
     render(<ActorDiscoveryPanel dossierId="d1" />);
     expect(screen.getByTestId("actor-discovery-loading")).toBeInTheDocument();
-    resolveGet({
-      id: "d1",
-      dossier_type: "market",
-      profile_config: {
-        discovery_intent: INTENT,
-        discovery_actor_type: "research_group",
-      },
-    });
+    resolveGet(marketDossier());
     mocks.latest.mockRejectedValue(new Error("boom"));
     await waitFor(() =>
       expect(screen.getByTestId("actor-discovery-error")).toBeInTheDocument(),
     );
+    expect(screen.getByTestId("actor-discovery-error")).toHaveAttribute("role", "alert");
   });
 });

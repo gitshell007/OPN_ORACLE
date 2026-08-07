@@ -12,14 +12,7 @@ import type {
   MarketActorDiscoveryOutput,
   MarketActorSelection,
 } from "@oracle/api-client";
-
-const ACTOR_TYPE_LABELS: Record<string, string> = {
-  company: "Empresa",
-  research_group: "Grupo de investigación",
-  technology_center: "Centro tecnológico",
-  regulator: "Regulador",
-  potential_customer: "Cliente potencial",
-};
+import { productActorTypeLabel } from "@/lib/product-copy";
 
 export function actorIsSelectable(candidate: MarketActorCandidate): boolean {
   if (candidate.selectable === false) return false;
@@ -90,8 +83,7 @@ export function ActorDiscoveryList({
           const checked = Boolean(cid && selectedCandidateIds.has(cid));
           const sources = candidate.citable_sources ?? [];
           const rowKey = cid || `org:${candidate.organization}`;
-          const typeLabel =
-            ACTOR_TYPE_LABELS[candidate.actor_type] || candidate.actor_type || "—";
+          const typeLabel = productActorTypeLabel(candidate.actor_type);
           return (
             <li
               key={rowKey}

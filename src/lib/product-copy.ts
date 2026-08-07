@@ -164,6 +164,12 @@ const ACTOR_TYPE_LABELS: Record<string, string> = {
   technology: "Tecnología",
   place: "Lugar",
   other: "Otro",
+  // Tipos de descubrimiento de actores (expediente de mercado)
+  research_group: "Grupo de investigación",
+  technology_center: "Centro tecnológico",
+  regulator: "Regulador",
+  potential_customer: "Cliente potencial",
+  program: "Programa",
 };
 
 const SCORE_DETAIL_LABELS: Record<string, string> = {

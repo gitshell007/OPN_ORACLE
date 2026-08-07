@@ -8455,3 +8455,205 @@ html[data-font-scale="small"] .workspace-chip strong {
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
+
+
+/* —— Descubrimiento de actores (expediente de mercado) —— */
+.actor-discovery-panel {
+  margin-bottom: 16px;
+  padding-bottom: 4px;
+}
+
+.actor-discovery-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--va-border);
+}
+
+.actor-discovery-panel-intro {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.actor-discovery-panel-intro h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.actor-discovery-panel-lede {
+  margin: 0;
+  max-width: 52rem;
+  line-height: 1.5;
+}
+
+.actor-discovery-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.actor-discovery-status.status-badge {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.actor-discovery-status.is-failed {
+  color: #b42318;
+  border-color: #fecdca;
+  background: #fef3f2;
+}
+
+.actor-discovery-status.is-succeeded {
+  color: #027a48;
+  border-color: #abefc6;
+  background: #ecfdf3;
+}
+
+.actor-discovery-status.is-running {
+  color: #175cd3;
+  border-color: #b2ddff;
+  background: #eff8ff;
+}
+
+.actor-discovery-status.is-idle {
+  color: #475569;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+/* Meta intención / tipo: dl en línea, sin artefacto vertical ni salto raro del tipo */
+.actor-discovery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--va-border);
+  background: var(--va-bg, #f8fafc);
+}
+
+.actor-discovery-meta-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  min-width: 0;
+  margin: 0;
+}
+
+.actor-discovery-meta-item dt {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--va-muted, #64748b);
+}
+
+.actor-discovery-meta-item dt::after {
+  content: ":";
+}
+
+.actor-discovery-meta-item dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--va-text);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.actor-discovery-running {
+  padding: 14px 16px;
+}
+
+.actor-discovery-failure {
+  margin: 12px 16px;
+  padding: 12px 14px;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  background: #fef3f2;
+  color: #7a271a;
+}
+
+.actor-discovery-failure-headline {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #b42318;
+}
+
+.actor-discovery-failure-message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.actor-discovery-failure-action {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.actor-discovery-failure-action a {
+  color: #b42318;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.actor-discovery-failure-action a:hover {
+  color: #912018;
+}
+
+.actor-discovery-accept-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+
+.actor-discovery-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px;
+}
+
+.actor-discovery-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--va-border);
+}
+
+.actor-discovery-item.blocked {
+  opacity: 0.72;
+}
+
+.actor-discovery-heading {
+  margin: 12px 16px 4px;
+  font-size: 13px;
+}
+
+.actor-discovery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.actor-discovery-org {
+  font-weight: 650;
+}
+
+.actor-discovery-warnings {
+  margin: 8px 16px 12px;
+  padding-left: 1.2rem;
+  color: var(--va-muted);
+  font-size: 12px;
+}

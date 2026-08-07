@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * G-19 · panel vivo de descubrimiento de actores en el expediente de Mercado.
+ * Panel vivo de descubrimiento de actores en el expediente de Mercado.
  * Consulta latest(dossier_id), muestra estados honestos, reintenta y acepta
  * con candidate_id + source_ids (materializa Evidence, no crea Actor).
  */
@@ -14,7 +14,8 @@ import {
   type MarketActorDiscoveryOutput,
   type TenderSearchWizardJob,
 } from "@oracle/api-client";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -23,8 +24,22 @@ import {
   buildActorAcceptSelection,
 } from "@/components/market/actor-discovery-list";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
+import { productActorTypeLabel, productStatusLabel } from "@/lib/product-copy";
 
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
+
+export type ActorDiscoveryFailureKind =
+  | "ai_policy_denied"
+  | "ai_unavailable"
+  | "generic";
+
+export type ActorDiscoveryFailureInfo = {
+  kind: ActorDiscoveryFailureKind;
+  headline: string;
+  message: string;
+  actionHref?: string;
+  actionLabel?: string;
+};
 
 function errorMessage(reason: unknown, fallback: string) {
   return reason instanceof ApiError ? reason.problem.detail : fallback;
@@ -44,6 +59,82 @@ function retryIdempotencyKey(dossierId: string): string {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `g19-actor-run:${dossierId}:retry:${suffix}`.slice(0, 200);
+}
+
+/** Interpreta error_code / error_message del job (causa raíz en background_jobs). */
+export function resolveActorDiscoveryFailure(
+  job: Pick<TenderSearchWizardJob, "error_code" | "error_message"> | null | undefined,
+): ActorDiscoveryFailureInfo {
+  const code = String(job?.error_code ?? "");
+  const raw = String(job?.error_message ?? "");
+  const haystack = `${code}\n${raw}`;
+
+  if (
+    /\bAIPolicyDenied\b/i.test(haystack) ||
+    /IA está deshabilitada para este tenant/i.test(raw) ||
+    /inteligencia artificial.*desactivad/i.test(raw)
+  ) {
+    return {
+      kind: "ai_policy_denied",
+      headline: "La inteligencia artificial está desactivada",
+      message:
+        "Su organización tiene la IA deshabilitada, por eso no se puede buscar actores. Un administrador puede activarla en Administración › Inteligencia artificial.",
+      actionHref: "/app/admin/ai",
+      actionLabel: "Ir a Inteligencia artificial",
+    };
+  }
+
+  if (
+    /\bAIUnavailable\b/i.test(haystack) ||
+    /Signal (tiene deshabilitada|rechazó|rechazo|no est)/i.test(raw) ||
+    /no autorizad/i.test(raw) ||
+    /consumidor/i.test(raw)
+  ) {
+    return {
+      kind: "ai_unavailable",
+      headline: "El servicio de análisis no pudo completar la búsqueda",
+      message:
+        "El proveedor externo rechazó o no autorizó esta tarea. No depende de la configuración de su cuenta ni se resuelve desde Administración de la organización. Puede reintentar más tarde o contactar al administrador de la plataforma.",
+    };
+  }
+
+  const stripped = raw
+    .replace(/^El job no pudo completarse\.\s*(Causa:\s*)?/i, "")
+    .replace(/^Se agotaron los reintentos permitidos\.\s*(Última causa:\s*)?/i, "")
+    .replace(/^[A-Za-z]+Error:\s*/g, "")
+    .trim();
+
+  if (stripped && !/^(permanent_failure|temporary_failure|retry_exhausted)$/i.test(stripped)) {
+    return {
+      kind: "generic",
+      headline: "No se pudo completar el descubrimiento",
+      message: stripped.length > 280 ? `${stripped.slice(0, 277)}…` : stripped,
+    };
+  }
+
+  return {
+    kind: "generic",
+    headline: "No se pudo completar el descubrimiento",
+    message:
+      "La última ejecución no se pudo completar. Puede reintentarla sin duplicar el expediente.",
+  };
+}
+
+function discoveryJobStatusLabel(
+  loading: boolean,
+  running: boolean,
+  jobStatus: string | null,
+  hasArtifact: boolean,
+): string {
+  if (loading) return "Cargando…";
+  if (running || jobStatus === "queued" || jobStatus === "running" || jobStatus === "retrying") {
+    return productStatusLabel(jobStatus === "queued" ? "queued" : jobStatus === "retrying" ? "retrying" : "running");
+  }
+  if (jobStatus === "succeeded") return "Completado";
+  if (jobStatus === "failed") return "Fallido";
+  if (jobStatus === "cancelled") return "Cancelado";
+  if (hasArtifact) return "Resultado disponible";
+  return "Sin ejecución";
 }
 
 export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
@@ -183,7 +274,6 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
       setSelected(new Set());
       await load();
     } catch (reason) {
-      // G-20-B: identity_conflict 409 must be unequivocal for retry/UI (no silent merge).
       if (reason instanceof ApiError && reason.problem.code === "identity_conflict") {
         setError(
           reason.problem.detail ||
@@ -202,26 +292,33 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
   }
 
   const jobStatus = job?.status ?? null;
-  const statusLabel = loading
-    ? "Cargando…"
-    : running || jobStatus === "queued" || jobStatus === "running"
-      ? jobStatus === "queued"
-        ? "En cola"
-        : "En ejecución"
-      : jobStatus === "succeeded"
-        ? "Completado"
-        : jobStatus === "failed"
-          ? "Fallido"
-          : jobStatus === "cancelled"
-            ? "Cancelado"
-            : artifact
-              ? "Resultado disponible"
-              : "Sin ejecución";
+  const statusLabel = discoveryJobStatusLabel(loading, running, jobStatus, Boolean(artifact));
+  const failure =
+    !loading && jobStatus === "failed" ? resolveActorDiscoveryFailure(job) : null;
 
   const showList =
     Boolean(artifact?.output) &&
     (jobStatus === "succeeded" || jobStatus === null || !running);
   const isIdle = !job && !artifact && !running;
+
+  const discoveryIntent = dossier?.profile_config?.discovery_intent
+    ? String(dossier.profile_config.discovery_intent)
+    : "";
+  const discoveryActorTypeRaw = dossier?.profile_config?.discovery_actor_type
+    ? String(dossier.profile_config.discovery_actor_type)
+    : "";
+  const discoveryActorTypeLabel = discoveryActorTypeRaw
+    ? productActorTypeLabel(discoveryActorTypeRaw)
+    : "";
+
+  const statusTone =
+    jobStatus === "failed"
+      ? "failed"
+      : jobStatus === "succeeded"
+        ? "succeeded"
+        : running || jobStatus === "queued" || jobStatus === "running" || jobStatus === "retrying"
+          ? "running"
+          : "idle";
 
   return (
     <section
@@ -230,18 +327,20 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
       aria-labelledby="actor-discovery-panel-title"
     >
       <header className="actor-discovery-panel-header">
-        <div>
-          <span className="section-kicker">Descubrimiento G-19</span>
+        <div className="actor-discovery-panel-intro">
+          <span className="section-kicker">Análisis de mercado</span>
           <h2 id="actor-discovery-panel-title">Actores a encontrar</h2>
-          <p className="muted">
-            Intención y tipo salen del perfil del expediente (servidor). La aceptación
-            materializa evidencias citables; no crea un Actor automáticamente.
+          <p className="muted actor-discovery-panel-lede">
+            Oracle propone organizaciones y grupos alineados con la intención del expediente.
+            Al aceptar, se guardan las fuentes citables; no se crea un actor en la red hasta
+            que usted lo confirme en el flujo de revisión.
           </p>
         </div>
         <div className="actor-discovery-panel-actions">
           <span
-            className="status"
+            className={`status-badge actor-discovery-status is-${statusTone}`}
             data-testid="actor-discovery-status"
+            data-status={jobStatus ?? "idle"}
             aria-live="polite"
           >
             {statusLabel}
@@ -253,32 +352,35 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
             onClick={() => void runDiscovery()}
             data-testid="actor-discovery-retry"
           >
-            <RefreshCw size={15} />
+            <RefreshCw size={15} aria-hidden />
             {isIdle ? "Iniciar descubrimiento" : "Reintentar"}
           </AsyncActionButton>
           <button
             className="icon-button bordered"
             type="button"
-            aria-label="Recargar estado"
+            aria-label="Actualizar estado del descubrimiento"
+            title="Actualizar estado del descubrimiento"
+            data-testid="actor-discovery-reload"
             onClick={() => void load()}
           >
-            <RefreshCw size={15} />
+            <RefreshCw size={15} aria-hidden />
           </button>
         </div>
       </header>
 
-      {dossier?.profile_config?.discovery_intent ? (
-        <p className="actor-discovery-intent" data-testid="actor-discovery-intent">
-          <Sparkles size={14} aria-hidden />{" "}
-          <strong>Intención:</strong>{" "}
-          {String(dossier.profile_config.discovery_intent)}
-          {dossier.profile_config.discovery_actor_type ? (
-            <>
-              {" "}
-              · <strong>Tipo:</strong> {String(dossier.profile_config.discovery_actor_type)}
-            </>
+      {discoveryIntent ? (
+        <dl className="actor-discovery-meta" data-testid="actor-discovery-intent">
+          <div className="actor-discovery-meta-item">
+            <dt>Intención</dt>
+            <dd>{discoveryIntent}</dd>
+          </div>
+          {discoveryActorTypeRaw ? (
+            <div className="actor-discovery-meta-item">
+              <dt>Tipo</dt>
+              <dd data-testid="actor-discovery-type-label">{discoveryActorTypeLabel}</dd>
+            </div>
           ) : null}
-        </p>
+        </dl>
       ) : null}
 
       {error ? (
@@ -297,21 +399,37 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
         <div className="work-empty" data-testid="actor-discovery-idle">
           <p>Aún no hay una ejecución de descubrimiento para este expediente.</p>
           <p className="muted">
-            Pulsa «Iniciar descubrimiento» para encolar con el perfil guardado.
+            Pulse «Iniciar descubrimiento» para buscar con la intención y el tipo guardados.
           </p>
         </div>
       ) : null}
 
       {!loading && (running || jobStatus === "queued" || jobStatus === "running") ? (
-        <div role="status" data-testid="actor-discovery-running">
+        <div role="status" data-testid="actor-discovery-running" className="actor-discovery-running">
           <p>Descubrimiento en curso…</p>
-          <p className="muted">Estado del job: {jobStatus}</p>
+          <p className="muted">Estado: {productStatusLabel(jobStatus)}</p>
         </div>
       ) : null}
 
-      {!loading && jobStatus === "failed" ? (
-        <div role="alert" data-testid="actor-discovery-failed">
-          <p>La última ejecución falló. Puedes reintentar sin duplicar el expediente.</p>
+      {failure ? (
+        <div
+          className="actor-discovery-failure"
+          role="alert"
+          data-testid="actor-discovery-failed"
+          data-failure-kind={failure.kind}
+        >
+          <p className="actor-discovery-failure-headline">{failure.headline}</p>
+          <p className="actor-discovery-failure-message">{failure.message}</p>
+          {failure.actionHref && failure.actionLabel ? (
+            <p className="actor-discovery-failure-action">
+              <Link
+                href={failure.actionHref}
+                data-testid="actor-discovery-failure-action"
+              >
+                {failure.actionLabel}
+              </Link>
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -337,6 +455,8 @@ export function ActorDiscoveryPanel({ dossierId }: { dossierId: string }) {
               disabled={selected.size === 0 || busy}
               onClick={() => void acceptSelected()}
               data-testid="actor-discovery-accept"
+              aria-label="Materializar fuentes de los actores seleccionados"
+              title="Materializar fuentes de los actores seleccionados"
             >
               Materializar fuentes seleccionadas
             </AsyncActionButton>

@@ -73,11 +73,35 @@ describe("ActorDiscoveryList G-19", () => {
     expect(screen.getAllByTestId("actor-type")[0]).toHaveTextContent(
       "Grupo de investigación",
     );
+    expect(screen.getAllByTestId("actor-type")[0]).not.toHaveTextContent("research_group");
     expect(screen.getAllByText("FR").length).toBeGreaterThan(0);
     expect(screen.getByTestId("actor-source-link")).toHaveAttribute(
       "href",
       "https://example.fr/lab",
     );
+  });
+
+  it("traduce actor_type company a Empresa y nunca muestra el enum crudo", () => {
+    const companyOutput: MarketActorDiscoveryOutput = {
+      candidates: [
+        {
+          ...closedOutput.candidates[0],
+          actor_type: "company",
+          organization: "Acme Graphene SL",
+        },
+      ],
+      warnings: [],
+    };
+    render(
+      <ActorDiscoveryList
+        output={companyOutput}
+        selectedCandidateIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+    const type = screen.getByTestId("actor-type");
+    expect(type).toHaveTextContent("Empresa");
+    expect(type).not.toHaveTextContent("company");
   });
 
   it("blocks candidates without closed citation", () => {
