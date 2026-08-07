@@ -4749,11 +4749,14 @@ def test_bulk_dossier_delete_clears_report_snapshot_and_artifact_restrict(
     two = _create_dossier(owner, ids, "Borrar informe B")
     dossier_ids = [uuid.UUID(one["id"]), uuid.UUID(two["id"])]
     tenant_id = ids["tenant_a"]
-    digest = hashlib.sha256(b"delete-report-snapshot").digest()
 
     engine = create_engine(os.environ["TEST_DATABASE_URL"])
     with engine.begin() as connection:
         for dossier_id in dossier_ids:
+            # Un digest por expediente: uq_signal_raw_hash(tenant_id, raw_hash) está
+            # caído en el esquema actual (lo suelta 20260710_0007), pero el test de
+            # migraciones lo recrea al bajar a 0004 y un hash compartido lo rompe.
+            digest = hashlib.sha256(f"delete-report-snapshot-{dossier_id}".encode()).digest()
             signal_id = uuid.uuid4()
             evidence_id = uuid.uuid4()
             audit_id = uuid.uuid4()
