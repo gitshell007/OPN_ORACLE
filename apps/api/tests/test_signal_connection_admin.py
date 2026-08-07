@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, text
 from opn_oracle import create_app
 from opn_oracle.ai.policy_defaults import default_ai_policy
 from opn_oracle.auth.passwords import PasswordHasher
-from opn_oracle.extensions import db
+from opn_oracle.extensions import db, limiter
 from opn_oracle.integrations import routes as signal_routes
 from opn_oracle.platform.models import IntegrationConnection
 from opn_oracle.tenants.context import TenantContext, tenant_context
@@ -170,7 +170,12 @@ def _login(client: Any, email: str, password: str, tenant_id: uuid.UUID) -> Any:
     )
 
 
-def _fresh_csrf(client: Any, password: str) -> str:
+def _fresh_csrf(app: Any, client: Any, password: str) -> str:
+    # /auth/reauthenticate está limitado a 5/minuto en el código (no es configurable),
+    # y este fichero necesita más reautenticaciones que eso: sin reiniciar el contador
+    # los últimos tests reciben 429 en vez de ejercer el endpoint que quieren probar.
+    with app.app_context():
+        limiter.reset()
     csrf = _csrf(client)
     reauth = client.post(
         "/api/v1/auth/reauthenticate",
@@ -187,7 +192,7 @@ def test_activate_one_disables_previous_and_readiness_follows_active(
     app, ids, password = signal_admin_stack
     client = app.test_client()
     assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     first = client.post(
         "/api/v1/integrations/signal-avanza",
         json={"name": "alpha", "adapter_mode": "mock"},
@@ -195,7 +200,7 @@ def test_activate_one_disables_previous_and_readiness_follows_active(
     )
     assert first.status_code == 201, first.get_json()
     first_id = first.get_json()["id"]
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     second = client.post(
         "/api/v1/integrations/signal-avanza",
         json={"name": "beta", "adapter_mode": "mock"},
@@ -214,7 +219,7 @@ def test_activate_one_disables_previous_and_readiness_follows_active(
     signal_check = next(c for c in readiness.get_json()["checks"] if c["key"] == "signal")
     assert signal_check["ready"] is True
 
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     reactivated = client.post(
         f"/api/v1/integrations/signal-avanza/{first_id}/activate",
         headers={"X-CSRF-Token": csrf},
@@ -227,7 +232,7 @@ def test_activate_one_disables_previous_and_readiness_follows_active(
     assert by_id[second_id]["status"] == "disabled"
 
     # Disabled connection can be reactivated again via activate.
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     again = client.post(
         f"/api/v1/integrations/signal-avanza/{second_id}/activate",
         headers={"X-CSRF-Token": csrf},
@@ -262,7 +267,7 @@ def test_tenant_cannot_touch_other_tenant_connection(
 
     client = app.test_client()
     assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     activate = client.post(
         f"/api/v1/integrations/signal-avanza/{foreign_id}/activate",
         headers={"X-CSRF-Token": csrf},
@@ -282,7 +287,7 @@ def test_update_destination_and_cross_env_confirmation(
     app, ids, password = signal_admin_stack
     client = app.test_client()
     assert _login(client, "sig-owner-a@example.test", password, ids["tenant_a"]).status_code == 200
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     created = client.post(
         "/api/v1/integrations/signal-avanza",
         json={"name": "editable", "adapter_mode": "mock"},
@@ -290,7 +295,7 @@ def test_update_destination_and_cross_env_confirmation(
     )
     assert created.status_code == 201
     connection_id = created.get_json()["id"]
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     denied = client.patch(
         f"/api/v1/integrations/signal-avanza/{connection_id}",
         json={"base_url": "https://signal.prod.example/api"},
@@ -298,7 +303,7 @@ def test_update_destination_and_cross_env_confirmation(
     )
     assert denied.status_code == 422
     assert denied.get_json()["code"] == "signal_cross_environment_confirmation_required"
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     updated = client.patch(
         f"/api/v1/integrations/signal-avanza/{connection_id}",
         json={
@@ -330,7 +335,7 @@ def test_ai_policy_can_be_toggled_and_audited(
     assert before.status_code == 200
     assert before.get_json()["enabled"] is True
     assert before.get_json()["kill_switch"] is False
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     disabled = client.patch(
         "/api/v1/tenant-admin/ai-policy",
         json={"enabled": False, "kill_switch": True},
@@ -342,7 +347,7 @@ def test_ai_policy_can_be_toggled_and_audited(
     readiness = client.get("/api/v1/dossiers/competitive-intelligence/readiness")
     ai_check = next(c for c in readiness.get_json()["checks"] if c["key"] == "ai")
     assert ai_check["ready"] is False
-    csrf = _fresh_csrf(client, password)
+    csrf = _fresh_csrf(app, client, password)
     enabled = client.patch(
         "/api/v1/tenant-admin/ai-policy",
         json={"enabled": True, "kill_switch": False},
