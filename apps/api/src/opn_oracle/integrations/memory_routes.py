@@ -18,6 +18,7 @@ from opn_oracle.auth.permissions import require_permission
 from opn_oracle.common.errors import problem_response
 from opn_oracle.extensions import db
 from opn_oracle.integrations.memory_context import capability_payload
+from opn_oracle.integrations.memory_grant import ensure_dossier_memory_grant
 from opn_oracle.integrations.memory_http_client import (
     ALLOWED_CLASSIFICATIONS,
     ALLOWED_KINDS,
@@ -345,10 +346,59 @@ def put_memory_profile(dossier_id: uuid.UUID) -> Any:
         },
     )
     session.commit()
+    # ORA-AUTOGRANT: request Signal dossier grant only when memory is turned on
+    # for this expediente (shadow|augment). Idempotent; no call without active
+    # Signal connection. Not done on GET/refresh. Best-effort: never break PUT
+    # (unit fakes may lack scalars/rollback).
+    grant_result = None
+    if mode in {"shadow", "augment"}:
+        try:
+            grant_result = ensure_dossier_memory_grant(
+                session,
+                tenant_id=tenant_id,
+                dossier_id=dossier_id,
+                row=row,
+            )
+            commit = getattr(session, "commit", None)
+            if callable(commit):
+                commit()
+            if grant_result.attempted and callable(commit):
+                append_audit_event(
+                    session,
+                    action="dossier.memory_grant.ensure",
+                    resource_type="dossier_memory_profile",
+                    resource_id=row.id,
+                    result=(
+                        "success"
+                        if grant_result.status == "authorized"
+                        else (
+                            "denied"
+                            if grant_result.status in {"manual_required", "rejected"}
+                            else "failure"
+                        )
+                    ),
+                    dossier_id=dossier_id,
+                    metadata={
+                        "status": grant_result.status,
+                        "code": grant_result.code,
+                        "cached": grant_result.cached,
+                        "connection_id": (
+                            str(grant_result.connection_id) if grant_result.connection_id else None
+                        ),
+                    },
+                )
+                commit()
+        except Exception:
+            rollback = getattr(session, "rollback", None)
+            if callable(rollback):
+                rollback()
+            grant_result = None
     body = profile_to_public(row)
     body["persisted"] = True
     if ignored_connection_id:
         body["ignored_body_connection_id"] = True
+    if grant_result is not None:
+        body["signal_grant_ensure"] = grant_result.to_public()
     r = jsonify(body)
     r.headers["ETag"] = row.etag
     return r

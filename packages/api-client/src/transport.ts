@@ -4511,6 +4511,31 @@ export type DossierMemoryProfile = {
   last_error: string | null;
   last_coverage: Record<string, unknown> | null;
   updated_at: string | null;
+  /**
+   * ORA-AUTOGRANT: last Signal scopes/ensure outcome for this dossier.
+   * Fail-closed: usable only when status === "authorized".
+   */
+  signal_grant?: {
+    status: string;
+    status_label_es?: string;
+    code?: string | null;
+    detail?: string | null;
+    checked_at?: string | null;
+    connection_id?: string | null;
+    usable?: boolean;
+    pending_manual?: boolean;
+    message_es?: string;
+  } | null;
+  signal_grant_ensure?: {
+    status: string;
+    status_label_es?: string;
+    code?: string | null;
+    detail?: string | null;
+    attempted?: boolean;
+    cached?: boolean;
+    usable?: boolean;
+    pending_manual?: boolean;
+  };
   persisted?: boolean;
   idempotent_replay?: boolean;
   materialized?: boolean;

@@ -229,6 +229,26 @@ class HttpMemoryContextAdapter:
         if not should_call_signal(mode):  # type: ignore[arg-type]
             raise MemoryContextDisabled("mode does not call Signal")
 
+        # ORA-AUTOGRANT fail-closed: operational mode requires a stored authorized grant.
+        # Do not invent authorized when grant was never checked or is manual_required.
+        tenant_for_grant = scope.get("tenant_id")
+        if tenant_for_grant is not None:
+            from opn_oracle.extensions import db as _db
+            from opn_oracle.integrations.memory_grant import require_usable_memory_grant
+            from opn_oracle.integrations.memory_profile import (
+                load_default_dossier_memory_profile,
+            )
+
+            try:
+                grant_row = load_default_dossier_memory_profile(
+                    _db.session(),
+                    tenant_id=uuid.UUID(str(tenant_for_grant)),
+                    dossier_id=uuid.UUID(str(dossier_id)),
+                )
+                require_usable_memory_grant(grant_row)
+            except MemoryHttpError as grant_exc:
+                raise MemoryContextError(grant_exc.code) from grant_exc
+
         # Tenant binding: reject key/tenant mismatch before HTTP when explicit
         bound_tenant = str(scope.get("connection_external_tenant_id") or "").strip()
         header_tenant = str(scope.get("external_tenant_id") or "").strip()

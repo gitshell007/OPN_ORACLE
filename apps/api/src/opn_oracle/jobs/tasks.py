@@ -148,12 +148,20 @@ logger = logging.getLogger(__name__)
 JOB_ERROR_AI_POLICY_DENIED = "ai_policy_denied"
 JOB_ERROR_AI_PROVIDER_UNAUTHORIZED = "ai_provider_unauthorized"
 JOB_ERROR_AI_PROVIDER_UNAVAILABLE = "ai_provider_unavailable"
+JOB_ERROR_MEMORY_GRANT_MANUAL = "memory_grant_manual_required"
+JOB_ERROR_MEMORY_GRANT_REJECTED = "memory_grant_rejected"
+JOB_ERROR_MEMORY_DOSSIER_NOT_AUTHORIZED = "memory_dossier_not_authorized"
+JOB_ERROR_MEMORY_GRANT_UNKNOWN = "memory_grant_unknown"
 JOB_ERROR_PERMANENT_FAILURE = "permanent_failure"
 KNOWN_AI_JOB_ERROR_CODES = frozenset(
     {
         JOB_ERROR_AI_POLICY_DENIED,
         JOB_ERROR_AI_PROVIDER_UNAUTHORIZED,
         JOB_ERROR_AI_PROVIDER_UNAVAILABLE,
+        JOB_ERROR_MEMORY_GRANT_MANUAL,
+        JOB_ERROR_MEMORY_GRANT_REJECTED,
+        JOB_ERROR_MEMORY_DOSSIER_NOT_AUTHORIZED,
+        JOB_ERROR_MEMORY_GRANT_UNKNOWN,
     }
 )
 
@@ -200,6 +208,12 @@ def _classify_job_error_code(error: BaseException) -> str | None:
         if isinstance(current, AIUnavailable):
             # Subclasses / bare AIUnavailable default to provider unavailable.
             return JOB_ERROR_AI_PROVIDER_UNAVAILABLE
+        # MemoryHttpError carries .code; map known grant codes when job_error_code absent.
+        mem_code = getattr(current, "code", None)
+        if isinstance(mem_code, str) and mem_code in KNOWN_AI_JOB_ERROR_CODES:
+            return mem_code
+        if mem_code == "dossier_not_authorized":
+            return JOB_ERROR_MEMORY_DOSSIER_NOT_AUTHORIZED
     return None
 
 

@@ -443,6 +443,7 @@ describe("DossierSettingsSection", () => {
     },
     last_test_at: null,
     last_test_status: null,
+    signal_grant: null,
     last_error: null,
     last_coverage: null,
     updated_at: "2026-08-06T00:00:00Z",
@@ -505,6 +506,7 @@ describe("DossierSettingsSection", () => {
       "Este expediente no tiene perfil de memoria persistido (legado). No se ha escrito nada en esta lectura.",
     last_test_at: null,
     last_test_status: null,
+    signal_grant: null,
     last_error: null,
     last_coverage: null,
     updated_at: null,
@@ -557,12 +559,38 @@ describe("DossierSettingsSection", () => {
     expect(within(section).getByTestId("dossier-memory-effective-mode")).toHaveTextContent(
       "augment",
     );
+    // Without signal_grant, no pending banner (fail-closed does not invent authorized UI).
+    expect(
+      within(section).queryByTestId("dossier-memory-grant-pending"),
+    ).not.toBeInTheDocument();
     expect(within(section).getByTestId("dossier-memory-resolution-source")).toHaveTextContent(
       "default_profile",
     );
     expect(within(section).queryByText(/servicio no disponible\/degradado/i)).not.toBeInTheDocument();
     expect(effectiveHttpPersisted).not.toHaveProperty("actions_reliable");
     expect(effectiveHttpPersisted).not.toHaveProperty("deferred_blockers");
+  });
+
+  it("muestra pendiente de autorización en Signal sin códigos internos", async () => {
+    mocks.memoryGet.mockResolvedValue({
+      ...effectiveHttpPersisted,
+      signal_grant: {
+        status: "manual_required",
+        status_label_es: "Pendiente de autorización en Signal",
+        code: "memory_grant_manual_required",
+        pending_manual: true,
+        usable: false,
+        message_es:
+          "Este expediente está pendiente de autorización en Signal. La memoria no se usará hasta que un administrador de Signal autorice el expediente.",
+      },
+    });
+    render(<DossierSettingsSection dossierId="dossier-1" />);
+    const section = await screen.findByTestId("dossier-memory-settings");
+    const pending = await within(section).findByTestId("dossier-memory-grant-pending");
+    expect(pending).toHaveTextContent(/Pendiente de autorización en Signal/i);
+    expect(pending).toHaveTextContent(/no se usará/i);
+    expect(pending).not.toHaveTextContent("memory_grant_manual_required");
+    expect(pending).not.toHaveTextContent("manual_required");
   });
 
   it("legacy_missing: muestra materializar y no afirma que recuerda", async () => {

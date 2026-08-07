@@ -36174,7 +36174,7 @@ export interface components {
             cancel_requested?: boolean;
             /** Format: date-time */
             created_at: string;
-            /** @description Código de fallo estable para la máquina (snake_case). Valores conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. Otros: permanent_failure (último recurso), temporary_failure, retry_exhausted, broker_unavailable, worker_lost. No mostrar el código crudo al usuario; usar error_message para el texto en español. */
+            /** @description Código de fallo estable para la máquina (snake_case). Valores conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. Memoria/grant: memory_grant_manual_required, memory_grant_rejected, memory_dossier_not_authorized, memory_grant_unknown. Otros: permanent_failure (último recurso), temporary_failure, retry_exhausted, broker_unavailable, worker_lost. No mostrar el código crudo al usuario; usar error_message para el texto en español. */
             error_code?: string | null;
             /** @description Mensaje legible en español para operador y soporte. La UI no debe clasificar la causa por este texto. */
             error_message?: string | null;

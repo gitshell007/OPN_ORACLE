@@ -603,6 +603,11 @@ def profile_to_public(row: Any) -> dict[str, Any]:
         "last_coverage": row.last_coverage,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "available_modes": sorted(OPERATIONAL_MODES),
+        # ORA-AUTOGRANT: durable Signal scope grant (fail-closed; never invent usable).
+        # Lazy import avoids circular import with memory_grant → memory_profile.
+        "signal_grant": __import__(
+            "opn_oracle.integrations.memory_grant", fromlist=["grant_public_from_row"]
+        ).grant_public_from_row(row),
         # Profile DTO describes configuration only — never invent host health.
         # `publisher_reliable` is projected by memory_effective() from capability_payload().
     }

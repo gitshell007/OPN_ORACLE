@@ -45,12 +45,25 @@ class MemoryHttpError(RuntimeError):
         *,
         http_status: int | None = None,
         retryable: bool = False,
+        job_error_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.http_status = http_status
         self.retryable = retryable
+        # Stable durable-job code when this error terminates a background job.
+        self.job_error_code = job_error_code or (
+            code
+            if code
+            in {
+                "memory_grant_manual_required",
+                "memory_grant_rejected",
+                "memory_dossier_not_authorized",
+                "memory_grant_unknown",
+            }
+            else None
+        )
 
 
 class Transport(Protocol):
@@ -420,6 +433,120 @@ class SignalMemoryHttpClient:
         if not isinstance(data, dict):
             raise MemoryHttpError("invalid_json", "health not object", retryable=False)
         return data
+
+    def ensure_scope(
+        self,
+        *,
+        external_tenant_id: str,
+        dossier_id: str,
+        idempotency_key: str,
+        correlation_id: str | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """Request dossier authorization (consumer_memory_dossier_grants) once.
+
+        Contract (SIG-AUTOGRANT / memory.v1 scopes/ensure):
+        - 200 + authorized true → usable
+        - 200 + pending / authorized false → manual authorization required
+        - 4xx with error_code memory_grant_manual_required → raises MemoryHttpError
+        - other 4xx → raises MemoryHttpError (rejected / not authorized)
+
+        4xx are terminal (no retry loop): manual authorization is stable.
+        5xx/transport get a short bounded retry. Credentials stay in headers only.
+        """
+        if not str(external_tenant_id or "").strip():
+            raise MemoryHttpError("tenant_required", "external tenant required", retryable=False)
+        path = "/api/v1/memory/v1/scopes/ensure"
+        corr = correlation_id or f"ora_grant_{uuid.uuid4().hex[:16]}"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-API-Key": self.config.api_token,
+            "X-OPN-External-Tenant-ID": str(external_tenant_id).strip(),
+            "X-OPN-Dossier-ID": str(dossier_id),
+            "X-Request-ID": corr,
+            "X-Correlation-ID": corr,
+            "Idempotency-Key": str(idempotency_key)[:200],
+        }
+        body: dict[str, Any] = {"dossier_id": str(dossier_id), "product_code": "oracle"}
+        deadline = time.monotonic() + float(self.config.deadline_seconds)
+        attempt = 0
+        last_err: MemoryHttpError | None = None
+        while attempt <= self.config.max_retries:
+            if time.monotonic() > deadline:
+                raise MemoryHttpError("deadline_exceeded", "deadline exceeded", retryable=False)
+            try:
+                status, _hdrs, raw = self._request_once(
+                    "POST", path, headers=headers, json_body=body
+                )
+            except MemoryHttpError as exc:
+                last_err = exc
+                if not exc.retryable or attempt >= self.config.max_retries:
+                    raise
+                time.sleep(min(2.0, 0.2 * (2**attempt)) + random.uniform(0, 0.1))
+                attempt += 1
+                continue
+            if len(raw) > self.config.max_bytes:
+                raise MemoryHttpError(
+                    "body_too_large", "response exceeds max bytes", retryable=False
+                )
+            data: dict[str, Any]
+            if not raw:
+                data = {}
+            else:
+                try:
+                    parsed = json.loads(raw.decode("utf-8"))
+                except Exception as exc:
+                    raise MemoryHttpError(
+                        "invalid_json", "response not JSON", retryable=False
+                    ) from exc
+                data = parsed if isinstance(parsed, dict) else {"value": parsed}
+            if status < 400:
+                return status, data
+            # Prefer Signal error_code from body (machine-stable).
+            body_code = str(data.get("error_code") or data.get("code") or "").strip()
+            code, retryable = classify_http_error(status)
+            if body_code:
+                code = body_code
+            # Manual grant outcomes are never retryable.
+            if code in {
+                "memory_grant_manual_required",
+                "grant_manual_required",
+                "manual_authorization_required",
+                "consumer_grant_manual_required",
+                "authorization_manual_required",
+                "dossier_not_authorized",
+            }:
+                retryable = False
+            err = MemoryHttpError(
+                code,
+                f"memory ensure_scope status={status}",
+                http_status=status,
+                retryable=retryable,
+                job_error_code=(
+                    "memory_grant_manual_required"
+                    if code
+                    in {
+                        "memory_grant_manual_required",
+                        "grant_manual_required",
+                        "manual_authorization_required",
+                        "consumer_grant_manual_required",
+                        "authorization_manual_required",
+                    }
+                    else (
+                        "memory_dossier_not_authorized"
+                        if code == "dossier_not_authorized"
+                        else None
+                    )
+                ),
+            )
+            if not retryable or attempt >= self.config.max_retries:
+                raise err
+            last_err = err
+            time.sleep(min(2.0, 0.2 * (2**attempt)) + random.uniform(0, 0.1))
+            attempt += 1
+        if last_err:
+            raise last_err
+        raise MemoryHttpError("upstream_error", "ensure_scope retry exhausted", retryable=False)
 
     def post_json(
         self,

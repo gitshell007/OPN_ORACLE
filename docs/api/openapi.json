@@ -5493,7 +5493,7 @@
             "type": "string"
           },
           "error_code": {
-            "description": "C\u00f3digo de fallo estable para la m\u00e1quina (snake_case). Valores conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. Otros: permanent_failure (\u00faltimo recurso), temporary_failure, retry_exhausted, broker_unavailable, worker_lost. No mostrar el c\u00f3digo crudo al usuario; usar error_message para el texto en espa\u00f1ol.",
+            "description": "C\u00f3digo de fallo estable para la m\u00e1quina (snake_case). Valores conocidos de IA: ai_policy_denied, ai_provider_unauthorized, ai_provider_unavailable. Memoria/grant: memory_grant_manual_required, memory_grant_rejected, memory_dossier_not_authorized, memory_grant_unknown. Otros: permanent_failure (\u00faltimo recurso), temporary_failure, retry_exhausted, broker_unavailable, worker_lost. No mostrar el c\u00f3digo crudo al usuario; usar error_message para el texto en espa\u00f1ol.",
             "nullable": true,
             "type": "string"
           },

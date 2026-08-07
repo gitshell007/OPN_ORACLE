@@ -596,6 +596,51 @@ export function DossierSettingsSection({ dossierId }: { dossierId: string }) {
                     ? "Desactivada: este expediente no usa memoria de Signal."
                     : "Solo este expediente (mismo tenant). No mezcla otros expedientes ni tenants.")}
               </p>
+              {memoryProfile.mode !== "disabled" &&
+              memoryProfile.signal_grant?.pending_manual ? (
+                <div
+                  className="inline-warning"
+                  role="status"
+                  data-testid="dossier-memory-grant-pending"
+                >
+                  <strong>Pendiente de autorización en Signal</strong>
+                  <p>
+                    {memoryProfile.signal_grant.message_es ||
+                      "La memoria de este expediente no se usará hasta que Signal autorice el acceso. No es un fallo genérico de Oracle."}
+                  </p>
+                </div>
+              ) : null}
+              {memoryProfile.mode !== "disabled" &&
+              memoryProfile.signal_grant &&
+              !memoryProfile.signal_grant.usable &&
+              !memoryProfile.signal_grant.pending_manual &&
+              memoryProfile.signal_grant.status !== "no_connection" ? (
+                <div
+                  className="inline-warning"
+                  role="status"
+                  data-testid="dossier-memory-grant-blocked"
+                >
+                  <strong>
+                    {memoryProfile.signal_grant.status_label_es ||
+                      "Autorización de memoria no confirmada"}
+                  </strong>
+                  <p>
+                    {memoryProfile.signal_grant.message_es ||
+                      "No se asume que la memoria esté autorizada en Signal."}
+                  </p>
+                </div>
+              ) : null}
+              {memoryProfile.mode !== "disabled" &&
+              memoryProfile.signal_grant?.usable ? (
+                <p
+                  className="reporting-hint"
+                  role="status"
+                  data-testid="dossier-memory-grant-ok"
+                >
+                  {memoryProfile.signal_grant.status_label_es ||
+                    "Autorizada en Signal"}
+                </p>
+              ) : null}
               <p className="reporting-hint" role="status" data-testid="dossier-memory-meta">
                 Versión {memoryProfile.version}
                 {memoryProfile.config_source
