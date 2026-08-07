@@ -53,6 +53,7 @@ from opn_oracle.documents.storage import (
     StoredObject,
     object_key,
 )
+from opn_oracle.documents.tasks import documents_retention
 from opn_oracle.extensions import db
 from opn_oracle.integrations import entity_intel_routes
 from opn_oracle.integrations import procurement as procurement_integration
@@ -717,6 +718,23 @@ def test_document_purge_legal_hold_and_orphan_reconciliation(
         assert reconcile_storage_orphans(ids["tenant_a"]) == 1
         with pytest.raises(StorageError):
             storage.get(orphan_key)
+
+
+def test_document_retention_task_closes_unscoped_transaction_before_tenants(
+    oracle_stack: tuple[Any, dict[str, uuid.UUID], str], tmp_path: Path
+) -> None:
+    app, _, _ = oracle_stack
+    app.extensions["object_storage"] = LocalObjectStorage(tmp_path / "retention-task")
+
+    with app.app_context():
+        # The task enumerates every tenant without a tenant context and then opens
+        # one scoped transaction per tenant. This reproduces the Celery/beat path.
+        processed = documents_retention.run()
+
+    # Earlier tests in this module may leave recoverable document attempts. The
+    # regression is that the cross-tenant loop completes, not a fixed item count.
+    assert isinstance(processed, int)
+    assert processed >= 0
 
 
 def test_document_job_survives_broker_publish_failure(
