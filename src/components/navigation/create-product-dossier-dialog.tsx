@@ -9,6 +9,7 @@ import { FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { EuCountryMultiSelect } from "@/components/ui/eu-country-multiselect";
+import { LanguageMultiSelect } from "@/components/ui/language-multiselect";
 import { starterProfileFor } from "@/lib/dossier-starter-profiles";
 import { PRIORITY_COUNTRY_CODES, euCountryName, languagesForCountries } from "@/lib/eu-countries";
 
@@ -174,8 +175,8 @@ export function CreateProductDossierDialog({
   const [barriers, setBarriers] = useState("");
   const [decisionToMake, setDecisionToMake] = useState("");
   const [marketCountries, setMarketCountries] = useState<string[]>([...PRIORITY_COUNTRY_CODES]);
-  const [marketLanguages, setMarketLanguages] = useState(
-    languagesForCountries(PRIORITY_COUNTRY_CODES).join(", "),
+  const [marketLanguages, setMarketLanguages] = useState<string[]>(() =>
+    languagesForCountries(PRIORITY_COUNTRY_CODES),
   );
   const [languagesTouched, setLanguagesTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -234,7 +235,7 @@ export function CreateProductDossierDialog({
     setBarriers("");
     setDecisionToMake("");
     setMarketCountries([...PRIORITY_COUNTRY_CODES]);
-    setMarketLanguages(languagesForCountries(PRIORITY_COUNTRY_CODES).join(", "));
+    setMarketLanguages(languagesForCountries(PRIORITY_COUNTRY_CODES));
     setLanguagesTouched(false);
     setError(null);
   }
@@ -253,8 +254,13 @@ export function CreateProductDossierDialog({
   function changeMarketCountries(next: string[]) {
     setMarketCountries(next);
     if (!languagesTouched) {
-      setMarketLanguages(languagesForCountries(next).join(", "));
+      setMarketLanguages(languagesForCountries(next));
     }
+  }
+
+  function changeMarketLanguages(next: string[]) {
+    setLanguagesTouched(true);
+    setMarketLanguages(next.map((code) => code.trim().toLowerCase()).filter(Boolean));
   }
 
   function setCompetitorsText(value: string) {
@@ -370,7 +376,7 @@ export function CreateProductDossierDialog({
         ...(isMarket ? {
           geography: marketCountries,
           sectors: list(sectors),
-          languages: list(marketLanguages).map((item) => item.toLowerCase()),
+          languages: marketLanguages.map((item) => item.toLowerCase()),
           profile_config: {
             own_offer: ownOffer.trim(),
             decision_to_make: decisionToMake.trim(),
@@ -411,7 +417,7 @@ export function CreateProductDossierDialog({
               query: "",
               keywords: [...new Set([...list(keywords), ...list(segments), ...list(channels)])].slice(0, 50),
               entities: entityNames.slice(0, 50),
-              languages: list(marketLanguages).map((item) => item.toLowerCase()),
+              languages: marketLanguages.map((item) => item.toLowerCase()),
               geographies: marketCountries,
               source_types: ["news", "company_signal", "regulatory_signal", "official_publication"],
               cadence: "daily",
@@ -650,21 +656,20 @@ export function CreateProductDossierDialog({
                   onChange={changeMarketCountries}
                   hint="Ámbito global: España y Alemania van preseleccionados; puedes añadir cualquier país ISO-2 (p. ej. US, MX, JP)."
                 />
-                <div className="competitive-field-pair">
-                  <label className="field">
-                    <span>Idiomas de la vigilancia</span>
-                    <input
-                      value={marketLanguages}
-                      onChange={(event) => { setMarketLanguages(event.target.value); setLanguagesTouched(true); }}
-                      placeholder="es, de"
-                    />
-                    <small>Sugeridos según los países seleccionados; edítalos si necesitas otros.</small>
-                  </label>
-                  <label className="field">
-                    <span>Horizonte temporal</span>
-                    <input value={horizon} onChange={(event) => setHorizon(event.target.value)} placeholder="Ej. decidir antes de diciembre" />
-                  </label>
-                </div>
+                <LanguageMultiSelect
+                  label="Idiomas de la vigilancia"
+                  value={marketLanguages}
+                  onChange={changeMarketLanguages}
+                  hint="Se sugieren según los países objetivo. Busca por nombre (alemán, ale) o código ISO (de)."
+                />
+                <label className="field full">
+                  <span>Horizonte temporal</span>
+                  <input
+                    value={horizon}
+                    onChange={(event) => setHorizon(event.target.value)}
+                    placeholder="Ej. decidir antes de diciembre"
+                  />
+                </label>
               </section>
             )}
             {isMarket && step === "ecosystem" && (

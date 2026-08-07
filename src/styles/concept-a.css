@@ -8003,6 +8003,15 @@ html[data-font-scale="small"] .workspace-chip strong {
 .eu-country-error {
   color: var(--va-danger);
 }
+.language-select .language-chip-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  color: var(--va-muted);
+  text-transform: lowercase;
+}
+.language-options {
+  max-height: 160px;
+}
 
 
 /* ==========================================================================

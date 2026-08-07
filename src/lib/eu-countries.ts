@@ -124,13 +124,136 @@ export function languagesForCountries(codes: readonly string[]): string[] {
       codes.flatMap((code) => {
         const upper = code.toUpperCase();
         const direct = byCode.get(upper)?.languages;
-        if (direct) return direct;
+        if (direct) return [...direct];
         // ES-VC → idiomas de ES si no hay entrada de subdivisión (no debería pasar con CCAA).
         const country = upper.split("-")[0];
-        return byCode.get(country)?.languages ?? [];
+        return [...(byCode.get(country)?.languages ?? [])];
       }),
     ),
   ];
+}
+
+/**
+ * Catálogo de idiomas de vigilancia (ISO 639-1) con nombre en español y alias
+ * de búsqueda. El usuario no tiene por qué saber que el alemán es «de».
+ */
+export interface SurveillanceLanguage {
+  /** ISO 639-1 en minúsculas. */
+  code: string;
+  /** Etiqueta en español de España. */
+  name: string;
+  /** Alias normalizados (sin acentos, minúsculas) para filtrar. */
+  aliases: readonly string[];
+}
+
+/** Catálogo cerrado de idiomas usados por los presets de geografía + inglés. */
+export const SURVEILLANCE_LANGUAGES: readonly SurveillanceLanguage[] = [
+  { code: "ar", name: "Árabe", aliases: ["arabe", "arabic", "ara"] },
+  { code: "bg", name: "Búlgaro", aliases: ["bulgaro", "bulgarian", "bul"] },
+  { code: "ca", name: "Catalán", aliases: ["catalan", "valenciano", "valencia", "cat"] },
+  { code: "cs", name: "Checo", aliases: ["czech", "ces"] },
+  { code: "da", name: "Danés", aliases: ["danes", "danish", "dan"] },
+  {
+    code: "de",
+    name: "Alemán",
+    aliases: ["aleman", "alemana", "ale", "german", "deutsch", "ger", "deu"],
+  },
+  { code: "el", name: "Griego", aliases: ["greek", "gre", "ell"] },
+  {
+    code: "en",
+    name: "Inglés",
+    aliases: ["ingles", "inglesa", "ing", "english", "eng"],
+  },
+  {
+    code: "es",
+    name: "Español",
+    aliases: ["castellano", "spanish", "spa", "esp"],
+  },
+  { code: "et", name: "Estonio", aliases: ["estonian", "est"] },
+  { code: "eu", name: "Euskera", aliases: ["vasco", "basque", "euskera"] },
+  { code: "fi", name: "Finés", aliases: ["fines", "finnish", "fin"] },
+  {
+    code: "fr",
+    name: "Francés",
+    aliases: ["frances", "francesa", "french", "fra", "fre"],
+  },
+  { code: "gl", name: "Gallego", aliases: ["galician", "glg"] },
+  { code: "hi", name: "Hindi", aliases: ["hin"] },
+  { code: "hr", name: "Croata", aliases: ["croatian", "hrv"] },
+  { code: "hu", name: "Húngaro", aliases: ["hungaro", "hungarian", "hun"] },
+  { code: "it", name: "Italiano", aliases: ["italian", "ita"] },
+  { code: "ja", name: "Japonés", aliases: ["japones", "japanese", "jpn"] },
+  { code: "ko", name: "Coreano", aliases: ["korean", "kor"] },
+  { code: "lt", name: "Lituano", aliases: ["lithuanian", "lit"] },
+  { code: "lv", name: "Letón", aliases: ["leton", "latvian", "lav"] },
+  { code: "mt", name: "Maltés", aliases: ["maltes", "maltese", "mlt"] },
+  {
+    code: "nl",
+    name: "Neerlandés",
+    aliases: ["holandes", "holandesa", "dutch", "nld", "hol"],
+  },
+  { code: "no", name: "Noruego", aliases: ["norwegian", "nor"] },
+  { code: "pl", name: "Polaco", aliases: ["polish", "pol"] },
+  {
+    code: "pt",
+    name: "Portugués",
+    aliases: ["portugues", "portuguesa", "portuguese", "por"],
+  },
+  { code: "ro", name: "Rumano", aliases: ["romanian", "ron", "rum"] },
+  { code: "sk", name: "Eslovaco", aliases: ["slovak", "slk"] },
+  { code: "sl", name: "Esloveno", aliases: ["slovenian", "slv"] },
+  { code: "sv", name: "Sueco", aliases: ["swedish", "swe"] },
+  { code: "tr", name: "Turco", aliases: ["turkish", "tur"] },
+  { code: "zh", name: "Chino", aliases: ["chinese", "chi", "zho", "mandarin"] },
+].sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+const languageByCode = new Map(
+  SURVEILLANCE_LANGUAGES.map((language) => [language.code, language]),
+);
+
+function normalizeSearchToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+export function languageName(code: string): string {
+  const key = code.trim().toLowerCase();
+  return languageByCode.get(key)?.name ?? key;
+}
+
+/** True si es un código ISO 639-1 de dos letras. */
+export function isIsoLanguageCode(code: string): boolean {
+  return /^[A-Za-z]{2}$/.test(code.trim());
+}
+
+/**
+ * Filtra el catálogo por nombre, código o alias (p. ej. «ale» → Alemán / de).
+ * También devuelve códigos ya seleccionados que no estén en el catálogo.
+ */
+export function filterSurveillanceLanguages(
+  needle: string,
+  selected: readonly string[] = [],
+): SurveillanceLanguage[] {
+  const known = new Set(SURVEILLANCE_LANGUAGES.map((item) => item.code));
+  const orphans = selected
+    .map((code) => code.trim().toLowerCase())
+    .filter((code) => code && !known.has(code))
+    .map((code) => ({
+      code,
+      name: languageName(code),
+      aliases: [] as readonly string[],
+    }));
+  const catalog = [...orphans, ...SURVEILLANCE_LANGUAGES];
+  const token = normalizeSearchToken(needle);
+  if (!token) return catalog;
+  return catalog.filter((language) => {
+    if (normalizeSearchToken(language.code).includes(token)) return true;
+    if (normalizeSearchToken(language.name).includes(token)) return true;
+    return language.aliases.some((alias) => normalizeSearchToken(alias).includes(token));
+  });
 }
 
 /** True si el valor es un código ISO 3166-1 alpha-2 bien formado. */
